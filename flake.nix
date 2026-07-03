@@ -21,6 +21,7 @@
             "cmd/aperture"
             "cmd/aperture-mount-session"
             "cmd/aperture-unmount-session"
+            "cmd/browser-session-wrapper"
           ];
 
           doCheck = true;

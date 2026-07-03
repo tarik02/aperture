@@ -42,5 +42,13 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 		tenant.POST("/tokens/:tokenId/revoke", server.revokeTenantToken)
 	}
 
+	sessions := router.Group("/sessions")
+	sessions.Use(server.requireAuth)
+	{
+		sessions.POST("", server.requireSessionsWrite, server.createSession)
+		sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
+		sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
+	}
+
 	return router
 }

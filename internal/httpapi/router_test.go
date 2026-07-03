@@ -16,6 +16,7 @@ import (
 
 type testEnv struct {
 	service  *auth.Service
+	repo     *db.Repository
 	router   http.Handler
 	admin    string
 	tenant   string
@@ -63,6 +64,7 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	return &testEnv{
 		service:  service,
+		repo:     repo,
 		router:   router,
 		admin:    adminCreated.Raw,
 		tenant:   tenantCreated.Raw,

@@ -114,3 +114,48 @@ const (
 	authAuthoritySystemAdmin = "system_admin"
 	authAuthorityTenant      = "tenant"
 )
+
+type sessionBrowserConfig struct {
+	Channel string   `json:"channel"`
+	Args    []string `json:"args"`
+}
+
+func (r sessionBrowserConfig) Validate() error {
+	if strings.TrimSpace(r.Channel) == "" {
+		return validationError("browser.channel is required")
+	}
+	return nil
+}
+
+type createSessionRequest struct {
+	BaseSnapshotName *string              `json:"baseSnapshotName"`
+	Browser          sessionBrowserConfig `json:"browser"`
+	Tags             map[string]string    `json:"tags"`
+}
+
+func (r createSessionRequest) Validate() error {
+	return r.Browser.Validate()
+}
+
+type sessionResponse struct {
+	ID               string            `json:"id"`
+	TenantID         string            `json:"tenantId"`
+	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
+	Status           string            `json:"status"`
+	CreatedAt        string            `json:"createdAt"`
+	DeletedAt        *string           `json:"deletedAt"`
+	ExpiresAt        string            `json:"expiresAt"`
+	Tags             map[string]string `json:"tags,omitempty"`
+}
+
+type createSessionResponse struct {
+	Session  sessionResponse `json:"session"`
+	CDPURL   string          `json:"cdpUrl"`
+	CDPToken string          `json:"cdpToken"`
+}
+
+type sessionMutationResponse struct {
+	Session  sessionResponse `json:"session"`
+	CDPURL   string          `json:"cdpUrl,omitempty"`
+	CDPToken string          `json:"cdpToken,omitempty"`
+}

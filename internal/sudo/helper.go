@@ -82,7 +82,10 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 		}
 	}
 
-	_ = lowerDir
+	if err := MountOverlayFS(lowerDir, layout.Upper, layout.Work, layout.Merged); err != nil {
+		return fmt.Errorf("mount overlay: %w", err)
+	}
+
 	return nil
 }
 
@@ -112,6 +115,10 @@ func UnmountSession(ctx context.Context, cfg config.Config, sessionID string) er
 		if err := paths.ValidateTrustedPath(item.root, item.target); err != nil {
 			return fmt.Errorf("validate path %s: %w", item.target, err)
 		}
+	}
+
+	if err := UnmountOverlayFS(layout.Merged); err != nil {
+		return fmt.Errorf("unmount overlay: %w", err)
 	}
 
 	return nil

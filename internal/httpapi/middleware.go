@@ -4,12 +4,14 @@ import (
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/session"
 	"github.com/gin-gonic/gin"
 )
 
 // Server holds HTTP handler dependencies.
 type Server struct {
-	Auth *auth.Service
+	Auth     *auth.Service
+	Sessions *session.Service
 }
 
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
@@ -106,4 +108,47 @@ func bindJSON(c *gin.Context, dst validatableRequest) error {
 
 func selectedTenantID(c *gin.Context) string {
 	return strings.TrimSpace(c.GetHeader(auth.TenantHeader))
+}
+
+func (s *Server) requireSessionsRead(c *gin.Context) {
+	if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
+		return
+	}
+	c.Next()
+}
+
+func (s *Server) requireSessionsWrite(c *gin.Context) {
+	if !s.requireSessionScope(c, auth.ScopeSessionsWrite) {
+		return
+	}
+	c.Next()
+}
+
+func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
+	principal, ok := c.Get("principal")
+	if !ok {
+		WriteError(c, auth.ErrTokenMissing)
+		c.Abort()
+		return false
+	}
+
+	p := principal.(auth.Principal)
+	if !auth.HasScope(p.Scopes, scope) {
+		WriteError(c, auth.ErrScopeDenied)
+		c.Abort()
+		return false
+	}
+
+	tenantID, err := auth.ResolveTenantID(p, selectedTenantID(c))
+	if err != nil {
+		WriteError(c, err)
+		c.Abort()
+		return false
+	}
+	c.Set("tenantId", tenantID)
+	return true
+}
+
+func tenantIDFromContext(c *gin.Context) string {
+	return c.GetString("tenantId")
 }

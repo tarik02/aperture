@@ -1,0 +1,568 @@
+package session
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/config"
+	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/ids"
+	"github.com/aperture/aperture/internal/overlay"
+	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/supervisor"
+	"github.com/aperture/aperture/internal/traefik"
+)
+
+const (
+	defaultMonitorInterval = 30 * time.Minute
+)
+
+// OverlayClient mounts and unmounts session overlays.
+type OverlayClient interface {
+	Mount(ctx context.Context, sessionID string, baseSnapshotID *string) error
+	Unmount(ctx context.Context, sessionID string) error
+}
+
+// Service owns session lifecycle orchestration.
+type Service struct {
+	cfg          config.Config
+	repo         *db.Repository
+	overlay      OverlayClient
+	browser      *supervisor.Browser
+	channels     *browser.Registry
+	traefik      traefik.Reconciler
+	now          func() time.Time
+	mountLocal   func(ctx context.Context, sessionID string, baseSnapshotID *string) error
+	unmountLocal func(ctx context.Context, sessionID string) error
+}
+
+// NewService constructs a session service.
+func NewService(
+	cfg config.Config,
+	repo *db.Repository,
+	overlayClient OverlayClient,
+	browserSupervisor *supervisor.Browser,
+	channels *browser.Registry,
+	traefikReconciler traefik.Reconciler,
+) *Service {
+	if traefikReconciler == nil {
+		traefikReconciler = traefik.NoopReconciler{}
+	}
+	return &Service{
+		cfg:      cfg,
+		repo:     repo,
+		overlay:  overlayClient,
+		browser:  browserSupervisor,
+		channels: channels,
+		traefik:  traefikReconciler,
+		now:      time.Now,
+	}
+}
+
+// CreateInput configures session creation.
+type CreateInput struct {
+	TenantID         string
+	BaseSnapshotName *string
+	BrowserChannel   string
+	BrowserArgs      []string
+	Tags             map[string]string
+}
+
+// SessionView is returned by session APIs.
+type SessionView struct {
+	Session          db.Session
+	Tags             map[string]string
+	BaseSnapshotName *string
+	CDPURL           string
+	CDPToken         string
+}
+
+// Create creates and starts a browser session.
+func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, error) {
+	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
+		return nil, err
+	}
+
+	channel, err := s.channels.Resolve(input.BrowserChannel)
+	if err != nil {
+		if errors.Is(err, browser.ErrInvalidChannel) || errors.Is(err, browser.ErrUnknownChannel) {
+			return nil, ErrInvalidChannel
+		}
+		return nil, err
+	}
+
+	var baseSnapshotID *string
+	var baseSnapshotName *string
+	if input.BaseSnapshotName != nil && *input.BaseSnapshotName != "" {
+		snapshot, err := s.repo.GetSnapshotByTenantAndName(ctx, input.TenantID, *input.BaseSnapshotName)
+		if err != nil {
+			return nil, err
+		}
+		if snapshot == nil {
+			return nil, ErrSnapshotNotFound
+		}
+		if snapshot.DeletedAt != nil {
+			return nil, ErrSnapshotDeleted
+		}
+		baseSnapshotID = &snapshot.ID
+		nameCopy := snapshot.Name
+		baseSnapshotName = &nameCopy
+	}
+
+	sessionID, err := ids.NewUUIDv7()
+	if err != nil {
+		return nil, err
+	}
+
+	layout, err := paths.Session(s.cfg, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now().UTC()
+	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour)
+
+	argsJSON, err := json.Marshal(input.BrowserArgs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal browser args: %w", err)
+	}
+
+	sessionRow := &db.Session{
+		ID:              sessionID,
+		TenantID:        input.TenantID,
+		BaseSnapshotID:  baseSnapshotID,
+		Status:          db.SessionStatusCreating,
+		OverlayPath:     layout.Root,
+		UpperPath:       layout.Upper,
+		WorkPath:        layout.Work,
+		MergedPath:      layout.Merged,
+		DownloadsPath:   layout.Downloads,
+		CachePath:       layout.Cache,
+		ArtifactsPath:   layout.Artifacts,
+		BrowserChannel:  channel.Name,
+		BrowserArgsJSON: string(argsJSON),
+		CreatedAt:       now.Format(time.RFC3339Nano),
+		ExpiresAt:       expiresAt.Format(time.RFC3339Nano),
+	}
+
+	if err := s.repo.CreateSession(ctx, sessionRow); err != nil {
+		return nil, err
+	}
+
+	rawCDP, hashCDP, err := GenerateCDPToken(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreateSessionToken(ctx, &db.SessionToken{
+		SessionID: sessionID,
+		TenantID:  input.TenantID,
+		TokenHash: hashCDP,
+		CreatedAt: now.Format(time.RFC3339Nano),
+	}); err != nil {
+		return nil, err
+	}
+	if err := StoreCDPTokenSeal(s.cfg, sessionID, rawCDP); err != nil {
+		return nil, err
+	}
+
+	if err := s.replaceTags(ctx, sessionID, input.Tags); err != nil {
+		return nil, err
+	}
+
+	if err := s.mountOverlay(ctx, sessionID, baseSnapshotID); err != nil {
+		_ = s.markFailed(ctx, sessionRow, "overlay mount failed", err)
+		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+	}
+
+	port, err := AllocateCDPPort()
+	if err != nil {
+		_ = s.markFailed(ctx, sessionRow, "cdp port allocation failed", err)
+		return nil, err
+	}
+
+	runtimeEnv := browser.RuntimeEnvValues{
+		SessionID:          sessionID,
+		MergedUserDataDir:  layout.Merged,
+		DownloadsDir:       layout.Downloads,
+		CacheDir:           layout.Cache,
+		ArtifactsDir:       layout.Artifacts,
+		CDPPort:            port,
+		BrowserExecutable:  channel.Executable,
+		BrowserDefaultArgs: channel.DefaultArgs,
+		BrowserExtraArgs:   input.BrowserArgs,
+	}
+	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
+		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
+		return nil, err
+	}
+
+	runtimePath := layout.RuntimeEnv
+	sessionRow.RuntimeEnvPath = &runtimePath
+	sessionRow.CurrentCDPPort = &port
+
+	if err := s.browser.Start(ctx, sessionID); err != nil {
+		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
+	startedAt := now.Format(time.RFC3339Nano)
+	sessionRow.Status = db.SessionStatusRunning
+	sessionRow.StartedAt = &startedAt
+	sessionRow.StoppedAt = nil
+	sessionRow.DeletedAt = nil
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return nil, err
+	}
+
+	if err := s.traefik.Reconcile(ctx); err != nil {
+		return nil, err
+	}
+
+	tags, err := s.repo.ListSessionTags(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SessionView{
+		Session:          *sessionRow,
+		Tags:             tags,
+		BaseSnapshotName: baseSnapshotName,
+		CDPURL:           s.cdpURL(sessionID),
+		CDPToken:         rawCDP,
+	}, nil
+}
+
+// Delete tombstones a session and stops its browser.
+func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if sessionRow.Status == db.SessionStatusExpired {
+		return nil, ErrExpired
+	}
+
+	if sessionRow.Status == db.SessionStatusRunning {
+		_ = s.browser.Stop(ctx, sessionID)
+		_ = s.browser.RemoveRuntimeEnv(sessionID)
+		if err := s.unmountOverlay(ctx, sessionID); err != nil {
+			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+		}
+	}
+
+	now := s.now().UTC()
+	deletedAt := now.Format(time.RFC3339Nano)
+	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+	stoppedAt := deletedAt
+
+	sessionRow.Status = db.SessionStatusDeleted
+	sessionRow.DeletedAt = &deletedAt
+	sessionRow.StoppedAt = &stoppedAt
+	sessionRow.ExpiresAt = expiresAt
+	sessionRow.RuntimeEnvPath = nil
+	sessionRow.CurrentCDPPort = nil
+
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return nil, err
+	}
+	if err := s.traefik.Reconcile(ctx); err != nil {
+		return nil, err
+	}
+
+	tags, err := s.repo.ListSessionTags(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SessionView{
+		Session:  *sessionRow,
+		Tags:     tags,
+		CDPURL:   s.cdpURL(sessionID),
+		CDPToken: rawCDP,
+	}, nil
+}
+
+// Reopen restores a retained deleted or failed session.
+func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if sessionRow.Status == db.SessionStatusExpired {
+		return nil, ErrExpired
+	}
+	if sessionRow.Status != db.SessionStatusDeleted && sessionRow.Status != db.SessionStatusFailed {
+		return nil, ErrNotReopenable
+	}
+	if !s.overlayPresent(sessionRow) {
+		return nil, ErrOverlayMissing
+	}
+
+	layout, err := paths.Session(s.cfg, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.mountOverlay(ctx, sessionID, sessionRow.BaseSnapshotID); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+	}
+
+	channel, err := s.channels.Resolve(sessionRow.BrowserChannel)
+	if err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
+	}
+
+	var browserArgs []string
+	if err := json.Unmarshal([]byte(sessionRow.BrowserArgsJSON), &browserArgs); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, fmt.Errorf("parse browser args: %w", err)
+	}
+
+	port, err := AllocateCDPPort()
+	if err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
+	}
+
+	runtimeEnv := browser.RuntimeEnvValues{
+		SessionID:          sessionID,
+		MergedUserDataDir:  layout.Merged,
+		DownloadsDir:       layout.Downloads,
+		CacheDir:           layout.Cache,
+		ArtifactsDir:       layout.Artifacts,
+		CDPPort:            port,
+		BrowserExecutable:  channel.Executable,
+		BrowserDefaultArgs: channel.DefaultArgs,
+		BrowserExtraArgs:   browserArgs,
+	}
+	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
+	}
+
+	if err := s.browser.Start(ctx, sessionID); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
+	now := s.now().UTC()
+	startedAt := now.Format(time.RFC3339Nano)
+	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+	runtimePath := layout.RuntimeEnv
+
+	sessionRow.Status = db.SessionStatusRunning
+	sessionRow.DeletedAt = nil
+	sessionRow.StoppedAt = nil
+	sessionRow.StartedAt = &startedAt
+	sessionRow.ExpiresAt = expiresAt
+	sessionRow.RuntimeEnvPath = &runtimePath
+	sessionRow.CurrentCDPPort = &port
+
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return nil, err
+	}
+	if err := s.traefik.Reconcile(ctx); err != nil {
+		return nil, err
+	}
+
+	tags, err := s.repo.ListSessionTags(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SessionView{
+		Session:  *sessionRow,
+		Tags:     tags,
+		CDPURL:   s.cdpURL(sessionID),
+		CDPToken: rawCDP,
+	}, nil
+}
+
+// ReconcileStartup marks stale running sessions failed after service restart.
+func (s *Service) ReconcileStartup(ctx context.Context) error {
+	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
+	if err != nil {
+		return err
+	}
+
+	for _, sessionRow := range sessions {
+		active, err := s.browser.IsActive(ctx, sessionRow.ID)
+		if err != nil {
+			return err
+		}
+		if active {
+			continue
+		}
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil); err != nil {
+			return err
+		}
+	}
+
+	return s.traefik.Reconcile(ctx)
+}
+
+// MonitorInterval returns the running-session monitor interval.
+func (s *Service) MonitorInterval() time.Duration {
+	return defaultMonitorInterval
+}
+
+func (s *Service) mountOverlay(ctx context.Context, sessionID string, baseSnapshotID *string) error {
+	if s.mountLocal != nil {
+		return s.mountLocal(ctx, sessionID, baseSnapshotID)
+	}
+	return s.overlay.Mount(ctx, sessionID, baseSnapshotID)
+}
+
+func (s *Service) unmountOverlay(ctx context.Context, sessionID string) error {
+	if s.unmountLocal != nil {
+		return s.unmountLocal(ctx, sessionID)
+	}
+	return s.overlay.Unmount(ctx, sessionID)
+}
+
+func (s *Service) requireTenantSession(ctx context.Context, tenantID, sessionID string) (*db.Session, error) {
+	sessionRow, err := s.repo.GetSessionByTenantAndID(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if sessionRow == nil {
+		return nil, ErrNotFound
+	}
+	if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
+		return nil, ErrExpired
+	}
+	return sessionRow, nil
+}
+
+func (s *Service) replaceTags(ctx context.Context, sessionID string, tags map[string]string) error {
+	rows := make([]db.SessionTag, 0, len(tags))
+	for key, value := range tags {
+		rows = append(rows, db.SessionTag{
+			SessionID: sessionID,
+			Key:       key,
+			Value:     value,
+		})
+	}
+	return s.repo.ReplaceSessionTags(ctx, sessionID, rows)
+}
+
+func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
+	return s.markFailedRetained(ctx, sessionRow, message, cause)
+}
+
+func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
+	_ = s.browser.Stop(ctx, sessionRow.ID)
+	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	sessionRow.Status = db.SessionStatusFailed
+	sessionRow.StoppedAt = &now
+	sessionRow.RuntimeEnvPath = nil
+	sessionRow.CurrentCDPPort = nil
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return err
+	}
+
+	return s.appendEvent(ctx, sessionRow, "session.failed", message, cause)
+}
+
+func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
+	_ = s.browser.Stop(ctx, sessionRow.ID)
+	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	sessionRow.Status = db.SessionStatusFailed
+	sessionRow.StoppedAt = &now
+	sessionRow.RuntimeEnvPath = nil
+	sessionRow.CurrentCDPPort = nil
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return err
+	}
+	return s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause)
+}
+
+func (s *Service) appendEvent(ctx context.Context, sessionRow *db.Session, eventType, message string, cause error) error {
+	eventID, err := ids.NewUUIDv7()
+	if err != nil {
+		return err
+	}
+	data := map[string]string{}
+	if cause != nil {
+		data["error"] = cause.Error()
+	}
+	dataJSON, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return s.repo.CreateEvent(ctx, &db.Event{
+		ID:           eventID,
+		TenantID:     sessionRow.TenantID,
+		ResourceType: "session",
+		ResourceID:   sessionRow.ID,
+		Type:         eventType,
+		Message:      message,
+		DataJSON:     string(dataJSON),
+		CreatedAt:    s.now().UTC().Format(time.RFC3339Nano),
+	})
+}
+
+func (s *Service) overlayPresent(sessionRow *db.Session) bool {
+	if sessionRow.UpperPath == "" {
+		return false
+	}
+	if _, err := os.Stat(sessionRow.UpperPath); err != nil {
+		return false
+	}
+	return true
+}
+
+func (s *Service) cdpURL(sessionID string) string {
+	base := s.cfg.ExternalBaseURL + s.cfg.CdpRouteBasePath
+	return fmt.Sprintf("%s/%s/cdp", base, sessionID)
+}
+
+func isExpired(expiresAt string, now time.Time) bool {
+	parsed, err := time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		return true
+	}
+	return now.After(parsed)
+}
+
+// SetDirectOverlayHooks configures in-process overlay mount hooks for tests.
+func (s *Service) SetDirectOverlayHooks(
+	mountFn func(ctx context.Context, sessionID string, baseSnapshotID *string) error,
+	unmountFn func(ctx context.Context, sessionID string) error,
+) {
+	s.mountLocal = mountFn
+	s.unmountLocal = unmountFn
+}
+
+// SetDirectOverlayHooksFromConfig uses sudo helpers in-process for integration tests.
+func (s *Service) SetDirectOverlayHooksFromConfig() {
+	s.mountLocal = func(ctx context.Context, sessionID string, baseSnapshotID *string) error {
+		req := overlay.MountRequestFromIDs(sessionID, baseSnapshotID)
+		return overlay.MountDirect(s.cfg, req)
+	}
+	s.unmountLocal = func(ctx context.Context, sessionID string) error {
+		return overlay.UnmountDirect(s.cfg, sessionID)
+	}
+}

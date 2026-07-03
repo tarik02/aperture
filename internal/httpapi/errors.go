@@ -5,6 +5,9 @@ import (
 	"net/http"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/session"
+	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,7 +55,29 @@ func mapError(err error) (int, string) {
 		return http.StatusBadRequest, "invalid request body"
 	case errors.Is(err, errValidation):
 		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, session.ErrNotFound):
+		return http.StatusNotFound, "session not found"
+	case errors.Is(err, session.ErrExpired):
+		return http.StatusGone, "session expired"
+	case errors.Is(err, session.ErrSnapshotNotFound):
+		return http.StatusNotFound, "base snapshot not found"
+	case errors.Is(err, session.ErrSnapshotDeleted):
+		return http.StatusConflict, "base snapshot is deleted"
+	case errors.Is(err, session.ErrNotReopenable), errors.Is(err, session.ErrOverlayMissing):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, session.ErrInvalidChannel), errors.Is(err, browser.ErrDeniedBrowserArg):
+		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, session.ErrBrowserStart):
+		return http.StatusBadGateway, "browser failed to start"
 	default:
+		var overlayErr *session.OverlayMountError
+		if errors.As(err, &overlayErr) {
+			return http.StatusInternalServerError, "overlay mount failed"
+		}
+		var supervisorErr *supervisor.BrowserSupervisorError
+		if errors.As(err, &supervisorErr) {
+			return http.StatusBadGateway, "browser supervisor command failed"
+		}
 		return http.StatusInternalServerError, "internal server error"
 	}
 }
