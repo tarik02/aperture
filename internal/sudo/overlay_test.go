@@ -4,10 +4,23 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aperture/aperture/internal/config"
 )
+
+func TestOverlayMountOptionsIncludeUserxattr(t *testing.T) {
+	t.Parallel()
+
+	opts := overlayMountOptions("/lower", "/upper", "/work")
+	if !strings.Contains(opts, "userxattr") {
+		t.Fatalf("overlay mount options = %q, want userxattr", opts)
+	}
+	if strings.Count(opts, "userxattr") != 1 {
+		t.Fatalf("overlay mount options = %q, want userxattr exactly once", opts)
+	}
+}
 
 func TestMountOverlayFSRoundTrip(t *testing.T) {
 	if os.Geteuid() != 0 {

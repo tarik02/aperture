@@ -7,6 +7,7 @@ import (
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/session"
+	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/gin-gonic/gin"
 )
@@ -71,7 +72,25 @@ func mapError(err error) (int, string) {
 		return http.StatusBadRequest, err.Error()
 	case errors.Is(err, session.ErrBrowserStart):
 		return http.StatusBadGateway, "browser failed to start"
+	case errors.Is(err, snapshot.ErrNotFound):
+		return http.StatusNotFound, "snapshot not found"
+	case errors.Is(err, snapshot.ErrNameConflict):
+		return http.StatusConflict, "snapshot name already exists"
+	case errors.Is(err, snapshot.ErrDeleted):
+		return http.StatusConflict, "snapshot is deleted"
+	case errors.Is(err, snapshot.ErrNotDeleted):
+		return http.StatusConflict, "snapshot is not deleted"
+	case errors.Is(err, snapshot.ErrSessionNotFound):
+		return http.StatusNotFound, "session not found"
+	case errors.Is(err, snapshot.ErrSessionExpired):
+		return http.StatusGone, "session expired"
+	case errors.Is(err, snapshot.ErrOverlayMissing), errors.Is(err, snapshot.ErrSessionNotPromotable):
+		return http.StatusConflict, err.Error()
 	default:
+		var promotionErr *snapshot.PromotionConflictError
+		if errors.As(err, &promotionErr) {
+			return http.StatusConflict, promotionErr.Error()
+		}
 		var overlayErr *session.OverlayMountError
 		if errors.As(err, &overlayErr) {
 			return http.StatusInternalServerError, "overlay mount failed"

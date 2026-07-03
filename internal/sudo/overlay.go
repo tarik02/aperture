@@ -30,11 +30,16 @@ func MountOverlayFS(lower, upper, work, merged string) error {
 		return fmt.Errorf("%w: mkdir merged: %v", ErrOverlayMount, err)
 	}
 
-	options := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lower, upper, work)
+	options := overlayMountOptions(lower, upper, work)
 	if err := unix.Mount("overlay", merged, "overlay", 0, options); err != nil {
 		return fmt.Errorf("%w: %v", ErrOverlayMount, err)
 	}
 	return nil
+}
+
+// overlayMountOptions builds overlayfs mount data for non-root upperdir xattr access.
+func overlayMountOptions(lower, upper, work string) string {
+	return fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s,userxattr", lower, upper, work)
 }
 
 // UnmountOverlayFS unmounts the overlay at merged when it is a mount point.

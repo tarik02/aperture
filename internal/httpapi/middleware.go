@@ -5,13 +5,16 @@ import (
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/session"
+	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
 )
 
 // Server holds HTTP handler dependencies.
 type Server struct {
-	Auth     *auth.Service
-	Sessions *session.Service
+	Auth      *auth.Service
+	Sessions  *session.Service
+	Snapshots *snapshot.Service
+	Promotion *snapshot.PromotionService
 }
 
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {

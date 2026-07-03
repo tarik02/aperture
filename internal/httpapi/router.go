@@ -54,6 +54,14 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 		sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
 		sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
 		sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
+		sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
+	}
+
+	snapshots := router.Group("/snapshots")
+	snapshots.Use(server.requireAuth)
+	{
+		snapshots.DELETE("/:name", server.requireSnapshotsWrite, server.deleteSnapshot)
+		snapshots.POST("/:name/restore", server.requireSnapshotsWrite, server.restoreSnapshot)
 	}
 
 	return router

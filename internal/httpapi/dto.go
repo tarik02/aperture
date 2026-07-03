@@ -159,3 +159,30 @@ type sessionMutationResponse struct {
 	CDPURL   string          `json:"cdpUrl,omitempty"`
 	CDPToken string          `json:"cdpToken,omitempty"`
 }
+
+type promoteSessionRequest struct {
+	Name  string            `json:"name"`
+	Force bool              `json:"force"`
+	Tags  map[string]string `json:"tags"`
+}
+
+func (r promoteSessionRequest) Validate() error {
+	return validateSnapshotName(r.Name)
+}
+
+type snapshotResponse struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	TenantID  string            `json:"tenantId"`
+	CreatedAt string            `json:"createdAt"`
+	DeletedAt *string           `json:"deletedAt"`
+	Tags      map[string]string `json:"tags,omitempty"`
+}
+
+type promoteSessionResponse struct {
+	Snapshot snapshotResponse `json:"snapshot"`
+}
+
+type snapshotMutationResponse struct {
+	Snapshot snapshotResponse `json:"snapshot"`
+}

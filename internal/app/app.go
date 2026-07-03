@@ -13,6 +13,7 @@ import (
 	"github.com/aperture/aperture/internal/httpapi"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/session"
+	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
@@ -27,6 +28,8 @@ type App struct {
 	Repository *db.Repository
 	Auth       *auth.Service
 	Sessions   *session.Service
+	Snapshots  *snapshot.Service
+	Promotion  *snapshot.PromotionService
 }
 
 // New constructs an App with a production Zap logger and opens the configured database.
@@ -73,6 +76,8 @@ func (a *App) initSessions() error {
 	}
 
 	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
+	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
+	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
 	return nil
 }
 
@@ -102,7 +107,12 @@ func (a *App) Serve(ctx context.Context) error {
 	defer cancelMonitor()
 	go monitor.Run(monitorCtx)
 
-	server := &httpapi.Server{Auth: a.Auth, Sessions: a.Sessions}
+	server := &httpapi.Server{
+		Auth:      a.Auth,
+		Sessions:  a.Sessions,
+		Snapshots: a.Snapshots,
+		Promotion: a.Promotion,
+	}
 	router := httpapi.NewRouter(a.Logger, server)
 	httpServer := &http.Server{
 		Addr:    a.Config.ListenAddress,
