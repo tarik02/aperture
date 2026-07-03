@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/httpapi"
@@ -18,6 +19,7 @@ type App struct {
 	Logger     *zap.Logger
 	DB         *db.DB
 	Repository *db.Repository
+	Auth       *auth.Service
 }
 
 // New constructs an App with a production Zap logger and opens the configured database.
@@ -32,11 +34,13 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
+	repo := db.NewRepository(database)
 	return &App{
 		Config:     cfg,
 		Logger:     logger,
 		DB:         database,
-		Repository: db.NewRepository(database),
+		Repository: repo,
+		Auth:       auth.NewService(repo),
 	}, nil
 }
 
@@ -55,8 +59,9 @@ func (a *App) Serve(ctx context.Context) error {
 		return err
 	}
 
-	router := httpapi.NewRouter(a.Logger)
-	server := &http.Server{
+	server := &httpapi.Server{Auth: a.Auth}
+	router := httpapi.NewRouter(a.Logger, server)
+	httpServer := &http.Server{
 		Addr:    a.Config.ListenAddress,
 		Handler: router,
 	}
@@ -64,7 +69,7 @@ func (a *App) Serve(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
 		a.Logger.Info("http server listening", zap.String("addr", a.Config.ListenAddress))
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 		close(errCh)
@@ -75,7 +80,7 @@ func (a *App) Serve(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		if err := server.Shutdown(shutdownCtx); err != nil {
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown http server: %w", err)
 		}
 		return nil
