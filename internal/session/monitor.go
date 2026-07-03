@@ -62,6 +62,9 @@ func (m *Monitor) tick(ctx context.Context) {
 		}
 
 		now := m.service.now().UTC()
+		if isExpired(sessionRow.ExpiresAt, now) {
+			continue
+		}
 		expiresAt := now.Add(time.Duration(m.service.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 		sessionRow.ExpiresAt = expiresAt
 		if err := m.service.repo.UpdateSession(ctx, &sessionRow); err != nil {

@@ -1,0 +1,14 @@
+[Unit]
+Description=Traefik edge proxy for Aperture
+After=network.target graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+EnvironmentFile=-%t/aperture/traefik/env
+ExecStart=traefik --configFile=%t/aperture/traefik/static.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

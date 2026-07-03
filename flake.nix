@@ -26,6 +26,25 @@
 
           doCheck = true;
 
+          postInstall = ''
+            mkdir -p $out/lib/systemd/user
+            cp ${./packaging/systemd-user}/*.service $out/lib/systemd/user/
+            cp ${./packaging/systemd-user}/*.timer $out/lib/systemd/user/ 2>/dev/null || true
+            cp ${./packaging/systemd-user}/*.socket $out/lib/systemd/user/ 2>/dev/null || true
+
+            substituteInPlace $out/lib/systemd/user/browser-session@.service \
+              --replace-fail '@browserSessionWrapper@' $out/bin/browser-session-wrapper
+
+            mkdir -p $out/share/aperture/traefik
+            cp ${./packaging/traefik/static.yaml.template} $out/share/aperture/traefik/
+
+            mkdir -p $out/share/aperture/sudoers
+            cp ${./packaging/sudoers/aperture-mount-helpers} $out/share/aperture/sudoers/aperture-mount-helpers
+            substituteInPlace $out/share/aperture/sudoers/aperture-mount-helpers \
+              --replace-fail '@mountSessionHelper@' $out/bin/aperture-mount-session \
+              --replace-fail '@unmountSessionHelper@' $out/bin/aperture-unmount-session
+          '';
+
           meta = with pkgs.lib; {
             description = "chromium session supervisor";
             license = licenses.mit;
@@ -54,5 +73,7 @@
         packages.aperture = aperture;
 
         checks.default = aperture;
-      });
+      }) // {
+      nixosModules.aperture = import ./packaging/nix/module.nix { inherit self; };
+    };
 }

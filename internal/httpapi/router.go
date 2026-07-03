@@ -21,6 +21,12 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)
+
+		jobs := internal.Group("/jobs")
+		jobs.Use(server.requireLoopback, server.requireJobToken)
+		{
+			jobs.POST("/gc", server.runGCJob)
+		}
 	}
 
 	admin := router.Group("/admin")

@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Aperture garbage collection
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=aperture-gc.service
+
+[Install]
+WantedBy=timers.target

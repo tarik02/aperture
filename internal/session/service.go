@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aperture/aperture/internal/browser"
@@ -435,7 +436,7 @@ func (s *Service) RotateCDPToken(ctx context.Context, tenantID, sessionID string
 	}, nil
 }
 
-// ReconcileStartup marks stale running sessions failed after service restart.
+// ReconcileStartup aligns DB session state with systemd and runtime files after restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
@@ -443,19 +444,106 @@ func (s *Service) ReconcileStartup(ctx context.Context) error {
 	}
 
 	for _, sessionRow := range sessions {
+		if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
+			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found expired lease on running session", nil); err != nil {
+				return err
+			}
+			continue
+		}
+
 		active, err := s.browser.IsActive(ctx, sessionRow.ID)
 		if err != nil {
 			return err
 		}
-		if active {
-			continue
-		}
-		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil); err != nil {
+		envExists, err := s.browser.RuntimeEnvExists(sessionRow.ID)
+		if err != nil {
 			return err
+		}
+
+		switch {
+		case active && !envExists:
+			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found running unit without runtime env", nil); err != nil {
+				return err
+			}
+		case !active:
+			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil); err != nil {
+				return err
+			}
 		}
 	}
 
+	if err := s.reconcileOrphanRuntimeUnits(ctx); err != nil {
+		return err
+	}
+	if err := s.removeStaleRuntimeEnvFiles(ctx); err != nil {
+		return err
+	}
+
 	return s.traefik.Reconcile(ctx)
+}
+
+func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
+	activeIDs, err := s.browser.ListActiveSessionIDs(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, sessionID := range activeIDs {
+		sessionRow, err := s.repo.GetSessionByID(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		if sessionRow != nil && sessionRow.Status == db.SessionStatusRunning && isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
+			if err := s.markFailedRetained(ctx, sessionRow, "startup reconciliation stopped expired running session unit", nil); err != nil {
+				return err
+			}
+			continue
+		}
+		if sessionRow == nil || sessionRow.Status != db.SessionStatusRunning {
+			_ = s.browser.Stop(ctx, sessionID)
+			_ = s.browser.RemoveRuntimeEnv(sessionID)
+		}
+	}
+	return nil
+}
+
+func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
+	sessionsDir, err := paths.JoinUnderRoot(s.cfg.RuntimeRoot, "sessions")
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read runtime sessions dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".env") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".env")
+		if err := ids.ValidateUUIDv7(sessionID); err != nil {
+			continue
+		}
+
+		sessionRow, err := s.repo.GetSessionByID(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		keep := sessionRow != nil &&
+			sessionRow.Status == db.SessionStatusRunning &&
+			!isExpired(sessionRow.ExpiresAt, s.now().UTC())
+		if keep {
+			continue
+		}
+
+		_ = s.browser.Stop(ctx, sessionID)
+		_ = s.browser.RemoveRuntimeEnv(sessionID)
+	}
+	return nil
 }
 
 // MonitorInterval returns the running-session monitor interval.

@@ -10,7 +10,9 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/httpapi"
+	"github.com/aperture/aperture/internal/jobtoken"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
@@ -30,6 +32,7 @@ type App struct {
 	Sessions   *session.Service
 	Snapshots  *snapshot.Service
 	Promotion  *snapshot.PromotionService
+	GC         *gc.Service
 }
 
 // New constructs an App with a production Zap logger and opens the configured database.
@@ -78,6 +81,7 @@ func (a *App) initSessions() error {
 	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
 	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
 	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
+	a.GC = gc.NewService(a.Config, a.Repository, browserSupervisor, overlayClient, traefik.NewService(a.Config, a.Repository))
 	return nil
 }
 
@@ -102,6 +106,11 @@ func (a *App) Serve(ctx context.Context) error {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
 
+	jobToken, err := jobtoken.Ensure(a.Config)
+	if err != nil {
+		return fmt.Errorf("ensure job token: %w", err)
+	}
+
 	monitor := session.NewMonitor(a.Sessions, a.Logger)
 	monitorCtx, cancelMonitor := context.WithCancel(ctx)
 	defer cancelMonitor()
@@ -112,7 +121,9 @@ func (a *App) Serve(ctx context.Context) error {
 		Sessions:  a.Sessions,
 		Snapshots: a.Snapshots,
 		Promotion: a.Promotion,
+		GC:        a.GC,
 	}
+	server.SetJobToken(jobToken)
 	router := httpapi.NewRouter(a.Logger, server)
 	httpServer := &http.Server{
 		Addr:    a.Config.ListenAddress,

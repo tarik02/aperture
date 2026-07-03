@@ -101,3 +101,24 @@ func (b *Browser) RuntimeEnvPath(sessionID string) (string, error) {
 	}
 	return layout.RuntimeEnv, nil
 }
+
+// ListActiveSessionIDs returns session ids with active browser units.
+func (b *Browser) ListActiveSessionIDs(ctx context.Context) ([]string, error) {
+	return b.adapter.ListActiveInstances(ctx, b.runner)
+}
+
+// RuntimeEnvExists reports whether the runtime env file exists for a session.
+func (b *Browser) RuntimeEnvExists(sessionID string) (bool, error) {
+	path, err := b.RuntimeEnvPath(sessionID)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}

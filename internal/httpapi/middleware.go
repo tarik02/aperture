@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,13 @@ type Server struct {
 	Sessions  *session.Service
 	Snapshots *snapshot.Service
 	Promotion *snapshot.PromotionService
+	GC        *gc.Service
+	jobToken  string
+}
+
+// SetJobToken configures the local job token for internal endpoints.
+func (s *Server) SetJobToken(token string) {
+	s.jobToken = token
 }
 
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {

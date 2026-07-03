@@ -6,6 +6,7 @@ import (
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/jobtoken"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/aperture/aperture/internal/supervisor"
@@ -56,6 +57,8 @@ func mapError(err error) (int, string) {
 		return http.StatusBadRequest, "invalid request body"
 	case errors.Is(err, errValidation):
 		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, jobtoken.ErrMissing), errors.Is(err, jobtoken.ErrInvalid):
+		return http.StatusUnauthorized, "invalid job token"
 	case errors.Is(err, session.ErrNotFound):
 		return http.StatusNotFound, "session not found"
 	case errors.Is(err, session.ErrExpired):

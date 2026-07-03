@@ -79,6 +79,11 @@ func validateOverlayPaths(lower, upper, work, merged string) error {
 	return nil
 }
 
+// IsMountPoint reports whether path is a mount point.
+func IsMountPoint(path string) (bool, error) {
+	return isMountPoint(path)
+}
+
 func isMountPoint(path string) (bool, error) {
 	var stat unix.Stat_t
 	if err := unix.Stat(path, &stat); err != nil {
@@ -94,5 +99,5 @@ func isMountPoint(path string) (bool, error) {
 		return false, err
 	}
 
-	return stat.Dev != parentStat.Dev || stat.Ino != parentStat.Ino, nil
+	return stat.Dev != parentStat.Dev, nil
 }

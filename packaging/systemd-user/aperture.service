@@ -1,0 +1,13 @@
+[Unit]
+Description=Aperture Chromium session supervisor
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.nix-profile/bin/aperture serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

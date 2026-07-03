@@ -1,0 +1,15 @@
+[Unit]
+Description=Browser session %i
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+EnvironmentFile=%t/aperture/sessions/%i.env
+ExecStart=@browserSessionWrapper@
+Restart=no
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

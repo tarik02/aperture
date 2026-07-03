@@ -1,0 +1,3 @@
+# Allow the aperture user to mount and unmount session overlays by validated id only.
+%aperture_user% ALL=(root) NOPASSWD: @mountSessionHelper@ *
+%aperture_user% ALL=(root) NOPASSWD: @unmountSessionHelper@ *

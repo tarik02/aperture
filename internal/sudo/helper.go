@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/paths"
@@ -86,7 +88,51 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 		return fmt.Errorf("mount overlay: %w", err)
 	}
 
+	if err := chownSessionTreeToInvoker(layout); err != nil {
+		return fmt.Errorf("chown session tree: %w", err)
+	}
+
 	return nil
+}
+
+func chownSessionTreeToInvoker(layout paths.SessionLayout) error {
+	uidText := strings.TrimSpace(os.Getenv("SUDO_UID"))
+	gidText := strings.TrimSpace(os.Getenv("SUDO_GID"))
+	if uidText == "" || gidText == "" {
+		return nil
+	}
+	uid, err := strconv.Atoi(uidText)
+	if err != nil {
+		return fmt.Errorf("parse SUDO_UID: %w", err)
+	}
+	gid, err := strconv.Atoi(gidText)
+	if err != nil {
+		return fmt.Errorf("parse SUDO_GID: %w", err)
+	}
+
+	for _, dir := range []string{
+		layout.Root,
+		layout.Upper,
+		layout.Work,
+		layout.Merged,
+		layout.Downloads,
+		layout.Cache,
+		layout.Metadata,
+		layout.Logs,
+		layout.CrashDumps,
+	} {
+		if err := chownPath(dir, uid, gid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func chownPath(path string, uid, gid int) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	return os.Chown(path, uid, gid)
 }
 
 // UnmountSession validates ids and derived paths for a session overlay.

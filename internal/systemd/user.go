@@ -98,6 +98,49 @@ func (a *UserAdapter) IsActive(ctx context.Context, runner CommandRunner, sessio
 	return strings.TrimSpace(string(out)) == "active", nil
 }
 
+// ListActiveInstances returns session ids with active browser units.
+func (a *UserAdapter) ListActiveInstances(ctx context.Context, runner CommandRunner) ([]string, error) {
+	pattern := strings.TrimSuffix(a.unitTemplate, ".service") + "*"
+	out, err := runner.Run(ctx, "systemctl", "--user", "list-units", "--state=active", "--no-legend", "--plain", pattern)
+	if err != nil {
+		return nil, wrapCommandError("list-units", pattern, err)
+	}
+
+	ids := make([]string, 0)
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		sessionID, err := parseInstanceFromUnit(fields[0])
+		if err != nil {
+			continue
+		}
+		ids = append(ids, sessionID)
+	}
+	return ids, nil
+}
+
+func parseInstanceFromUnit(unit string) (string, error) {
+	at := strings.Index(unit, "@")
+	if at < 0 {
+		return "", fmt.Errorf("invalid unit name: %s", unit)
+	}
+	end := len(unit)
+	if strings.HasSuffix(unit, ".service") {
+		end -= len(".service")
+	}
+	instance := unit[at+1 : end]
+	if err := ids.ValidateUUIDv7(instance); err != nil {
+		return "", err
+	}
+	return instance, nil
+}
+
 func wrapCommandError(op, unit string, err error) error {
 	if err == nil {
 		return nil

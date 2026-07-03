@@ -3,8 +3,10 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -75,7 +77,18 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) ([]by
 		}
 		return nil, &systemd.CommandError{ExitCode: 3}
 	}
+	if len(args) >= 4 && args[0] == "--user" && args[1] == "list-units" {
+		return f.listUnitsOutput(), nil
+	}
 	return []byte("inactive\n"), nil
+}
+
+func (f *fakeRunner) listUnitsOutput() []byte {
+	lines := make([]string, 0, len(f.active))
+	for sessionID := range f.active {
+		lines = append(lines, fmt.Sprintf("browser-session@%s.service loaded active running", sessionID))
+	}
+	return []byte(strings.Join(lines, "\n") + "\n")
 }
 
 func (f *fakeOverlay) IsMounted(sessionID string) bool {
