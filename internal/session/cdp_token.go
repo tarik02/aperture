@@ -36,19 +36,13 @@ func ParseCDPToken(raw string) (sessionID string, secret string, err error) {
 	}
 
 	rest := raw[len(prefix):]
-	underscore := -1
-	for i := len(rest) - 1; i >= 0; i-- {
-		if rest[i] == '_' {
-			underscore = i
-			break
-		}
-	}
-	if underscore <= 0 || underscore >= len(rest)-1 {
+	const uuidLength = 36
+	if len(rest) <= uuidLength+1 || rest[uuidLength] != '_' {
 		return "", "", fmt.Errorf("invalid cdp token format")
 	}
 
-	sessionID = rest[:underscore]
-	secret = rest[underscore+1:]
+	sessionID = rest[:uuidLength]
+	secret = rest[uuidLength+1:]
 	if sessionID == "" || secret == "" {
 		return "", "", fmt.Errorf("invalid cdp token format")
 	}

@@ -18,6 +18,11 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	internal := router.Group("/internal")
+	{
+		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)
+	}
+
 	admin := router.Group("/admin")
 	admin.Use(server.requireAuth, server.requireSystemAdmin)
 	{
@@ -48,6 +53,7 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 		sessions.POST("", server.requireSessionsWrite, server.createSession)
 		sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
 		sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
+		sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
 	}
 
 	return router

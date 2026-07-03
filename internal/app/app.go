@@ -72,7 +72,7 @@ func (a *App) initSessions() error {
 		return fmt.Errorf("browser supervisor: %w", err)
 	}
 
-	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NoopReconciler{})
+	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
 	return nil
 }
 

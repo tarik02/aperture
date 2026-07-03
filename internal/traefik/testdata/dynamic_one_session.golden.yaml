@@ -1,0 +1,34 @@
+http:
+  routers:
+    aperture-api:
+      rule: "PathPrefix(`/admin`) || PathPrefix(`/tenant`) || PathPrefix(`/snapshots`) || PathPrefix(`/sessions`) || Path(`/health`)"
+      service: aperture-api
+      priority: 1
+      entryPoints:
+        - web
+    aperture-cdp-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/cdp`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/`)"
+      service: aperture-cdp-service-018f1234000070008000000000000001
+      middlewares:
+        - aperture-cdp-forward-auth-018f1234000070008000000000000001
+        - aperture-cdp-strip-018f1234000070008000000000000001
+      priority: 100
+      entryPoints:
+        - web
+  middlewares:
+    aperture-cdp-forward-auth-018f1234000070008000000000000001:
+      forwardAuth:
+        address: "http://127.0.0.1:8080/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001"
+    aperture-cdp-strip-018f1234000070008000000000000001:
+      stripPrefix:
+        prefixes:
+          - /sessions/018f1234-0000-7000-8000-000000000001/cdp
+  services:
+    aperture-api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"
+    aperture-cdp-service-018f1234000070008000000000000001:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9222"

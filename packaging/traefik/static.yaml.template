@@ -1,0 +1,18 @@
+# Traefik static configuration template for Aperture.
+#
+# Substitute placeholders at install time:
+#   @ENTRYPOINT_ADDRESS@   - public HTTP listen address, for example :8443
+#   @DYNAMIC_CONFIG_PATH@  - absolute path to generated dynamic.yaml
+
+entryPoints:
+  web:
+    address: "@ENTRYPOINT_ADDRESS@"
+
+providers:
+  file:
+    filename: "@DYNAMIC_CONFIG_PATH@"
+    watch: true
+
+api:
+  dashboard: false
+  insecure: false

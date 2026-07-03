@@ -63,7 +63,9 @@ func mapError(err error) (int, string) {
 		return http.StatusNotFound, "base snapshot not found"
 	case errors.Is(err, session.ErrSnapshotDeleted):
 		return http.StatusConflict, "base snapshot is deleted"
-	case errors.Is(err, session.ErrNotReopenable), errors.Is(err, session.ErrOverlayMissing):
+	case errors.Is(err, session.ErrNotReopenable), errors.Is(err, session.ErrOverlayMissing), errors.Is(err, session.ErrInvalidState):
+		return http.StatusConflict, err.Error()
+	case errors.Is(err, session.ErrNotRunning):
 		return http.StatusConflict, err.Error()
 	case errors.Is(err, session.ErrInvalidChannel), errors.Is(err, browser.ErrDeniedBrowserArg):
 		return http.StatusBadRequest, err.Error()

@@ -94,6 +94,29 @@ func (r *Repository) CreateSessionToken(ctx context.Context, token *SessionToken
 	return nil
 }
 
+// ReplaceSessionToken updates the stored CDP token hash for a session.
+func (r *Repository) ReplaceSessionToken(ctx context.Context, sessionID, tokenHash, createdAt string) error {
+	result, err := r.db.bun.NewUpdate().
+		Model((*SessionToken)(nil)).
+		Set("token_hash = ?", tokenHash).
+		Set("created_at = ?", createdAt).
+		Set("revoked_at = NULL").
+		Where("session_id = ?", sessionID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("replace session token: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("replace session token rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // GetSessionToken returns the persisted CDP token row for a session.
 func (r *Repository) GetSessionToken(ctx context.Context, sessionID string) (*SessionToken, error) {
 	token := new(SessionToken)

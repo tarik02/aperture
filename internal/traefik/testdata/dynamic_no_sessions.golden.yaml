@@ -1,0 +1,14 @@
+http:
+  routers:
+    aperture-api:
+      rule: "PathPrefix(`/admin`) || PathPrefix(`/tenant`) || PathPrefix(`/snapshots`) || PathPrefix(`/sessions`) || Path(`/health`)"
+      service: aperture-api
+      priority: 1
+      entryPoints:
+        - web
+  middlewares:
+  services:
+    aperture-api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"

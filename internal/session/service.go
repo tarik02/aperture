@@ -394,6 +394,47 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	}, nil
 }
 
+// RotateCDPToken replaces the session CDP token without restarting the browser.
+func (s *Service) RotateCDPToken(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !isRetainedOrRunning(sessionRow.Status) {
+		return nil, ErrInvalidState
+	}
+
+	rawCDP, hashCDP, err := GenerateCDPToken(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now().UTC()
+	if err := s.repo.ReplaceSessionToken(ctx, sessionID, hashCDP, now.Format(time.RFC3339Nano)); err != nil {
+		return nil, err
+	}
+	if err := StoreCDPTokenSeal(s.cfg, sessionID, rawCDP); err != nil {
+		return nil, err
+	}
+
+	sessionRow.ExpiresAt = now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return nil, err
+	}
+
+	tags, err := s.repo.ListSessionTags(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SessionView{
+		Session:  *sessionRow,
+		Tags:     tags,
+		CDPURL:   s.cdpURL(sessionID),
+		CDPToken: rawCDP,
+	}, nil
+}
+
 // ReconcileStartup marks stale running sessions failed after service restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
@@ -480,6 +521,10 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 		return err
 	}
 
+	if err := s.traefik.Reconcile(ctx); err != nil {
+		return err
+	}
+
 	return s.appendEvent(ctx, sessionRow, "session.failed", message, cause)
 }
 
@@ -545,6 +590,15 @@ func isExpired(expiresAt string, now time.Time) bool {
 		return true
 	}
 	return now.After(parsed)
+}
+
+func isRetainedOrRunning(status string) bool {
+	switch status {
+	case db.SessionStatusRunning, db.SessionStatusDeleted, db.SessionStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // SetDirectOverlayHooks configures in-process overlay mount hooks for tests.
