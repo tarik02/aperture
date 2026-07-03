@@ -4,8 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"time"
 )
+
+var canonicalUUIDv7 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // NewUUIDv7 returns a RFC 9562 UUID version 7 string.
 func NewUUIDv7() (string, error) {
@@ -31,6 +34,20 @@ func NewUUIDv7() (string, error) {
 	copy(b[10:], randPart[4:])
 
 	return formatUUID(b), nil
+}
+
+// ValidateUUIDv7 checks that id is a canonical lowercase UUID version 7 string.
+func ValidateUUIDv7(id string) error {
+	if id == "" {
+		return fmt.Errorf("invalid uuid length")
+	}
+	if len(id) != 36 {
+		return fmt.Errorf("invalid uuid length")
+	}
+	if !canonicalUUIDv7.MatchString(id) {
+		return fmt.Errorf("uuid must use canonical hyphenated lowercase form")
+	}
+	return nil
 }
 
 func formatUUID(b [16]byte) string {

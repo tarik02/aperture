@@ -17,7 +17,11 @@
           src = ./.;
           vendorHash = "sha256-nrFXv97QqRosUd5uIgmnojwj9nHbhDP5HpavT6/09U8=";
 
-          subPackages = [ "cmd/aperture" ];
+          subPackages = [
+            "cmd/aperture"
+            "cmd/aperture-mount-session"
+            "cmd/aperture-unmount-session"
+          ];
 
           doCheck = true;
 
