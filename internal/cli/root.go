@@ -23,6 +23,16 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().String("config", "", "config file path")
 	cmd.PersistentFlags().String("listen-address", "", "loopback listen address")
 	cmd.PersistentFlags().String("log-level", "", "log level (debug, info, warn, error)")
+	cmd.PersistentFlags().String("store-root", "", "persistent store root")
+	cmd.PersistentFlags().String("runtime-root", "", "runtime state root")
+	cmd.PersistentFlags().String("artifact-root", "", "artifact storage root")
+	cmd.PersistentFlags().String("database-path", "", "sqlite database path")
+	cmd.PersistentFlags().String("traefik-dynamic-config-path", "", "traefik dynamic config path")
+	cmd.PersistentFlags().String("systemd-browser-unit-name", "", "systemd browser unit template name")
+	cmd.PersistentFlags().Int("session-retention-days", 0, "session retention in days")
+	cmd.PersistentFlags().Int("snapshot-retention-days", 0, "snapshot retention in days")
+	cmd.PersistentFlags().String("external-base-url", "", "external base URL for generated links")
+	cmd.PersistentFlags().String("cdp-route-base-path", "", "cdp route base path")
 
 	if err := rootFlags.BindPFlags(cmd.PersistentFlags()); err != nil {
 		panic(err)

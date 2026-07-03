@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -22,13 +21,13 @@ func newServeCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
-			application, err := app.New(cfg)
+			application, err := app.New(cmd.Context(), cfg)
 			if err != nil {
 				return fmt.Errorf("init app: %w", err)
 			}
 			defer application.Close()
 
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
 			return application.Serve(ctx)

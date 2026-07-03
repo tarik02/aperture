@@ -7,31 +7,54 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/config"
+	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/httpapi"
 	"go.uber.org/zap"
 )
 
 // App wires shared runtime handles for CLI commands.
 type App struct {
-	Config config.Config
-	Logger *zap.Logger
+	Config     config.Config
+	Logger     *zap.Logger
+	DB         *db.DB
+	Repository *db.Repository
 }
 
-// New constructs an App with a production Zap logger for the configured log level.
-func New(cfg config.Config) (*App, error) {
+// New constructs an App with a production Zap logger and opens the configured database.
+func New(ctx context.Context, cfg config.Config) (*App, error) {
 	logger, err := newLogger(cfg.LogLevel)
 	if err != nil {
 		return nil, err
 	}
 
+	database, err := db.Open(ctx, cfg.DatabasePath)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+
 	return &App{
-		Config: cfg,
-		Logger: logger,
+		Config:     cfg,
+		Logger:     logger,
+		DB:         database,
+		Repository: db.NewRepository(database),
 	}, nil
+}
+
+// Migrate runs pending embedded SQL migrations.
+func (a *App) Migrate(ctx context.Context) error {
+	if err := a.DB.Migrate(ctx); err != nil {
+		return fmt.Errorf("run migrations: %w", err)
+	}
+	a.Logger.Info("database migrations applied")
+	return nil
 }
 
 // Serve starts the HTTP API until the context is canceled.
 func (a *App) Serve(ctx context.Context) error {
+	if err := a.Migrate(ctx); err != nil {
+		return err
+	}
+
 	router := httpapi.NewRouter(a.Logger)
 	server := &http.Server{
 		Addr:    a.Config.ListenAddress,
@@ -64,9 +87,20 @@ func (a *App) Serve(ctx context.Context) error {
 	}
 }
 
-// Close flushes logger state.
+// Close releases app resources.
 func (a *App) Close() error {
-	return a.Logger.Sync()
+	var closeErr error
+	if a.DB != nil {
+		if err := a.DB.Close(); err != nil {
+			closeErr = err
+		}
+	}
+	if a.Logger != nil {
+		if err := a.Logger.Sync(); err != nil {
+			closeErr = err
+		}
+	}
+	return closeErr
 }
 
 func newLogger(level string) (*zap.Logger, error) {

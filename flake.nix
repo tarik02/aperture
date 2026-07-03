@@ -15,7 +15,7 @@
           pname = "aperture";
           version = "0.0.1";
           src = ./.;
-          vendorHash = "sha256-wA5GOKQwXmPPCQwDuEwQnZio5XWak7Qkw4E/Cvdbxmg=";
+          vendorHash = "sha256-fhAkmYs/DAadokZkOraZLigKWfDHgzxYzZMpDCWjAqk=";
 
           subPackages = [ "cmd/aperture" ];
 
