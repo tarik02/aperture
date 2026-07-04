@@ -14,6 +14,7 @@ import (
 )
 
 var (
+	errChannelsUnavailable         = errors.New("browser channels unavailable")
 	errGCServiceUnavailable        = errors.New("gc service unavailable")
 	errSessionServiceUnavailable   = errors.New("session service unavailable")
 	errPromotionServiceUnavailable = errors.New("promotion service unavailable")
@@ -121,6 +122,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusGone, "session_expired", "session expired"
 	case errors.Is(err, snapshot.ErrOverlayMissing), errors.Is(err, snapshot.ErrSessionNotPromotable):
 		return http.StatusConflict, "session_not_promotable", err.Error()
+	case errors.Is(err, errChannelsUnavailable):
+		return http.StatusInternalServerError, "browser_channels_unavailable", err.Error()
 	case errors.Is(err, errGCServiceUnavailable):
 		return http.StatusInternalServerError, "gc_service_unavailable", err.Error()
 	case errors.Is(err, errSessionServiceUnavailable):

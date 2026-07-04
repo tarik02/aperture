@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
@@ -17,6 +18,7 @@ type Server struct {
 	Snapshots *snapshot.Service
 	Promotion *snapshot.PromotionService
 	GC        *gc.Service
+	Channels  *browser.Registry
 	jobToken  string
 }
 
@@ -128,6 +130,13 @@ func (s *Server) requireSessionsRead(c *gin.Context) {
 	c.Next()
 }
 
+func (s *Server) requireSessionsReadScope(c *gin.Context) {
+	if !s.requireScope(c, auth.ScopeSessionsRead) {
+		return
+	}
+	c.Next()
+}
+
 func (s *Server) requireSessionsWrite(c *gin.Context) {
 	if !s.requireSessionScope(c, auth.ScopeSessionsWrite) {
 		return
@@ -135,7 +144,7 @@ func (s *Server) requireSessionsWrite(c *gin.Context) {
 	c.Next()
 }
 
-func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
+func (s *Server) requireScope(c *gin.Context, scope string) bool {
 	principal, ok := c.Get("principal")
 	if !ok {
 		WriteError(c, auth.ErrTokenMissing)
@@ -149,7 +158,15 @@ func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
 		c.Abort()
 		return false
 	}
+	return true
+}
 
+func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
+	if !s.requireScope(c, scope) {
+		return false
+	}
+
+	p := c.MustGet("principal").(auth.Principal)
 	tenantID, err := auth.ResolveTenantID(p, selectedTenantID(c))
 	if err != nil {
 		WriteError(c, err)

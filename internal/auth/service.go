@@ -312,6 +312,18 @@ func (s *Service) ListTokens(ctx context.Context, tenantID *string) ([]db.APITok
 	return s.repo.ListAPITokens(ctx, tenantID)
 }
 
+// GetTenant returns a tenant by id, including deactivated tenants.
+func (s *Service) GetTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
+	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if tenant == nil {
+		return nil, ErrTenantNotFound
+	}
+	return tenant, nil
+}
+
 // RequireActiveTenant loads a tenant and rejects deleted tenants.
 func (s *Service) RequireActiveTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
 	return s.requireActiveTenant(ctx, tenantID)

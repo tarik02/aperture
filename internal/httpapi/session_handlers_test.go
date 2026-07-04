@@ -54,7 +54,7 @@ func newSessionTestEnv(t *testing.T) *testEnv {
 	}
 	sessions := session.NewService(cfg, env.repo, &sessionHandlerFakeOverlay{cfg: cfg}, browserSupervisor, channels, traefik.NoopReconciler{})
 
-	server := &Server{Auth: env.service, Sessions: sessions}
+	server := &Server{Auth: env.service, Sessions: sessions, Channels: channels}
 	env.router = NewRouter(zap.NewNop(), server, nil, cfg.CdpRouteBasePath)
 	return env
 }

@@ -33,6 +33,18 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		})
 
+		authRoutes := api.Group("/auth")
+		authRoutes.Use(server.requireAuth)
+		{
+			authRoutes.GET("/me", server.authMe)
+		}
+
+		browser := api.Group("/browser")
+		browser.Use(server.requireAuth, server.requireSessionsReadScope)
+		{
+			browser.GET("/channels", server.listBrowserChannels)
+		}
+
 		admin := api.Group("/admin")
 		admin.Use(server.requireAuth, server.requireSystemAdmin)
 		{

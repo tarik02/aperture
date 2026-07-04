@@ -33,6 +33,7 @@ type App struct {
 	Snapshots  *snapshot.Service
 	Promotion  *snapshot.PromotionService
 	GC         *gc.Service
+	Channels   *browser.Registry
 }
 
 // New constructs an App with a production Zap logger and opens the configured database.
@@ -78,6 +79,7 @@ func (a *App) initSessions() error {
 		return fmt.Errorf("browser supervisor: %w", err)
 	}
 
+	a.Channels = channels
 	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
 	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
 	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
@@ -122,6 +124,7 @@ func (a *App) Serve(ctx context.Context) error {
 		Snapshots: a.Snapshots,
 		Promotion: a.Promotion,
 		GC:        a.GC,
+		Channels:  a.Channels,
 	}
 	server.SetJobToken(jobToken)
 	router := httpapi.NewRouter(a.Logger, server, nil, a.Config.CdpRouteBasePath)

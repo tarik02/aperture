@@ -60,6 +60,7 @@ func newSnapshotHandlerTestEnv(t *testing.T) (*testEnv, *snapshot.PromotionServi
 		Sessions:  sessions,
 		Snapshots: snapshots,
 		Promotion: promotion,
+		Channels:  channels,
 	}
 	env.router = NewRouter(zap.NewNop(), server, nil, "")
 	return env, promotion

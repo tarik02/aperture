@@ -94,6 +94,27 @@ type tenantResponse struct {
 	DeletedAt   *string `json:"deletedAt"`
 }
 
+type principalResponse struct {
+	TokenID       string   `json:"tokenId"`
+	Name          string   `json:"name"`
+	AuthorityType string   `json:"authorityType"`
+	TenantID      *string  `json:"tenantId"`
+	Scopes        []string `json:"scopes"`
+}
+
+type authMeResponse struct {
+	Principal      principalResponse `json:"principal"`
+	SelectedTenant *tenantResponse   `json:"selectedTenant"`
+}
+
+type browserChannelResponse struct {
+	Name string `json:"name"`
+}
+
+type browserChannelsResponse struct {
+	Channels []browserChannelResponse `json:"channels"`
+}
+
 type tokenResponse struct {
 	ID            string   `json:"id"`
 	AuthorityType string   `json:"authorityType"`
