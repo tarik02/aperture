@@ -10,12 +10,38 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        lib = pkgs.lib;
 
-        aperture = (pkgs.buildGoModule {
+        isPackageSourceExcluded = path:
+          let
+            root = (toString ./.) + "/";
+            rel = lib.removePrefix root (toString path);
+          in
+          rel == "result"
+          || rel == "node_modules"
+          || lib.hasPrefix "node_modules/" rel
+          || rel == "web/node_modules"
+          || lib.hasPrefix "web/node_modules/" rel
+          || rel == "web/dist"
+          || lib.hasPrefix "web/dist/" rel
+          || rel == "web/.output"
+          || lib.hasPrefix "web/.output/" rel
+          || rel == ".scaffold-tmp"
+          || lib.hasPrefix ".scaffold-tmp/" rel
+          || rel == "vendor"
+          || lib.hasPrefix "vendor/" rel;
+
+        src = lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            lib.cleanSourceFilter path type && !isPackageSourceExcluded path;
+        };
+
+        aperture = (pkgs.buildGoModule (finalAttrs: {
           pname = "aperture";
           version = "0.0.1";
-          src = ./.;
-          vendorHash = "sha256-nrFXv97QqRosUd5uIgmnojwj9nHbhDP5HpavT6/09U8=";
+          inherit src;
+          vendorHash = "sha256-m3PexWpdp81N6DedhAC1jJSFxAtdQeZnQrGyTAEZBu8=";
 
           subPackages = [
             "cmd/aperture"
@@ -23,6 +49,38 @@
             "cmd/aperture-unmount-session"
             "cmd/browser-session-wrapper"
           ];
+
+          pnpmDeps = pkgs.fetchPnpmDeps {
+            inherit (finalAttrs) pname version src;
+            pnpm = pkgs.pnpm;
+            fetcherVersion = 3;
+            pnpmWorkspaces = [ "@aperture/web" ];
+            hash = "sha256-mNzS8elsDMcNAqxn6mh5A9aD/jPL5UGQwoAcsgwJJuQ=";
+          };
+
+          nativeBuildInputs = with pkgs; [
+            nodejs_22
+            pnpm
+            pnpmConfigHook
+          ];
+
+          env.CI = "true";
+
+          preBuild = ''
+            pnpm --filter @aperture/web build
+            test -f web/dist/client/index.html
+          '';
+
+          # Vendor derivation only needs Go modules, not frontend dependencies.
+          overrideModAttrs = oldAttrs: {
+            nativeBuildInputs = builtins.filter (drv:
+              drv != pkgs.pnpmConfigHook
+              && drv != pkgs.pnpm
+              && drv != pkgs.nodejs_22
+            ) (oldAttrs.nativeBuildInputs or [ ]);
+            preBuild = "";
+            pnpmDeps = null;
+          };
 
           doCheck = true;
 
@@ -49,7 +107,7 @@
             description = "chromium session supervisor";
             license = licenses.mit;
           };
-        }).overrideAttrs (oldAttrs: {
+        })).overrideAttrs (oldAttrs: {
           checkPhase = ''
             runHook preCheck
             go test ./...
@@ -62,6 +120,8 @@
           packages = with pkgs; [
             go
             gopls
+            nodejs_22
+            pnpm
             sqlite
             traefik
             chromium
