@@ -1,5 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
-import { AppProviders } from "../providers/app-providers";
+import { AppShell } from "#/components/app-shell.tsx";
+import { AppProviders } from "#/providers/app-providers.tsx";
+import "#/styles/globals.css";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -14,16 +16,20 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
-  return <Outlet />;
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="min-h-svh bg-background text-foreground antialiased">
         <AppProviders>{children}</AppProviders>
         <Scripts />
       </body>

@@ -10,33 +10,115 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TokensIndexRouteImport } from './routes/tokens/index'
+import { Route as TenantsIndexRouteImport } from './routes/tenants/index'
+import { Route as SnapshotsIndexRouteImport } from './routes/snapshots/index'
+import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
+import { Route as SessionsSessionIdRouteImport } from './routes/sessions/$sessionId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TokensIndexRoute = TokensIndexRouteImport.update({
+  id: '/tokens/',
+  path: '/tokens/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TenantsIndexRoute = TenantsIndexRouteImport.update({
+  id: '/tenants/',
+  path: '/tenants/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SnapshotsIndexRoute = SnapshotsIndexRouteImport.update({
+  id: '/snapshots/',
+  path: '/snapshots/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionsIndexRoute = SessionsIndexRouteImport.update({
+  id: '/sessions/',
+  path: '/sessions/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionsSessionIdRoute = SessionsSessionIdRouteImport.update({
+  id: '/sessions/$sessionId',
+  path: '/sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/sessions/$sessionId': typeof SessionsSessionIdRoute
+  '/sessions/': typeof SessionsIndexRoute
+  '/settings/': typeof SettingsIndexRoute
+  '/snapshots/': typeof SnapshotsIndexRoute
+  '/tenants/': typeof TenantsIndexRoute
+  '/tokens/': typeof TokensIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/sessions/$sessionId': typeof SessionsSessionIdRoute
+  '/sessions': typeof SessionsIndexRoute
+  '/settings': typeof SettingsIndexRoute
+  '/snapshots': typeof SnapshotsIndexRoute
+  '/tenants': typeof TenantsIndexRoute
+  '/tokens': typeof TokensIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/sessions/$sessionId': typeof SessionsSessionIdRoute
+  '/sessions/': typeof SessionsIndexRoute
+  '/settings/': typeof SettingsIndexRoute
+  '/snapshots/': typeof SnapshotsIndexRoute
+  '/tenants/': typeof TenantsIndexRoute
+  '/tokens/': typeof TokensIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/sessions/$sessionId'
+    | '/sessions/'
+    | '/settings/'
+    | '/snapshots/'
+    | '/tenants/'
+    | '/tokens/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/sessions/$sessionId'
+    | '/sessions'
+    | '/settings'
+    | '/snapshots'
+    | '/tenants'
+    | '/tokens'
+  id:
+    | '__root__'
+    | '/'
+    | '/sessions/$sessionId'
+    | '/sessions/'
+    | '/settings/'
+    | '/snapshots/'
+    | '/tenants/'
+    | '/tokens/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SessionsSessionIdRoute: typeof SessionsSessionIdRoute
+  SessionsIndexRoute: typeof SessionsIndexRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
+  SnapshotsIndexRoute: typeof SnapshotsIndexRoute
+  TenantsIndexRoute: typeof TenantsIndexRoute
+  TokensIndexRoute: typeof TokensIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +130,59 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tokens/': {
+      id: '/tokens/'
+      path: '/tokens'
+      fullPath: '/tokens/'
+      preLoaderRoute: typeof TokensIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tenants/': {
+      id: '/tenants/'
+      path: '/tenants'
+      fullPath: '/tenants/'
+      preLoaderRoute: typeof TenantsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/snapshots/': {
+      id: '/snapshots/'
+      path: '/snapshots'
+      fullPath: '/snapshots/'
+      preLoaderRoute: typeof SnapshotsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/': {
+      id: '/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sessions/': {
+      id: '/sessions/'
+      path: '/sessions'
+      fullPath: '/sessions/'
+      preLoaderRoute: typeof SessionsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sessions/$sessionId': {
+      id: '/sessions/$sessionId'
+      path: '/sessions/$sessionId'
+      fullPath: '/sessions/$sessionId'
+      preLoaderRoute: typeof SessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SessionsSessionIdRoute: SessionsSessionIdRoute,
+  SessionsIndexRoute: SessionsIndexRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
+  SnapshotsIndexRoute: SnapshotsIndexRoute,
+  TenantsIndexRoute: TenantsIndexRoute,
+  TokensIndexRoute: TokensIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -20,6 +21,7 @@ const config = defineConfig({
     outDir: "dist",
   },
   plugins: lazyPlugins(() => [
+    tailwindcss(),
     tanstackStart({
       spa: {
         enabled: true,
