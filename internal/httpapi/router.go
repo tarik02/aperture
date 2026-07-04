@@ -98,6 +98,12 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			cdp.Any("/:sessionId", server.proxyAPICDP)
 			cdp.Any("/:sessionId/*path", server.proxyAPICDP)
 		}
+
+		control := api.Group("/control")
+		control.Use(server.requireAuth, server.requireSessionsWrite)
+		{
+			control.GET("/:sessionId", server.controlSession)
+		}
 	}
 
 	registerStaticFallback(router, staticAssets, cdpRouteBasePath)
