@@ -41,15 +41,22 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		"--share-net",
 		"--proc", "/proc",
 		"--dev", "/dev",
+		"--tmpfs", "/tmp",
+	}
+
+	for _, bind := range hostBindMounts() {
+		args = append(args, bind...)
+	}
+
+	for _, bind := range runtimeBindMounts() {
+		args = append(args, bind...)
 	}
 
 	for _, bind := range sessionBindMounts(cfg) {
 		args = append(args, bind...)
 	}
 
-	for _, bind := range hostBindMounts() {
-		args = append(args, bind...)
-	}
+	args = append(args, "--setenv", "TMPDIR", "/tmp")
 
 	for _, key := range passthroughEnvKeys() {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
@@ -84,6 +91,17 @@ func sessionBindMounts(cfg LaunchConfig) [][]string {
 	return mounts
 }
 
+func runtimeBindMounts() [][]string {
+	runtimeDir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR"))
+	if runtimeDir == "" || !filepath.IsAbs(runtimeDir) {
+		return nil
+	}
+	if _, err := os.Stat(runtimeDir); err != nil {
+		return nil
+	}
+	return [][]string{{"--bind", runtimeDir, runtimeDir}}
+}
+
 func hostBindMounts() [][]string {
 	candidates := []string{
 		"/usr",
@@ -92,7 +110,6 @@ func hostBindMounts() [][]string {
 		"/bin",
 		"/etc",
 		"/run",
-		"/tmp",
 		"/var",
 		"/nix",
 	}
