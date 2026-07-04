@@ -72,6 +72,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		sessions := api.Group("/sessions")
 		sessions.Use(server.requireAuth)
 		{
+			sessions.GET("", server.requireSessionsRead, server.listSessions)
 			sessions.POST("", server.requireSessionsWrite, server.createSession)
 			sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
 			sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
@@ -82,9 +83,12 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		snapshots := api.Group("/snapshots")
 		snapshots.Use(server.requireAuth)
 		{
+			snapshots.GET("", server.requireSnapshotsRead, server.listSnapshots)
 			snapshots.DELETE("/:name", server.requireSnapshotsWrite, server.deleteSnapshot)
 			snapshots.POST("/:name/restore", server.requireSnapshotsWrite, server.restoreSnapshot)
 		}
+
+		api.GET("/events", server.requireAuth, server.requireSessionsRead, server.listEvents)
 	}
 
 	registerStaticFallback(router, staticAssets, cdpRouteBasePath)

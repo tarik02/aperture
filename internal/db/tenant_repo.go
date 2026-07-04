@@ -53,6 +53,28 @@ func (r *Repository) ListTenants(ctx context.Context, filter TenantFilter) ([]Te
 	return tenants, nil
 }
 
+// ListTenantsPage returns tenants with cursor pagination.
+func (r *Repository) ListTenantsPage(ctx context.Context, filter TenantFilter, params PageParams) (PageResult[Tenant], error) {
+	params = NormalizePageParams(params)
+	cursor, err := parsePageCursor(params)
+	if err != nil {
+		return PageResult[Tenant]{}, err
+	}
+
+	query := r.db.bun.NewSelect().Model((*Tenant)(nil))
+	if !filter.IncludeDeleted {
+		query = query.Where("deleted_at IS NULL")
+	}
+	query = paginateCreatedAtID(query, params, cursor)
+
+	tenants := make([]Tenant, 0)
+	if err := query.Scan(ctx, &tenants); err != nil {
+		return PageResult[Tenant]{}, fmt.Errorf("list tenants page: %w", err)
+	}
+
+	return buildPageResult(tenants, params.Limit, func(t Tenant) string { return t.CreatedAt }, func(t Tenant) string { return t.ID })
+}
+
 // UpdateTenantDisplayName updates a tenant display name.
 func (r *Repository) UpdateTenantDisplayName(ctx context.Context, tenantID string, displayName string) error {
 	result, err := r.db.bun.NewUpdate().
@@ -202,11 +224,20 @@ func (r *Repository) GetAPITokenByID(ctx context.Context, tokenID string) (*APIT
 	return token, nil
 }
 
+// APITokenFilter controls API token listing behavior.
+type APITokenFilter struct {
+	TenantID *string
+}
+
 // ListAPITokens returns API tokens, optionally filtered by tenant.
 func (r *Repository) ListAPITokens(ctx context.Context, tenantID *string) ([]APIToken, error) {
+	return r.listAPITokens(ctx, APITokenFilter{TenantID: tenantID})
+}
+
+func (r *Repository) listAPITokens(ctx context.Context, filter APITokenFilter) ([]APIToken, error) {
 	query := r.db.bun.NewSelect().Model((*APIToken)(nil)).OrderExpr("created_at ASC")
-	if tenantID != nil {
-		query = query.Where("tenant_id = ?", *tenantID)
+	if filter.TenantID != nil {
+		query = query.Where("tenant_id = ?", *filter.TenantID)
 	}
 
 	tokens := make([]APIToken, 0)
@@ -214,6 +245,28 @@ func (r *Repository) ListAPITokens(ctx context.Context, tenantID *string) ([]API
 		return nil, fmt.Errorf("list api tokens: %w", err)
 	}
 	return tokens, nil
+}
+
+// ListAPITokensPage returns API tokens with cursor pagination.
+func (r *Repository) ListAPITokensPage(ctx context.Context, filter APITokenFilter, params PageParams) (PageResult[APIToken], error) {
+	params = NormalizePageParams(params)
+	cursor, err := parsePageCursor(params)
+	if err != nil {
+		return PageResult[APIToken]{}, err
+	}
+
+	query := r.db.bun.NewSelect().Model((*APIToken)(nil))
+	if filter.TenantID != nil {
+		query = query.Where("tenant_id = ?", *filter.TenantID)
+	}
+	query = paginateCreatedAtID(query, params, cursor)
+
+	tokens := make([]APIToken, 0)
+	if err := query.Scan(ctx, &tokens); err != nil {
+		return PageResult[APIToken]{}, fmt.Errorf("list api tokens page: %w", err)
+	}
+
+	return buildPageResult(tokens, params.Limit, func(t APIToken) string { return t.CreatedAt }, func(t APIToken) string { return t.ID })
 }
 
 // RevokeAPIToken marks a token revoked at the given timestamp.

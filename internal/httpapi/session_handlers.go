@@ -10,16 +10,23 @@ import (
 )
 
 func toSessionResponse(view *session.SessionView) sessionResponse {
-	return sessionResponse{
+	resp := sessionResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
 		BaseSnapshotName: view.BaseSnapshotName,
 		Status:           view.Session.Status,
+		BrowserChannel:   view.Session.BrowserChannel,
 		CreatedAt:        view.Session.CreatedAt,
+		StartedAt:        view.Session.StartedAt,
+		StoppedAt:        view.Session.StoppedAt,
 		DeletedAt:        view.Session.DeletedAt,
 		ExpiresAt:        view.Session.ExpiresAt,
 		Tags:             view.Tags,
 	}
+	if view.CDPURL != "" {
+		resp.CDPURL = view.CDPURL
+	}
+	return resp
 }
 
 func (s *Server) createSession(c *gin.Context) {

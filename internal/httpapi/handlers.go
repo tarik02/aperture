@@ -70,18 +70,24 @@ func (s *Server) createTenant(c *gin.Context) {
 }
 
 func (s *Server) listTenants(c *gin.Context) {
-	includeDeleted := c.Query("includeDeleted") == "true"
-	tenants, err := s.Auth.ListTenants(c.Request.Context(), includeDeleted)
+	includeDeleted := parseIncludeDeleted(c)
+	params, err := parsePageParams(c)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 
-	resp := make([]tenantResponse, 0, len(tenants))
-	for _, tenant := range tenants {
+	page, err := s.Auth.ListTenantsPage(c.Request.Context(), includeDeleted, params)
+	if err != nil {
+		WriteError(c, mapInvalidCursor(err))
+		return
+	}
+
+	resp := make([]tenantResponse, 0, len(page.Items))
+	for _, tenant := range page.Items {
 		resp = append(resp, toTenantResponse(tenant))
 	}
-	c.JSON(200, gin.H{"tenants": resp})
+	c.JSON(200, paginatedResponse[tenantResponse]{Data: resp, Meta: page.Meta})
 }
 
 func (s *Server) updateTenant(c *gin.Context) {
@@ -163,14 +169,20 @@ func (s *Server) listAdminTokens(c *gin.Context) {
 		tenantID = &raw
 	}
 
-	tokens, err := s.Auth.ListTokens(c.Request.Context(), tenantID)
+	params, err := parsePageParams(c)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 
-	resp := make([]tokenResponse, 0, len(tokens))
-	for _, token := range tokens {
+	page, err := s.Auth.ListTokensPage(c.Request.Context(), tenantID, params)
+	if err != nil {
+		WriteError(c, mapInvalidCursor(err))
+		return
+	}
+
+	resp := make([]tokenResponse, 0, len(page.Items))
+	for _, token := range page.Items {
 		mapped, err := toTokenResponse(token)
 		if err != nil {
 			WriteError(c, err)
@@ -178,7 +190,7 @@ func (s *Server) listAdminTokens(c *gin.Context) {
 		}
 		resp = append(resp, mapped)
 	}
-	c.JSON(200, gin.H{"tokens": resp})
+	c.JSON(200, paginatedResponse[tokenResponse]{Data: resp, Meta: page.Meta})
 }
 
 func (s *Server) revokeAdminToken(c *gin.Context) {
@@ -266,14 +278,20 @@ func (s *Server) listTenantTokens(c *gin.Context) {
 	principal := c.MustGet("principal").(auth.Principal)
 	tenantID := *principal.TenantID
 
-	tokens, err := s.Auth.ListTokens(c.Request.Context(), &tenantID)
+	params, err := parsePageParams(c)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 
-	resp := make([]tokenResponse, 0, len(tokens))
-	for _, token := range tokens {
+	page, err := s.Auth.ListTokensPage(c.Request.Context(), &tenantID, params)
+	if err != nil {
+		WriteError(c, mapInvalidCursor(err))
+		return
+	}
+
+	resp := make([]tokenResponse, 0, len(page.Items))
+	for _, token := range page.Items {
 		mapped, err := toTokenResponse(token)
 		if err != nil {
 			WriteError(c, err)
@@ -281,7 +299,7 @@ func (s *Server) listTenantTokens(c *gin.Context) {
 		}
 		resp = append(resp, mapped)
 	}
-	c.JSON(200, gin.H{"tokens": resp})
+	c.JSON(200, paginatedResponse[tokenResponse]{Data: resp, Meta: page.Meta})
 }
 
 func (s *Server) revokeTenantToken(c *gin.Context) {

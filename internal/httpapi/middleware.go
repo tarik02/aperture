@@ -5,6 +5,7 @@ import (
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
@@ -17,6 +18,7 @@ type Server struct {
 	Sessions  *session.Service
 	Snapshots *snapshot.Service
 	Promotion *snapshot.PromotionService
+	Events    *event.Service
 	GC        *gc.Service
 	Channels  *browser.Registry
 	jobToken  string
@@ -121,6 +123,13 @@ func bindJSON(c *gin.Context, dst validatableRequest) error {
 
 func selectedTenantID(c *gin.Context) string {
 	return strings.TrimSpace(c.GetHeader(auth.TenantHeader))
+}
+
+func (s *Server) requireSnapshotsRead(c *gin.Context) {
+	if !s.requireSnapshotScope(c, auth.ScopeSnapshotsRead) {
+		return
+	}
+	c.Next()
 }
 
 func (s *Server) requireSessionsRead(c *gin.Context) {

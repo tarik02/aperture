@@ -31,6 +31,52 @@ type SnapshotView struct {
 	Tags     map[string]string
 }
 
+// ListFilter configures snapshot listing.
+type ListFilter struct {
+	IncludeDeleted bool
+	TagKey         string
+	TagValue       string
+}
+
+// List returns tenant snapshots with cursor pagination.
+func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, params db.PageParams) (db.PageResult[SnapshotView], error) {
+	page, err := s.repo.ListSnapshotsPage(ctx, db.SnapshotFilter{
+		TenantID:       tenantID,
+		IncludeDeleted: filter.IncludeDeleted,
+		TagKey:         filter.TagKey,
+		TagValue:       filter.TagValue,
+	}, params)
+	if err != nil {
+		return db.PageResult[SnapshotView]{}, err
+	}
+	if len(page.Items) == 0 {
+		return db.PageResult[SnapshotView]{Meta: page.Meta}, nil
+	}
+
+	snapshotIDs := make([]string, 0, len(page.Items))
+	for _, snapshotRow := range page.Items {
+		snapshotIDs = append(snapshotIDs, snapshotRow.ID)
+	}
+
+	tagsBySnapshot, err := s.repo.ListSnapshotTagsForSnapshots(ctx, snapshotIDs)
+	if err != nil {
+		return db.PageResult[SnapshotView]{}, err
+	}
+
+	views := make([]SnapshotView, 0, len(page.Items))
+	for _, snapshotRow := range page.Items {
+		views = append(views, SnapshotView{
+			Snapshot: snapshotRow,
+			Tags:     tagsBySnapshot[snapshotRow.ID],
+		})
+	}
+
+	return db.PageResult[SnapshotView]{
+		Items: views,
+		Meta:  page.Meta,
+	}, nil
+}
+
 // Delete tombstones a snapshot.
 func (s *Service) Delete(ctx context.Context, tenantID, name string) (*SnapshotView, error) {
 	snapshotRow, err := s.requireTenantSnapshot(ctx, tenantID, name)

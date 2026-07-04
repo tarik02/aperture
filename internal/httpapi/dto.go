@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -163,11 +164,17 @@ type sessionResponse struct {
 	TenantID         string            `json:"tenantId"`
 	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
 	Status           string            `json:"status"`
+	BrowserChannel   string            `json:"browserChannel,omitempty"`
 	CreatedAt        string            `json:"createdAt"`
+	StartedAt        *string           `json:"startedAt,omitempty"`
+	StoppedAt        *string           `json:"stoppedAt,omitempty"`
 	DeletedAt        *string           `json:"deletedAt"`
 	ExpiresAt        string            `json:"expiresAt"`
 	Tags             map[string]string `json:"tags,omitempty"`
+	CDPURL           string            `json:"cdpUrl,omitempty"`
 }
+
+type sessionListItemResponse = sessionResponse
 
 type createSessionResponse struct {
 	Session  sessionResponse `json:"session"`
@@ -192,12 +199,28 @@ func (r promoteSessionRequest) Validate() error {
 }
 
 type snapshotResponse struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	TenantID  string            `json:"tenantId"`
-	CreatedAt string            `json:"createdAt"`
-	DeletedAt *string           `json:"deletedAt"`
-	Tags      map[string]string `json:"tags,omitempty"`
+	ID                    string            `json:"id"`
+	Name                  string            `json:"name"`
+	TenantID              string            `json:"tenantId"`
+	ParentSnapshotID      *string           `json:"parentSnapshotId,omitempty"`
+	PromotedFromSessionID *string           `json:"promotedFromSessionId,omitempty"`
+	CreatedAt             string            `json:"createdAt"`
+	DeletedAt             *string           `json:"deletedAt"`
+	ExpiresAt             *string           `json:"expiresAt,omitempty"`
+	Tags                  map[string]string `json:"tags,omitempty"`
+}
+
+type snapshotListItemResponse = snapshotResponse
+
+type eventListItemResponse struct {
+	ID           string          `json:"id"`
+	TenantID     string          `json:"tenantId"`
+	ResourceType string          `json:"resourceType"`
+	ResourceID   string          `json:"resourceId"`
+	Type         string          `json:"type"`
+	Message      string          `json:"message"`
+	Data         json.RawMessage `json:"data"`
+	CreatedAt    string          `json:"createdAt"`
 }
 
 type promoteSessionResponse struct {

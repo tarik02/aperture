@@ -10,6 +10,7 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/httpapi"
 	"github.com/aperture/aperture/internal/jobtoken"
@@ -32,6 +33,7 @@ type App struct {
 	Sessions   *session.Service
 	Snapshots  *snapshot.Service
 	Promotion  *snapshot.PromotionService
+	Events     *event.Service
 	GC         *gc.Service
 	Channels   *browser.Registry
 }
@@ -83,6 +85,7 @@ func (a *App) initSessions() error {
 	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
 	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
 	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
+	a.Events = event.NewService(a.Repository)
 	a.GC = gc.NewService(a.Config, a.Repository, browserSupervisor, overlayClient, traefik.NewService(a.Config, a.Repository))
 	return nil
 }
@@ -123,6 +126,7 @@ func (a *App) Serve(ctx context.Context) error {
 		Sessions:  a.Sessions,
 		Snapshots: a.Snapshots,
 		Promotion: a.Promotion,
+		Events:    a.Events,
 		GC:        a.GC,
 		Channels:  a.Channels,
 	}

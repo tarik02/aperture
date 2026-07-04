@@ -15,6 +15,7 @@ import (
 
 var (
 	errChannelsUnavailable         = errors.New("browser channels unavailable")
+	errEventServiceUnavailable     = errors.New("event service unavailable")
 	errGCServiceUnavailable        = errors.New("gc service unavailable")
 	errSessionServiceUnavailable   = errors.New("session service unavailable")
 	errPromotionServiceUnavailable = errors.New("promotion service unavailable")
@@ -124,6 +125,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_not_promotable", err.Error()
 	case errors.Is(err, errChannelsUnavailable):
 		return http.StatusInternalServerError, "browser_channels_unavailable", err.Error()
+	case errors.Is(err, errEventServiceUnavailable):
+		return http.StatusInternalServerError, "event_service_unavailable", err.Error()
 	case errors.Is(err, errGCServiceUnavailable):
 		return http.StatusInternalServerError, "gc_service_unavailable", err.Error()
 	case errors.Is(err, errSessionServiceUnavailable):

@@ -436,6 +436,75 @@ func (s *Service) RotateCDPToken(ctx context.Context, tenantID, sessionID string
 	}, nil
 }
 
+// ListFilter configures session listing.
+type ListFilter struct {
+	IncludeDeleted bool
+	Status         *string
+	TagKey         string
+	TagValue       string
+}
+
+// List returns tenant sessions with cursor pagination.
+func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, params db.PageParams) (db.PageResult[SessionView], error) {
+	page, err := s.repo.ListSessionsPage(ctx, db.SessionFilter{
+		TenantID:       tenantID,
+		IncludeDeleted: filter.IncludeDeleted,
+		Status:         filter.Status,
+		TagKey:         filter.TagKey,
+		TagValue:       filter.TagValue,
+	}, params)
+	if err != nil {
+		return db.PageResult[SessionView]{}, err
+	}
+	if len(page.Items) == 0 {
+		return db.PageResult[SessionView]{Meta: page.Meta}, nil
+	}
+
+	sessionIDs := make([]string, 0, len(page.Items))
+	snapshotIDs := make([]string, 0)
+	for _, sessionRow := range page.Items {
+		sessionIDs = append(sessionIDs, sessionRow.ID)
+		if sessionRow.BaseSnapshotID != nil {
+			snapshotIDs = append(snapshotIDs, *sessionRow.BaseSnapshotID)
+		}
+	}
+
+	tagsBySession, err := s.repo.ListSessionTagsForSessions(ctx, sessionIDs)
+	if err != nil {
+		return db.PageResult[SessionView]{}, err
+	}
+	snapshotNames, err := s.repo.ListSnapshotNamesByIDs(ctx, snapshotIDs)
+	if err != nil {
+		return db.PageResult[SessionView]{}, err
+	}
+
+	views := make([]SessionView, 0, len(page.Items))
+	for _, sessionRow := range page.Items {
+		var baseSnapshotName *string
+		if sessionRow.BaseSnapshotID != nil {
+			if name, ok := snapshotNames[*sessionRow.BaseSnapshotID]; ok {
+				nameCopy := name
+				baseSnapshotName = &nameCopy
+			}
+		}
+
+		view := SessionView{
+			Session:          sessionRow,
+			Tags:             tagsBySession[sessionRow.ID],
+			BaseSnapshotName: baseSnapshotName,
+		}
+		if sessionRow.Status == db.SessionStatusRunning && sessionRow.CurrentCDPPort != nil {
+			view.CDPURL = s.cdpURL(sessionRow.ID)
+		}
+		views = append(views, view)
+	}
+
+	return db.PageResult[SessionView]{
+		Items: views,
+		Meta:  page.Meta,
+	}, nil
+}
+
 // ReconcileStartup aligns DB session state with systemd and runtime files after restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)

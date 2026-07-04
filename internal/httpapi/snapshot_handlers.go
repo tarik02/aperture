@@ -11,12 +11,15 @@ import (
 
 func toSnapshotResponse(view *snapshot.SnapshotView) snapshotResponse {
 	return snapshotResponse{
-		ID:        view.Snapshot.ID,
-		Name:      view.Snapshot.Name,
-		TenantID:  view.Snapshot.TenantID,
-		CreatedAt: view.Snapshot.CreatedAt,
-		DeletedAt: view.Snapshot.DeletedAt,
-		Tags:      view.Tags,
+		ID:                    view.Snapshot.ID,
+		Name:                  view.Snapshot.Name,
+		TenantID:              view.Snapshot.TenantID,
+		ParentSnapshotID:      view.Snapshot.ParentSnapshotID,
+		PromotedFromSessionID: view.Snapshot.PromotedFromSessionID,
+		CreatedAt:             view.Snapshot.CreatedAt,
+		DeletedAt:             view.Snapshot.DeletedAt,
+		ExpiresAt:             view.Snapshot.ExpiresAt,
+		Tags:                  view.Tags,
 	}
 }
 
