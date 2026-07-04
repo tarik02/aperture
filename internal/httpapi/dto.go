@@ -230,3 +230,22 @@ type promoteSessionResponse struct {
 type snapshotMutationResponse struct {
 	Snapshot snapshotResponse `json:"snapshot"`
 }
+
+type replaceTagsRequest struct {
+	Tags map[string]string `json:"tags"`
+}
+
+func (r replaceTagsRequest) Validate() error {
+	if r.Tags == nil {
+		return validationError("tags is required")
+	}
+	for key, value := range r.Tags {
+		if strings.TrimSpace(key) == "" {
+			return validationError("tag keys must be non-empty")
+		}
+		if strings.TrimSpace(value) == "" {
+			return validationError("tag values must be non-empty")
+		}
+	}
+	return nil
+}

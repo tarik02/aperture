@@ -436,6 +436,45 @@ func (s *Service) RotateCDPToken(ctx context.Context, tenantID, sessionID string
 	}, nil
 }
 
+// ReplaceTags replaces the exact tag set for a tenant-owned session.
+func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, tags map[string]string) (*SessionView, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.replaceTags(ctx, sessionID, tags); err != nil {
+		return nil, err
+	}
+
+	tagMap, err := s.repo.ListSessionTags(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	var baseSnapshotName *string
+	if sessionRow.BaseSnapshotID != nil {
+		snapshotNames, err := s.repo.ListSnapshotNamesByIDs(ctx, []string{*sessionRow.BaseSnapshotID})
+		if err != nil {
+			return nil, err
+		}
+		if name, ok := snapshotNames[*sessionRow.BaseSnapshotID]; ok {
+			nameCopy := name
+			baseSnapshotName = &nameCopy
+		}
+	}
+
+	view := SessionView{
+		Session:          *sessionRow,
+		Tags:             tagMap,
+		BaseSnapshotName: baseSnapshotName,
+	}
+	if sessionRow.Status == db.SessionStatusRunning && sessionRow.CurrentCDPPort != nil {
+		view.CDPURL = s.cdpURL(sessionRow.ID)
+	}
+	return &view, nil
+}
+
 // ListFilter configures session listing.
 type ListFilter struct {
 	IncludeDeleted bool

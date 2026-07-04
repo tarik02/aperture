@@ -50,6 +50,27 @@ func (s *Server) promoteSession(c *gin.Context) {
 	c.JSON(http.StatusOK, promoteSessionResponse{Snapshot: toSnapshotResponse(view)})
 }
 
+func (s *Server) replaceSnapshotTags(c *gin.Context) {
+	if s.Snapshots == nil {
+		WriteError(c, errSnapshotServiceUnavailable)
+		return
+	}
+
+	var req replaceTagsRequest
+	if err := bindJSON(c, &req); err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	view, err := s.Snapshots.ReplaceTags(c.Request.Context(), tenantIDFromContext(c), c.Param("name"), req.Tags)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: toSnapshotResponse(view)})
+}
+
 func (s *Server) deleteSnapshot(c *gin.Context) {
 	if s.Snapshots == nil {
 		WriteError(c, errSnapshotServiceUnavailable)

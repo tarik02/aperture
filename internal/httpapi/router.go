@@ -75,6 +75,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			sessions.GET("", server.requireSessionsRead, server.listSessions)
 			sessions.POST("", server.requireSessionsWrite, server.createSession)
 			sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
+			sessions.PUT("/:sessionId/tags", server.requireSessionsWrite, server.replaceSessionTags)
 			sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
 			sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
 			sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
@@ -85,6 +86,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		{
 			snapshots.GET("", server.requireSnapshotsRead, server.listSnapshots)
 			snapshots.DELETE("/:name", server.requireSnapshotsWrite, server.deleteSnapshot)
+			snapshots.PUT("/:name/tags", server.requireSnapshotsWrite, server.replaceSnapshotTags)
 			snapshots.POST("/:name/restore", server.requireSnapshotsWrite, server.restoreSnapshot)
 		}
 

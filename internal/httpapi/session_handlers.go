@@ -89,6 +89,29 @@ func (s *Server) deleteSession(c *gin.Context) {
 	})
 }
 
+func (s *Server) replaceSessionTags(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+
+	var req replaceTagsRequest
+	if err := bindJSON(c, &req); err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	view, err := s.Sessions.ReplaceTags(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), req.Tags)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, sessionMutationResponse{
+		Session: toSessionResponse(view),
+	})
+}
+
 func (s *Server) reopenSession(c *gin.Context) {
 	if s.Sessions == nil {
 		WriteError(c, errSessionServiceUnavailable)

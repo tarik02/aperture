@@ -77,6 +77,27 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 	}, nil
 }
 
+// ReplaceTags replaces the exact tag set for a tenant-owned snapshot.
+func (s *Service) ReplaceTags(ctx context.Context, tenantID, name string, tags map[string]string) (*SnapshotView, error) {
+	snapshotRow, err := s.requireTenantSnapshot(ctx, tenantID, name)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]db.SnapshotTag, 0, len(tags))
+	for key, value := range tags {
+		rows = append(rows, db.SnapshotTag{
+			SnapshotID: snapshotRow.ID,
+			Key:        key,
+			Value:      value,
+		})
+	}
+	if err := s.repo.ReplaceSnapshotTags(ctx, snapshotRow.ID, rows); err != nil {
+		return nil, err
+	}
+	return s.view(ctx, snapshotRow)
+}
+
 // Delete tombstones a snapshot.
 func (s *Service) Delete(ctx context.Context, tenantID, name string) (*SnapshotView, error) {
 	snapshotRow, err := s.requireTenantSnapshot(ctx, tenantID, name)
