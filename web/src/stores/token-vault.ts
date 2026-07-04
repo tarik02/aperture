@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { AuthMeResponse } from "#/lib/auth-me.ts";
+import type { AuthMeResponse } from "#/lib/api/schemas.ts";
 import { formatRawTokenLabel, maskTokenId, parseTokenId } from "#/lib/token-id.ts";
 
 export type AuthorityType = "system_admin" | "tenant";

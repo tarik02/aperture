@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { ApiRequestError, fetchAuthMe } from "#/lib/auth-me.ts";
+import { ApiRequestError } from "#/lib/api/errors.ts";
+import { fetchAuthMe } from "#/lib/auth-me.ts";
 import {
   selectActiveProfile,
   useTokenVaultStore,
