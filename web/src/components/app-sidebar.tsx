@@ -1,8 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { KeyRound } from "lucide-react";
+import { TokenSwitcher } from "#/components/token-switcher.tsx";
 import { primaryNavItems } from "#/lib/navigation.ts";
 import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import {
+  isSystemAdminProfile,
+  selectActiveProfile,
+  useTokenVaultStore,
+} from "#/stores/token-vault.ts";
 import {
   Sidebar,
   SidebarContent,
@@ -27,6 +31,9 @@ function isNavActive(pathname: string, to: string) {
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const activeProfile = useTokenVaultStore(selectActiveProfile);
+  const isSystemAdmin = isSystemAdminProfile(activeProfile);
+  const navItems = primaryNavItems.filter((item) => !item.adminOnly || isSystemAdmin);
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -45,7 +52,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navigate</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {primaryNavItems.map((item) => (
+              {navItems.map((item) => (
                 <SidebarMenuItem key={item.to}>
                   <SidebarMenuButton
                     isActive={isNavActive(pathname, item.to)}
@@ -71,15 +78,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
-          disabled
-        >
-          <KeyRound data-icon="inline-start" />
-          <span className="truncate group-data-[collapsible=icon]:hidden">No token</span>
-        </Button>
+        <TokenSwitcher />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
