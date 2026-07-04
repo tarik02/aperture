@@ -19,7 +19,7 @@ export function ConnectionPanel({ session, transientCdp, onRotate }: ConnectionP
   const rotateMutation = useRotateCdpTokenMutation();
 
   const apiProxyUrl = `/api/cdp/${session.id}`;
-  const rawCdpUrl = transientCdp?.cdpUrl;
+  const rawCdpUrl = transientCdp?.cdpUrl ?? session.cdpUrl;
 
   async function handleRotate() {
     const result = await rotateMutation.mutateAsync(session.id);

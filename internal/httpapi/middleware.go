@@ -30,17 +30,11 @@ func (s *Server) SetJobToken(token string) {
 }
 
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
-	header := strings.TrimSpace(c.GetHeader("Authorization"))
-	if header == "" {
-		return auth.Principal{}, auth.ErrTokenMissing
+	rawToken, err := rawTokenFromRequest(c)
+	if err != nil {
+		return auth.Principal{}, err
 	}
 
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return auth.Principal{}, auth.ErrTokenInvalid
-	}
-
-	rawToken := strings.TrimSpace(header[len(prefix):])
 	principal, err := s.Auth.Authenticate(c.Request.Context(), rawToken)
 	if err != nil {
 		return auth.Principal{}, err
@@ -48,6 +42,66 @@ func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 
 	c.Request = c.Request.WithContext(auth.WithPrincipal(c.Request.Context(), principal))
 	return principal, nil
+}
+
+func rawTokenFromRequest(c *gin.Context) (string, error) {
+	header := strings.TrimSpace(c.GetHeader("Authorization"))
+	if header != "" {
+		token, ok := rawTokenFromAuthorization(header)
+		if !ok {
+			return "", auth.ErrTokenInvalid
+		}
+		return token, nil
+	}
+	if isWebSocketUpgrade(c.Request) {
+		if token, ok := rawTokenFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol")); ok {
+			return token, nil
+		}
+	}
+	return "", auth.ErrTokenMissing
+}
+
+func rawTokenFromAuthorization(header string) (string, bool) {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return "", false
+	}
+
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return "", false
+	}
+
+	rawToken := strings.TrimSpace(header[len(prefix):])
+	if rawToken == "" {
+		return "", false
+	}
+	return rawToken, true
+}
+
+func rawTokenFromWebSocketProtocol(header string) (string, bool) {
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(part)
+		const prefix = "authorization.bearer."
+		if strings.HasPrefix(part, prefix) {
+			rawToken := strings.TrimSpace(part[len(prefix):])
+			if rawToken != "" {
+				return rawToken, true
+			}
+		}
+	}
+	return "", false
+}
+
+func tenantIDFromWebSocketProtocol(header string) string {
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(part)
+		const prefix = "x-aperture-tenant-id."
+		if strings.HasPrefix(part, prefix) {
+			return strings.TrimSpace(part[len(prefix):])
+		}
+	}
+	return ""
 }
 
 func (s *Server) requireAuth(c *gin.Context) {
@@ -122,7 +176,13 @@ func bindJSON(c *gin.Context, dst validatableRequest) error {
 }
 
 func selectedTenantID(c *gin.Context) string {
-	return strings.TrimSpace(c.GetHeader(auth.TenantHeader))
+	if header := strings.TrimSpace(c.GetHeader(auth.TenantHeader)); header != "" {
+		return header
+	}
+	if isWebSocketUpgrade(c.Request) {
+		return tenantIDFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol"))
+	}
+	return ""
 }
 
 func (s *Server) requireSnapshotsRead(c *gin.Context) {
