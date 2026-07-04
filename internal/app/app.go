@@ -124,7 +124,7 @@ func (a *App) Serve(ctx context.Context) error {
 		GC:        a.GC,
 	}
 	server.SetJobToken(jobToken)
-	router := httpapi.NewRouter(a.Logger, server)
+	router := httpapi.NewRouter(a.Logger, server, nil, a.Config.CdpRouteBasePath)
 	httpServer := &http.Server{
 		Addr:    a.Config.ListenAddress,
 		Handler: router,

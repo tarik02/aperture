@@ -668,8 +668,8 @@ func (s *Service) overlayPresent(sessionRow *db.Session) bool {
 }
 
 func (s *Service) cdpURL(sessionID string) string {
-	base := s.cfg.ExternalBaseURL + s.cfg.CdpRouteBasePath
-	return fmt.Sprintf("%s/%s/cdp", base, sessionID)
+	base := strings.TrimRight(s.cfg.ExternalBaseURL+s.cfg.CdpRouteBasePath, "/")
+	return fmt.Sprintf("%s/%s", base, sessionID)
 }
 
 func isExpired(expiresAt string, now time.Time) bool {

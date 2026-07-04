@@ -39,7 +39,7 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 	}
 
 	doc.HTTP.Routers["aperture-api"] = routerConfig{
-		Rule:        apiRouterRule(cfg.CdpRouteBasePath),
+		Rule:        apertureCatchAllRule(cfg.CdpRouteBasePath),
 		Service:     "aperture-api",
 		Priority:    apiRouterPriority,
 		EntryPoints: []string{"web"},
@@ -50,7 +50,7 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 		},
 	}
 
-	cdpBase := strings.TrimRight(cfg.CdpRouteBasePath, "/")
+	cdpBase := normalizedCDPRouteBase(cfg.CdpRouteBasePath)
 	for _, session := range running {
 		if session.ID == "" || session.CDPPort <= 0 {
 			continue
@@ -59,7 +59,7 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 		routerName := cdpRouterName(session.ID)
 		middlewareName := cdpMiddlewareName(session.ID)
 		serviceName := cdpServiceName(session.ID)
-		routePrefix := fmt.Sprintf("%s/%s/cdp", cdpBase, session.ID)
+		routePrefix := fmt.Sprintf("%s/%s", cdpBase, session.ID)
 		forwardAuthURL := fmt.Sprintf(
 			"%s/internal/forward-auth/cdp/%s",
 			strings.TrimRight(apertureURL, "/"),
@@ -127,22 +127,20 @@ func RenderStaticConfig(entrypointAddress, dynamicConfigPath string) ([]byte, er
 	return out, nil
 }
 
-func apiRouterRule(cdpRouteBasePath string) string {
+func apertureCatchAllRule(cdpRouteBasePath string) string {
+	cdpBase := normalizedCDPRouteBase(cdpRouteBasePath)
+	return fmt.Sprintf(
+		"PathPrefix(`/`) && !PathPrefix(`/internal`) && !PathPrefix(`%s`)",
+		escapeTraefikPath(cdpBase),
+	)
+}
+
+func normalizedCDPRouteBase(cdpRouteBasePath string) string {
 	base := strings.TrimRight(strings.TrimSpace(cdpRouteBasePath), "/")
 	if base == "" {
-		base = "/sessions"
+		return "/cdp"
 	}
-	rules := []string{
-		"PathPrefix(`/api/admin`)",
-		"PathPrefix(`/api/tenant`)",
-		"PathPrefix(`/api/snapshots`)",
-		"PathPrefix(`/api/sessions`)",
-		"Path(`/api/health`)",
-	}
-	if base != "/sessions" {
-		rules = append(rules, fmt.Sprintf("PathPrefix(`%s`)", escapeTraefikPath(base)))
-	}
-	return strings.Join(rules, " || ")
+	return base
 }
 
 func cdpRouterRule(routePrefix string) string {

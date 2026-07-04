@@ -56,7 +56,7 @@ func Defaults() Config {
 		SnapshotRetentionDays:    7,
 		ChannelRegistry:          nil,
 		ExternalBaseURL:          "",
-		CdpRouteBasePath:         "/sessions",
+		CdpRouteBasePath:         "/cdp",
 		LogLevel:                 "info",
 	}
 }

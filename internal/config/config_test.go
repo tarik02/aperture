@@ -34,6 +34,12 @@ func TestValidateRejectsRelativePaths(t *testing.T) {
 	if err := Validate(cfg); err == nil {
 		t.Fatal("expected relative store_root to fail validation")
 	}
+
+	cfg = validTestConfig(t)
+	cfg.CdpRouteBasePath = "/internal/cdp"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected cdp_route_base_path under /internal to fail validation")
+	}
 }
 
 func TestLoadUsesFlagPrecedence(t *testing.T) {

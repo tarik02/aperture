@@ -133,7 +133,7 @@ func newTestService(t *testing.T) (*Service, config.Config, *db.Repository, *fak
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
 		ExternalBaseURL:  "https://browser.example.test",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
 

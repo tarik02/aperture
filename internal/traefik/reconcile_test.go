@@ -22,7 +22,7 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 		RuntimeRoot:              filepath.Join(root, "runtime"),
 		TraefikDynamicConfigPath: filepath.Join(root, "runtime", "traefik", "dynamic.yaml"),
 		ListenAddress:            "127.0.0.1:8080",
-		CdpRouteBasePath:         "/sessions",
+		CdpRouteBasePath:         "/cdp",
 	}
 
 	database, err := db.Open(ctx, filepath.Join(root, "store", "aperture.db"))

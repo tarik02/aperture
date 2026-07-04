@@ -46,11 +46,13 @@ func Validate(cfg Config) error {
 		errs = append(errs, errors.New("external_base_url must include scheme and host"))
 	}
 
-	cdpRoute := strings.TrimSpace(cfg.CdpRouteBasePath)
+	cdpRoute := strings.TrimRight(strings.TrimSpace(cfg.CdpRouteBasePath), "/")
 	if cdpRoute == "" {
 		errs = append(errs, errors.New("cdp_route_base_path is required"))
 	} else if !strings.HasPrefix(cdpRoute, "/") {
 		errs = append(errs, errors.New("cdp_route_base_path must start with /"))
+	} else if cdpRoute == "/internal" || strings.HasPrefix(cdpRoute, "/internal/") {
+		errs = append(errs, errors.New("cdp_route_base_path must not be under /internal"))
 	}
 
 	if len(cfg.ChannelRegistry) == 0 {

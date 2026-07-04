@@ -1,14 +1,16 @@
 package httpapi
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-// NewRouter returns the HTTP API router.
-func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
+// NewRouter returns the HTTP API router. staticAssets may be nil to disable SPA
+// fallback. cdpRouteBasePath reserves CDP paths from SPA fallback.
+func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteBasePath string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -72,6 +74,8 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 			snapshots.POST("/:name/restore", server.requireSnapshotsWrite, server.restoreSnapshot)
 		}
 	}
+
+	registerStaticFallback(router, staticAssets, cdpRouteBasePath)
 
 	return router
 }

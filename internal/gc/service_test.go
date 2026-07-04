@@ -104,7 +104,7 @@ func newGCTestService(t *testing.T) (*Service, config.Config, *db.Repository, *g
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
 		ExternalBaseURL:  "https://browser.example.test",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
 

@@ -95,7 +95,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 			},
 		},
 		ExternalBaseURL:  "http://127.0.0.1",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
 

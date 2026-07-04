@@ -40,7 +40,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	repo := db.NewRepository(database)
 	service := auth.NewService(repo)
 	server := &Server{Auth: service}
-	router := NewRouter(zap.NewNop(), server)
+	router := NewRouter(zap.NewNop(), server, nil, "")
 
 	adminCreated, err := service.Bootstrap(ctx, auth.BootstrapInput{Name: "admin"})
 	if err != nil {
@@ -101,7 +101,7 @@ func (env *testEnv) do(t *testing.T, method, path, token string, tenantHeader st
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
-	router := NewRouter(zap.NewNop(), &Server{Auth: auth.NewService(nil)})
+	router := NewRouter(zap.NewNop(), &Server{Auth: auth.NewService(nil)}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
 

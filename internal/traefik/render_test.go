@@ -13,7 +13,7 @@ import (
 func testConfig() config.Config {
 	return config.Config{
 		ListenAddress:    "127.0.0.1:8080",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 	}
 }
 
@@ -31,7 +31,7 @@ func TestRenderDynamicConfigGoldenNoSessions(t *testing.T) {
 	}
 }
 
-func TestRenderDynamicConfigIncludesSessionsAPIWithCustomCDPBase(t *testing.T) {
+func TestRenderDynamicConfigIncludesCustomCDPBase(t *testing.T) {
 	t.Parallel()
 
 	cfg := testConfig()
@@ -46,13 +46,10 @@ func TestRenderDynamicConfigIncludesSessionsAPIWithCustomCDPBase(t *testing.T) {
 	}
 	rendered := string(got)
 
-	if !strings.Contains(rendered, "PathPrefix(`/api/sessions`)") {
-		t.Fatalf("api router missing /api/sessions prefix:\n%s", rendered)
+	if !strings.Contains(rendered, "PathPrefix(`/`) && !PathPrefix(`/internal`) && !PathPrefix(`/browser`)") {
+		t.Fatalf("catch-all router missing custom cdp base exclusion:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "PathPrefix(`/browser`)") {
-		t.Fatalf("api router missing custom cdp base:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "Path(`/browser/018f1234-0000-7000-8000-000000000001/cdp`) || PathPrefix(`/browser/018f1234-0000-7000-8000-000000000001/cdp/`)") {
+	if !strings.Contains(rendered, "Path(`/browser/018f1234-0000-7000-8000-000000000001`) || PathPrefix(`/browser/018f1234-0000-7000-8000-000000000001/`)") {
 		t.Fatalf("cdp router rule mismatch:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "cdp-token/rotate") {

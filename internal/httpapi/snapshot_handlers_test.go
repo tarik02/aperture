@@ -38,7 +38,7 @@ func newSnapshotHandlerTestEnv(t *testing.T) (*testEnv, *snapshot.PromotionServi
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
 		ExternalBaseURL:  "https://browser.example.test",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
 
@@ -61,7 +61,7 @@ func newSnapshotHandlerTestEnv(t *testing.T) (*testEnv, *snapshot.PromotionServi
 		Snapshots: snapshots,
 		Promotion: promotion,
 	}
-	env.router = NewRouter(zap.NewNop(), server)
+	env.router = NewRouter(zap.NewNop(), server, nil, "")
 	return env, promotion
 }
 

@@ -27,7 +27,7 @@ func validTestConfig(t *testing.T) Config {
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
 		ExternalBaseURL:  "https://browser.example.test",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
 }

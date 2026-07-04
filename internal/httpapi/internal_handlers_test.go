@@ -32,7 +32,7 @@ func newInternalJobTestEnv(t *testing.T, jobToken string) *testEnv {
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
 		ExternalBaseURL:  "https://browser.example.test",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
 
@@ -45,7 +45,7 @@ func newInternalJobTestEnv(t *testing.T, jobToken string) *testEnv {
 	gcService := gc.NewService(cfg, env.repo, browserSupervisor, sessionHandlerFakeOverlay{cfg: cfg}, traefik.NoopReconciler{})
 	server := &Server{Auth: env.service, GC: gcService}
 	server.SetJobToken(jobToken)
-	env.router = NewRouter(zap.NewNop(), server)
+	env.router = NewRouter(zap.NewNop(), server, nil, "")
 	return env
 }
 

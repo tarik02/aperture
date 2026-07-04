@@ -1,13 +1,13 @@
 http:
   routers:
     aperture-api:
-      rule: "PathPrefix(`/api/admin`) || PathPrefix(`/api/tenant`) || PathPrefix(`/api/snapshots`) || PathPrefix(`/api/sessions`) || Path(`/api/health`)"
+      rule: "PathPrefix(`/`) && !PathPrefix(`/internal`) && !PathPrefix(`/cdp`)"
       service: aperture-api
       priority: 1
       entryPoints:
         - web
     aperture-cdp-018f1234000070008000000000000001:
-      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/cdp`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/`)"
+      rule: "Path(`/cdp/018f1234-0000-7000-8000-000000000001`) || PathPrefix(`/cdp/018f1234-0000-7000-8000-000000000001/`)"
       service: aperture-cdp-service-018f1234000070008000000000000001
       middlewares:
         - aperture-cdp-forward-auth-018f1234000070008000000000000001
@@ -22,7 +22,7 @@ http:
     aperture-cdp-strip-018f1234000070008000000000000001:
       stripPrefix:
         prefixes:
-          - /sessions/018f1234-0000-7000-8000-000000000001/cdp
+          - /cdp/018f1234-0000-7000-8000-000000000001
   services:
     aperture-api:
       loadBalancer:

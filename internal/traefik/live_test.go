@@ -47,7 +47,7 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
 		ExternalBaseURL:  "http://127.0.0.1",
-		CdpRouteBasePath: "/sessions",
+		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
 
@@ -129,7 +129,7 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 
 	sessions := session.NewService(cfg, repo, nil, nil, nil, traefik.NewService(cfg, repo))
 	server := &httpapi.Server{Sessions: sessions}
-	router := httpapi.NewRouter(zap.NewNop(), server)
+	router := httpapi.NewRouter(zap.NewNop(), server, nil, cfg.CdpRouteBasePath)
 	apertureServer := &http.Server{Handler: router}
 	go func() {
 		_ = apertureServer.Serve(apertureListener)
@@ -167,7 +167,7 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		_, _ = cmd.Process.Wait()
 	})
 
-	routeURL := "http://" + traefikAddr + "/sessions/" + sessionID + "/cdp/json/version"
+	routeURL := "http://" + traefikAddr + "/cdp/" + sessionID + "/json/version"
 	deadline := time.Now().Add(10 * time.Second)
 	var lastStatus int
 	var lastBody string
