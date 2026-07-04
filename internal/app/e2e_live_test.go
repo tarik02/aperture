@@ -142,11 +142,11 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	}()
 
 	baseURL := "http://" + addr
-	waitForHTTP(t, baseURL+"/health", http.StatusOK)
+	waitForHTTP(t, baseURL+"/api/health", http.StatusOK)
 
 	client := &http.Client{Timeout: 45 * time.Second}
 
-	createResp := postJSON(t, client, baseURL+"/sessions", tenantToken.Raw, "", map[string]any{
+	createResp := postJSON(t, client, baseURL+"/api/sessions", tenantToken.Raw, "", map[string]any{
 		"browser": map[string]any{"channel": "chromium", "args": []string{}},
 	})
 	if createResp.StatusCode != http.StatusCreated {
@@ -174,18 +174,18 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	}
 	_ = faResp.Body.Close()
 
-	deleteResp := doJSON(t, client, http.MethodDelete, baseURL+"/sessions/"+sessionID, tenantToken.Raw, "", nil)
+	deleteResp := doJSON(t, client, http.MethodDelete, baseURL+"/api/sessions/"+sessionID, tenantToken.Raw, "", nil)
 	if deleteResp.StatusCode != http.StatusOK {
 		t.Fatalf("delete session status = %d body = %s", deleteResp.StatusCode, readBody(deleteResp))
 	}
 
-	reopenResp := postJSON(t, client, baseURL+"/sessions/"+sessionID+"/reopen", tenantToken.Raw, "", nil)
+	reopenResp := postJSON(t, client, baseURL+"/api/sessions/"+sessionID+"/reopen", tenantToken.Raw, "", nil)
 	if reopenResp.StatusCode != http.StatusOK {
 		t.Fatalf("reopen session status = %d body = %s", reopenResp.StatusCode, readBody(reopenResp))
 	}
 	waitForBrowserUnitActive(t, sessionID)
 
-	stopResp := doJSON(t, client, http.MethodDelete, baseURL+"/sessions/"+sessionID, tenantToken.Raw, "", nil)
+	stopResp := doJSON(t, client, http.MethodDelete, baseURL+"/api/sessions/"+sessionID, tenantToken.Raw, "", nil)
 	if stopResp.StatusCode != http.StatusOK {
 		t.Fatalf("delete for promote status = %d", stopResp.StatusCode)
 	}
@@ -199,7 +199,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 		t.Fatalf("write upper marker: %v", err)
 	}
 
-	promoteResp := postJSON(t, client, baseURL+"/sessions/"+sessionID+"/promote", tenantToken.Raw, "", map[string]any{
+	promoteResp := postJSON(t, client, baseURL+"/api/sessions/"+sessionID+"/promote", tenantToken.Raw, "", map[string]any{
 		"name":  "e2e-snapshot",
 		"force": false,
 		"tags":  map[string]string{"source": "e2e"},
@@ -208,12 +208,12 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 		t.Fatalf("promote status = %d body = %s", promoteResp.StatusCode, readBody(promoteResp))
 	}
 
-	deleteSnapResp := doJSON(t, client, http.MethodDelete, baseURL+"/snapshots/e2e-snapshot", tenantToken.Raw, "", nil)
+	deleteSnapResp := doJSON(t, client, http.MethodDelete, baseURL+"/api/snapshots/e2e-snapshot", tenantToken.Raw, "", nil)
 	if deleteSnapResp.StatusCode != http.StatusOK {
 		t.Fatalf("delete snapshot status = %d", deleteSnapResp.StatusCode)
 	}
 
-	restoreResp := postJSON(t, client, baseURL+"/snapshots/e2e-snapshot/restore", tenantToken.Raw, "", nil)
+	restoreResp := postJSON(t, client, baseURL+"/api/snapshots/e2e-snapshot/restore", tenantToken.Raw, "", nil)
 	if restoreResp.StatusCode != http.StatusOK {
 		t.Fatalf("restore snapshot status = %d", restoreResp.StatusCode)
 	}
@@ -273,7 +273,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	restartCtx, restartCancel := context.WithCancel(ctx)
 	defer restartCancel()
 	go func() { _ = application2.Serve(restartCtx) }()
-	waitForHTTP(t, baseURL+"/health", http.StatusOK)
+	waitForHTTP(t, baseURL+"/api/health", http.StatusOK)
 
 	waitForBrowserUnitInactive(t, sessionID)
 	t.Cleanup(func() {

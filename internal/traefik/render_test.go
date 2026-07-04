@@ -46,8 +46,8 @@ func TestRenderDynamicConfigIncludesSessionsAPIWithCustomCDPBase(t *testing.T) {
 	}
 	rendered := string(got)
 
-	if !strings.Contains(rendered, "PathPrefix(`/sessions`)") {
-		t.Fatalf("api router missing /sessions prefix:\n%s", rendered)
+	if !strings.Contains(rendered, "PathPrefix(`/api/sessions`)") {
+		t.Fatalf("api router missing /api/sessions prefix:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "PathPrefix(`/browser`)") {
 		t.Fatalf("api router missing custom cdp base:\n%s", rendered)

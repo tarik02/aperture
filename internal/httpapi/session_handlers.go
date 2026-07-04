@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -25,7 +24,7 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 
 func (s *Server) createSession(c *gin.Context) {
 	if s.Sessions == nil {
-		WriteError(c, errors.New("session service unavailable"))
+		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
 
@@ -68,7 +67,7 @@ func (s *Server) createSession(c *gin.Context) {
 
 func (s *Server) deleteSession(c *gin.Context) {
 	if s.Sessions == nil {
-		WriteError(c, errors.New("session service unavailable"))
+		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
 
@@ -85,7 +84,7 @@ func (s *Server) deleteSession(c *gin.Context) {
 
 func (s *Server) reopenSession(c *gin.Context) {
 	if s.Sessions == nil {
-		WriteError(c, errors.New("session service unavailable"))
+		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
 

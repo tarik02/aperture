@@ -113,7 +113,7 @@ func TestSessionLifecycleHandlers(t *testing.T) {
 		t.Fatalf("create sessions token: %v", err)
 	}
 
-	createRec := env.do(t, http.MethodPost, "/sessions", sessionsToken.Raw, "", map[string]any{
+	createRec := env.do(t, http.MethodPost, "/api/sessions", sessionsToken.Raw, "", map[string]any{
 		"browser": map[string]any{
 			"channel": "chromium",
 			"args":    []string{},
@@ -131,12 +131,12 @@ func TestSessionLifecycleHandlers(t *testing.T) {
 		t.Fatalf("status = %q, want running", created.Session.Status)
 	}
 
-	deleteRec := env.do(t, http.MethodDelete, "/sessions/"+created.Session.ID, sessionsToken.Raw, "", nil)
+	deleteRec := env.do(t, http.MethodDelete, "/api/sessions/"+created.Session.ID, sessionsToken.Raw, "", nil)
 	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("delete session status = %d, body = %s", deleteRec.Code, deleteRec.Body.String())
 	}
 
-	reopenRec := env.do(t, http.MethodPost, "/sessions/"+created.Session.ID+"/reopen", sessionsToken.Raw, "", nil)
+	reopenRec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/reopen", sessionsToken.Raw, "", nil)
 	if reopenRec.Code != http.StatusOK {
 		t.Fatalf("reopen session status = %d, body = %s", reopenRec.Code, reopenRec.Body.String())
 	}
@@ -169,7 +169,7 @@ func TestCreateSessionFromSnapshotRequiresSnapshotsReadScope(t *testing.T) {
 		t.Fatalf("create write-only token: %v", err)
 	}
 
-	denied := env.do(t, http.MethodPost, "/sessions", writeOnly.Raw, "", map[string]any{
+	denied := env.do(t, http.MethodPost, "/api/sessions", writeOnly.Raw, "", map[string]any{
 		"baseSnapshotName": "github-main",
 		"browser": map[string]any{
 			"channel": "chromium",
@@ -190,7 +190,7 @@ func TestCreateSessionFromSnapshotRequiresSnapshotsReadScope(t *testing.T) {
 		t.Fatalf("create read/write token: %v", err)
 	}
 
-	allowed := env.do(t, http.MethodPost, "/sessions", readWrite.Raw, "", map[string]any{
+	allowed := env.do(t, http.MethodPost, "/api/sessions", readWrite.Raw, "", map[string]any{
 		"baseSnapshotName": "github-main",
 		"browser": map[string]any{
 			"channel": "chromium",
@@ -216,7 +216,7 @@ func TestCreateSessionRejectsDeniedBrowserArgs(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	rec := env.do(t, http.MethodPost, "/sessions", token.Raw, "", map[string]any{
+	rec := env.do(t, http.MethodPost, "/api/sessions", token.Raw, "", map[string]any{
 		"browser": map[string]any{
 			"channel": "chromium",
 			"args":    []string{"--remote-debugging-port=9222"},

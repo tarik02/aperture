@@ -13,11 +13,6 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	router.GET("/health", func(c *gin.Context) {
-		logger.Debug("health check")
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)
@@ -29,45 +24,53 @@ func NewRouter(logger *zap.Logger, server *Server) *gin.Engine {
 		}
 	}
 
-	admin := router.Group("/admin")
-	admin.Use(server.requireAuth, server.requireSystemAdmin)
+	api := router.Group("/api")
 	{
-		admin.POST("/tenants", server.createTenant)
-		admin.GET("/tenants", server.listTenants)
-		admin.PATCH("/tenants/:tenantId", server.updateTenant)
-		admin.DELETE("/tenants/:tenantId", server.deleteTenant)
-		admin.POST("/tenants/:tenantId/restore", server.restoreTenant)
+		api.GET("/health", func(c *gin.Context) {
+			logger.Debug("health check")
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		})
 
-		admin.POST("/tokens", server.createAdminToken)
-		admin.GET("/tokens", server.listAdminTokens)
-		admin.POST("/tokens/:tokenId/revoke", server.revokeAdminToken)
-	}
+		admin := api.Group("/admin")
+		admin.Use(server.requireAuth, server.requireSystemAdmin)
+		{
+			admin.POST("/tenants", server.createTenant)
+			admin.GET("/tenants", server.listTenants)
+			admin.PATCH("/tenants/:tenantId", server.updateTenant)
+			admin.DELETE("/tenants/:tenantId", server.deleteTenant)
+			admin.POST("/tenants/:tenantId/restore", server.restoreTenant)
 
-	tenant := router.Group("/tenant")
-	tenant.Use(server.requireAuth, server.requireTenantWrite)
-	{
-		tenant.GET("", server.getTenantSelf)
-		tenant.PATCH("", server.updateTenantSelf)
-		tenant.POST("/tokens", server.createTenantToken)
-		tenant.GET("/tokens", server.listTenantTokens)
-		tenant.POST("/tokens/:tokenId/revoke", server.revokeTenantToken)
-	}
+			admin.POST("/tokens", server.createAdminToken)
+			admin.GET("/tokens", server.listAdminTokens)
+			admin.POST("/tokens/:tokenId/revoke", server.revokeAdminToken)
+		}
 
-	sessions := router.Group("/sessions")
-	sessions.Use(server.requireAuth)
-	{
-		sessions.POST("", server.requireSessionsWrite, server.createSession)
-		sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
-		sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
-		sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
-		sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
-	}
+		tenant := api.Group("/tenant")
+		tenant.Use(server.requireAuth, server.requireTenantWrite)
+		{
+			tenant.GET("", server.getTenantSelf)
+			tenant.PATCH("", server.updateTenantSelf)
+			tenant.POST("/tokens", server.createTenantToken)
+			tenant.GET("/tokens", server.listTenantTokens)
+			tenant.POST("/tokens/:tokenId/revoke", server.revokeTenantToken)
+		}
 
-	snapshots := router.Group("/snapshots")
-	snapshots.Use(server.requireAuth)
-	{
-		snapshots.DELETE("/:name", server.requireSnapshotsWrite, server.deleteSnapshot)
-		snapshots.POST("/:name/restore", server.requireSnapshotsWrite, server.restoreSnapshot)
+		sessions := api.Group("/sessions")
+		sessions.Use(server.requireAuth)
+		{
+			sessions.POST("", server.requireSessionsWrite, server.createSession)
+			sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
+			sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
+			sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
+			sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
+		}
+
+		snapshots := api.Group("/snapshots")
+		snapshots.Use(server.requireAuth)
+		{
+			snapshots.DELETE("/:name", server.requireSnapshotsWrite, server.deleteSnapshot)
+			snapshots.POST("/:name/restore", server.requireSnapshotsWrite, server.restoreSnapshot)
+		}
 	}
 
 	return router

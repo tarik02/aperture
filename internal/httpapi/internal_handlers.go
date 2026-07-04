@@ -14,13 +14,13 @@ type gcJobResponse struct {
 
 func (s *Server) runGCJob(c *gin.Context) {
 	if s.GC == nil {
-		c.JSON(http.StatusInternalServerError, errorBody{Error: "gc service unavailable"})
+		c.JSON(http.StatusInternalServerError, internalErrorBody{Error: "gc service unavailable"})
 		return
 	}
 
 	result, err := s.GC.Run(c.Request.Context())
 	if err != nil {
-		WriteError(c, err)
+		WriteInternalError(c, err)
 		return
 	}
 

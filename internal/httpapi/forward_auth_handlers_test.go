@@ -111,7 +111,7 @@ func createRunningSessionForForwardAuth(t *testing.T, env *testEnv) createSessio
 		t.Fatalf("create token: %v", err)
 	}
 
-	rec := env.do(t, http.MethodPost, "/sessions", token.Raw, "", map[string]any{
+	rec := env.do(t, http.MethodPost, "/api/sessions", token.Raw, "", map[string]any{
 		"browser": map[string]any{
 			"channel": "chromium",
 			"args":    []string{},

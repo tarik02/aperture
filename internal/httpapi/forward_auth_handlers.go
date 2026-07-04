@@ -46,7 +46,7 @@ func mapForwardAuthError(err error) (int, string) {
 
 func (s *Server) rotateCDPToken(c *gin.Context) {
 	if s.Sessions == nil {
-		WriteError(c, errors.New("session service unavailable"))
+		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
 

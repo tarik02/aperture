@@ -1,7 +1,7 @@
 http:
   routers:
     aperture-api:
-      rule: "PathPrefix(`/admin`) || PathPrefix(`/tenant`) || PathPrefix(`/snapshots`) || PathPrefix(`/sessions`) || Path(`/health`)"
+      rule: "PathPrefix(`/api/admin`) || PathPrefix(`/api/tenant`) || PathPrefix(`/api/snapshots`) || PathPrefix(`/api/sessions`) || Path(`/api/health`)"
       service: aperture-api
       priority: 1
       entryPoints:

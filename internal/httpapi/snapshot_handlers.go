@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -23,7 +22,7 @@ func toSnapshotResponse(view *snapshot.SnapshotView) snapshotResponse {
 
 func (s *Server) promoteSession(c *gin.Context) {
 	if s.Promotion == nil {
-		WriteError(c, errors.New("promotion service unavailable"))
+		WriteError(c, errPromotionServiceUnavailable)
 		return
 	}
 
@@ -50,7 +49,7 @@ func (s *Server) promoteSession(c *gin.Context) {
 
 func (s *Server) deleteSnapshot(c *gin.Context) {
 	if s.Snapshots == nil {
-		WriteError(c, errors.New("snapshot service unavailable"))
+		WriteError(c, errSnapshotServiceUnavailable)
 		return
 	}
 
@@ -65,7 +64,7 @@ func (s *Server) deleteSnapshot(c *gin.Context) {
 
 func (s *Server) restoreSnapshot(c *gin.Context) {
 	if s.Snapshots == nil {
-		WriteError(c, errors.New("snapshot service unavailable"))
+		WriteError(c, errSnapshotServiceUnavailable)
 		return
 	}
 

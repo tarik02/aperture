@@ -102,7 +102,7 @@ func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
 	router := NewRouter(zap.NewNop(), &Server{Auth: auth.NewService(nil)})
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -124,7 +124,7 @@ func TestAdminTenantEndpointsRequireSystemAdmin(t *testing.T) {
 	t.Parallel()
 
 	env := newTestEnv(t)
-	rec := env.do(t, http.MethodGet, "/admin/tenants", env.tenant, "", nil)
+	rec := env.do(t, http.MethodGet, "/api/admin/tenants", env.tenant, "", nil)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("tenant token on /admin/tenants status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
@@ -135,14 +135,14 @@ func TestAdminCreateAndListTenants(t *testing.T) {
 
 	env := newTestEnv(t)
 
-	createRec := env.do(t, http.MethodPost, "/admin/tenants", env.admin, "", map[string]string{
+	createRec := env.do(t, http.MethodPost, "/api/admin/tenants", env.admin, "", map[string]string{
 		"displayName": "widgets",
 	})
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create tenant status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	listRec := env.do(t, http.MethodGet, "/admin/tenants", env.admin, "", nil)
+	listRec := env.do(t, http.MethodGet, "/api/admin/tenants", env.admin, "", nil)
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("list tenants status = %d, body = %s", listRec.Code, listRec.Body.String())
 	}
@@ -153,12 +153,12 @@ func TestTenantSelfEndpoints(t *testing.T) {
 
 	env := newTestEnv(t)
 
-	getRec := env.do(t, http.MethodGet, "/tenant", env.tenant, "", nil)
+	getRec := env.do(t, http.MethodGet, "/api/tenant", env.tenant, "", nil)
 	if getRec.Code != http.StatusOK {
 		t.Fatalf("get tenant self status = %d, body = %s", getRec.Code, getRec.Body.String())
 	}
 
-	patchRec := env.do(t, http.MethodPatch, "/tenant", env.tenant, "", map[string]string{
+	patchRec := env.do(t, http.MethodPatch, "/api/tenant", env.tenant, "", map[string]string{
 		"displayName": "acme-renamed",
 	})
 	if patchRec.Code != http.StatusOK {
@@ -171,7 +171,7 @@ func TestSystemAdminRequiresTenantHeaderOnTenantRoutes(t *testing.T) {
 
 	env := newTestEnv(t)
 
-	rec := env.do(t, http.MethodGet, "/tenant", env.admin, env.tenantID, nil)
+	rec := env.do(t, http.MethodGet, "/api/tenant", env.admin, env.tenantID, nil)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("admin on /tenant status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
@@ -182,7 +182,7 @@ func TestTenantTokenManagement(t *testing.T) {
 
 	env := newTestEnv(t)
 
-	createRec := env.do(t, http.MethodPost, "/tenant/tokens", env.tenant, "", map[string]any{
+	createRec := env.do(t, http.MethodPost, "/api/tenant/tokens", env.tenant, "", map[string]any{
 		"name":   "operator",
 		"scopes": []string{auth.ScopeSessionsRead},
 	})
@@ -198,12 +198,12 @@ func TestTenantTokenManagement(t *testing.T) {
 		t.Fatal("expected raw token in response")
 	}
 
-	listRec := env.do(t, http.MethodGet, "/tenant/tokens", env.tenant, "", nil)
+	listRec := env.do(t, http.MethodGet, "/api/tenant/tokens", env.tenant, "", nil)
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("list tenant tokens status = %d, body = %s", listRec.Code, listRec.Body.String())
 	}
 
-	revokeRec := env.do(t, http.MethodPost, "/tenant/tokens/"+created.Token.ID+"/revoke", env.tenant, "", nil)
+	revokeRec := env.do(t, http.MethodPost, "/api/tenant/tokens/"+created.Token.ID+"/revoke", env.tenant, "", nil)
 	if revokeRec.Code != http.StatusNoContent {
 		t.Fatalf("revoke tenant token status = %d, body = %s", revokeRec.Code, revokeRec.Body.String())
 	}
@@ -213,7 +213,7 @@ func TestMissingAuthReturnsUnauthorized(t *testing.T) {
 	t.Parallel()
 
 	env := newTestEnv(t)
-	req := httptest.NewRequest(http.MethodGet, "/admin/tenants", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/tenants", nil)
 	rec := httptest.NewRecorder()
 	env.router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {

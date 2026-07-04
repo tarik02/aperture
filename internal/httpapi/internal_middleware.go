@@ -27,7 +27,7 @@ func (s *Server) requireLoopback(c *gin.Context) {
 func (s *Server) requireJobToken(c *gin.Context) {
 	presented := strings.TrimSpace(c.GetHeader(jobTokenHeader))
 	if err := jobtoken.Verify(s.jobToken, presented); err != nil {
-		WriteError(c, err)
+		WriteInternalError(c, err)
 		c.Abort()
 		return
 	}

@@ -25,7 +25,7 @@ func TestRotateCDPTokenHandler(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	rec := env.do(t, http.MethodPost, "/sessions/"+created.Session.ID+"/cdp-token/rotate", token.Raw, "", nil)
+	rec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/cdp-token/rotate", token.Raw, "", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rotate status = %d, body = %s", rec.Code, rec.Body.String())
 	}

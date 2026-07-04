@@ -95,12 +95,12 @@ func TestSnapshotDeleteRestoreHandlers(t *testing.T) {
 		t.Fatalf("insert snapshot: %v", err)
 	}
 
-	deleteRec := env.do(t, http.MethodDelete, "/snapshots/restore-me", token.Raw, "", nil)
+	deleteRec := env.do(t, http.MethodDelete, "/api/snapshots/restore-me", token.Raw, "", nil)
 	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d, body = %s", deleteRec.Code, deleteRec.Body.String())
 	}
 
-	restoreRec := env.do(t, http.MethodPost, "/snapshots/restore-me/restore", token.Raw, "", nil)
+	restoreRec := env.do(t, http.MethodPost, "/api/snapshots/restore-me/restore", token.Raw, "", nil)
 	if restoreRec.Code != http.StatusOK {
 		t.Fatalf("restore status = %d, body = %s", restoreRec.Code, restoreRec.Body.String())
 	}
@@ -140,7 +140,7 @@ func TestPromoteSessionHandler(t *testing.T) {
 		t.Fatalf("create sessions token: %v", err)
 	}
 
-	createRec := env.do(t, http.MethodPost, "/sessions", sessionsToken.Raw, "", map[string]any{
+	createRec := env.do(t, http.MethodPost, "/api/sessions", sessionsToken.Raw, "", map[string]any{
 		"browser": map[string]any{"channel": "chromium", "args": []string{}},
 	})
 	if createRec.Code != http.StatusCreated {
@@ -151,12 +151,12 @@ func TestPromoteSessionHandler(t *testing.T) {
 		t.Fatalf("decode create: %v", err)
 	}
 
-	deleteRec := env.do(t, http.MethodDelete, "/sessions/"+created.Session.ID, sessionsToken.Raw, "", nil)
+	deleteRec := env.do(t, http.MethodDelete, "/api/sessions/"+created.Session.ID, sessionsToken.Raw, "", nil)
 	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("delete session status = %d, body = %s", deleteRec.Code, deleteRec.Body.String())
 	}
 
-	promoteRec := env.do(t, http.MethodPost, "/sessions/"+created.Session.ID+"/promote", token.Raw, "", map[string]any{
+	promoteRec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/promote", token.Raw, "", map[string]any{
 		"name": "from-session",
 		"tags": map[string]string{"source": "http-test"},
 	})
@@ -189,7 +189,7 @@ func TestPromoteRequiresBothScopes(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	rec := env.do(t, http.MethodPost, "/sessions/018f1234-5678-79ab-8cde-f123456789ab/promote", token.Raw, "", map[string]any{
+	rec := env.do(t, http.MethodPost, "/api/sessions/018f1234-5678-79ab-8cde-f123456789ab/promote", token.Raw, "", map[string]any{
 		"name": "blocked",
 	})
 	if rec.Code != http.StatusForbidden {

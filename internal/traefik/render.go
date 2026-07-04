@@ -133,11 +133,11 @@ func apiRouterRule(cdpRouteBasePath string) string {
 		base = "/sessions"
 	}
 	rules := []string{
-		"PathPrefix(`/admin`)",
-		"PathPrefix(`/tenant`)",
-		"PathPrefix(`/snapshots`)",
-		"PathPrefix(`/sessions`)",
-		"Path(`/health`)",
+		"PathPrefix(`/api/admin`)",
+		"PathPrefix(`/api/tenant`)",
+		"PathPrefix(`/api/snapshots`)",
+		"PathPrefix(`/api/sessions`)",
+		"Path(`/api/health`)",
 	}
 	if base != "/sessions" {
 		rules = append(rules, fmt.Sprintf("PathPrefix(`%s`)", escapeTraefikPath(base)))
