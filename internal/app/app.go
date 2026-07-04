@@ -20,6 +20,7 @@ import (
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
+	"github.com/aperture/aperture/web"
 	"go.uber.org/zap"
 )
 
@@ -131,7 +132,7 @@ func (a *App) Serve(ctx context.Context) error {
 		Channels:  a.Channels,
 	}
 	server.SetJobToken(jobToken)
-	router := httpapi.NewRouter(a.Logger, server, nil, a.Config.CdpRouteBasePath)
+	router := httpapi.NewRouter(a.Logger, server, web.StaticAssets(), a.Config.CdpRouteBasePath)
 	httpServer := &http.Server{
 		Addr:    a.Config.ListenAddress,
 		Handler: router,
