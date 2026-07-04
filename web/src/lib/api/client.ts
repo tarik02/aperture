@@ -2,9 +2,17 @@ import type { z } from "zod";
 import { ApiRequestError, parseApiErrorBody } from "#/lib/api/errors.ts";
 import {
   authMeSchema,
+  browserChannelsSchema,
+  createSessionResponseSchema,
+  createTokenResponseSchema,
+  eventsPageSchema,
   healthSchema,
+  promoteSessionResponseSchema,
+  sessionMutationResponseSchema,
   sessionsPageSchema,
+  snapshotMutationResponseSchema,
   snapshotsPageSchema,
+  tenantSchema,
   tenantsPageSchema,
   tokensPageSchema,
 } from "#/lib/api/schemas.ts";
@@ -60,21 +68,43 @@ type RequestOptions<T extends z.ZodType> = {
   credentials?: ApiCredentials | null;
   tenantHeader?: TenantHeaderMode;
   query?: Record<string, string | number | boolean | undefined | null>;
+  body?: unknown;
 };
 
-async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise<z.infer<T>> {
-  const {
-    method = "GET",
-    path,
-    schema,
-    credentials = null,
-    tenantHeader = "none",
-    query,
-  } = options;
+type VoidRequestOptions = Omit<RequestOptions<z.ZodType>, "schema">;
 
+function buildUrl(
+  path: string,
+  query?: Record<string, string | number | boolean | undefined | null>,
+): string {
+  if (!query) {
+    return path;
+  }
+
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    search.set(key, String(value));
+  }
+
+  const queryString = search.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
+function buildHeaders(
+  credentials: ApiCredentials | null | undefined,
+  tenantHeader: TenantHeaderMode,
+  hasBody: boolean,
+): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
+
+  if (hasBody) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (credentials?.token) {
     headers.Authorization = `Bearer ${credentials.token.trim()}`;
@@ -85,38 +115,65 @@ async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise
     headers[TENANT_HEADER] = tenantId;
   }
 
-  let url = path;
-  if (query) {
-    const search = new URLSearchParams();
-    for (const [key, value] of Object.entries(query)) {
-      if (value === undefined || value === null || value === "") {
-        continue;
-      }
-      search.set(key, String(value));
-    }
-    const queryString = search.toString();
-    if (queryString) {
-      url = `${path}?${queryString}`;
-    }
-  }
+  return headers;
+}
 
-  const response = await fetch(url, { method, headers });
-  const body: unknown = await response.json().catch(() => null);
+async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise<z.infer<T>> {
+  const {
+    method = "GET",
+    path,
+    schema,
+    credentials = null,
+    tenantHeader = "none",
+    query,
+    body,
+  } = options;
+
+  const hasBody = body !== undefined;
+  const response = await fetch(buildUrl(path, query), {
+    method,
+    headers: buildHeaders(credentials, tenantHeader, hasBody),
+    body: hasBody ? JSON.stringify(body) : undefined,
+  });
+
+  const responseBody: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const parsed = parseApiErrorBody(body);
+    const parsed = parseApiErrorBody(responseBody);
     if (parsed) {
       throw new ApiRequestError(parsed.code, parsed.message, response.status);
     }
     throw new ApiRequestError("internal_error", "Request failed", response.status);
   }
 
-  const parsed = schema.safeParse(body);
+  const parsed = schema.safeParse(responseBody);
   if (!parsed.success) {
     throw new ApiRequestError("internal_error", "Invalid response", response.status);
   }
 
   return parsed.data;
+}
+
+async function requestVoid(options: VoidRequestOptions): Promise<void> {
+  const { method = "GET", path, credentials = null, tenantHeader = "none", query, body } = options;
+
+  const hasBody = body !== undefined;
+  const response = await fetch(buildUrl(path, query), {
+    method,
+    headers: buildHeaders(credentials, tenantHeader, hasBody),
+    body: hasBody ? JSON.stringify(body) : undefined,
+  });
+
+  if (response.ok) {
+    return;
+  }
+
+  const responseBody: unknown = await response.json().catch(() => null);
+  const parsed = parseApiErrorBody(responseBody);
+  if (parsed) {
+    throw new ApiRequestError(parsed.code, parsed.message, response.status);
+  }
+  throw new ApiRequestError("internal_error", "Request failed", response.status);
 }
 
 export type SessionsListParams = {
@@ -148,6 +205,42 @@ export type TokensListParams = {
   tenantId?: string;
 };
 
+export type EventsListParams = {
+  limit?: number;
+  cursor?: string;
+  resourceType?: string;
+  resourceId?: string;
+};
+
+export type CreateSessionInput = {
+  baseSnapshotName?: string | null;
+  browser: {
+    channel: string;
+    args?: string[];
+  };
+  tags?: Record<string, string>;
+};
+
+export type PromoteSessionInput = {
+  name: string;
+  force?: boolean;
+  tags?: Record<string, string>;
+};
+
+export type CreateAdminTokenInput = {
+  name: string;
+  authorityType: "system_admin" | "tenant";
+  tenantId?: string | null;
+  scopes: string[];
+  expiresAt?: string | null;
+};
+
+export type CreateTenantTokenInput = {
+  name: string;
+  scopes: string[];
+  expiresAt?: string | null;
+};
+
 export const apiClient = {
   getHealth() {
     return request({
@@ -165,6 +258,15 @@ export const apiClient = {
     });
   },
 
+  getBrowserChannels(credentials: ApiCredentials) {
+    return request({
+      path: "/api/browser/channels",
+      schema: browserChannelsSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
   listTenants(credentials: ApiCredentials, params: TenantsListParams = {}) {
     return request({
       path: "/api/admin/tenants",
@@ -175,6 +277,44 @@ export const apiClient = {
         cursor: params.cursor,
         includeDeleted: params.includeDeleted ? "true" : undefined,
       },
+    });
+  },
+
+  createTenant(credentials: ApiCredentials, input: { displayName: string }) {
+    return request({
+      method: "POST",
+      path: "/api/admin/tenants",
+      schema: tenantSchema,
+      credentials,
+      body: input,
+    });
+  },
+
+  updateTenant(credentials: ApiCredentials, tenantId: string, input: { displayName: string }) {
+    return request({
+      method: "PATCH",
+      path: `/api/admin/tenants/${tenantId}`,
+      schema: tenantSchema,
+      credentials,
+      body: input,
+    });
+  },
+
+  deleteTenant(credentials: ApiCredentials, tenantId: string) {
+    return request({
+      method: "DELETE",
+      path: `/api/admin/tenants/${tenantId}`,
+      schema: tenantSchema,
+      credentials,
+    });
+  },
+
+  restoreTenant(credentials: ApiCredentials, tenantId: string) {
+    return request({
+      method: "POST",
+      path: `/api/admin/tenants/${tenantId}/restore`,
+      schema: tenantSchema,
+      credentials,
     });
   },
 
@@ -195,6 +335,80 @@ export const apiClient = {
     });
   },
 
+  createSession(credentials: ApiCredentials, input: CreateSessionInput) {
+    return request({
+      method: "POST",
+      path: "/api/sessions",
+      schema: createSessionResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: {
+        baseSnapshotName: input.baseSnapshotName ?? null,
+        browser: {
+          channel: input.browser.channel,
+          args: input.browser.args ?? [],
+        },
+        tags: input.tags ?? {},
+      },
+    });
+  },
+
+  deleteSession(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      method: "DELETE",
+      path: `/api/sessions/${sessionId}`,
+      schema: sessionMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  reopenSession(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      method: "POST",
+      path: `/api/sessions/${sessionId}/reopen`,
+      schema: sessionMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  rotateSessionCdpToken(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      method: "POST",
+      path: `/api/sessions/${sessionId}/cdp-token/rotate`,
+      schema: sessionMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  promoteSession(credentials: ApiCredentials, sessionId: string, input: PromoteSessionInput) {
+    return request({
+      method: "POST",
+      path: `/api/sessions/${sessionId}/promote`,
+      schema: promoteSessionResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: {
+        name: input.name,
+        force: input.force ?? false,
+        tags: input.tags ?? {},
+      },
+    });
+  },
+
+  replaceSessionTags(credentials: ApiCredentials, sessionId: string, tags: Record<string, string>) {
+    return request({
+      method: "PUT",
+      path: `/api/sessions/${sessionId}/tags`,
+      schema: sessionMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: { tags },
+    });
+  },
+
   listSnapshots(credentials: ApiCredentials, params: SnapshotsListParams = {}) {
     return request({
       path: "/api/snapshots",
@@ -207,6 +421,52 @@ export const apiClient = {
         includeDeleted: params.includeDeleted ? "true" : undefined,
         tagKey: params.tagKey,
         tagValue: params.tagValue,
+      },
+    });
+  },
+
+  deleteSnapshot(credentials: ApiCredentials, name: string) {
+    return request({
+      method: "DELETE",
+      path: `/api/snapshots/${encodeURIComponent(name)}`,
+      schema: snapshotMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  restoreSnapshot(credentials: ApiCredentials, name: string) {
+    return request({
+      method: "POST",
+      path: `/api/snapshots/${encodeURIComponent(name)}/restore`,
+      schema: snapshotMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  replaceSnapshotTags(credentials: ApiCredentials, name: string, tags: Record<string, string>) {
+    return request({
+      method: "PUT",
+      path: `/api/snapshots/${encodeURIComponent(name)}/tags`,
+      schema: snapshotMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: { tags },
+    });
+  },
+
+  listEvents(credentials: ApiCredentials, params: EventsListParams = {}) {
+    return request({
+      path: "/api/events",
+      schema: eventsPageSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      query: {
+        limit: params.limit,
+        cursor: params.cursor,
+        resourceType: params.resourceType,
+        resourceId: params.resourceId,
       },
     });
   },
@@ -233,6 +493,52 @@ export const apiClient = {
         limit: params.limit,
         cursor: params.cursor,
       },
+    });
+  },
+
+  createAdminToken(credentials: ApiCredentials, input: CreateAdminTokenInput) {
+    return request({
+      method: "POST",
+      path: "/api/admin/tokens",
+      schema: createTokenResponseSchema,
+      credentials,
+      body: {
+        name: input.name,
+        authorityType: input.authorityType,
+        tenantId: input.tenantId ?? null,
+        scopes: input.scopes,
+        expiresAt: input.expiresAt ?? null,
+      },
+    });
+  },
+
+  createTenantToken(credentials: ApiCredentials, input: CreateTenantTokenInput) {
+    return request({
+      method: "POST",
+      path: "/api/tenant/tokens",
+      schema: createTokenResponseSchema,
+      credentials,
+      body: {
+        name: input.name,
+        scopes: input.scopes,
+        expiresAt: input.expiresAt ?? null,
+      },
+    });
+  },
+
+  revokeAdminToken(credentials: ApiCredentials, tokenId: string) {
+    return requestVoid({
+      method: "POST",
+      path: `/api/admin/tokens/${tokenId}/revoke`,
+      credentials,
+    });
+  },
+
+  revokeTenantToken(credentials: ApiCredentials, tokenId: string) {
+    return requestVoid({
+      method: "POST",
+      path: `/api/tenant/tokens/${tokenId}/revoke`,
+      credentials,
     });
   },
 };

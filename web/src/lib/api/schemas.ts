@@ -82,6 +82,52 @@ export const sessionsPageSchema = paginatedSchema(sessionSchema);
 export const snapshotsPageSchema = paginatedSchema(snapshotSchema);
 export const tokensPageSchema = paginatedSchema(tokenSchema);
 
+export const browserChannelSchema = z.object({
+  name: z.string(),
+});
+
+export const browserChannelsSchema = z.object({
+  channels: z.array(browserChannelSchema),
+});
+
+export const eventSchema = z.object({
+  id: z.string(),
+  tenantId: z.string(),
+  resourceType: z.string(),
+  resourceId: z.string(),
+  type: z.string(),
+  message: z.string(),
+  data: z.unknown(),
+  createdAt: z.string(),
+});
+
+export const eventsPageSchema = paginatedSchema(eventSchema);
+
+export const createSessionResponseSchema = z.object({
+  session: sessionSchema,
+  cdpUrl: z.string(),
+  cdpToken: z.string(),
+});
+
+export const sessionMutationResponseSchema = z.object({
+  session: sessionSchema,
+  cdpUrl: z.string().optional(),
+  cdpToken: z.string().optional(),
+});
+
+export const snapshotMutationResponseSchema = z.object({
+  snapshot: snapshotSchema,
+});
+
+export const promoteSessionResponseSchema = z.object({
+  snapshot: snapshotSchema,
+});
+
+export const createTokenResponseSchema = z.object({
+  token: tokenSchema,
+  rawToken: z.string(),
+});
+
 export type PageMeta = z.infer<typeof pageMetaSchema>;
 export type Tenant = z.infer<typeof tenantSchema>;
 export type AuthMeResponse = z.infer<typeof authMeSchema>;
@@ -95,3 +141,12 @@ export type TenantsPage = z.infer<typeof tenantsPageSchema>;
 export type SessionsPage = z.infer<typeof sessionsPageSchema>;
 export type SnapshotsPage = z.infer<typeof snapshotsPageSchema>;
 export type TokensPage = z.infer<typeof tokensPageSchema>;
+export type BrowserChannel = z.infer<typeof browserChannelSchema>;
+export type BrowserChannelsResponse = z.infer<typeof browserChannelsSchema>;
+export type ResourceEvent = z.infer<typeof eventSchema>;
+export type EventsPage = z.infer<typeof eventsPageSchema>;
+export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
+export type SessionMutationResponse = z.infer<typeof sessionMutationResponseSchema>;
+export type SnapshotMutationResponse = z.infer<typeof snapshotMutationResponseSchema>;
+export type PromoteSessionResponse = z.infer<typeof promoteSessionResponseSchema>;
+export type CreateTokenResponse = z.infer<typeof createTokenResponseSchema>;
