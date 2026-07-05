@@ -33,6 +33,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().Int("snapshot-retention-days", 0, "snapshot retention in days")
 	cmd.PersistentFlags().String("external-base-url", "", "external base URL for generated links")
 	cmd.PersistentFlags().String("cdp-route-base-path", "", "cdp route base path")
+	cmd.PersistentFlags().String("webrtc-media-mode", "", "viewport media mode (auto, cdp)")
 	cmd.PersistentFlags().Bool("webrtc-compositor-enabled", false, "enable nested compositor browser sessions")
 	cmd.PersistentFlags().String("webrtc-compositor-executable", "", "nested compositor executable path")
 	cmd.PersistentFlags().String("webrtc-compositor-backend", "", "nested compositor backend")

@@ -31,6 +31,8 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   const control = useBrowserControl({
     sessionId: selectedSession?.status === "running" ? selectedSession.id : null,
     enabled: canControl && tenantReady && selectedSession?.status === "running",
+    webrtcProducerSupported:
+      selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
   });
 
   if (!tenantReady) {

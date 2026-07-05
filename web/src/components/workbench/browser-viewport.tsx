@@ -517,6 +517,7 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
     control.frame,
     control.frameStale,
     control.mediaPhase,
+    control.mediaPath,
     showingWebRTC,
   );
   const visibleLastError =
@@ -654,14 +655,18 @@ function ViewportPlaceholder({
   );
 }
 
-function StatusBadge({ status }: { status: "live" | "stale" | "offline" }) {
-  if (status === "live") {
+function StatusBadge({
+  status,
+}: {
+  status: "live" | "webrtc-live" | "fallback-cdp" | "stale" | "offline";
+}) {
+  if (status === "live" || status === "webrtc-live" || status === "fallback-cdp") {
     return (
       <Badge
         variant="secondary"
         className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
       >
-        live
+        {status}
       </Badge>
     );
   }
@@ -796,16 +801,20 @@ function resolveViewportStatus(
   frame: ScreencastFrame | null,
   frameStale: boolean,
   mediaPhase: UseBrowserControlResult["mediaPhase"],
+  mediaPath: UseBrowserControlResult["mediaPath"],
   showingWebRTC: boolean,
-): "live" | "stale" | "offline" {
+): "live" | "webrtc-live" | "fallback-cdp" | "stale" | "offline" {
   if (phase !== "connected") {
     return "offline";
   }
   if (mediaPhase === "live" && showingWebRTC) {
-    return "live";
+    return "webrtc-live";
   }
   if (!frame) {
     return "offline";
   }
-  return frameStale ? "stale" : "live";
+  if (frameStale) {
+    return "stale";
+  }
+  return mediaPath === "fallback-cdp" ? "fallback-cdp" : "live";
 }

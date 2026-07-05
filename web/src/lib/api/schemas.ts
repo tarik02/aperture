@@ -39,12 +39,18 @@ export const healthSchema = z.object({
 
 export const sessionStatusSchema = z.enum(["creating", "running", "deleted", "expired", "failed"]);
 
+export const sessionMediaSchema = z.object({
+  mode: z.enum(["auto", "cdp"]),
+  webrtcProducer: z.boolean(),
+});
+
 export const sessionSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   baseSnapshotName: z.string().nullable().optional(),
   status: sessionStatusSchema,
   browserChannel: z.string().optional(),
+  media: sessionMediaSchema,
   createdAt: z.string(),
   startedAt: z.string().nullable().optional(),
   stoppedAt: z.string().nullable().optional(),
@@ -134,6 +140,7 @@ export type AuthMeResponse = z.infer<typeof authMeSchema>;
 export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
 export type Session = z.infer<typeof sessionSchema>;
+export type SessionMedia = z.infer<typeof sessionMediaSchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type ApiToken = z.infer<typeof tokenSchema>;

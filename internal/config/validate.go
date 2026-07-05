@@ -33,7 +33,17 @@ func Validate(cfg Config) error {
 	if captureProofDir := strings.TrimSpace(cfg.WebRTCCaptureProofExtensionDir); captureProofDir != "" && !filepath.IsAbs(captureProofDir) {
 		errs = append(errs, errors.New("webrtc_capture_proof_extension_dir must be an absolute path"))
 	}
-	if cfg.WebRTCCompositorEnabled {
+	mediaMode := strings.ToLower(strings.TrimSpace(cfg.WebRTCMediaMode))
+	if mediaMode == "" {
+		mediaMode = WebRTCMediaModeAuto
+	}
+	switch mediaMode {
+	case WebRTCMediaModeAuto, WebRTCMediaModeCDP:
+	default:
+		errs = append(errs, errors.New("webrtc_media_mode must be auto or cdp"))
+	}
+	webRTCRuntimeEnabled := mediaMode == WebRTCMediaModeAuto
+	if webRTCRuntimeEnabled && cfg.WebRTCCompositorEnabled {
 		if executable := strings.TrimSpace(cfg.WebRTCCompositorExecutable); executable == "" {
 			errs = append(errs, errors.New("webrtc_compositor_executable is required when webrtc_compositor_enabled is true"))
 		} else if !filepath.IsAbs(executable) {
@@ -57,7 +67,7 @@ func Validate(cfg Config) error {
 			errs = append(errs, errors.New("webrtc_compositor_height must be positive when webrtc_compositor_enabled is true"))
 		}
 	}
-	if cfg.WebRTCMediaProducerEnabled {
+	if webRTCRuntimeEnabled && cfg.WebRTCMediaProducerEnabled {
 		if !cfg.WebRTCCompositorEnabled {
 			errs = append(errs, errors.New("webrtc_media_producer_enabled requires webrtc_compositor_enabled"))
 		}

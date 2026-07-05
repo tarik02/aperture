@@ -18,12 +18,16 @@ func toSessionListItem(view session.SessionView) sessionListItemResponse {
 		BaseSnapshotName: view.BaseSnapshotName,
 		Status:           view.Session.Status,
 		BrowserChannel:   view.Session.BrowserChannel,
-		CreatedAt:        view.Session.CreatedAt,
-		StartedAt:        view.Session.StartedAt,
-		StoppedAt:        view.Session.StoppedAt,
-		DeletedAt:        view.Session.DeletedAt,
-		ExpiresAt:        view.Session.ExpiresAt,
-		Tags:             view.Tags,
+		Media: sessionMedia{
+			Mode:           view.Media.Mode,
+			WebRTCProducer: view.Media.WebRTCProducer,
+		},
+		CreatedAt: view.Session.CreatedAt,
+		StartedAt: view.Session.StartedAt,
+		StoppedAt: view.Session.StoppedAt,
+		DeletedAt: view.Session.DeletedAt,
+		ExpiresAt: view.Session.ExpiresAt,
+		Tags:      view.Tags,
 	}
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL

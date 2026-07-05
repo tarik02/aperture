@@ -13,6 +13,9 @@ import (
 const (
 	envPrefix     = "APERTURE"
 	defaultConfig = "aperture"
+
+	WebRTCMediaModeAuto = "auto"
+	WebRTCMediaModeCDP  = "cdp"
 )
 
 // ChannelConfig describes a configured browser channel.
@@ -36,6 +39,7 @@ type Config struct {
 	ExternalBaseURL                  string                   `mapstructure:"external_base_url"`
 	CdpRouteBasePath                 string                   `mapstructure:"cdp_route_base_path"`
 	WebRTCCaptureProofExtensionDir   string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
+	WebRTCMediaMode                  string                   `mapstructure:"webrtc_media_mode"`
 	WebRTCCompositorEnabled          bool                     `mapstructure:"webrtc_compositor_enabled"`
 	WebRTCCompositorExecutable       string                   `mapstructure:"webrtc_compositor_executable"`
 	WebRTCCompositorBackend          string                   `mapstructure:"webrtc_compositor_backend"`
@@ -71,6 +75,7 @@ func Defaults() Config {
 		ExternalBaseURL:                  "",
 		CdpRouteBasePath:                 "/cdp",
 		WebRTCCaptureProofExtensionDir:   "",
+		WebRTCMediaMode:                  WebRTCMediaModeAuto,
 		WebRTCCompositorEnabled:          false,
 		WebRTCCompositorExecutable:       "",
 		WebRTCCompositorBackend:          "pipewire",
@@ -123,6 +128,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
+	v.SetDefault("webrtc_media_mode", defaults.WebRTCMediaMode)
 	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)
 	v.SetDefault("webrtc_compositor_backend", defaults.WebRTCCompositorBackend)
 	v.SetDefault("webrtc_compositor_renderer", defaults.WebRTCCompositorRenderer)
@@ -154,6 +160,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"external_base_url",
 		"cdp_route_base_path",
 		"webrtc_capture_proof_extension_dir",
+		"webrtc_media_mode",
 		"webrtc_compositor_enabled",
 		"webrtc_compositor_executable",
 		"webrtc_compositor_backend",
@@ -242,6 +249,7 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"snapshot-retention-days":              "snapshot_retention_days",
 		"external-base-url":                    "external_base_url",
 		"cdp-route-base-path":                  "cdp_route_base_path",
+		"webrtc-media-mode":                    "webrtc_media_mode",
 		"webrtc-compositor-enabled":            "webrtc_compositor_enabled",
 		"webrtc-compositor-executable":         "webrtc_compositor_executable",
 		"webrtc-compositor-backend":            "webrtc_compositor_backend",

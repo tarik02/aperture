@@ -89,6 +89,13 @@ type SessionView struct {
 	BaseSnapshotName *string
 	CDPURL           string
 	CDPToken         string
+	Media            SessionMediaView
+}
+
+// SessionMediaView describes the media transport capability for a session.
+type SessionMediaView struct {
+	Mode           string
+	WebRTCProducer bool
 }
 
 // Create creates and starts a browser session.
@@ -194,8 +201,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		return nil, err
 	}
 
+	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
+	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
+
 	var rawMediaToken string
-	if s.cfg.WebRTCMediaProducerEnabled {
+	if mediaProducerEnabled {
 		var mediaHash string
 		rawMediaToken, mediaHash, err = GenerateMediaToken(sessionID)
 		if err != nil {
@@ -219,14 +229,14 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           input.BrowserArgs,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		CompositorEnabled:          s.cfg.WebRTCCompositorEnabled,
+		CompositorEnabled:          compositorEnabled,
 		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
 		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
 		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
 		CompositorShell:            s.cfg.WebRTCCompositorShell,
 		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
 		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       s.cfg.WebRTCMediaProducerEnabled,
+		MediaProducerEnabled:       mediaProducerEnabled,
 		MediaProducerExecutable:    s.cfg.WebRTCMediaProducerExecutable,
 		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
 		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
@@ -274,6 +284,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		BaseSnapshotName: baseSnapshotName,
 		CDPURL:           s.cdpURL(sessionID),
 		CDPToken:         rawCDP,
+		Media:            s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -339,6 +350,7 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 		Tags:     tags,
 		CDPURL:   s.cdpURL(sessionID),
 		CDPToken: rawCDP,
+		Media:    s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -396,8 +408,11 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
+	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
+	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
+
 	var rawMediaToken string
-	if s.cfg.WebRTCMediaProducerEnabled {
+	if mediaProducerEnabled {
 		var mediaHash string
 		rawMediaToken, mediaHash, err = GenerateMediaToken(sessionID)
 		if err != nil {
@@ -421,14 +436,14 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		CompositorEnabled:          s.cfg.WebRTCCompositorEnabled,
+		CompositorEnabled:          compositorEnabled,
 		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
 		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
 		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
 		CompositorShell:            s.cfg.WebRTCCompositorShell,
 		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
 		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       s.cfg.WebRTCMediaProducerEnabled,
+		MediaProducerEnabled:       mediaProducerEnabled,
 		MediaProducerExecutable:    s.cfg.WebRTCMediaProducerExecutable,
 		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
 		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
@@ -483,6 +498,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		Tags:     tags,
 		CDPURL:   s.cdpURL(sessionID),
 		CDPToken: rawCDP,
+		Media:    s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -524,6 +540,7 @@ func (s *Service) RotateCDPToken(ctx context.Context, tenantID, sessionID string
 		Tags:     tags,
 		CDPURL:   s.cdpURL(sessionID),
 		CDPToken: rawCDP,
+		Media:    s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -559,6 +576,7 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 		Session:          *sessionRow,
 		Tags:             tagMap,
 		BaseSnapshotName: baseSnapshotName,
+		Media:            s.sessionMediaView(*sessionRow),
 	}
 	if sessionRow.Status == db.SessionStatusRunning && sessionRow.CurrentCDPPort != nil {
 		view.CDPURL = s.cdpURL(sessionRow.ID)
@@ -620,6 +638,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 			Session:          sessionRow,
 			Tags:             tagsBySession[sessionRow.ID],
 			BaseSnapshotName: baseSnapshotName,
+			Media:            s.sessionMediaView(sessionRow),
 		}
 		if sessionRow.Status == db.SessionStatusRunning && sessionRow.CurrentCDPPort != nil {
 			view.CDPURL = s.cdpURL(sessionRow.ID)
@@ -762,6 +781,46 @@ func (s *Service) unmountOverlay(ctx context.Context, sessionID string) error {
 		return s.unmountLocal(ctx, sessionID)
 	}
 	return s.overlay.Unmount(ctx, sessionID)
+}
+
+func (s *Service) effectiveWebRTCMediaMode() string {
+	switch strings.ToLower(strings.TrimSpace(s.cfg.WebRTCMediaMode)) {
+	case config.WebRTCMediaModeCDP:
+		return config.WebRTCMediaModeCDP
+	default:
+		return config.WebRTCMediaModeAuto
+	}
+}
+
+func (s *Service) webrtcCompositorRuntimeEnabled() bool {
+	return s.effectiveWebRTCMediaMode() == config.WebRTCMediaModeAuto && s.cfg.WebRTCCompositorEnabled
+}
+
+func (s *Service) webrtcMediaProducerRuntimeEnabled() bool {
+	return s.webrtcCompositorRuntimeEnabled() && s.cfg.WebRTCMediaProducerEnabled
+}
+
+func (s *Service) sessionMediaView(sessionRow db.Session) SessionMediaView {
+	view := SessionMediaView{Mode: s.effectiveWebRTCMediaMode()}
+	if view.Mode != config.WebRTCMediaModeAuto ||
+		sessionRow.Status != db.SessionStatusRunning ||
+		sessionRow.RuntimeEnvPath == nil {
+		return view
+	}
+
+	body, err := os.ReadFile(*sessionRow.RuntimeEnvPath)
+	if err != nil {
+		return view
+	}
+	values, err := browser.ParseRuntimeEnv(body)
+	if err != nil {
+		return view
+	}
+	if _, err := LoadMediaTokenHash(s.cfg, sessionRow.ID); err != nil {
+		return view
+	}
+	view.WebRTCProducer = values.CompositorEnabled && values.MediaProducerEnabled
+	return view
 }
 
 func mediaProducerSignalURL(cfg config.Config, sessionID string) string {

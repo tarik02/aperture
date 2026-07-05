@@ -15,6 +15,7 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 type UseBrowserControlOptions = {
   sessionId: string | null;
   enabled?: boolean;
+  webrtcProducerSupported?: boolean;
 };
 
 type BrowserViewportSize = {
@@ -33,6 +34,7 @@ export type UseBrowserControlResult = {
   mediaStream: MediaStream | null;
   mediaSize: BrowserViewportSize | null;
   mediaError: string | null;
+  mediaPath: BrowserMediaPath;
   lastError: ControlError | null;
   viewport: ViewportPreset;
   browserViewportSize: BrowserViewportSize | null;
@@ -61,9 +63,12 @@ export type UseBrowserControlResult = {
   reconnect: () => void;
 };
 
+export type BrowserMediaPath = "cdp" | "webrtc-live" | "fallback-cdp";
+
 export function useBrowserControl({
   sessionId,
   enabled = true,
+  webrtcProducerSupported = false,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const credentials = useApiCredentials();
   const [phase, setPhase] = useState<ControlConnectionPhase>("idle");
@@ -88,17 +93,18 @@ export function useBrowserControl({
   const mediaPhaseRef = useRef<WebRTCMediaPhase>("idle");
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const webrtcPreferredRef = useRef(false);
+  const webrtcPreferred = Boolean(enabled && sessionId && credentials && webrtcProducerSupported);
 
   activeTargetIdRef.current = activeTargetId;
   viewportRef.current = viewport;
   browserViewportSizeRef.current = browserViewportSize;
   viewportAutoSyncRef.current = viewportAutoSync;
-  webrtcPreferredRef.current = Boolean(enabled && sessionId && credentials);
+  webrtcPreferredRef.current = webrtcPreferred;
 
   const webrtcMedia = useWebRTCMedia({
     sessionId,
     credentials,
-    enabled: enabled && phase === "connected",
+    enabled: webrtcPreferred && phase === "connected",
   });
   mediaPhaseRef.current = webrtcMedia.phase;
   mediaStreamRef.current = webrtcMedia.stream;
@@ -477,6 +483,7 @@ export function useBrowserControl({
     mediaStream: webrtcMedia.stream,
     mediaSize: webrtcMedia.size,
     mediaError: webrtcMedia.error,
+    mediaPath: resolveMediaPath(webrtcPreferred, webrtcMedia.phase, webrtcMedia.stream),
     lastError,
     viewport,
     browserViewportSize,
@@ -504,6 +511,20 @@ export function useBrowserControl({
 
 function isDisconnectedSocketError(message: string): boolean {
   return /^CDP (browser )?socket (is not open|closed|failed)$/.test(message);
+}
+
+function resolveMediaPath(
+  webrtcPreferred: boolean,
+  mediaPhase: WebRTCMediaPhase,
+  mediaStream: MediaStream | null,
+): BrowserMediaPath {
+  if (mediaPhase === "live" && mediaStream) {
+    return "webrtc-live";
+  }
+  if (webrtcPreferred && mediaPhase === "failed") {
+    return "fallback-cdp";
+  }
+  return "cdp";
 }
 
 function mergeTargetsInCurrentOrder(

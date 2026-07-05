@@ -165,6 +165,7 @@ type sessionResponse struct {
 	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
 	Status           string            `json:"status"`
 	BrowserChannel   string            `json:"browserChannel,omitempty"`
+	Media            sessionMedia      `json:"media"`
 	CreatedAt        string            `json:"createdAt"`
 	StartedAt        *string           `json:"startedAt,omitempty"`
 	StoppedAt        *string           `json:"stoppedAt,omitempty"`
@@ -172,6 +173,11 @@ type sessionResponse struct {
 	ExpiresAt        string            `json:"expiresAt"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	CDPURL           string            `json:"cdpUrl,omitempty"`
+}
+
+type sessionMedia struct {
+	Mode           string `json:"mode"`
+	WebRTCProducer bool   `json:"webrtcProducer"`
 }
 
 type sessionListItemResponse = sessionResponse

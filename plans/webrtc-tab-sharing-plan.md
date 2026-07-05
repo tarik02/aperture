@@ -601,6 +601,10 @@ Bail out if:
 
 ## Stage 10, rollout
 
+Status: implemented locally after validation on 2026-07-05. Live session
+validation was not run from this worktree because the existing service/dev
+server must not be started here.
+
 Goal: ship gradually without breaking the existing workbench.
 
 Work:
@@ -612,6 +616,28 @@ Work:
 - Keep a config switch to force CDP screencast.
 - Add operational notes to installation docs only after the feature survives the
   security gate.
+- Stage 10 implementation boundary:
+  - Added `webrtc_media_mode` with default `auto` and allowed values `auto` and
+    `cdp`.
+  - In `cdp` mode, session runtime generation disables the compositor and media
+    producer path, does not mint producer credentials, and keeps the existing
+    direct Chromium/CDP screencast workflow.
+  - In `auto` mode, sessions advertise WebRTC producer support only when the
+    running session runtime env contains both compositor and media producer
+    enablement and the per-session media token hash exists.
+  - Session API responses now include `media.mode` and
+    `media.webrtcProducer`.
+  - The workbench attempts WebRTC only when the selected running session reports
+    `media.mode = auto` and `media.webrtcProducer = true`.
+  - The existing fallback path remains the CDP screencast path and is selected
+    immediately for CDP-only sessions, or after WebRTC setup, signaling,
+    connection, timeout, or producer-health failure.
+  - The existing viewport status badge now distinguishes `webrtc-live` from
+    `fallback-cdp` without redesigning the workbench.
+  - Packaging files were not changed in this stage. The existing flake already
+    builds the `webrtc-media-producer` Go binary; Weston/GStreamer runtime
+    packaging remains outside this Stage 10 code boundary unless packaging is
+    touched in a later rollout change.
 
 Validation:
 
@@ -622,12 +648,34 @@ Validation:
 - A session can be controlled start to finish with WebRTC live.
 - A session can be controlled start to finish after WebRTC fails and fallback
   takes over.
+- Local validation:
+  - `git diff --check`
+  - `mise x go@latest -- go test ./...`
+  - `mise x go@latest -- go build ./cmd/aperture ./cmd/browser-session-wrapper ./cmd/webrtc-media-producer`
+  - `mise x node@22.18.0 pnpm@11.9.0 -- pnpm --filter @aperture/web format:check`
+  - `mise x node@22.18.0 pnpm@11.9.0 -- pnpm --filter @aperture/web typecheck`
+  - `mise x node@22.18.0 pnpm@11.9.0 -- pnpm --filter @aperture/web build`
+  - `nix build .#aperture` was not run because packaging/package files were not
+    changed.
+  - Live session control validation was not run from this worktree because the
+    existing service/dev server must not be started here.
 
 Bail out if:
 
 - Packaging cannot include the compositor/media stack deterministically.
 - WebRTC support changes the behavior of users who stay on CDP screencast.
 - The operational setup requires undocumented external services.
+- Bailout notes:
+  - No bailout triggered in local validation.
+  - CDP-only sessions no longer attempt WebRTC because producer support must be
+    advertised by the session API.
+  - `webrtc_media_mode = "cdp"` is the rollout kill switch for the nested
+    compositor/WebRTC runtime path.
+  - No TURN configuration, new external service, or operational documentation
+    was added.
+  - If a later packaging change cannot include Weston, PipeWire, and GStreamer
+    deterministically, keep `webrtc_media_mode = "cdp"` or keep producer support
+    disabled.
 
 ## Open decisions
 
