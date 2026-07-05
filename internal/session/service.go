@@ -187,15 +187,16 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:          sessionID,
-		MergedUserDataDir:  layout.Merged,
-		DownloadsDir:       layout.Downloads,
-		CacheDir:           layout.Cache,
-		ArtifactsDir:       layout.Artifacts,
-		CDPPort:            port,
-		BrowserExecutable:  channel.Executable,
-		BrowserDefaultArgs: channel.DefaultArgs,
-		BrowserExtraArgs:   input.BrowserArgs,
+		SessionID:                sessionID,
+		MergedUserDataDir:        layout.Merged,
+		DownloadsDir:             layout.Downloads,
+		CacheDir:                 layout.Cache,
+		ArtifactsDir:             layout.Artifacts,
+		CDPPort:                  port,
+		BrowserExecutable:        channel.Executable,
+		BrowserDefaultArgs:       channel.DefaultArgs,
+		BrowserExtraArgs:         input.BrowserArgs,
+		CaptureProofExtensionDir: s.cfg.WebRTCCaptureProofExtensionDir,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
@@ -338,15 +339,16 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:          sessionID,
-		MergedUserDataDir:  layout.Merged,
-		DownloadsDir:       layout.Downloads,
-		CacheDir:           layout.Cache,
-		ArtifactsDir:       layout.Artifacts,
-		CDPPort:            port,
-		BrowserExecutable:  channel.Executable,
-		BrowserDefaultArgs: channel.DefaultArgs,
-		BrowserExtraArgs:   browserArgs,
+		SessionID:                sessionID,
+		MergedUserDataDir:        layout.Merged,
+		DownloadsDir:             layout.Downloads,
+		CacheDir:                 layout.Cache,
+		ArtifactsDir:             layout.Artifacts,
+		CDPPort:                  port,
+		BrowserExecutable:        channel.Executable,
+		BrowserDefaultArgs:       channel.DefaultArgs,
+		BrowserExtraArgs:         browserArgs,
+		CaptureProofExtensionDir: s.cfg.WebRTCCaptureProofExtensionDir,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)

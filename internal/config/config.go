@@ -23,20 +23,21 @@ type ChannelConfig struct {
 
 // Config holds resolved runtime configuration decoded from Viper.
 type Config struct {
-	StoreRoot                string                   `mapstructure:"store_root"`
-	RuntimeRoot              string                   `mapstructure:"runtime_root"`
-	ArtifactRoot             string                   `mapstructure:"artifact_root"`
-	DatabasePath             string                   `mapstructure:"database_path"`
-	TraefikDynamicConfigPath string                   `mapstructure:"traefik_dynamic_config_path"`
-	ListenAddress            string                   `mapstructure:"listen_address"`
-	SystemdBrowserUnitName   string                   `mapstructure:"systemd_browser_unit_name"`
-	SessionRetentionDays     int                      `mapstructure:"session_retention_days"`
-	SnapshotRetentionDays    int                      `mapstructure:"snapshot_retention_days"`
-	ChannelRegistry          map[string]ChannelConfig `mapstructure:"channels"`
-	ExternalBaseURL          string                   `mapstructure:"external_base_url"`
-	CdpRouteBasePath         string                   `mapstructure:"cdp_route_base_path"`
-	LogLevel                 string                   `mapstructure:"log_level"`
-	ConfigFile               string                   `mapstructure:"-"`
+	StoreRoot                      string                   `mapstructure:"store_root"`
+	RuntimeRoot                    string                   `mapstructure:"runtime_root"`
+	ArtifactRoot                   string                   `mapstructure:"artifact_root"`
+	DatabasePath                   string                   `mapstructure:"database_path"`
+	TraefikDynamicConfigPath       string                   `mapstructure:"traefik_dynamic_config_path"`
+	ListenAddress                  string                   `mapstructure:"listen_address"`
+	SystemdBrowserUnitName         string                   `mapstructure:"systemd_browser_unit_name"`
+	SessionRetentionDays           int                      `mapstructure:"session_retention_days"`
+	SnapshotRetentionDays          int                      `mapstructure:"snapshot_retention_days"`
+	ChannelRegistry                map[string]ChannelConfig `mapstructure:"channels"`
+	ExternalBaseURL                string                   `mapstructure:"external_base_url"`
+	CdpRouteBasePath               string                   `mapstructure:"cdp_route_base_path"`
+	WebRTCCaptureProofExtensionDir string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
+	LogLevel                       string                   `mapstructure:"log_level"`
+	ConfigFile                     string                   `mapstructure:"-"`
 }
 
 // Defaults returns built-in default configuration values.
@@ -45,19 +46,20 @@ func Defaults() Config {
 	runtimeRoot := defaultRuntimeRoot()
 
 	return Config{
-		StoreRoot:                storeRoot,
-		RuntimeRoot:              runtimeRoot,
-		ArtifactRoot:             filepath.Join(storeRoot, "artifacts"),
-		DatabasePath:             filepath.Join(storeRoot, "aperture.db"),
-		TraefikDynamicConfigPath: filepath.Join(runtimeRoot, "traefik", "dynamic.yaml"),
-		ListenAddress:            "127.0.0.1:8080",
-		SystemdBrowserUnitName:   "browser-session@.service",
-		SessionRetentionDays:     7,
-		SnapshotRetentionDays:    7,
-		ChannelRegistry:          nil,
-		ExternalBaseURL:          "",
-		CdpRouteBasePath:         "/cdp",
-		LogLevel:                 "info",
+		StoreRoot:                      storeRoot,
+		RuntimeRoot:                    runtimeRoot,
+		ArtifactRoot:                   filepath.Join(storeRoot, "artifacts"),
+		DatabasePath:                   filepath.Join(storeRoot, "aperture.db"),
+		TraefikDynamicConfigPath:       filepath.Join(runtimeRoot, "traefik", "dynamic.yaml"),
+		ListenAddress:                  "127.0.0.1:8080",
+		SystemdBrowserUnitName:         "browser-session@.service",
+		SessionRetentionDays:           7,
+		SnapshotRetentionDays:          7,
+		ChannelRegistry:                nil,
+		ExternalBaseURL:                "",
+		CdpRouteBasePath:               "/cdp",
+		WebRTCCaptureProofExtensionDir: "",
+		LogLevel:                       "info",
 	}
 }
 
@@ -119,6 +121,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"snapshot_retention_days",
 		"external_base_url",
 		"cdp_route_base_path",
+		"webrtc_capture_proof_extension_dir",
 		"log_level",
 	} {
 		if err := v.BindEnv(key); err != nil {

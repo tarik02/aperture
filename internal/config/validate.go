@@ -30,6 +30,9 @@ func Validate(cfg Config) error {
 	if strings.TrimSpace(cfg.SystemdBrowserUnitName) == "" {
 		errs = append(errs, errors.New("systemd_browser_unit_name is required"))
 	}
+	if captureProofDir := strings.TrimSpace(cfg.WebRTCCaptureProofExtensionDir); captureProofDir != "" && !filepath.IsAbs(captureProofDir) {
+		errs = append(errs, errors.New("webrtc_capture_proof_extension_dir must be an absolute path"))
+	}
 
 	if cfg.SessionRetentionDays <= 0 {
 		errs = append(errs, errors.New("session_retention_days must be positive"))

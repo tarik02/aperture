@@ -19,6 +19,9 @@ var deniedBrowserArgs = map[string]struct{}{
 	"--disable-crashpad":              {},
 	"--disable-crashpad-for-testing":  {},
 	"--disable-crash-reporter":        {},
+	"--disable-extensions":            {},
+	"--disable-extensions-except":     {},
+	"--load-extension":                {},
 }
 
 var deniedBrowserArgPrefixes = []string{
@@ -31,6 +34,9 @@ var deniedBrowserArgPrefixes = []string{
 	"--disable-crashpad=",
 	"--disable-crashpad-for-testing=",
 	"--disable-crash-reporter=",
+	"--disable-extensions=",
+	"--disable-extensions-except=",
+	"--load-extension=",
 }
 
 // ValidateBrowserArgs rejects args that conflict with supervisor-owned Chromium behavior.

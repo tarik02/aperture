@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Aperture capture proof probe</title>
+    <style>
+      body {
+        font: 13px system-ui, sans-serif;
+        margin: 24px;
+      }
+
+      button {
+        margin-right: 8px;
+      }
+
+      pre {
+        background: #f4f4f5;
+        border: 1px solid #d4d4d8;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="start" type="button">start capture</button>
+    <button id="stop" type="button">stop capture</button>
+    <button id="refresh" type="button">refresh status</button>
+    <pre id="status">loading...</pre>
+    <script src="probe.js"></script>
+  </body>
+</html>

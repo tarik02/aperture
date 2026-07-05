@@ -15,15 +15,16 @@ import (
 
 // RuntimeEnvValues are written for browser-session-wrapper consumption.
 type RuntimeEnvValues struct {
-	SessionID          string
-	MergedUserDataDir  string
-	DownloadsDir       string
-	CacheDir           string
-	ArtifactsDir       string
-	CDPPort            int
-	BrowserExecutable  string
-	BrowserDefaultArgs []string
-	BrowserExtraArgs   []string
+	SessionID                string
+	MergedUserDataDir        string
+	DownloadsDir             string
+	CacheDir                 string
+	ArtifactsDir             string
+	CDPPort                  int
+	BrowserExecutable        string
+	BrowserDefaultArgs       []string
+	BrowserExtraArgs         []string
+	CaptureProofExtensionDir string
 }
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
@@ -49,6 +50,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	if strings.TrimSpace(values.BrowserExecutable) == "" {
 		return nil, fmt.Errorf("browser executable is required")
 	}
+	if extensionDir := strings.TrimSpace(values.CaptureProofExtensionDir); extensionDir != "" && !filepath.IsAbs(extensionDir) {
+		return nil, fmt.Errorf("capture proof extension dir must be absolute")
+	}
 
 	defaultArgs, err := encodeArgVector(values.BrowserDefaultArgs)
 	if err != nil {
@@ -69,6 +73,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"BROWSER_EXECUTABLE=" + shellQuote(values.BrowserExecutable),
 		"BROWSER_DEFAULT_ARGS=" + defaultArgs,
 		"BROWSER_EXTRA_ARGS=" + extraArgs,
+	}
+	if strings.TrimSpace(values.CaptureProofExtensionDir) != "" {
+		lines = append(lines, "CAPTURE_PROOF_EXTENSION_DIR="+shellQuote(values.CaptureProofExtensionDir))
 	}
 
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
@@ -105,7 +112,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE":
+		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -151,6 +158,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.ArtifactsDir = value
 	case "BROWSER_EXECUTABLE":
 		values.BrowserExecutable = value
+	case "CAPTURE_PROOF_EXTENSION_DIR":
+		values.CaptureProofExtensionDir = value
 	}
 }
 

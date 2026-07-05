@@ -10,15 +10,16 @@ import (
 
 // LaunchConfig describes a browser launch through bwrap.
 type LaunchConfig struct {
-	BwrapPath         string
-	BrowserExecutable string
-	MergedUserDataDir string
-	DownloadsDir      string
-	CacheDir          string
-	ArtifactsDir      string
-	CDPPort           int
-	DefaultArgs       []string
-	ExtraArgs         []string
+	BwrapPath                string
+	BrowserExecutable        string
+	MergedUserDataDir        string
+	DownloadsDir             string
+	CacheDir                 string
+	ArtifactsDir             string
+	CDPPort                  int
+	DefaultArgs              []string
+	ExtraArgs                []string
+	CaptureProofExtensionDir string
 }
 
 // BuildBwrapCommand constructs the bwrap command that launches Chromium.
@@ -35,10 +36,20 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	if !filepath.IsAbs(cfg.CacheDir) {
 		return nil, fmt.Errorf("cache dir must be absolute")
 	}
+	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" && !filepath.IsAbs(cfg.CaptureProofExtensionDir) {
+		return nil, fmt.Errorf("capture proof extension dir must be absolute")
+	}
 
 	browserArgs, err := BuildLaunchArgs(cfg.MergedUserDataDir, cfg.CacheDir, cfg.CDPPort, cfg.DefaultArgs, cfg.ExtraArgs)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" {
+		browserArgs = append(
+			browserArgs,
+			"--disable-extensions-except="+cfg.CaptureProofExtensionDir,
+			"--load-extension="+cfg.CaptureProofExtensionDir,
+		)
 	}
 
 	browserHome := filepath.Join(cfg.CacheDir, "home")
@@ -76,6 +87,9 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 
 	for _, bind := range sessionBindMounts(cfg) {
 		args = append(args, bind...)
+	}
+	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" {
+		args = append(args, "--ro-bind", cfg.CaptureProofExtensionDir, cfg.CaptureProofExtensionDir)
 	}
 
 	args = append(
@@ -184,15 +198,16 @@ func LaunchFromRuntimeEnv() error {
 	}
 
 	cmd, err := BuildBwrapCommand(LaunchConfig{
-		BwrapPath:         bwrapPath,
-		BrowserExecutable: values.BrowserExecutable,
-		MergedUserDataDir: values.MergedUserDataDir,
-		DownloadsDir:      values.DownloadsDir,
-		CacheDir:          values.CacheDir,
-		ArtifactsDir:      values.ArtifactsDir,
-		CDPPort:           values.CDPPort,
-		DefaultArgs:       values.BrowserDefaultArgs,
-		ExtraArgs:         values.BrowserExtraArgs,
+		BwrapPath:                bwrapPath,
+		BrowserExecutable:        values.BrowserExecutable,
+		MergedUserDataDir:        values.MergedUserDataDir,
+		DownloadsDir:             values.DownloadsDir,
+		CacheDir:                 values.CacheDir,
+		ArtifactsDir:             values.ArtifactsDir,
+		CDPPort:                  values.CDPPort,
+		DefaultArgs:              values.BrowserDefaultArgs,
+		ExtraArgs:                values.BrowserExtraArgs,
+		CaptureProofExtensionDir: values.CaptureProofExtensionDir,
 	})
 	if err != nil {
 		return err
@@ -252,6 +267,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		}
 		values.BrowserExtraArgs = args
 	}
+	values.CaptureProofExtensionDir = strings.TrimSpace(os.Getenv("CAPTURE_PROOF_EXTENSION_DIR"))
 
 	if err := ensureSessionPaths(values); err != nil {
 		return RuntimeEnvValues{}, err
