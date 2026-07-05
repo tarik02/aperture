@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { BrowserControlConnection } from "#/lib/control/connection.ts";
+import { useWebRTCMedia, type WebRTCMediaPhase } from "#/hooks/use-webrtc-media.ts";
 import type {
   ClientMessage,
   ControlConnectionPhase,
@@ -28,6 +29,10 @@ export type UseBrowserControlResult = {
   activeTarget: ControlTarget | null;
   frame: ScreencastFrame | null;
   frameStale: boolean;
+  mediaPhase: WebRTCMediaPhase;
+  mediaStream: MediaStream | null;
+  mediaSize: BrowserViewportSize | null;
+  mediaError: string | null;
   lastError: ControlError | null;
   viewport: ViewportPreset;
   browserViewportSize: BrowserViewportSize | null;
@@ -80,11 +85,23 @@ export function useBrowserControl({
   const viewportRef = useRef(viewport);
   const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
   const viewportAutoSyncRef = useRef(false);
+  const mediaPhaseRef = useRef<WebRTCMediaPhase>("idle");
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const webrtcPreferredRef = useRef(false);
 
   activeTargetIdRef.current = activeTargetId;
   viewportRef.current = viewport;
   browserViewportSizeRef.current = browserViewportSize;
   viewportAutoSyncRef.current = viewportAutoSync;
+  webrtcPreferredRef.current = Boolean(enabled && sessionId && credentials);
+
+  const webrtcMedia = useWebRTCMedia({
+    sessionId,
+    credentials,
+    enabled: enabled && phase === "connected",
+  });
+  mediaPhaseRef.current = webrtcMedia.phase;
+  mediaStreamRef.current = webrtcMedia.stream;
 
   const activeTarget = useMemo(
     () => targets.find((target) => target.id === activeTargetId) ?? null,
@@ -231,6 +248,13 @@ export function useBrowserControl({
     });
   }, [send]);
 
+  const shouldWaitForWebRTC = useCallback(() => {
+    if (!webrtcPreferredRef.current || mediaPhaseRef.current === "failed") {
+      return false;
+    }
+    return mediaPhaseRef.current !== "live" || Boolean(mediaStreamRef.current);
+  }, []);
+
   const applyViewport = useCallback(
     (preset: ViewportPreset) => {
       setViewport(preset);
@@ -333,7 +357,6 @@ export function useBrowserControl({
           connection.isOpen() &&
           screencastTargetIdRef.current !== resolvedActive
         ) {
-          screencastTargetIdRef.current = resolvedActive;
           connection.send({
             type: "viewport.set",
             targetId: resolvedActive,
@@ -341,14 +364,17 @@ export function useBrowserControl({
             height: viewportRef.current.height,
             deviceScaleFactor: 1,
           });
-          connection.send({
-            type: "screencast.start",
-            targetId: resolvedActive,
-            format: "jpeg",
-            quality: 80,
-            maxWidth: viewportRef.current.width,
-            maxHeight: viewportRef.current.height,
-          });
+          if (!shouldWaitForWebRTC()) {
+            connection.send({
+              type: "screencast.start",
+              targetId: resolvedActive,
+              format: "jpeg",
+              quality: 80,
+              maxWidth: viewportRef.current.width,
+              maxHeight: viewportRef.current.height,
+            });
+            screencastTargetIdRef.current = resolvedActive;
+          }
         }
       },
       onTargetChanged: (change, target) => {
@@ -393,7 +419,16 @@ export function useBrowserControl({
         connectionRef.current = null;
       }
     };
-  }, [enabled, sessionId, credentials]);
+  }, [enabled, sessionId, credentials, shouldWaitForWebRTC]);
+
+  useEffect(() => {
+    if (webrtcMedia.phase !== "live" || !webrtcMedia.stream || !screencastTargetIdRef.current) {
+      return;
+    }
+    send({ type: "screencast.stop" });
+    screencastTargetIdRef.current = null;
+    setFrame(null);
+  }, [webrtcMedia.phase, webrtcMedia.stream, send]);
 
   useEffect(() => {
     if (!frame) {
@@ -409,16 +444,27 @@ export function useBrowserControl({
   }, [frame]);
 
   useEffect(() => {
-    if (phase !== "connected" || frame || !activeTargetId) {
+    if (phase !== "connected" || frame || !activeTargetId || shouldWaitForWebRTC()) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      startScreencast();
-    }, 2500);
+    const timer = window.setTimeout(
+      () => {
+        startScreencast();
+      },
+      webrtcMedia.phase === "failed" ? 0 : 2500,
+    );
 
     return () => window.clearTimeout(timer);
-  }, [phase, frame, activeTargetId, startScreencast]);
+  }, [
+    phase,
+    frame,
+    activeTargetId,
+    startScreencast,
+    shouldWaitForWebRTC,
+    webrtcMedia.phase,
+    webrtcMedia.stream,
+  ]);
 
   return {
     phase,
@@ -427,6 +473,10 @@ export function useBrowserControl({
     activeTarget,
     frame,
     frameStale,
+    mediaPhase: webrtcMedia.phase,
+    mediaStream: webrtcMedia.stream,
+    mediaSize: webrtcMedia.size,
+    mediaError: webrtcMedia.error,
     lastError,
     viewport,
     browserViewportSize,

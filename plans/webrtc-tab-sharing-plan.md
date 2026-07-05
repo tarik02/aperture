@@ -407,6 +407,8 @@ Bail out if:
 
 ## Stage 7, frontend dual media
 
+Status: passed after local validation and review.
+
 Goal: make WebRTC primary in auto mode while CDP screencast remains the fallback.
 
 Work:
@@ -427,6 +429,17 @@ Work:
 - Switch to CDP screencast if WebRTC disconnects after becoming live.
 - Retry WebRTC only on explicit reconnect, target switch, or bounded background
   retry.
+- Stage 7 implementation boundary:
+  - The UI keeps the existing CDP control socket for all browser state and
+    input.
+  - A separate viewer signaling socket negotiates a WebRTC video track after
+    CDP connects.
+  - The viewport renders WebRTC video when the peer connection is live.
+  - CDP screencast starts automatically when WebRTC fails or times out.
+  - CDP screencast stops when WebRTC becomes live.
+  - The first UI integration attempts WebRTC whenever the workbench has a
+    session and API credentials. A producer capability signal remains a Stage
+    10 rollout item.
 
 Validation:
 
@@ -438,6 +451,11 @@ Validation:
 - Target switch works in both WebRTC and fallback modes.
 - Browser toolbar, tab strip, viewport presets, mouse, wheel, keyboard,
   clipboard paste, reload, and navigation still use CDP.
+- Local validation:
+  - `git diff --check`
+  - `mise x node@22.18.0 pnpm@11.9.0 -- pnpm --filter @aperture/web format:check`
+  - `mise x node@22.18.0 pnpm@11.9.0 -- pnpm --filter @aperture/web typecheck`
+  - `mise x node@22.18.0 pnpm@11.9.0 -- pnpm --filter @aperture/web build`
 
 Bail out if:
 
@@ -545,8 +563,8 @@ Bail out if:
 - Whether the fallback retry policy should be manual-only or bounded automatic.
 - Whether the media producer should run only for the active UI viewer or stay
   warm while a session workbench is open.
-- Whether to use GStreamer `webrtcbin`, a WHIP-compatible sender, or another
-  proven WebRTC sender around the PipeWire source.
+- Whether to keep the current Pion sender around the PipeWire/GStreamer source
+  or switch to a WHIP-compatible sender before rollout.
 - Whether hardware video encode is required for the first rollout, or whether
   preserving compositor/browser GPU acceleration is enough for the first gated
   proof.

@@ -7,7 +7,7 @@ import {
   keyboardModifiers,
   shouldForwardBrowserShortcut,
 } from "#/lib/control/keyboard.ts";
-import { computeRenderMetrics, mapClientToViewport } from "#/lib/control/viewport.ts";
+import { computeRenderMetrics } from "#/lib/control/viewport.ts";
 import type {
   ControlConnectionPhase,
   ControlError,
@@ -30,6 +30,7 @@ const MULTI_CLICK_DISTANCE = 5;
 export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const pointerCaptureRef = useRef<{
     pointerId: number;
     targetId: string;
@@ -46,8 +47,15 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
   } | null>(null);
   const [cursorHintPoint, setCursorHintPoint] = useState<ViewportPoint | null>(null);
 
-  const emulatedWidth = control.frame?.width ?? viewport.width;
-  const emulatedHeight = control.frame?.height ?? viewport.height;
+  const showingWebRTC = control.mediaPhase === "live" && Boolean(control.mediaStream);
+  const renderWidth = showingWebRTC
+    ? (control.mediaSize?.width ?? viewport.width)
+    : (control.frame?.width ?? viewport.width);
+  const renderHeight = showingWebRTC
+    ? (control.mediaSize?.height ?? viewport.height)
+    : (control.frame?.height ?? viewport.height);
+  const inputWidth = viewport.width;
+  const inputHeight = viewport.height;
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
 
   useEffect(() => {
@@ -57,6 +65,13 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
     const mime = control.frame.format === "png" ? "image/png" : "image/jpeg";
     imageRef.current.src = `data:${mime};base64,${control.frame.data}`;
   }, [control.frame]);
+
+  useEffect(() => {
+    if (!videoRef.current) {
+      return;
+    }
+    videoRef.current.srcObject = showingWebRTC ? control.mediaStream : null;
+  }, [control.mediaStream, showingWebRTC]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -93,16 +108,27 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
     if (!rect) {
       return null;
     }
+    const metrics = computeRenderMetrics(rect.width, rect.height, renderWidth, renderHeight);
+    const localX = event.clientX - rect.left - metrics.offsetX;
+    const localY = event.clientY - rect.top - metrics.offsetY;
+    if (
+      !clamp &&
+      (localX < 0 ||
+        localY < 0 ||
+        localX > metrics.renderedWidth ||
+        localY > metrics.renderedHeight)
+    ) {
+      return null;
+    }
+    const x = (localX / metrics.scale) * (inputWidth / renderWidth);
+    const y = (localY / metrics.scale) * (inputHeight / renderHeight);
     if (clamp) {
-      const metrics = computeRenderMetrics(rect.width, rect.height, emulatedWidth, emulatedHeight);
-      const localX = event.clientX - rect.left - metrics.offsetX;
-      const localY = event.clientY - rect.top - metrics.offsetY;
       return {
-        x: Math.round(clampNumber(localX / metrics.scale, 0, Math.max(emulatedWidth - 1, 0))),
-        y: Math.round(clampNumber(localY / metrics.scale, 0, Math.max(emulatedHeight - 1, 0))),
+        x: Math.round(clampNumber(x, 0, Math.max(inputWidth - 1, 0))),
+        y: Math.round(clampNumber(y, 0, Math.max(inputHeight - 1, 0))),
       };
     }
-    return mapClientToViewport(event.clientX, event.clientY, rect, emulatedWidth, emulatedHeight);
+    return { x: Math.round(x), y: Math.round(y) };
   }
 
   function resolveInputTarget() {
@@ -393,7 +419,7 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
       return;
     }
     preventViewportDefault(event);
-    const wheelScale = wheelDeltaScale(event.deltaMode, emulatedHeight);
+    const wheelScale = wheelDeltaScale(event.deltaMode, inputHeight);
     control.send({
       type: "input.wheel",
       targetId,
@@ -486,7 +512,13 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
     });
   }
 
-  const status = resolveViewportStatus(control.phase, control.frame, control.frameStale);
+  const status = resolveViewportStatus(
+    control.phase,
+    control.frame,
+    control.frameStale,
+    control.mediaPhase,
+    showingWebRTC,
+  );
   const visibleLastError =
     control.lastError &&
     control.phase === "connected" &&
@@ -515,16 +547,25 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
       }}
       className="relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden bg-background outline-none"
     >
-      {control.frame ? (
+      {showingWebRTC ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className="h-full w-full object-contain"
+          style={{ aspectRatio: `${renderWidth} / ${renderHeight}` }}
+        />
+      ) : control.frame ? (
         <img
           ref={imageRef}
           alt=""
           draggable={false}
           className="h-full w-full object-contain"
-          style={{ aspectRatio: `${emulatedWidth} / ${emulatedHeight}` }}
+          style={{ aspectRatio: `${renderWidth} / ${renderHeight}` }}
         />
       ) : (
-        <ViewportPlaceholder phase={control.phase} />
+        <ViewportPlaceholder phase={control.phase} mediaPhase={control.mediaPhase} />
       )}
       <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1.5">
         {control.captured ? (
@@ -548,6 +589,11 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
           {visibleLastError.message}
         </div>
       ) : null}
+      {control.mediaPhase === "failed" && control.mediaError ? (
+        <div className="pointer-events-none absolute right-2 bottom-2 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+          {control.mediaError}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -569,12 +615,26 @@ function isDisconnectedSocketError(message: string): boolean {
   return /^CDP (browser )?socket (is not open|closed|failed)$/.test(message);
 }
 
-function ViewportPlaceholder({ phase }: { phase: ControlConnectionPhase }) {
+function ViewportPlaceholder({
+  phase,
+  mediaPhase,
+}: {
+  phase: ControlConnectionPhase;
+  mediaPhase: UseBrowserControlResult["mediaPhase"];
+}) {
   if (phase === "connecting") {
     return (
       <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
         Connecting
+      </div>
+    );
+  }
+  if (phase === "connected" && mediaPhase === "connecting") {
+    return (
+      <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-5 animate-spin" />
+        Connecting media
       </div>
     );
   }
@@ -735,9 +795,14 @@ function resolveViewportStatus(
   phase: ControlConnectionPhase,
   frame: ScreencastFrame | null,
   frameStale: boolean,
+  mediaPhase: UseBrowserControlResult["mediaPhase"],
+  showingWebRTC: boolean,
 ): "live" | "stale" | "offline" {
   if (phase !== "connected") {
     return "offline";
+  }
+  if (mediaPhase === "live" && showingWebRTC) {
+    return "live";
   }
   if (!frame) {
     return "offline";
