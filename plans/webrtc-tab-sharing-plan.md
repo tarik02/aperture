@@ -466,6 +466,8 @@ Bail out if:
 
 ## Stage 8, lifecycle and cleanup
 
+Status: passed after local lifecycle implementation and validation.
+
 Goal: make the new media path behave like a session resource.
 
 Work:
@@ -477,6 +479,23 @@ Work:
 - Make reconnect idempotent from the UI and media producer.
 - Keep session lease semantics unchanged. Raw media traffic must not extend
   leases unless the existing product decision changes.
+- Stage 8 implementation boundary:
+  - The app now owns one signaling coordinator and wires it into session and GC
+    cleanup.
+  - Session delete, startup reconciliation failure, browser-unit failure,
+    orphan runtime cleanup, stale runtime cleanup, reopen, and GC expiry revoke
+    the media producer token hash, close the signaling room, and then remove
+    runtime env files.
+  - Create and reopen mark the DB row running before starting the browser unit,
+    so the wrapper-started producer can authenticate only against a running
+    session.
+  - Reopen first revokes stale producer auth, closes signaling, stops any stale
+    browser unit, and removes stale runtime env before creating the next media
+    token.
+  - The signaling coordinator replaces same-role stale producer/viewer sockets
+    idempotently and ignores relays from replaced peers.
+  - The media producer restarts its active peer cleanly on each `viewer-ready`,
+    so a reconnect receives a fresh offer instead of reusing stale peer state.
 
 Validation:
 
@@ -486,12 +505,20 @@ Validation:
 - Browser crash clears producer state.
 - Go shutdown does not leave persistent secrets outside session runtime paths.
 - Existing GC behavior still removes CDP token seals and session runtime state.
+- Local validation:
+  - `git diff --check`
+  - `mise x go@latest -- go test ./...`
+  - `mise x go@latest -- go build ./cmd/aperture ./cmd/browser-session-wrapper ./cmd/webrtc-media-producer`
 
 Bail out if:
 
 - Capture can continue after the session is no longer running.
 - A stale producer token can reconnect after delete, expiry, or reopen.
 - Cleanup requires manual browser or profile intervention.
+- Bailout notes:
+  - No bailout triggered in local validation.
+  - Live compositor validation was not run in this stage because the existing
+    service/dev server must not be started from this worktree.
 
 ## Stage 9, security review gate
 

@@ -19,9 +19,9 @@ const (
 var (
 	errSignalRoleInvalid      = validationError("role must be producer or viewer")
 	errSignalUpgradeRequired  = validationError("websocket upgrade is required")
-	errSignalPeerExists       = errors.New("webrtc signal peer already connected")
 	errSignalMessageInvalid   = errors.New("invalid webrtc signal message")
 	errSignalPeerBackpressure = errors.New("webrtc signal peer backpressure")
+	errSignalSessionChanged   = errors.New("webrtc signal session lifecycle changed")
 )
 
 type signalRole string
@@ -37,8 +37,9 @@ type signalMessage struct {
 }
 
 type signalPeer struct {
-	role signalRole
-	send chan []byte
+	role      signalRole
+	send      chan []byte
+	closeOnce sync.Once
 }
 
 type signalRoom struct {
@@ -47,17 +48,31 @@ type signalRoom struct {
 }
 
 type SignalCoordinator struct {
-	mu    sync.Mutex
-	rooms map[string]*signalRoom
+	mu          sync.Mutex
+	rooms       map[string]*signalRoom
+	generations map[string]uint64
 }
 
 func NewSignalCoordinator() *SignalCoordinator {
-	return &SignalCoordinator{rooms: make(map[string]*signalRoom)}
+	return &SignalCoordinator{
+		rooms:       make(map[string]*signalRoom),
+		generations: make(map[string]uint64),
+	}
 }
 
-func (s *SignalCoordinator) join(sessionID string, role signalRole) (*signalPeer, error) {
+func (s *SignalCoordinator) Generation(sessionID string) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.generations[sessionID]
+}
+
+func (s *SignalCoordinator) join(sessionID string, role signalRole, generation uint64) (*signalPeer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.generations[sessionID] != generation {
+		return nil, errSignalSessionChanged
+	}
 
 	room := s.rooms[sessionID]
 	if room == nil {
@@ -68,14 +83,10 @@ func (s *SignalCoordinator) join(sessionID string, role signalRole) (*signalPeer
 	peer := &signalPeer{role: role, send: make(chan []byte, 16)}
 	switch role {
 	case signalRoleProducer:
-		if room.producer != nil {
-			return nil, errSignalPeerExists
-		}
+		closeSignalPeer(room.producer)
 		room.producer = peer
 	case signalRoleViewer:
-		if room.viewer != nil {
-			return nil, errSignalPeerExists
-		}
+		closeSignalPeer(room.viewer)
 		room.viewer = peer
 	default:
 		return nil, errSignalRoleInvalid
@@ -88,19 +99,18 @@ func (s *SignalCoordinator) leave(sessionID string, peer *signalPeer) {
 	defer s.mu.Unlock()
 
 	room := s.rooms[sessionID]
-	if room == nil {
-		return
+	if room != nil {
+		if room.producer == peer {
+			room.producer = nil
+		}
+		if room.viewer == peer {
+			room.viewer = nil
+		}
+		if room.producer == nil && room.viewer == nil {
+			delete(s.rooms, sessionID)
+		}
 	}
-	if room.producer == peer {
-		room.producer = nil
-	}
-	if room.viewer == peer {
-		room.viewer = nil
-	}
-	close(peer.send)
-	if room.producer == nil && room.viewer == nil {
-		delete(s.rooms, sessionID)
-	}
+	closeSignalPeer(peer)
 }
 
 func (s *SignalCoordinator) relay(sessionID string, from *signalPeer, body []byte) error {
@@ -111,8 +121,14 @@ func (s *SignalCoordinator) relay(sessionID string, from *signalPeer, body []byt
 	var target *signalPeer
 	if room != nil {
 		if from.role == signalRoleProducer {
+			if room.producer != from {
+				return nil
+			}
 			target = room.viewer
 		} else {
+			if room.viewer != from {
+				return nil
+			}
 			target = room.producer
 		}
 	}
@@ -128,6 +144,29 @@ func (s *SignalCoordinator) relay(sessionID string, from *signalPeer, body []byt
 	}
 }
 
+func (s *SignalCoordinator) CloseSessionMedia(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.generations[sessionID]++
+	room := s.rooms[sessionID]
+	if room == nil {
+		return
+	}
+	delete(s.rooms, sessionID)
+	closeSignalPeer(room.producer)
+	closeSignalPeer(room.viewer)
+}
+
+func closeSignalPeer(peer *signalPeer) {
+	if peer == nil {
+		return
+	}
+	peer.closeOnce.Do(func() {
+		close(peer.send)
+	})
+}
+
 func (s *Server) signalWebRTC(c *gin.Context) {
 	if s.Sessions == nil {
 		WriteError(c, errSessionServiceUnavailable)
@@ -138,6 +177,8 @@ func (s *Server) signalWebRTC(c *gin.Context) {
 		return
 	}
 
+	sessionID := c.Param("sessionId")
+	generation := s.Signaling.Generation(sessionID)
 	role, tenantID, err := s.authorizeSignalPeer(c)
 	if err != nil {
 		WriteError(c, err)
@@ -155,8 +196,12 @@ func (s *Server) signalWebRTC(c *gin.Context) {
 	defer conn.CloseNow()
 	conn.SetReadLimit(webrtcSignalMaxBytes)
 
-	sessionID := c.Param("sessionId")
-	peer, err := s.Signaling.join(sessionID, role)
+	if _, _, err := s.authorizeSignalPeer(c); err != nil {
+		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
+		return
+	}
+
+	peer, err := s.Signaling.join(sessionID, role, generation)
 	if err != nil {
 		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
 		return

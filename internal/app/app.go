@@ -37,6 +37,7 @@ type App struct {
 	Events     *event.Service
 	GC         *gc.Service
 	Channels   *browser.Registry
+	Signaling  *httpapi.SignalCoordinator
 }
 
 // New constructs an App with a production Zap logger and opens the configured database.
@@ -81,13 +82,18 @@ func (a *App) initSessions() error {
 	if err != nil {
 		return fmt.Errorf("browser supervisor: %w", err)
 	}
+	if a.Signaling == nil {
+		a.Signaling = httpapi.NewSignalCoordinator()
+	}
 
 	a.Channels = channels
 	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
+	a.Sessions.SetMediaSessionCleaner(a.Signaling)
 	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
 	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
 	a.Events = event.NewService(a.Repository)
 	a.GC = gc.NewService(a.Config, a.Repository, browserSupervisor, overlayClient, traefik.NewService(a.Config, a.Repository))
+	a.GC.SetMediaSessionCleaner(a.Signaling)
 	return nil
 }
 
@@ -130,6 +136,7 @@ func (a *App) Serve(ctx context.Context) error {
 		Events:    a.Events,
 		GC:        a.GC,
 		Channels:  a.Channels,
+		Signaling: a.Signaling,
 	}
 	server.SetJobToken(jobToken)
 	router := httpapi.NewRouter(a.Logger, server, web.StaticAssets(), a.Config.CdpRouteBasePath)

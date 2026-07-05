@@ -31,6 +31,11 @@ type OverlayClient interface {
 	Unmount(ctx context.Context, sessionID string) error
 }
 
+// MediaSessionCleaner closes in-memory media resources for a session.
+type MediaSessionCleaner interface {
+	CloseSessionMedia(sessionID string)
+}
+
 // Service owns session lifecycle orchestration.
 type Service struct {
 	cfg          config.Config
@@ -39,6 +44,7 @@ type Service struct {
 	browser      *supervisor.Browser
 	channels     *browser.Registry
 	traefik      traefik.Reconciler
+	mediaCleaner MediaSessionCleaner
 	now          func() time.Time
 	mountLocal   func(ctx context.Context, sessionID string, baseSnapshotID *string) error
 	unmountLocal func(ctx context.Context, sessionID string) error
@@ -234,21 +240,23 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	}
 
 	runtimePath := layout.RuntimeEnv
-	sessionRow.RuntimeEnvPath = &runtimePath
-	sessionRow.CurrentCDPPort = &port
-
-	if err := s.browser.Start(ctx, sessionID); err != nil {
-		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
-		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
-	}
-
 	startedAt := now.Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusRunning
 	sessionRow.StartedAt = &startedAt
 	sessionRow.StoppedAt = nil
 	sessionRow.DeletedAt = nil
+	sessionRow.RuntimeEnvPath = &runtimePath
+	sessionRow.CurrentCDPPort = &port
+
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.cleanupPreparedRuntime(ctx, sessionID)
 		return nil, err
+	}
+
+	if err := s.browser.Start(ctx, sessionID); err != nil {
+		sessionRow.StartedAt = nil
+		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
@@ -279,15 +287,22 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, ErrExpired
 	}
 
+	if err := s.retireMediaSession(sessionID); err != nil {
+		return nil, err
+	}
 	if sessionRow.Status == db.SessionStatusRunning {
-		_ = s.browser.Stop(ctx, sessionID)
-		_ = s.browser.RemoveRuntimeEnv(sessionID)
-		_ = RemoveMediaTokenHash(s.cfg, sessionID)
+		if err := s.browser.Stop(ctx, sessionID); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
+		return nil, err
+	}
+	if sessionRow.Status == db.SessionStatusRunning {
 		if err := s.unmountOverlay(ctx, sessionID); err != nil {
 			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
 		}
 	}
-	_ = RemoveMediaTokenHash(s.cfg, sessionID)
 
 	now := s.now().UTC()
 	deletedAt := now.Format(time.RFC3339Nano)
@@ -304,6 +319,7 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
+	s.closeMediaSession(sessionID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
 	}
@@ -340,6 +356,16 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	}
 	if !s.overlayPresent(sessionRow) {
 		return nil, ErrOverlayMissing
+	}
+
+	if err := s.retireMediaSession(sessionID); err != nil {
+		return nil, err
+	}
+	if err := s.browser.Stop(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
+		return nil, err
 	}
 
 	layout, err := paths.Session(s.cfg, sessionID)
@@ -415,11 +441,6 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
-	if err := s.browser.Start(ctx, sessionID); err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
-	}
-
 	now := s.now().UTC()
 	startedAt := now.Format(time.RFC3339Nano)
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
@@ -434,8 +455,16 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	sessionRow.CurrentCDPPort = &port
 
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.cleanupPreparedRuntime(ctx, sessionID)
 		return nil, err
 	}
+
+	if err := s.browser.Start(ctx, sessionID); err != nil {
+		sessionRow.StartedAt = nil
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
 	}
@@ -668,6 +697,7 @@ func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
 			continue
 		}
 		if sessionRow == nil || sessionRow.Status != db.SessionStatusRunning {
+			_ = s.retireMediaSession(sessionID)
 			_ = s.browser.Stop(ctx, sessionID)
 			_ = s.browser.RemoveRuntimeEnv(sessionID)
 		}
@@ -708,6 +738,7 @@ func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
 			continue
 		}
 
+		_ = s.retireMediaSession(sessionID)
 		_ = s.browser.Stop(ctx, sessionID)
 		_ = s.browser.RemoveRuntimeEnv(sessionID)
 	}
@@ -779,14 +810,36 @@ func (s *Service) replaceTags(ctx context.Context, sessionID string, tags map[st
 	return s.repo.ReplaceSessionTags(ctx, sessionID, rows)
 }
 
+func (s *Service) retireMediaSession(sessionID string) error {
+	if err := RemoveMediaTokenHash(s.cfg, sessionID); err != nil {
+		return err
+	}
+	s.closeMediaSession(sessionID)
+	return nil
+}
+
+func (s *Service) closeMediaSession(sessionID string) {
+	if s.mediaCleaner != nil {
+		s.mediaCleaner.CloseSessionMedia(sessionID)
+	}
+}
+
+func (s *Service) cleanupPreparedRuntime(ctx context.Context, sessionID string) error {
+	return errors.Join(
+		s.retireMediaSession(sessionID),
+		s.browser.RemoveRuntimeEnv(sessionID),
+		s.unmountOverlay(ctx, sessionID),
+	)
+}
+
 func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
 	return s.markFailedRetained(ctx, sessionRow, message, cause)
 }
 
 func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
+	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
-	_ = RemoveMediaTokenHash(s.cfg, sessionRow.ID)
 	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
@@ -797,6 +850,7 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return err
 	}
+	s.closeMediaSession(sessionRow.ID)
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
@@ -806,9 +860,9 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 }
 
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
+	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
-	_ = RemoveMediaTokenHash(s.cfg, sessionRow.ID)
 	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
@@ -819,6 +873,7 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return err
 	}
+	s.closeMediaSession(sessionRow.ID)
 	return s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause)
 }
 
@@ -877,6 +932,11 @@ func isRetainedOrRunning(status string) bool {
 	default:
 		return false
 	}
+}
+
+// SetMediaSessionCleaner configures cleanup for in-memory media state.
+func (s *Service) SetMediaSessionCleaner(cleaner MediaSessionCleaner) {
+	s.mediaCleaner = cleaner
 }
 
 // SetDirectOverlayHooks configures in-process overlay mount hooks for tests.

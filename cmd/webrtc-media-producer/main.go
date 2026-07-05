@@ -195,13 +195,7 @@ func run(ctx context.Context, cfg config) error {
 }
 
 func (p *producer) startPeer(ctx context.Context) error {
-	p.mu.Lock()
-	if p.peer != nil {
-		p.mu.Unlock()
-		return nil
-	}
-	p.mu.Unlock()
-
+	p.stopPeer()
 	p.enqueue("producer-health", map[string]any{"status": "starting"})
 
 	udp, err := net.ListenPacket("udp4", "127.0.0.1:0")

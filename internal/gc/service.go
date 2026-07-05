@@ -23,12 +23,13 @@ type OverlayClient interface {
 
 // Service runs garbage collection for sessions and snapshots.
 type Service struct {
-	cfg     config.Config
-	repo    *db.Repository
-	browser *supervisor.Browser
-	overlay OverlayClient
-	traefik traefik.Reconciler
-	now     func() time.Time
+	cfg          config.Config
+	repo         *db.Repository
+	browser      *supervisor.Browser
+	overlay      OverlayClient
+	traefik      traefik.Reconciler
+	mediaCleaner session.MediaSessionCleaner
+	now          func() time.Time
 }
 
 // NewService constructs a GC service.
@@ -109,18 +110,25 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 }
 
 func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now time.Time) error {
-	if sessionRow.Status == db.SessionStatusRunning {
-		_ = s.browser.Stop(ctx, sessionRow.ID)
+	if err := session.RemoveMediaTokenHash(s.cfg, sessionRow.ID); err != nil {
+		return fmt.Errorf("remove media token hash for session %s: %w", sessionRow.ID, err)
 	}
-	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
+	if s.mediaCleaner != nil {
+		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
+	}
+	if sessionRow.Status == db.SessionStatusRunning {
+		if err := s.browser.Stop(ctx, sessionRow.ID); err != nil {
+			return err
+		}
+	}
+	if err := s.browser.RemoveRuntimeEnv(sessionRow.ID); err != nil {
+		return err
+	}
 	if err := s.ensureOverlayUnmounted(ctx, sessionRow); err != nil {
 		return err
 	}
 	if err := session.RemoveCDPTokenSeal(s.cfg, sessionRow.ID); err != nil {
 		return fmt.Errorf("remove cdp token seal for session %s: %w", sessionRow.ID, err)
-	}
-	if err := session.RemoveMediaTokenHash(s.cfg, sessionRow.ID); err != nil {
-		return fmt.Errorf("remove media token hash for session %s: %w", sessionRow.ID, err)
 	}
 
 	if err := s.removeSessionOverlayState(sessionRow); err != nil {
@@ -133,7 +141,13 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
 	sessionRow.StoppedAt = &expiredAt
-	return s.repo.UpdateSession(ctx, sessionRow)
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return err
+	}
+	if s.mediaCleaner != nil {
+		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
+	}
+	return nil
 }
 
 func (s *Service) ensureOverlayUnmounted(ctx context.Context, sessionRow *db.Session) error {
@@ -207,6 +221,11 @@ func (s *Service) removeSessionArtifacts(sessionRow *db.Session) error {
 		return fmt.Errorf("remove session artifacts: %w", err)
 	}
 	return nil
+}
+
+// SetMediaSessionCleaner configures cleanup for in-memory media state.
+func (s *Service) SetMediaSessionCleaner(cleaner session.MediaSessionCleaner) {
+	s.mediaCleaner = cleaner
 }
 
 func (s *Service) collectSnapshot(ctx context.Context, snapshotRow *db.Snapshot, now time.Time) (bool, error) {
