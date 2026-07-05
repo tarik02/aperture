@@ -72,6 +72,9 @@ func NewClientWithRunner(cfg config.Config, mountPath, unmountPath, sudoPath str
 // Mount prepares and mounts a session overlay via the sudo helper.
 func (c *Client) Mount(ctx context.Context, sessionID string, baseSnapshotID *string) error {
 	args := []string{c.mountPath, sessionID}
+	if strings.TrimSpace(c.cfg.ConfigFile) != "" {
+		args = []string{c.mountPath, "--config", c.cfg.ConfigFile, sessionID}
+	}
 	if baseSnapshotID == nil || strings.TrimSpace(*baseSnapshotID) == "" {
 		args = append(args, "empty")
 	} else {
@@ -87,7 +90,12 @@ func (c *Client) Mount(ctx context.Context, sessionID string, baseSnapshotID *st
 
 // Unmount unmounts a session overlay via the sudo helper.
 func (c *Client) Unmount(ctx context.Context, sessionID string) error {
-	out, err := c.run.CombinedOutput(ctx, c.sudoPath, c.unmountPath, sessionID)
+	args := []string{c.unmountPath, sessionID}
+	if strings.TrimSpace(c.cfg.ConfigFile) != "" {
+		args = []string{c.unmountPath, "--config", c.cfg.ConfigFile, sessionID}
+	}
+
+	out, err := c.run.CombinedOutput(ctx, c.sudoPath, args...)
 	if err != nil {
 		return fmt.Errorf("%w: %v: %s", ErrUnmountFailed, err, strings.TrimSpace(string(out)))
 	}

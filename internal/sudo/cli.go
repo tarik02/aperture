@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/aperture/aperture/internal/config"
 )
@@ -21,6 +23,26 @@ func loadHelperConfig() (config.Config, error) {
 	return loadHelperConfigFromPaths(trustedHelperConfigPaths)
 }
 
+func loadRequestedHelperConfig(path string) (config.Config, error) {
+	if strings.TrimSpace(path) == "" {
+		return loadHelperConfig()
+	}
+
+	cleaned, err := trustedRequestedHelperConfigPath(path)
+	if err != nil {
+		return config.Config{}, err
+	}
+	if err := validateTrustedConfig(cleaned); err != nil {
+		return config.Config{}, fmt.Errorf("%w: %s: %v", ErrUntrustedHelperConfig, cleaned, err)
+	}
+
+	cfg, err := loadConfigFromFile(cleaned)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("load trusted config %s: %w", cleaned, err)
+	}
+	return cfg, nil
+}
+
 func loadHelperConfigFromPaths(paths []string) (config.Config, error) {
 	for _, path := range paths {
 		if err := validateTrustedConfig(path); err != nil {
@@ -35,14 +57,38 @@ func loadHelperConfigFromPaths(paths []string) (config.Config, error) {
 	return config.Config{}, ErrUntrustedHelperConfig
 }
 
+func trustedRequestedHelperConfigPath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", fmt.Errorf("%w: config path is required", ErrInvalidArguments)
+	}
+	if !filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("%w: helper config path must be absolute", ErrUntrustedHelperConfig)
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	for _, trusted := range trustedHelperConfigPaths {
+		trustedCleaned := filepath.Clean(trusted)
+		if cleaned == trustedCleaned || filepath.Dir(cleaned) == filepath.Dir(trustedCleaned) {
+			return cleaned, nil
+		}
+	}
+	return "", fmt.Errorf("%w: helper config path is outside trusted config directories", ErrUntrustedHelperConfig)
+}
+
 // RunMountCLI executes the aperture-mount-session helper command.
 func RunMountCLI(args []string) error {
-	req, err := ParseMountArgs(args)
+	configPath, remaining, err := parseHelperConfigFlag(args)
 	if err != nil {
 		return err
 	}
 
-	cfg, err := loadHelperConfig()
+	req, err := ParseMountArgs(remaining)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := loadRequestedHelperConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -52,17 +98,43 @@ func RunMountCLI(args []string) error {
 
 // RunUnmountCLI executes the aperture-unmount-session helper command.
 func RunUnmountCLI(args []string) error {
-	sessionID, err := ParseUnmountArgs(args)
+	configPath, remaining, err := parseHelperConfigFlag(args)
 	if err != nil {
 		return err
 	}
 
-	cfg, err := loadHelperConfig()
+	sessionID, err := ParseUnmountArgs(remaining)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := loadRequestedHelperConfig(configPath)
 	if err != nil {
 		return err
 	}
 
 	return UnmountSession(context.Background(), cfg, sessionID)
+}
+
+func parseHelperConfigFlag(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", args, nil
+	}
+
+	first := strings.TrimSpace(args[0])
+	if first == "--config" {
+		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+			return "", nil, fmt.Errorf("%w: --config requires a path", ErrInvalidArguments)
+		}
+		return args[1], args[2:], nil
+	}
+	if value, ok := strings.CutPrefix(first, "--config="); ok {
+		if strings.TrimSpace(value) == "" {
+			return "", nil, fmt.Errorf("%w: --config requires a path", ErrInvalidArguments)
+		}
+		return value, args[1:], nil
+	}
+	return "", args, nil
 }
 
 // helperConfigRootsForTest exposes resolved roots for tests.

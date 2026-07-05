@@ -1,15 +1,21 @@
-# WebRTC tab sharing plan
+# WebRTC viewport streaming plan
 
 ## Scope
 
-Use a Chromium MV3 extension with an offscreen document as the first-choice tab
-video producer. Keep CDP for tab state, navigation, viewport emulation, input,
-clipboard, and the existing API CDP proxy. Keep CDP screencast as the fallback
-media path whenever WebRTC cannot produce a live video track.
+Use a nested compositor as the first-choice viewport video producer. Launch the
+browser inside that compositor in kiosk/fullscreen mode, stream the compositor
+viewport through PipeWire/WebRTC, and keep CDP for tab state, navigation,
+viewport emulation, input, clipboard, and the existing API CDP proxy. Keep CDP
+screencast as the fallback media path whenever the compositor/WebRTC path cannot
+produce a live video track.
 
 Go remains the coordinator. It owns auth, session lookup, lifecycle, per-session
-runtime files, signaling, and feature state. It must not become a video encoder
-or long-term media relay in this plan.
+runtime files, compositor/browser launch, signaling, and feature state. It must
+not become a long-term media relay in this plan.
+
+The earlier MV3 `tabCapture`/`desktopCapture` direction is superseded unless a
+later stage proves the nested-compositor path is a blocker. The extension proof
+remains useful only as a fallback research artifact.
 
 Do not add new tests for this work. Use existing checks, type checks, builds,
 and live validation against an already running service. Do not start the dev
@@ -22,107 +28,217 @@ server.
 - The UI must be usable through CDP screencast when WebRTC fails.
 - WebRTC work stays behind a disabled-by-default or auto-fallback feature path
   until the full validation set passes.
-- The extension must not require a human to click the Chrome toolbar in the
-  controlled browser. Aperture can drive browser state through its own UI and
-  CDP, but the remote-control workflow cannot depend on manual browser chrome
-  actions.
-- Extension credentials must be per session, short lived, and scoped to WebRTC
-  signaling only.
+- The media path must not require a human to click browser or desktop chrome.
+  Aperture can drive browser state through its own UI and CDP, but the
+  remote-control workflow cannot depend on manual host UI actions.
+- Media producer credentials must be per session, short lived, and scoped to
+  WebRTC signaling only.
 - Public CDP compatibility must not regress.
+- Hardware acceleration must remain enabled for both the nested compositor and
+  Chromium. Any path that silently falls back to SwiftShader/software
+  compositing is a blocker for the primary media path.
+
+## Validated pivot, 2026-07-05
+
+Chrome capture API results:
+
+- `chrome.tabCapture` from an extension/offscreen proof is blocked in the
+  controlled flow by Chrome's activeTab invocation requirement.
+- `chrome.desktopCapture(["tab"])` can be auto-selected with Chromium flags and
+  produces a real `MediaStream`, but it still depends on picker-shaped browser
+  capture behavior.
+- `chrome.desktopCapture(["window"])` returned an empty stream id under the
+  controlled window proof, so it is not a reliable route for decoration-free
+  viewport capture.
+
+Nested compositor results on `polygon`, without touching `aperture.service`:
+
+- Weston headless backend with `--renderer=gl` starts on `/dev/dri/renderD128`
+  with Mesa Intel UHD Graphics 730 and OpenGL ES 3.2.
+- Weston kiosk shell removes desktop/browser decorations from the captured
+  viewport.
+- Chromium launched inside Weston with `--ozone-platform=wayland --kiosk`
+  reports `innerWidth=960`, `innerHeight=720`, `outerWidth=960`,
+  `outerHeight=720`, and `devicePixelRatio=1`.
+- Chrome GPU status reports ANGLE on Intel UHD Graphics 730, GPU compositing
+  enabled, OpenGL enabled, forced rasterization enabled, video decode enabled,
+  WebGL enabled, WebGPU enabled, and Vulkan enabled.
+- Weston PipeWire backend publishes a `weston.pipewire` node with
+  `media.class = "Stream/Output/Video"`.
+- GStreamer consumed that node through `pipewiresrc` and produced a 960x720 PNG
+  frame. Pixel probes matched page content at the top border, left border, and
+  body background, with no host desktop or browser chrome.
+
+Current separate-deployment blocker:
+
+- A fully independent second Aperture API deployment cannot safely create normal
+  browser sessions yet because the sudo overlay helpers trust only
+  `/etc/aperture/aperture.toml`. Until that is changed, compositor validation
+  must use isolated user units/manual proof commands or a direct-mount proof
+  harness rather than a second `aperture serve` that starts full sessions.
 
 ## Bailout rules
 
 Stop the WebRTC path and keep CDP screencast as the only shipped media transport
 if any of these blockers holds after the named validation stage:
 
-- `chrome.tabCapture` cannot start from an Aperture-controlled flow without a
-  manual Chrome toolbar action.
-- The extension cannot capture the active target selected by CDP with reliable
-  tab switching.
-- The launched Chromium channel refuses the bundled extension or offscreen
-  document under the session wrapper.
+- Weston, another nested compositor, or the selected capture backend cannot run
+  per session without touching the host desktop or the main Aperture service.
+- The compositor path cannot preserve hardware acceleration for Chromium.
+- PipeWire or the selected frame source cannot produce a continuous exact-size
+  viewport stream.
 - ICE cannot connect for the deployment shape Aperture needs, and the project is
   not ready to run or configure TURN.
 - The fallback path cannot switch from WebRTC failure to CDP screencast without
   losing input control or leaving stale capture state.
-- The extension credential model would expose API tokens or session CDP tokens
-  to captured pages.
+- The media credential model would expose API tokens or session CDP tokens to
+  captured pages.
 
-When a bailout happens, leave the codebase in one of two states: no WebRTC code
-merged, or WebRTC disabled by config with CDP screencast still default.
+When a bailout happens, leave the codebase in one of two states: no compositor
+WebRTC code merged, or compositor WebRTC disabled by config with CDP screencast
+still default.
 
-## Stage 1, capture proof
+## Stage 1, compositor capture proof
 
-Goal: prove the extension can capture the tab Aperture wants before building
-signaling or UI work.
+Status: passed for the Weston headless/PipeWire proof on `polygon`.
 
-Work:
-
-- Create a minimal MV3 extension prototype outside the product path.
-- Include `tabCapture` and `offscreen` permissions.
-- Use a service worker to create one offscreen document.
-- Use `chrome.tabCapture.getMediaStreamId()` in the service worker, then consume
-  the stream ID with `getUserMedia()` inside the offscreen document.
-- Use CDP to activate the target first, then capture the current active tab
-  rather than trying to map CDP target IDs to extension tab IDs.
-- Record capture state only in extension memory for the proof.
-
-Validation:
-
-- The supervised Chromium session loads the extension.
-- Existing `/api/cdp/{sessionId}/json/version` and browser WebSocket control
-  still work with the extension loaded.
-- Capture starts from an Aperture-driven action, without a manual click on the
-  Chrome extension action button.
-- The offscreen document receives a live video track.
-- The track survives same-tab navigation.
-- Capture stops when the target tab closes.
-- A target switch can stop the old capture and start a capture for the newly
-  activated target.
-
-Bail out if:
-
-- Chrome requires a manual extension invocation that Aperture cannot trigger in
-  a product-grade way.
-- Capture only works for one tab and cannot follow the active CDP target.
-- The offscreen document cannot be used in the launched Chromium channel.
-
-## Stage 2, extension packaging contract
-
-Goal: make extension loading deterministic for one session without wiring media
-yet.
+Goal: prove a decoration-free compositor viewport can be produced and consumed
+without Chrome capture APIs.
 
 Work:
 
-- Add a packaged extension template to the browser wrapper assets.
-- Generate a per-session extension directory during runtime preparation.
-- Write a generated config file into that directory containing only:
-  - session id
-  - local signaling URL
-  - one per-session extension signaling token
-  - feature flags needed by the extension
-- Load only the generated extension directory through supervisor-owned Chromium
-  args.
-- Keep arbitrary user browser args blocked from changing extension loading.
-- Remove the generated extension directory on session expiry.
+- Launch Weston per proof/session with a unique Wayland socket.
+- Use `--backend=headless` for screenshot validation and `--backend=pipewire`
+  for stream-source validation.
+- Use `--renderer=gl` and reject software compositor fallback.
+- Use `--shell=kiosk` to remove compositor shell decorations.
+- Launch Chromium inside the nested Wayland socket with kiosk mode and CDP.
+- Keep the proof outside the main `aperture.service` deployment.
 
 Validation:
 
-- Extension ID is stable across session starts for the same packaged extension.
-- Per-session generated config changes do not invalidate extension loading.
-- The extension can read its config and connect to a local coordinator endpoint.
-- Session create, reopen, delete, and expire still clean up runtime files.
-- Existing CDP routes and Traefik reconciliation output stay unchanged unless a
-  later stage explicitly adds WebRTC routes.
+- Weston reports GL renderer on a render node.
+- Chromium reports GPU compositing, OpenGL/WebGL, GPU rasterization, and video
+  decode enabled.
+- Chromium viewport and outer window dimensions match the compositor output.
+- Captured frame dimensions match the requested viewport.
+- Captured pixels prove page content reaches the output edges without host
+  desktop, compositor panel, titlebar, or browser toolbar.
+- GStreamer can consume the PipeWire node as `video/x-raw`.
 
 Bail out if:
 
-- Extension identity changes across builds or sessions in a way that breaks
-  extension messaging or storage.
-- Chromium blocks the unpacked extension in the supported package/channel setup.
-- Runtime cleanup cannot reliably remove session-scoped extension secrets.
+- Weston cannot start with GL renderer.
+- Chromium falls back to SwiftShader/software compositing.
+- Kiosk shell still leaves decorations in the captured frame.
+- PipeWire cannot expose the compositor output as a consumable video node.
 
-## Stage 3, signaling coordinator
+## Stage 2, isolated deployment contract
+
+Status: in progress. The helper path now supports a supervisor-selected trusted
+config file under `/etc/aperture`, which allows a proof deployment to use a
+separate root-owned config without editing the main `/etc/aperture/aperture.toml`.
+
+Goal: make the nested-compositor proof runnable through an isolated Aperture-like
+deployment without touching `aperture.service`.
+
+Work:
+
+- Add support for a supervisor-selected trusted helper config path, or add a
+  proof-only direct mount path that does not use sudo.
+- Install separate user units for proof deployment, for example:
+  - `aperture-webrtc-proof.service`
+  - `browser-session-webrtc-proof@.service`
+- Use separate listen address, runtime root, store root, database path, dynamic
+  config path, and browser unit template.
+- Ensure the main `aperture.service`, `browser-session@.service`, and
+  `/etc/aperture/aperture.toml` are not modified during validation.
+- Add explicit runtime cleanup for nested compositor sockets, PipeWire nodes,
+  browser profile, and media helper processes.
+
+Validation:
+
+- Main Aperture remains active and unchanged before, during, and after the proof.
+- The proof service can create and delete a session using only proof roots and
+  proof units.
+- Sudo/helper config trust does not allow an unprivileged user to redirect
+  privileged overlay mounts to arbitrary paths.
+- CDP for proof sessions remains reachable on the proof deployment only.
+- Stopping the proof service stops Weston, Chromium, PipeWire consumers, and
+  browser units.
+
+Bail out if:
+
+- A second deployment requires editing the main config or main user units.
+- Helper trust cannot be separated safely.
+- Proof cleanup can leave privileged mounts, browser units, or compositor
+  processes behind.
+
+## Stage 3, compositor session wrapper
+
+Goal: make the browser wrapper own the nested compositor and Chromium lifecycle.
+
+Work:
+
+- Extend `browser-session-wrapper` with a gated nested-compositor mode.
+- Generate a unique Wayland socket name per session.
+- Start Weston before Chromium and wait for the socket.
+- Pass only the nested Wayland socket to Chromium.
+- Keep `/dev/dri/renderD*` and required Wayland/PipeWire runtime access
+  available in the sandbox.
+- Stop both Chromium and Weston on unit stop.
+- Preserve the existing direct Chromium launch path when compositor mode is off.
+
+Validation:
+
+- Existing sessions still launch without compositor mode.
+- Compositor-mode sessions launch Chromium, expose CDP, and stop cleanly.
+- Weston and Chromium both report hardware acceleration.
+- The nested viewport dimensions match the requested session viewport.
+- Session delete and expiry remove sockets and runtime files.
+
+Bail out if:
+
+- The wrapper cannot supervise both processes reliably under systemd.
+- The sandbox cannot preserve GPU/PipeWire access without weakening isolation
+  too broadly.
+- Non-compositor sessions regress.
+
+## Stage 4, PipeWire media producer
+
+Goal: turn the compositor PipeWire node into a WebRTC video source.
+
+Work:
+
+- Start a per-session media producer after Weston publishes its PipeWire node.
+- Consume `weston.pipewire` with GStreamer or an equivalent proven media stack.
+- Encode video for WebRTC without routing raw frames through Go.
+- Keep audio out of the first implementation unless product requirements
+  change.
+- Report media health and frame metadata to Go:
+  - `idle`
+  - `starting`
+  - `streaming`
+  - `negotiating`
+  - `connected`
+  - `failed`
+- Include failure codes that map directly to fallback decisions.
+
+Validation:
+
+- Producer receives exact-size frames from PipeWire.
+- First encoded frame is available within an agreed timeout.
+- CPU and GPU usage are acceptable for one session.
+- Producer exits when Weston or Chromium exits.
+- CDP screencast remains idle while WebRTC is healthy.
+
+Bail out if:
+
+- PipeWire output cannot be consumed continuously.
+- Encoding requires Go to act as a long-term media relay.
+- Frame dimensions cannot be aligned with CDP input coordinates.
+
+## Stage 5, signaling coordinator
 
 Goal: add signaling without media risk.
 
@@ -131,11 +247,11 @@ Work:
 - Add an authenticated signaling WebSocket under the API, for example
   `/api/webrtc/{sessionId}/signal`.
 - Support two roles:
-  - `producer`, the session extension.
+  - `producer`, the per-session media producer.
   - `viewer`, the Aperture web UI.
 - Authenticate viewers with normal API auth and `sessions:write`.
-- Authenticate producers with the generated extension signaling token only.
-- Route SDP offers, SDP answers, ICE candidates, selected target id, and producer
+- Authenticate producers with a generated per-session media token only.
+- Route SDP offers, SDP answers, ICE candidates, viewport metadata, and producer
   health through Go.
 - Track producer presence in memory. Do not persist SDP or ICE candidates.
 - Limit one active producer per running session.
@@ -153,25 +269,27 @@ Validation:
 
 Bail out if:
 
-- The extension cannot authenticate without exposing normal API or CDP tokens.
+- The producer cannot authenticate without exposing normal API or CDP tokens.
 - Signaling state leaks across tenants or sessions.
 - The coordinator needs to inspect or modify encoded media to make the design
   work.
 
-## Stage 4, WebRTC media path
+## Stage 6, WebRTC media path
 
-Goal: stream captured tab video from the extension to the UI.
+Goal: stream the compositor viewport from the media producer to the UI.
 
 Work:
 
-- In the offscreen document, create an `RTCPeerConnection`.
-- Add the captured video track with `addTrack`.
+- In the media producer, create an `RTCPeerConnection` or equivalent proven
+  WebRTC sender.
+- Add the PipeWire compositor video source as the only first-stage track.
 - Keep audio out of the first implementation unless product requirements change.
 - Use a data channel for producer health and media metadata only, not browser
   input.
-- Send stream status from extension to Go:
+- Send stream status from producer to Go:
   - `idle`
-  - `capturing`
+  - `starting`
+  - `streaming`
   - `negotiating`
   - `connected`
   - `failed`
@@ -183,10 +301,8 @@ Validation:
 - A UI viewer receives a remote video track.
 - `connectionState` reaches `connected`.
 - First decoded frame appears in the UI within an agreed timeout.
-- Frame dimensions match the current emulated viewport closely enough for input
-  coordinate mapping.
-- Target switch tears down the old video track and starts the new one.
-- Navigation does not require a new browser session or UI reconnect.
+- Frame dimensions exactly match the compositor viewport.
+- Browser navigation does not require a new browser session or UI reconnect.
 - Closing the UI closes only the viewer peer connection.
 - Stopping or deleting the session closes producer capture and peer connections.
 
@@ -194,9 +310,9 @@ Bail out if:
 
 - ICE fails in the target deployment and there is no accepted TURN plan.
 - Video dimensions cannot be aligned with CDP viewport/input coordinates.
-- Target switching leaves stale tracks or leaks capture state.
+- Producer restarts leave stale tracks or leak capture state.
 
-## Stage 5, frontend dual media
+## Stage 7, frontend dual media
 
 Goal: make WebRTC primary in auto mode while CDP screencast remains the fallback.
 
@@ -222,8 +338,8 @@ Work:
 Validation:
 
 - With WebRTC disabled, behavior matches the current CDP screencast path.
-- With extension unavailable, the UI falls back to CDP screencast without user
-  action.
+- With compositor or producer unavailable, the UI falls back to CDP screencast
+  without user action.
 - With ICE failure, fallback happens within the timeout and input still works.
 - With WebRTC live, CDP screencast is not running.
 - Target switch works in both WebRTC and fallback modes.
@@ -234,28 +350,28 @@ Bail out if:
 
 - Fallback is visibly unreliable or leaves the user with no media.
 - Dual media state makes input target selection ambiguous.
-- WebRTC retry loops create repeated capture prompts, repeated extension errors,
-  or excessive signaling churn.
+- WebRTC retry loops create repeated producer restarts or excessive signaling
+  churn.
 
-## Stage 6, lifecycle and cleanup
+## Stage 8, lifecycle and cleanup
 
 Goal: make the new media path behave like a session resource.
 
 Work:
 
 - Start the producer only for running sessions.
-- Stop capture when the session stops, deletes, expires, or reopens.
+- Stop compositor capture when the session stops, deletes, expires, or reopens.
 - Clear producer presence on browser unit failure.
 - Close peer connections before removing runtime files.
-- Make reconnect idempotent from the UI and extension.
+- Make reconnect idempotent from the UI and media producer.
 - Keep session lease semantics unchanged. Raw media traffic must not extend
   leases unless the existing product decision changes.
 
 Validation:
 
-- Session delete stops capture and removes generated extension secrets.
+- Session delete stops capture and removes generated media secrets.
 - Reopen creates a fresh producer token.
-- Expiry removes generated extension files.
+- Expiry removes generated media runtime files.
 - Browser crash clears producer state.
 - Go shutdown does not leave persistent secrets outside session runtime paths.
 - Existing GC behavior still removes CDP token seals and session runtime state.
@@ -263,38 +379,41 @@ Validation:
 Bail out if:
 
 - Capture can continue after the session is no longer running.
-- A stale extension token can reconnect after delete, expiry, or reopen.
+- A stale producer token can reconnect after delete, expiry, or reopen.
 - Cleanup requires manual browser or profile intervention.
 
-## Stage 7, security review gate
+## Stage 9, security review gate
 
 Goal: decide whether WebRTC can be enabled outside local development.
 
 Review:
 
-- Extension permissions are the minimum set needed for capture and signaling.
-- Captured pages cannot read extension config or signaling tokens.
-- Extension token cannot call normal API endpoints.
+- The compositor, PipeWire, and media producer run with minimum practical access.
+- Captured pages cannot read media config or signaling tokens.
+- Producer token cannot call normal API endpoints.
 - Signaling rejects tenant/session mismatches.
 - SDP and ICE candidate logging does not expose private network details unless
   debug logging is explicitly enabled.
 - Public Traefik routes do not expose producer endpoints without auth.
 - The fallback CDP path does not leak the session CDP token into the web UI.
+- GPU, render-node, PipeWire, and runtime-directory sandbox bindings are scoped
+  narrowly enough for the deployment model.
 
 Validation:
 
 - Manual request attempts with wrong tenant, wrong session, and wrong producer
   token fail.
-- Browser devtools on a captured page cannot access extension config.
+- Browser devtools on a captured page cannot access media config.
 - Logs contain session ids and failure codes, not bearer tokens or SDP bodies.
 
 Bail out if:
 
-- The extension requires broad host permissions without a narrow reason.
+- The compositor/media producer requires broad host permissions without a narrow
+  reason.
 - Producer auth cannot be separated from user API auth.
-- The browser page can read session-scoped extension secrets.
+- The browser page can read session-scoped media secrets.
 
-## Stage 8, rollout
+## Stage 10, rollout
 
 Goal: ship gradually without breaking the existing workbench.
 
@@ -310,8 +429,8 @@ Work:
 
 Validation:
 
-- Build output includes the extension assets.
-- Go embed and packaging include the extension template.
+- Build output includes the compositor/media producer dependencies.
+- Packaging includes Weston and the selected PipeWire/WebRTC media stack.
 - Production build works without a development server.
 - A session can be controlled start to finish with WebRTC disabled.
 - A session can be controlled start to finish with WebRTC live.
@@ -320,7 +439,7 @@ Validation:
 
 Bail out if:
 
-- Packaging cannot include the extension deterministically.
+- Packaging cannot include the compositor/media stack deterministically.
 - WebRTC support changes the behavior of users who stay on CDP screencast.
 - The operational setup requires undocumented external services.
 
@@ -331,11 +450,19 @@ Bail out if:
 - Whether audio capture is required. Leave it out until video is stable.
 - Whether multiple simultaneous viewers matter for the first release.
 - Whether the fallback retry policy should be manual-only or bounded automatic.
-- Whether extension capture should run only for the active UI viewer or stay
+- Whether the media producer should run only for the active UI viewer or stay
   warm while a session workbench is open.
+- Whether to use GStreamer `webrtcbin`, a WHIP-compatible sender, or another
+  proven WebRTC sender around the PipeWire source.
+- Whether hardware video encode is required for the first rollout, or whether
+  preserving compositor/browser GPU acceleration is enough for the first gated
+  proof.
 
 ## References
 
 - Chrome `tabCapture` API: https://developer.chrome.com/docs/extensions/reference/api/tabCapture
 - Chrome `offscreen` API: https://developer.chrome.com/docs/extensions/reference/api/offscreen
 - Chrome extension screen capture guide: https://developer.chrome.com/docs/extensions/how-to/web-platform/screen-capture
+- Weston `headless`, `pipewire`, and `vnc` backends: `weston --help`
+- Weston VNC backend details: `man weston-vnc`
+- GStreamer PipeWire source: `gst-inspect-1.0 pipewiresrc`
