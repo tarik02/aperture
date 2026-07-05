@@ -179,16 +179,16 @@ func run(ctx context.Context, cfg config) error {
 		switch msg.Type {
 		case "viewer-ready":
 			if err := p.startPeer(ctx); err != nil {
-				p.enqueue("producer-health", map[string]any{"status": "failed", "reason": err.Error()})
+				p.enqueue("producer-health", map[string]any{"status": "failed", "code": "peer_start_failed"})
 			}
 		case "sdp-answer":
 			if err := p.setAnswer(msg.Payload); err != nil {
-				p.enqueue("producer-health", map[string]any{"status": "failed", "reason": err.Error()})
+				p.enqueue("producer-health", map[string]any{"status": "failed", "code": "sdp_answer_rejected"})
 				p.stopPeer()
 			}
 		case "ice-candidate":
 			if err := p.addCandidate(msg.Payload); err != nil {
-				p.enqueue("producer-health", map[string]any{"status": "failed", "reason": err.Error()})
+				p.enqueue("producer-health", map[string]any{"status": "failed", "code": "ice_candidate_rejected"})
 			}
 		}
 	}
@@ -255,7 +255,7 @@ func (p *producer) startPeer(ctx context.Context) error {
 			}
 			candidateMu.Unlock()
 			if err := p.send(ap.ctx, "ice-candidate", candidateInit); err != nil {
-				p.enqueue("producer-health", map[string]any{"status": "failed", "reason": err.Error()})
+				p.enqueue("producer-health", map[string]any{"status": "failed", "code": "signal_send_failed"})
 			}
 		}
 	})
@@ -263,8 +263,11 @@ func (p *producer) startPeer(ctx context.Context) error {
 		switch state {
 		case webrtc.PeerConnectionStateConnected:
 			p.enqueue("producer-health", map[string]any{"status": "connected"})
-		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
-			p.enqueue("producer-health", map[string]any{"status": "failed", "reason": state.String()})
+		case webrtc.PeerConnectionStateFailed:
+			p.enqueue("producer-health", map[string]any{"status": "failed", "code": "peer_connection_failed"})
+			go p.stopActivePeer(ap)
+		case webrtc.PeerConnectionStateClosed:
+			p.enqueue("producer-health", map[string]any{"status": "failed", "code": "peer_connection_closed"})
 			go p.stopActivePeer(ap)
 		}
 	})
@@ -381,7 +384,7 @@ func (p *producer) forwardRTP(ap *activePeer, track *webrtc.TrackLocalStaticRTP)
 		n, _, err := ap.udp.ReadFrom(buf)
 		if err != nil {
 			if ap.ctx.Err() == nil {
-				p.enqueue("producer-health", map[string]any{"status": "failed", "reason": err.Error()})
+				p.enqueue("producer-health", map[string]any{"status": "failed", "code": "rtp_read_failed"})
 				go p.stopActivePeer(ap)
 			}
 			return
@@ -390,7 +393,7 @@ func (p *producer) forwardRTP(ap *activePeer, track *webrtc.TrackLocalStaticRTP)
 			if errors.Is(err, io.ErrClosedPipe) || ap.ctx.Err() != nil {
 				return
 			}
-			p.enqueue("producer-health", map[string]any{"status": "failed", "reason": err.Error()})
+			p.enqueue("producer-health", map[string]any{"status": "failed", "code": "rtp_write_failed"})
 			go p.stopActivePeer(ap)
 			return
 		}
@@ -407,9 +410,9 @@ func (p *producer) watchGStreamer(ap *activePeer) {
 			return
 		}
 		if err != nil {
-			p.enqueue("producer-health", map[string]any{"status": "failed", "reason": err.Error()})
+			p.enqueue("producer-health", map[string]any{"status": "failed", "code": "gstreamer_failed"})
 		} else {
-			p.enqueue("producer-health", map[string]any{"status": "failed", "reason": "gstreamer exited"})
+			p.enqueue("producer-health", map[string]any{"status": "failed", "code": "gstreamer_exited"})
 		}
 		p.stopActivePeer(ap)
 	case <-ap.ctx.Done():

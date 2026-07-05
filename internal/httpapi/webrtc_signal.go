@@ -18,6 +18,7 @@ const (
 
 var (
 	errSignalRoleInvalid      = validationError("role must be producer or viewer")
+	errSignalProtocolRequired = validationError("websocket protocol aperture-webrtc.v1 is required")
 	errSignalUpgradeRequired  = validationError("websocket upgrade is required")
 	errSignalMessageInvalid   = errors.New("invalid webrtc signal message")
 	errSignalPeerBackpressure = errors.New("webrtc signal peer backpressure")
@@ -176,6 +177,10 @@ func (s *Server) signalWebRTC(c *gin.Context) {
 		WriteError(c, errSignalUpgradeRequired)
 		return
 	}
+	if !hasWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol"), webrtcSignalProtocol) {
+		WriteError(c, errSignalProtocolRequired)
+		return
+	}
 
 	sessionID := c.Param("sessionId")
 	generation := s.Signaling.Generation(sessionID)
@@ -231,7 +236,7 @@ func (s *Server) signalWebRTC(c *gin.Context) {
 			}
 			return
 		}
-		if messageType != websocket.MessageText || !validSignalMessage(body) {
+		if messageType != websocket.MessageText || !validSignalMessage(peer.role, body) {
 			_ = conn.Close(websocket.StatusUnsupportedData, errSignalMessageInvalid.Error())
 			return
 		}
@@ -275,22 +280,87 @@ func (s *Server) authorizeSignalPeer(c *gin.Context) (signalRole, string, error)
 	}
 }
 
-func validSignalMessage(body []byte) bool {
+func validSignalMessage(role signalRole, body []byte) bool {
 	var msg signalMessage
 	if err := json.Unmarshal(body, &msg); err != nil {
 		return false
 	}
+	if !validSignalMessageType(role, msg.Type) {
+		return false
+	}
+	if len(msg.Payload) == 0 {
+		return false
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		return false
+	}
+	if payload == nil {
+		return false
+	}
 	switch msg.Type {
-	case "sdp-offer", "sdp-answer", "ice-candidate", "producer-health", "viewport-metadata", "viewer-ready":
-		if len(msg.Payload) == 0 {
+	case "producer-health":
+		return validProducerHealthPayload(payload)
+	case "viewport-metadata":
+		return validViewportMetadataPayload(payload)
+	default:
+		return true
+	}
+}
+
+func validSignalMessageType(role signalRole, messageType string) bool {
+	switch role {
+	case signalRoleProducer:
+		switch messageType {
+		case "sdp-offer", "ice-candidate", "producer-health", "viewport-metadata":
+			return true
+		}
+	case signalRoleViewer:
+		switch messageType {
+		case "sdp-answer", "ice-candidate", "viewer-ready":
+			return true
+		}
+	}
+	return false
+}
+
+func validProducerHealthPayload(payload map[string]json.RawMessage) bool {
+	for key := range payload {
+		if key != "status" && key != "code" {
 			return false
 		}
-		var payload map[string]json.RawMessage
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			return false
+	}
+	var status string
+	if err := json.Unmarshal(payload["status"], &status); err != nil {
+		return false
+	}
+	switch status {
+	case "idle", "starting", "streaming", "negotiating", "connected":
+		return len(payload) == 1
+	case "failed":
+		if codeRaw, ok := payload["code"]; ok {
+			var code string
+			return json.Unmarshal(codeRaw, &code) == nil && code != ""
 		}
-		return payload != nil
+		return true
 	default:
 		return false
 	}
+}
+
+func validViewportMetadataPayload(payload map[string]json.RawMessage) bool {
+	for key := range payload {
+		if key != "width" && key != "height" {
+			return false
+		}
+	}
+	var width int
+	var height int
+	if err := json.Unmarshal(payload["width"], &width); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(payload["height"], &height); err != nil {
+		return false
+	}
+	return width > 0 && height > 0
 }

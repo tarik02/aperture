@@ -522,6 +522,11 @@ Bail out if:
 
 ## Stage 9, security review gate
 
+Status: passed for local security review, narrow hardening, and build
+validation on 2026-07-05. Live negative request probes and browser-devtools
+inspection were not run from this worktree because the existing service/dev
+server must not be started here.
+
 Goal: decide whether WebRTC can be enabled outside local development.
 
 Review:
@@ -536,13 +541,51 @@ Review:
 - The fallback CDP path does not leak the session CDP token into the web UI.
 - GPU, render-node, PipeWire, and runtime-directory sandbox bindings are scoped
   narrowly enough for the deployment model.
+- Stage 9 implementation/review boundary:
+  - No new host permissions, service units, TURN config, rollout defaults, or
+    deployment docs were added.
+  - Producer auth remains separate from normal API auth: producers authenticate
+    only through the per-session `media_` token hash under the runtime root,
+    while normal API endpoints continue to require `apt_` API tokens and
+    scopes.
+  - WebRTC signaling now requires the `aperture-webrtc.v1` WebSocket
+    subprotocol before accepting the socket.
+  - The coordinator now validates signaling direction by role: producers may
+    send SDP offers, ICE candidates, producer health, and viewport metadata;
+    viewers may send viewer-ready, SDP answers, and ICE candidates.
+  - Producer health payloads now allow only stable status/code fields, and the
+    media producer reports failure codes instead of raw SDP, ICE, network, or
+    process error strings.
+  - Browser launch still uses `bwrap --clearenv`; compositor mode still binds
+    only the generated nested Wayland socket from `XDG_RUNTIME_DIR` into the
+    browser sandbox, plus the existing scoped GPU/sysfs bindings needed for
+    hardware acceleration.
+  - Media token hashes and runtime env files remain `0600` under the session
+    runtime root, and the browser process does not receive the media producer
+    token, signaling URL, or wrapper environment.
+  - The workbench CDP fallback path continues to use `/api/cdp` with normal API
+    auth, not the session CDP bearer token. The separate connection panel still
+    intentionally displays CDP credentials after create/reopen/rotate for
+    external CDP clients.
+  - Public Traefik routing continues to send `/api` to the API service and CDP
+    paths through CDP forward-auth; there is no direct unauthenticated producer
+    route.
 
 Validation:
 
-- Manual request attempts with wrong tenant, wrong session, and wrong producer
-  token fail.
-- Browser devtools on a captured page cannot access media config.
-- Logs contain session ids and failure codes, not bearer tokens or SDP bodies.
+- Live validation to run against an already-running deployment:
+  - Manual request attempts with wrong tenant, wrong session, and wrong producer
+    token fail.
+  - Browser devtools on a captured page cannot access media config.
+  - Logs contain session ids and failure codes, not bearer tokens or SDP bodies.
+- Local validation:
+  - `git diff --check`
+  - `mise x go@latest -- go test ./...`
+  - `mise x go@latest -- go build ./cmd/aperture ./cmd/browser-session-wrapper ./cmd/webrtc-media-producer`
+  - `nix build .#aperture` was not run because packaging files were not
+    changed.
+  - Web format/type/build checks were not run because web files were not
+    changed.
 
 Bail out if:
 
@@ -550,6 +593,11 @@ Bail out if:
   reason.
 - Producer auth cannot be separated from user API auth.
 - The browser page can read session-scoped media secrets.
+- Bailout notes:
+  - No bailout triggered in local review or validation.
+  - Keep WebRTC disabled and use CDP fallback if a deployment moves the session
+    runtime root into a path mounted into the browser sandbox or otherwise makes
+    media/signaling secrets readable by captured pages.
 
 ## Stage 10, rollout
 
