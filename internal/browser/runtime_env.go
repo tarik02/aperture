@@ -15,28 +15,30 @@ import (
 
 // RuntimeEnvValues are written for browser-session-wrapper consumption.
 type RuntimeEnvValues struct {
-	SessionID                string
-	MergedUserDataDir        string
-	DownloadsDir             string
-	CacheDir                 string
-	ArtifactsDir             string
-	CDPPort                  int
-	BrowserExecutable        string
-	BrowserDefaultArgs       []string
-	BrowserExtraArgs         []string
-	CaptureProofExtensionDir string
-	CompositorEnabled        bool
-	CompositorExecutable     string
-	CompositorBackend        string
-	CompositorRenderer       string
-	CompositorShell          string
-	CompositorWidth          int
-	CompositorHeight         int
-	MediaProducerEnabled     bool
-	MediaProducerExecutable  string
-	MediaProducerPluginPath  string
-	MediaProducerTarget      string
-	MediaProducerToken       string
+	SessionID                  string
+	MergedUserDataDir          string
+	DownloadsDir               string
+	CacheDir                   string
+	ArtifactsDir               string
+	CDPPort                    int
+	BrowserExecutable          string
+	BrowserDefaultArgs         []string
+	BrowserExtraArgs           []string
+	CaptureProofExtensionDir   string
+	CompositorEnabled          bool
+	CompositorExecutable       string
+	CompositorBackend          string
+	CompositorRenderer         string
+	CompositorShell            string
+	CompositorWidth            int
+	CompositorHeight           int
+	MediaProducerEnabled       bool
+	MediaProducerExecutable    string
+	MediaProducerGSTExecutable string
+	MediaProducerPluginPath    string
+	MediaProducerSignalURL     string
+	MediaProducerTarget        string
+	MediaProducerToken         string
 }
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
@@ -104,6 +106,12 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		if !filepath.IsAbs(values.MediaProducerExecutable) {
 			return nil, fmt.Errorf("media producer executable must be absolute")
 		}
+		if strings.TrimSpace(values.MediaProducerGSTExecutable) == "" {
+			return nil, fmt.Errorf("media producer gst executable is required")
+		}
+		if !filepath.IsAbs(values.MediaProducerGSTExecutable) {
+			return nil, fmt.Errorf("media producer gst executable must be absolute")
+		}
 		if pluginPath := strings.TrimSpace(values.MediaProducerPluginPath); pluginPath != "" {
 			for _, entry := range filepath.SplitList(pluginPath) {
 				if strings.TrimSpace(entry) == "" {
@@ -116,6 +124,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		}
 		if strings.TrimSpace(values.MediaProducerTarget) == "" {
 			return nil, fmt.Errorf("media producer target is required")
+		}
+		if strings.TrimSpace(values.MediaProducerSignalURL) == "" {
+			return nil, fmt.Errorf("media producer signal URL is required")
 		}
 		if strings.TrimSpace(values.MediaProducerToken) == "" {
 			return nil, fmt.Errorf("media producer token is required")
@@ -162,7 +173,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			lines,
 			"WEBRTC_MEDIA_PRODUCER_ENABLED=1",
 			"WEBRTC_MEDIA_PRODUCER_EXECUTABLE="+shellQuote(values.MediaProducerExecutable),
+			"WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE="+shellQuote(values.MediaProducerGSTExecutable),
 			"WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH="+shellQuote(values.MediaProducerPluginPath),
+			"WEBRTC_MEDIA_PRODUCER_SIGNAL_URL="+shellQuote(values.MediaProducerSignalURL),
 			"WEBRTC_MEDIA_PRODUCER_TARGET="+shellQuote(values.MediaProducerTarget),
 			"WEBRTC_MEDIA_PRODUCER_TOKEN="+shellQuote(values.MediaProducerToken),
 		)
@@ -202,7 +215,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_TOKEN":
+		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_SIGNAL_URL", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_TOKEN":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -276,8 +289,12 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.CompositorShell = value
 	case "WEBRTC_MEDIA_PRODUCER_EXECUTABLE":
 		values.MediaProducerExecutable = value
+	case "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE":
+		values.MediaProducerGSTExecutable = value
 	case "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH":
 		values.MediaProducerPluginPath = value
+	case "WEBRTC_MEDIA_PRODUCER_SIGNAL_URL":
+		values.MediaProducerSignalURL = value
 	case "WEBRTC_MEDIA_PRODUCER_TARGET":
 		values.MediaProducerTarget = value
 	case "WEBRTC_MEDIA_PRODUCER_TOKEN":

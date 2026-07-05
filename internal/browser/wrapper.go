@@ -335,6 +335,12 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		if !filepath.IsAbs(values.MediaProducerExecutable) {
 			return fmt.Errorf("media producer executable must be absolute")
 		}
+		if strings.TrimSpace(values.MediaProducerGSTExecutable) == "" {
+			return fmt.Errorf("media producer gst executable is required")
+		}
+		if !filepath.IsAbs(values.MediaProducerGSTExecutable) {
+			return fmt.Errorf("media producer gst executable must be absolute")
+		}
 		if pluginPath := strings.TrimSpace(values.MediaProducerPluginPath); pluginPath != "" {
 			for _, entry := range filepath.SplitList(pluginPath) {
 				if strings.TrimSpace(entry) == "" {
@@ -347,6 +353,9 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		}
 		if strings.TrimSpace(values.MediaProducerTarget) == "" {
 			return fmt.Errorf("media producer target is required")
+		}
+		if strings.TrimSpace(values.MediaProducerSignalURL) == "" {
+			return fmt.Errorf("media producer signal URL is required")
 		}
 		if strings.TrimSpace(values.MediaProducerToken) == "" {
 			return fmt.Errorf("media producer token is required")
@@ -385,6 +394,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		"--idle-time=0",
 		"--log="+compositorLog,
 	)
+	compositor.Env = compositorProcessEnv()
 	compositor.Stdout = os.Stdout
 	compositor.Stderr = os.Stderr
 	if err := compositor.Start(); err != nil {
@@ -494,37 +504,24 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 }
 
 func startMediaProducer(values RuntimeEnvValues) (*exec.Cmd, <-chan error, error) {
-	args := []string{
-		"-v",
-		"pipewiresrc",
-		"target-object=" + values.MediaProducerTarget,
-		"do-timestamp=true",
-		"!",
-		fmt.Sprintf("video/x-raw,width=%d,height=%d", values.CompositorWidth, values.CompositorHeight),
-		"!",
-		"videoconvert",
-		"!",
-		"queue",
-		"max-size-buffers=2",
-		"leaky=downstream",
-		"!",
-		"vp8enc",
-		"deadline=1",
-		"keyframe-max-dist=30",
-		"cpu-used=8",
-		"!",
-		"rtpvp8pay",
-		"picture-id-mode=15-bit",
-		"!",
-		"fakesink",
-		"sync=false",
+	cmd := exec.Command(values.MediaProducerExecutable)
+	cmd.Env = []string{
+		"APERTURE_SESSION_ID=" + values.SessionID,
+		"WEBRTC_COMPOSITOR_WIDTH=" + strconv.Itoa(values.CompositorWidth),
+		"WEBRTC_COMPOSITOR_HEIGHT=" + strconv.Itoa(values.CompositorHeight),
+		"WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE=" + values.MediaProducerGSTExecutable,
+		"WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH=" + values.MediaProducerPluginPath,
+		"WEBRTC_MEDIA_PRODUCER_SIGNAL_URL=" + values.MediaProducerSignalURL,
+		"WEBRTC_MEDIA_PRODUCER_TARGET=" + values.MediaProducerTarget,
+		"WEBRTC_MEDIA_PRODUCER_TOKEN=" + values.MediaProducerToken,
 	}
-	cmd := exec.Command(values.MediaProducerExecutable, args...)
+	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if pluginPath := strings.TrimSpace(values.MediaProducerPluginPath); pluginPath != "" {
-		cmd.Env = append(os.Environ(), "GST_PLUGIN_SYSTEM_PATH_1_0="+pluginPath)
-	}
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("start media producer: %w", err)
 	}
@@ -545,6 +542,16 @@ func startMediaProducer(values RuntimeEnvValues) (*exec.Cmd, <-chan error, error
 	case <-timer.C:
 		return cmd, done, nil
 	}
+}
+
+func compositorProcessEnv() []string {
+	env := make([]string, 0, 5)
+	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS", "LIBVA_DRIVER_NAME", "NVIDIA_VISIBLE_DEVICES"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			env = append(env, key+"="+value)
+		}
+	}
+	return env
 }
 
 func waitForWaylandSocket(socketPath string, compositorDone <-chan error) error {
@@ -650,7 +657,9 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.CompositorShell = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_SHELL"))
 	values.MediaProducerEnabled = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ENABLED")) == "1"
 	values.MediaProducerExecutable = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_EXECUTABLE"))
+	values.MediaProducerGSTExecutable = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE"))
 	values.MediaProducerPluginPath = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH"))
+	values.MediaProducerSignalURL = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_SIGNAL_URL"))
 	values.MediaProducerTarget = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TARGET"))
 	values.MediaProducerToken = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TOKEN"))
 	if width := strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_WIDTH")); width != "" {

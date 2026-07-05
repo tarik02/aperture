@@ -66,6 +66,11 @@ func Validate(cfg Config) error {
 		} else if !filepath.IsAbs(executable) {
 			errs = append(errs, errors.New("webrtc_media_producer_executable must be an absolute path"))
 		}
+		if executable := strings.TrimSpace(cfg.WebRTCMediaProducerGSTExecutable); executable == "" {
+			errs = append(errs, errors.New("webrtc_media_producer_gst_executable is required when webrtc_media_producer_enabled is true"))
+		} else if !filepath.IsAbs(executable) {
+			errs = append(errs, errors.New("webrtc_media_producer_gst_executable must be an absolute path"))
+		}
 		if pluginPath := strings.TrimSpace(cfg.WebRTCMediaProducerPluginPath); pluginPath != "" {
 			for _, entry := range filepath.SplitList(pluginPath) {
 				if strings.TrimSpace(entry) == "" {

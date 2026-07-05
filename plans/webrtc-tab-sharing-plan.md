@@ -355,16 +355,25 @@ Bail out if:
 
 ## Stage 6, WebRTC media path
 
+Status: passed for the producer sender implementation after local validation,
+package validation, and review. Live browser viewer decode remains a Stage 7
+UI integration validation item.
+
 Goal: stream the compositor viewport from the media producer to the UI.
 
 Work:
 
-- In the media producer, create an `RTCPeerConnection` or equivalent proven
-  WebRTC sender.
+- In the media producer, create an `RTCPeerConnection` with Pion.
+- Keep GStreamer as the PipeWire capture, colorspace conversion, VP8 encode,
+  and RTP payload stack.
+- Forward encoded RTP packets from a local UDP socket into a
+  `TrackLocalStaticRTP`; do not route raw frames through Go.
 - Add the PipeWire compositor video source as the only first-stage track.
 - Keep audio out of the first implementation unless product requirements change.
-- Use a data channel for producer health and media metadata only, not browser
-  input.
+- Keep producer health and viewport metadata on the signaling channel for the
+  first sender implementation; do not put browser input on WebRTC data channels.
+- Have viewers send `viewer-ready` after their peer connection is prepared, so
+  producer offers are not dropped before a viewer exists.
 - Send stream status from producer to Go:
   - `idle`
   - `starting`
@@ -384,6 +393,11 @@ Validation:
 - Browser navigation does not require a new browser session or UI reconnect.
 - Closing the UI closes only the viewer peer connection.
 - Stopping or deleting the session closes producer capture and peer connections.
+- Local validation so far:
+  - `mise x go@latest -- go test ./...`
+  - `git diff --check`
+  - `mise x go@latest -- go build ./cmd/aperture ./cmd/browser-session-wrapper ./cmd/webrtc-media-producer`
+  - `nix build .#aperture`
 
 Bail out if:
 

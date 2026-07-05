@@ -236,7 +236,7 @@ func validSignalMessage(body []byte) bool {
 		return false
 	}
 	switch msg.Type {
-	case "sdp-offer", "sdp-answer", "ice-candidate", "producer-health", "viewport-metadata":
+	case "sdp-offer", "sdp-answer", "ice-candidate", "producer-health", "viewport-metadata", "viewer-ready":
 		if len(msg.Payload) == 0 {
 			return false
 		}

@@ -41,13 +41,14 @@
           pname = "aperture";
           version = "0.0.1";
           inherit src;
-          vendorHash = "sha256-S2SGyL46hH/GAF1X2aHUEbylHsNP+uRLSlCmMsjtB8M=";
+          vendorHash = "sha256-iqKAicw4N/AJnBJwV/y+zcGUMePJSGMBf3jme2jqIZg=";
 
           subPackages = [
             "cmd/aperture"
             "cmd/aperture-mount-session"
             "cmd/aperture-unmount-session"
             "cmd/browser-session-wrapper"
+            "cmd/webrtc-media-producer"
           ];
 
           pnpmDeps = pkgs.fetchPnpmDeps {

@@ -23,32 +23,33 @@ type ChannelConfig struct {
 
 // Config holds resolved runtime configuration decoded from Viper.
 type Config struct {
-	StoreRoot                      string                   `mapstructure:"store_root"`
-	RuntimeRoot                    string                   `mapstructure:"runtime_root"`
-	ArtifactRoot                   string                   `mapstructure:"artifact_root"`
-	DatabasePath                   string                   `mapstructure:"database_path"`
-	TraefikDynamicConfigPath       string                   `mapstructure:"traefik_dynamic_config_path"`
-	ListenAddress                  string                   `mapstructure:"listen_address"`
-	SystemdBrowserUnitName         string                   `mapstructure:"systemd_browser_unit_name"`
-	SessionRetentionDays           int                      `mapstructure:"session_retention_days"`
-	SnapshotRetentionDays          int                      `mapstructure:"snapshot_retention_days"`
-	ChannelRegistry                map[string]ChannelConfig `mapstructure:"channels"`
-	ExternalBaseURL                string                   `mapstructure:"external_base_url"`
-	CdpRouteBasePath               string                   `mapstructure:"cdp_route_base_path"`
-	WebRTCCaptureProofExtensionDir string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
-	WebRTCCompositorEnabled        bool                     `mapstructure:"webrtc_compositor_enabled"`
-	WebRTCCompositorExecutable     string                   `mapstructure:"webrtc_compositor_executable"`
-	WebRTCCompositorBackend        string                   `mapstructure:"webrtc_compositor_backend"`
-	WebRTCCompositorRenderer       string                   `mapstructure:"webrtc_compositor_renderer"`
-	WebRTCCompositorShell          string                   `mapstructure:"webrtc_compositor_shell"`
-	WebRTCCompositorWidth          int                      `mapstructure:"webrtc_compositor_width"`
-	WebRTCCompositorHeight         int                      `mapstructure:"webrtc_compositor_height"`
-	WebRTCMediaProducerEnabled     bool                     `mapstructure:"webrtc_media_producer_enabled"`
-	WebRTCMediaProducerExecutable  string                   `mapstructure:"webrtc_media_producer_executable"`
-	WebRTCMediaProducerPluginPath  string                   `mapstructure:"webrtc_media_producer_plugin_path"`
-	WebRTCMediaProducerTarget      string                   `mapstructure:"webrtc_media_producer_target"`
-	LogLevel                       string                   `mapstructure:"log_level"`
-	ConfigFile                     string                   `mapstructure:"-"`
+	StoreRoot                        string                   `mapstructure:"store_root"`
+	RuntimeRoot                      string                   `mapstructure:"runtime_root"`
+	ArtifactRoot                     string                   `mapstructure:"artifact_root"`
+	DatabasePath                     string                   `mapstructure:"database_path"`
+	TraefikDynamicConfigPath         string                   `mapstructure:"traefik_dynamic_config_path"`
+	ListenAddress                    string                   `mapstructure:"listen_address"`
+	SystemdBrowserUnitName           string                   `mapstructure:"systemd_browser_unit_name"`
+	SessionRetentionDays             int                      `mapstructure:"session_retention_days"`
+	SnapshotRetentionDays            int                      `mapstructure:"snapshot_retention_days"`
+	ChannelRegistry                  map[string]ChannelConfig `mapstructure:"channels"`
+	ExternalBaseURL                  string                   `mapstructure:"external_base_url"`
+	CdpRouteBasePath                 string                   `mapstructure:"cdp_route_base_path"`
+	WebRTCCaptureProofExtensionDir   string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
+	WebRTCCompositorEnabled          bool                     `mapstructure:"webrtc_compositor_enabled"`
+	WebRTCCompositorExecutable       string                   `mapstructure:"webrtc_compositor_executable"`
+	WebRTCCompositorBackend          string                   `mapstructure:"webrtc_compositor_backend"`
+	WebRTCCompositorRenderer         string                   `mapstructure:"webrtc_compositor_renderer"`
+	WebRTCCompositorShell            string                   `mapstructure:"webrtc_compositor_shell"`
+	WebRTCCompositorWidth            int                      `mapstructure:"webrtc_compositor_width"`
+	WebRTCCompositorHeight           int                      `mapstructure:"webrtc_compositor_height"`
+	WebRTCMediaProducerEnabled       bool                     `mapstructure:"webrtc_media_producer_enabled"`
+	WebRTCMediaProducerExecutable    string                   `mapstructure:"webrtc_media_producer_executable"`
+	WebRTCMediaProducerGSTExecutable string                   `mapstructure:"webrtc_media_producer_gst_executable"`
+	WebRTCMediaProducerPluginPath    string                   `mapstructure:"webrtc_media_producer_plugin_path"`
+	WebRTCMediaProducerTarget        string                   `mapstructure:"webrtc_media_producer_target"`
+	LogLevel                         string                   `mapstructure:"log_level"`
+	ConfigFile                       string                   `mapstructure:"-"`
 }
 
 // Defaults returns built-in default configuration values.
@@ -57,31 +58,32 @@ func Defaults() Config {
 	runtimeRoot := defaultRuntimeRoot()
 
 	return Config{
-		StoreRoot:                      storeRoot,
-		RuntimeRoot:                    runtimeRoot,
-		ArtifactRoot:                   filepath.Join(storeRoot, "artifacts"),
-		DatabasePath:                   filepath.Join(storeRoot, "aperture.db"),
-		TraefikDynamicConfigPath:       filepath.Join(runtimeRoot, "traefik", "dynamic.yaml"),
-		ListenAddress:                  "127.0.0.1:8080",
-		SystemdBrowserUnitName:         "browser-session@.service",
-		SessionRetentionDays:           7,
-		SnapshotRetentionDays:          7,
-		ChannelRegistry:                nil,
-		ExternalBaseURL:                "",
-		CdpRouteBasePath:               "/cdp",
-		WebRTCCaptureProofExtensionDir: "",
-		WebRTCCompositorEnabled:        false,
-		WebRTCCompositorExecutable:     "",
-		WebRTCCompositorBackend:        "pipewire",
-		WebRTCCompositorRenderer:       "gl",
-		WebRTCCompositorShell:          "kiosk",
-		WebRTCCompositorWidth:          1280,
-		WebRTCCompositorHeight:         720,
-		WebRTCMediaProducerEnabled:     false,
-		WebRTCMediaProducerExecutable:  "",
-		WebRTCMediaProducerPluginPath:  "",
-		WebRTCMediaProducerTarget:      "weston.pipewire",
-		LogLevel:                       "info",
+		StoreRoot:                        storeRoot,
+		RuntimeRoot:                      runtimeRoot,
+		ArtifactRoot:                     filepath.Join(storeRoot, "artifacts"),
+		DatabasePath:                     filepath.Join(storeRoot, "aperture.db"),
+		TraefikDynamicConfigPath:         filepath.Join(runtimeRoot, "traefik", "dynamic.yaml"),
+		ListenAddress:                    "127.0.0.1:8080",
+		SystemdBrowserUnitName:           "browser-session@.service",
+		SessionRetentionDays:             7,
+		SnapshotRetentionDays:            7,
+		ChannelRegistry:                  nil,
+		ExternalBaseURL:                  "",
+		CdpRouteBasePath:                 "/cdp",
+		WebRTCCaptureProofExtensionDir:   "",
+		WebRTCCompositorEnabled:          false,
+		WebRTCCompositorExecutable:       "",
+		WebRTCCompositorBackend:          "pipewire",
+		WebRTCCompositorRenderer:         "gl",
+		WebRTCCompositorShell:            "kiosk",
+		WebRTCCompositorWidth:            1280,
+		WebRTCCompositorHeight:           720,
+		WebRTCMediaProducerEnabled:       false,
+		WebRTCMediaProducerExecutable:    "",
+		WebRTCMediaProducerGSTExecutable: "",
+		WebRTCMediaProducerPluginPath:    "",
+		WebRTCMediaProducerTarget:        "weston.pipewire",
+		LogLevel:                         "info",
 	}
 }
 
@@ -161,6 +163,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_compositor_height",
 		"webrtc_media_producer_enabled",
 		"webrtc_media_producer_executable",
+		"webrtc_media_producer_gst_executable",
 		"webrtc_media_producer_plugin_path",
 		"webrtc_media_producer_target",
 		"log_level",
@@ -227,29 +230,30 @@ func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
 
 func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 	flagBindings := map[string]string{
-		"listen-address":                    "listen_address",
-		"log-level":                         "log_level",
-		"store-root":                        "store_root",
-		"runtime-root":                      "runtime_root",
-		"artifact-root":                     "artifact_root",
-		"database-path":                     "database_path",
-		"traefik-dynamic-config-path":       "traefik_dynamic_config_path",
-		"systemd-browser-unit-name":         "systemd_browser_unit_name",
-		"session-retention-days":            "session_retention_days",
-		"snapshot-retention-days":           "snapshot_retention_days",
-		"external-base-url":                 "external_base_url",
-		"cdp-route-base-path":               "cdp_route_base_path",
-		"webrtc-compositor-enabled":         "webrtc_compositor_enabled",
-		"webrtc-compositor-executable":      "webrtc_compositor_executable",
-		"webrtc-compositor-backend":         "webrtc_compositor_backend",
-		"webrtc-compositor-renderer":        "webrtc_compositor_renderer",
-		"webrtc-compositor-shell":           "webrtc_compositor_shell",
-		"webrtc-compositor-width":           "webrtc_compositor_width",
-		"webrtc-compositor-height":          "webrtc_compositor_height",
-		"webrtc-media-producer-enabled":     "webrtc_media_producer_enabled",
-		"webrtc-media-producer-executable":  "webrtc_media_producer_executable",
-		"webrtc-media-producer-plugin-path": "webrtc_media_producer_plugin_path",
-		"webrtc-media-producer-target":      "webrtc_media_producer_target",
+		"listen-address":                       "listen_address",
+		"log-level":                            "log_level",
+		"store-root":                           "store_root",
+		"runtime-root":                         "runtime_root",
+		"artifact-root":                        "artifact_root",
+		"database-path":                        "database_path",
+		"traefik-dynamic-config-path":          "traefik_dynamic_config_path",
+		"systemd-browser-unit-name":            "systemd_browser_unit_name",
+		"session-retention-days":               "session_retention_days",
+		"snapshot-retention-days":              "snapshot_retention_days",
+		"external-base-url":                    "external_base_url",
+		"cdp-route-base-path":                  "cdp_route_base_path",
+		"webrtc-compositor-enabled":            "webrtc_compositor_enabled",
+		"webrtc-compositor-executable":         "webrtc_compositor_executable",
+		"webrtc-compositor-backend":            "webrtc_compositor_backend",
+		"webrtc-compositor-renderer":           "webrtc_compositor_renderer",
+		"webrtc-compositor-shell":              "webrtc_compositor_shell",
+		"webrtc-compositor-width":              "webrtc_compositor_width",
+		"webrtc-compositor-height":             "webrtc_compositor_height",
+		"webrtc-media-producer-enabled":        "webrtc_media_producer_enabled",
+		"webrtc-media-producer-executable":     "webrtc_media_producer_executable",
+		"webrtc-media-producer-gst-executable": "webrtc_media_producer_gst_executable",
+		"webrtc-media-producer-plugin-path":    "webrtc_media_producer_plugin_path",
+		"webrtc-media-producer-target":         "webrtc_media_producer_target",
 	}
 
 	for flagName, configKey := range flagBindings {

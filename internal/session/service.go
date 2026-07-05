@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -201,28 +203,30 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:                sessionID,
-		MergedUserDataDir:        layout.Merged,
-		DownloadsDir:             layout.Downloads,
-		CacheDir:                 layout.Cache,
-		ArtifactsDir:             layout.Artifacts,
-		CDPPort:                  port,
-		BrowserExecutable:        channel.Executable,
-		BrowserDefaultArgs:       channel.DefaultArgs,
-		BrowserExtraArgs:         input.BrowserArgs,
-		CaptureProofExtensionDir: s.cfg.WebRTCCaptureProofExtensionDir,
-		CompositorEnabled:        s.cfg.WebRTCCompositorEnabled,
-		CompositorExecutable:     s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:        s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:       s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:          s.cfg.WebRTCCompositorShell,
-		CompositorWidth:          s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:         s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:     s.cfg.WebRTCMediaProducerEnabled,
-		MediaProducerExecutable:  s.cfg.WebRTCMediaProducerExecutable,
-		MediaProducerPluginPath:  s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:      s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerToken:       rawMediaToken,
+		SessionID:                  sessionID,
+		MergedUserDataDir:          layout.Merged,
+		DownloadsDir:               layout.Downloads,
+		CacheDir:                   layout.Cache,
+		ArtifactsDir:               layout.Artifacts,
+		CDPPort:                    port,
+		BrowserExecutable:          channel.Executable,
+		BrowserDefaultArgs:         channel.DefaultArgs,
+		BrowserExtraArgs:           input.BrowserArgs,
+		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
+		CompositorEnabled:          s.cfg.WebRTCCompositorEnabled,
+		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
+		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
+		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
+		CompositorShell:            s.cfg.WebRTCCompositorShell,
+		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
+		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
+		MediaProducerEnabled:       s.cfg.WebRTCMediaProducerEnabled,
+		MediaProducerExecutable:    s.cfg.WebRTCMediaProducerExecutable,
+		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
+		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
+		MediaProducerSignalURL:     mediaProducerSignalURL(s.cfg, sessionID),
+		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
+		MediaProducerToken:         rawMediaToken,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
@@ -381,28 +385,30 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:                sessionID,
-		MergedUserDataDir:        layout.Merged,
-		DownloadsDir:             layout.Downloads,
-		CacheDir:                 layout.Cache,
-		ArtifactsDir:             layout.Artifacts,
-		CDPPort:                  port,
-		BrowserExecutable:        channel.Executable,
-		BrowserDefaultArgs:       channel.DefaultArgs,
-		BrowserExtraArgs:         browserArgs,
-		CaptureProofExtensionDir: s.cfg.WebRTCCaptureProofExtensionDir,
-		CompositorEnabled:        s.cfg.WebRTCCompositorEnabled,
-		CompositorExecutable:     s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:        s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:       s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:          s.cfg.WebRTCCompositorShell,
-		CompositorWidth:          s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:         s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:     s.cfg.WebRTCMediaProducerEnabled,
-		MediaProducerExecutable:  s.cfg.WebRTCMediaProducerExecutable,
-		MediaProducerPluginPath:  s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:      s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerToken:       rawMediaToken,
+		SessionID:                  sessionID,
+		MergedUserDataDir:          layout.Merged,
+		DownloadsDir:               layout.Downloads,
+		CacheDir:                   layout.Cache,
+		ArtifactsDir:               layout.Artifacts,
+		CDPPort:                    port,
+		BrowserExecutable:          channel.Executable,
+		BrowserDefaultArgs:         channel.DefaultArgs,
+		BrowserExtraArgs:           browserArgs,
+		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
+		CompositorEnabled:          s.cfg.WebRTCCompositorEnabled,
+		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
+		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
+		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
+		CompositorShell:            s.cfg.WebRTCCompositorShell,
+		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
+		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
+		MediaProducerEnabled:       s.cfg.WebRTCMediaProducerEnabled,
+		MediaProducerExecutable:    s.cfg.WebRTCMediaProducerExecutable,
+		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
+		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
+		MediaProducerSignalURL:     mediaProducerSignalURL(s.cfg, sessionID),
+		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
+		MediaProducerToken:         rawMediaToken,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
@@ -725,6 +731,26 @@ func (s *Service) unmountOverlay(ctx context.Context, sessionID string) error {
 		return s.unmountLocal(ctx, sessionID)
 	}
 	return s.overlay.Unmount(ctx, sessionID)
+}
+
+func mediaProducerSignalURL(cfg config.Config, sessionID string) string {
+	host := strings.TrimSpace(cfg.ListenAddress)
+	if splitHost, port, err := net.SplitHostPort(host); err == nil {
+		switch splitHost {
+		case "", "0.0.0.0", "::", "[::]":
+			splitHost = "127.0.0.1"
+		}
+		host = net.JoinHostPort(splitHost, port)
+	} else if strings.HasPrefix(host, ":") {
+		host = "127.0.0.1" + host
+	}
+
+	return (&url.URL{
+		Scheme:   "ws",
+		Host:     host,
+		Path:     "/api/webrtc/" + sessionID + "/signal",
+		RawQuery: "role=producer",
+	}).String()
 }
 
 func (s *Service) requireTenantSession(ctx context.Context, tenantID, sessionID string) (*db.Session, error) {
