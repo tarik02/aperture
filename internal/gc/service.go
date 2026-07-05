@@ -54,9 +54,9 @@ func NewService(
 
 // RunResult summarizes a GC pass.
 type RunResult struct {
-	ExpiredSessions       int
-	RemovedArtifacts      int
-	CollectedSnapshots    int
+	ExpiredSessions    int
+	RemovedArtifacts   int
+	CollectedSnapshots int
 }
 
 // Run expires sessions and snapshots past retention.
@@ -118,6 +118,9 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	}
 	if err := session.RemoveCDPTokenSeal(s.cfg, sessionRow.ID); err != nil {
 		return fmt.Errorf("remove cdp token seal for session %s: %w", sessionRow.ID, err)
+	}
+	if err := session.RemoveMediaTokenHash(s.cfg, sessionRow.ID); err != nil {
+		return fmt.Errorf("remove media token hash for session %s: %w", sessionRow.ID, err)
 	}
 
 	if err := s.removeSessionOverlayState(sessionRow); err != nil {

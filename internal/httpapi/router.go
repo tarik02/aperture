@@ -12,6 +12,9 @@ import (
 // fallback. cdpRouteBasePath reserves CDP paths from SPA fallback.
 func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteBasePath string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
+	if server.Signaling == nil {
+		server.Signaling = NewSignalCoordinator()
+	}
 	router := gin.New()
 	router.Use(gin.Recovery())
 	cdpBase := normalizedCDPRouteBase(cdpRouteBasePath)
@@ -100,6 +103,10 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			cdp.Any("/:sessionId/*path", server.proxyAPICDP)
 		}
 
+		webrtc := api.Group("/webrtc")
+		{
+			webrtc.GET("/:sessionId/signal", server.signalWebRTC)
+		}
 	}
 
 	publicCDP := router.Group(cdpBase)

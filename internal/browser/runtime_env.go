@@ -36,6 +36,7 @@ type RuntimeEnvValues struct {
 	MediaProducerExecutable  string
 	MediaProducerPluginPath  string
 	MediaProducerTarget      string
+	MediaProducerToken       string
 }
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
@@ -116,6 +117,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		if strings.TrimSpace(values.MediaProducerTarget) == "" {
 			return nil, fmt.Errorf("media producer target is required")
 		}
+		if strings.TrimSpace(values.MediaProducerToken) == "" {
+			return nil, fmt.Errorf("media producer token is required")
+		}
 	}
 
 	defaultArgs, err := encodeArgVector(values.BrowserDefaultArgs)
@@ -160,6 +164,7 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			"WEBRTC_MEDIA_PRODUCER_EXECUTABLE="+shellQuote(values.MediaProducerExecutable),
 			"WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH="+shellQuote(values.MediaProducerPluginPath),
 			"WEBRTC_MEDIA_PRODUCER_TARGET="+shellQuote(values.MediaProducerTarget),
+			"WEBRTC_MEDIA_PRODUCER_TOKEN="+shellQuote(values.MediaProducerToken),
 		)
 	}
 
@@ -197,7 +202,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET":
+		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_TOKEN":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -275,6 +280,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.MediaProducerPluginPath = value
 	case "WEBRTC_MEDIA_PRODUCER_TARGET":
 		values.MediaProducerTarget = value
+	case "WEBRTC_MEDIA_PRODUCER_TOKEN":
+		values.MediaProducerToken = value
 	}
 }
 

@@ -21,6 +21,7 @@ type Server struct {
 	Events    *event.Service
 	GC        *gc.Service
 	Channels  *browser.Registry
+	Signaling *SignalCoordinator
 	jobToken  string
 }
 

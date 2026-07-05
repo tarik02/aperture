@@ -105,7 +105,11 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_invalid_state", err.Error()
 	case errors.Is(err, session.ErrNotRunning):
 		return http.StatusConflict, "session_not_running", err.Error()
-	case errors.Is(err, session.ErrInvalidChannel), errors.Is(err, browser.ErrDeniedBrowserArg):
+	case errors.Is(err, session.ErrMediaTokenMissing):
+		return http.StatusUnauthorized, "media_token_missing", "media token missing"
+	case errors.Is(err, session.ErrMediaTokenInvalid):
+		return http.StatusUnauthorized, "invalid_media_token", "invalid media token"
+	case errors.Is(err, session.ErrInvalidChannel), errors.Is(err, browser.ErrDeniedBrowserArg), errors.Is(err, browser.ErrDeniedCompositorBrowserArg):
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, session.ErrBrowserStart):
 		return http.StatusBadGateway, "browser_start_failed", "browser failed to start"

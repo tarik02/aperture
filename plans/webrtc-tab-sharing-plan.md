@@ -295,6 +295,10 @@ Bail out if:
 
 ## Stage 5, signaling coordinator
 
+Status: passed for the authenticated coordinator implementation after local
+validation and review. This stage does not add the WebRTC sender or UI viewer
+media path.
+
 Goal: add signaling without media risk.
 
 Work:
@@ -311,6 +315,22 @@ Work:
 - Track producer presence in memory. Do not persist SDP or ICE candidates.
 - Limit one active producer per running session.
 - Allow multiple viewers only after single-viewer validation passes.
+- Stage 5 implementation boundary:
+  - Go owns signaling auth, session lookup, room membership, bounded message
+    relay, and producer-token lifecycle.
+  - Producer tokens are generated only when the media producer is enabled,
+    stored as hashes under the session runtime root, passed to the wrapper via
+    the runtime environment, and removed on delete, expiry, failed start, and
+    failed reopen.
+  - Chromium is launched through `bwrap --clearenv` with an empty bwrap process
+    environment plus explicit browser `--setenv` entries, so wrapper secrets are
+    not inherited by the browser.
+  - Viewer peers use normal API auth plus `sessions:write`; producer peers use
+    only the per-session media token.
+  - The coordinator accepts one producer and one viewer per session, relays only
+    known message types with object payloads, and does not persist SDP or ICE.
+  - WebRTC peer creation, ICE connectivity, and decoded video validation remain
+    Stage 6 work.
 
 Validation:
 
@@ -321,6 +341,10 @@ Validation:
 - Signaling messages are bounded in size and rejected if malformed.
 - Existing session create, delete, reopen, token rotation, and CDP proxy behavior
   still work.
+- Local validation:
+  - `mise x go@latest -- go test ./...`
+  - `git diff --check`
+  - `mise x go@latest -- go build ./cmd/aperture ./cmd/browser-session-wrapper`
 
 Bail out if:
 

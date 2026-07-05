@@ -186,6 +186,20 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		return nil, err
 	}
 
+	var rawMediaToken string
+	if s.cfg.WebRTCMediaProducerEnabled {
+		var mediaHash string
+		rawMediaToken, mediaHash, err = GenerateMediaToken(sessionID)
+		if err != nil {
+			_ = s.markFailed(ctx, sessionRow, "media token generation failed", err)
+			return nil, err
+		}
+		if err := StoreMediaTokenHash(s.cfg, sessionID, mediaHash); err != nil {
+			_ = s.markFailed(ctx, sessionRow, "media token storage failed", err)
+			return nil, err
+		}
+	}
+
 	runtimeEnv := browser.RuntimeEnvValues{
 		SessionID:                sessionID,
 		MergedUserDataDir:        layout.Merged,
@@ -208,6 +222,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		MediaProducerExecutable:  s.cfg.WebRTCMediaProducerExecutable,
 		MediaProducerPluginPath:  s.cfg.WebRTCMediaProducerPluginPath,
 		MediaProducerTarget:      s.cfg.WebRTCMediaProducerTarget,
+		MediaProducerToken:       rawMediaToken,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
@@ -263,10 +278,12 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if sessionRow.Status == db.SessionStatusRunning {
 		_ = s.browser.Stop(ctx, sessionID)
 		_ = s.browser.RemoveRuntimeEnv(sessionID)
+		_ = RemoveMediaTokenHash(s.cfg, sessionID)
 		if err := s.unmountOverlay(ctx, sessionID); err != nil {
 			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
 		}
 	}
+	_ = RemoveMediaTokenHash(s.cfg, sessionID)
 
 	now := s.now().UTC()
 	deletedAt := now.Format(time.RFC3339Nano)
@@ -349,6 +366,20 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
+	var rawMediaToken string
+	if s.cfg.WebRTCMediaProducerEnabled {
+		var mediaHash string
+		rawMediaToken, mediaHash, err = GenerateMediaToken(sessionID)
+		if err != nil {
+			_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+			return nil, err
+		}
+		if err := StoreMediaTokenHash(s.cfg, sessionID, mediaHash); err != nil {
+			_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+			return nil, err
+		}
+	}
+
 	runtimeEnv := browser.RuntimeEnvValues{
 		SessionID:                sessionID,
 		MergedUserDataDir:        layout.Merged,
@@ -371,6 +402,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		MediaProducerExecutable:  s.cfg.WebRTCMediaProducerExecutable,
 		MediaProducerPluginPath:  s.cfg.WebRTCMediaProducerPluginPath,
 		MediaProducerTarget:      s.cfg.WebRTCMediaProducerTarget,
+		MediaProducerToken:       rawMediaToken,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
@@ -728,6 +760,7 @@ func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, messag
 func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
+	_ = RemoveMediaTokenHash(s.cfg, sessionRow.ID)
 	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
@@ -749,6 +782,7 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
+	_ = RemoveMediaTokenHash(s.cfg, sessionRow.ID)
 	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)

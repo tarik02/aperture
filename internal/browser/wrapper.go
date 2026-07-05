@@ -77,6 +77,7 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	args := []string{
 		"--die-with-parent",
 		"--unshare-user-try",
+		"--clearenv",
 		"--share-net",
 		"--proc", "/proc",
 		"--dev", "/dev",
@@ -132,6 +133,7 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	args = append(args, browserArgs...)
 
 	cmd := exec.Command(cfg.BwrapPath, args...)
+	cmd.Env = []string{}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd, nil
@@ -345,6 +347,9 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		}
 		if strings.TrimSpace(values.MediaProducerTarget) == "" {
 			return fmt.Errorf("media producer target is required")
+		}
+		if strings.TrimSpace(values.MediaProducerToken) == "" {
+			return fmt.Errorf("media producer token is required")
 		}
 	}
 	if err := ValidateCompositorBrowserArgs(values.BrowserDefaultArgs); err != nil {
@@ -647,6 +652,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.MediaProducerExecutable = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_EXECUTABLE"))
 	values.MediaProducerPluginPath = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH"))
 	values.MediaProducerTarget = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TARGET"))
+	values.MediaProducerToken = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TOKEN"))
 	if width := strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_WIDTH")); width != "" {
 		parsed, err := strconv.Atoi(width)
 		if err != nil {
