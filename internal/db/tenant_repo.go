@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/uptrace/bun"
 )
@@ -12,6 +13,7 @@ import (
 // TenantFilter controls tenant listing behavior.
 type TenantFilter struct {
 	IncludeDeleted bool
+	DeletedOnly    bool
 }
 
 // CreateTenant inserts a new tenant row.
@@ -42,7 +44,9 @@ func (r *Repository) GetTenantByID(ctx context.Context, tenantID string) (*Tenan
 // ListTenants returns tenants ordered by creation time.
 func (r *Repository) ListTenants(ctx context.Context, filter TenantFilter) ([]Tenant, error) {
 	query := r.db.bun.NewSelect().Model((*Tenant)(nil)).OrderExpr("created_at ASC")
-	if !filter.IncludeDeleted {
+	if filter.DeletedOnly {
+		query = query.Where("deleted_at IS NOT NULL")
+	} else if !filter.IncludeDeleted {
 		query = query.Where("deleted_at IS NULL")
 	}
 
@@ -62,7 +66,9 @@ func (r *Repository) ListTenantsPage(ctx context.Context, filter TenantFilter, p
 	}
 
 	query := r.db.bun.NewSelect().Model((*Tenant)(nil))
-	if !filter.IncludeDeleted {
+	if filter.DeletedOnly {
+		query = query.Where("deleted_at IS NOT NULL")
+	} else if !filter.IncludeDeleted {
 		query = query.Where("deleted_at IS NULL")
 	}
 	query = paginateCreatedAtID(query, params, cursor)
@@ -226,7 +232,12 @@ func (r *Repository) GetAPITokenByID(ctx context.Context, tokenID string) (*APIT
 
 // APITokenFilter controls API token listing behavior.
 type APITokenFilter struct {
-	TenantID *string
+	TenantID      *string
+	AuthorityType *string
+	Name          *string
+	Scope         *string
+	RevokedOnly   bool
+	ActiveOnly    bool
 }
 
 // ListAPITokens returns API tokens, optionally filtered by tenant.
@@ -239,6 +250,7 @@ func (r *Repository) listAPITokens(ctx context.Context, filter APITokenFilter) (
 	if filter.TenantID != nil {
 		query = query.Where("tenant_id = ?", *filter.TenantID)
 	}
+	query = applyAPITokenFilters(query, filter)
 
 	tokens := make([]APIToken, 0)
 	if err := query.Scan(ctx, &tokens); err != nil {
@@ -259,6 +271,7 @@ func (r *Repository) ListAPITokensPage(ctx context.Context, filter APITokenFilte
 	if filter.TenantID != nil {
 		query = query.Where("tenant_id = ?", *filter.TenantID)
 	}
+	query = applyAPITokenFilters(query, filter)
 	query = paginateCreatedAtID(query, params, cursor)
 
 	tokens := make([]APIToken, 0)
@@ -267,6 +280,24 @@ func (r *Repository) ListAPITokensPage(ctx context.Context, filter APITokenFilte
 	}
 
 	return buildPageResult(tokens, params.Limit, func(t APIToken) string { return t.CreatedAt }, func(t APIToken) string { return t.ID })
+}
+
+func applyAPITokenFilters(query *bun.SelectQuery, filter APITokenFilter) *bun.SelectQuery {
+	if filter.AuthorityType != nil {
+		query = query.Where("authority_type = ?", *filter.AuthorityType)
+	}
+	if filter.Name != nil {
+		query = query.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(*filter.Name)+"%")
+	}
+	if filter.Scope != nil {
+		query = query.Where("scopes_json LIKE ?", "%\""+*filter.Scope+"\"%")
+	}
+	if filter.RevokedOnly {
+		query = query.Where("revoked_at IS NOT NULL")
+	} else if filter.ActiveOnly {
+		query = query.Where("revoked_at IS NULL")
+	}
+	return query
 }
 
 // RevokeAPIToken marks a token revoked at the given timestamp.

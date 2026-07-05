@@ -29,7 +29,7 @@ export function ConnectionPanel({ session, transientCdp, onRotate }: ConnectionP
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Connection</h3>
       <CopyField value={apiProxyUrl} label="API CDP" />
       {rawCdpUrl ? <CopyField value={rawCdpUrl} label="Raw CDP" /> : null}
@@ -41,6 +41,7 @@ export function ConnectionPanel({ session, transientCdp, onRotate }: ConnectionP
         type="button"
         variant="outline"
         size="sm"
+        className="whitespace-nowrap"
         onClick={() => void handleRotate()}
         disabled={rotateMutation.isPending || session.status !== "running"}
       >

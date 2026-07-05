@@ -14,6 +14,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
+	cdpBase := normalizedCDPRouteBase(cdpRouteBasePath)
 
 	internal := router.Group("/internal")
 	{
@@ -99,11 +100,15 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			cdp.Any("/:sessionId/*path", server.proxyAPICDP)
 		}
 
-		control := api.Group("/control")
-		control.Use(server.requireAuth, server.requireSessionsWrite)
-		{
-			control.GET("/:sessionId", server.controlSession)
-		}
+	}
+
+	publicCDP := router.Group(cdpBase)
+	publicCDP.Use(func(c *gin.Context) {
+		c.Set(cdpBasePathContextKey, cdpBase)
+	})
+	{
+		publicCDP.Any("/:sessionId", server.proxyPublicCDP)
+		publicCDP.Any("/:sessionId/*path", server.proxyPublicCDP)
 	}
 
 	registerStaticFallback(router, staticAssets, cdpRouteBasePath)

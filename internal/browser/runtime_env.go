@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/google/renameio/v2"
 )
 
 // RuntimeEnvValues are written for browser-session-wrapper consumption.
@@ -84,36 +86,8 @@ func WriteRuntimeEnv(path string, values RuntimeEnvValues) error {
 		return fmt.Errorf("mkdir runtime env dir: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".session-env-*")
-	if err != nil {
-		return fmt.Errorf("create temp runtime env: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-	}
-
-	if _, err := tmp.Write(body); err != nil {
-		cleanup()
+	if err := renameio.WriteFile(path, body, 0o600, renameio.WithStaticPermissions(0o600)); err != nil {
 		return fmt.Errorf("write runtime env: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		cleanup()
-		return fmt.Errorf("chmod runtime env: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		cleanup()
-		return fmt.Errorf("sync runtime env: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close runtime env: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		cleanup()
-		return fmt.Errorf("rename runtime env: %w", err)
 	}
 
 	return nil

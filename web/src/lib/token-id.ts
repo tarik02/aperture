@@ -28,12 +28,3 @@ export function maskTokenId(tokenId: string): string {
 
   return `${tokenId.slice(0, 4)}…${tokenId.slice(-4)}`;
 }
-
-export function formatRawTokenLabel(rawToken: string): string {
-  const tokenId = parseTokenId(rawToken);
-  if (!tokenId) {
-    return "Token";
-  }
-
-  return maskTokenId(tokenId);
-}

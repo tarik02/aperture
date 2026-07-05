@@ -12,8 +12,7 @@ type SessionFilter struct {
 	TenantID       string
 	IncludeDeleted bool
 	Status         *string
-	TagKey         string
-	TagValue       string
+	Tags           []TagFilter
 }
 
 // ListSessionsPage returns tenant sessions with cursor pagination.
@@ -31,12 +30,36 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 	if filter.Status != nil {
 		query = query.Where("status = ?", *filter.Status)
 	}
-	if filter.TagKey != "" && filter.TagValue != "" {
-		query = query.Where(
-			"EXISTS (SELECT 1 FROM session_tags st WHERE st.session_id = sessions.id AND st.key = ? AND st.value = ?)",
-			filter.TagKey,
-			filter.TagValue,
-		)
+	for _, tag := range filter.Tags {
+		if tag.Key == "" || len(tag.Values) == 0 {
+			continue
+		}
+		switch tag.Operator {
+		case TagOperatorNotEqual:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM session_tags st WHERE st.session_id = sessions.id AND st.key = ? AND st.value != ?)",
+				tag.Key,
+				tag.Values[0],
+			)
+		case TagOperatorIn:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM session_tags st WHERE st.session_id = sessions.id AND st.key = ? AND st.value IN (?))",
+				tag.Key,
+				bun.In(tag.Values),
+			)
+		case TagOperatorNotIn:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM session_tags st WHERE st.session_id = sessions.id AND st.key = ? AND st.value NOT IN (?))",
+				tag.Key,
+				bun.In(tag.Values),
+			)
+		default:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM session_tags st WHERE st.session_id = sessions.id AND st.key = ? AND st.value = ?)",
+				tag.Key,
+				tag.Values[0],
+			)
+		}
 	}
 	query = paginateCreatedAtID(query, params, cursor)
 

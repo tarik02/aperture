@@ -70,14 +70,21 @@ func (s *Server) createTenant(c *gin.Context) {
 }
 
 func (s *Server) listTenants(c *gin.Context) {
-	includeDeleted := parseIncludeDeleted(c)
+	includeDeleted, deletedOnly, err := parseDeletedFilter(c)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
 	params, err := parsePageParams(c)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 
-	page, err := s.Auth.ListTenantsPage(c.Request.Context(), includeDeleted, params)
+	page, err := s.Auth.ListTenantsPage(c.Request.Context(), db.TenantFilter{
+		IncludeDeleted: includeDeleted,
+		DeletedOnly:    deletedOnly,
+	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))
 		return
@@ -169,13 +176,19 @@ func (s *Server) listAdminTokens(c *gin.Context) {
 		tenantID = &raw
 	}
 
+	filter, err := parseTokenFilter(c, tenantID, true)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
 	params, err := parsePageParams(c)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 
-	page, err := s.Auth.ListTokensPage(c.Request.Context(), tenantID, params)
+	page, err := s.Auth.ListTokensPage(c.Request.Context(), filter, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))
 		return
@@ -278,13 +291,19 @@ func (s *Server) listTenantTokens(c *gin.Context) {
 	principal := c.MustGet("principal").(auth.Principal)
 	tenantID := *principal.TenantID
 
+	filter, err := parseTokenFilter(c, &tenantID, false)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
 	params, err := parsePageParams(c)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 
-	page, err := s.Auth.ListTokensPage(c.Request.Context(), &tenantID, params)
+	page, err := s.Auth.ListTokensPage(c.Request.Context(), filter, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))
 		return

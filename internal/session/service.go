@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultMonitorInterval = 30 * time.Minute
+	defaultMonitorInterval = 15 * time.Second
 )
 
 // OverlayClient mounts and unmounts session overlays.
@@ -479,8 +479,7 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 type ListFilter struct {
 	IncludeDeleted bool
 	Status         *string
-	TagKey         string
-	TagValue       string
+	Tags           []db.TagFilter
 }
 
 // List returns tenant sessions with cursor pagination.
@@ -489,8 +488,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		TenantID:       tenantID,
 		IncludeDeleted: filter.IncludeDeleted,
 		Status:         filter.Status,
-		TagKey:         filter.TagKey,
-		TagValue:       filter.TagValue,
+		Tags:           filter.Tags,
 	}, params)
 	if err != nil {
 		return db.PageResult[SessionView]{}, err

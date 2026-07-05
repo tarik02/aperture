@@ -5,7 +5,6 @@ import { TagBadges } from "#/components/resources/tag-badges.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { useSessionsInfiniteQuery } from "#/hooks/queries/use-sessions-query.ts";
-import { truncateId } from "#/lib/format.ts";
 import type { Session } from "#/lib/api/schemas.ts";
 import { cn } from "#/lib/utils.ts";
 
@@ -72,11 +71,11 @@ export function SessionListPane({
                   : "border-transparent hover:bg-muted/60",
               )}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs">{truncateId(session.id, 10)}</span>
+              <div className="space-y-1">
+                <span className="block break-all font-mono text-sm leading-snug">{session.id}</span>
                 <SessionStatusBadge status={session.status} />
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">
+              <div className="mt-1 text-sm text-muted-foreground">
                 {session.baseSnapshotName ?? "—"}
               </div>
               <TagBadges tags={session.tags} max={2} />

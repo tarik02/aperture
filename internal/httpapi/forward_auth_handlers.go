@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/aperture/aperture/internal/session"
 	"github.com/gin-gonic/gin"
@@ -18,7 +19,7 @@ func (s *Server) cdpForwardAuth(c *gin.Context) {
 	err := s.Sessions.ValidateCDPForwardAuth(
 		c.Request.Context(),
 		sessionID,
-		c.GetHeader("Authorization"),
+		cdpForwardAuthCredential(c),
 	)
 	if err != nil {
 		status, _ := mapForwardAuthError(err)
@@ -27,6 +28,30 @@ func (s *Server) cdpForwardAuth(c *gin.Context) {
 	}
 
 	c.Status(http.StatusOK)
+}
+
+func cdpForwardAuthCredential(c *gin.Context) string {
+	if authorization := c.GetHeader("Authorization"); authorization != "" {
+		return authorization
+	}
+	if token := c.Query("token"); token != "" {
+		return "Bearer " + token
+	}
+	if token := cdpTokenFromForwardedURI(c.GetHeader("X-Forwarded-Uri")); token != "" {
+		return "Bearer " + token
+	}
+	return ""
+}
+
+func cdpTokenFromForwardedURI(forwardedURI string) string {
+	if forwardedURI == "" {
+		return ""
+	}
+	parsed, err := url.ParseRequestURI(forwardedURI)
+	if err != nil {
+		return ""
+	}
+	return parsed.Query().Get("token")
 }
 
 func mapForwardAuthError(err error) (int, string) {

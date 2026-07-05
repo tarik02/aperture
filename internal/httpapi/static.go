@@ -31,7 +31,13 @@ func registerStaticFallback(router *gin.Engine, assets fs.FS, cdpRouteBasePath s
 			return
 		}
 
-		c.FileFromFS("index.html", http.FS(assets))
+		indexHTML, err := fs.ReadFile(assets, "index.html")
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	})
 }
 

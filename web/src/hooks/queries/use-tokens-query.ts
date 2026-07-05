@@ -21,6 +21,10 @@ export function useTokensInfiniteQuery(filters: TokensFilters = {}) {
         limit: filters.limit ?? defaultListLimit,
         cursor: pageParam,
         tenantId: filters.tenantId,
+        name: filters.name,
+        authorityType: filters.authorityType,
+        revoked: filters.revoked,
+        scope: filters.scope,
       };
 
       return credentials!.authorityType === "system_admin"

@@ -85,7 +85,7 @@ func (s *Server) listSessions(c *gin.Context) {
 		return
 	}
 
-	tagKey, tagValue, err := parseTagFilter(c)
+	tagFilters, err := parseTagFilters(c)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -94,8 +94,7 @@ func (s *Server) listSessions(c *gin.Context) {
 	page, err := s.Sessions.List(c.Request.Context(), tenantIDFromContext(c), session.ListFilter{
 		IncludeDeleted: parseIncludeDeleted(c),
 		Status:         status,
-		TagKey:         tagKey,
-		TagValue:       tagValue,
+		Tags:           tagFilters,
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))
@@ -121,16 +120,22 @@ func (s *Server) listSnapshots(c *gin.Context) {
 		return
 	}
 
-	tagKey, tagValue, err := parseTagFilter(c)
+	includeDeleted, deletedOnly, err := parseDeletedFilter(c)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	tagFilters, err := parseTagFilters(c)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 
 	page, err := s.Snapshots.List(c.Request.Context(), tenantIDFromContext(c), snapshot.ListFilter{
-		IncludeDeleted: parseIncludeDeleted(c),
-		TagKey:         tagKey,
-		TagValue:       tagValue,
+		IncludeDeleted: includeDeleted,
+		DeletedOnly:    deletedOnly,
+		Tags:           tagFilters,
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))

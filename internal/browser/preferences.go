@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/google/renameio/v2"
 )
 
 // WriteDownloadPreferences updates Chromium Default/Preferences for per-session downloads.
@@ -46,31 +48,8 @@ func WriteDownloadPreferences(mergedUserDataDir, downloadsDir string) error {
 	}
 	body = append(body, '\n')
 
-	tmp, err := os.CreateTemp(profileDir, ".preferences-*")
-	if err != nil {
-		return fmt.Errorf("create temp preferences: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-	}
-
-	if _, err := tmp.Write(body); err != nil {
-		cleanup()
+	if err := renameio.WriteFile(prefsPath, body, 0o644, renameio.WithStaticPermissions(0o644)); err != nil {
 		return fmt.Errorf("write preferences: %w", err)
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		cleanup()
-		return fmt.Errorf("chmod preferences: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close preferences: %w", err)
-	}
-	if err := os.Rename(tmpPath, prefsPath); err != nil {
-		cleanup()
-		return fmt.Errorf("rename preferences: %w", err)
 	}
 
 	return nil

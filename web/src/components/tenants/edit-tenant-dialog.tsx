@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Dialog,
@@ -11,6 +11,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field
 import { Input } from "#/components/ui/input.tsx";
 import { useUpdateTenantMutation } from "#/hooks/mutations/use-tenant-mutations.ts";
 import type { Tenant } from "#/lib/api/schemas.ts";
+import { useFormDraftStore } from "#/stores/form-drafts.ts";
 
 type EditTenantDialogProps = {
   tenant: Tenant | null;
@@ -20,15 +21,16 @@ type EditTenantDialogProps = {
 
 export function EditTenantDialog({ tenant, open, onOpenChange }: EditTenantDialogProps) {
   const mutation = useUpdateTenantMutation();
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const displayName = useFormDraftStore((state) => state.editTenant.displayName);
+  const error = useFormDraftStore((state) => state.editTenant.error);
+  const setEditTenant = useFormDraftStore((state) => state.setEditTenant);
+  const resetEditTenant = useFormDraftStore((state) => state.resetEditTenant);
 
   useEffect(() => {
     if (open && tenant) {
-      setDisplayName(tenant.displayName);
-      setError(null);
+      resetEditTenant(tenant.id, tenant.displayName);
     }
-  }, [open, tenant]);
+  }, [open, tenant, resetEditTenant]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -38,11 +40,11 @@ export function EditTenantDialog({ tenant, open, onOpenChange }: EditTenantDialo
 
     const trimmed = displayName.trim();
     if (!trimmed) {
-      setError("Name required");
+      setEditTenant({ error: "Name required" });
       return;
     }
 
-    setError(null);
+    setEditTenant({ error: null });
     await mutation.mutateAsync({ tenantId: tenant.id, displayName: trimmed });
     onOpenChange(false);
   }
@@ -60,7 +62,7 @@ export function EditTenantDialog({ tenant, open, onOpenChange }: EditTenantDialo
               <Input
                 id="edit-tenant-name"
                 value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
+                onChange={(event) => setEditTenant({ displayName: event.target.value })}
                 disabled={mutation.isPending}
               />
               <FieldError>{error}</FieldError>

@@ -1,3 +1,5 @@
+import type { TagFilterValue } from "#/lib/tag-filter.ts";
+
 export const queryKeys = {
   apiHealth: ["api-health"] as const,
   authMe: (profileId: string, tenantId: string | null) => ["auth-me", profileId, tenantId] as const,
@@ -16,30 +18,36 @@ export const queryKeys = {
 
 export type TenantsFilters = {
   includeDeleted?: boolean;
+  deleted?: DeletedFilterValue;
   limit?: number;
 };
 
 export type SessionsFilters = {
   includeDeleted?: boolean;
   status?: string;
-  tagKey?: string;
-  tagValue?: string;
+  tags?: TagFilterValue;
   limit?: number;
 };
 
 export type SnapshotsFilters = {
   includeDeleted?: boolean;
-  tagKey?: string;
-  tagValue?: string;
+  deleted?: DeletedFilterValue;
+  tags?: TagFilterValue;
   limit?: number;
 };
 
 export type TokensFilters = {
   tenantId?: string;
+  name?: string;
+  authorityType?: "system_admin" | "tenant";
+  revoked?: TokenRevokedFilterValue;
+  scope?: string;
   limit?: number;
 };
 
 export type TokensQueryMode = "admin" | "tenant";
+export type DeletedFilterValue = "active" | "deleted" | "all";
+export type TokenRevokedFilterValue = "all" | "active" | "revoked";
 
 export type EventsFilters = {
   resourceType?: string;

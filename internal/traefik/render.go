@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aperture/aperture/internal/config"
@@ -58,7 +59,6 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 
 		routerName := cdpRouterName(session.ID)
 		middlewareName := cdpMiddlewareName(session.ID)
-		serviceName := cdpServiceName(session.ID)
 		routePrefix := fmt.Sprintf("%s/%s", cdpBase, session.ID)
 		forwardAuthURL := fmt.Sprintf(
 			"%s/internal/forward-auth/cdp/%s",
@@ -68,24 +68,14 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 
 		doc.HTTP.Routers[routerName] = routerConfig{
 			Rule:        cdpRouterRule(routePrefix),
-			Service:     serviceName,
-			Middlewares: []string{middlewareName, cdpStripMiddlewareName(session.ID)},
+			Service:     "aperture-api",
+			Middlewares: []string{middlewareName},
 			Priority:    cdpRouterPriority,
 			EntryPoints: []string{"web"},
 		}
 		doc.HTTP.Middlewares[middlewareName] = middlewareConfig{
 			ForwardAuth: &forwardAuthConfig{
 				Address: forwardAuthURL,
-			},
-		}
-		doc.HTTP.Middlewares[cdpStripMiddlewareName(session.ID)] = middlewareConfig{
-			StripPrefix: &stripPrefixConfig{
-				Prefixes: []string{routePrefix},
-			},
-		}
-		doc.HTTP.Services[serviceName] = serviceConfig{
-			LoadBalancer: loadBalancerConfig{
-				Servers: []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.CDPPort)}},
 			},
 		}
 	}
@@ -219,7 +209,8 @@ type serviceConfig struct {
 }
 
 type loadBalancerConfig struct {
-	Servers []serverConfig `yaml:"servers"`
+	PassHostHeader *bool          `yaml:"passHostHeader,omitempty"`
+	Servers        []serverConfig `yaml:"servers"`
 }
 
 type serverConfig struct {
@@ -252,70 +243,22 @@ type apiConfig struct {
 
 func marshalDynamicYAML(doc dynamicConfig) ([]byte, error) {
 	var buf bytes.Buffer
-	if err := writeDynamicYAML(&buf, doc); err != nil {
-		return nil, err
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	err := encoder.Encode(yamlMap(
+		"http", yamlMap(
+			"routers", routersYAML(doc.HTTP.Routers),
+			"middlewares", middlewaresYAML(doc.HTTP.Middlewares),
+			"services", servicesYAML(doc.HTTP.Services),
+		),
+	))
+	if closeErr := encoder.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRender, err)
 	}
 	return buf.Bytes(), nil
-}
-
-func writeDynamicYAML(buf *bytes.Buffer, doc dynamicConfig) error {
-	buf.WriteString("http:\n")
-	buf.WriteString("  routers:\n")
-
-	routerNames := sortedKeys(doc.HTTP.Routers)
-	for _, name := range routerNames {
-		router := doc.HTTP.Routers[name]
-		buf.WriteString("    " + name + ":\n")
-		writeYAMLString(buf, 6, "rule", router.Rule)
-		buf.WriteString("      service: " + router.Service + "\n")
-		if len(router.Middlewares) > 0 {
-			buf.WriteString("      middlewares:\n")
-			for _, middleware := range router.Middlewares {
-				buf.WriteString("        - " + middleware + "\n")
-			}
-		}
-		buf.WriteString(fmt.Sprintf("      priority: %d\n", router.Priority))
-		buf.WriteString("      entryPoints:\n")
-		for _, entrypoint := range router.EntryPoints {
-			buf.WriteString("        - " + entrypoint + "\n")
-		}
-	}
-
-	buf.WriteString("  middlewares:\n")
-	middlewareNames := sortedKeys(doc.HTTP.Middlewares)
-	for _, name := range middlewareNames {
-		middleware := doc.HTTP.Middlewares[name]
-		buf.WriteString("    " + name + ":\n")
-		switch {
-		case middleware.ForwardAuth != nil:
-			buf.WriteString("      forwardAuth:\n")
-			writeYAMLString(buf, 8, "address", middleware.ForwardAuth.Address)
-		case middleware.StripPrefix != nil:
-			buf.WriteString("      stripPrefix:\n")
-			buf.WriteString("        prefixes:\n")
-			for _, prefix := range middleware.StripPrefix.Prefixes {
-				buf.WriteString("          - ")
-				writeYAMLScalar(buf, prefix)
-				buf.WriteString("\n")
-			}
-		}
-	}
-
-	buf.WriteString("  services:\n")
-	serviceNames := sortedKeys(doc.HTTP.Services)
-	for _, name := range serviceNames {
-		service := doc.HTTP.Services[name]
-		buf.WriteString("    " + name + ":\n")
-		buf.WriteString("      loadBalancer:\n")
-		buf.WriteString("        servers:\n")
-		for _, server := range service.LoadBalancer.Servers {
-			buf.WriteString("          - url: ")
-			writeYAMLScalar(buf, server.URL)
-			buf.WriteString("\n")
-		}
-	}
-
-	return nil
 }
 
 func sortedKeys[V any](values map[string]V) []string {
@@ -327,21 +270,95 @@ func sortedKeys[V any](values map[string]V) []string {
 	return keys
 }
 
-func writeYAMLString(buf *bytes.Buffer, indent int, key, value string) {
-	padding := strings.Repeat(" ", indent)
-	if strings.ContainsAny(value, ":`\"'") {
-		buf.WriteString(padding + key + ": \"" + strings.ReplaceAll(value, "\"", "\\\"") + "\"\n")
-		return
+func routersYAML(routers map[string]routerConfig) *yaml.Node {
+	node := yamlMap()
+	for _, name := range sortedKeys(routers) {
+		router := routers[name]
+		routerNode := yamlMap(
+			"rule", yamlQuotedString(router.Rule),
+			"service", yamlString(router.Service),
+		)
+		if len(router.Middlewares) > 0 {
+			yamlAppend(routerNode, "middlewares", yamlStringSequence(router.Middlewares))
+		}
+		yamlAppend(routerNode, "priority", yamlInt(router.Priority))
+		yamlAppend(routerNode, "entryPoints", yamlStringSequence(router.EntryPoints))
+		yamlAppend(node, name, routerNode)
 	}
-	buf.WriteString(padding + key + ": " + value + "\n")
+	return node
 }
 
-func writeYAMLScalar(buf *bytes.Buffer, value string) {
-	if strings.ContainsAny(value, ":`\"'#") || strings.HasPrefix(value, " ") {
-		buf.WriteString("\"" + strings.ReplaceAll(value, "\"", "\\\"") + "\"")
-		return
+func middlewaresYAML(middlewares map[string]middlewareConfig) *yaml.Node {
+	node := yamlMap()
+	for _, name := range sortedKeys(middlewares) {
+		middleware := middlewares[name]
+		switch {
+		case middleware.ForwardAuth != nil:
+			yamlAppend(node, name, yamlMap(
+				"forwardAuth", yamlMap("address", yamlQuotedString(middleware.ForwardAuth.Address)),
+			))
+		case middleware.StripPrefix != nil:
+			yamlAppend(node, name, yamlMap(
+				"stripPrefix", yamlMap("prefixes", yamlStringSequence(middleware.StripPrefix.Prefixes)),
+			))
+		}
 	}
-	buf.WriteString(value)
+	return node
+}
+
+func servicesYAML(services map[string]serviceConfig) *yaml.Node {
+	node := yamlMap()
+	for _, name := range sortedKeys(services) {
+		service := services[name]
+		servers := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, server := range service.LoadBalancer.Servers {
+			servers.Content = append(servers.Content, yamlMap("url", yamlQuotedString(server.URL)))
+		}
+		loadBalancer := yamlMap("servers", servers)
+		if service.LoadBalancer.PassHostHeader != nil {
+			yamlAppend(loadBalancer, "passHostHeader", yamlBool(*service.LoadBalancer.PassHostHeader))
+		}
+		yamlAppend(node, name, yamlMap("loadBalancer", loadBalancer))
+	}
+	return node
+}
+
+func yamlMap(pairs ...any) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.MappingNode}
+	for i := 0; i < len(pairs); i += 2 {
+		yamlAppend(node, pairs[i].(string), pairs[i+1].(*yaml.Node))
+	}
+	return node
+}
+
+func yamlAppend(node *yaml.Node, key string, value *yaml.Node) {
+	node.Content = append(node.Content, yamlString(key), value)
+}
+
+func yamlString(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+}
+
+func yamlQuotedString(value string) *yaml.Node {
+	node := yamlString(value)
+	node.Style = yaml.DoubleQuotedStyle
+	return node
+}
+
+func yamlInt(value int) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(value)}
+}
+
+func yamlBool(value bool) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: strconv.FormatBool(value)}
+}
+
+func yamlStringSequence(values []string) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.SequenceNode}
+	for _, value := range values {
+		node.Content = append(node.Content, yamlString(value))
+	}
+	return node
 }
 
 // RunningSessionsFromDB converts running session rows into render input.

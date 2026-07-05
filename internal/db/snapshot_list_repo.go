@@ -11,8 +11,8 @@ import (
 type SnapshotFilter struct {
 	TenantID       string
 	IncludeDeleted bool
-	TagKey         string
-	TagValue       string
+	DeletedOnly    bool
+	Tags           []TagFilter
 }
 
 // ListSnapshotsPage returns tenant snapshots with cursor pagination.
@@ -24,15 +24,41 @@ func (r *Repository) ListSnapshotsPage(ctx context.Context, filter SnapshotFilte
 	}
 
 	query := r.db.bun.NewSelect().Model((*Snapshot)(nil)).Where("tenant_id = ?", filter.TenantID)
-	if !filter.IncludeDeleted {
+	if filter.DeletedOnly {
+		query = query.Where("deleted_at IS NOT NULL")
+	} else if !filter.IncludeDeleted {
 		query = query.Where("deleted_at IS NULL")
 	}
-	if filter.TagKey != "" && filter.TagValue != "" {
-		query = query.Where(
-			"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value = ?)",
-			filter.TagKey,
-			filter.TagValue,
-		)
+	for _, tag := range filter.Tags {
+		if tag.Key == "" || len(tag.Values) == 0 {
+			continue
+		}
+		switch tag.Operator {
+		case TagOperatorNotEqual:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value != ?)",
+				tag.Key,
+				tag.Values[0],
+			)
+		case TagOperatorIn:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value IN (?))",
+				tag.Key,
+				bun.In(tag.Values),
+			)
+		case TagOperatorNotIn:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value NOT IN (?))",
+				tag.Key,
+				bun.In(tag.Values),
+			)
+		default:
+			query = query.Where(
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value = ?)",
+				tag.Key,
+				tag.Values[0],
+			)
+		}
 	}
 	query = paginateCreatedAtID(query, params, cursor)
 

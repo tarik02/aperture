@@ -10,7 +10,6 @@ import {
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
-import { truncateId } from "#/lib/format.ts";
 
 type SessionInspectorPaneProps = {
   session: Session | null;
@@ -31,7 +30,7 @@ export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
     <ScrollArea className="h-full border-l">
       <div className="space-y-4 p-3">
         <div className="flex items-center gap-2">
-          <h2 className="font-mono text-sm">{truncateId(session.id, 12)}</h2>
+          <h2 className="min-w-0 break-all font-mono text-sm">{session.id}</h2>
           <SessionStatusBadge status={session.status} />
         </div>
         <MetadataGrid

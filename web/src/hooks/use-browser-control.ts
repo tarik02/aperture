@@ -16,6 +16,11 @@ type UseBrowserControlOptions = {
   enabled?: boolean;
 };
 
+type BrowserViewportSize = {
+  width: number;
+  height: number;
+};
+
 export type UseBrowserControlResult = {
   phase: ControlConnectionPhase;
   targets: ControlTarget[];
@@ -25,11 +30,21 @@ export type UseBrowserControlResult = {
   frameStale: boolean;
   lastError: ControlError | null;
   viewport: ViewportPreset;
+  browserViewportSize: BrowserViewportSize | null;
+  viewportAutoSync: boolean;
   captured: boolean;
   setCaptured: (captured: boolean) => void;
   setViewport: (viewport: ViewportPreset) => void;
+  setBrowserViewportSize: (size: BrowserViewportSize) => void;
+  setViewportAutoSync: (enabled: boolean) => void;
+  setViewportToBrowserSize: () => void;
   send: (message: ClientMessage) => boolean;
   activateTarget: (targetId: string) => void;
+  reorderTargets: (
+    sourceTargetId: string,
+    destinationTargetId: string,
+    placement: "before" | "after",
+  ) => void;
   createTarget: (url?: string) => void;
   closeTarget: (targetId: string) => void;
   navigate: (url: string) => void;
@@ -53,14 +68,23 @@ export function useBrowserControl({
   const [frameStale, setFrameStale] = useState(false);
   const [lastError, setLastError] = useState<ControlError | null>(null);
   const [viewport, setViewport] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
+  const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
+    null,
+  );
+  const [viewportAutoSync, setViewportAutoSyncState] = useState(false);
   const [captured, setCaptured] = useState(false);
 
   const connectionRef = useRef<BrowserControlConnection | null>(null);
   const activeTargetIdRef = useRef<string | null>(null);
+  const screencastTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
+  const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
+  const viewportAutoSyncRef = useRef(false);
 
   activeTargetIdRef.current = activeTargetId;
   viewportRef.current = viewport;
+  browserViewportSizeRef.current = browserViewportSize;
+  viewportAutoSyncRef.current = viewportAutoSync;
 
   const activeTarget = useMemo(
     () => targets.find((target) => target.id === activeTargetId) ?? null,
@@ -87,6 +111,44 @@ export function useBrowserControl({
       send({ type: "targets.activate", targetId });
     },
     [send],
+  );
+
+  const reorderTargets = useCallback(
+    (sourceTargetId: string, destinationTargetId: string, placement: "before" | "after") => {
+      if (sourceTargetId === destinationTargetId) {
+        return;
+      }
+
+      setTargets((current) => {
+        const startIndex = current.findIndex((target) => target.id === sourceTargetId);
+        const destinationIndex = current.findIndex((target) => target.id === destinationTargetId);
+
+        if (startIndex === -1 || destinationIndex === -1) {
+          return current;
+        }
+
+        const source = current[startIndex];
+        if (!source) {
+          return current;
+        }
+
+        const next = [...current];
+        next.splice(startIndex, 1);
+
+        const requestedFinishIndex =
+          placement === "after" ? destinationIndex + 1 : destinationIndex;
+        const finishIndex =
+          startIndex < requestedFinishIndex ? requestedFinishIndex - 1 : requestedFinishIndex;
+
+        if (finishIndex === startIndex) {
+          return current;
+        }
+
+        next.splice(finishIndex, 0, source);
+        return next;
+      });
+    },
+    [],
   );
 
   const createTarget = useCallback(
@@ -158,6 +220,7 @@ export function useBrowserControl({
 
   const startScreencast = useCallback(() => {
     const targetId = activeTargetIdRef.current ?? undefined;
+    screencastTargetIdRef.current = targetId ?? null;
     send({
       type: "screencast.start",
       targetId,
@@ -182,6 +245,48 @@ export function useBrowserControl({
     [sendForActive],
   );
 
+  const setViewportToBrowserSize = useCallback(() => {
+    const size = browserViewportSizeRef.current;
+    if (!size) {
+      return;
+    }
+    applyViewport(createBrowserViewport(size));
+  }, [applyViewport]);
+
+  const setBrowserViewportSize = useCallback(
+    (size: BrowserViewportSize) => {
+      const next = {
+        width: Math.round(size.width),
+        height: Math.round(size.height),
+      };
+      if (next.width < 1 || next.height < 1) {
+        return;
+      }
+      const current = browserViewportSizeRef.current;
+      if (current?.width === next.width && current.height === next.height) {
+        return;
+      }
+
+      browserViewportSizeRef.current = next;
+      setBrowserViewportSizeState(next);
+      if (viewportAutoSyncRef.current) {
+        applyViewport(createBrowserViewport(next));
+      }
+    },
+    [applyViewport],
+  );
+
+  const setViewportAutoSync = useCallback(
+    (enabled: boolean) => {
+      viewportAutoSyncRef.current = enabled;
+      setViewportAutoSyncState(enabled);
+      if (enabled) {
+        setViewportToBrowserSize();
+      }
+    },
+    [setViewportToBrowserSize],
+  );
+
   const reconnect = useCallback(() => {
     if (!sessionId || !credentials) {
       return;
@@ -198,6 +303,7 @@ export function useBrowserControl({
       setCaptured(false);
       connectionRef.current?.close();
       connectionRef.current = null;
+      screencastTargetIdRef.current = null;
       return;
     }
 
@@ -211,17 +317,30 @@ export function useBrowserControl({
         if (next === "disconnected" || next === "error") {
           setFrame(null);
           setCaptured(false);
+          screencastTargetIdRef.current = null;
         }
       },
       onTargetsSnapshot: (nextActiveTargetId, nextTargets) => {
-        setTargets(nextTargets);
+        setTargets((current) => mergeTargetsInCurrentOrder(current, nextTargets));
         const resolvedActive =
           nextActiveTargetId ??
           nextTargets.find((target) => target.id === activeTargetIdRef.current)?.id ??
           nextTargets[0]?.id ??
           null;
         setActiveTargetId(resolvedActive);
-        if (resolvedActive && connection.isOpen()) {
+        if (
+          resolvedActive &&
+          connection.isOpen() &&
+          screencastTargetIdRef.current !== resolvedActive
+        ) {
+          screencastTargetIdRef.current = resolvedActive;
+          connection.send({
+            type: "viewport.set",
+            targetId: resolvedActive,
+            width: viewportRef.current.width,
+            height: viewportRef.current.height,
+            deviceScaleFactor: 1,
+          });
           connection.send({
             type: "screencast.start",
             targetId: resolvedActive,
@@ -233,6 +352,9 @@ export function useBrowserControl({
         }
       },
       onTargetChanged: (change, target) => {
+        if (change === "destroyed" && screencastTargetIdRef.current === target.id) {
+          screencastTargetIdRef.current = null;
+        }
         setTargets((current) => {
           if (change === "destroyed") {
             return current.filter((item) => item.id !== target.id);
@@ -252,10 +374,11 @@ export function useBrowserControl({
       },
       onScreencastStopped: () => {
         setFrame(null);
+        screencastTargetIdRef.current = null;
       },
       onError: (error) => {
         setLastError(error);
-        if (error.code !== "not_implemented") {
+        if (error.code !== "not_implemented" && !isDisconnectedSocketError(error.message)) {
           toast.error(error.message);
         }
       },
@@ -285,6 +408,18 @@ export function useBrowserControl({
     return () => window.clearInterval(timer);
   }, [frame]);
 
+  useEffect(() => {
+    if (phase !== "connected" || frame || !activeTargetId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      startScreencast();
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, [phase, frame, activeTargetId, startScreencast]);
+
   return {
     phase,
     targets,
@@ -294,11 +429,17 @@ export function useBrowserControl({
     frameStale,
     lastError,
     viewport,
+    browserViewportSize,
+    viewportAutoSync,
     captured,
     setCaptured,
     setViewport: applyViewport,
+    setBrowserViewportSize,
+    setViewportAutoSync,
+    setViewportToBrowserSize,
     send,
     activateTarget,
+    reorderTargets,
     createTarget,
     closeTarget,
     navigate,
@@ -308,5 +449,43 @@ export function useBrowserControl({
     historyForward,
     startScreencast,
     reconnect,
+  };
+}
+
+function isDisconnectedSocketError(message: string): boolean {
+  return /^CDP (browser )?socket (is not open|closed|failed)$/.test(message);
+}
+
+function mergeTargetsInCurrentOrder(
+  currentTargets: ControlTarget[],
+  nextTargets: ControlTarget[],
+): ControlTarget[] {
+  const nextById = new Map(nextTargets.map((target) => [target.id, target]));
+  const seen = new Set<string>();
+  const ordered: ControlTarget[] = [];
+
+  for (const currentTarget of currentTargets) {
+    const nextTarget = nextById.get(currentTarget.id);
+    if (nextTarget) {
+      ordered.push(nextTarget);
+      seen.add(nextTarget.id);
+    }
+  }
+
+  for (const nextTarget of nextTargets) {
+    if (!seen.has(nextTarget.id)) {
+      ordered.push(nextTarget);
+    }
+  }
+
+  return ordered;
+}
+
+function createBrowserViewport(size: BrowserViewportSize): ViewportPreset {
+  return {
+    id: `browser-${size.width}x${size.height}`,
+    label: `${size.width}×${size.height}`,
+    width: size.width,
+    height: size.height,
   };
 }

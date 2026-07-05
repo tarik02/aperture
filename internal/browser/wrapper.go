@@ -29,10 +29,32 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	if strings.TrimSpace(cfg.BrowserExecutable) == "" {
 		return nil, fmt.Errorf("browser executable is required")
 	}
+	if strings.TrimSpace(cfg.CacheDir) == "" {
+		return nil, fmt.Errorf("cache dir is required")
+	}
+	if !filepath.IsAbs(cfg.CacheDir) {
+		return nil, fmt.Errorf("cache dir must be absolute")
+	}
 
 	browserArgs, err := BuildLaunchArgs(cfg.MergedUserDataDir, cfg.CacheDir, cfg.CDPPort, cfg.DefaultArgs, cfg.ExtraArgs)
 	if err != nil {
 		return nil, err
+	}
+
+	browserHome := filepath.Join(cfg.CacheDir, "home")
+	browserCache := filepath.Join(browserHome, ".cache")
+	browserConfig := filepath.Join(browserHome, ".config")
+	for _, dir := range []struct {
+		name string
+		path string
+	}{
+		{name: "home", path: browserHome},
+		{name: "cache", path: browserCache},
+		{name: "config", path: browserConfig},
+	} {
+		if err := os.MkdirAll(dir.path, 0o700); err != nil {
+			return nil, fmt.Errorf("mkdir browser %s dir: %w", dir.name, err)
+		}
 	}
 
 	args := []string{
@@ -56,7 +78,13 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		args = append(args, bind...)
 	}
 
-	args = append(args, "--setenv", "TMPDIR", "/tmp")
+	args = append(
+		args,
+		"--setenv", "TMPDIR", "/tmp",
+		"--setenv", "HOME", browserHome,
+		"--setenv", "XDG_CACHE_HOME", browserCache,
+		"--setenv", "XDG_CONFIG_HOME", browserConfig,
+	)
 
 	for _, key := range passthroughEnvKeys() {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {

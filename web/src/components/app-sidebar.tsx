@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import { TokenSwitcher } from "#/components/token-switcher.tsx";
 import { primaryNavItems } from "#/lib/navigation.ts";
-import { Badge } from "#/components/ui/badge.tsx";
 import {
   isSystemAdminProfile,
   selectActiveProfile,
@@ -10,15 +10,12 @@ import {
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
 } from "#/components/ui/sidebar.tsx";
 
 function isNavActive(pathname: string, to: string) {
@@ -36,22 +33,25 @@ export function AppSidebar() {
   const navItems = primaryNavItems.filter((item) => !item.adminOnly || isSystemAdmin);
 
   return (
-    <Sidebar collapsible="icon" variant="inset">
-      <SidebarHeader className="h-12 justify-center border-b border-sidebar-border">
-        <div className="flex items-center gap-2 px-1">
+    <Sidebar collapsible="icon">
+      <SidebarHeader className="border-b border-sidebar-border">
+        <div data-app-sidebar-titlebar className="flex items-center gap-2">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
             <span className="text-xs font-semibold">A</span>
           </div>
-          <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-semibold">Aperture</span>
-          </div>
+          <span className="min-w-0 truncate text-sm font-semibold group-data-[collapsible=icon]:hidden">
+            Aperture
+          </span>
+        </div>
+        <div className="flex flex-col gap-1 group-data-[collapsible=icon]:hidden">
+          <SelectedTenantControl triggerClassName="w-full max-w-none justify-start" align="start" />
+          <TokenSwitcher />
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Navigate</SidebarGroupLabel>
+        <SidebarGroup className="p-1.5">
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-1">
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.to}>
                   <SidebarMenuButton
@@ -62,14 +62,6 @@ export function AppSidebar() {
                   >
                     <item.icon />
                     <span>{item.title}</span>
-                    {item.adminOnly ? (
-                      <Badge
-                        variant="outline"
-                        className="ml-auto group-data-[collapsible=icon]:hidden"
-                      >
-                        Admin
-                      </Badge>
-                    ) : null}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -77,10 +69,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border">
-        <TokenSwitcher />
-      </SidebarFooter>
-      <SidebarRail />
     </Sidebar>
   );
 }

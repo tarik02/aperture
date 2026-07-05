@@ -7,6 +7,7 @@ import (
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/google/renameio/v2"
 )
 
 func cdpTokenPath(cfg config.Config, sessionID string) (string, error) {
@@ -24,31 +25,8 @@ func StoreCDPTokenSeal(cfg config.Config, sessionID, rawToken string) error {
 		return fmt.Errorf("mkdir cdp token dir: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".cdp-token-*")
-	if err != nil {
-		return fmt.Errorf("create temp cdp token: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-	}
-
-	if _, err := tmp.WriteString(rawToken); err != nil {
-		cleanup()
+	if err := renameio.WriteFile(path, []byte(rawToken), 0o600, renameio.WithStaticPermissions(0o600)); err != nil {
 		return fmt.Errorf("write cdp token: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		cleanup()
-		return fmt.Errorf("chmod cdp token: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close cdp token: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		cleanup()
-		return fmt.Errorf("rename cdp token: %w", err)
 	}
 	return nil
 }

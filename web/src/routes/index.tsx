@@ -1,10 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { SessionWorkbench } from "#/components/workbench/session-workbench.tsx";
+import { Navigate, createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
-  component: WorkbenchPage,
+  component: IndexPage,
 });
 
-function WorkbenchPage() {
-  return <SessionWorkbench />;
+function IndexPage() {
+  return <Navigate to="/sessions" replace />;
 }

@@ -182,8 +182,8 @@ func (s *Service) ListTenants(ctx context.Context, includeDeleted bool) ([]db.Te
 }
 
 // ListTenantsPage returns tenants with cursor pagination.
-func (s *Service) ListTenantsPage(ctx context.Context, includeDeleted bool, params db.PageParams) (db.PageResult[db.Tenant], error) {
-	return s.repo.ListTenantsPage(ctx, db.TenantFilter{IncludeDeleted: includeDeleted}, params)
+func (s *Service) ListTenantsPage(ctx context.Context, filter db.TenantFilter, params db.PageParams) (db.PageResult[db.Tenant], error) {
+	return s.repo.ListTenantsPage(ctx, filter, params)
 }
 
 // UpdateTenant updates tenant metadata for active tenants.
@@ -318,8 +318,8 @@ func (s *Service) ListTokens(ctx context.Context, tenantID *string) ([]db.APITok
 }
 
 // ListTokensPage returns API tokens with cursor pagination.
-func (s *Service) ListTokensPage(ctx context.Context, tenantID *string, params db.PageParams) (db.PageResult[db.APIToken], error) {
-	return s.repo.ListAPITokensPage(ctx, db.APITokenFilter{TenantID: tenantID}, params)
+func (s *Service) ListTokensPage(ctx context.Context, filter db.APITokenFilter, params db.PageParams) (db.PageResult[db.APIToken], error) {
+	return s.repo.ListAPITokensPage(ctx, filter, params)
 }
 
 // GetTenant returns a tenant by id, including deactivated tenants.

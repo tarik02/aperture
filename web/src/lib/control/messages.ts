@@ -1,9 +1,14 @@
+import type Protocol from "devtools-protocol";
+
+export type ScreencastFormat = NonNullable<Protocol.Page.StartScreencastRequest["format"]>;
+
 export type ControlTarget = {
   id: string;
   type: string;
   title: string;
   url: string;
   attached: boolean;
+  loading: boolean;
 };
 
 export type ControlConnectionPhase = "idle" | "connecting" | "connected" | "disconnected" | "error";
@@ -11,7 +16,7 @@ export type ControlConnectionPhase = "idle" | "connecting" | "connected" | "disc
 export type ScreencastFrame = {
   targetId: string;
   frameId: number;
-  format: string;
+  format: ScreencastFormat;
   data: string;
   width: number;
   height: number;
@@ -45,7 +50,7 @@ export type ClientMessage =
   | {
       type: "screencast.start";
       targetId?: string;
-      format?: string;
+      format?: ScreencastFormat;
       quality?: number;
       maxWidth?: number;
       maxHeight?: number;
@@ -58,6 +63,7 @@ export type ClientMessage =
       x: number;
       y: number;
       button?: "left" | "middle" | "right" | "none";
+      buttons?: number;
       clickCount?: number;
       modifiers?: number;
     }
@@ -77,58 +83,14 @@ export type ClientMessage =
       key?: string;
       code?: string;
       text?: string;
+      unmodifiedText?: string;
       modifiers?: number;
+      windowsVirtualKeyCode?: number;
+      nativeVirtualKeyCode?: number;
+      location?: number;
+      autoRepeat?: boolean;
+      isKeypad?: boolean;
     }
   | { type: "clipboard.copy"; targetId: string }
   | { type: "clipboard.cut"; targetId: string }
   | { type: "clipboard.paste"; targetId: string; items: Array<{ mimeType: string; data: string }> };
-
-export type ServerMessage =
-  | {
-      type: "targets.snapshot";
-      sessionId: string;
-      activeTargetId?: string;
-      targets: ControlTarget[];
-    }
-  | {
-      type: "target.changed";
-      change: string;
-      target: ControlTarget;
-    }
-  | {
-      type: "screencast.frame";
-      sessionId: string;
-      targetId: string;
-      frameId: number;
-      format: string;
-      data: string;
-      width: number;
-      height: number;
-      deviceScaleFactor: number;
-      scrollOffsetX: number;
-      scrollOffsetY: number;
-      timestamp?: number;
-    }
-  | {
-      type: "screencast.stopped";
-      sessionId: string;
-      targetId?: string;
-    }
-  | {
-      type: "clipboard.data";
-      formats?: string[];
-      items?: Array<{ mimeType: string; data: string }>;
-      errors?: Array<{ mimeType: string; message: string }>;
-    }
-  | {
-      type: "error";
-      code: string;
-      message: string;
-    };
-
-export function parseServerMessage(data: unknown): ServerMessage | null {
-  if (!data || typeof data !== "object" || !("type" in data)) {
-    return null;
-  }
-  return data as ServerMessage;
-}

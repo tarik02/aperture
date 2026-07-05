@@ -34,8 +34,8 @@ type SnapshotView struct {
 // ListFilter configures snapshot listing.
 type ListFilter struct {
 	IncludeDeleted bool
-	TagKey         string
-	TagValue       string
+	DeletedOnly    bool
+	Tags           []db.TagFilter
 }
 
 // List returns tenant snapshots with cursor pagination.
@@ -43,8 +43,8 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 	page, err := s.repo.ListSnapshotsPage(ctx, db.SnapshotFilter{
 		TenantID:       tenantID,
 		IncludeDeleted: filter.IncludeDeleted,
-		TagKey:         filter.TagKey,
-		TagValue:       filter.TagValue,
+		DeletedOnly:    filter.DeletedOnly,
+		Tags:           filter.Tags,
 	}, params)
 	if err != nil {
 		return db.PageResult[SnapshotView]{}, err

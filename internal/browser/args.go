@@ -16,6 +16,9 @@ var deniedBrowserArgs = map[string]struct{}{
 	"--media-cache-dir":               {},
 	"--download-default-directory":    {},
 	"--disable-download-notification": {},
+	"--disable-crashpad":              {},
+	"--disable-crashpad-for-testing":  {},
+	"--disable-crash-reporter":        {},
 }
 
 var deniedBrowserArgPrefixes = []string{
@@ -25,6 +28,9 @@ var deniedBrowserArgPrefixes = []string{
 	"--disk-cache-dir=",
 	"--media-cache-dir=",
 	"--download-default-directory=",
+	"--disable-crashpad=",
+	"--disable-crashpad-for-testing=",
+	"--disable-crash-reporter=",
 }
 
 // ValidateBrowserArgs rejects args that conflict with supervisor-owned Chromium behavior.
@@ -61,6 +67,9 @@ func RequiredArgs(mergedUserDataDir string, cacheDir string, cdpPort int) []stri
 
 // BuildLaunchArgs combines required, channel default, and validated extra args.
 func BuildLaunchArgs(mergedUserDataDir string, cacheDir string, cdpPort int, defaultArgs, extraArgs []string) ([]string, error) {
+	if err := ValidateBrowserArgs(defaultArgs); err != nil {
+		return nil, err
+	}
 	if err := ValidateBrowserArgs(extraArgs); err != nil {
 		return nil, err
 	}

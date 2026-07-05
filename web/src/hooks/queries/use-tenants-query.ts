@@ -18,6 +18,7 @@ export function useTenantsInfiniteQuery(filters: TenantsFilters = {}) {
         limit: filters.limit ?? defaultListLimit,
         cursor: pageParam,
         includeDeleted: filters.includeDeleted,
+        deleted: filters.deleted,
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam,

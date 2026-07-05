@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Button } from "#/components/ui/button.tsx";
 import {
   Dialog,
@@ -7,13 +7,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
-import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
+import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
 import { Input } from "#/components/ui/input.tsx";
-import { Checkbox } from "#/components/ui/checkbox.tsx";
-import { Label } from "#/components/ui/label.tsx";
-import { TagEditor, entriesToTags, type TagEntry } from "#/components/resources/tag-editor.tsx";
+import { Switch } from "#/components/ui/switch.tsx";
+import { TagEditor, entriesToTags } from "#/components/resources/tag-editor.tsx";
 import { usePromoteSessionMutation } from "#/hooks/mutations/use-session-mutations.ts";
 import type { Session } from "#/lib/api/schemas.ts";
+import { useFormDraftStore } from "#/stores/form-drafts.ts";
 
 type PromoteSessionDialogProps = {
   session: Session | null;
@@ -23,19 +23,16 @@ type PromoteSessionDialogProps = {
 
 export function PromoteSessionDialog({ session, open, onOpenChange }: PromoteSessionDialogProps) {
   const mutation = usePromoteSessionMutation();
-  const [name, setName] = useState("");
-  const [force, setForce] = useState(false);
-  const [tagEntries, setTagEntries] = useState<TagEntry[]>([]);
-  const [nameError, setNameError] = useState<string | null>(null);
+  const draft = useFormDraftStore((state) => state.promoteSession);
+  const setPromoteSession = useFormDraftStore((state) => state.setPromoteSession);
+  const resetPromoteSession = useFormDraftStore((state) => state.resetPromoteSession);
+  const { name, force, tagEntries, nameError } = draft;
 
   useEffect(() => {
     if (open) {
-      setName("");
-      setForce(false);
-      setTagEntries([]);
-      setNameError(null);
+      resetPromoteSession();
     }
-  }, [open]);
+  }, [open, resetPromoteSession]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -45,11 +42,11 @@ export function PromoteSessionDialog({ session, open, onOpenChange }: PromoteSes
 
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setNameError("Name required");
+      setPromoteSession({ nameError: "Name required" });
       return;
     }
 
-    setNameError(null);
+    setPromoteSession({ nameError: null });
     await mutation.mutateAsync({
       sessionId: session.id,
       input: { name: trimmedName, force, tags: entriesToTags(tagEntries) },
@@ -59,7 +56,7 @@ export function PromoteSessionDialog({ session, open, onOpenChange }: PromoteSes
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader>
             <DialogTitle>Promote</DialogTitle>
@@ -70,23 +67,25 @@ export function PromoteSessionDialog({ session, open, onOpenChange }: PromoteSes
               <Input
                 id="promote-name"
                 value={name}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) => setPromoteSession({ name: event.target.value })}
                 disabled={mutation.isPending}
               />
               <FieldError>{nameError}</FieldError>
             </Field>
-            <div className="flex items-center gap-2">
-              <Checkbox
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor="promote-force">Force</FieldLabel>
+              </FieldContent>
+              <Switch
                 id="promote-force"
                 checked={force}
-                onCheckedChange={(checked) => setForce(checked === true)}
+                onCheckedChange={(checked) => setPromoteSession({ force: checked })}
                 disabled={mutation.isPending}
               />
-              <Label htmlFor="promote-force">Force</Label>
-            </div>
+            </Field>
             <TagEditor
               entries={tagEntries}
-              onChange={setTagEntries}
+              onChange={(entries) => setPromoteSession({ tagEntries: entries })}
               disabled={mutation.isPending}
             />
           </FieldGroup>

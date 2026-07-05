@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ChevronsUpDown, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronsUpDown, KeyRound, Plus, Trash2 } from "lucide-react";
 import { TokenFormDialog } from "#/components/token-form-dialog.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -15,8 +15,13 @@ import {
   selectActiveProfile,
   useTokenVaultStore,
 } from "#/stores/token-vault.ts";
+import { cn } from "#/lib/utils.ts";
 
-export function TokenSwitcher() {
+type TokenSwitcherProps = {
+  className?: string;
+};
+
+export function TokenSwitcher({ className }: TokenSwitcherProps) {
   const profiles = useTokenVaultStore((state) => state.profiles);
   const activeProfile = useTokenVaultStore(selectActiveProfile);
   const setActiveProfile = useTokenVaultStore((state) => state.setActiveProfile);
@@ -24,7 +29,6 @@ export function TokenSwitcher() {
   const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [renameProfileId, setRenameProfileId] = useState<string | null>(null);
 
   function handleSwitch(profileId: string) {
     if (profileId === activeProfile?.id) {
@@ -38,7 +42,7 @@ export function TokenSwitcher() {
     removeProfile(profileId);
   }
 
-  const triggerLabel = activeProfile?.label ?? "No token";
+  const triggerLabel = activeProfile ? profileDisplayName(activeProfile) : "No token";
 
   return (
     <>
@@ -48,7 +52,10 @@ export function TokenSwitcher() {
             <Button
               variant="outline"
               size="sm"
-              className="w-full justify-start group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
+              className={cn(
+                "w-full min-w-0 justify-start group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0",
+                className,
+              )}
               disabled={bootstrapping}
             />
           }
@@ -79,34 +86,15 @@ export function TokenSwitcher() {
             Add token
           </DropdownMenuItem>
           {activeProfile ? (
-            <>
-              <DropdownMenuItem onClick={() => setRenameProfileId(activeProfile.id)}>
-                <Pencil />
-                Rename
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => handleRemove(activeProfile.id)}
-              >
-                <Trash2 />
-                Remove
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem variant="destructive" onClick={() => handleRemove(activeProfile.id)}>
+              <Trash2 />
+              Remove
+            </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <TokenFormDialog mode="add" open={addOpen} onOpenChange={setAddOpen} />
-      <TokenFormDialog
-        mode="rename"
-        open={renameProfileId !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setRenameProfileId(null);
-          }
-        }}
-        profileId={renameProfileId ?? undefined}
-      />
     </>
   );
 }

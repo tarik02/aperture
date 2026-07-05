@@ -29,6 +29,11 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.5rem;
+  --app-titlebar-min-height: 2.25rem;
+  --app-titlebar-padding-inline: 0.75rem;
+  --app-titlebar-left-overlay-fallback: 5.375rem;
+  --app-titlebar-right-overlay-fallback: 7.5rem;
+  --app-sidebar-titlebar-padding-left: 0.25rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -122,10 +127,210 @@
   }
 
   html {
-    @apply font-sans text-sm;
+    @apply h-full overflow-hidden font-sans;
   }
 
   body {
-    @apply min-h-svh bg-background text-foreground;
+    @apply h-full min-h-svh overflow-hidden bg-background text-foreground;
+  }
+}
+
+@layer components {
+  [data-table-scroll] {
+    --table-scrollbar-size: 0.625rem;
+    --table-scroll-shadow-width: 1rem;
+    --table-sticky-end-width: 2.75rem;
+    --table-sticky-start-width: 2rem;
+  }
+
+  [data-table-scroll]::before,
+  [data-table-scroll]::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    bottom: var(--table-scrollbar-size);
+    z-index: 30;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  [data-table-scroll]::before {
+    left: 0;
+    width: calc(
+      var(--table-scroll-padding-inline) + var(--table-sticky-start-width) +
+        var(--table-scroll-shadow-width)
+    );
+    background: linear-gradient(
+      to right,
+      var(--background) 0 var(--table-scroll-padding-inline),
+      transparent var(--table-scroll-padding-inline)
+        calc(var(--table-scroll-padding-inline) + var(--table-sticky-start-width)),
+      color-mix(in oklch, var(--foreground) 8%, transparent)
+        calc(var(--table-scroll-padding-inline) + var(--table-sticky-start-width) + 0.125rem),
+      transparent 100%
+    );
+  }
+
+  [data-table-scroll]::after {
+    right: 0;
+    width: calc(
+      var(--table-scroll-padding-inline) + var(--table-sticky-end-width) +
+        var(--table-scroll-shadow-width)
+    );
+    background: linear-gradient(
+      to left,
+      var(--background) 0 var(--table-scroll-padding-inline),
+      transparent var(--table-scroll-padding-inline)
+        calc(var(--table-scroll-padding-inline) + var(--table-sticky-end-width)),
+      color-mix(in oklch, var(--foreground) 8%, transparent)
+        calc(var(--table-scroll-padding-inline) + var(--table-sticky-end-width) + 0.125rem),
+      transparent 100%
+    );
+  }
+
+  [data-table-scroll] [data-slot="scroll-area-scrollbar"] {
+    z-index: 40;
+  }
+
+  [data-table-scroll][data-can-scroll-left="true"]::before,
+  [data-table-scroll][data-can-scroll-right="true"]::after {
+    opacity: 1;
+  }
+
+  [data-app-titlebar],
+  [data-app-sidebar-titlebar] {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  [data-app-titlebar] {
+    height: 3rem;
+    padding-left: var(--app-titlebar-padding-inline);
+    padding-right: var(--app-titlebar-padding-inline);
+  }
+
+  [data-app-sidebar-titlebar] {
+    padding-left: var(--app-sidebar-titlebar-padding-left);
+    padding-right: var(--app-sidebar-titlebar-padding-left);
+  }
+
+  [data-workbench-titlebar] {
+    height: 2rem;
+  }
+
+  [data-app-titlebar] a,
+  [data-app-titlebar] button,
+  [data-app-titlebar] input,
+  [data-app-titlebar] [role="button"],
+  [data-app-titlebar] [role="combobox"],
+  [data-app-titlebar] [data-no-window-drag],
+  [data-app-titlebar] [data-slot="dropdown-menu-trigger"],
+  [data-app-sidebar-titlebar] a,
+  [data-app-sidebar-titlebar] button,
+  [data-app-sidebar-titlebar] [role="button"],
+  [data-app-sidebar-titlebar] [data-no-window-drag] {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
+  [data-workbench-titlebar] {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  [data-workbench-titlebar] a,
+  [data-workbench-titlebar] button,
+  [data-workbench-titlebar] [data-browser-tab],
+  [data-workbench-titlebar] [data-slot="scroll-area-scrollbar"] {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
+@layer components {
+  .wco [data-app-titlebar],
+  .wco [data-app-sidebar-titlebar],
+  .wco [data-workbench-titlebar] {
+    height: max(
+      env(titlebar-area-height, var(--app-titlebar-min-height)),
+      var(--app-titlebar-min-height)
+    );
+  }
+
+  .wco [data-app-titlebar] {
+    padding-left: var(--app-titlebar-padding-inline);
+    padding-right: var(--app-titlebar-padding-inline);
+  }
+
+  .wco.wco-right [data-app-titlebar],
+  .wco.wco-right [data-workbench-titlebar] {
+    padding-right: max(
+      var(--app-titlebar-padding-inline),
+      calc(
+        100vw - env(titlebar-area-x, 0px) -
+          env(titlebar-area-width, calc(100vw - var(--app-titlebar-right-overlay-fallback))) +
+          var(--app-titlebar-padding-inline)
+      )
+    );
+  }
+
+  .wco.wco-left
+    [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+    [data-app-titlebar] {
+    padding-left: max(
+      var(--app-titlebar-padding-inline),
+      calc(
+        env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) -
+          var(--sidebar-width-icon) + var(--app-titlebar-padding-inline)
+      )
+    );
+  }
+
+  .wco [data-app-sidebar-titlebar] {
+    padding-left: var(--app-sidebar-titlebar-padding-left);
+  }
+
+  .wco.wco-left [data-app-sidebar-titlebar] {
+    padding-left: max(
+      var(--app-sidebar-titlebar-padding-left),
+      calc(
+        env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
+          var(--app-sidebar-titlebar-padding-left)
+      )
+    );
+  }
+
+  .wco.wco-left
+    [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+    [data-app-sidebar-titlebar] {
+    padding-left: var(--app-sidebar-titlebar-padding-left);
+  }
+
+  .wco.wco-left
+    [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
+    [data-app-sidebar-titlebar]
+    > * {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .wco [data-app-shell] [data-slot="sidebar-header"] {
+    padding-top: 0;
+  }
+
+  .wco [data-workbench-titlebar] {
+    padding-left: var(--app-titlebar-padding-inline);
+    padding-right: var(--app-titlebar-padding-inline);
+  }
+
+  .wco.wco-left [data-workbench-titlebar] {
+    padding-left: max(
+      var(--app-titlebar-padding-inline),
+      calc(
+        env(titlebar-area-x, var(--app-titlebar-left-overlay-fallback)) +
+          var(--app-titlebar-padding-inline)
+      )
+    );
   }
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/google/renameio/v2"
 )
 
 const secretBytes = 32
@@ -46,31 +47,8 @@ func Ensure(cfg config.Config) (string, error) {
 		return "", fmt.Errorf("mkdir job token dir: %w", err)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".job-token-*")
-	if err != nil {
-		return "", fmt.Errorf("create temp job token: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-	}
-
-	if _, err := tmp.WriteString(raw); err != nil {
-		cleanup()
+	if err := renameio.WriteFile(path, []byte(raw), 0o600, renameio.WithStaticPermissions(0o600)); err != nil {
 		return "", fmt.Errorf("write job token: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		cleanup()
-		return "", fmt.Errorf("chmod job token: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return "", fmt.Errorf("close job token: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		cleanup()
-		return "", fmt.Errorf("rename job token: %w", err)
 	}
 	return raw, nil
 }

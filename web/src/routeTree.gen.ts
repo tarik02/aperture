@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TokensIndexRouteImport } from './routes/tokens/index'
 import { Route as TenantsIndexRouteImport } from './routes/tenants/index'
 import { Route as SnapshotsIndexRouteImport } from './routes/snapshots/index'
-import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as SessionsSessionIdRouteImport } from './routes/sessions/$sessionId'
 
@@ -37,11 +36,6 @@ const SnapshotsIndexRoute = SnapshotsIndexRouteImport.update({
   path: '/snapshots/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsIndexRoute = SettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SessionsIndexRoute = SessionsIndexRouteImport.update({
   id: '/sessions/',
   path: '/sessions/',
@@ -57,7 +51,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/sessions/': typeof SessionsIndexRoute
-  '/settings/': typeof SettingsIndexRoute
   '/snapshots/': typeof SnapshotsIndexRoute
   '/tenants/': typeof TenantsIndexRoute
   '/tokens/': typeof TokensIndexRoute
@@ -66,7 +59,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/sessions': typeof SessionsIndexRoute
-  '/settings': typeof SettingsIndexRoute
   '/snapshots': typeof SnapshotsIndexRoute
   '/tenants': typeof TenantsIndexRoute
   '/tokens': typeof TokensIndexRoute
@@ -76,7 +68,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/sessions/$sessionId': typeof SessionsSessionIdRoute
   '/sessions/': typeof SessionsIndexRoute
-  '/settings/': typeof SettingsIndexRoute
   '/snapshots/': typeof SnapshotsIndexRoute
   '/tenants/': typeof TenantsIndexRoute
   '/tokens/': typeof TokensIndexRoute
@@ -87,7 +78,6 @@ export interface FileRouteTypes {
     | '/'
     | '/sessions/$sessionId'
     | '/sessions/'
-    | '/settings/'
     | '/snapshots/'
     | '/tenants/'
     | '/tokens/'
@@ -96,7 +86,6 @@ export interface FileRouteTypes {
     | '/'
     | '/sessions/$sessionId'
     | '/sessions'
-    | '/settings'
     | '/snapshots'
     | '/tenants'
     | '/tokens'
@@ -105,7 +94,6 @@ export interface FileRouteTypes {
     | '/'
     | '/sessions/$sessionId'
     | '/sessions/'
-    | '/settings/'
     | '/snapshots/'
     | '/tenants/'
     | '/tokens/'
@@ -115,7 +103,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SessionsSessionIdRoute: typeof SessionsSessionIdRoute
   SessionsIndexRoute: typeof SessionsIndexRoute
-  SettingsIndexRoute: typeof SettingsIndexRoute
   SnapshotsIndexRoute: typeof SnapshotsIndexRoute
   TenantsIndexRoute: typeof TenantsIndexRoute
   TokensIndexRoute: typeof TokensIndexRoute
@@ -151,13 +138,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SnapshotsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/': {
-      id: '/settings/'
-      path: '/settings'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof SettingsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/sessions/': {
       id: '/sessions/'
       path: '/sessions'
@@ -179,7 +159,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SessionsSessionIdRoute: SessionsSessionIdRoute,
   SessionsIndexRoute: SessionsIndexRoute,
-  SettingsIndexRoute: SettingsIndexRoute,
   SnapshotsIndexRoute: SnapshotsIndexRoute,
   TenantsIndexRoute: TenantsIndexRoute,
   TokensIndexRoute: TokensIndexRoute,
@@ -187,12 +166,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

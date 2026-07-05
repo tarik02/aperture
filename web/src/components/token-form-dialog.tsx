@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -12,13 +12,13 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field
 import { Input } from "#/components/ui/input.tsx";
 import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
 import { parseTokenId } from "#/lib/token-id.ts";
+import { useFormDraftStore } from "#/stores/form-drafts.ts";
 import { useTokenVaultStore } from "#/stores/token-vault.ts";
 
 type TokenFormDialogProps = {
-  mode: "add" | "rename" | "welcome";
+  mode: "add" | "welcome";
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  profileId?: string;
   dismissible?: boolean;
 };
 
@@ -26,48 +26,30 @@ export function TokenFormDialog({
   mode,
   open,
   onOpenChange,
-  profileId,
   dismissible = true,
 }: TokenFormDialogProps) {
   const addProfile = useTokenVaultStore((state) => state.addProfile);
   const removeProfile = useTokenVaultStore((state) => state.removeProfile);
-  const renameProfile = useTokenVaultStore((state) => state.renameProfile);
-  const profiles = useTokenVaultStore((state) => state.profiles);
   const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
   const { bootstrapProfileById } = useTokenBootstrap();
+  const rawToken = useFormDraftStore((state) => state.tokenForm.rawToken);
+  const tokenError = useFormDraftStore((state) => state.tokenForm.tokenError);
+  const submitting = useFormDraftStore((state) => state.tokenForm.submitting);
+  const setTokenForm = useFormDraftStore((state) => state.setTokenForm);
+  const resetTokenForm = useFormDraftStore((state) => state.resetTokenForm);
 
-  const existingProfile = profileId ? profiles.find((profile) => profile.id === profileId) : null;
-
-  const [rawToken, setRawToken] = useState("");
-  const [label, setLabel] = useState(existingProfile?.label ?? "");
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [labelError, setLabelError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  const isRename = mode === "rename";
-  const title = mode === "welcome" ? "API token" : isRename ? "Rename token" : "Add token";
+  const title = mode === "welcome" ? "Login" : "Add token";
+  const submitLabel = mode === "welcome" ? "Login" : "Add";
 
   useEffect(() => {
-    if (open && isRename && existingProfile) {
-      setLabel(existingProfile.label);
+    if (open) {
+      resetTokenForm();
     }
-  }, [existingProfile, isRename, open]);
-
-  function resetForm() {
-    setRawToken("");
-    setLabel(existingProfile?.label ?? "");
-    setTokenError(null);
-    setLabelError(null);
-    setSubmitting(false);
-  }
+  }, [open, resetTokenForm]);
 
   function handleOpenChange(nextOpen: boolean) {
     if (!dismissible && !nextOpen) {
       return;
-    }
-
-    if (!nextOpen) {
-      resetForm();
     }
 
     onOpenChange(nextOpen);
@@ -75,58 +57,39 @@ export function TokenFormDialog({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setTokenError(null);
-    setLabelError(null);
-
-    if (isRename) {
-      if (!profileId) {
-        return;
-      }
-
-      const trimmedLabel = label.trim();
-      if (!trimmedLabel) {
-        setLabelError("Label required");
-        return;
-      }
-
-      renameProfile(profileId, trimmedLabel);
-      handleOpenChange(false);
-      return;
-    }
+    setTokenForm({ tokenError: null });
 
     const trimmedToken = rawToken.trim();
     if (!trimmedToken) {
-      setTokenError("Token required");
+      setTokenForm({ tokenError: "Token required" });
       return;
     }
 
     if (!parseTokenId(trimmedToken)) {
-      setTokenError("Invalid token format");
+      setTokenForm({ tokenError: "Invalid token format" });
       return;
     }
 
-    setSubmitting(true);
+    setTokenForm({ submitting: true });
     const createdProfileId = addProfile({
       rawToken: trimmedToken,
-      label: label.trim() || undefined,
     });
 
     if (!createdProfileId) {
-      setTokenError("Invalid token format");
-      setSubmitting(false);
+      setTokenForm({ tokenError: "Invalid token format", submitting: false });
       return;
     }
 
     const bootstrapped = await bootstrapProfileById(createdProfileId);
-    setSubmitting(false);
+    setTokenForm({ submitting: false });
 
     if (!bootstrapped) {
       removeProfile(createdProfileId);
-      setTokenError("Token rejected");
+      setTokenForm({ tokenError: "Token rejected" });
       return;
     }
 
-    toast.success("Token added");
+    toast.success(mode === "welcome" ? "Logged in" : "Token added");
     handleOpenChange(false);
   }
 
@@ -138,33 +101,19 @@ export function TokenFormDialog({
             <DialogTitle>{title}</DialogTitle>
           </DialogHeader>
           <FieldGroup className="py-2">
-            {!isRename ? (
-              <Field data-invalid={tokenError ? true : undefined}>
-                <FieldLabel htmlFor="token-raw">Token</FieldLabel>
-                <Input
-                  id="token-raw"
-                  name="token"
-                  type="password"
-                  autoComplete="off"
-                  value={rawToken}
-                  onChange={(event) => setRawToken(event.target.value)}
-                  aria-invalid={tokenError ? true : undefined}
-                  disabled={submitting || bootstrapping}
-                />
-                <FieldError>{tokenError}</FieldError>
-              </Field>
-            ) : null}
-            <Field data-invalid={labelError ? true : undefined}>
-              <FieldLabel htmlFor="token-label">Label</FieldLabel>
+            <Field data-invalid={tokenError ? true : undefined}>
+              <FieldLabel htmlFor="token-raw">Token</FieldLabel>
               <Input
-                id="token-label"
-                name="label"
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                aria-invalid={labelError ? true : undefined}
+                id="token-raw"
+                name="token"
+                type="password"
+                autoComplete="off"
+                value={rawToken}
+                onChange={(event) => setTokenForm({ rawToken: event.target.value })}
+                aria-invalid={tokenError ? true : undefined}
                 disabled={submitting || bootstrapping}
               />
-              <FieldError>{labelError}</FieldError>
+              <FieldError>{tokenError}</FieldError>
             </Field>
           </FieldGroup>
           <DialogFooter>
@@ -179,7 +128,7 @@ export function TokenFormDialog({
               </Button>
             ) : null}
             <Button type="submit" disabled={submitting || bootstrapping}>
-              {isRename ? "Save" : "Add"}
+              {submitLabel}
             </Button>
           </DialogFooter>
         </form>

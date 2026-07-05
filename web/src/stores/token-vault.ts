@@ -1,13 +1,12 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AuthMeResponse } from "#/lib/api/schemas.ts";
-import { formatRawTokenLabel, maskTokenId, parseTokenId } from "#/lib/token-id.ts";
+import { maskTokenId, parseTokenId } from "#/lib/token-id.ts";
 
 export type AuthorityType = "system_admin" | "tenant";
 
 export type TokenProfile = {
   id: string;
-  label: string;
   rawToken: string;
   maskedTokenId: string;
   authorityType: AuthorityType | null;
@@ -24,9 +23,8 @@ type TokenVaultState = {
   activeProfileId: string | null;
   hydrated: boolean;
   bootstrapping: boolean;
-  addProfile: (input: { rawToken: string; label?: string }) => string | null;
+  addProfile: (input: { rawToken: string }) => string | null;
   removeProfile: (profileId: string) => void;
-  renameProfile: (profileId: string, label: string) => void;
   setActiveProfile: (profileId: string | null) => void;
   applyBootstrap: (profileId: string, response: AuthMeResponse) => void;
   clearBootstrapMetadata: (profileId: string) => void;
@@ -40,17 +38,15 @@ type TokenVaultState = {
   setBootstrapping: (bootstrapping: boolean) => void;
 };
 
-function createProfile(rawToken: string, label?: string): TokenProfile | null {
+function createProfile(rawToken: string): TokenProfile | null {
   const trimmedToken = rawToken.trim();
   const tokenId = parseTokenId(trimmedToken);
   if (!tokenId) {
     return null;
   }
 
-  const trimmedLabel = label?.trim();
   return {
-    id: crypto.randomUUID(),
-    label: trimmedLabel || formatRawTokenLabel(trimmedToken),
+    id: tokenId,
     rawToken: trimmedToken,
     maskedTokenId: maskTokenId(tokenId),
     authorityType: null,
@@ -80,14 +76,16 @@ export const useTokenVaultStore = create<TokenVaultState>()(
       hydrated: false,
       bootstrapping: false,
 
-      addProfile: ({ rawToken, label }) => {
-        const profile = createProfile(rawToken, label);
+      addProfile: ({ rawToken }) => {
+        const profile = createProfile(rawToken);
         if (!profile) {
           return null;
         }
 
         set((state) => ({
-          profiles: [...state.profiles, profile],
+          profiles: state.profiles.some((entry) => entry.id === profile.id)
+            ? state.profiles
+            : [...state.profiles, profile],
           activeProfileId: profile.id,
         }));
 
@@ -104,19 +102,6 @@ export const useTokenVaultStore = create<TokenVaultState>()(
 
           return { profiles, activeProfileId };
         });
-      },
-
-      renameProfile: (profileId, label) => {
-        const trimmedLabel = label.trim();
-        if (!trimmedLabel) {
-          return;
-        }
-
-        set((state) => ({
-          profiles: state.profiles.map((profile) =>
-            profile.id === profileId ? { ...profile, label: trimmedLabel } : profile,
-          ),
-        }));
       },
 
       setActiveProfile: (profileId) => {
@@ -239,5 +224,7 @@ export function isSystemAdminProfile(profile: TokenProfile | null): boolean {
 }
 
 export function profileDisplayName(profile: TokenProfile): string {
-  return profile.tokenName ? `${profile.label} (${profile.tokenName})` : profile.label;
+  return profile.tokenName
+    ? `${profile.tokenName} · ${profile.maskedTokenId}`
+    : profile.maskedTokenId;
 }

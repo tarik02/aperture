@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { ApiRequestError, parseApiErrorBody } from "#/lib/api/errors.ts";
+import type { TagFilterValue } from "#/lib/tag-filter.ts";
 import {
   authMeSchema,
   browserChannelsSchema,
@@ -28,6 +29,8 @@ export type ApiCredentials = {
 };
 
 export type TenantHeaderMode = "none" | "optional" | "tenant-scoped";
+
+type QueryValue = string | number | boolean | Array<string | number | boolean> | undefined | null;
 
 export function credentialsFromProfile(profile: TokenProfile): ApiCredentials {
   return {
@@ -67,16 +70,13 @@ type RequestOptions<T extends z.ZodType> = {
   schema: T;
   credentials?: ApiCredentials | null;
   tenantHeader?: TenantHeaderMode;
-  query?: Record<string, string | number | boolean | undefined | null>;
+  query?: Record<string, QueryValue>;
   body?: unknown;
 };
 
 type VoidRequestOptions = Omit<RequestOptions<z.ZodType>, "schema">;
 
-function buildUrl(
-  path: string,
-  query?: Record<string, string | number | boolean | undefined | null>,
-): string {
+function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   if (!query) {
     return path;
   }
@@ -84,6 +84,14 @@ function buildUrl(
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== "") {
+          search.append(key, String(item));
+        }
+      }
       continue;
     }
     search.set(key, String(value));
@@ -181,28 +189,32 @@ export type SessionsListParams = {
   cursor?: string;
   includeDeleted?: boolean;
   status?: string;
-  tagKey?: string;
-  tagValue?: string;
+  tags?: TagFilterValue;
 };
 
 export type SnapshotsListParams = {
   limit?: number;
   cursor?: string;
   includeDeleted?: boolean;
-  tagKey?: string;
-  tagValue?: string;
+  deleted?: "active" | "deleted" | "all";
+  tags?: TagFilterValue;
 };
 
 export type TenantsListParams = {
   limit?: number;
   cursor?: string;
   includeDeleted?: boolean;
+  deleted?: "active" | "deleted" | "all";
 };
 
 export type TokensListParams = {
   limit?: number;
   cursor?: string;
   tenantId?: string;
+  name?: string;
+  authorityType?: "system_admin" | "tenant";
+  revoked?: "all" | "active" | "revoked";
+  scope?: string;
 };
 
 export type EventsListParams = {
@@ -276,6 +288,7 @@ export const apiClient = {
         limit: params.limit,
         cursor: params.cursor,
         includeDeleted: params.includeDeleted ? "true" : undefined,
+        deleted: params.deleted,
       },
     });
   },
@@ -329,8 +342,9 @@ export const apiClient = {
         cursor: params.cursor,
         includeDeleted: params.includeDeleted ? "true" : undefined,
         status: params.status,
-        tagKey: params.tagKey,
-        tagValue: params.tagValue,
+        tagKey: params.tags?.map((tag) => tag.key),
+        tagOperator: params.tags?.map((tag) => tag.operator),
+        tagValue: params.tags?.map((tag) => tag.values.join(",")),
       },
     });
   },
@@ -419,8 +433,10 @@ export const apiClient = {
         limit: params.limit,
         cursor: params.cursor,
         includeDeleted: params.includeDeleted ? "true" : undefined,
-        tagKey: params.tagKey,
-        tagValue: params.tagValue,
+        deleted: params.deleted,
+        tagKey: params.tags?.map((tag) => tag.key),
+        tagOperator: params.tags?.map((tag) => tag.operator),
+        tagValue: params.tags?.map((tag) => tag.values.join(",")),
       },
     });
   },
@@ -480,6 +496,10 @@ export const apiClient = {
         limit: params.limit,
         cursor: params.cursor,
         tenantId: params.tenantId,
+        name: params.name,
+        authorityType: params.authorityType,
+        revoked: params.revoked,
+        scope: params.scope,
       },
     });
   },
@@ -492,6 +512,9 @@ export const apiClient = {
       query: {
         limit: params.limit,
         cursor: params.cursor,
+        name: params.name,
+        revoked: params.revoked,
+        scope: params.scope,
       },
     });
   },

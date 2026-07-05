@@ -14,7 +14,9 @@
     "format:check": "vp fmt --check"
   },
   "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^2.0.1",
     "@base-ui/react": "^1.6.0",
+    "@floating-ui/dom": "^1.7.6",
     "@fontsource-variable/geist": "^5.2.9",
     "@tailwindcss/vite": "^4.3.2",
     "@tanstack/react-hotkeys": "^0.10.0",
@@ -43,6 +45,7 @@
     "@types/react-dom": "^19.2.0",
     "@typescript/native-preview": "^7.0.0-dev.20260704.1",
     "@vitejs/plugin-react": "^6.0.1",
+    "devtools-protocol": "^0.0.1655900",
     "typescript": "^6.0.2",
     "vite": "catalog:",
     "vite-plus": "catalog:"
