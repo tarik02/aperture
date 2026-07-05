@@ -36,6 +36,13 @@ type Config struct {
 	ExternalBaseURL                string                   `mapstructure:"external_base_url"`
 	CdpRouteBasePath               string                   `mapstructure:"cdp_route_base_path"`
 	WebRTCCaptureProofExtensionDir string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
+	WebRTCCompositorEnabled        bool                     `mapstructure:"webrtc_compositor_enabled"`
+	WebRTCCompositorExecutable     string                   `mapstructure:"webrtc_compositor_executable"`
+	WebRTCCompositorBackend        string                   `mapstructure:"webrtc_compositor_backend"`
+	WebRTCCompositorRenderer       string                   `mapstructure:"webrtc_compositor_renderer"`
+	WebRTCCompositorShell          string                   `mapstructure:"webrtc_compositor_shell"`
+	WebRTCCompositorWidth          int                      `mapstructure:"webrtc_compositor_width"`
+	WebRTCCompositorHeight         int                      `mapstructure:"webrtc_compositor_height"`
 	LogLevel                       string                   `mapstructure:"log_level"`
 	ConfigFile                     string                   `mapstructure:"-"`
 }
@@ -59,6 +66,13 @@ func Defaults() Config {
 		ExternalBaseURL:                "",
 		CdpRouteBasePath:               "/cdp",
 		WebRTCCaptureProofExtensionDir: "",
+		WebRTCCompositorEnabled:        false,
+		WebRTCCompositorExecutable:     "",
+		WebRTCCompositorBackend:        "pipewire",
+		WebRTCCompositorRenderer:       "gl",
+		WebRTCCompositorShell:          "kiosk",
+		WebRTCCompositorWidth:          1280,
+		WebRTCCompositorHeight:         720,
 		LogLevel:                       "info",
 	}
 }
@@ -99,6 +113,12 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
+	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)
+	v.SetDefault("webrtc_compositor_backend", defaults.WebRTCCompositorBackend)
+	v.SetDefault("webrtc_compositor_renderer", defaults.WebRTCCompositorRenderer)
+	v.SetDefault("webrtc_compositor_shell", defaults.WebRTCCompositorShell)
+	v.SetDefault("webrtc_compositor_width", defaults.WebRTCCompositorWidth)
+	v.SetDefault("webrtc_compositor_height", defaults.WebRTCCompositorHeight)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if configFile := flags.GetString("config"); configFile != "" {
@@ -122,6 +142,13 @@ func Load(flags *viper.Viper) (Config, error) {
 		"external_base_url",
 		"cdp_route_base_path",
 		"webrtc_capture_proof_extension_dir",
+		"webrtc_compositor_enabled",
+		"webrtc_compositor_executable",
+		"webrtc_compositor_backend",
+		"webrtc_compositor_renderer",
+		"webrtc_compositor_shell",
+		"webrtc_compositor_width",
+		"webrtc_compositor_height",
 		"log_level",
 	} {
 		if err := v.BindEnv(key); err != nil {
@@ -186,18 +213,25 @@ func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
 
 func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 	flagBindings := map[string]string{
-		"listen-address":              "listen_address",
-		"log-level":                   "log_level",
-		"store-root":                  "store_root",
-		"runtime-root":                "runtime_root",
-		"artifact-root":               "artifact_root",
-		"database-path":               "database_path",
-		"traefik-dynamic-config-path": "traefik_dynamic_config_path",
-		"systemd-browser-unit-name":   "systemd_browser_unit_name",
-		"session-retention-days":      "session_retention_days",
-		"snapshot-retention-days":     "snapshot_retention_days",
-		"external-base-url":           "external_base_url",
-		"cdp-route-base-path":         "cdp_route_base_path",
+		"listen-address":               "listen_address",
+		"log-level":                    "log_level",
+		"store-root":                   "store_root",
+		"runtime-root":                 "runtime_root",
+		"artifact-root":                "artifact_root",
+		"database-path":                "database_path",
+		"traefik-dynamic-config-path":  "traefik_dynamic_config_path",
+		"systemd-browser-unit-name":    "systemd_browser_unit_name",
+		"session-retention-days":       "session_retention_days",
+		"snapshot-retention-days":      "snapshot_retention_days",
+		"external-base-url":            "external_base_url",
+		"cdp-route-base-path":          "cdp_route_base_path",
+		"webrtc-compositor-enabled":    "webrtc_compositor_enabled",
+		"webrtc-compositor-executable": "webrtc_compositor_executable",
+		"webrtc-compositor-backend":    "webrtc_compositor_backend",
+		"webrtc-compositor-renderer":   "webrtc_compositor_renderer",
+		"webrtc-compositor-shell":      "webrtc_compositor_shell",
+		"webrtc-compositor-width":      "webrtc_compositor_width",
+		"webrtc-compositor-height":     "webrtc_compositor_height",
 	}
 
 	for flagName, configKey := range flagBindings {

@@ -33,6 +33,30 @@ func Validate(cfg Config) error {
 	if captureProofDir := strings.TrimSpace(cfg.WebRTCCaptureProofExtensionDir); captureProofDir != "" && !filepath.IsAbs(captureProofDir) {
 		errs = append(errs, errors.New("webrtc_capture_proof_extension_dir must be an absolute path"))
 	}
+	if cfg.WebRTCCompositorEnabled {
+		if executable := strings.TrimSpace(cfg.WebRTCCompositorExecutable); executable == "" {
+			errs = append(errs, errors.New("webrtc_compositor_executable is required when webrtc_compositor_enabled is true"))
+		} else if !filepath.IsAbs(executable) {
+			errs = append(errs, errors.New("webrtc_compositor_executable must be an absolute path"))
+		}
+		switch strings.TrimSpace(cfg.WebRTCCompositorBackend) {
+		case "headless", "pipewire":
+		default:
+			errs = append(errs, errors.New("webrtc_compositor_backend must be headless or pipewire"))
+		}
+		if strings.TrimSpace(cfg.WebRTCCompositorRenderer) != "gl" {
+			errs = append(errs, errors.New("webrtc_compositor_renderer must be gl when webrtc_compositor_enabled is true"))
+		}
+		if strings.TrimSpace(cfg.WebRTCCompositorShell) != "kiosk" {
+			errs = append(errs, errors.New("webrtc_compositor_shell must be kiosk when webrtc_compositor_enabled is true"))
+		}
+		if cfg.WebRTCCompositorWidth <= 0 {
+			errs = append(errs, errors.New("webrtc_compositor_width must be positive when webrtc_compositor_enabled is true"))
+		}
+		if cfg.WebRTCCompositorHeight <= 0 {
+			errs = append(errs, errors.New("webrtc_compositor_height must be positive when webrtc_compositor_enabled is true"))
+		}
+	}
 
 	if cfg.SessionRetentionDays <= 0 {
 		errs = append(errs, errors.New("session_retention_days must be positive"))

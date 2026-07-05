@@ -8,6 +8,8 @@ import (
 
 var ErrDeniedBrowserArg = errors.New("browser argument conflicts with supervisor-owned behavior")
 
+var ErrDeniedCompositorBrowserArg = errors.New("browser argument conflicts with compositor mode")
+
 var deniedBrowserArgs = map[string]struct{}{
 	"--user-data-dir":                 {},
 	"--remote-debugging-address":      {},
@@ -22,6 +24,22 @@ var deniedBrowserArgs = map[string]struct{}{
 	"--disable-extensions":            {},
 	"--disable-extensions-except":     {},
 	"--load-extension":                {},
+}
+
+var deniedCompositorBrowserArgs = map[string]struct{}{
+	"--disable-accelerated-2d-canvas":    {},
+	"--disable-accelerated-video-decode": {},
+	"--disable-gpu":                      {},
+	"--disable-gpu-compositing":          {},
+	"--disable-gpu-rasterization":        {},
+	"--disable-software-rasterizer":      {},
+	"--disable-webgl":                    {},
+	"--disable-webgpu":                   {},
+	"--headless":                         {},
+	"--ozone-platform":                   {},
+	"--use-angle":                        {},
+	"--use-gl":                           {},
+	"--window-size":                      {},
 }
 
 var deniedBrowserArgPrefixes = []string{
@@ -53,6 +71,21 @@ func ValidateBrowserArgs(args []string) error {
 			if strings.HasPrefix(trimmed, prefix) {
 				return fmt.Errorf("%w: %q", ErrDeniedBrowserArg, trimmed)
 			}
+		}
+	}
+	return nil
+}
+
+// ValidateCompositorBrowserArgs rejects args that would break nested compositor mode.
+func ValidateCompositorBrowserArgs(args []string) error {
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		if trimmed == "" {
+			continue
+		}
+		name, _, _ := strings.Cut(trimmed, "=")
+		if _, denied := deniedCompositorBrowserArgs[name]; denied {
+			return fmt.Errorf("%w: %q", ErrDeniedCompositorBrowserArg, trimmed)
 		}
 	}
 	return nil

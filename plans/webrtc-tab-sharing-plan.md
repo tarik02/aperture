@@ -176,6 +176,8 @@ Bail out if:
 
 ## Stage 3, compositor session wrapper
 
+Status: passed for an isolated manual wrapper proof on `polygon`, 2026-07-05.
+
 Goal: make the browser wrapper own the nested compositor and Chromium lifecycle.
 
 Work:
@@ -196,6 +198,35 @@ Validation:
 - Weston and Chromium both report hardware acceleration.
 - The nested viewport dimensions match the requested session viewport.
 - Session delete and expiry remove sockets and runtime files.
+- The wrapper binds render nodes and read-only sysfs into bwrap. Without sysfs,
+  Chromium can see the render device but still falls back to llvmpipe because
+  libdrm cannot enumerate DRM devices.
+- In compositor mode, bwrap mounts only the generated nested Wayland socket
+  from `XDG_RUNTIME_DIR`, plus the GL driver path needed for hardware
+  acceleration. It does not mount the whole host runtime directory.
+- Compositor mode fails before Chromium launch if render nodes or sysfs are
+  unavailable, or if renderer/shell config tries to move away from `gl` and
+  `kiosk`.
+- Compositor mode rejects Chromium args that disable GPU/compositing, force
+  headless mode, or override compositor-owned display flags.
+- Manual proof details:
+  - Weston `pipewire` backend started with `--renderer=gl`, kiosk shell, and a
+    unique `aperture-<session>` Wayland socket.
+  - Weston reported `/dev/dri/renderD128`, Mesa Intel UHD Graphics 730, and
+    OpenGL ES 3.2.
+  - Chromium exposed CDP on the proof-only port and reported ANGLE on Intel UHD,
+    GPU compositing enabled, OpenGL/WebGL/WebGPU enabled, video decode enabled,
+    Vulkan enabled, and forced rasterization.
+  - Chromium reported `innerWidth=960`, `innerHeight=720`, `outerWidth=960`,
+    `outerHeight=720`, and `devicePixelRatio=1`.
+  - PipeWire exposed `weston.pipewire` while the proof ran.
+  - `SIGTERM` to the wrapper stopped Chromium and Weston, removed the Wayland
+    socket, and removed the `weston.pipewire` node.
+  - Main `aperture.service` remained active, and the proof browser unit remained
+    inactive.
+- The manual proof had to prepend the Nix bubblewrap store path to `PATH`.
+  A proof user unit or package wrapper must provide `bwrap` on `PATH` before
+  Stage 2 can be called complete.
 
 Bail out if:
 

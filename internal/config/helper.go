@@ -28,6 +28,12 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
+	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)
+	v.SetDefault("webrtc_compositor_backend", defaults.WebRTCCompositorBackend)
+	v.SetDefault("webrtc_compositor_renderer", defaults.WebRTCCompositorRenderer)
+	v.SetDefault("webrtc_compositor_shell", defaults.WebRTCCompositorShell)
+	v.SetDefault("webrtc_compositor_width", defaults.WebRTCCompositorWidth)
+	v.SetDefault("webrtc_compositor_height", defaults.WebRTCCompositorHeight)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if err := v.ReadInConfig(); err != nil {

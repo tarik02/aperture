@@ -25,6 +25,13 @@ type RuntimeEnvValues struct {
 	BrowserDefaultArgs       []string
 	BrowserExtraArgs         []string
 	CaptureProofExtensionDir string
+	CompositorEnabled        bool
+	CompositorExecutable     string
+	CompositorBackend        string
+	CompositorRenderer       string
+	CompositorShell          string
+	CompositorWidth          int
+	CompositorHeight         int
 }
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
@@ -53,6 +60,35 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	if extensionDir := strings.TrimSpace(values.CaptureProofExtensionDir); extensionDir != "" && !filepath.IsAbs(extensionDir) {
 		return nil, fmt.Errorf("capture proof extension dir must be absolute")
 	}
+	if values.CompositorEnabled {
+		if strings.TrimSpace(values.CompositorExecutable) == "" {
+			return nil, fmt.Errorf("compositor executable is required")
+		}
+		if !filepath.IsAbs(values.CompositorExecutable) {
+			return nil, fmt.Errorf("compositor executable must be absolute")
+		}
+		if strings.TrimSpace(values.CompositorBackend) == "" {
+			return nil, fmt.Errorf("compositor backend is required")
+		}
+		if strings.TrimSpace(values.CompositorRenderer) == "" {
+			return nil, fmt.Errorf("compositor renderer is required")
+		}
+		if strings.TrimSpace(values.CompositorShell) == "" {
+			return nil, fmt.Errorf("compositor shell is required")
+		}
+		if values.CompositorWidth <= 0 {
+			return nil, fmt.Errorf("compositor width must be positive")
+		}
+		if values.CompositorHeight <= 0 {
+			return nil, fmt.Errorf("compositor height must be positive")
+		}
+		if err := ValidateCompositorBrowserArgs(values.BrowserDefaultArgs); err != nil {
+			return nil, err
+		}
+		if err := ValidateCompositorBrowserArgs(values.BrowserExtraArgs); err != nil {
+			return nil, err
+		}
+	}
 
 	defaultArgs, err := encodeArgVector(values.BrowserDefaultArgs)
 	if err != nil {
@@ -76,6 +112,18 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	}
 	if strings.TrimSpace(values.CaptureProofExtensionDir) != "" {
 		lines = append(lines, "CAPTURE_PROOF_EXTENSION_DIR="+shellQuote(values.CaptureProofExtensionDir))
+	}
+	if values.CompositorEnabled {
+		lines = append(
+			lines,
+			"WEBRTC_COMPOSITOR_ENABLED=1",
+			"WEBRTC_COMPOSITOR_EXECUTABLE="+shellQuote(values.CompositorExecutable),
+			"WEBRTC_COMPOSITOR_BACKEND="+shellQuote(values.CompositorBackend),
+			"WEBRTC_COMPOSITOR_RENDERER="+shellQuote(values.CompositorRenderer),
+			"WEBRTC_COMPOSITOR_SHELL="+shellQuote(values.CompositorShell),
+			"WEBRTC_COMPOSITOR_WIDTH="+strconv.Itoa(values.CompositorWidth),
+			"WEBRTC_COMPOSITOR_HEIGHT="+strconv.Itoa(values.CompositorHeight),
+		)
 	}
 
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
@@ -112,18 +160,32 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR":
+		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
 			}
 			assignRuntimeString(&values, key, unquoted)
+		case "WEBRTC_COMPOSITOR_ENABLED":
+			values.CompositorEnabled = strings.TrimSpace(val) == "1"
 		case "CDP_PORT":
 			port, err := strconv.Atoi(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("parse cdp port: %w", err)
 			}
 			values.CDPPort = port
+		case "WEBRTC_COMPOSITOR_WIDTH":
+			width, err := strconv.Atoi(val)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse compositor width: %w", err)
+			}
+			values.CompositorWidth = width
+		case "WEBRTC_COMPOSITOR_HEIGHT":
+			height, err := strconv.Atoi(val)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse compositor height: %w", err)
+			}
+			values.CompositorHeight = height
 		case "BROWSER_DEFAULT_ARGS":
 			args, err := decodeArgVector(val)
 			if err != nil {
@@ -160,6 +222,14 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.BrowserExecutable = value
 	case "CAPTURE_PROOF_EXTENSION_DIR":
 		values.CaptureProofExtensionDir = value
+	case "WEBRTC_COMPOSITOR_EXECUTABLE":
+		values.CompositorExecutable = value
+	case "WEBRTC_COMPOSITOR_BACKEND":
+		values.CompositorBackend = value
+	case "WEBRTC_COMPOSITOR_RENDERER":
+		values.CompositorRenderer = value
+	case "WEBRTC_COMPOSITOR_SHELL":
+		values.CompositorShell = value
 	}
 }
 

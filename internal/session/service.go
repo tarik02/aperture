@@ -197,6 +197,13 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		BrowserDefaultArgs:       channel.DefaultArgs,
 		BrowserExtraArgs:         input.BrowserArgs,
 		CaptureProofExtensionDir: s.cfg.WebRTCCaptureProofExtensionDir,
+		CompositorEnabled:        s.cfg.WebRTCCompositorEnabled,
+		CompositorExecutable:     s.cfg.WebRTCCompositorExecutable,
+		CompositorBackend:        s.cfg.WebRTCCompositorBackend,
+		CompositorRenderer:       s.cfg.WebRTCCompositorRenderer,
+		CompositorShell:          s.cfg.WebRTCCompositorShell,
+		CompositorWidth:          s.cfg.WebRTCCompositorWidth,
+		CompositorHeight:         s.cfg.WebRTCCompositorHeight,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
@@ -349,6 +356,13 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		BrowserDefaultArgs:       channel.DefaultArgs,
 		BrowserExtraArgs:         browserArgs,
 		CaptureProofExtensionDir: s.cfg.WebRTCCaptureProofExtensionDir,
+		CompositorEnabled:        s.cfg.WebRTCCompositorEnabled,
+		CompositorExecutable:     s.cfg.WebRTCCompositorExecutable,
+		CompositorBackend:        s.cfg.WebRTCCompositorBackend,
+		CompositorRenderer:       s.cfg.WebRTCCompositorRenderer,
+		CompositorShell:          s.cfg.WebRTCCompositorShell,
+		CompositorWidth:          s.cfg.WebRTCCompositorWidth,
+		CompositorHeight:         s.cfg.WebRTCCompositorHeight,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
