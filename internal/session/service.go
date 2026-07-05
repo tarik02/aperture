@@ -204,6 +204,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		CompositorShell:          s.cfg.WebRTCCompositorShell,
 		CompositorWidth:          s.cfg.WebRTCCompositorWidth,
 		CompositorHeight:         s.cfg.WebRTCCompositorHeight,
+		MediaProducerEnabled:     s.cfg.WebRTCMediaProducerEnabled,
+		MediaProducerExecutable:  s.cfg.WebRTCMediaProducerExecutable,
+		MediaProducerPluginPath:  s.cfg.WebRTCMediaProducerPluginPath,
+		MediaProducerTarget:      s.cfg.WebRTCMediaProducerTarget,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
@@ -363,6 +367,10 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		CompositorShell:          s.cfg.WebRTCCompositorShell,
 		CompositorWidth:          s.cfg.WebRTCCompositorWidth,
 		CompositorHeight:         s.cfg.WebRTCCompositorHeight,
+		MediaProducerEnabled:     s.cfg.WebRTCMediaProducerEnabled,
+		MediaProducerExecutable:  s.cfg.WebRTCMediaProducerExecutable,
+		MediaProducerPluginPath:  s.cfg.WebRTCMediaProducerPluginPath,
+		MediaProducerTarget:      s.cfg.WebRTCMediaProducerTarget,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)

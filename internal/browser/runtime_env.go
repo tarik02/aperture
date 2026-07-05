@@ -32,6 +32,10 @@ type RuntimeEnvValues struct {
 	CompositorShell          string
 	CompositorWidth          int
 	CompositorHeight         int
+	MediaProducerEnabled     bool
+	MediaProducerExecutable  string
+	MediaProducerPluginPath  string
+	MediaProducerTarget      string
 }
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
@@ -89,6 +93,30 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			return nil, err
 		}
 	}
+	if values.MediaProducerEnabled {
+		if !values.CompositorEnabled {
+			return nil, fmt.Errorf("media producer requires compositor mode")
+		}
+		if strings.TrimSpace(values.MediaProducerExecutable) == "" {
+			return nil, fmt.Errorf("media producer executable is required")
+		}
+		if !filepath.IsAbs(values.MediaProducerExecutable) {
+			return nil, fmt.Errorf("media producer executable must be absolute")
+		}
+		if pluginPath := strings.TrimSpace(values.MediaProducerPluginPath); pluginPath != "" {
+			for _, entry := range filepath.SplitList(pluginPath) {
+				if strings.TrimSpace(entry) == "" {
+					continue
+				}
+				if !filepath.IsAbs(entry) {
+					return nil, fmt.Errorf("media producer plugin path entries must be absolute")
+				}
+			}
+		}
+		if strings.TrimSpace(values.MediaProducerTarget) == "" {
+			return nil, fmt.Errorf("media producer target is required")
+		}
+	}
 
 	defaultArgs, err := encodeArgVector(values.BrowserDefaultArgs)
 	if err != nil {
@@ -123,6 +151,15 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			"WEBRTC_COMPOSITOR_SHELL="+shellQuote(values.CompositorShell),
 			"WEBRTC_COMPOSITOR_WIDTH="+strconv.Itoa(values.CompositorWidth),
 			"WEBRTC_COMPOSITOR_HEIGHT="+strconv.Itoa(values.CompositorHeight),
+		)
+	}
+	if values.MediaProducerEnabled {
+		lines = append(
+			lines,
+			"WEBRTC_MEDIA_PRODUCER_ENABLED=1",
+			"WEBRTC_MEDIA_PRODUCER_EXECUTABLE="+shellQuote(values.MediaProducerExecutable),
+			"WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH="+shellQuote(values.MediaProducerPluginPath),
+			"WEBRTC_MEDIA_PRODUCER_TARGET="+shellQuote(values.MediaProducerTarget),
 		)
 	}
 
@@ -160,7 +197,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL":
+		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -168,6 +205,8 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 			assignRuntimeString(&values, key, unquoted)
 		case "WEBRTC_COMPOSITOR_ENABLED":
 			values.CompositorEnabled = strings.TrimSpace(val) == "1"
+		case "WEBRTC_MEDIA_PRODUCER_ENABLED":
+			values.MediaProducerEnabled = strings.TrimSpace(val) == "1"
 		case "CDP_PORT":
 			port, err := strconv.Atoi(val)
 			if err != nil {
@@ -230,6 +269,12 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.CompositorRenderer = value
 	case "WEBRTC_COMPOSITOR_SHELL":
 		values.CompositorShell = value
+	case "WEBRTC_MEDIA_PRODUCER_EXECUTABLE":
+		values.MediaProducerExecutable = value
+	case "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH":
+		values.MediaProducerPluginPath = value
+	case "WEBRTC_MEDIA_PRODUCER_TARGET":
+		values.MediaProducerTarget = value
 	}
 }
 

@@ -237,6 +237,9 @@ Bail out if:
 
 ## Stage 4, PipeWire media producer
 
+Status: passed for a gated GStreamer VP8/RTP producer proof on `polygon`,
+2026-07-05. This stage proves capture and encoding, not viewer signaling.
+
 Goal: turn the compositor PipeWire node into a WebRTC video source.
 
 Work:
@@ -254,6 +257,15 @@ Work:
   - `connected`
   - `failed`
 - Include failure codes that map directly to fallback decisions.
+- Stage 4 implementation boundary:
+  - The wrapper can optionally supervise an external `gst-launch-1.0` producer
+    after Chromium starts.
+  - The producer consumes `weston.pipewire`, converts the exact-size raw frame,
+    encodes VP8, payloads it as RTP, and sends it to `fakesink`.
+  - Go supervises process lifecycle only. It does not read raw frames or encoded
+    media.
+  - Actual `webrtcbin` signaling and peer connection setup remain Stage 5 and
+    Stage 6 work.
 
 Validation:
 
@@ -262,6 +274,18 @@ Validation:
 - CPU and GPU usage are acceptable for one session.
 - Producer exits when Weston or Chromium exits.
 - CDP screencast remains idle while WebRTC is healthy.
+- Manual proof details:
+  - GStreamer negotiated `video/x-raw` at 960x720 from `pipewiresrc
+    target-object=weston.pipewire`.
+  - The pipeline produced `video/x-vp8` at 960x720 and `application/x-rtp` with
+    `encoding-name=VP8`.
+  - Chrome remained on ANGLE Intel UHD with GPU compositing, OpenGL, GPU
+    rasterization, video decode, WebGL, and WebGPU enabled while the producer
+    ran.
+  - `SIGTERM` to the wrapper stopped GStreamer, Chromium, Weston, removed the
+    Wayland socket, and removed the `weston.pipewire` node.
+  - Main `aperture.service` remained active, and the proof browser unit remained
+    inactive.
 
 Bail out if:
 

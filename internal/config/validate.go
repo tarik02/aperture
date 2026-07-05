@@ -57,6 +57,30 @@ func Validate(cfg Config) error {
 			errs = append(errs, errors.New("webrtc_compositor_height must be positive when webrtc_compositor_enabled is true"))
 		}
 	}
+	if cfg.WebRTCMediaProducerEnabled {
+		if !cfg.WebRTCCompositorEnabled {
+			errs = append(errs, errors.New("webrtc_media_producer_enabled requires webrtc_compositor_enabled"))
+		}
+		if executable := strings.TrimSpace(cfg.WebRTCMediaProducerExecutable); executable == "" {
+			errs = append(errs, errors.New("webrtc_media_producer_executable is required when webrtc_media_producer_enabled is true"))
+		} else if !filepath.IsAbs(executable) {
+			errs = append(errs, errors.New("webrtc_media_producer_executable must be an absolute path"))
+		}
+		if pluginPath := strings.TrimSpace(cfg.WebRTCMediaProducerPluginPath); pluginPath != "" {
+			for _, entry := range filepath.SplitList(pluginPath) {
+				if strings.TrimSpace(entry) == "" {
+					continue
+				}
+				if !filepath.IsAbs(entry) {
+					errs = append(errs, errors.New("webrtc_media_producer_plugin_path entries must be absolute paths"))
+					break
+				}
+			}
+		}
+		if strings.TrimSpace(cfg.WebRTCMediaProducerTarget) == "" {
+			errs = append(errs, errors.New("webrtc_media_producer_target is required when webrtc_media_producer_enabled is true"))
+		}
+	}
 
 	if cfg.SessionRetentionDays <= 0 {
 		errs = append(errs, errors.New("session_retention_days must be positive"))

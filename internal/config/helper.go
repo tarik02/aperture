@@ -34,6 +34,8 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("webrtc_compositor_shell", defaults.WebRTCCompositorShell)
 	v.SetDefault("webrtc_compositor_width", defaults.WebRTCCompositorWidth)
 	v.SetDefault("webrtc_compositor_height", defaults.WebRTCCompositorHeight)
+	v.SetDefault("webrtc_media_producer_enabled", defaults.WebRTCMediaProducerEnabled)
+	v.SetDefault("webrtc_media_producer_target", defaults.WebRTCMediaProducerTarget)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if err := v.ReadInConfig(); err != nil {

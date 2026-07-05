@@ -273,6 +273,9 @@ func LaunchFromRuntimeEnv() error {
 	if err != nil {
 		return err
 	}
+	if values.MediaProducerEnabled && !values.CompositorEnabled {
+		return fmt.Errorf("media producer requires compositor mode")
+	}
 
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
@@ -322,6 +325,27 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	}
 	if values.CompositorWidth <= 0 || values.CompositorHeight <= 0 {
 		return fmt.Errorf("compositor dimensions must be positive")
+	}
+	if values.MediaProducerEnabled {
+		if strings.TrimSpace(values.MediaProducerExecutable) == "" {
+			return fmt.Errorf("media producer executable is required")
+		}
+		if !filepath.IsAbs(values.MediaProducerExecutable) {
+			return fmt.Errorf("media producer executable must be absolute")
+		}
+		if pluginPath := strings.TrimSpace(values.MediaProducerPluginPath); pluginPath != "" {
+			for _, entry := range filepath.SplitList(pluginPath) {
+				if strings.TrimSpace(entry) == "" {
+					continue
+				}
+				if !filepath.IsAbs(entry) {
+					return fmt.Errorf("media producer plugin path entries must be absolute")
+				}
+			}
+		}
+		if strings.TrimSpace(values.MediaProducerTarget) == "" {
+			return fmt.Errorf("media producer target is required")
+		}
 	}
 	if err := ValidateCompositorBrowserArgs(values.BrowserDefaultArgs); err != nil {
 		return err
@@ -421,24 +445,100 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		browserDone <- browserCmd.Wait()
 	}()
 
+	var producerCmd *exec.Cmd
+	var producerDone <-chan error
+	if values.MediaProducerEnabled {
+		var err error
+		producerCmd, producerDone, err = startMediaProducer(values)
+		if err != nil {
+			stopProcess(browserCmd, browserDone)
+			stopProcess(compositor, compositorDone)
+			return err
+		}
+	}
+
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
 
 	select {
 	case err := <-browserDone:
+		stopProcess(producerCmd, producerDone)
 		stopProcess(compositor, compositorDone)
 		return err
 	case err := <-compositorDone:
+		stopProcess(producerCmd, producerDone)
 		stopProcess(browserCmd, browserDone)
 		if err != nil {
 			return fmt.Errorf("compositor exited before browser: %w", err)
 		}
 		return fmt.Errorf("compositor exited before browser")
+	case err := <-producerDone:
+		stopProcess(browserCmd, browserDone)
+		stopProcess(compositor, compositorDone)
+		if err != nil {
+			return fmt.Errorf("media producer exited before browser: %w", err)
+		}
+		return fmt.Errorf("media producer exited before browser")
 	case <-signals:
+		stopProcess(producerCmd, producerDone)
 		stopProcess(browserCmd, browserDone)
 		stopProcess(compositor, compositorDone)
 		return nil
+	}
+}
+
+func startMediaProducer(values RuntimeEnvValues) (*exec.Cmd, <-chan error, error) {
+	args := []string{
+		"-v",
+		"pipewiresrc",
+		"target-object=" + values.MediaProducerTarget,
+		"do-timestamp=true",
+		"!",
+		fmt.Sprintf("video/x-raw,width=%d,height=%d", values.CompositorWidth, values.CompositorHeight),
+		"!",
+		"videoconvert",
+		"!",
+		"queue",
+		"max-size-buffers=2",
+		"leaky=downstream",
+		"!",
+		"vp8enc",
+		"deadline=1",
+		"keyframe-max-dist=30",
+		"cpu-used=8",
+		"!",
+		"rtpvp8pay",
+		"picture-id-mode=15-bit",
+		"!",
+		"fakesink",
+		"sync=false",
+	}
+	cmd := exec.Command(values.MediaProducerExecutable, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if pluginPath := strings.TrimSpace(values.MediaProducerPluginPath); pluginPath != "" {
+		cmd.Env = append(os.Environ(), "GST_PLUGIN_SYSTEM_PATH_1_0="+pluginPath)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("start media producer: %w", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			return nil, nil, fmt.Errorf("media producer exited during startup: %w", err)
+		}
+		return nil, nil, fmt.Errorf("media producer exited during startup")
+	case <-timer.C:
+		return cmd, done, nil
 	}
 }
 
@@ -543,6 +643,10 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.CompositorBackend = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_BACKEND"))
 	values.CompositorRenderer = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_RENDERER"))
 	values.CompositorShell = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_SHELL"))
+	values.MediaProducerEnabled = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ENABLED")) == "1"
+	values.MediaProducerExecutable = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_EXECUTABLE"))
+	values.MediaProducerPluginPath = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH"))
+	values.MediaProducerTarget = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TARGET"))
 	if width := strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_WIDTH")); width != "" {
 		parsed, err := strconv.Atoi(width)
 		if err != nil {
