@@ -16,11 +16,13 @@ func toSessionListItem(view session.SessionView) sessionListItemResponse {
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
 		BaseSnapshotName: view.BaseSnapshotName,
+		Label:            view.Session.Label,
 		Status:           view.Session.Status,
 		BrowserChannel:   view.Session.BrowserChannel,
 		Media: sessionMedia{
 			Mode:           view.Media.Mode,
 			WebRTCProducer: view.Media.WebRTCProducer,
+			ICEServers:     toICEServerResponses(view.Media.ICEServers),
 		},
 		CreatedAt: view.Session.CreatedAt,
 		StartedAt: view.Session.StartedAt,

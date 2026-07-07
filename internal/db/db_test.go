@@ -35,14 +35,16 @@ func TestMigrateFromEmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("applied migrations = %d, want 1", count)
+	if count != latest {
+		t.Fatalf("applied migrations = %d, want %d", count, latest)
 	}
 
 	var version int
 	if err := database.Bun().NewSelect().
 		Model((*SchemaMigration)(nil)).
 		Column("version").
+		OrderExpr("version DESC").
+		Limit(1).
 		Scan(ctx, &version); err != nil {
 		t.Fatalf("read applied migration version: %v", err)
 	}

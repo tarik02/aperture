@@ -4,7 +4,7 @@ import { Button } from "#/components/ui/button.tsx";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "#/components/ui/input-group.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { useTenantsInfiniteQuery } from "#/hooks/queries/use-tenants-query.ts";
+import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import type { Tenant } from "#/lib/api/schemas.ts";
 import { cn } from "#/lib/utils.ts";
@@ -65,8 +65,10 @@ export function TenantCombobox({
         }
       >
         <Building2 data-icon="inline-start" />
-        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-        <ChevronsUpDown data-icon="inline-end" />
+        <span data-sidebar-collapse-label className="min-w-0 flex-1 truncate text-left">
+          {label}
+        </span>
+        <ChevronsUpDown data-icon="inline-end" data-sidebar-collapse-label />
       </PopoverTrigger>
       <PopoverContent align={align} className="w-80 max-w-[calc(100vw-1rem)] gap-2 p-2">
         <InputGroup>

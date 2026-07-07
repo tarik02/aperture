@@ -10,6 +10,7 @@ import (
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Server holds HTTP handler dependencies.
@@ -21,7 +22,7 @@ type Server struct {
 	Events    *event.Service
 	GC        *gc.Service
 	Channels  *browser.Registry
-	Signaling *SignalCoordinator
+	Logger    *zap.Logger
 	jobToken  string
 }
 

@@ -151,6 +151,7 @@ func (r sessionBrowserConfig) Validate() error {
 
 type createSessionRequest struct {
 	BaseSnapshotName *string              `json:"baseSnapshotName"`
+	Label            *string              `json:"label"`
 	Browser          sessionBrowserConfig `json:"browser"`
 	Tags             map[string]string    `json:"tags"`
 }
@@ -163,6 +164,7 @@ type sessionResponse struct {
 	ID               string            `json:"id"`
 	TenantID         string            `json:"tenantId"`
 	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
+	Label            *string           `json:"label,omitempty"`
 	Status           string            `json:"status"`
 	BrowserChannel   string            `json:"browserChannel,omitempty"`
 	Media            sessionMedia      `json:"media"`
@@ -176,8 +178,15 @@ type sessionResponse struct {
 }
 
 type sessionMedia struct {
-	Mode           string `json:"mode"`
-	WebRTCProducer bool   `json:"webrtcProducer"`
+	Mode           string              `json:"mode"`
+	WebRTCProducer bool                `json:"webrtcProducer"`
+	ICEServers     []iceServerResponse `json:"iceServers,omitempty"`
+}
+
+type iceServerResponse struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
 }
 
 type sessionListItemResponse = sessionResponse

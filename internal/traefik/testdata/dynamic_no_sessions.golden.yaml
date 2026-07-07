@@ -6,7 +6,6 @@ http:
       priority: 1
       entryPoints:
         - web
-  middlewares: {}
   services:
     aperture-api:
       loadBalancer:

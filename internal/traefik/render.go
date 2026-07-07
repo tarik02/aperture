@@ -245,12 +245,13 @@ func marshalDynamicYAML(doc dynamicConfig) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(2)
+	httpNode := yamlMap("routers", routersYAML(doc.HTTP.Routers))
+	if len(doc.HTTP.Middlewares) > 0 {
+		yamlAppend(httpNode, "middlewares", middlewaresYAML(doc.HTTP.Middlewares))
+	}
+	yamlAppend(httpNode, "services", servicesYAML(doc.HTTP.Services))
 	err := encoder.Encode(yamlMap(
-		"http", yamlMap(
-			"routers", routersYAML(doc.HTTP.Routers),
-			"middlewares", middlewaresYAML(doc.HTTP.Middlewares),
-			"services", servicesYAML(doc.HTTP.Services),
-		),
+		"http", httpNode,
 	))
 	if closeErr := encoder.Close(); err == nil {
 		err = closeErr

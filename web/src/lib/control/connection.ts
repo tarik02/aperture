@@ -9,6 +9,8 @@ import type {
 import { windowsVirtualKeyCodeForCodeOrKey } from "#/lib/control/keyboard.ts";
 import type Protocol from "devtools-protocol";
 import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
+import { Observable, Subject, Subscription, timer } from "rxjs";
+import { webSocket, type WebSocketSubject } from "rxjs/webSocket";
 import { z } from "zod";
 
 export type ControlConnectionCallbacks = {
@@ -20,12 +22,27 @@ export type ControlConnectionCallbacks = {
   onError?: (error: ControlError) => void;
 };
 
+export type ControlConnectionEvent =
+  | { type: "phase"; phase: "connecting" | "connected" | "disconnected" | "error" }
+  | { type: "targets-snapshot"; activeTargetId: string | undefined; targets: ControlTarget[] }
+  | { type: "target-changed"; change: string; target: ControlTarget }
+  | { type: "screencast-frame"; frame: ScreencastFrame }
+  | { type: "screencast-stopped"; targetId?: string }
+  | { type: "error"; error: ControlError };
+
+export type BrowserControlConnectionOptions = {
+  sessionId: string;
+  credentials: ApiCredentials;
+  input$: Observable<ClientMessage>;
+};
+
 type CdpCommandMethod = Extract<keyof ProtocolMapping.Commands, string>;
 
 type CdpCommandParams<M extends CdpCommandMethod> =
   ProtocolMapping.Commands[M]["paramsType"] extends []
     ? undefined
     : ProtocolMapping.Commands[M]["paramsType"][0];
+type CdpCommandReturn<M extends CdpCommandMethod> = ProtocolMapping.Commands[M]["returnType"];
 
 type CdpResponse = {
   id?: number;
@@ -39,17 +56,62 @@ type CdpResponse = {
   };
 };
 
-type CdpTarget = {
-  id: Protocol.Target.TargetID;
-  type: string;
-  title: string;
-  url: string;
-  webSocketDebuggerUrl?: string;
+type CdpProtocolEvent = {
+  method: string;
+  params: unknown;
+  sessionId?: Protocol.Target.SessionID;
+};
+
+type CdpSocket = {
+  opened: Promise<void>;
+  events$: Observable<CdpProtocolEvent>;
+  closed$: Observable<void>;
+  call: <M extends CdpCommandMethod>(
+    method: M,
+    params?: CdpCommandParams<M>,
+    sessionId?: Protocol.Target.SessionID,
+  ) => Promise<unknown>;
+  fire: <M extends CdpCommandMethod>(
+    method: M,
+    params?: CdpCommandParams<M>,
+    sessionId?: Protocol.Target.SessionID,
+  ) => boolean;
+  close: () => void;
+  isOpen: () => boolean;
+};
+
+type CdpTargetInfo = Pick<
+  Protocol.Target.TargetInfo,
+  "targetId" | "type" | "title" | "url" | "attached"
+>;
+
+type CdpGetTargetsResponse = {
+  targetInfos: CdpTargetInfo[];
 };
 
 type CdpVersion = {
   webSocketDebuggerUrl: string;
 };
+
+const cdpTargetInfoSchema: z.ZodType<CdpTargetInfo> = z.object({
+  targetId: z.string(),
+  type: z.string(),
+  title: z.string(),
+  url: z.string(),
+  attached: z.boolean(),
+});
+
+const getTargetsResultSchema: z.ZodType<CdpGetTargetsResponse> = z.object({
+  targetInfos: z.array(cdpTargetInfoSchema),
+});
+
+const targetInfoEventParamsSchema = z.object({
+  targetInfo: cdpTargetInfoSchema,
+});
+
+const targetDestroyedEventParamsSchema = z.object({
+  targetId: z.string(),
+});
 
 const cdpResponseSchema: z.ZodType<CdpResponse> = z.object({
   id: z.number().optional(),
@@ -64,16 +126,6 @@ const cdpResponseSchema: z.ZodType<CdpResponse> = z.object({
     })
     .optional(),
 });
-
-const cdpTargetSchema: z.ZodType<CdpTarget> = z.object({
-  id: z.string(),
-  type: z.string(),
-  title: z.string(),
-  url: z.string(),
-  webSocketDebuggerUrl: z.string().optional(),
-});
-
-const cdpTargetsSchema: z.ZodType<CdpTarget[]> = z.array(cdpTargetSchema);
 
 const cdpVersionSchema: z.ZodType<CdpVersion> = z.object({
   webSocketDebuggerUrl: z.string(),
@@ -102,6 +154,8 @@ const screencastFrameParamsSchema: z.ZodType<Protocol.Page.ScreencastFrameEvent>
 });
 
 const CDP_CALL_TIMEOUT_MS = 5000;
+const CDP_CONNECT_RETRY_MS = 500;
+const CDP_CONNECT_TIMEOUT_MS = 30_000;
 
 function buildCdpWebSocket(
   sessionId: string,
@@ -155,172 +209,206 @@ async function fetchCdpJSON<T>(
   return parsed.data;
 }
 
-class CdpSocket {
-  private socket: WebSocket | null = null;
-  private nextId = 1;
-  private pending = new Map<
+function cdpSocket(url: string, protocols: string[]): CdpSocket {
+  let open = false;
+  let closed = false;
+  let nextId = 1;
+  let resolveOpened: () => void = () => undefined;
+  let rejectOpened: (error: Error) => void = () => undefined;
+  let openSettled = false;
+  const events$ = new Subject<CdpProtocolEvent>();
+  const closed$ = new Subject<void>();
+  const pending = new Map<
     number,
     {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
+      timeout: Subscription;
     }
   >();
-
-  onEvent?: (method: string, params: unknown, sessionId?: Protocol.Target.SessionID) => void;
-  onClose?: () => void;
-
-  constructor(
-    private readonly url: string,
-    private readonly protocols: string[],
-  ) {}
-
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const socket = new WebSocket(this.url, this.protocols);
-      let settled = false;
-      this.socket = socket;
-
-      socket.addEventListener(
-        "open",
-        () => {
-          settled = true;
-          resolve();
-        },
-        { once: true },
-      );
-
-      socket.addEventListener("message", (event) => {
-        this.handleMessage(event.data);
-      });
-
-      socket.addEventListener("close", () => {
-        this.rejectPending(new Error("CDP socket closed"));
-        this.onClose?.();
-      });
-
-      socket.addEventListener(
-        "error",
-        () => {
-          if (!settled) {
-            settled = true;
-            reject(new Error("CDP socket failed"));
-          }
-        },
-        { once: true },
-      );
-    });
-  }
-
-  call<M extends CdpCommandMethod>(
-    method: M,
-    params?: CdpCommandParams<M>,
-    sessionId?: Protocol.Target.SessionID,
-  ): Promise<unknown> {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error("CDP socket is not open"));
-    }
-
-    return new Promise((resolve, reject) => {
-      const id = this.nextId++;
-      const payload = { id, method, params, sessionId };
-      const timer = window.setTimeout(() => {
-        this.pending.delete(id);
-        reject(timeoutError(method));
-      }, CDP_CALL_TIMEOUT_MS);
-      this.pending.set(id, {
-        resolve: (value) => {
-          window.clearTimeout(timer);
-          resolve(value);
-        },
-        reject: (error) => {
-          window.clearTimeout(timer);
-          reject(error);
-        },
-      });
-      try {
-        this.socket?.send(JSON.stringify(payload));
-      } catch (error) {
-        this.pending.delete(id);
-        window.clearTimeout(timer);
-        reject(error instanceof Error ? error : new Error("CDP socket send failed"));
-      }
-    });
-  }
-
-  fire<M extends CdpCommandMethod>(
-    method: M,
-    params?: CdpCommandParams<M>,
-    sessionId?: Protocol.Target.SessionID,
-  ): boolean {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return false;
-    }
-
-    const id = this.nextId++;
-    try {
-      this.socket.send(JSON.stringify({ id, method, params, sessionId }));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  close() {
-    const socket = this.socket;
-    this.socket = null;
-    this.rejectPending(new Error("CDP socket closed"));
-    socket?.close();
-  }
-
-  isOpen(): boolean {
-    return this.socket?.readyState === WebSocket.OPEN;
-  }
-
-  private handleMessage(raw: unknown) {
-    if (typeof raw !== "string") {
-      return;
-    }
-
-    let parsedJSON: unknown;
-    try {
-      parsedJSON = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    const parsed = cdpResponseSchema.safeParse(parsedJSON);
-    if (!parsed.success) {
-      return;
-    }
-
-    const message = parsed.data;
-    if (typeof message.id === "number") {
-      const pending = this.pending.get(message.id);
-      if (!pending) {
+  const opened = new Promise<void>((resolve, reject) => {
+    resolveOpened = resolve;
+    rejectOpened = reject;
+  });
+  const socket: WebSocketSubject<unknown> = webSocket<unknown>({
+    url,
+    protocol: protocols,
+    serializer: (frame) => JSON.stringify(frame),
+    deserializer: (event) => parseCdpSocketFrame(event.data),
+    openObserver: {
+      next: () => {
+        open = true;
+        openSettled = true;
+        resolveOpened();
+      },
+    },
+    closeObserver: {
+      next: () => {
+        open = false;
+        rejectPending(pending, new Error("CDP socket closed"));
+        if (!openSettled) {
+          openSettled = true;
+          rejectOpened(new Error("CDP socket failed"));
+        }
+        if (!closed) {
+          closed$.next();
+        }
+      },
+    },
+  });
+  const subscription = socket.subscribe({
+    next: (message) => {
+      const parsed = cdpResponseSchema.safeParse(message);
+      if (!parsed.success) {
         return;
       }
-      this.pending.delete(message.id);
-      if (message.error) {
-        pending.reject(new Error(message.error.message));
-      } else {
-        pending.resolve(message.result);
+      const frame = parsed.data;
+      if (frame.id !== undefined) {
+        const match = pending.get(frame.id);
+        if (!match) {
+          return;
+        }
+        pending.delete(frame.id);
+        match.timeout.unsubscribe();
+        if (frame.error) {
+          match.reject(new Error(frame.error.message));
+        } else {
+          match.resolve(frame.result);
+        }
+        return;
       }
+
+      if (frame.method) {
+        events$.next({
+          method: frame.method,
+          params: frame.params ?? {},
+          sessionId: frame.sessionId,
+        });
+      }
+    },
+    error: () => {
+      open = false;
+      rejectPending(pending, new Error("CDP socket failed"));
+      if (!openSettled) {
+        openSettled = true;
+        rejectOpened(new Error("CDP socket failed"));
+      }
+      if (!closed) {
+        closed$.next();
+      }
+    },
+  });
+  const close = () => {
+    if (closed) {
       return;
     }
-
-    if (message.method) {
-      this.onEvent?.(message.method, message.params ?? {}, message.sessionId);
+    closed = true;
+    open = false;
+    rejectPending(pending, new Error("CDP socket closed"));
+    if (!openSettled) {
+      openSettled = true;
+      rejectOpened(new Error("CDP socket closed"));
     }
-  }
+    socket.complete();
+    subscription.unsubscribe();
+    events$.complete();
+    closed$.complete();
+  };
 
-  private rejectPending(error: Error) {
-    for (const pending of this.pending.values()) {
-      pending.reject(error);
-    }
-    this.pending.clear();
-  }
+  return {
+    opened,
+    events$: events$.asObservable(),
+    closed$: closed$.asObservable(),
+    call: (method, params, sessionId) => {
+      if (!open) {
+        return Promise.reject(new Error("CDP socket is not open"));
+      }
+
+      return new Promise((resolve, reject) => {
+        const id = nextId++;
+        const timeout = timer(CDP_CALL_TIMEOUT_MS).subscribe(() => {
+          pending.delete(id);
+          reject(timeoutError(method));
+        });
+        pending.set(id, { resolve, reject, timeout });
+        try {
+          socket.next({ id, method, params, sessionId });
+        } catch (cause) {
+          pending.delete(id);
+          timeout.unsubscribe();
+          reject(cause instanceof Error ? cause : new Error("CDP socket send failed"));
+        }
+      });
+    },
+    fire: (method, params, sessionId) => {
+      if (!open) {
+        return false;
+      }
+      try {
+        socket.next({ id: nextId++, method, params, sessionId });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    close,
+    isOpen: () => open,
+  };
 }
 
-export class BrowserControlConnection {
+function parseCdpSocketFrame(data: unknown): CdpResponse {
+  const text = z.string().parse(data);
+  const json: unknown = JSON.parse(text);
+  return cdpResponseSchema.parse(json);
+}
+
+function rejectPending(
+  pending: Map<
+    number,
+    {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      timeout: Subscription;
+    }
+  >,
+  error: Error,
+) {
+  for (const match of pending.values()) {
+    match.timeout.unsubscribe();
+    match.reject(error);
+  }
+  pending.clear();
+}
+
+export function browserControlConnection$(
+  options: BrowserControlConnectionOptions,
+): Observable<ControlConnectionEvent> {
+  return new Observable<ControlConnectionEvent>((subscriber) => {
+    const connection = new BrowserControlConnectionRuntime({
+      onPhaseChange: (phase) => subscriber.next({ type: "phase", phase }),
+      onTargetsSnapshot: (activeTargetId, targets) =>
+        subscriber.next({ type: "targets-snapshot", activeTargetId, targets }),
+      onTargetChanged: (change, target) =>
+        subscriber.next({ type: "target-changed", change, target }),
+      onScreencastFrame: (frame) => subscriber.next({ type: "screencast-frame", frame }),
+      onScreencastStopped: (targetId) => subscriber.next({ type: "screencast-stopped", targetId }),
+      onError: (error) => subscriber.next({ type: "error", error }),
+    });
+    const inputSubscription = options.input$.subscribe({
+      next: (message) => connection.send(message),
+      error: (cause) => subscriber.error(cause),
+    });
+
+    connection.connect(options.sessionId, options.credentials);
+
+    return () => {
+      inputSubscription.unsubscribe();
+      connection.close();
+    };
+  });
+}
+
+class BrowserControlConnectionRuntime {
   private callbacks: ControlConnectionCallbacks;
   private closed = false;
   private sessionId: string | null = null;
@@ -331,9 +419,11 @@ export class BrowserControlConnection {
   private activeTargetId: Protocol.Target.TargetID | null = null;
   private targets: ControlTarget[] = [];
   private loadingTargetIds = new Set<string>();
-  private activeSyncTimer: ReturnType<typeof setInterval> | null = null;
   private screencastStarting = false;
   private screencastFormat: ScreencastFormat = "jpeg";
+  private connectStartedAt = 0;
+  private connectRetrySubscription = new Subscription();
+  private delayedRefreshes = new Subscription();
 
   constructor(callbacks: ControlConnectionCallbacks) {
     this.callbacks = callbacks;
@@ -344,6 +434,7 @@ export class BrowserControlConnection {
     this.closed = false;
     this.sessionId = sessionId;
     this.credentials = credentials;
+    this.connectStartedAt = Date.now();
     this.callbacks.onPhaseChange?.("connecting");
     void this.openBrowserSocket();
   }
@@ -364,6 +455,10 @@ export class BrowserControlConnection {
 
   close() {
     this.closed = true;
+    this.connectRetrySubscription.unsubscribe();
+    this.connectRetrySubscription = new Subscription();
+    this.delayedRefreshes.unsubscribe();
+    this.delayedRefreshes = new Subscription();
     this.browser?.close();
     this.browser = null;
     this.pageTargetId = null;
@@ -373,7 +468,6 @@ export class BrowserControlConnection {
     this.loadingTargetIds.clear();
     this.screencastStarting = false;
     this.screencastFormat = "jpeg";
-    this.stopActiveTargetSync();
   }
 
   isOpen(): boolean {
@@ -385,6 +479,7 @@ export class BrowserControlConnection {
       return;
     }
 
+    let browser: CdpSocket | null = null;
     try {
       const version = await fetchCdpJSON(
         this.sessionId,
@@ -401,13 +496,14 @@ export class BrowserControlConnection {
         return;
       }
 
-      const browser = new CdpSocket(url, protocols);
+      browser = cdpSocket(url, protocols);
       this.browser = browser;
-      browser.onEvent = (method, params, sessionId) => {
-        if (method.startsWith("Target.")) {
-          void this.refreshTargets().catch((error: unknown) => {
-            this.emitError(error);
-          });
+      browser.events$.subscribe(({ method, params, sessionId }) => {
+        if (method === "Target.targetCreated" || method === "Target.targetInfoChanged") {
+          this.upsertTargetFromEvent(params);
+        }
+        if (method === "Target.targetDestroyed") {
+          this.removeTargetFromEvent(params);
         }
         if (method === "Page.screencastFrame" && sessionId === this.pageSessionId) {
           this.handleScreencastFrame(params);
@@ -428,21 +524,19 @@ export class BrowserControlConnection {
         }
         if (
           (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument") &&
-          sessionId === this.pageSessionId
+          sessionId === this.pageSessionId &&
+          this.pageTargetId
         ) {
-          void this.refreshTargets().catch((error: unknown) => {
-            this.emitError(error);
-          });
+          this.setTargetLoading(this.pageTargetId, false);
         }
-      };
-      browser.onClose = () => {
-        this.stopActiveTargetSync();
+      });
+      browser.closed$.subscribe(() => {
         if (!this.closed) {
           this.callbacks.onPhaseChange?.("disconnected");
         }
-      };
+      });
 
-      await browser.connect();
+      await browser.opened;
       if (this.closed || this.browser !== browser) {
         browser.close();
         return;
@@ -451,10 +545,20 @@ export class BrowserControlConnection {
       await browser.call("Target.setDiscoverTargets", { discover: true });
       this.callbacks.onPhaseChange?.("connected");
       await this.refreshTargets();
-      this.startActiveTargetSync();
     } catch (error) {
+      if (browser && this.browser === browser) {
+        this.browser = null;
+        browser.close();
+      }
       if (!this.closed) {
-        this.stopActiveTargetSync();
+        if (Date.now() - this.connectStartedAt < CDP_CONNECT_TIMEOUT_MS) {
+          this.callbacks.onPhaseChange?.("connecting");
+          this.connectRetrySubscription.unsubscribe();
+          this.connectRetrySubscription = timer(CDP_CONNECT_RETRY_MS).subscribe(() => {
+            void this.openBrowserSocket();
+          });
+          return;
+        }
         this.callbacks.onPhaseChange?.("error");
         this.emitError(error);
       }
@@ -502,23 +606,23 @@ export class BrowserControlConnection {
         break;
       case "page.navigate":
         this.setTargetLoading(message.targetId, true);
-        await this.replaceTarget(message.targetId, message.url);
-        setTimeout(() => {
-          void this.refreshTargets().catch((error: unknown) => {
-            this.emitError(error);
-          });
-        }, 500);
+        await this.withTarget(message.targetId, (socket, sessionId) =>
+          socket.call("Page.navigate", { url: message.url }, sessionId),
+        );
+        this.scheduleTargetsRefresh();
+        break;
+      case "page.historyBack":
+        await this.navigateHistory(message.targetId, -1);
+        break;
+      case "page.historyForward":
+        await this.navigateHistory(message.targetId, 1);
         break;
       case "page.reload":
         this.setTargetLoading(message.targetId, true);
         await this.withTarget(message.targetId, (socket, sessionId) =>
           socket.call("Page.reload", undefined, sessionId),
         );
-        setTimeout(() => {
-          void this.refreshTargets().catch((error: unknown) => {
-            this.emitError(error);
-          });
-        }, 500);
+        this.scheduleTargetsRefresh();
         break;
       case "page.stopLoading":
         await this.withTarget(message.targetId, (socket, sessionId) =>
@@ -587,37 +691,132 @@ export class BrowserControlConnection {
   }
 
   private async refreshTargets() {
-    if (!this.sessionId || !this.credentials || this.closed) {
+    if (this.closed || !this.browser?.isOpen()) {
       return;
     }
 
-    const rawTargets = await fetchCdpJSON(
-      this.sessionId,
-      this.credentials,
-      "/json/list",
-      cdpTargetsSchema,
-    );
-    if (this.closed) {
+    const browser = this.browser;
+    const result = getTargetsResultSchema.parse(await browser.call("Target.getTargets"));
+    if (this.closed || this.browser !== browser) {
       return;
     }
-    const pageTargets = rawTargets.filter(
+
+    const pageTargets = result.targetInfos.filter(
       (target) => target.type === "page" || target.type === "webview",
     );
 
-    if (!this.activeTargetId || !pageTargets.some((target) => target.id === this.activeTargetId)) {
-      this.activeTargetId = pageTargets[0]?.id ?? null;
+    if (
+      !this.activeTargetId ||
+      !pageTargets.some((target) => target.targetId === this.activeTargetId)
+    ) {
+      this.activeTargetId = pageTargets[0]?.targetId ?? null;
     }
 
     this.targets = pageTargets.map((target) => ({
-      id: target.id,
+      id: target.targetId,
       type: target.type,
       title: target.title,
       url: target.url,
-      attached: target.id === this.pageTargetId,
-      loading: this.loadingTargetIds.has(target.id),
+      attached: target.targetId === this.pageTargetId,
+      loading: this.loadingTargetIds.has(target.targetId),
     }));
 
     this.emitTargetsSnapshot();
+  }
+
+  private upsertTargetFromEvent(params: unknown) {
+    if (this.closed) {
+      return;
+    }
+
+    const parsed = targetInfoEventParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      return;
+    }
+
+    const target = this.controlTargetFromInfo(parsed.data.targetInfo);
+    const targetId = parsed.data.targetInfo.targetId;
+    const index = this.targets.findIndex((entry) => entry.id === targetId);
+    if (!target) {
+      if (index !== -1) {
+        const removed = this.targets[index];
+        this.targets = this.targets.filter((entry) => entry.id !== targetId);
+        if (this.activeTargetId === targetId) {
+          this.activeTargetId = this.targets[0]?.id ?? null;
+        }
+        this.callbacks.onTargetChanged?.("destroyed", removed);
+        this.emitTargetsSnapshot();
+      }
+      return;
+    }
+
+    if (index === -1) {
+      this.targets = [...this.targets, target];
+      this.activeTargetId = this.activeTargetId ?? target.id;
+      this.emitTargetsSnapshot();
+      return;
+    }
+
+    const current = this.targets[index];
+    if (
+      current.type === target.type &&
+      current.title === target.title &&
+      current.url === target.url &&
+      current.attached === target.attached &&
+      current.loading === target.loading
+    ) {
+      return;
+    }
+
+    const next = [...this.targets];
+    next[index] = target;
+    this.targets = next;
+    this.emitTargetsSnapshot();
+  }
+
+  private removeTargetFromEvent(params: unknown) {
+    if (this.closed) {
+      return;
+    }
+
+    const parsed = targetDestroyedEventParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      return;
+    }
+
+    const targetId = parsed.data.targetId;
+    const target = this.targets.find((entry) => entry.id === targetId);
+    if (!target) {
+      return;
+    }
+
+    this.targets = this.targets.filter((entry) => entry.id !== targetId);
+    this.loadingTargetIds.delete(targetId);
+    if (this.activeTargetId === targetId) {
+      this.activeTargetId = this.targets[0]?.id ?? null;
+    }
+    if (this.pageTargetId === targetId) {
+      this.pageTargetId = null;
+      this.pageSessionId = null;
+      this.callbacks.onScreencastStopped?.(targetId);
+    }
+    this.callbacks.onTargetChanged?.("destroyed", target);
+    this.emitTargetsSnapshot();
+  }
+
+  private controlTargetFromInfo(targetInfo: CdpTargetInfo): ControlTarget | null {
+    if (targetInfo.type !== "page" && targetInfo.type !== "webview") {
+      return null;
+    }
+
+    return {
+      id: targetInfo.targetId,
+      type: targetInfo.type,
+      title: targetInfo.title,
+      url: targetInfo.url,
+      attached: targetInfo.targetId === this.pageTargetId,
+      loading: this.loadingTargetIds.has(targetInfo.targetId),
+    };
   }
 
   private emitTargetsSnapshot() {
@@ -634,22 +833,6 @@ export class BrowserControlConnection {
       target.id === targetId ? { ...target, loading } : target,
     );
     this.emitTargetsSnapshot();
-  }
-
-  private startActiveTargetSync() {
-    this.stopActiveTargetSync();
-    this.activeSyncTimer = setInterval(() => {
-      void this.refreshTargets().catch((error: unknown) => {
-        this.emitError(error);
-      });
-    }, 750);
-  }
-
-  private stopActiveTargetSync() {
-    if (this.activeSyncTimer) {
-      clearInterval(this.activeSyncTimer);
-    }
-    this.activeSyncTimer = null;
   }
 
   private async startScreencast(
@@ -837,6 +1020,24 @@ export class BrowserControlConnection {
     );
   }
 
+  private async navigateHistory(targetId: string, delta: -1 | 1) {
+    await this.withTarget(targetId, async (socket, sessionId) => {
+      const history = (await socket.call(
+        "Page.getNavigationHistory",
+        undefined,
+        sessionId,
+      )) as CdpCommandReturn<"Page.getNavigationHistory">;
+      const nextIndex = history.currentIndex + delta;
+      const entry = history.entries[nextIndex];
+      if (!entry) {
+        return;
+      }
+      this.setTargetLoading(targetId, true);
+      await socket.call("Page.navigateToHistoryEntry", { entryId: entry.id }, sessionId);
+      this.scheduleTargetsRefresh();
+    });
+  }
+
   private async dispatchShortcut(targetId: string, key: string, code: string) {
     await this.dispatchKey({
       type: "input.key",
@@ -903,19 +1104,14 @@ export class BrowserControlConnection {
     });
   }
 
-  private async replaceTarget(oldTargetId: string, url: string) {
-    const result = await this.browserSocket().call("Target.createTarget", { url });
-    const nextTargetId = createTargetResultSchema.parse(result).targetId;
-    this.activeTargetId = nextTargetId;
-    this.loadingTargetIds.add(nextTargetId);
-    await this.browserSocket().call("Target.activateTarget", { targetId: nextTargetId });
-    if (this.pageTargetId === oldTargetId) {
-      await this.stopScreencast();
-    }
-    await this.browserSocket()
-      .call("Target.closeTarget", { targetId: oldTargetId })
-      .catch(() => undefined);
-    await this.refreshTargets();
+  private scheduleTargetsRefresh() {
+    this.delayedRefreshes.add(
+      timer(500).subscribe(() => {
+        void this.refreshTargets().catch((error: unknown) => {
+          this.emitError(error);
+        });
+      }),
+    );
   }
 }
 

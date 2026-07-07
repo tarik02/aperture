@@ -1,7 +1,9 @@
 let state = {
   status: "idle",
   targetTabId: null,
+  sourceMode: null,
   streamIdIssuedAt: null,
+  desktopCaptureOptions: null,
   offscreen: null,
   lastError: null,
 };
@@ -27,8 +29,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 async function handleMessage(message) {
-  if (message?.type === "capture-proof.start") {
-    return startCapture(message);
+  if (message?.type === "capture-proof.prepare-desktop-capture") {
+    return prepareDesktopCapture(message);
+  }
+  if (message?.type === "capture-proof.producer-state") {
+    state = { ...message.state };
+    return snapshot();
   }
   if (message?.type === "capture-proof.stop") {
     await stopCapture("stopped by probe");
@@ -41,44 +47,40 @@ async function handleMessage(message) {
   return snapshot();
 }
 
-async function startCapture(message) {
-  await ensureOffscreenDocument();
+async function prepareDesktopCapture(message) {
   const targetTab = await activePageTab(message.expectedUrl);
+  const sourceMode = captureSourceMode(message.sourceMode);
   await stopCapture("restarting capture");
 
   state = {
-    status: "requesting-stream-id",
+    status: "requesting-desktop-stream-id",
     targetTabId: targetTab.id,
+    sourceMode,
     streamIdIssuedAt: null,
+    desktopCaptureOptions: null,
     offscreen: null,
     lastError: null,
   };
-
-  const streamId = await getMediaStreamId(targetTab.id);
-  state = {
-    ...state,
-    status: "starting-offscreen",
-    streamIdIssuedAt: new Date().toISOString(),
-  };
-
-  const offscreenState = await chrome.runtime.sendMessage({
-    type: "capture-proof.consume-stream-id",
-    streamId,
-    targetTabId: targetTab.id,
-  });
-  state = { ...state, status: "capturing", offscreen: offscreenState };
   return snapshot();
 }
 
 async function stopCapture(reason) {
-  await chrome.runtime.sendMessage({ type: "capture-proof.stop-offscreen", reason }).catch(() => undefined);
   state = {
     status: "idle",
     targetTabId: null,
+    sourceMode: null,
     streamIdIssuedAt: null,
+    desktopCaptureOptions: null,
     offscreen: null,
     lastError: reason,
   };
+}
+
+function captureSourceMode(sourceMode) {
+  if (sourceMode === "tab" || sourceMode === "window") {
+    return sourceMode;
+  }
+  throw new Error(`unsupported desktop capture source mode: ${sourceMode}`);
 }
 
 async function activePageTab(expectedUrl) {
@@ -94,38 +96,6 @@ async function activePageTab(expectedUrl) {
     throw new Error(`active tab url mismatch: got ${tab.url}, want ${expectedUrl}`);
   }
   return tab;
-}
-
-function getMediaStreamId(targetTabId) {
-  return new Promise((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId({ targetTabId }, (streamId) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      if (!streamId) {
-        reject(new Error("tabCapture returned no stream id"));
-        return;
-      }
-      resolve(streamId);
-    });
-  });
-}
-
-async function ensureOffscreenDocument() {
-  const contexts = await chrome.runtime.getContexts({
-    contextTypes: ["OFFSCREEN_DOCUMENT"],
-    documentUrls: [chrome.runtime.getURL("offscreen.html")],
-  });
-  if (contexts.length > 0) {
-    return;
-  }
-  await chrome.offscreen.createDocument({
-    url: "offscreen.html",
-    reasons: ["USER_MEDIA"],
-    justification: "Capture proof needs getUserMedia to consume a tabCapture stream id.",
-  });
 }
 
 function snapshot() {

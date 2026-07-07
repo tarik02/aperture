@@ -39,15 +39,33 @@ export const healthSchema = z.object({
 
 export const sessionStatusSchema = z.enum(["creating", "running", "deleted", "expired", "failed"]);
 
+const iceServerSchema = z.object({
+  urls: z.array(z.string()),
+  username: z.string().optional(),
+  credential: z.string().optional(),
+});
+
 export const sessionMediaSchema = z.object({
   mode: z.enum(["auto", "cdp"]),
   webrtcProducer: z.boolean(),
+  iceServers: z.array(iceServerSchema).default([]),
+});
+
+export const screencastStatusSchema = z.object({
+  active: z.boolean(),
+  path: z.string().optional(),
+  startedAt: z.string().optional(),
+  stoppedAt: z.string().optional(),
+  fps: z.number().optional(),
+  codec: z.string().optional(),
+  sizeBytes: z.number().optional(),
 });
 
 export const sessionSchema = z.object({
   id: z.string(),
   tenantId: z.string(),
   baseSnapshotName: z.string().nullable().optional(),
+  label: z.string().nullable().optional(),
   status: sessionStatusSchema,
   browserChannel: z.string().optional(),
   media: sessionMediaSchema,

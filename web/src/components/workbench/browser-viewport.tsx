@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, MousePointer2, Unplug } from "lucide-react";
+import { Activity, AlertCircle, Loader2, MousePointer2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
 import {
@@ -19,6 +19,7 @@ import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 type BrowserViewportProps = {
   control: UseBrowserControlResult;
   viewport: ViewportPreset;
+  performanceOverlayEnabled: boolean;
 };
 
 type MouseButton = "left" | "middle" | "right" | "none";
@@ -27,7 +28,11 @@ type ViewportPoint = { x: number; y: number };
 const MULTI_CLICK_MS = 500;
 const MULTI_CLICK_DISTANCE = 5;
 
-export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
+export function BrowserViewport({
+  control,
+  viewport,
+  performanceOverlayEnabled,
+}: BrowserViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -54,8 +59,14 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
   const renderHeight = showingWebRTC
     ? (control.mediaSize?.height ?? viewport.height)
     : (control.frame?.height ?? viewport.height);
-  const inputWidth = viewport.width;
-  const inputHeight = viewport.height;
+  const inputWidth = showingWebRTC ? renderWidth : viewport.width;
+  const inputHeight = showingWebRTC ? renderHeight : viewport.height;
+  const displayMetrics = computeRenderMetrics(
+    control.browserViewportSize?.width ?? renderWidth,
+    control.browserViewportSize?.height ?? renderHeight,
+    renderWidth,
+    renderHeight,
+  );
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
 
   useEffect(() => {
@@ -251,9 +262,6 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
   }
 
   function handlePointerUp(event: React.PointerEvent) {
-    if (pointerCaptureRef.current?.pointerId === event.pointerId) {
-      return;
-    }
     const capturedPointer = pointerCaptureRef.current;
     const targetId =
       capturedPointer?.pointerId === event.pointerId
@@ -287,9 +295,6 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
   }
 
   function handlePointerCancel(event: React.PointerEvent) {
-    if (pointerCaptureRef.current?.pointerId === event.pointerId) {
-      return;
-    }
     const capturedPointer = pointerCaptureRef.current;
     if (capturedPointer?.pointerId !== event.pointerId) {
       return;
@@ -432,13 +437,21 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
   }
 
   function handleKeyDown(event: React.KeyboardEvent) {
-    if (!control.captured || !control.activeTargetId) {
+    const targetId = control.activeTargetId;
+    if (
+      !targetId ||
+      (!control.captured &&
+        document.activeElement !== containerRef.current &&
+        !containerRef.current?.contains(event.target as Node))
+    ) {
       return;
     }
     if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      control.setCaptured(false);
+      if (control.captured) {
+        event.preventDefault();
+        event.stopPropagation();
+        control.setCaptured(false);
+      }
       return;
     }
 
@@ -447,11 +460,11 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
 
     const clipboardShortcut = resolveClipboardShortcut(event.nativeEvent);
     if (clipboardShortcut === "copy") {
-      control.send({ type: "clipboard.copy", targetId: control.activeTargetId });
+      control.send({ type: "clipboard.copy", targetId });
       return;
     }
     if (clipboardShortcut === "cut") {
-      control.send({ type: "clipboard.cut", targetId: control.activeTargetId });
+      control.send({ type: "clipboard.cut", targetId });
       return;
     }
     if (clipboardShortcut === "paste") {
@@ -465,14 +478,20 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
 
     control.send({
       type: "input.key",
-      targetId: control.activeTargetId,
+      targetId,
       action: "down",
       ...keyboardInputMessage(event.nativeEvent, "down"),
     });
   }
 
   function handleKeyUp(event: React.KeyboardEvent) {
-    if (!control.captured || !control.activeTargetId) {
+    const targetId = control.activeTargetId;
+    if (
+      !targetId ||
+      (!control.captured &&
+        document.activeElement !== containerRef.current &&
+        !containerRef.current?.contains(event.target as Node))
+    ) {
       return;
     }
     if (event.key === "Escape") {
@@ -492,7 +511,7 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
 
     control.send({
       type: "input.key",
-      targetId: control.activeTargetId,
+      targetId,
       action: "up",
       ...keyboardInputMessage(event.nativeEvent, "up"),
     });
@@ -549,22 +568,38 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
       className="relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden bg-background outline-none"
     >
       {showingWebRTC ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          className="h-full w-full object-contain"
-          style={{ aspectRatio: `${renderWidth} / ${renderHeight}` }}
-        />
+        <div
+          className="relative overflow-hidden bg-black"
+          style={{
+            width: displayMetrics.renderedWidth,
+            height: displayMetrics.renderedHeight,
+          }}
+        >
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            data-viewport-width={renderWidth}
+            data-viewport-height={renderHeight}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        </div>
       ) : control.frame ? (
-        <img
-          ref={imageRef}
-          alt=""
-          draggable={false}
-          className="h-full w-full object-contain"
-          style={{ aspectRatio: `${renderWidth} / ${renderHeight}` }}
-        />
+        <div
+          className="relative overflow-hidden bg-black"
+          style={{
+            width: displayMetrics.renderedWidth,
+            height: displayMetrics.renderedHeight,
+          }}
+        >
+          <img
+            ref={imageRef}
+            alt=""
+            draggable={false}
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+        </div>
       ) : (
         <ViewportPlaceholder phase={control.phase} mediaPhase={control.mediaPhase} />
       )}
@@ -577,6 +612,9 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
         ) : null}
         <StatusBadge status={status} />
       </div>
+      {performanceOverlayEnabled && showingWebRTC ? (
+        <PerformanceOverlay control={control} />
+      ) : null}
       {disconnectedHint && cursorHintPoint ? (
         <div
           className="pointer-events-none absolute z-20 max-w-64 translate-x-3 translate-y-3 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
@@ -590,11 +628,47 @@ export function BrowserViewport({ control, viewport }: BrowserViewportProps) {
           {visibleLastError.message}
         </div>
       ) : null}
-      {control.mediaPhase === "failed" && control.mediaError ? (
+      {control.mediaError ? (
         <div className="pointer-events-none absolute right-2 bottom-2 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
           {control.mediaError}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function PerformanceOverlay({ control }: { control: UseBrowserControlResult }) {
+  const metrics = control.mediaMetrics;
+  const settings = control.mediaStreamSettings;
+  const rows = [
+    ["Target", settings ? `${settings.fps} fps / ${settings.bitrateKbps} kbps` : "n/a"],
+    ["Recv", formatKbps(metrics?.receivedBitrateKbps)],
+    ["FPS", formatNumber(metrics?.decodedFps, 1)],
+    ["Frame", formatFrameSize(metrics?.frameWidth, metrics?.frameHeight)],
+    ["Drop", formatNumber(metrics?.framesDropped, 0)],
+    ["Lost", formatNumber(metrics?.packetsLost, 0)],
+    ["Jitter", formatMs(metrics?.jitterMs)],
+    ["Buffer", formatMs(metrics?.jitterBufferDelayMs)],
+    ["RTT", formatMs(metrics?.roundTripTimeMs)],
+    ["Input", formatMs(metrics?.inputRttMs)],
+    ["Codec", metrics?.codec?.replace(/^video\//, "") ?? "n/a"],
+    ["Path", metrics?.candidatePair ?? "n/a"],
+  ];
+
+  return (
+    <div className="pointer-events-none absolute top-2 left-2 z-10 w-64 rounded-md border bg-background/90 p-2 text-xs shadow-md backdrop-blur">
+      <div className="mb-1.5 flex items-center gap-1.5 font-medium">
+        <Activity className="size-3.5" />
+        Performance
+      </div>
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="min-w-0 truncate text-right font-mono tabular-nums">{value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -610,6 +684,27 @@ function resolveDisconnectedHint(
     return "CDP disconnected";
   }
   return null;
+}
+
+function formatKbps(value: number | null | undefined) {
+  if (typeof value !== "number") {
+    return "n/a";
+  }
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} Mbps` : `${Math.round(value)} kbps`;
+}
+
+function formatNumber(value: number | null | undefined, fractionDigits: number) {
+  return typeof value === "number" ? value.toFixed(fractionDigits) : "n/a";
+}
+
+function formatMs(value: number | null | undefined) {
+  return typeof value === "number" ? `${Math.round(value)} ms` : "n/a";
+}
+
+function formatFrameSize(width: number | null | undefined, height: number | null | undefined) {
+  return typeof width === "number" && typeof height === "number"
+    ? `${Math.round(width)}x${Math.round(height)}`
+    : "n/a";
 }
 
 function isDisconnectedSocketError(message: string): boolean {

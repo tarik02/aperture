@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useSessionsInfiniteQuery } from "#/hooks/queries/use-sessions-query.ts";
+import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import type { Session } from "#/lib/api/schemas.ts";
 

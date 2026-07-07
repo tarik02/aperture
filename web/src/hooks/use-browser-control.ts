@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useObservable,
+  useObservableCallback,
+  useObservableState,
+  useSubscription,
+} from "observable-hooks";
+import { filter, map, of, share, switchMap } from "rxjs";
 import { toast } from "sonner";
-import { BrowserControlConnection } from "#/lib/control/connection.ts";
-import { useWebRTCMedia, type WebRTCMediaPhase } from "#/hooks/use-webrtc-media.ts";
+import {
+  browserControl$,
+  initialBrowserControlState,
+  type BrowserControlOutput,
+  type BrowserMediaPath,
+} from "#/lib/control/browser-control-transport.ts";
 import type {
   ClientMessage,
   ControlConnectionPhase,
@@ -11,11 +22,19 @@ import type {
 } from "#/lib/control/messages.ts";
 import { DEFAULT_VIEWPORT, type ViewportPreset } from "#/lib/control/viewport.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import type {
+  WebRTCMediaMetrics,
+  WebRTCMediaPhase,
+  WebRTCStreamSettings,
+} from "#/lib/control/webrtc-media-transport.ts";
+import { apiClient } from "#/lib/api/client.ts";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
+  webrtcIceServers?: RTCIceServer[];
+  forceCDPMedia?: boolean;
 };
 
 type BrowserViewportSize = {
@@ -33,6 +52,8 @@ export type UseBrowserControlResult = {
   mediaPhase: WebRTCMediaPhase;
   mediaStream: MediaStream | null;
   mediaSize: BrowserViewportSize | null;
+  mediaStreamSettings: WebRTCStreamSettings | null;
+  mediaMetrics: WebRTCMediaMetrics | null;
   mediaError: string | null;
   mediaPath: BrowserMediaPath;
   lastError: ControlError | null;
@@ -40,11 +61,14 @@ export type UseBrowserControlResult = {
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
   captured: boolean;
+  recordingActive: boolean;
+  recordingBusy: boolean;
   setCaptured: (captured: boolean) => void;
   setViewport: (viewport: ViewportPreset) => void;
   setBrowserViewportSize: (size: BrowserViewportSize) => void;
   setViewportAutoSync: (enabled: boolean) => void;
   setViewportToBrowserSize: () => void;
+  setWebRTCStreamSettings: (settings: WebRTCStreamSettings) => boolean;
   send: (message: ClientMessage) => boolean;
   activateTarget: (targetId: string) => void;
   reorderTargets: (
@@ -60,63 +84,107 @@ export type UseBrowserControlResult = {
   historyBack: () => void;
   historyForward: () => void;
   startScreencast: () => void;
+  startRecording: () => void;
+  stopRecording: () => void;
   reconnect: () => void;
 };
 
-export type BrowserMediaPath = "cdp" | "webrtc-live" | "fallback-cdp";
+const emptyIceServers: RTCIceServer[] = [];
 
 export function useBrowserControl({
   sessionId,
   enabled = true,
   webrtcProducerSupported = false,
+  webrtcIceServers = emptyIceServers,
+  forceCDPMedia = false,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const credentials = useApiCredentials();
-  const [phase, setPhase] = useState<ControlConnectionPhase>("idle");
   const [targets, setTargets] = useState<ControlTarget[]>([]);
-  const [activeTargetId, setActiveTargetId] = useState<string | null>(null);
-  const [frame, setFrame] = useState<ScreencastFrame | null>(null);
   const [frameStale, setFrameStale] = useState(false);
-  const [lastError, setLastError] = useState<ControlError | null>(null);
   const [viewport, setViewport] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
   );
   const [viewportAutoSync, setViewportAutoSyncState] = useState(false);
   const [captured, setCaptured] = useState(false);
+  const [recordingActive, setRecordingActive] = useState(false);
+  const [recordingBusy, setRecordingBusy] = useState(false);
 
-  const connectionRef = useRef<BrowserControlConnection | null>(null);
   const activeTargetIdRef = useRef<string | null>(null);
-  const screencastTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
   const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
   const viewportAutoSyncRef = useRef(false);
-  const mediaPhaseRef = useRef<WebRTCMediaPhase>("idle");
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const webrtcPreferredRef = useRef(false);
-  const webrtcPreferred = Boolean(enabled && sessionId && credentials && webrtcProducerSupported);
+  const controlEnabledRef = useRef(false);
+  const webrtcPreferred = Boolean(
+    enabled && sessionId && credentials && webrtcProducerSupported && !forceCDPMedia,
+  );
+  const [pushMessage, message$] = useObservableCallback<ClientMessage>();
+  const [pushViewport, viewport$] = useObservableCallback<ViewportPreset>();
+  const [pushStreamSettings, streamSettings$] = useObservableCallback<WebRTCStreamSettings>();
+  const [pushReconnect, reconnect$] = useObservableCallback<void>();
+  const [pushScreencast, screencast$] = useObservableCallback<void>();
+  const controlOutput$ = useObservable(
+    (input$) =>
+      input$.pipe(
+        switchMap(
+          ([nextEnabled, nextSessionId, nextCredentials, nextWebrtcPreferred, nextIceServers]) => {
+            if (!nextEnabled || !nextSessionId || !nextCredentials) {
+              return of<BrowserControlOutput>({
+                type: "state",
+                state: initialBrowserControlState,
+              });
+            }
+            return browserControl$({
+              sessionId: nextSessionId,
+              credentials: nextCredentials,
+              webrtcPreferred: nextWebrtcPreferred,
+              iceServers: nextIceServers,
+              viewport: viewportRef.current,
+              input$: message$,
+              viewport$,
+              streamSettings$,
+              reconnect$,
+              startScreencast$: screencast$,
+            });
+          },
+        ),
+        share(),
+      ),
+    [enabled, sessionId, credentials, webrtcPreferred, webrtcIceServers],
+  );
+  const controlState$ = useMemo(
+    () =>
+      controlOutput$.pipe(
+        filter(isBrowserControlStateOutput),
+        map((output) => output.state),
+      ),
+    [controlOutput$],
+  );
+  const controlState = useObservableState(controlState$, initialBrowserControlState);
+  const activeTargetId = controlState.activeTargetId;
+  const frame = controlState.frame;
 
   activeTargetIdRef.current = activeTargetId;
   viewportRef.current = viewport;
   browserViewportSizeRef.current = browserViewportSize;
   viewportAutoSyncRef.current = viewportAutoSync;
-  webrtcPreferredRef.current = webrtcPreferred;
-
-  const webrtcMedia = useWebRTCMedia({
-    sessionId,
-    credentials,
-    enabled: webrtcPreferred && phase === "connected",
-  });
-  mediaPhaseRef.current = webrtcMedia.phase;
-  mediaStreamRef.current = webrtcMedia.stream;
+  controlEnabledRef.current = Boolean(enabled && sessionId && credentials);
 
   const activeTarget = useMemo(
     () => targets.find((target) => target.id === activeTargetId) ?? null,
     [targets, activeTargetId],
   );
 
-  const send = useCallback((message: ClientMessage) => {
-    return connectionRef.current?.send(message) ?? false;
-  }, []);
+  const send = useCallback(
+    (message: ClientMessage) => {
+      if (!controlEnabledRef.current) {
+        return false;
+      }
+      pushMessage(message);
+      return true;
+    },
+    [pushMessage],
+  );
 
   const sendForActive = useCallback(
     (build: (targetId: string) => ClientMessage) => {
@@ -204,75 +272,58 @@ export function useBrowserControl({
   }, [sendForActive]);
 
   const historyBack = useCallback(() => {
-    sendForActive((targetId) => ({
-      type: "input.key",
-      targetId,
-      action: "down",
-      key: "ArrowLeft",
-      code: "ArrowLeft",
-      modifiers: 1,
-    }));
-    sendForActive((targetId) => ({
-      type: "input.key",
-      targetId,
-      action: "up",
-      key: "ArrowLeft",
-      code: "ArrowLeft",
-      modifiers: 1,
-    }));
+    sendForActive((targetId) => ({ type: "page.historyBack", targetId }));
   }, [sendForActive]);
 
   const historyForward = useCallback(() => {
-    sendForActive((targetId) => ({
-      type: "input.key",
-      targetId,
-      action: "down",
-      key: "ArrowRight",
-      code: "ArrowRight",
-      modifiers: 1,
-    }));
-    sendForActive((targetId) => ({
-      type: "input.key",
-      targetId,
-      action: "up",
-      key: "ArrowRight",
-      code: "ArrowRight",
-      modifiers: 1,
-    }));
+    sendForActive((targetId) => ({ type: "page.historyForward", targetId }));
   }, [sendForActive]);
 
   const startScreencast = useCallback(() => {
-    const targetId = activeTargetIdRef.current ?? undefined;
-    screencastTargetIdRef.current = targetId ?? null;
-    send({
-      type: "screencast.start",
-      targetId,
-      format: "jpeg",
-      quality: 80,
-      maxWidth: viewportRef.current.width,
-      maxHeight: viewportRef.current.height,
-    });
-  }, [send]);
+    pushScreencast();
+  }, [pushScreencast]);
 
-  const shouldWaitForWebRTC = useCallback(() => {
-    if (!webrtcPreferredRef.current || mediaPhaseRef.current === "failed") {
-      return false;
+  const startRecording = useCallback(() => {
+    if (!sessionId || !credentials || recordingBusy) {
+      return;
     }
-    return mediaPhaseRef.current !== "live" || Boolean(mediaStreamRef.current);
-  }, []);
+    setRecordingBusy(true);
+    apiClient
+      .startSessionScreencast(credentials, sessionId)
+      .then((status) => {
+        setRecordingActive(status.active);
+        toast.success("Recording started");
+      })
+      .catch((cause: unknown) => {
+        toast.error(errorMessage(cause, "Recording failed to start"));
+      })
+      .finally(() => setRecordingBusy(false));
+  }, [sessionId, credentials, recordingBusy]);
+
+  const stopRecording = useCallback(() => {
+    if (!sessionId || !credentials || recordingBusy) {
+      return;
+    }
+    setRecordingBusy(true);
+    apiClient
+      .stopSessionScreencast(credentials, sessionId)
+      .then(({ blob, filename }) => {
+        setRecordingActive(false);
+        downloadBlob(blob, filename ?? `${sessionId}-screencast.webm`);
+        toast.success("Recording saved");
+      })
+      .catch((cause: unknown) => {
+        toast.error(errorMessage(cause, "Recording failed to stop"));
+      })
+      .finally(() => setRecordingBusy(false));
+  }, [sessionId, credentials, recordingBusy]);
 
   const applyViewport = useCallback(
     (preset: ViewportPreset) => {
       setViewport(preset);
-      sendForActive((targetId) => ({
-        type: "viewport.set",
-        targetId,
-        width: preset.width,
-        height: preset.height,
-        deviceScaleFactor: 1,
-      }));
+      pushViewport(preset);
     },
-    [sendForActive],
+    [pushViewport],
   );
 
   const setViewportToBrowserSize = useCallback(() => {
@@ -282,6 +333,17 @@ export function useBrowserControl({
     }
     applyViewport(createBrowserViewport(size));
   }, [applyViewport]);
+
+  const setWebRTCStreamSettings = useCallback(
+    (settings: WebRTCStreamSettings) => {
+      if (!controlEnabledRef.current) {
+        return false;
+      }
+      pushStreamSettings(settings);
+      return true;
+    },
+    [pushStreamSettings],
+  );
 
   const setBrowserViewportSize = useCallback(
     (size: BrowserViewportSize) => {
@@ -318,123 +380,79 @@ export function useBrowserControl({
   );
 
   const reconnect = useCallback(() => {
-    if (!sessionId || !credentials) {
+    pushReconnect();
+  }, [pushReconnect]);
+
+  const controlError$ = useMemo(
+    () =>
+      controlOutput$.pipe(
+        filter(isBrowserControlErrorOutput),
+        map((output) => output.error),
+      ),
+    [controlOutput$],
+  );
+
+  useSubscription(controlError$, (error) => {
+    if (error.code !== "not_implemented" && !isDisconnectedSocketError(error.message)) {
+      toast.error(error.message);
+    }
+  });
+
+  useEffect(() => {
+    setTargets((current) => mergeTargetsInCurrentOrder(current, controlState.targets));
+    if (controlState.frame) {
+      setFrameStale(false);
+    }
+    if (controlState.phase !== "connected") {
+      setCaptured(false);
+    }
+  }, [controlState]);
+
+  useEffect(() => {
+    if (enabled && sessionId && credentials) {
       return;
     }
-    connectionRef.current?.connect(sessionId, credentials);
-  }, [sessionId, credentials]);
+    setRecordingActive(false);
+    setRecordingBusy(false);
+  }, [enabled, sessionId, credentials]);
 
   useEffect(() => {
     if (!enabled || !sessionId || !credentials) {
-      setPhase("idle");
-      setTargets([]);
-      setActiveTargetId(null);
-      setFrame(null);
-      setCaptured(false);
-      connectionRef.current?.close();
-      connectionRef.current = null;
-      screencastTargetIdRef.current = null;
       return;
     }
-
-    const connection = new BrowserControlConnection({
-      onPhaseChange: (next) => {
-        setPhase(next);
-        if (next === "connected") {
-          setLastError(null);
-          connection.send({ type: "targets.list" });
-        }
-        if (next === "disconnected" || next === "error") {
-          setFrame(null);
-          setCaptured(false);
-          screencastTargetIdRef.current = null;
-        }
-      },
-      onTargetsSnapshot: (nextActiveTargetId, nextTargets) => {
-        setTargets((current) => mergeTargetsInCurrentOrder(current, nextTargets));
-        const resolvedActive =
-          nextActiveTargetId ??
-          nextTargets.find((target) => target.id === activeTargetIdRef.current)?.id ??
-          nextTargets[0]?.id ??
-          null;
-        setActiveTargetId(resolvedActive);
-        if (
-          resolvedActive &&
-          connection.isOpen() &&
-          screencastTargetIdRef.current !== resolvedActive
-        ) {
-          connection.send({
-            type: "viewport.set",
-            targetId: resolvedActive,
-            width: viewportRef.current.width,
-            height: viewportRef.current.height,
-            deviceScaleFactor: 1,
-          });
-          if (!shouldWaitForWebRTC()) {
-            connection.send({
-              type: "screencast.start",
-              targetId: resolvedActive,
-              format: "jpeg",
-              quality: 80,
-              maxWidth: viewportRef.current.width,
-              maxHeight: viewportRef.current.height,
-            });
-            screencastTargetIdRef.current = resolvedActive;
-          }
-        }
-      },
-      onTargetChanged: (change, target) => {
-        if (change === "destroyed" && screencastTargetIdRef.current === target.id) {
-          screencastTargetIdRef.current = null;
-        }
-        setTargets((current) => {
-          if (change === "destroyed") {
-            return current.filter((item) => item.id !== target.id);
-          }
-          const index = current.findIndex((item) => item.id === target.id);
-          if (index === -1) {
-            return [...current, target];
-          }
-          const next = [...current];
-          next[index] = target;
-          return next;
-        });
-      },
-      onScreencastFrame: (nextFrame) => {
-        setFrame(nextFrame);
-        setFrameStale(false);
-      },
-      onScreencastStopped: () => {
-        setFrame(null);
-        screencastTargetIdRef.current = null;
-      },
-      onError: (error) => {
-        setLastError(error);
-        if (error.code !== "not_implemented" && !isDisconnectedSocketError(error.message)) {
-          toast.error(error.message);
-        }
-      },
-    });
-
-    connectionRef.current = connection;
-    connection.connect(sessionId, credentials);
-
-    return () => {
-      connection.close();
-      if (connectionRef.current === connection) {
-        connectionRef.current = null;
-      }
-    };
-  }, [enabled, sessionId, credentials, shouldWaitForWebRTC]);
+    apiClient
+      .getSessionScreencastStatus(credentials, sessionId)
+      .then((status) => {
+        setRecordingActive(status.active);
+      })
+      .catch(() => undefined);
+  }, [enabled, sessionId, credentials]);
 
   useEffect(() => {
-    if (webrtcMedia.phase !== "live" || !webrtcMedia.stream || !screencastTargetIdRef.current) {
+    if (
+      controlState.phase !== "connected" ||
+      controlState.mediaPhase !== "live" ||
+      !controlState.mediaStream ||
+      !controlState.mediaSize
+    ) {
       return;
     }
-    send({ type: "screencast.stop" });
-    screencastTargetIdRef.current = null;
-    setFrame(null);
-  }, [webrtcMedia.phase, webrtcMedia.stream, send]);
+
+    const current = viewportRef.current;
+    if (
+      current.width === controlState.mediaSize.width &&
+      current.height === controlState.mediaSize.height
+    ) {
+      return;
+    }
+
+    setViewport(createBrowserViewport(controlState.mediaSize));
+  }, [
+    controlState.phase,
+    controlState.mediaPhase,
+    controlState.mediaStream,
+    controlState.mediaSize,
+  ]);
 
   useEffect(() => {
     if (!frame) {
@@ -449,51 +467,33 @@ export function useBrowserControl({
     return () => window.clearInterval(timer);
   }, [frame]);
 
-  useEffect(() => {
-    if (phase !== "connected" || frame || !activeTargetId || shouldWaitForWebRTC()) {
-      return;
-    }
-
-    const timer = window.setTimeout(
-      () => {
-        startScreencast();
-      },
-      webrtcMedia.phase === "failed" ? 0 : 2500,
-    );
-
-    return () => window.clearTimeout(timer);
-  }, [
-    phase,
-    frame,
-    activeTargetId,
-    startScreencast,
-    shouldWaitForWebRTC,
-    webrtcMedia.phase,
-    webrtcMedia.stream,
-  ]);
-
   return {
-    phase,
+    phase: controlState.phase,
     targets,
     activeTargetId,
     activeTarget,
     frame,
     frameStale,
-    mediaPhase: webrtcMedia.phase,
-    mediaStream: webrtcMedia.stream,
-    mediaSize: webrtcMedia.size,
-    mediaError: webrtcMedia.error,
-    mediaPath: resolveMediaPath(webrtcPreferred, webrtcMedia.phase, webrtcMedia.stream),
-    lastError,
+    mediaPhase: controlState.mediaPhase,
+    mediaStream: controlState.mediaStream,
+    mediaSize: controlState.mediaSize,
+    mediaStreamSettings: controlState.mediaStreamSettings,
+    mediaMetrics: controlState.mediaMetrics,
+    mediaError: controlState.mediaError,
+    mediaPath: controlState.mediaPath,
+    lastError: controlState.lastError,
     viewport,
     browserViewportSize,
     viewportAutoSync,
     captured,
+    recordingActive,
+    recordingBusy,
     setCaptured,
     setViewport: applyViewport,
     setBrowserViewportSize,
     setViewportAutoSync,
     setViewportToBrowserSize,
+    setWebRTCStreamSettings,
     send,
     activateTarget,
     reorderTargets,
@@ -505,26 +505,39 @@ export function useBrowserControl({
     historyBack,
     historyForward,
     startScreencast,
+    startRecording,
+    stopRecording,
     reconnect,
   };
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function errorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error && cause.message ? cause.message : fallback;
 }
 
 function isDisconnectedSocketError(message: string): boolean {
   return /^CDP (browser )?socket (is not open|closed|failed)$/.test(message);
 }
 
-function resolveMediaPath(
-  webrtcPreferred: boolean,
-  mediaPhase: WebRTCMediaPhase,
-  mediaStream: MediaStream | null,
-): BrowserMediaPath {
-  if (mediaPhase === "live" && mediaStream) {
-    return "webrtc-live";
-  }
-  if (webrtcPreferred && mediaPhase === "failed") {
-    return "fallback-cdp";
-  }
-  return "cdp";
+function isBrowserControlStateOutput(
+  output: BrowserControlOutput,
+): output is Extract<BrowserControlOutput, { type: "state" }> {
+  return output.type === "state";
+}
+
+function isBrowserControlErrorOutput(
+  output: BrowserControlOutput,
+): output is Extract<BrowserControlOutput, { type: "error" }> {
+  return output.type === "error";
 }
 
 function mergeTargetsInCurrentOrder(

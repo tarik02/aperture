@@ -17,6 +17,7 @@ func TestRenderRuntimeEnv(t *testing.T) {
 		CacheDir:           "/store/sessions/01/8f/id/cache",
 		ArtifactsDir:       "/artifacts/01/8f/id",
 		CDPPort:            9222,
+		WrapperPort:        9223,
 		BrowserExecutable:  "/usr/bin/chromium",
 		BrowserDefaultArgs: []string{"--no-first-run"},
 		BrowserExtraArgs:   []string{"--disable-sync"},
@@ -59,6 +60,7 @@ func TestRenderRuntimeEnvEncodesComplexArgVectors(t *testing.T) {
 		CacheDir:          "/store/cache",
 		ArtifactsDir:      "/artifacts",
 		CDPPort:           9555,
+		WrapperPort:       9556,
 		BrowserExecutable: "/usr/bin/chromium",
 		BrowserDefaultArgs: []string{
 			"--flag with spaces",
@@ -112,6 +114,7 @@ func TestRenderRuntimeEnvQuotesSpecialCharacters(t *testing.T) {
 		CacheDir:          "/store/cache",
 		ArtifactsDir:      "/artifacts",
 		CDPPort:           9333,
+		WrapperPort:       9334,
 		BrowserExecutable: "/usr/bin/chromium",
 		BrowserExtraArgs:  []string{`--foo="bar"`},
 	}
@@ -143,6 +146,7 @@ func TestWriteRuntimeEnvAtomic(t *testing.T) {
 		CacheDir:          filepath.Join(dir, "cache"),
 		ArtifactsDir:      filepath.Join(dir, "artifacts"),
 		CDPPort:           9444,
+		WrapperPort:       9445,
 		BrowserExecutable: "/usr/bin/chromium",
 	}
 

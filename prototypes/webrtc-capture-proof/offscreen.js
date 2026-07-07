@@ -2,6 +2,9 @@ let stream = null;
 let state = {
   status: "idle",
   targetTabId: null,
+  sourceMode: null,
+  streamIdIssuedAt: null,
+  desktopCaptureOptions: null,
   videoTrackReadyState: null,
   width: null,
   height: null,
@@ -9,6 +12,9 @@ let state = {
 };
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== "capture-proof.consume-stream-id" && message?.type !== "capture-proof.stop-offscreen") {
+    return false;
+  }
   void handleMessage(message)
     .then(sendResponse)
     .catch((error) => {
@@ -25,7 +31,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function handleMessage(message) {
   if (message?.type === "capture-proof.consume-stream-id") {
-    await startStream(message.streamId, message.targetTabId);
+    await startStream(
+      message.streamId,
+      message.targetTabId,
+      message.sourceMode,
+      message.streamIdIssuedAt,
+      message.desktopCaptureOptions,
+    );
     return snapshot();
   }
   if (message?.type === "capture-proof.stop-offscreen") {
@@ -35,11 +47,14 @@ async function handleMessage(message) {
   return snapshot();
 }
 
-async function startStream(streamId, targetTabId) {
+async function startStream(streamId, targetTabId, sourceMode, streamIdIssuedAt, desktopCaptureOptions) {
   stopStream("restarting offscreen capture");
   state = {
     status: "starting",
     targetTabId,
+    sourceMode,
+    streamIdIssuedAt,
+    desktopCaptureOptions,
     videoTrackReadyState: null,
     width: null,
     height: null,
@@ -51,7 +66,7 @@ async function startStream(streamId, targetTabId) {
     audio: false,
     video: {
       mandatory: {
-        chromeMediaSource: "tab",
+        chromeMediaSource: "desktop",
         chromeMediaSourceId: streamId,
       },
     },
@@ -75,6 +90,9 @@ async function startStream(streamId, targetTabId) {
   state = {
     status: "live",
     targetTabId,
+    sourceMode,
+    streamIdIssuedAt,
+    desktopCaptureOptions,
     videoTrackReadyState: track.readyState,
     width: settings.width ?? null,
     height: settings.height ?? null,
@@ -91,6 +109,9 @@ function stopStream(reason) {
   state = {
     status: "idle",
     targetTabId: null,
+    sourceMode: null,
+    streamIdIssuedAt: null,
+    desktopCaptureOptions: null,
     videoTrackReadyState: null,
     width: null,
     height: null,

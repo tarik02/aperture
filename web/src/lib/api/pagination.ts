@@ -38,6 +38,5 @@ export function flattenInfinitePages<T>(pages: PaginatedResponse<T>[] | undefine
 export const defaultListLimit = 50;
 
 export const listQueryDefaults = {
-  refetchInterval: 5_000,
   refetchOnWindowFocus: true,
 } as const;

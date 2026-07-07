@@ -110,9 +110,6 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 }
 
 func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now time.Time) error {
-	if err := session.RemoveMediaTokenHash(s.cfg, sessionRow.ID); err != nil {
-		return fmt.Errorf("remove media token hash for session %s: %w", sessionRow.ID, err)
-	}
 	if s.mediaCleaner != nil {
 		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
 	}

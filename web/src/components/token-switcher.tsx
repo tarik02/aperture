@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronsUpDown, KeyRound, Plus, Trash2 } from "lucide-react";
-import { TokenFormDialog } from "#/components/token-form-dialog.tsx";
+import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
+import { TokenAuthModal } from "#/features/token/auth-modal/token-auth-modal.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   DropdownMenu,
@@ -15,6 +16,8 @@ import {
   selectActiveProfile,
   useTokenVaultStore,
 } from "#/stores/token-vault.ts";
+import { useTokenAuthModalStore } from "#/features/token/auth-modal/token-auth-modal.store.ts";
+import { useTokenFormStore } from "#/features/token/form/token-form.store.ts";
 import { cn } from "#/lib/utils.ts";
 
 type TokenSwitcherProps = {
@@ -27,8 +30,11 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
   const setActiveProfile = useTokenVaultStore((state) => state.setActiveProfile);
   const removeProfile = useTokenVaultStore((state) => state.removeProfile);
   const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
+  const initTokenForm = useTokenFormStore((state) => state.initForm);
+  const openTokenAuthModal = useTokenAuthModalStore((state) => state.openModal);
 
-  const [addOpen, setAddOpen] = useState(false);
+  const [removeProfileId, setRemoveProfileId] = useState<string | null>(null);
+  const removeProfileTarget = profiles.find((profile) => profile.id === removeProfileId) ?? null;
 
   function handleSwitch(profileId: string) {
     if (profileId === activeProfile?.id) {
@@ -38,8 +44,12 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
     setActiveProfile(profileId);
   }
 
-  function handleRemove(profileId: string) {
-    removeProfile(profileId);
+  function handleRemove() {
+    if (!removeProfileTarget) {
+      return;
+    }
+
+    removeProfile(removeProfileTarget.id);
   }
 
   const triggerLabel = activeProfile ? profileDisplayName(activeProfile) : "No token";
@@ -51,9 +61,9 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
           render={
             <Button
               variant="outline"
-              size="sm"
+              size="default"
               className={cn(
-                "w-full min-w-0 justify-start group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0",
+                "w-full min-w-0 justify-start group-data-[collapsible=icon]:gap-0",
                 className,
               )}
               disabled={bootstrapping}
@@ -61,8 +71,14 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
           }
         >
           <KeyRound data-icon="inline-start" />
-          <span className="truncate group-data-[collapsible=icon]:hidden">{triggerLabel}</span>
-          <ChevronsUpDown className="ml-auto size-3.5 opacity-60 group-data-[collapsible=icon]:hidden" />
+          <span data-sidebar-collapse-label className="min-w-0 flex-1 truncate text-left">
+            {triggerLabel}
+          </span>
+          <ChevronsUpDown
+            data-icon="inline-end"
+            data-sidebar-collapse-label
+            className="opacity-60"
+          />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="top" className="w-64">
           <DropdownMenuLabel>Tokens</DropdownMenuLabel>
@@ -81,12 +97,20 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
             ))
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setAddOpen(true)}>
+          <DropdownMenuItem
+            onClick={() => {
+              initTokenForm("add");
+              openTokenAuthModal();
+            }}
+          >
             <Plus />
             Add token
           </DropdownMenuItem>
           {activeProfile ? (
-            <DropdownMenuItem variant="destructive" onClick={() => handleRemove(activeProfile.id)}>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setRemoveProfileId(activeProfile.id)}
+            >
               <Trash2 />
               Remove
             </DropdownMenuItem>
@@ -94,7 +118,22 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <TokenFormDialog mode="add" open={addOpen} onOpenChange={setAddOpen} />
+      <TokenAuthModal />
+      {removeProfileTarget ? (
+        <ConfirmDialog
+          open={removeProfileId !== null}
+          title="Remove token"
+          description={`Remove ${profileDisplayName(removeProfileTarget)} from this browser?`}
+          confirmLabel="Remove"
+          variant="destructive"
+          onOpenChange={(open) => {
+            if (!open) {
+              setRemoveProfileId(null);
+            }
+          }}
+          onConfirm={handleRemove}
+        />
+      ) : null}
     </>
   );
 }

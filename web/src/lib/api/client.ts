@@ -9,6 +9,7 @@ import {
   eventsPageSchema,
   healthSchema,
   promoteSessionResponseSchema,
+  screencastStatusSchema,
   sessionMutationResponseSchema,
   sessionsPageSchema,
   snapshotMutationResponseSchema,
@@ -184,6 +185,37 @@ async function requestVoid(options: VoidRequestOptions): Promise<void> {
   throw new ApiRequestError("internal_error", "Request failed", response.status);
 }
 
+async function requestBlob(options: Omit<VoidRequestOptions, "body">): Promise<{
+  blob: Blob;
+  filename: string | null;
+}> {
+  const { method = "GET", path, credentials = null, tenantHeader = "none", query } = options;
+
+  const response = await fetch(buildUrl(path, query), {
+    method,
+    headers: buildHeaders(credentials, tenantHeader, false),
+  });
+
+  if (!response.ok) {
+    const responseBody: unknown = await response.json().catch(() => null);
+    const parsed = parseApiErrorBody(responseBody);
+    if (parsed) {
+      throw new ApiRequestError(parsed.code, parsed.message, response.status);
+    }
+    throw new ApiRequestError("internal_error", "Request failed", response.status);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: contentDispositionFilename(response.headers.get("Content-Disposition")),
+  };
+}
+
+function contentDispositionFilename(header: string | null): string | null {
+  const match = header?.match(/filename="([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
 export type SessionsListParams = {
   limit?: number;
   cursor?: string;
@@ -226,6 +258,7 @@ export type EventsListParams = {
 
 export type CreateSessionInput = {
   baseSnapshotName?: string | null;
+  label?: string | null;
   browser: {
     channel: string;
     args?: string[];
@@ -358,6 +391,7 @@ export const apiClient = {
       tenantHeader: "tenant-scoped",
       body: {
         baseSnapshotName: input.baseSnapshotName ?? null,
+        label: input.label ?? null,
         browser: {
           channel: input.browser.channel,
           args: input.browser.args ?? [],
@@ -420,6 +454,35 @@ export const apiClient = {
       credentials,
       tenantHeader: "tenant-scoped",
       body: { tags },
+    });
+  },
+
+  getSessionScreencastStatus(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      path: `/api/sessions/${sessionId}/screencast/status`,
+      schema: screencastStatusSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  startSessionScreencast(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      method: "POST",
+      path: `/api/sessions/${sessionId}/screencast/start`,
+      schema: screencastStatusSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: {},
+    });
+  },
+
+  stopSessionScreencast(credentials: ApiCredentials, sessionId: string) {
+    return requestBlob({
+      method: "POST",
+      path: `/api/sessions/${sessionId}/screencast/stop`,
+      credentials,
+      tenantHeader: "tenant-scoped",
     });
   },
 

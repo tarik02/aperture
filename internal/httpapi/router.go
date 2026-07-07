@@ -12,8 +12,11 @@ import (
 // fallback. cdpRouteBasePath reserves CDP paths from SPA fallback.
 func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteBasePath string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
-	if server.Signaling == nil {
-		server.Signaling = NewSignalCoordinator()
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	if server.Logger == nil {
+		server.Logger = logger
 	}
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -83,6 +86,11 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
 			sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
 			sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
+			sessions.Any("/:sessionId/health", server.requireSessionsRead, server.proxySessionWrapper)
+			sessions.Any("/:sessionId/status", server.requireSessionsRead, server.proxySessionWrapper)
+			sessions.Any("/:sessionId/viewport", server.requireSessionsWrite, server.proxySessionWrapper)
+			sessions.Any("/:sessionId/webrtc/*path", server.requireSessionsWrite, server.proxySessionWrapper)
+			sessions.Any("/:sessionId/screencast/*path", server.requireSessionsWrite, server.proxySessionWrapper)
 		}
 
 		snapshots := api.Group("/snapshots")
@@ -104,8 +112,9 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		}
 
 		webrtc := api.Group("/webrtc")
+		webrtc.Use(server.requireAuth, server.requireSessionsWrite)
 		{
-			webrtc.GET("/:sessionId/signal", server.signalWebRTC)
+			webrtc.GET("/:sessionId/signal", server.proxyLegacyWebRTCSignal)
 		}
 	}
 
@@ -118,7 +127,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		publicCDP.Any("/:sessionId/*path", server.proxyPublicCDP)
 	}
 
-	registerStaticFallback(router, staticAssets, cdpRouteBasePath)
+	registerStaticFallback(router, staticAssets, cdpRouteBasePath, server)
 
 	return router
 }

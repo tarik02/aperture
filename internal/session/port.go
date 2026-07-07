@@ -11,8 +11,18 @@ const (
 )
 
 // AllocateCDPPort finds an available loopback TCP port in the supervisor range.
-func AllocateCDPPort() (int, error) {
+func AllocateCDPPort(excluded ...int) (int, error) {
 	for port := cdpPortMin; port <= cdpPortMax; port++ {
+		skip := false
+		for _, excludedPort := range excluded {
+			if port == excludedPort {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
 		addr := fmt.Sprintf("127.0.0.1:%d", port)
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {

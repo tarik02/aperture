@@ -30,11 +30,25 @@ export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
     <ScrollArea className="h-full border-l">
       <div className="space-y-4 p-3">
         <div className="flex items-center gap-2">
-          <h2 className="min-w-0 break-all font-mono text-sm">{session.id}</h2>
+          <div className="min-w-0">
+            {session.label ? (
+              <h2 className="truncate text-sm font-medium">{session.label}</h2>
+            ) : null}
+            <div
+              className={
+                session.label
+                  ? "break-all font-mono text-xs text-muted-foreground"
+                  : "break-all font-mono text-sm"
+              }
+            >
+              {session.id}
+            </div>
+          </div>
           <SessionStatusBadge status={session.status} />
         </div>
         <MetadataGrid
           items={[
+            { label: "Label", value: session.label ?? "—" },
             { label: "ID", value: session.id },
             { label: "Tenant", value: session.tenantId },
             { label: "Channel", value: session.browserChannel ?? "—" },

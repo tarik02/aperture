@@ -54,7 +54,7 @@ func (s *Server) proxyAPICDP(c *gin.Context) {
 
 	target := &url.URL{
 		Scheme:   "http",
-		Host:     fmt.Sprintf("127.0.0.1:%d", port),
+		Host:     fmt.Sprintf("localhost:%d", port),
 		Path:     targetPath,
 		RawQuery: c.Request.URL.RawQuery,
 	}
@@ -129,7 +129,7 @@ func (s *Server) proxyPublicCDP(c *gin.Context) {
 
 	target := &url.URL{
 		Scheme:   "http",
-		Host:     fmt.Sprintf("127.0.0.1:%d", port),
+		Host:     fmt.Sprintf("localhost:%d", port),
 		Path:     targetPath,
 		RawQuery: targetRawQuery,
 	}
@@ -298,7 +298,7 @@ func cdpTargetRawQuery(source *url.URL) string {
 func browserWebSocketURL(ctx context.Context, port int) (*url.URL, error) {
 	target := &url.URL{
 		Scheme: "http",
-		Host:   fmt.Sprintf("127.0.0.1:%d", port),
+		Host:   fmt.Sprintf("localhost:%d", port),
 		Path:   "/json/version",
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)

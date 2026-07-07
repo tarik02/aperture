@@ -4,7 +4,7 @@ import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Input } from "#/components/ui/input.tsx";
-import { useSessionsInfiniteQuery } from "#/hooks/queries/use-sessions-query.ts";
+import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
 import type { Session } from "#/lib/api/schemas.ts";
 import { cn } from "#/lib/utils.ts";
 
@@ -34,6 +34,7 @@ export function SessionListPane({
     return sessions.filter((session) => {
       return (
         session.id.toLowerCase().includes(needle) ||
+        session.label?.toLowerCase().includes(needle) ||
         session.baseSnapshotName?.toLowerCase().includes(needle) ||
         Object.entries(session.tags ?? {}).some(
           ([key, value]) =>
@@ -72,7 +73,19 @@ export function SessionListPane({
               )}
             >
               <div className="space-y-1">
-                <span className="block break-all font-mono text-sm leading-snug">{session.id}</span>
+                {session.label ? (
+                  <span className="block truncate text-sm font-medium leading-snug">
+                    {session.label}
+                  </span>
+                ) : null}
+                <span
+                  className={cn(
+                    "block break-all font-mono leading-snug",
+                    session.label ? "text-xs text-muted-foreground" : "text-sm",
+                  )}
+                >
+                  {session.id}
+                </span>
                 <SessionStatusBadge status={session.status} />
               </div>
               <div className="mt-1 text-sm text-muted-foreground">

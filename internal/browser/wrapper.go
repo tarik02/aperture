@@ -1,6 +1,9 @@
 package browser
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +14,212 @@ import (
 	"syscall"
 	"time"
 )
+
+const compositorBrowserAppID = "aperture-browser"
+
+var errPipeWireNodeNotFound = errors.New("pipewire node not found")
+
+func apertureWestonShellPath() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve wrapper executable: %w", err)
+	}
+	return filepath.Join(filepath.Dir(filepath.Dir(executable)), "lib", "weston", "aperture-weston-shell.so"), nil
+}
+
+const compositorLuaShellScript = `
+background_layer = {}
+normal_layer = {}
+hidden_layer = {}
+primary_output = nil
+active_view = nil
+
+function recreate_curtain(output)
+  local pd = output:get_private()
+  local ox, oy = output:get_position()
+  local width, height = output:get_dimensions()
+
+  if (pd ~= nil and pd.curtain ~= nil) then
+    pd.curtain:dispose()
+  end
+
+  if (pd == nil) then
+    pd = {}
+    output:set_private(pd)
+  end
+
+  pd.curtain = weston:create_curtain("aperture background")
+  pd.curtain:set_color(0xFF000000)
+  pd.curtain:set_position(ox, oy)
+  pd.curtain:set_dimensions(width, height)
+  pd.curtain:set_capture_input(false)
+
+  local view = pd.curtain:get_view()
+  view:set_output(output)
+  view:set_layer(background_layer)
+end
+
+function first_output()
+  if (primary_output ~= nil) then
+    return primary_output
+  end
+
+  local outputs = weston:get_outputs()
+  for n, output in pairs(outputs) do
+    primary_output = output
+    return output
+  end
+
+  return nil
+end
+
+function first_seat()
+  local seats = weston:get_seats()
+  for n, seat in pairs(seats) do
+    return seat
+  end
+
+  return nil
+end
+
+function fit_surface(surface)
+  local pd = surface:get_private()
+  local output = first_output()
+
+  if (pd == nil or output == nil) then
+    return
+  end
+
+  local ox, oy = output:get_position()
+  local width, height = output:get_dimensions()
+  local gx, gy = surface:get_geometry()
+
+  surface:set_output(output)
+  pd.view:set_output(output)
+  pd.view:set_position(ox - gx, oy - gy)
+  pd.view:set_dimensions(width, height)
+  surface:set_state_normal(width, height)
+end
+
+function output_create(output)
+  if (primary_output == nil) then
+    primary_output = output
+  end
+
+  output:set_private({})
+  recreate_curtain(output)
+  output:set_ready()
+end
+
+function output_resized(output)
+  primary_output = output
+  recreate_curtain(output)
+
+  local surfaces = weston:get_surfaces()
+  for n, surface in pairs(surfaces) do
+    fit_surface(surface)
+  end
+end
+
+function output_moved(output, move_x, move_y)
+  output_resized(output)
+end
+
+function surface_added(surface)
+  local view = surface:create_view()
+
+  surface:set_private({ view = view })
+  fit_surface(surface)
+end
+
+function surface_removed(surface)
+  local pd = surface:get_private()
+
+  if (pd == nil) then
+    return
+  end
+
+  if (active_view == pd.view) then
+    pd.view:deactivate()
+    active_view = nil
+  end
+
+  pd.view:dispose()
+end
+
+function surface_committed(surface)
+  local pd = surface:get_private()
+  local width, height = surface:get_dimensions()
+
+  if (pd == nil or width == 0 or height == 0) then
+    return
+  end
+
+  fit_surface(surface)
+
+  if (surface:is_mapped()) then
+    return
+  end
+
+  surface:map()
+  pd.view:set_layer(normal_layer)
+
+  local seat = first_seat()
+  if (seat ~= nil) then
+    if (active_view ~= nil) then
+      active_view:deactivate()
+    end
+    pd.view:activate(seat)
+    active_view = pd.view
+  end
+end
+
+function surface_fullscreen(surface, output, fullscreen)
+  fit_surface(surface)
+end
+
+function surface_maximize(surface, maximized)
+  fit_surface(surface)
+end
+
+function click_to_activate(focus_view, seat, button)
+  if (active_view == focus_view) then
+    return
+  end
+
+  if (active_view ~= nil) then
+    active_view:deactivate()
+  end
+
+  focus_view:activate(seat)
+  active_view = focus_view
+end
+
+function init()
+  background_layer = weston:create_layer()
+  background_layer:set_position(WESTON_LAYER_POSITION_BACKGROUND)
+
+  normal_layer = weston:create_layer()
+  normal_layer:set_position(WESTON_LAYER_POSITION_NORMAL)
+
+  hidden_layer = weston:create_layer()
+  hidden_layer:set_position(WESTON_LAYER_POSITION_HIDDEN)
+
+  weston:add_button_binding(BTN_LEFT, 0, click_to_activate)
+end
+
+lua_shell_callbacks = {
+  init = init,
+  surface_added = surface_added,
+  surface_committed = surface_committed,
+  surface_fullscreen = surface_fullscreen,
+  surface_maximize = surface_maximize,
+  surface_removed = surface_removed,
+  output_create = output_create,
+  output_moved = output_moved,
+  output_resized = output_resized,
+}
+`
 
 // LaunchConfig describes a browser launch through bwrap.
 type LaunchConfig struct {
@@ -322,19 +531,16 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	if strings.TrimSpace(values.CompositorRenderer) != "gl" {
 		return fmt.Errorf("compositor renderer must be gl")
 	}
-	if strings.TrimSpace(values.CompositorShell) != "kiosk" {
-		return fmt.Errorf("compositor shell must be kiosk")
+	compositorShell := strings.TrimSpace(values.CompositorShell)
+	switch compositorShell {
+	case "kiosk", "desktop", "lua-shell", "lua-shell.so", "aperture", "aperture-weston-shell.so":
+	default:
+		return fmt.Errorf("compositor shell must be kiosk, desktop, or lua-shell")
 	}
 	if values.CompositorWidth <= 0 || values.CompositorHeight <= 0 {
 		return fmt.Errorf("compositor dimensions must be positive")
 	}
 	if values.MediaProducerEnabled {
-		if strings.TrimSpace(values.MediaProducerExecutable) == "" {
-			return fmt.Errorf("media producer executable is required")
-		}
-		if !filepath.IsAbs(values.MediaProducerExecutable) {
-			return fmt.Errorf("media producer executable must be absolute")
-		}
 		if strings.TrimSpace(values.MediaProducerGSTExecutable) == "" {
 			return fmt.Errorf("media producer gst executable is required")
 		}
@@ -353,12 +559,6 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		}
 		if strings.TrimSpace(values.MediaProducerTarget) == "" {
 			return fmt.Errorf("media producer target is required")
-		}
-		if strings.TrimSpace(values.MediaProducerSignalURL) == "" {
-			return fmt.Errorf("media producer signal URL is required")
-		}
-		if strings.TrimSpace(values.MediaProducerToken) == "" {
-			return fmt.Errorf("media producer token is required")
 		}
 	}
 	if err := ValidateCompositorBrowserArgs(values.BrowserDefaultArgs); err != nil {
@@ -382,19 +582,69 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		return fmt.Errorf("mkdir compositor cache dir: %w", err)
 	}
 
+	controlSocket := filepath.Join(values.CacheDir, "compositor.control")
+	if err := os.Remove(controlSocket); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale compositor control socket: %w", err)
+	}
+	ctx, stopWrapper := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopWrapper()
+	wrapper := newWrapperRuntime(values, controlSocket)
+	wrapperServer, wrapperDone, err := wrapper.serve(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = wrapperServer.Shutdown(shutdownCtx)
+	}()
 	compositorLog := filepath.Join(values.CacheDir, "weston.log")
-	compositor := exec.Command(values.CompositorExecutable,
-		"--backend="+values.CompositorBackend,
-		"--renderer="+values.CompositorRenderer,
-		"--shell="+values.CompositorShell,
-		fmt.Sprintf("--width=%d", values.CompositorWidth),
-		fmt.Sprintf("--height=%d", values.CompositorHeight),
-		"--socket="+socketName,
-		"--no-config",
+	compositorConfig := filepath.Join(values.CacheDir, "weston.ini")
+	compositorConfigBody := "[shell]\npanel-position=none\nbackground-color=0x000000\nlocking=false\nanimation=none\nstartup-animation=none\n"
+	apertureShellPath := ""
+	if compositorShell == "lua-shell" || compositorShell == "lua-shell.so" {
+		luaShellScript := filepath.Join(values.CacheDir, "aperture-shell.lua")
+		if err := os.WriteFile(luaShellScript, []byte(compositorLuaShellScript), 0o600); err != nil {
+			return fmt.Errorf("write compositor lua shell: %w", err)
+		}
+		compositorConfigBody = "[shell]\nlua-script=" + luaShellScript + "\n"
+		compositorShell = "lua-shell.so"
+	} else if compositorShell == "aperture" || compositorShell == "aperture-weston-shell.so" {
+		var err error
+		apertureShellPath, err = apertureWestonShellPath()
+		if err != nil {
+			return err
+		}
+		compositorShell = apertureShellPath
+	}
+	if err := os.WriteFile(compositorConfig, []byte(compositorConfigBody), 0o600); err != nil {
+		return fmt.Errorf("write compositor config: %w", err)
+	}
+	compositorWidth := values.CompositorWidth
+	compositorHeight := values.CompositorHeight
+	if compositorShell == apertureShellPath {
+		compositorWidth = max(compositorWidth, 1920)
+		compositorHeight = max(compositorHeight, 1080)
+	}
+	compositorArgs := []string{
+		"--backend=" + values.CompositorBackend,
+		"--renderer=" + values.CompositorRenderer,
+		"--shell=" + compositorShell,
+		"--socket=" + socketName,
+		fmt.Sprintf("--width=%d", compositorWidth),
+		fmt.Sprintf("--height=%d", compositorHeight),
 		"--idle-time=0",
-		"--log="+compositorLog,
-	)
+		"--log=" + compositorLog,
+		"--config=" + compositorConfig,
+	}
+	compositor := exec.Command(values.CompositorExecutable, compositorArgs...)
 	compositor.Env = compositorProcessEnv()
+	compositor.Env = append(
+		compositor.Env,
+		"APERTURE_CONTROL_SOCKET="+controlSocket,
+		"APERTURE_VIEWPORT_WIDTH="+strconv.Itoa(values.CompositorWidth),
+		"APERTURE_VIEWPORT_HEIGHT="+strconv.Itoa(values.CompositorHeight),
+	)
 	compositor.Stdout = os.Stdout
 	compositor.Stderr = os.Stderr
 	if err := compositor.Start(); err != nil {
@@ -428,10 +678,12 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	extraArgs := append([]string(nil), values.BrowserExtraArgs...)
 	extraArgs = append(extraArgs,
 		"--ozone-platform=wayland",
+		"--class="+compositorBrowserAppID,
 		"--ignore-gpu-blocklist",
 		"--enable-gpu-rasterization",
 		"--kiosk",
 		fmt.Sprintf("--window-size=%d,%d", values.CompositorWidth, values.CompositorHeight),
+		"about:blank",
 	)
 	browserCmd, err := BuildBwrapCommand(LaunchConfig{
 		BwrapPath:                bwrapPath,
@@ -460,87 +712,229 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		browserDone <- browserCmd.Wait()
 	}()
 
-	var producerCmd *exec.Cmd
-	var producerDone <-chan error
+	var mediaProducer *producer
+	mediaProducerTargetName := values.MediaProducerTarget
 	if values.MediaProducerEnabled {
+		if values.CompositorBackend == "pipewire" {
+			target, err := waitForPipeWireNodeTarget(
+				mediaProducerTargetName,
+				compositor.Process.Pid,
+				compositorDone,
+			)
+			if err != nil {
+				stopProcess(browserCmd, browserDone)
+				stopProcess(compositor, compositorDone)
+				return err
+			}
+			values.MediaProducerTarget = target
+			wrapper.setCaptureTarget(target, compositor.Process.Pid)
+			fmt.Fprintf(
+				os.Stderr,
+				"browser-session-wrapper: resolved PipeWire target %s for compositor pid %d\n",
+				target,
+				compositor.Process.Pid,
+			)
+		} else {
+			wrapper.setCaptureTarget(values.MediaProducerTarget, compositor.Process.Pid)
+		}
+
 		var err error
-		producerCmd, producerDone, err = startMediaProducer(values)
+		mediaProducer, err = newWebRTCProducer(values, controlSocket, mediaProducerTargetName, compositor.Process.Pid)
 		if err != nil {
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
 			return err
 		}
+		wrapper.setMediaProducer(mediaProducer)
 	}
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
 
-	select {
-	case err := <-browserDone:
-		stopProcess(producerCmd, producerDone)
-		stopProcess(compositor, compositorDone)
-		return err
-	case err := <-compositorDone:
-		stopProcess(producerCmd, producerDone)
-		stopProcess(browserCmd, browserDone)
-		if err != nil {
-			return fmt.Errorf("compositor exited before browser: %w", err)
+	for {
+		select {
+		case err := <-browserDone:
+			stopMediaProducer(mediaProducer)
+			stopProcess(compositor, compositorDone)
+			return err
+		case err := <-compositorDone:
+			stopMediaProducer(mediaProducer)
+			stopProcess(browserCmd, browserDone)
+			if err != nil {
+				return fmt.Errorf("compositor exited before browser: %w", err)
+			}
+			return fmt.Errorf("compositor exited before browser")
+		case err := <-wrapperDone:
+			stopMediaProducer(mediaProducer)
+			stopProcess(browserCmd, browserDone)
+			stopProcess(compositor, compositorDone)
+			if err != nil {
+				return fmt.Errorf("wrapper api exited: %w", err)
+			}
+			return fmt.Errorf("wrapper api exited")
+		case <-signals:
+			stopMediaProducer(mediaProducer)
+			stopProcess(browserCmd, browserDone)
+			stopProcess(compositor, compositorDone)
+			return nil
 		}
-		return fmt.Errorf("compositor exited before browser")
-	case err := <-producerDone:
-		stopProcess(browserCmd, browserDone)
-		stopProcess(compositor, compositorDone)
-		if err != nil {
-			return fmt.Errorf("media producer exited before browser: %w", err)
-		}
-		return fmt.Errorf("media producer exited before browser")
-	case <-signals:
-		stopProcess(producerCmd, producerDone)
-		stopProcess(browserCmd, browserDone)
-		stopProcess(compositor, compositorDone)
-		return nil
 	}
 }
 
-func startMediaProducer(values RuntimeEnvValues) (*exec.Cmd, <-chan error, error) {
-	cmd := exec.Command(values.MediaProducerExecutable)
-	cmd.Env = []string{
-		"APERTURE_SESSION_ID=" + values.SessionID,
-		"WEBRTC_COMPOSITOR_WIDTH=" + strconv.Itoa(values.CompositorWidth),
-		"WEBRTC_COMPOSITOR_HEIGHT=" + strconv.Itoa(values.CompositorHeight),
-		"WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE=" + values.MediaProducerGSTExecutable,
-		"WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH=" + values.MediaProducerPluginPath,
-		"WEBRTC_MEDIA_PRODUCER_SIGNAL_URL=" + values.MediaProducerSignalURL,
-		"WEBRTC_MEDIA_PRODUCER_TARGET=" + values.MediaProducerTarget,
-		"WEBRTC_MEDIA_PRODUCER_TOKEN=" + values.MediaProducerToken,
-	}
-	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS"} {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			cmd.Env = append(cmd.Env, key+"="+value)
-		}
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start media producer: %w", err)
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
-
-	timer := time.NewTimer(2 * time.Second)
+func waitForPipeWireNodeTarget(
+	targetName string,
+	compositorPID int,
+	compositorDone <-chan error,
+) (string, error) {
+	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
-	select {
-	case err := <-done:
-		if err != nil {
-			return nil, nil, fmt.Errorf("media producer exited during startup: %w", err)
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		select {
+		case err := <-compositorDone:
+			if err != nil {
+				return "", fmt.Errorf("compositor exited before PipeWire node was ready: %w", err)
+			}
+			return "", fmt.Errorf("compositor exited before PipeWire node was ready")
+		case <-timer.C:
+			if lastErr != nil {
+				return "", fmt.Errorf("timed out waiting for PipeWire node %q owned by pid %d: %w", targetName, compositorPID, lastErr)
+			}
+			return "", fmt.Errorf("timed out waiting for PipeWire node %q owned by pid %d", targetName, compositorPID)
+		case <-ticker.C:
+			target, err := ResolvePipeWireNodeTarget(targetName, compositorPID)
+			if err == nil {
+				return target, nil
+			}
+			if !errors.Is(err, errPipeWireNodeNotFound) {
+				return "", err
+			}
+			lastErr = err
 		}
-		return nil, nil, fmt.Errorf("media producer exited during startup")
-	case <-timer.C:
-		return cmd, done, nil
+	}
+}
+
+func ResolvePipeWireNodeTarget(targetName string, compositorPID int) (string, error) {
+	targetName = strings.TrimSpace(targetName)
+	if targetName == "" {
+		return "", fmt.Errorf("pipewire target name is required")
+	}
+
+	pwDump, err := exec.LookPath("pw-dump")
+	if err != nil {
+		return "", fmt.Errorf("locate pw-dump: %w", err)
+	}
+
+	cmd := exec.Command(pwDump)
+	body, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("run pw-dump: %w: %s", err, strings.TrimSpace(string(body)))
+	}
+
+	var dump []pipeWireDumpObject
+	if err := json.Unmarshal(body, &dump); err != nil {
+		return "", fmt.Errorf("decode pw-dump: %w", err)
+	}
+
+	clientPIDs := make(map[int]int)
+	for _, object := range dump {
+		if object.Type != "PipeWire:Interface:Client" {
+			continue
+		}
+		props := object.properties()
+		pid, ok := intPipeWireProperty(props, "application.process.id")
+		if !ok {
+			pid, ok = intPipeWireProperty(props, "pipewire.sec.pid")
+		}
+		if !ok {
+			continue
+		}
+		clientPIDs[object.ID] = pid
+	}
+
+	var named []pipeWireDumpObject
+	for _, object := range dump {
+		if object.Type != "PipeWire:Interface:Node" {
+			continue
+		}
+		props := object.properties()
+		if stringPipeWireProperty(props, "node.name") != targetName {
+			continue
+		}
+		if mediaClass := stringPipeWireProperty(props, "media.class"); mediaClass != "" && mediaClass != "Stream/Output/Video" {
+			continue
+		}
+		named = append(named, object)
+
+		clientID, ok := intPipeWireProperty(props, "client.id")
+		if !ok || clientPIDs[clientID] != compositorPID {
+			continue
+		}
+		serial := stringPipeWireProperty(props, "object.serial")
+		if serial == "" {
+			return "", fmt.Errorf("PipeWire node %q owned by pid %d has no object.serial", targetName, compositorPID)
+		}
+		return serial, nil
+	}
+
+	if len(named) == 1 {
+		serial := stringPipeWireProperty(named[0].properties(), "object.serial")
+		if serial == "" {
+			return "", fmt.Errorf("PipeWire node %q has no object.serial", targetName)
+		}
+		return serial, nil
+	}
+	if len(named) > 1 {
+		return "", fmt.Errorf("%w: %d PipeWire nodes named %q, none owned by pid %d", errPipeWireNodeNotFound, len(named), targetName, compositorPID)
+	}
+	return "", fmt.Errorf("%w: %q owned by pid %d", errPipeWireNodeNotFound, targetName, compositorPID)
+}
+
+type pipeWireDumpObject struct {
+	ID    int                  `json:"id"`
+	Type  string               `json:"type"`
+	Info  pipeWireDumpInfo     `json:"info"`
+	Props pipeWireDumpProperty `json:"props"`
+}
+
+type pipeWireDumpInfo struct {
+	Props pipeWireDumpProperty `json:"props"`
+}
+
+type pipeWireDumpProperty map[string]any
+
+func (object pipeWireDumpObject) properties() pipeWireDumpProperty {
+	if object.Info.Props != nil {
+		return object.Info.Props
+	}
+	return object.Props
+}
+
+func intPipeWireProperty(props pipeWireDumpProperty, key string) (int, bool) {
+	switch value := props[key].(type) {
+	case float64:
+		return int(value), true
+	case string:
+		parsed, err := strconv.Atoi(value)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func stringPipeWireProperty(props pipeWireDumpProperty, key string) string {
+	switch value := props[key].(type) {
+	case string:
+		return value
+	case float64:
+		return strconv.Itoa(int(value))
+	default:
+		return ""
 	}
 }
 
@@ -577,6 +971,12 @@ func waitForWaylandSocket(socketPath string, compositorDone <-chan error) error 
 				return fmt.Errorf("stat compositor Wayland socket: %w", err)
 			}
 		}
+	}
+}
+
+func stopMediaProducer(mediaProducer *producer) {
+	if mediaProducer != nil {
+		mediaProducer.stopPeer()
 	}
 }
 
@@ -621,6 +1021,10 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	if portRaw == "" {
 		return RuntimeEnvValues{}, fmt.Errorf("missing required env CDP_PORT")
 	}
+	wrapperPortRaw := strings.TrimSpace(os.Getenv("WRAPPER_PORT"))
+	if wrapperPortRaw == "" {
+		return RuntimeEnvValues{}, fmt.Errorf("missing required env WRAPPER_PORT")
+	}
 
 	values := RuntimeEnvValues{
 		SessionID:         *required["APERTURE_SESSION_ID"],
@@ -633,6 +1037,9 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 
 	if _, err := fmt.Sscanf(portRaw, "%d", &values.CDPPort); err != nil {
 		return RuntimeEnvValues{}, fmt.Errorf("parse cdp port: %w", err)
+	}
+	if _, err := fmt.Sscanf(wrapperPortRaw, "%d", &values.WrapperPort); err != nil {
+		return RuntimeEnvValues{}, fmt.Errorf("parse wrapper port: %w", err)
 	}
 
 	if encoded := strings.TrimSpace(os.Getenv("BROWSER_DEFAULT_ARGS")); encoded != "" {
@@ -656,12 +1063,11 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.CompositorRenderer = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_RENDERER"))
 	values.CompositorShell = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_SHELL"))
 	values.MediaProducerEnabled = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ENABLED")) == "1"
-	values.MediaProducerExecutable = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_EXECUTABLE"))
 	values.MediaProducerGSTExecutable = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE"))
 	values.MediaProducerPluginPath = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH"))
-	values.MediaProducerSignalURL = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_SIGNAL_URL"))
 	values.MediaProducerTarget = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TARGET"))
-	values.MediaProducerToken = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TOKEN"))
+	values.MediaProducerICEServers = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ICE_SERVERS"))
+	values.MediaProducerCodec = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_CODEC"))
 	if width := strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_WIDTH")); width != "" {
 		parsed, err := strconv.Atoi(width)
 		if err != nil {
@@ -675,6 +1081,27 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 			return RuntimeEnvValues{}, fmt.Errorf("parse compositor height: %w", err)
 		}
 		values.CompositorHeight = parsed
+	}
+	if fps := strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_FPS")); fps != "" {
+		parsed, err := strconv.Atoi(fps)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse media producer fps: %w", err)
+		}
+		values.MediaProducerFPS = parsed
+	}
+	if bitrate := strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_BITRATE_KBPS")); bitrate != "" {
+		parsed, err := strconv.Atoi(bitrate)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse media producer bitrate: %w", err)
+		}
+		values.MediaProducerBitrateKbps = parsed
+	}
+	if keyframe := strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_KEYFRAME_INTERVAL")); keyframe != "" {
+		parsed, err := strconv.Atoi(keyframe)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse media producer keyframe interval: %w", err)
+		}
+		values.MediaProducerKeyframe = parsed
 	}
 
 	if err := ensureSessionPaths(values); err != nil {

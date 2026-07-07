@@ -18,9 +18,12 @@ import { AppWindow, Loader2 } from "lucide-react";
 
 type SessionWorkbenchProps = {
   sessionId: string;
+  forceCDPMedia?: boolean;
 };
 
-export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
+const emptyIceServers: RTCIceServer[] = [];
+
+export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWorkbenchProps) {
   const credentials = useApiCredentials();
   const scopes = useActiveScopes();
   const canControl = hasScope(scopes, "sessions:write");
@@ -31,8 +34,10 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   const control = useBrowserControl({
     sessionId: selectedSession?.status === "running" ? selectedSession.id : null,
     enabled: canControl && tenantReady && selectedSession?.status === "running",
+    forceCDPMedia,
     webrtcProducerSupported:
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
+    webrtcIceServers: selectedSession?.media.iceServers ?? emptyIceServers,
   });
 
   if (!tenantReady) {

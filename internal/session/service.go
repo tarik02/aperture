@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -77,6 +75,7 @@ func NewService(
 type CreateInput struct {
 	TenantID         string
 	BaseSnapshotName *string
+	Label            *string
 	BrowserChannel   string
 	BrowserArgs      []string
 	Tags             map[string]string
@@ -96,6 +95,7 @@ type SessionView struct {
 type SessionMediaView struct {
 	Mode           string
 	WebRTCProducer bool
+	ICEServers     []config.WebRTCICEServer
 }
 
 // Create creates and starts a browser session.
@@ -152,6 +152,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		ID:              sessionID,
 		TenantID:        input.TenantID,
 		BaseSnapshotID:  baseSnapshotID,
+		Label:           normalizedOptionalString(input.Label),
 		Status:          db.SessionStatusCreating,
 		OverlayPath:     layout.Root,
 		UpperPath:       layout.Upper,
@@ -200,23 +201,14 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		_ = s.markFailed(ctx, sessionRow, "cdp port allocation failed", err)
 		return nil, err
 	}
+	wrapperPort, err := AllocateCDPPort(port)
+	if err != nil {
+		_ = s.markFailed(ctx, sessionRow, "wrapper port allocation failed", err)
+		return nil, err
+	}
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-
-	var rawMediaToken string
-	if mediaProducerEnabled {
-		var mediaHash string
-		rawMediaToken, mediaHash, err = GenerateMediaToken(sessionID)
-		if err != nil {
-			_ = s.markFailed(ctx, sessionRow, "media token generation failed", err)
-			return nil, err
-		}
-		if err := StoreMediaTokenHash(s.cfg, sessionID, mediaHash); err != nil {
-			_ = s.markFailed(ctx, sessionRow, "media token storage failed", err)
-			return nil, err
-		}
-	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
 		SessionID:                  sessionID,
@@ -225,6 +217,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		CacheDir:                   layout.Cache,
 		ArtifactsDir:               layout.Artifacts,
 		CDPPort:                    port,
+		WrapperPort:                wrapperPort,
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           input.BrowserArgs,
@@ -237,12 +230,14 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
 		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
 		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerExecutable:    s.cfg.WebRTCMediaProducerExecutable,
 		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
 		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerSignalURL:     mediaProducerSignalURL(s.cfg, sessionID),
 		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerToken:         rawMediaToken,
+		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
+		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
+		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
+		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
+		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
@@ -286,6 +281,17 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		CDPToken:         rawCDP,
 		Media:            s.sessionMediaView(*sessionRow),
 	}, nil
+}
+
+func normalizedOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 // Delete tombstones a session and stops its browser.
@@ -407,23 +413,14 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
+	wrapperPort, err := AllocateCDPPort(port)
+	if err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
+	}
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-
-	var rawMediaToken string
-	if mediaProducerEnabled {
-		var mediaHash string
-		rawMediaToken, mediaHash, err = GenerateMediaToken(sessionID)
-		if err != nil {
-			_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-			return nil, err
-		}
-		if err := StoreMediaTokenHash(s.cfg, sessionID, mediaHash); err != nil {
-			_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-			return nil, err
-		}
-	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
 		SessionID:                  sessionID,
@@ -432,6 +429,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		CacheDir:                   layout.Cache,
 		ArtifactsDir:               layout.Artifacts,
 		CDPPort:                    port,
+		WrapperPort:                wrapperPort,
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
@@ -444,12 +442,14 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
 		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
 		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerExecutable:    s.cfg.WebRTCMediaProducerExecutable,
 		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
 		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerSignalURL:     mediaProducerSignalURL(s.cfg, sessionID),
 		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerToken:         rawMediaToken,
+		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
+		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
+		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
+		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
+		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
@@ -816,31 +816,20 @@ func (s *Service) sessionMediaView(sessionRow db.Session) SessionMediaView {
 	if err != nil {
 		return view
 	}
-	if _, err := LoadMediaTokenHash(s.cfg, sessionRow.ID); err != nil {
-		return view
-	}
 	view.WebRTCProducer = values.CompositorEnabled && values.MediaProducerEnabled
+	view.ICEServers = append([]config.WebRTCICEServer(nil), s.cfg.WebRTCICEServers...)
 	return view
 }
 
-func mediaProducerSignalURL(cfg config.Config, sessionID string) string {
-	host := strings.TrimSpace(cfg.ListenAddress)
-	if splitHost, port, err := net.SplitHostPort(host); err == nil {
-		switch splitHost {
-		case "", "0.0.0.0", "::", "[::]":
-			splitHost = "127.0.0.1"
-		}
-		host = net.JoinHostPort(splitHost, port)
-	} else if strings.HasPrefix(host, ":") {
-		host = "127.0.0.1" + host
+func mediaProducerICEServers(cfg config.Config) string {
+	if len(cfg.WebRTCICEServers) == 0 {
+		return ""
 	}
-
-	return (&url.URL{
-		Scheme:   "ws",
-		Host:     host,
-		Path:     "/api/webrtc/" + sessionID + "/signal",
-		RawQuery: "role=producer",
-	}).String()
+	data, err := json.Marshal(cfg.WebRTCICEServers)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func (s *Service) requireTenantSession(ctx context.Context, tenantID, sessionID string) (*db.Session, error) {
@@ -870,9 +859,6 @@ func (s *Service) replaceTags(ctx context.Context, sessionID string, tags map[st
 }
 
 func (s *Service) retireMediaSession(sessionID string) error {
-	if err := RemoveMediaTokenHash(s.cfg, sessionID); err != nil {
-		return err
-	}
 	s.closeMediaSession(sessionID)
 	return nil
 }
@@ -933,6 +919,9 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 		return err
 	}
 	s.closeMediaSession(sessionRow.ID)
+	if err := s.traefik.Reconcile(ctx); err != nil {
+		return err
+	}
 	return s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause)
 }
 

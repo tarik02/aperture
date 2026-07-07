@@ -57,8 +57,10 @@ func Validate(cfg Config) error {
 		if strings.TrimSpace(cfg.WebRTCCompositorRenderer) != "gl" {
 			errs = append(errs, errors.New("webrtc_compositor_renderer must be gl when webrtc_compositor_enabled is true"))
 		}
-		if strings.TrimSpace(cfg.WebRTCCompositorShell) != "kiosk" {
-			errs = append(errs, errors.New("webrtc_compositor_shell must be kiosk when webrtc_compositor_enabled is true"))
+		switch strings.TrimSpace(cfg.WebRTCCompositorShell) {
+		case "kiosk", "desktop", "lua-shell", "lua-shell.so", "aperture", "aperture-weston-shell.so":
+		default:
+			errs = append(errs, errors.New("webrtc_compositor_shell must be kiosk, desktop, or lua-shell when webrtc_compositor_enabled is true"))
 		}
 		if cfg.WebRTCCompositorWidth <= 0 {
 			errs = append(errs, errors.New("webrtc_compositor_width must be positive when webrtc_compositor_enabled is true"))
@@ -70,11 +72,6 @@ func Validate(cfg Config) error {
 	if webRTCRuntimeEnabled && cfg.WebRTCMediaProducerEnabled {
 		if !cfg.WebRTCCompositorEnabled {
 			errs = append(errs, errors.New("webrtc_media_producer_enabled requires webrtc_compositor_enabled"))
-		}
-		if executable := strings.TrimSpace(cfg.WebRTCMediaProducerExecutable); executable == "" {
-			errs = append(errs, errors.New("webrtc_media_producer_executable is required when webrtc_media_producer_enabled is true"))
-		} else if !filepath.IsAbs(executable) {
-			errs = append(errs, errors.New("webrtc_media_producer_executable must be an absolute path"))
 		}
 		if executable := strings.TrimSpace(cfg.WebRTCMediaProducerGSTExecutable); executable == "" {
 			errs = append(errs, errors.New("webrtc_media_producer_gst_executable is required when webrtc_media_producer_enabled is true"))
@@ -94,6 +91,42 @@ func Validate(cfg Config) error {
 		}
 		if strings.TrimSpace(cfg.WebRTCMediaProducerTarget) == "" {
 			errs = append(errs, errors.New("webrtc_media_producer_target is required when webrtc_media_producer_enabled is true"))
+		}
+		switch strings.ToLower(strings.TrimSpace(cfg.WebRTCMediaProducerCodec)) {
+		case WebRTCMediaProducerCodecVP8, WebRTCMediaProducerCodecH264:
+		default:
+			errs = append(errs, errors.New("webrtc_media_producer_codec must be vp8 or h264-va"))
+		}
+		if cfg.WebRTCMediaProducerFPS <= 0 || cfg.WebRTCMediaProducerFPS > 120 {
+			errs = append(errs, errors.New("webrtc_media_producer_fps must be between 1 and 120"))
+		}
+		if cfg.WebRTCMediaProducerBitrateKbps <= 0 {
+			errs = append(errs, errors.New("webrtc_media_producer_bitrate_kbps must be positive"))
+		}
+		if cfg.WebRTCMediaProducerKeyframe <= 0 {
+			errs = append(errs, errors.New("webrtc_media_producer_keyframe_interval must be positive"))
+		}
+	}
+	for index, server := range cfg.WebRTCICEServers {
+		if len(server.URLs) == 0 {
+			errs = append(errs, fmt.Errorf("webrtc_ice_servers[%d].urls is required", index))
+			continue
+		}
+		for _, rawURL := range server.URLs {
+			parsed, err := url.Parse(strings.TrimSpace(rawURL))
+			if err != nil || parsed.Scheme == "" {
+				errs = append(errs, fmt.Errorf("webrtc_ice_servers[%d].urls contains an invalid URL", index))
+				continue
+			}
+			switch parsed.Scheme {
+			case "stun", "stuns":
+			case "turn", "turns":
+				if strings.TrimSpace(server.Username) == "" || strings.TrimSpace(server.Credential) == "" {
+					errs = append(errs, fmt.Errorf("webrtc_ice_servers[%d] TURN credentials are required", index))
+				}
+			default:
+				errs = append(errs, fmt.Errorf("webrtc_ice_servers[%d].urls scheme must be stun, stuns, turn, or turns", index))
+			}
 		}
 	}
 

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Aperture WebRTC Capture Proof",
   "version": "0.1.0",
-  "description": "Prototype tab capture proof for Aperture-controlled Chromium sessions.",
-  "permissions": ["offscreen", "tabCapture", "tabs"],
+  "description": "Prototype desktop capture proof for Aperture-controlled Chromium sessions.",
+  "permissions": ["desktopCapture", "offscreen", "tabs"],
   "background": {
     "service_worker": "service_worker.js",
     "type": "module"

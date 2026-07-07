@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/gin-gonic/gin"
 )
@@ -14,11 +15,13 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
 		BaseSnapshotName: view.BaseSnapshotName,
+		Label:            view.Session.Label,
 		Status:           view.Session.Status,
 		BrowserChannel:   view.Session.BrowserChannel,
 		Media: sessionMedia{
 			Mode:           view.Media.Mode,
 			WebRTCProducer: view.Media.WebRTCProducer,
+			ICEServers:     toICEServerResponses(view.Media.ICEServers),
 		},
 		CreatedAt: view.Session.CreatedAt,
 		StartedAt: view.Session.StartedAt,
@@ -31,6 +34,21 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 		resp.CDPURL = view.CDPURL
 	}
 	return resp
+}
+
+func toICEServerResponses(servers []config.WebRTCICEServer) []iceServerResponse {
+	if len(servers) == 0 {
+		return nil
+	}
+	responses := make([]iceServerResponse, 0, len(servers))
+	for _, server := range servers {
+		responses = append(responses, iceServerResponse{
+			URLs:       append([]string(nil), server.URLs...),
+			Username:   server.Username,
+			Credential: server.Credential,
+		})
+	}
+	return responses
 }
 
 func (s *Server) createSession(c *gin.Context) {
@@ -60,6 +78,7 @@ func (s *Server) createSession(c *gin.Context) {
 	view, err := s.Sessions.Create(c.Request.Context(), session.CreateInput{
 		TenantID:         tenantIDFromContext(c),
 		BaseSnapshotName: req.BaseSnapshotName,
+		Label:            req.Label,
 		BrowserChannel:   req.Browser.Channel,
 		BrowserArgs:      req.Browser.Args,
 		Tags:             req.Tags,

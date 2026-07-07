@@ -73,6 +73,7 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 		layout.Downloads,
 		layout.Cache,
 		layout.Metadata,
+		layout.Artifacts,
 		layout.Logs,
 		layout.CrashDumps,
 		lowerDir,
@@ -118,6 +119,7 @@ func chownSessionTreeToInvoker(layout paths.SessionLayout) error {
 		layout.Downloads,
 		layout.Cache,
 		layout.Metadata,
+		layout.Artifacts,
 		layout.Logs,
 		layout.CrashDumps,
 	} {

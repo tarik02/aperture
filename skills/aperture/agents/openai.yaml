@@ -1,0 +1,7 @@
+interface:
+  display_name: "Aperture API"
+  short_description: "Use the Aperture REST and session APIs"
+  default_prompt: "Use $aperture to inspect sessions and control a browser session through the Aperture API."
+
+policy:
+  allow_implicit_invocation: true

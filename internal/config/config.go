@@ -14,14 +14,23 @@ const (
 	envPrefix     = "APERTURE"
 	defaultConfig = "aperture"
 
-	WebRTCMediaModeAuto = "auto"
-	WebRTCMediaModeCDP  = "cdp"
+	WebRTCMediaModeAuto          = "auto"
+	WebRTCMediaModeCDP           = "cdp"
+	WebRTCMediaProducerCodecVP8  = "vp8"
+	WebRTCMediaProducerCodecH264 = "h264-va"
 )
 
 // ChannelConfig describes a configured browser channel.
 type ChannelConfig struct {
 	Executable  string   `mapstructure:"executable"`
 	DefaultArgs []string `mapstructure:"default_args"`
+}
+
+// WebRTCICEServer describes a STUN/TURN server shared by producer and viewer.
+type WebRTCICEServer struct {
+	URLs       []string `mapstructure:"urls" json:"urls"`
+	Username   string   `mapstructure:"username" json:"username,omitempty"`
+	Credential string   `mapstructure:"credential" json:"credential,omitempty"`
 }
 
 // Config holds resolved runtime configuration decoded from Viper.
@@ -48,10 +57,14 @@ type Config struct {
 	WebRTCCompositorWidth            int                      `mapstructure:"webrtc_compositor_width"`
 	WebRTCCompositorHeight           int                      `mapstructure:"webrtc_compositor_height"`
 	WebRTCMediaProducerEnabled       bool                     `mapstructure:"webrtc_media_producer_enabled"`
-	WebRTCMediaProducerExecutable    string                   `mapstructure:"webrtc_media_producer_executable"`
 	WebRTCMediaProducerGSTExecutable string                   `mapstructure:"webrtc_media_producer_gst_executable"`
 	WebRTCMediaProducerPluginPath    string                   `mapstructure:"webrtc_media_producer_plugin_path"`
 	WebRTCMediaProducerTarget        string                   `mapstructure:"webrtc_media_producer_target"`
+	WebRTCMediaProducerCodec         string                   `mapstructure:"webrtc_media_producer_codec"`
+	WebRTCMediaProducerFPS           int                      `mapstructure:"webrtc_media_producer_fps"`
+	WebRTCMediaProducerBitrateKbps   int                      `mapstructure:"webrtc_media_producer_bitrate_kbps"`
+	WebRTCMediaProducerKeyframe      int                      `mapstructure:"webrtc_media_producer_keyframe_interval"`
+	WebRTCICEServers                 []WebRTCICEServer        `mapstructure:"webrtc_ice_servers"`
 	LogLevel                         string                   `mapstructure:"log_level"`
 	ConfigFile                       string                   `mapstructure:"-"`
 }
@@ -84,10 +97,14 @@ func Defaults() Config {
 		WebRTCCompositorWidth:            1280,
 		WebRTCCompositorHeight:           720,
 		WebRTCMediaProducerEnabled:       false,
-		WebRTCMediaProducerExecutable:    "",
 		WebRTCMediaProducerGSTExecutable: "",
 		WebRTCMediaProducerPluginPath:    "",
 		WebRTCMediaProducerTarget:        "weston.pipewire",
+		WebRTCMediaProducerCodec:         WebRTCMediaProducerCodecVP8,
+		WebRTCMediaProducerFPS:           60,
+		WebRTCMediaProducerBitrateKbps:   6000,
+		WebRTCMediaProducerKeyframe:      120,
+		WebRTCICEServers:                 nil,
 		LogLevel:                         "info",
 	}
 }
@@ -137,6 +154,11 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("webrtc_compositor_height", defaults.WebRTCCompositorHeight)
 	v.SetDefault("webrtc_media_producer_enabled", defaults.WebRTCMediaProducerEnabled)
 	v.SetDefault("webrtc_media_producer_target", defaults.WebRTCMediaProducerTarget)
+	v.SetDefault("webrtc_media_producer_codec", defaults.WebRTCMediaProducerCodec)
+	v.SetDefault("webrtc_media_producer_fps", defaults.WebRTCMediaProducerFPS)
+	v.SetDefault("webrtc_media_producer_bitrate_kbps", defaults.WebRTCMediaProducerBitrateKbps)
+	v.SetDefault("webrtc_media_producer_keyframe_interval", defaults.WebRTCMediaProducerKeyframe)
+	v.SetDefault("webrtc_ice_servers", defaults.WebRTCICEServers)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if configFile := flags.GetString("config"); configFile != "" {
@@ -169,10 +191,14 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_compositor_width",
 		"webrtc_compositor_height",
 		"webrtc_media_producer_enabled",
-		"webrtc_media_producer_executable",
 		"webrtc_media_producer_gst_executable",
 		"webrtc_media_producer_plugin_path",
 		"webrtc_media_producer_target",
+		"webrtc_media_producer_codec",
+		"webrtc_media_producer_fps",
+		"webrtc_media_producer_bitrate_kbps",
+		"webrtc_media_producer_keyframe_interval",
+		"webrtc_ice_servers",
 		"log_level",
 	} {
 		if err := v.BindEnv(key); err != nil {
@@ -237,31 +263,34 @@ func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
 
 func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 	flagBindings := map[string]string{
-		"listen-address":                       "listen_address",
-		"log-level":                            "log_level",
-		"store-root":                           "store_root",
-		"runtime-root":                         "runtime_root",
-		"artifact-root":                        "artifact_root",
-		"database-path":                        "database_path",
-		"traefik-dynamic-config-path":          "traefik_dynamic_config_path",
-		"systemd-browser-unit-name":            "systemd_browser_unit_name",
-		"session-retention-days":               "session_retention_days",
-		"snapshot-retention-days":              "snapshot_retention_days",
-		"external-base-url":                    "external_base_url",
-		"cdp-route-base-path":                  "cdp_route_base_path",
-		"webrtc-media-mode":                    "webrtc_media_mode",
-		"webrtc-compositor-enabled":            "webrtc_compositor_enabled",
-		"webrtc-compositor-executable":         "webrtc_compositor_executable",
-		"webrtc-compositor-backend":            "webrtc_compositor_backend",
-		"webrtc-compositor-renderer":           "webrtc_compositor_renderer",
-		"webrtc-compositor-shell":              "webrtc_compositor_shell",
-		"webrtc-compositor-width":              "webrtc_compositor_width",
-		"webrtc-compositor-height":             "webrtc_compositor_height",
-		"webrtc-media-producer-enabled":        "webrtc_media_producer_enabled",
-		"webrtc-media-producer-executable":     "webrtc_media_producer_executable",
-		"webrtc-media-producer-gst-executable": "webrtc_media_producer_gst_executable",
-		"webrtc-media-producer-plugin-path":    "webrtc_media_producer_plugin_path",
-		"webrtc-media-producer-target":         "webrtc_media_producer_target",
+		"listen-address":                          "listen_address",
+		"log-level":                               "log_level",
+		"store-root":                              "store_root",
+		"runtime-root":                            "runtime_root",
+		"artifact-root":                           "artifact_root",
+		"database-path":                           "database_path",
+		"traefik-dynamic-config-path":             "traefik_dynamic_config_path",
+		"systemd-browser-unit-name":               "systemd_browser_unit_name",
+		"session-retention-days":                  "session_retention_days",
+		"snapshot-retention-days":                 "snapshot_retention_days",
+		"external-base-url":                       "external_base_url",
+		"cdp-route-base-path":                     "cdp_route_base_path",
+		"webrtc-media-mode":                       "webrtc_media_mode",
+		"webrtc-compositor-enabled":               "webrtc_compositor_enabled",
+		"webrtc-compositor-executable":            "webrtc_compositor_executable",
+		"webrtc-compositor-backend":               "webrtc_compositor_backend",
+		"webrtc-compositor-renderer":              "webrtc_compositor_renderer",
+		"webrtc-compositor-shell":                 "webrtc_compositor_shell",
+		"webrtc-compositor-width":                 "webrtc_compositor_width",
+		"webrtc-compositor-height":                "webrtc_compositor_height",
+		"webrtc-media-producer-enabled":           "webrtc_media_producer_enabled",
+		"webrtc-media-producer-gst-executable":    "webrtc_media_producer_gst_executable",
+		"webrtc-media-producer-plugin-path":       "webrtc_media_producer_plugin_path",
+		"webrtc-media-producer-target":            "webrtc_media_producer_target",
+		"webrtc-media-producer-codec":             "webrtc_media_producer_codec",
+		"webrtc-media-producer-fps":               "webrtc_media_producer_fps",
+		"webrtc-media-producer-bitrate-kbps":      "webrtc_media_producer_bitrate_kbps",
+		"webrtc-media-producer-keyframe-interval": "webrtc_media_producer_keyframe_interval",
 	}
 
 	for flagName, configKey := range flagBindings {

@@ -38,6 +38,8 @@ export type ClientMessage =
   | { type: "targets.create"; url?: string }
   | { type: "targets.close"; targetId: string }
   | { type: "page.navigate"; targetId: string; url: string }
+  | { type: "page.historyBack"; targetId: string }
+  | { type: "page.historyForward"; targetId: string }
   | { type: "page.reload"; targetId: string }
   | { type: "page.stopLoading"; targetId: string }
   | {

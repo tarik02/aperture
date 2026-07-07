@@ -5,9 +5,10 @@
 Use a nested compositor as the first-choice viewport video producer. Launch the
 browser inside that compositor in kiosk/fullscreen mode, stream the compositor
 viewport through PipeWire/WebRTC, and keep CDP for tab state, navigation,
-viewport emulation, input, clipboard, and the existing API CDP proxy. Keep CDP
-screencast as the fallback media path whenever the compositor/WebRTC path cannot
-produce a live video track.
+viewport emulation, clipboard, and the existing API CDP proxy. When WebRTC is
+live, input must travel over the WebRTC data channel into compositor-level input
+injection, not CDP. Keep CDP screencast and CDP input as the fallback media path
+whenever the compositor/WebRTC path cannot produce a live video track.
 
 Go remains the coordinator. It owns auth, session lookup, lifecycle, per-session
 runtime files, compositor/browser launch, signaling, and feature state. It must
@@ -24,7 +25,13 @@ server.
 ## Hard constraints
 
 - WebRTC replaces only the primary frame transport.
-- CDP stays the source of truth for browser targets and all control messages.
+- CDP stays the source of truth for browser targets, navigation, viewport
+  metadata, clipboard, and the public CDP proxy.
+- When WebRTC is live, pointer, wheel, and keyboard input must go through the
+  WebRTC data channel.
+- Do not use CDP for input while the WebRTC media path is live.
+- Do not use VNC/RDP for graphics or input in the WebRTC path.
+- Keep one compositor output for capture and input targeting.
 - The UI must be usable through CDP screencast when WebRTC fails.
 - WebRTC work stays behind a disabled-by-default or auto-fallback feature path
   until the full validation set passes.
@@ -76,6 +83,23 @@ Current separate-deployment blocker:
   `/etc/aperture/aperture.toml`. Until that is changed, compositor validation
   must use isolated user units/manual proof commands or a direct-mount proof
   harness rather than a second `aperture serve` that starts full sessions.
+
+## Fixed input decision, 2026-07-06
+
+The VNC input experiment is rejected. Weston VNC input targets a VNC backend
+output, while the browser is routed to the PipeWire output, so input and capture
+can diverge.
+
+Required architecture:
+
+- Weston keeps a single PipeWire-captured output.
+- Browser input goes over the existing WebRTC peer connection data channel.
+- The producer translates data channel messages into libei sender events.
+- A Weston module hosts libeis, creates a virtual Weston seat, and injects
+  pointer, wheel, and keyboard events into the same compositor that PipeWire
+  captures.
+- CDP input is allowed only on the CDP fallback path after WebRTC fails or when
+  WebRTC is disabled.
 
 ## Bailout rules
 
@@ -677,6 +701,48 @@ Bail out if:
     deterministically, keep `webrtc_media_mode = "cdp"` or keep producer support
     disabled.
 
+## Stage 11, WebRTC data-channel input through libei/libeis
+
+Status: local spike implemented, live validation pending.
+
+Goal: make WebRTC sessions controllable without CDP input and without VNC.
+
+Work:
+
+- Package `aperture-weston-eis-input.so` as a Weston frontend module.
+- Load the module per session with `--modules=<module path>`.
+- Pass a per-session Unix socket to Weston through `APERTURE_EIS_SOCKET`.
+- Have the module create a virtual Weston seat with pointer, keyboard, button,
+  and scroll capabilities.
+- Have the module host a libeis server and inject received EIS events through
+  Weston `notify_*` input APIs.
+- Have `webrtc-media-producer` create the `input` RTCDataChannel for every
+  WebRTC peer and connect a libei sender to the module socket.
+- Translate existing browser input messages into libei absolute pointer,
+  button, scroll, and evdev keyboard events.
+- Fail loudly with producer health codes and stderr logs if socket setup,
+  libei negotiation, or input dispatch fails.
+- Keep CDP input only for `webrtc_media_mode = "cdp"` or after WebRTC fallback.
+
+Validation:
+
+- `nix develop -c go build ./cmd/aperture ./cmd/browser-session-wrapper ./cmd/webrtc-media-producer`
+- Compile `native/weston-eis-input/aperture-weston-eis-input.c` against
+  Weston/libeis headers.
+- Built module exports `wet_module_init`.
+- `nix build .#aperture` after the new files are tracked by git.
+- Live session shows a single PipeWire output, WebRTC video track, open input
+  data channel, libei device resume, and click/typing affecting Chromium.
+- CDP input is not used while `mediaPath = "webrtc-live"`.
+
+Bail out if:
+
+- Weston cannot load the module with the packaged ABI.
+- The module cannot create a virtual seat or route events to Chromium.
+- libei/libeis negotiation does not resume a device before input timeout.
+- Key mapping is too incomplete for normal browser text entry.
+- Any fix requires adding VNC/RDP graphics or input back into the WebRTC path.
+
 ## Open decisions
 
 - Whether remote deployments need TURN on day one. If yes, add explicit TURN
@@ -697,6 +763,6 @@ Bail out if:
 - Chrome `tabCapture` API: https://developer.chrome.com/docs/extensions/reference/api/tabCapture
 - Chrome `offscreen` API: https://developer.chrome.com/docs/extensions/reference/api/offscreen
 - Chrome extension screen capture guide: https://developer.chrome.com/docs/extensions/how-to/web-platform/screen-capture
-- Weston `headless`, `pipewire`, and `vnc` backends: `weston --help`
-- Weston VNC backend details: `man weston-vnc`
+- Weston `headless` and `pipewire` backends: `weston --help`
+- libei/libeis emulated input: https://libinput.pages.freedesktop.org/libei/
 - GStreamer PipeWire source: `gst-inspect-1.0 pipewiresrc`

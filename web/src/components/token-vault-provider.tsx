@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { TokenFormDialog } from "#/components/token-form-dialog.tsx";
+import { WelcomeTokenAuthModal } from "#/features/token/auth-modal/token-auth-modal.tsx";
 import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
@@ -23,12 +23,7 @@ export function TokenVaultProvider({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
-      <TokenFormDialog
-        mode="welcome"
-        open={needsWelcome}
-        onOpenChange={() => undefined}
-        dismissible={false}
-      />
+      <WelcomeTokenAuthModal open={needsWelcome} onOpenChange={() => undefined} />
     </>
   );
 }

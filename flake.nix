@@ -37,6 +37,114 @@
             lib.cleanSourceFilter path type && !isPackageSourceExcluded path;
         };
 
+        patchedWeston = pkgs.weston.overrideAttrs (oldAttrs: {
+          patches = (oldAttrs.patches or [ ]) ++ [
+            (builtins.toFile "weston-pipewire-reconnect-on-mode-switch.patch" ''
+              diff --git a/libweston/compositor.c b/libweston/compositor.c
+              index c7f4c0f3d..5a6c87c1a 100644
+              --- a/libweston/compositor.c
+              +++ b/libweston/compositor.c
+              @@ -645 +645 @@ weston_output_mode_set_native(struct weston_output *output,
+              -${"\t"}int mode_changed = 0, scale_changed = 0;
+              +${"\t"}int mode_changed, scale_changed = 0;
+              @@ -651,10 +651,13 @@ weston_output_mode_set_native(struct weston_output *output,
+              -${"\t"}if (!output->original_mode) {
+              -${"\t"}${"\t"}mode_changed = 1;
+              -${"\t"}${"\t"}ret = output->switch_mode(output, mode);
+              -${"\t"}${"\t"}if (ret < 0)
+              -${"\t"}${"\t"}${"\t"}return ret;
+              -${"\t"}${"\t"}if (output->current_scale != scale) {
+              -${"\t"}${"\t"}${"\t"}scale_changed = 1;
+              -${"\t"}${"\t"}${"\t"}output->current_scale = scale;
+              -${"\t"}${"\t"}}
+              -${"\t"}}
+              +${"\t"}mode_changed = !output->current_mode ||
+              +${"\t"}${"\t"}output->current_mode->width != mode->width ||
+              +${"\t"}${"\t"}output->current_mode->height != mode->height ||
+              +${"\t"}${"\t"}output->current_mode->refresh != mode->refresh;
+              +${"\t"}if (mode_changed) {
+              +${"\t"}${"\t"}ret = output->switch_mode(output, mode);
+              +${"\t"}${"\t"}if (ret < 0)
+              +${"\t"}${"\t"}${"\t"}return ret;
+              +${"\t"}}
+              +${"\t"}if (output->current_scale != scale) {
+              +${"\t"}${"\t"}scale_changed = 1;
+              +${"\t"}${"\t"}output->current_scale = scale;
+              +${"\t"}}
+              @@ -663 +666,4 @@ weston_output_mode_set_native(struct weston_output *output,
+              -${"\t"}weston_output_copy_native_mode(output, mode);
+              +${"\t"}if (output->current_mode)
+              +${"\t"}${"\t"}weston_output_copy_native_mode(output, output->current_mode);
+              +${"\t"}else
+              +${"\t"}${"\t"}weston_output_copy_native_mode(output, mode);
+              @@ -664,0 +671,2 @@ weston_output_mode_set_native(struct weston_output *output,
+              +${"\t"}output->original_mode = NULL;
+              +${"\t"}output->original_scale = 0;
+
+              diff --git a/libweston/backend-pipewire/pipewire.c b/libweston/backend-pipewire/pipewire.c
+              index 0a2bb1b2d..c1f4d87fa 100644
+              --- a/libweston/backend-pipewire/pipewire.c
+              +++ b/libweston/backend-pipewire/pipewire.c
+              @@ -1161,0 +1162,2 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
+              +${"\t"}pw_stream_disconnect(output->stream);
+              +
+              @@ -1174 +1176,6 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
+              -${"\t"}return 0;
+              +${"\t"}if (pipewire_output_connect(output) < 0) {
+              +${"\t"}${"\t"}weston_log("Failed to reconnect PipeWire stream after mode switch\n");
+              +${"\t"}${"\t"}return -1;
+              +${"\t"}}
+              +
+              +${"\t"}return 0;
+               }
+
+               static int
+            '')
+          ];
+        });
+
+        agentBrowserBinary =
+          if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then "agent-browser-linux-x64"
+          else if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "agent-browser-linux-arm64"
+          else if pkgs.stdenv.hostPlatform.system == "x86_64-darwin" then "agent-browser-darwin-x64"
+          else if pkgs.stdenv.hostPlatform.system == "aarch64-darwin" then "agent-browser-darwin-arm64"
+          else throw "agent-browser is not packaged for ${pkgs.stdenv.hostPlatform.system}";
+
+        agentBrowser = pkgs.stdenvNoCC.mkDerivation {
+          pname = "agent-browser";
+          version = "0.31.1";
+
+          src = pkgs.fetchurl {
+            url = "https://registry.npmjs.org/agent-browser/-/agent-browser-0.31.1.tgz";
+            hash = "sha512-RjgfT0EsHe1oZQbwzUqJTPb7w3sU8DGbbAjMxLNI5dW1y0cc81TbVsqgjqQJmsy3GEbEcKe/ryARwmWGqJAXXQ==";
+          };
+
+          nativeBuildInputs = with pkgs; [
+            makeWrapper
+          ] ++ lib.optionals pkgs.stdenv.isLinux [
+            patchelf
+          ];
+
+          installPhase = ''
+            runHook preInstall
+
+            mkdir -p $out/lib/agent-browser $out/bin
+            cp -R . $out/lib/agent-browser/
+            chmod +x $out/lib/agent-browser/bin/${agentBrowserBinary}
+
+            ${lib.optionalString pkgs.stdenv.isLinux ''
+              patchelf \
+                --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
+                $out/lib/agent-browser/bin/${agentBrowserBinary}
+            ''}
+
+            makeWrapper ${pkgs.nodejs_24}/bin/node $out/bin/agent-browser \
+              --add-flags $out/lib/agent-browser/bin/agent-browser.js
+
+            runHook postInstall
+          '';
+        };
+
         aperture = (pkgs.buildGoModule (finalAttrs: {
           pname = "aperture";
           version = "0.0.1";
@@ -48,7 +156,6 @@
             "cmd/aperture-mount-session"
             "cmd/aperture-unmount-session"
             "cmd/browser-session-wrapper"
-            "cmd/webrtc-media-producer"
           ];
 
           pnpmDeps = pkgs.fetchPnpmDeps {
@@ -56,16 +163,25 @@
             pnpm = pkgs.pnpm;
             fetcherVersion = 3;
             pnpmWorkspaces = [ "@aperture/web" ];
-            hash = "sha256-JTNh3d2eAdcYWb74Ez8d5q5vlhJ5WXFBVuVMRvubs70=";
+            hash = "sha256-M/L5eP8I5iGzwKoLCqQ2e9iXER8vN2qDKgUFVbK/X1g=";
           };
 
           nativeBuildInputs = with pkgs; [
             nodejs_22
             pnpm
             pnpmConfigHook
+            pkg-config
+          ];
+
+          buildInputs = with pkgs; [
+            libxkbcommon
+            pixman
+            wayland.dev
+            patchedWeston
           ];
 
           env.CI = "true";
+          env.CGO_ENABLED = "1";
 
           preBuild = ''
             pnpm --filter @aperture/web build
@@ -86,6 +202,12 @@
           doCheck = true;
 
           postInstall = ''
+            mkdir -p $out/lib/weston
+            $CC -shared -fPIC \
+              native/weston-aperture-shell/aperture-weston-shell.c \
+              -o $out/lib/weston/aperture-weston-shell.so \
+              $(pkg-config --cflags --libs weston libweston-15 wayland-server pixman-1 xkbcommon)
+
             mkdir -p $out/lib/systemd/user
             cp ${./packaging/systemd-user}/*.service $out/lib/systemd/user/
             cp ${./packaging/systemd-user}/*.timer $out/lib/systemd/user/ 2>/dev/null || true
@@ -93,9 +215,13 @@
 
             substituteInPlace $out/lib/systemd/user/browser-session@.service \
               --replace-fail '@browserSessionWrapper@' $out/bin/browser-session-wrapper
+            substituteInPlace $out/lib/systemd/user/aperture-traefik.service \
+              --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
+              --replace-fail '@staticConfigTemplate@' $out/share/aperture/traefik/static.yaml.template \
+              --replace-fail '@traefikBin@' ${pkgs.traefik}/bin/traefik
 
             mkdir -p $out/share/aperture/traefik
-            cp ${./packaging/traefik/static.yaml.template} $out/share/aperture/traefik/
+            cp ${./packaging/traefik/static.yaml.template} $out/share/aperture/traefik/static.yaml.template
 
             mkdir -p $out/share/aperture/sudoers
             cp ${./packaging/sudoers/aperture-mount-helpers} $out/share/aperture/sudoers/aperture-mount-helpers
@@ -123,10 +249,17 @@
             gopls
             nodejs_22
             pnpm
+            pkg-config
             sqlite
             traefik
             chromium
+            ffmpeg
             bubblewrap
+            libxkbcommon
+            pixman
+            wayland.dev
+            patchedWeston
+            agentBrowser
           ];
         };
 

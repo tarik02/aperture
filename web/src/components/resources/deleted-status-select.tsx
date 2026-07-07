@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
-import type { DeletedFilterValue } from "#/hooks/queries/keys.ts";
+import type { DeletedFilterValue } from "#/lib/api/query-keys.ts";
 
 const deletedStatusOptions: Array<{ value: DeletedFilterValue; label: string }> = [
   { value: "active", label: "Active" },

@@ -6,7 +6,7 @@ import { TokenVaultProvider } from "#/components/token-vault-provider.tsx";
 import { PwaRegistration } from "#/components/pwa-registration.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { TooltipProvider } from "#/components/ui/tooltip.tsx";
-import { WindowControlsOverlayWatcher } from "#/components/window-controls-overlay-watcher.tsx";
+import { WindowControlsOverlayWatcher } from "#/features/window-controls-overlay/window-controls-overlay-watcher.tsx";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());

@@ -136,6 +136,12 @@
 }
 
 @layer components {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 180ms;
+    animation-timing-function: ease-out;
+  }
+
   [data-table-scroll] {
     --table-scrollbar-size: 0.625rem;
     --table-scroll-shadow-width: 1rem;
@@ -246,6 +252,26 @@
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
+
+  [data-slot="sidebar"] [data-sidebar-collapse-label] {
+    min-width: 0;
+    max-width: 12rem;
+    overflow: hidden;
+    white-space: nowrap;
+    opacity: 1;
+    transform: translateX(0);
+    transition:
+      max-width 200ms ease-out,
+      opacity 160ms ease-out,
+      transform 200ms ease-out;
+  }
+
+  [data-slot="sidebar"][data-collapsible="icon"] [data-sidebar-collapse-label] {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-0.25rem);
+  }
 }
 
 @layer components {
@@ -305,14 +331,6 @@
     [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
     [data-app-sidebar-titlebar] {
     padding-left: var(--app-sidebar-titlebar-padding-left);
-  }
-
-  .wco.wco-left
-    [data-app-shell]:has([data-slot="sidebar"][data-collapsible="icon"])
-    [data-app-sidebar-titlebar]
-    > * {
-    opacity: 0;
-    pointer-events: none;
   }
 
   .wco [data-app-shell] [data-slot="sidebar-header"] {

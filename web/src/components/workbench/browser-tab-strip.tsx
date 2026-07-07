@@ -202,7 +202,7 @@ function BrowserTab({
         >
           <X />
         </TooltipTrigger>
-        <TooltipContent>Close tab</TooltipContent>
+        <TooltipContent side="bottom">Close tab</TooltipContent>
       </Tooltip>
     </div>
   );
@@ -226,7 +226,7 @@ function NewTabButton({ disabled, onCreate }: { disabled?: boolean; onCreate: ()
       >
         <Plus />
       </TooltipTrigger>
-      <TooltipContent>New tab</TooltipContent>
+      <TooltipContent side="bottom">New tab</TooltipContent>
     </Tooltip>
   );
 }

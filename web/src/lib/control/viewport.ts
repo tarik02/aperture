@@ -9,6 +9,7 @@ export const VIEWPORT_PRESETS: ViewportPreset[] = [
   { id: "1280x720", label: "1280×720", width: 1280, height: 720 },
   { id: "1440x900", label: "1440×900", width: 1440, height: 900 },
   { id: "1920x1080", label: "1920×1080", width: 1920, height: 1080 },
+  { id: "2560x1440", label: "2560×1440", width: 2560, height: 1440 },
   { id: "768x1024", label: "768×1024", width: 768, height: 1024 },
   { id: "390x844", label: "390×844", width: 390, height: 844 },
 ];

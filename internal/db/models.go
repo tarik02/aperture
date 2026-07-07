@@ -60,6 +60,7 @@ type Session struct {
 	ID              string  `bun:"id,pk"`
 	TenantID        string  `bun:"tenant_id,notnull"`
 	BaseSnapshotID  *string `bun:"base_snapshot_id"`
+	Label           *string `bun:"label"`
 	Status          string  `bun:"status,notnull"`
 	OverlayPath     string  `bun:"overlay_path,notnull"`
 	UpperPath       string  `bun:"upper_path,notnull"`

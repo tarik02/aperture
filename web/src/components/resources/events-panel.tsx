@@ -1,7 +1,7 @@
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import type { ResourceEvent } from "#/lib/api/schemas.ts";
-import { useEventsInfiniteQuery } from "#/hooks/queries/use-events-query.ts";
+import { useEventsInfiniteQuery } from "#/features/event/event.queries.ts";
 import { Button } from "#/components/ui/button.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Skeleton } from "#/components/ui/skeleton.tsx";
