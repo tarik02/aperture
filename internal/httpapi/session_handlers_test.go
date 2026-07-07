@@ -53,6 +53,7 @@ func newSessionTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("browser supervisor: %v", err)
 	}
 	sessions := session.NewService(cfg, env.repo, &sessionHandlerFakeOverlay{cfg: cfg}, browserSupervisor, channels, traefik.NoopReconciler{})
+	sessions.SetCDPReadyWaiter(func(context.Context, int) error { return nil })
 
 	server := &Server{Auth: env.service, Sessions: sessions, Channels: channels}
 	env.router = NewRouter(zap.NewNop(), server, nil, cfg.CdpRouteBasePath)

@@ -3,9 +3,9 @@ import * as React from "react";
 import { cn } from "#/lib/utils.ts";
 
 const stickyTableStartHeaderClassName =
-  "sticky left-[var(--table-scroll-padding-inline)] z-20 w-8 bg-background";
+  "sticky left-[var(--table-scroll-padding-inline)] z-40 w-8 bg-background";
 const stickyTableEndHeaderClassName =
-  "sticky right-[var(--table-scroll-padding-inline)] z-20 w-10 bg-background";
+  "sticky right-[var(--table-scroll-padding-inline)] z-40 w-10 bg-background";
 const stickyTableStartCellClassName =
   "sticky left-[var(--table-scroll-padding-inline)] z-10 bg-background";
 const stickyTableEndCellClassName =
@@ -65,7 +65,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        "sticky top-0 z-30 h-10 bg-background px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}

@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import { ThemeSwitcher } from "#/components/theme-switcher.tsx";
 import { TokenSwitcher } from "#/components/token-switcher.tsx";
+import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
 import { primaryNavItems } from "#/lib/navigation.ts";
 import {
   isSystemAdminProfile,
@@ -75,6 +76,7 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        <RecentSessionsSidebarGroup pathname={pathname} />
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border">
         <ThemeSwitcher />

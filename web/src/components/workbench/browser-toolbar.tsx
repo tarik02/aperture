@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Activity,
@@ -17,6 +17,7 @@ import {
   Square,
 } from "lucide-react";
 import { Button } from "#/components/ui/button.tsx";
+import { Input } from "#/components/ui/input.tsx";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -34,7 +35,12 @@ import {
 } from "#/components/ui/dropdown-menu.tsx";
 import { InputGroup, InputGroupInput } from "#/components/ui/input-group.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
-import { VIEWPORT_PRESETS } from "#/lib/control/viewport.ts";
+import {
+  createViewportPreset,
+  formatViewportScale,
+  VIEWPORT_DEVICE_SCALE_FACTORS,
+  VIEWPORT_PRESETS,
+} from "#/lib/control/viewport.ts";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 
@@ -70,6 +76,18 @@ const STREAM_PRESETS = [
     settings: { fps: 60, bitrateKbps: 3500, keyframeInterval: 120 },
   },
 ] as const;
+
+const STREAM_LIMITS = {
+  fps: { min: 1, max: 120 },
+  bitrateKbps: { min: 1, max: 50_000 },
+  keyframeInterval: { min: 1, max: 600 },
+} as const;
+
+const VIEWPORT_LIMITS = {
+  width: { min: 1, max: 16_384 },
+  height: { min: 1, max: 16_384 },
+  deviceScaleFactor: { min: 0.25, max: 4 },
+} as const;
 
 export function BrowserToolbar({
   control,
@@ -226,7 +244,7 @@ function BrowserMenu({
   onPerformanceOverlayChange: (enabled: boolean) => void;
   onReconnect: () => void;
 }) {
-  const streamReady = control.mediaPhase === "live" && control.mediaPath === "webrtc-live";
+  const showStreamMenu = control.mediaPath === "webrtc-live";
 
   return (
     <DropdownMenu>
@@ -249,7 +267,7 @@ function BrowserMenu({
             {control.captured ? "Release input" : "Capture input"}
           </DropdownMenuItem>
           <DropdownMenuCheckboxItem
-            disabled={!streamReady}
+            disabled={!showStreamMenu}
             checked={performanceOverlayEnabled}
             onCheckedChange={onPerformanceOverlayChange}
           >
@@ -273,134 +291,407 @@ function BrowserMenu({
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuLabel>Viewport</DropdownMenuLabel>
-          <DropdownMenuItem
-            disabled={!connected || !control.browserViewportSize}
-            onClick={() => control.setViewportToBrowserSize()}
-          >
-            <Maximize2 />
-            Set to browser size
-          </DropdownMenuItem>
-          <DropdownMenuCheckboxItem
-            disabled={!connected || !control.browserViewportSize}
-            checked={control.viewportAutoSync}
-            onCheckedChange={control.setViewportAutoSync}
-          >
-            <Monitor />
-            Auto sync browser size
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={!streamReady}>
-              <Gauge />
-              Stream
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
-              <DropdownMenuLabel>Stream</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={activeStreamPresetId(control.mediaStreamSettings)}
-                onValueChange={(value) => {
-                  const preset = STREAM_PRESETS.find((item) => item.id === value);
-                  if (preset) {
-                    control.setWebRTCStreamSettings(preset.settings);
-                  }
-                }}
-              >
-                {STREAM_PRESETS.map((preset) => (
-                  <DropdownMenuRadioItem key={preset.id} value={preset.id}>
-                    <span className="flex min-w-0 flex-col">
-                      <span>{preset.label}</span>
-                      <span className="text-xs text-muted-foreground">{preset.detail}</span>
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="flex items-center gap-2">
-                <Activity className="size-3.5" />
-                Metrics
-              </DropdownMenuLabel>
-              <StreamMetrics metrics={control.mediaMetrics} />
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
-          <DropdownMenuRadioGroup
-            value={control.viewport.id}
-            onValueChange={(value) => {
-              const preset = VIEWPORT_PRESETS.find((item) => item.id === value);
-              if (preset) {
-                control.setViewport(preset);
-              }
-            }}
-          >
-            {VIEWPORT_PRESETS.map((preset) => (
-              <DropdownMenuRadioItem key={preset.id} value={preset.id} disabled={!connected}>
-                <Monitor />
-                {preset.label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
+          <ViewportMenu control={control} connected={connected} />
+          {showStreamMenu ? (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Gauge />
+                Stream
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-64">
+                <DropdownMenuLabel>Stream</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={activeStreamPresetId(control.mediaStreamSettings)}
+                  onValueChange={(value) => {
+                    const preset = STREAM_PRESETS.find((item) => item.id === value);
+                    if (preset) {
+                      control.setWebRTCStreamSettings(preset.settings);
+                    }
+                  }}
+                >
+                  {STREAM_PRESETS.map((preset) => (
+                    <DropdownMenuRadioItem key={preset.id} value={preset.id}>
+                      <span className="flex min-w-0 flex-col">
+                        <span>{preset.label}</span>
+                        <span className="text-xs text-muted-foreground">{preset.detail}</span>
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <CustomStreamSettings
+                  settings={control.mediaStreamSettings}
+                  onApply={control.setWebRTCStreamSettings}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          ) : null}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function StreamMetrics({ metrics }: { metrics: UseBrowserControlResult["mediaMetrics"] }) {
-  const rows = [
-    ["Recv", formatKbps(metrics?.receivedBitrateKbps)],
-    ["FPS", formatNumber(metrics?.decodedFps, 1)],
-    ["Frame", formatFrameSize(metrics?.frameWidth, metrics?.frameHeight)],
-    ["Drop", formatNumber(metrics?.framesDropped, 0)],
-    ["Lost", formatNumber(metrics?.packetsLost, 0)],
-    ["Jitter", formatMs(metrics?.jitterMs)],
-    ["Buffer", formatMs(metrics?.jitterBufferDelayMs)],
-    ["RTT", formatMs(metrics?.roundTripTimeMs)],
-    ["Input", formatMs(metrics?.inputRttMs)],
-    ["Codec", metrics?.codec?.replace(/^video\//, "") ?? "n/a"],
-    ["Path", metrics?.candidatePair ?? "n/a"],
-  ];
+function ViewportMenu({
+  control,
+  connected,
+}: {
+  control: UseBrowserControlResult;
+  connected: boolean;
+}) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <Monitor />
+        Viewport
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-64">
+        <DropdownMenuLabel>Viewport</DropdownMenuLabel>
+        <DropdownMenuItem
+          disabled={!connected || !control.browserViewportSize}
+          onClick={() => control.setViewportToBrowserSize()}
+        >
+          <Maximize2 />
+          Set to browser size
+        </DropdownMenuItem>
+        <DropdownMenuCheckboxItem
+          disabled={!connected || !control.browserViewportSize}
+          checked={control.viewportAutoSync}
+          onCheckedChange={control.setViewportAutoSync}
+        >
+          <Monitor />
+          Auto sync browser size
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup
+          value={activeViewportPresetId(control.viewport)}
+          onValueChange={(value) => {
+            const preset = VIEWPORT_PRESETS.find((item) => item.id === value);
+            if (preset) {
+              control.setViewport(
+                createViewportPreset(
+                  preset.width,
+                  preset.height,
+                  control.viewport.deviceScaleFactor,
+                ),
+              );
+            }
+          }}
+        >
+          {VIEWPORT_PRESETS.map((preset) => (
+            <DropdownMenuRadioItem key={preset.id} value={preset.id} disabled={!connected}>
+              <Monitor />
+              {preset.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Scale</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={activeViewportScaleId(control.viewport.deviceScaleFactor)}
+          onValueChange={(value) => {
+            const nextScale = VIEWPORT_DEVICE_SCALE_FACTORS.find(
+              (item) => formatViewportScale(item) === value,
+            );
+            if (nextScale) {
+              control.setViewport(
+                createViewportPreset(control.viewport.width, control.viewport.height, nextScale),
+              );
+            }
+          }}
+        >
+          {VIEWPORT_DEVICE_SCALE_FACTORS.map((deviceScaleFactor) => (
+            <DropdownMenuRadioItem
+              key={deviceScaleFactor}
+              value={formatViewportScale(deviceScaleFactor)}
+              disabled={!connected}
+            >
+              <Monitor />
+              {formatViewportScale(deviceScaleFactor)}x
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <CustomViewportSettings
+          viewport={control.viewport}
+          connected={connected}
+          onApply={control.setViewport}
+        />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+function CustomViewportSettings({
+  viewport,
+  connected,
+  onApply,
+}: {
+  viewport: UseBrowserControlResult["viewport"];
+  connected: boolean;
+  onApply: UseBrowserControlResult["setViewport"];
+}) {
+  const [width, setWidth] = useState(String(viewport.width));
+  const [height, setHeight] = useState(String(viewport.height));
+  const [deviceScaleFactor, setDeviceScaleFactor] = useState(
+    formatViewportScale(viewport.deviceScaleFactor),
+  );
+
+  useEffect(() => {
+    setWidth(String(viewport.width));
+    setHeight(String(viewport.height));
+    setDeviceScaleFactor(formatViewportScale(viewport.deviceScaleFactor));
+  }, [viewport]);
+
+  const nextViewport = parseViewportSettings({ width, height, deviceScaleFactor });
+  const unchanged = nextViewport
+    ? viewport.width === nextViewport.width &&
+      viewport.height === nextViewport.height &&
+      viewport.deviceScaleFactor === nextViewport.deviceScaleFactor
+    : false;
 
   return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 px-2 py-1.5 text-xs">
-      {rows.map(([label, value]) => (
-        <div key={label} className="contents">
-          <span className="text-muted-foreground">{label}</span>
-          <span className="min-w-0 truncate text-right font-mono tabular-nums">{value}</span>
-        </div>
-      ))}
+    <div
+      className="grid gap-2 px-2 py-1.5"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
+      <div className="grid grid-cols-3 gap-2">
+        <StreamNumberField label="Width" value={width} onChange={setWidth} />
+        <StreamNumberField label="Height" value={height} onChange={setHeight} />
+        <ViewportScaleField
+          label="Scale"
+          value={deviceScaleFactor}
+          onChange={setDeviceScaleFactor}
+        />
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        className="h-7"
+        disabled={!connected || !nextViewport || unchanged}
+        onClick={() => {
+          if (nextViewport) {
+            onApply(nextViewport);
+          }
+        }}
+      >
+        Apply
+      </Button>
     </div>
   );
 }
 
-function activeStreamPresetId(settings: UseBrowserControlResult["mediaStreamSettings"]) {
-  const preset = STREAM_PRESETS.find(
-    (item) =>
-      settings?.fps === item.settings.fps &&
-      settings.bitrateKbps === item.settings.bitrateKbps &&
-      settings.keyframeInterval === item.settings.keyframeInterval,
+function CustomStreamSettings({
+  settings,
+  onApply,
+}: {
+  settings: UseBrowserControlResult["mediaStreamSettings"];
+  onApply: UseBrowserControlResult["setWebRTCStreamSettings"];
+}) {
+  const [fps, setFps] = useState(String(settings?.fps ?? 60));
+  const [bitrateKbps, setBitrateKbps] = useState(String(settings?.bitrateKbps ?? 6000));
+  const [keyframeInterval, setKeyframeInterval] = useState(
+    String(settings?.keyframeInterval ?? 120),
+  );
+
+  useEffect(() => {
+    if (settings) {
+      setFps(String(settings.fps));
+      setBitrateKbps(String(settings.bitrateKbps));
+      setKeyframeInterval(String(settings.keyframeInterval));
+    }
+  }, [settings]);
+
+  const nextSettings = parseStreamSettings({ fps, bitrateKbps, keyframeInterval });
+  const unchanged = settings
+    ? settings.fps === nextSettings?.fps &&
+      settings.bitrateKbps === nextSettings?.bitrateKbps &&
+      settings.keyframeInterval === nextSettings?.keyframeInterval
+    : false;
+
+  return (
+    <div
+      className="grid gap-2 px-2 py-1.5"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
+      <div className="grid grid-cols-3 gap-2">
+        <StreamNumberField label="FPS" value={fps} onChange={setFps} />
+        <StreamNumberField label="Kbps" value={bitrateKbps} onChange={setBitrateKbps} />
+        <StreamNumberField label="Key" value={keyframeInterval} onChange={setKeyframeInterval} />
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        className="h-7"
+        disabled={!nextSettings || unchanged}
+        onClick={() => {
+          if (nextSettings) {
+            onApply(nextSettings);
+          }
+        }}
+      >
+        Apply
+      </Button>
+    </div>
+  );
+}
+
+function StreamNumberField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-1 text-xs text-muted-foreground">
+      <span>{label}</span>
+      <Input
+        type="text"
+        inputMode="numeric"
+        value={value}
+        onChange={(event) => onChange(digitsOnly(event.currentTarget.value))}
+        onFocus={(event) => event.currentTarget.select()}
+        className="h-7 rounded-md px-2 text-xs tabular-nums"
+      />
+    </label>
+  );
+}
+
+function ViewportScaleField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-1 text-xs text-muted-foreground">
+      <span>{label}</span>
+      <Input
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={(event) => onChange(decimalNumber(event.currentTarget.value))}
+        onFocus={(event) => event.currentTarget.select()}
+        className="h-7 rounded-md px-2 text-xs tabular-nums"
+      />
+    </label>
+  );
+}
+
+function parseStreamSettings({
+  fps,
+  bitrateKbps,
+  keyframeInterval,
+}: {
+  fps: string;
+  bitrateKbps: string;
+  keyframeInterval: string;
+}) {
+  if (!fps || !bitrateKbps || !keyframeInterval) {
+    return null;
+  }
+  return {
+    fps: clampInteger(Number(fps), STREAM_LIMITS.fps.min, STREAM_LIMITS.fps.max),
+    bitrateKbps: clampInteger(
+      Number(bitrateKbps),
+      STREAM_LIMITS.bitrateKbps.min,
+      STREAM_LIMITS.bitrateKbps.max,
+    ),
+    keyframeInterval: clampInteger(
+      Number(keyframeInterval),
+      STREAM_LIMITS.keyframeInterval.min,
+      STREAM_LIMITS.keyframeInterval.max,
+    ),
+  };
+}
+
+function parseViewportSettings({
+  width,
+  height,
+  deviceScaleFactor,
+}: {
+  width: string;
+  height: string;
+  deviceScaleFactor: string;
+}) {
+  if (!width || !height || !deviceScaleFactor) {
+    return null;
+  }
+  const parsedWidth = Number(width);
+  const parsedHeight = Number(height);
+  const parsedScale = Number(deviceScaleFactor);
+  if (
+    !Number.isFinite(parsedWidth) ||
+    !Number.isFinite(parsedHeight) ||
+    !Number.isFinite(parsedScale)
+  ) {
+    return null;
+  }
+  const nextWidth = clampInteger(parsedWidth, VIEWPORT_LIMITS.width.min, VIEWPORT_LIMITS.width.max);
+  const nextHeight = clampInteger(
+    parsedHeight,
+    VIEWPORT_LIMITS.height.min,
+    VIEWPORT_LIMITS.height.max,
+  );
+  const maxScale = Math.min(
+    VIEWPORT_LIMITS.deviceScaleFactor.max,
+    VIEWPORT_LIMITS.width.max / nextWidth,
+    VIEWPORT_LIMITS.height.max / nextHeight,
+  );
+  const nextScale = clampDecimal(parsedScale, VIEWPORT_LIMITS.deviceScaleFactor.min, maxScale);
+  return createViewportPreset(nextWidth, nextHeight, nextScale);
+}
+
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function decimalNumber(value: string): string {
+  const [integer = "", ...fraction] = value.replace(/[^\d.]/g, "").split(".");
+  return fraction.length ? `${integer}.${fraction.join("")}` : integer;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.min(Math.max(Math.round(value), min), max);
+}
+
+function clampDecimal(value: number, min: number, max: number): number {
+  return Math.min(Math.max(Math.round(value * 100) / 100, min), max);
+}
+
+function activeViewportPresetId(viewport: UseBrowserControlResult["viewport"]) {
+  const preset = VIEWPORT_PRESETS.find(
+    (item) => viewport.width === item.width && viewport.height === item.height,
   );
   return preset?.id ?? "";
 }
 
-function formatKbps(value: number | null | undefined) {
-  if (typeof value !== "number") {
-    return "n/a";
+function activeViewportScaleId(deviceScaleFactor: number) {
+  const preset = VIEWPORT_DEVICE_SCALE_FACTORS.find((item) => item === deviceScaleFactor);
+  return preset ? formatViewportScale(preset) : "";
+}
+
+function activeStreamPresetId(settings: UseBrowserControlResult["mediaStreamSettings"]) {
+  if (!settings) {
+    return "";
   }
-  return value >= 1000 ? `${(value / 1000).toFixed(1)} Mbps` : `${Math.round(value)} kbps`;
-}
-
-function formatNumber(value: number | null | undefined, fractionDigits: number) {
-  return typeof value === "number" ? value.toFixed(fractionDigits) : "n/a";
-}
-
-function formatMs(value: number | null | undefined) {
-  return typeof value === "number" ? `${Math.round(value)} ms` : "n/a";
-}
-
-function formatFrameSize(width: number | null | undefined, height: number | null | undefined) {
-  return typeof width === "number" && typeof height === "number"
-    ? `${Math.round(width)}x${Math.round(height)}`
-    : "n/a";
+  const preset = STREAM_PRESETS.find(
+    (item) =>
+      settings.fps === item.settings.fps &&
+      settings.bitrateKbps === item.settings.bitrateKbps &&
+      settings.keyframeInterval === item.settings.keyframeInterval,
+  );
+  return preset?.id ?? "";
 }
 
 function normalizeUrl(value: string): string {

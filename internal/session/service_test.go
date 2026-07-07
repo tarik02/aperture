@@ -159,6 +159,7 @@ func newTestService(t *testing.T) (*Service, config.Config, *db.Repository, *fak
 
 	overlay := &fakeOverlay{cfg: cfg}
 	service := NewService(cfg, repo, overlay, browserSupervisor, channels, traefik.NoopReconciler{})
+	service.SetCDPReadyWaiter(func(context.Context, int) error { return nil })
 	service.now = func() time.Time {
 		return time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 	}

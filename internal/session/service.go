@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +22,9 @@ import (
 
 const (
 	defaultMonitorInterval = 15 * time.Second
+	cdpReadyTimeout        = 45 * time.Second
+	cdpReadyPollInterval   = 500 * time.Millisecond
+	cdpReadyRequestTime    = 2 * time.Second
 )
 
 // OverlayClient mounts and unmounts session overlays.
@@ -34,18 +38,21 @@ type MediaSessionCleaner interface {
 	CloseSessionMedia(sessionID string)
 }
 
+type CDPReadyWaiter func(ctx context.Context, port int) error
+
 // Service owns session lifecycle orchestration.
 type Service struct {
-	cfg          config.Config
-	repo         *db.Repository
-	overlay      OverlayClient
-	browser      *supervisor.Browser
-	channels     *browser.Registry
-	traefik      traefik.Reconciler
-	mediaCleaner MediaSessionCleaner
-	now          func() time.Time
-	mountLocal   func(ctx context.Context, sessionID string, baseSnapshotID *string) error
-	unmountLocal func(ctx context.Context, sessionID string) error
+	cfg             config.Config
+	repo            *db.Repository
+	overlay         OverlayClient
+	browser         *supervisor.Browser
+	channels        *browser.Registry
+	traefik         traefik.Reconciler
+	mediaCleaner    MediaSessionCleaner
+	waitForCDPReady CDPReadyWaiter
+	now             func() time.Time
+	mountLocal      func(ctx context.Context, sessionID string, baseSnapshotID *string) error
+	unmountLocal    func(ctx context.Context, sessionID string) error
 }
 
 // NewService constructs a session service.
@@ -61,13 +68,14 @@ func NewService(
 		traefikReconciler = traefik.NoopReconciler{}
 	}
 	return &Service{
-		cfg:      cfg,
-		repo:     repo,
-		overlay:  overlayClient,
-		browser:  browserSupervisor,
-		channels: channels,
-		traefik:  traefikReconciler,
-		now:      time.Now,
+		cfg:             cfg,
+		repo:            repo,
+		overlay:         overlayClient,
+		browser:         browserSupervisor,
+		channels:        channels,
+		traefik:         traefikReconciler,
+		waitForCDPReady: waitForCDPEndpoint,
+		now:             time.Now,
 	}
 }
 
@@ -263,6 +271,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
+	if err := s.waitForCDPReady(ctx, port); err != nil {
+		_ = s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
@@ -292,6 +304,35 @@ func normalizedOptionalString(value *string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+func waitForCDPEndpoint(ctx context.Context, port int) error {
+	ctx, cancel := context.WithTimeout(ctx, cdpReadyTimeout)
+	defer cancel()
+
+	client := &http.Client{Timeout: cdpReadyRequestTime}
+	url := fmt.Sprintf("http://127.0.0.1:%d/json/version", port)
+
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			_ = resp.Body.Close()
+			return nil
+		}
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for cdp endpoint %s: %w", url, ctx.Err())
+		case <-time.After(cdpReadyPollInterval):
+		}
+	}
 }
 
 // Delete tombstones a session and stops its browser.
@@ -985,6 +1026,11 @@ func isRetainedOrRunning(status string) bool {
 // SetMediaSessionCleaner configures cleanup for in-memory media state.
 func (s *Service) SetMediaSessionCleaner(cleaner MediaSessionCleaner) {
 	s.mediaCleaner = cleaner
+}
+
+// SetCDPReadyWaiter configures the browser CDP readiness check.
+func (s *Service) SetCDPReadyWaiter(waiter CDPReadyWaiter) {
+	s.waitForCDPReady = waiter
 }
 
 // SetDirectOverlayHooks configures in-process overlay mount hooks for tests.

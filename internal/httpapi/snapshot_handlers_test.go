@@ -52,6 +52,7 @@ func newSnapshotHandlerTestEnv(t *testing.T) (*testEnv, *snapshot.PromotionServi
 		t.Fatalf("browser supervisor: %v", err)
 	}
 	sessions := session.NewService(cfg, env.repo, &sessionHandlerFakeOverlay{cfg: cfg}, browserSupervisor, channels, traefik.NoopReconciler{})
+	sessions.SetCDPReadyWaiter(func(context.Context, int) error { return nil })
 	snapshots := snapshot.NewService(cfg, env.repo)
 	promotion := snapshot.NewPromotionService(cfg, env.repo, browserSupervisor, snapshots)
 

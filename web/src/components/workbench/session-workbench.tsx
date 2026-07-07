@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import {
   Empty,
@@ -11,6 +12,7 @@ import {
 import { Button } from "#/components/ui/button.tsx";
 import { BrowserControlPane } from "#/components/workbench/browser-control-pane.tsx";
 import { useBrowserControl } from "#/hooks/use-browser-control.ts";
+import { useRecentSessionsStore } from "#/features/session/recent-sessions.store.ts";
 import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
@@ -28,6 +30,8 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
   const scopes = useActiveScopes();
   const canControl = hasScope(scopes, "sessions:write");
   const tenantReady = isTenantScopedQueryReady(credentials);
+  const recordRecentSession = useRecentSessionsStore((state) => state.recordSession);
+  const lastRecordedSessionId = useRef<string | null>(null);
 
   const { session: selectedSession, isResolvingRoute } = useWorkbenchSession(sessionId);
 
@@ -39,6 +43,15 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
     webrtcIceServers: selectedSession?.media.iceServers ?? emptyIceServers,
   });
+
+  useEffect(() => {
+    if (!selectedSession || lastRecordedSessionId.current === selectedSession.id) {
+      return;
+    }
+
+    lastRecordedSessionId.current = selectedSession.id;
+    recordRecentSession(selectedSession);
+  }, [recordRecentSession, selectedSession]);
 
   if (!tenantReady) {
     return (

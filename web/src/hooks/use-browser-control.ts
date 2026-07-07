@@ -20,7 +20,11 @@ import type {
   ControlTarget,
   ScreencastFrame,
 } from "#/lib/control/messages.ts";
-import { DEFAULT_VIEWPORT, type ViewportPreset } from "#/lib/control/viewport.ts";
+import {
+  createViewportPreset,
+  DEFAULT_VIEWPORT,
+  type ViewportPreset,
+} from "#/lib/control/viewport.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import type {
   WebRTCMediaMetrics,
@@ -318,7 +322,7 @@ export function useBrowserControl({
       .finally(() => setRecordingBusy(false));
   }, [sessionId, credentials, recordingBusy]);
 
-  const applyViewport = useCallback(
+  const commitViewport = useCallback(
     (preset: ViewportPreset) => {
       setViewport(preset);
       pushViewport(preset);
@@ -326,13 +330,32 @@ export function useBrowserControl({
     [pushViewport],
   );
 
+  const applyViewport = useCallback(
+    (preset: ViewportPreset) => {
+      viewportAutoSyncRef.current = false;
+      setViewportAutoSyncState(false);
+      commitViewport(preset);
+    },
+    [commitViewport],
+  );
+
+  const syncViewportToBrowserSize = useCallback(() => {
+    const size = browserViewportSizeRef.current;
+    if (!size) {
+      return;
+    }
+    commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
+  }, [commitViewport]);
+
   const setViewportToBrowserSize = useCallback(() => {
     const size = browserViewportSizeRef.current;
     if (!size) {
       return;
     }
-    applyViewport(createBrowserViewport(size));
-  }, [applyViewport]);
+    viewportAutoSyncRef.current = false;
+    setViewportAutoSyncState(false);
+    commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
+  }, [commitViewport]);
 
   const setWebRTCStreamSettings = useCallback(
     (settings: WebRTCStreamSettings) => {
@@ -362,10 +385,10 @@ export function useBrowserControl({
       browserViewportSizeRef.current = next;
       setBrowserViewportSizeState(next);
       if (viewportAutoSyncRef.current) {
-        applyViewport(createBrowserViewport(next));
+        commitViewport(createBrowserViewport(next, viewportRef.current.deviceScaleFactor));
       }
     },
-    [applyViewport],
+    [commitViewport],
   );
 
   const setViewportAutoSync = useCallback(
@@ -373,10 +396,10 @@ export function useBrowserControl({
       viewportAutoSyncRef.current = enabled;
       setViewportAutoSyncState(enabled);
       if (enabled) {
-        setViewportToBrowserSize();
+        syncViewportToBrowserSize();
       }
     },
-    [setViewportToBrowserSize],
+    [syncViewportToBrowserSize],
   );
 
   const reconnect = useCallback(() => {
@@ -441,12 +464,15 @@ export function useBrowserControl({
     const current = viewportRef.current;
     if (
       current.width === controlState.mediaSize.width &&
-      current.height === controlState.mediaSize.height
+      current.height === controlState.mediaSize.height &&
+      current.deviceScaleFactor === controlState.mediaSize.deviceScaleFactor
     ) {
       return;
     }
 
-    setViewport(createBrowserViewport(controlState.mediaSize));
+    setViewport(
+      createBrowserViewport(controlState.mediaSize, controlState.mediaSize.deviceScaleFactor),
+    );
   }, [
     controlState.phase,
     controlState.mediaPhase,
@@ -565,11 +591,9 @@ function mergeTargetsInCurrentOrder(
   return ordered;
 }
 
-function createBrowserViewport(size: BrowserViewportSize): ViewportPreset {
-  return {
-    id: `browser-${size.width}x${size.height}`,
-    label: `${size.width}×${size.height}`,
-    width: size.width,
-    height: size.height,
-  };
+function createBrowserViewport(
+  size: BrowserViewportSize,
+  deviceScaleFactor: number,
+): ViewportPreset {
+  return createViewportPreset(size.width, size.height, deviceScaleFactor);
 }

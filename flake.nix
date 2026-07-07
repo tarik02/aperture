@@ -167,6 +167,7 @@
           };
 
           nativeBuildInputs = with pkgs; [
+            makeWrapper
             nodejs_22
             pnpm
             pnpmConfigHook
@@ -203,8 +204,35 @@
 
           postInstall = ''
             mkdir -p $out/lib/weston
+            mkdir -p $TMPDIR/aperture-wayland-protocols
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml \
+              $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-protocol.c
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml \
+              $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-server-protocol.h
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/stable/viewporter/viewporter.xml \
+              $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/stable/viewporter/viewporter.xml \
+              $TMPDIR/aperture-wayland-protocols/viewporter-server-protocol.h
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
+              $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
+              $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-server-protocol.h
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/stable/tablet/tablet-v2.xml \
+              $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c
             $CC -shared -fPIC \
+              -I$TMPDIR/aperture-wayland-protocols \
               native/weston-aperture-shell/aperture-weston-shell.c \
+              $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-protocol.c \
+              $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c \
+              $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c \
+              $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c \
               -o $out/lib/weston/aperture-weston-shell.so \
               $(pkg-config --cflags --libs weston libweston-15 wayland-server pixman-1 xkbcommon)
 
@@ -219,6 +247,15 @@
               --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
               --replace-fail '@staticConfigTemplate@' $out/share/aperture/traefik/static.yaml.template \
               --replace-fail '@traefikBin@' ${pkgs.traefik}/bin/traefik
+
+            wrapProgram $out/bin/browser-session-wrapper \
+              --prefix PATH : ${lib.makeBinPath [
+                pkgs.bubblewrap
+                pkgs.gst_all_1.gstreamer
+                patchedWeston
+                pkgs.pipewire
+                pkgs.wireplumber
+              ]}
 
             mkdir -p $out/share/aperture/traefik
             cp ${./packaging/traefik/static.yaml.template} $out/share/aperture/traefik/static.yaml.template

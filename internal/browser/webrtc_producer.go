@@ -24,20 +24,23 @@ const (
 )
 
 type webRTCProducerConfig struct {
-	sessionID     string
-	gstExecutable string
-	pluginPath    string
-	target        string
-	targetName    string
-	compositorPID int
-	width         int
-	height        int
-	iceServers    []webrtc.ICEServer
-	codec         string
-	fps           int
-	bitrateKbps   int
-	keyframe      int
-	controlSocket string
+	sessionID      string
+	gstExecutable  string
+	pluginPath     string
+	target         string
+	targetName     string
+	compositorPID  int
+	width          int
+	height         int
+	scale          float64
+	physicalWidth  int
+	physicalHeight int
+	iceServers     []webrtc.ICEServer
+	codec          string
+	fps            int
+	bitrateKbps    int
+	keyframe       int
+	controlSocket  string
 }
 
 type signalEnvelope struct {
@@ -58,8 +61,9 @@ type producer struct {
 }
 
 type viewportResizeRequest struct {
-	Width  int `json:"width"`
-	Height int `json:"height"`
+	Width             int     `json:"width"`
+	Height            int     `json:"height"`
+	DeviceScaleFactor float64 `json:"deviceScaleFactor"`
 }
 
 type streamSettingsRequest struct {
@@ -105,20 +109,23 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string, targetName
 		return nil, err
 	}
 	cfg := webRTCProducerConfig{
-		sessionID:     values.SessionID,
-		gstExecutable: values.MediaProducerGSTExecutable,
-		pluginPath:    values.MediaProducerPluginPath,
-		target:        values.MediaProducerTarget,
-		targetName:    targetName,
-		compositorPID: compositorPID,
-		width:         values.CompositorWidth,
-		height:        values.CompositorHeight,
-		iceServers:    iceServers,
-		codec:         normalizeCodec(values.MediaProducerCodec),
-		fps:           values.MediaProducerFPS,
-		bitrateKbps:   values.MediaProducerBitrateKbps,
-		keyframe:      values.MediaProducerKeyframe,
-		controlSocket: controlSocket,
+		sessionID:      values.SessionID,
+		gstExecutable:  values.MediaProducerGSTExecutable,
+		pluginPath:     values.MediaProducerPluginPath,
+		target:         values.MediaProducerTarget,
+		targetName:     targetName,
+		compositorPID:  compositorPID,
+		width:          values.CompositorWidth,
+		height:         values.CompositorHeight,
+		scale:          1,
+		physicalWidth:  values.CompositorWidth,
+		physicalHeight: values.CompositorHeight,
+		iceServers:     iceServers,
+		codec:          normalizeCodec(values.MediaProducerCodec),
+		fps:            values.MediaProducerFPS,
+		bitrateKbps:    values.MediaProducerBitrateKbps,
+		keyframe:       values.MediaProducerKeyframe,
+		controlSocket:  controlSocket,
 	}
 	switch cfg.codec {
 	case "vp8", "h264-va":
@@ -152,8 +159,7 @@ func normalizeCodec(raw string) string {
 }
 
 func (p *producer) announceState() {
-	width, height := p.viewportSize()
-	p.enqueue("viewport-metadata", map[string]any{"width": width, "height": height})
+	p.enqueue("viewport-metadata", viewportMetadata(p.viewport()))
 	p.enqueue("stream-settings", p.streamSettings())
 
 	p.mu.Lock()
@@ -431,11 +437,7 @@ func (p *producer) startPeer(ctx context.Context) error {
 		return fmt.Errorf("set local description: %w", err)
 	}
 
-	width, height := p.viewportSize()
-	if err := p.send(ap.ctx, "viewport-metadata", map[string]any{
-		"width":  width,
-		"height": height,
-	}); err != nil {
+	if err := p.send(ap.ctx, "viewport-metadata", viewportMetadata(p.viewport())); err != nil {
 		p.stopActivePeer(ap)
 		return fmt.Errorf("send viewport metadata: %w", err)
 	}
@@ -882,17 +884,27 @@ func startGStreamer(ctx context.Context, cfg webRTCProducerConfig, port int) (*e
 	return cmd, done, nil
 }
 
-func (p *producer) viewportSize() (int, int) {
+func (p *producer) viewport() compositorViewport {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.cfg.width, p.cfg.height
+	return compositorViewport{
+		Width:             p.cfg.width,
+		Height:            p.cfg.height,
+		DeviceScaleFactor: p.cfg.scale,
+		ScaleNumerator:    viewportScaleNumerator(p.cfg.scale),
+		PhysicalWidth:     p.cfg.physicalWidth,
+		PhysicalHeight:    p.cfg.physicalHeight,
+	}
 }
 
-func (p *producer) setViewportSize(width int, height int) {
+func (p *producer) setViewport(viewport compositorViewport) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.cfg.width = width
-	p.cfg.height = height
+	p.cfg.width = viewport.Width
+	p.cfg.height = viewport.Height
+	p.cfg.scale = viewport.DeviceScaleFactor
+	p.cfg.physicalWidth = viewport.PhysicalWidth
+	p.cfg.physicalHeight = viewport.PhysicalHeight
 }
 
 func (p *producer) queueViewportResize(ctx context.Context, payload json.RawMessage) error {
@@ -955,15 +967,12 @@ func (p *producer) flushViewportResize(ctx context.Context) {
 }
 
 func (p *producer) resizeViewport(ctx context.Context, request viewportResizeRequest) error {
-	appliedWidth, appliedHeight, err := resizeCompositor(ctx, p.cfg.controlSocket, request.Width, request.Height)
+	viewport, err := resizeCompositor(ctx, p.cfg.controlSocket, request.Width, request.Height, request.DeviceScaleFactor)
 	if err != nil {
 		return err
 	}
-	p.setViewportSize(appliedWidth, appliedHeight)
-	p.enqueue("viewport-metadata", map[string]any{
-		"width":  appliedWidth,
-		"height": appliedHeight,
-	})
+	p.setViewport(viewport)
+	p.enqueue("viewport-metadata", viewportMetadata(viewport))
 	return nil
 }
 

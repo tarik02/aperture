@@ -111,7 +111,7 @@ export function SessionDetailModals({
   return (
     <>
       <Dialog open={section === "details" && session !== null} onOpenChange={closeIfNeeded}>
-        <DialogContent className="flex max-h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogContent className="flex max-h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-4xl">
           {detailsSession ? (
             <>
               <DialogHeader>
@@ -123,29 +123,31 @@ export function SessionDetailModals({
                   {detailsSession.id}
                 </DialogDescription>
               </DialogHeader>
-              <SessionDetailActionBar
-                session={detailsSession}
-                actions={actions}
-                onConnection={() => onSectionChange("connection")}
-                onEvents={() => onSectionChange("events")}
-              />
-              <ScrollArea className="min-h-0 flex-1">
-                <MetadataGrid
-                  items={[
-                    { label: "Label", value: detailsSession.label ?? "—" },
-                    { label: "ID", value: detailsSession.id },
-                    { label: "Tenant", value: detailsSession.tenantId },
-                    { label: "Channel", value: detailsSession.browserChannel ?? "—" },
-                    { label: "Snapshot", value: detailsSession.baseSnapshotName ?? "—" },
-                    { label: "Created", value: metadataTimestamp(detailsSession.createdAt) },
-                    { label: "Started", value: metadataTimestamp(detailsSession.startedAt) },
-                    { label: "Stopped", value: metadataTimestamp(detailsSession.stoppedAt) },
-                    { label: "Expires", value: metadataTimestamp(detailsSession.expiresAt) },
-                    { label: "Deleted", value: metadataTimestamp(detailsSession.deletedAt) },
-                    { label: "Tags", value: <TagBadges tags={detailsSession.tags} max={10} /> },
-                  ]}
+              <div className="grid min-h-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                <ScrollArea className="min-h-0">
+                  <MetadataGrid
+                    items={[
+                      { label: "Label", value: detailsSession.label ?? "—" },
+                      { label: "ID", value: detailsSession.id },
+                      { label: "Tenant", value: detailsSession.tenantId },
+                      { label: "Channel", value: detailsSession.browserChannel ?? "—" },
+                      { label: "Snapshot", value: detailsSession.baseSnapshotName ?? "—" },
+                      { label: "Created", value: metadataTimestamp(detailsSession.createdAt) },
+                      { label: "Started", value: metadataTimestamp(detailsSession.startedAt) },
+                      { label: "Stopped", value: metadataTimestamp(detailsSession.stoppedAt) },
+                      { label: "Expires", value: metadataTimestamp(detailsSession.expiresAt) },
+                      { label: "Deleted", value: metadataTimestamp(detailsSession.deletedAt) },
+                      { label: "Tags", value: <TagBadges tags={detailsSession.tags} max={10} /> },
+                    ]}
+                  />
+                </ScrollArea>
+                <SessionDetailActionBar
+                  session={detailsSession}
+                  actions={actions}
+                  onConnection={() => onSectionChange("connection")}
+                  onEvents={() => onSectionChange("events")}
                 />
-              </ScrollArea>
+              </div>
             </>
           ) : null}
         </DialogContent>
@@ -210,7 +212,7 @@ function SessionDetailActionBar({
   const canRotate = actions.canWrite && session.status === "running";
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col justify-end gap-2 sm:border-l sm:border-border sm:pl-4">
       <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
       <Button type="button" variant="outline" size="sm" onClick={onConnection}>
         <ExternalLink data-icon="inline-start" />
@@ -268,6 +270,7 @@ function SessionDetailActionBar({
             type="button"
             variant="destructive"
             size="sm"
+            className="mt-2"
             onClick={() => actions.onDelete(session)}
             disabled={actions.deletePending}
           >
@@ -287,11 +290,11 @@ type OpenSessionButtonProps = {
 
 function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
   return (
-    <div className="flex w-fit">
+    <div className="flex w-full">
       <Button
         type="button"
         size="sm"
-        className="rounded-r-none"
+        className="flex-1 rounded-r-none"
         disabled={disabled}
         render={disabled ? undefined : <Link to="/sessions/$sessionId" params={{ sessionId }} />}
       >

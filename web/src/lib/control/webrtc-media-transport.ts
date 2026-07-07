@@ -44,6 +44,15 @@ export type WebRTCMediaPhase = "idle" | "connecting" | "live" | "failed";
 export type WebRTCMediaSize = {
   width: number;
   height: number;
+  deviceScaleFactor: number;
+  physicalWidth: number;
+  physicalHeight: number;
+};
+
+export type WebRTCViewportRequest = {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
 };
 
 export type WebRTCStreamSettings = {
@@ -140,7 +149,7 @@ export type WebRTCMediaOptions = {
   credentials: ApiCredentials;
   iceServers: RTCIceServer[];
   input$: Observable<WebRTCInputMessage>;
-  viewportSize$: Observable<WebRTCMediaSize>;
+  viewportSize$: Observable<WebRTCViewportRequest>;
   streamSettings$: Observable<WebRTCStreamSettings>;
 };
 
@@ -252,6 +261,9 @@ const iceCandidateSchema = z.object({
 const viewportMetadataSchema = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
+  deviceScaleFactor: z.number().positive().default(1),
+  physicalWidth: z.number().positive().optional(),
+  physicalHeight: z.number().positive().optional(),
 });
 const streamSettingsSchema = z.object({
   fps: z.number().int().min(1).max(120),
@@ -610,6 +622,9 @@ function metadata$(inbound$: Observable<SignalMessage>): Observable<TransportEve
               size: {
                 width: Math.round(parsed.data.width),
                 height: Math.round(parsed.data.height),
+                deviceScaleFactor: parsed.data.deviceScaleFactor,
+                physicalWidth: Math.round(parsed.data.physicalWidth ?? parsed.data.width),
+                physicalHeight: Math.round(parsed.data.physicalHeight ?? parsed.data.height),
               },
             })
           : EMPTY;
@@ -933,10 +948,19 @@ function probe$(stream: MediaStream): Observable<TransportEvent> {
       ) {
         return;
       }
-      if (lastSize?.width === video.videoWidth && lastSize?.height === video.videoHeight) {
+      if (
+        lastSize?.physicalWidth === video.videoWidth &&
+        lastSize?.physicalHeight === video.videoHeight
+      ) {
         return;
       }
-      lastSize = { width: video.videoWidth, height: video.videoHeight };
+      lastSize = {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        deviceScaleFactor: 1,
+        physicalWidth: video.videoWidth,
+        physicalHeight: video.videoHeight,
+      };
       subscriber.next({ type: "probe-live", size: lastSize });
     };
     const play = () => {

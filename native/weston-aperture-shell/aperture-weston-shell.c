@@ -18,6 +18,10 @@
 #include <wayland-server-protocol.h>
 #include <weston/weston.h>
 
+#include "cursor-shape-v1-server-protocol.h"
+#include "fractional-scale-v1-server-protocol.h"
+#include "viewporter-server-protocol.h"
+
 struct xkb_keymap;
 
 void weston_seat_init(struct weston_seat *seat, struct weston_compositor *ec,
@@ -49,15 +53,21 @@ struct aperture_shell {
 	struct weston_curtain *background;
 	struct wl_list surfaces;
 	struct wl_list control_clients;
+	struct wl_list fractional_scales;
 	struct wl_event_source *control_source;
 	struct wl_event_source *resize_timer;
 	struct wl_listener destroy_listener;
+	struct wl_global *cursor_shape_global;
+	struct wl_global *fractional_scale_global;
+	struct wl_global *viewporter_global;
 	char *control_socket_path;
 	int control_fd;
 	uint32_t width;
 	uint32_t height;
+	uint32_t scale_numerator;
 	uint32_t pending_width;
 	uint32_t pending_height;
+	uint32_t pending_scale_numerator;
 	bool resize_scheduled;
 	bool input_seat_initialized;
 	bool input_pointer_initialized;
@@ -73,6 +83,20 @@ struct aperture_shell_surface {
 	bool fit_transform_added;
 };
 
+struct aperture_fractional_scale {
+	struct wl_list link;
+	struct aperture_shell *shell;
+	struct weston_surface *surface;
+	struct wl_resource *resource;
+	struct wl_listener surface_destroy_listener;
+};
+
+struct aperture_viewport {
+	struct weston_surface *surface;
+	struct wl_resource *resource;
+	struct wl_listener surface_destroy_listener;
+};
+
 struct aperture_control_client {
 	struct wl_list link;
 	struct aperture_shell *shell;
@@ -85,7 +109,13 @@ struct aperture_control_client {
 static const uint32_t aperture_min_dimension = 1;
 static const uint32_t aperture_min_configure_width = 500;
 static const uint32_t aperture_max_dimension = 16384;
+static const uint32_t aperture_scale_denominator = 120;
+static const uint32_t aperture_min_scale_numerator = 30;
+static const uint32_t aperture_max_scale_numerator = 480;
 static const int aperture_resize_coalesce_ms = 16;
+
+static int
+create_background(struct aperture_shell *shell);
 
 static int
 background_get_label(struct weston_surface *surface, char *buf, size_t len)
@@ -122,6 +152,91 @@ parse_positive_env(const char *name, uint32_t fallback)
 		return fallback;
 
 	return (uint32_t)value;
+}
+
+static uint32_t
+scaled_dimension(uint32_t value, uint32_t scale_numerator)
+{
+	return (uint32_t)(((uint64_t)value * scale_numerator +
+			   aperture_scale_denominator / 2) /
+			  aperture_scale_denominator);
+}
+
+static int32_t
+native_output_scale(uint32_t scale_numerator)
+{
+	if (scale_numerator >= aperture_scale_denominator &&
+	    scale_numerator % aperture_scale_denominator == 0)
+		return (int32_t)(scale_numerator / aperture_scale_denominator);
+
+	return 1;
+}
+
+static void
+send_fractional_scale(struct aperture_fractional_scale *scale)
+{
+	wp_fractional_scale_v1_send_preferred_scale(scale->resource,
+						    scale->shell->scale_numerator);
+}
+
+static void
+send_fractional_scale_all(struct aperture_shell *shell)
+{
+	struct aperture_fractional_scale *scale;
+
+	wl_list_for_each(scale, &shell->fractional_scales, link)
+		send_fractional_scale(scale);
+}
+
+static void
+unset_viewport_source(struct weston_buffer_viewport *viewport)
+{
+	viewport->buffer.src_x = wl_fixed_from_int(0);
+	viewport->buffer.src_y = wl_fixed_from_int(0);
+	viewport->buffer.src_width = wl_fixed_from_int(-1);
+	viewport->buffer.src_height = wl_fixed_from_int(-1);
+}
+
+static void
+unset_viewport_destination(struct weston_buffer_viewport *viewport)
+{
+	viewport->surface.width = -1;
+	viewport->surface.height = -1;
+}
+
+static const char *
+resize_output(struct aperture_shell *shell, uint32_t width, uint32_t height,
+	      uint32_t scale_numerator)
+{
+	struct weston_output *output = default_output(shell);
+	struct weston_mode mode;
+	uint32_t physical_width = scaled_dimension(width, scale_numerator);
+	uint32_t physical_height = scaled_dimension(height, scale_numerator);
+	int32_t output_scale = native_output_scale(scale_numerator);
+
+	if (!output || !output->current_mode)
+		return "output is unavailable";
+	if (physical_width < aperture_min_dimension || physical_height < aperture_min_dimension ||
+	    physical_width > aperture_max_dimension || physical_height > aperture_max_dimension)
+		return "invalid physical dimensions";
+	if (output->current_mode->width == (int32_t)physical_width &&
+	    output->current_mode->height == (int32_t)physical_height &&
+	    output->current_scale == output_scale)
+		return NULL;
+
+	mode = *output->current_mode;
+	mode.width = (int32_t)physical_width;
+	mode.height = (int32_t)physical_height;
+	if (weston_output_mode_set_native(output, &mode, output_scale) < 0)
+		return "output resize failed";
+
+	if (shell->background) {
+		weston_shell_utils_curtain_destroy(shell->background);
+		shell->background = NULL;
+		if (create_background(shell) < 0)
+			return "background resize failed";
+	}
+	return NULL;
 }
 
 static int
@@ -269,15 +384,32 @@ resolve_viewport_size(struct aperture_shell *shell, uint32_t *width, uint32_t *h
 }
 
 static void
-apply_viewport_size(struct aperture_shell *shell, uint32_t width, uint32_t height)
+apply_viewport_size(struct aperture_shell *shell, uint32_t width, uint32_t height,
+		    uint32_t scale_numerator)
 {
-	if (shell->width == width && shell->height == height)
+	const char *error;
+	uint32_t physical_width = scaled_dimension(width, scale_numerator);
+	uint32_t physical_height = scaled_dimension(height, scale_numerator);
+	int32_t output_scale = native_output_scale(scale_numerator);
+
+	if (shell->width == width && shell->height == height &&
+	    shell->scale_numerator == scale_numerator)
 		return;
+
+	error = resize_output(shell, width, height, scale_numerator);
+	if (error) {
+		weston_log("aperture-shell: resize output failed: %s\n", error);
+		return;
+	}
 
 	shell->width = width;
 	shell->height = height;
+	shell->scale_numerator = scale_numerator;
+	send_fractional_scale_all(shell);
 	layout_all_surfaces(shell);
-	weston_log("aperture-shell: resized logical viewport to %ux%u\n", width, height);
+	weston_log("aperture-shell: resized viewport to %ux%u @ %u/120 (%ux%u physical, wl_output scale %d)\n",
+		   width, height, scale_numerator, physical_width, physical_height,
+		   output_scale);
 }
 
 static int
@@ -286,29 +418,44 @@ dispatch_resize_timer(void *data)
 	struct aperture_shell *shell = data;
 
 	shell->resize_scheduled = false;
-	apply_viewport_size(shell, shell->pending_width, shell->pending_height);
+	apply_viewport_size(shell, shell->pending_width, shell->pending_height,
+			    shell->pending_scale_numerator);
 	return 0;
 }
 
 static const char *
-queue_viewport_resize(struct aperture_shell *shell, uint32_t width, uint32_t height)
+queue_viewport_resize(struct aperture_shell *shell, uint32_t width, uint32_t height,
+		      uint32_t scale_numerator)
 {
+	uint32_t physical_width;
+	uint32_t physical_height;
+
 	if (width < aperture_min_dimension || height < aperture_min_dimension ||
 	    width > aperture_max_dimension || height > aperture_max_dimension)
 		return "invalid dimensions";
+	if (scale_numerator < aperture_min_scale_numerator ||
+	    scale_numerator > aperture_max_scale_numerator)
+		return "invalid scale";
 
 	if (!shell->resize_timer)
 		return "resize timer is unavailable";
 
 	resolve_viewport_size(shell, &width, &height);
-	if (!shell->resize_scheduled && shell->width == width && shell->height == height)
+	physical_width = scaled_dimension(width, scale_numerator);
+	physical_height = scaled_dimension(height, scale_numerator);
+	if (physical_width < aperture_min_dimension || physical_height < aperture_min_dimension ||
+	    physical_width > aperture_max_dimension || physical_height > aperture_max_dimension)
+		return "invalid physical dimensions";
+	if (!shell->resize_scheduled && shell->width == width && shell->height == height &&
+	    shell->scale_numerator == scale_numerator)
 		return NULL;
 	if (shell->resize_scheduled && shell->pending_width == width &&
-	    shell->pending_height == height)
+	    shell->pending_height == height && shell->pending_scale_numerator == scale_numerator)
 		return NULL;
 
 	shell->pending_width = width;
 	shell->pending_height = height;
+	shell->pending_scale_numerator = scale_numerator;
 	if (shell->resize_scheduled)
 		return NULL;
 
@@ -463,6 +610,378 @@ flush_pointer_frame(struct aperture_shell *shell)
 
 	notify_pointer_frame(&shell->input_seat);
 	shell->pointer_frame_pending = false;
+}
+
+static void
+destroy_fractional_scale_resource(struct wl_resource *resource)
+{
+	struct aperture_fractional_scale *scale = wl_resource_get_user_data(resource);
+
+	wl_list_remove(&scale->link);
+	wl_list_remove(&scale->surface_destroy_listener.link);
+	free(scale);
+}
+
+static void
+destroy_fractional_scale_for_surface(struct wl_listener *listener, void *data)
+{
+	struct aperture_fractional_scale *scale =
+		wl_container_of(listener, scale, surface_destroy_listener);
+
+	wl_resource_destroy(scale->resource);
+}
+
+static void
+fractional_scale_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static const struct wp_fractional_scale_v1_interface fractional_scale_interface = {
+	fractional_scale_destroy,
+};
+
+static void
+fractional_scale_manager_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+fractional_scale_manager_get_fractional_scale(struct wl_client *client,
+					      struct wl_resource *resource, uint32_t id,
+					      struct wl_resource *surface_resource)
+{
+	struct aperture_shell *shell = wl_resource_get_user_data(resource);
+	struct weston_surface *surface = wl_resource_get_user_data(surface_resource);
+	struct aperture_fractional_scale *scale;
+	int version = wl_resource_get_version(resource);
+
+	wl_list_for_each(scale, &shell->fractional_scales, link) {
+		if (scale->surface == surface) {
+			wl_resource_post_error(
+				resource,
+				WP_FRACTIONAL_SCALE_MANAGER_V1_ERROR_FRACTIONAL_SCALE_EXISTS,
+				"fractional scale object already exists for this surface");
+			return;
+		}
+	}
+
+	scale = calloc(1, sizeof *scale);
+	if (!scale) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	scale->resource =
+		wl_resource_create(client, &wp_fractional_scale_v1_interface, version, id);
+	if (!scale->resource) {
+		free(scale);
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	scale->shell = shell;
+	scale->surface = surface;
+	scale->surface_destroy_listener.notify = destroy_fractional_scale_for_surface;
+	wl_signal_add(&surface->destroy_signal, &scale->surface_destroy_listener);
+	wl_list_insert(&shell->fractional_scales, &scale->link);
+	wl_resource_set_implementation(scale->resource, &fractional_scale_interface, scale,
+				       destroy_fractional_scale_resource);
+	send_fractional_scale(scale);
+}
+
+static const struct wp_fractional_scale_manager_v1_interface
+	fractional_scale_manager_interface = {
+		fractional_scale_manager_destroy,
+		fractional_scale_manager_get_fractional_scale,
+	};
+
+static void
+cursor_shape_device_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+cursor_shape_device_set_shape(struct wl_client *client, struct wl_resource *resource,
+			      uint32_t serial, uint32_t shape)
+{
+	uint32_t max_shape = wl_resource_get_version(resource) >= 2 ?
+				     WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_ALL_RESIZE :
+				     WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_ZOOM_OUT;
+
+	if (shape < WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT || shape > max_shape) {
+		wl_resource_post_error(resource,
+				       WP_CURSOR_SHAPE_DEVICE_V1_ERROR_INVALID_SHAPE,
+				       "invalid cursor shape");
+		return;
+	}
+}
+
+static const struct wp_cursor_shape_device_v1_interface cursor_shape_device_interface = {
+	cursor_shape_device_destroy,
+	cursor_shape_device_set_shape,
+};
+
+static void
+cursor_shape_manager_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+cursor_shape_manager_get_pointer(struct wl_client *client, struct wl_resource *resource,
+				 uint32_t id, struct wl_resource *pointer_resource)
+{
+	struct wl_resource *device_resource;
+
+	device_resource = wl_resource_create(client, &wp_cursor_shape_device_v1_interface,
+					    wl_resource_get_version(resource), id);
+	if (!device_resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(device_resource, &cursor_shape_device_interface,
+				       NULL, NULL);
+}
+
+static void
+cursor_shape_manager_get_tablet_tool_v2(struct wl_client *client,
+					struct wl_resource *resource, uint32_t id,
+					struct wl_resource *tablet_tool_resource)
+{
+	struct wl_resource *device_resource;
+
+	device_resource = wl_resource_create(client, &wp_cursor_shape_device_v1_interface,
+					    wl_resource_get_version(resource), id);
+	if (!device_resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(device_resource, &cursor_shape_device_interface,
+				       NULL, NULL);
+}
+
+static const struct wp_cursor_shape_manager_v1_interface cursor_shape_manager_interface = {
+	cursor_shape_manager_destroy,
+	cursor_shape_manager_get_pointer,
+	cursor_shape_manager_get_tablet_tool_v2,
+};
+
+static void
+viewport_destroy_resource(struct wl_resource *resource)
+{
+	struct aperture_viewport *viewport = wl_resource_get_user_data(resource);
+
+	if (viewport->surface) {
+		unset_viewport_source(&viewport->surface->pending.buffer_viewport);
+		unset_viewport_destination(&viewport->surface->pending.buffer_viewport);
+		viewport->surface->viewport_resource = NULL;
+		wl_list_remove(&viewport->surface_destroy_listener.link);
+	}
+	free(viewport);
+}
+
+static void
+destroy_viewport_for_surface(struct wl_listener *listener, void *data)
+{
+	struct aperture_viewport *viewport =
+		wl_container_of(listener, viewport, surface_destroy_listener);
+
+	viewport->surface = NULL;
+	wl_resource_destroy(viewport->resource);
+}
+
+static void
+viewport_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+viewport_set_source(struct wl_client *client, struct wl_resource *resource,
+		    wl_fixed_t x, wl_fixed_t y, wl_fixed_t width, wl_fixed_t height)
+{
+	struct aperture_viewport *viewport = wl_resource_get_user_data(resource);
+	struct weston_buffer_viewport *pending;
+
+	if (!viewport->surface) {
+		wl_resource_post_error(resource, WP_VIEWPORT_ERROR_NO_SURFACE,
+				       "surface was destroyed");
+		return;
+	}
+
+	pending = &viewport->surface->pending.buffer_viewport;
+	if (x == wl_fixed_from_int(-1) && y == wl_fixed_from_int(-1) &&
+	    width == wl_fixed_from_int(-1) && height == wl_fixed_from_int(-1)) {
+		unset_viewport_source(pending);
+		return;
+	}
+
+	if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+		wl_resource_post_error(resource, WP_VIEWPORT_ERROR_BAD_VALUE,
+				       "invalid viewport source");
+		return;
+	}
+
+	pending->buffer.src_x = x;
+	pending->buffer.src_y = y;
+	pending->buffer.src_width = width;
+	pending->buffer.src_height = height;
+}
+
+static void
+viewport_set_destination(struct wl_client *client, struct wl_resource *resource,
+			 int32_t width, int32_t height)
+{
+	struct aperture_viewport *viewport = wl_resource_get_user_data(resource);
+	struct weston_buffer_viewport *pending;
+
+	if (!viewport->surface) {
+		wl_resource_post_error(resource, WP_VIEWPORT_ERROR_NO_SURFACE,
+				       "surface was destroyed");
+		return;
+	}
+
+	pending = &viewport->surface->pending.buffer_viewport;
+	if (width == -1 && height == -1) {
+		unset_viewport_destination(pending);
+		return;
+	}
+
+	if (width <= 0 || height <= 0) {
+		wl_resource_post_error(resource, WP_VIEWPORT_ERROR_BAD_VALUE,
+				       "invalid viewport destination");
+		return;
+	}
+
+	pending->surface.width = width;
+	pending->surface.height = height;
+}
+
+static const struct wp_viewport_interface viewport_interface = {
+	viewport_destroy,
+	viewport_set_source,
+	viewport_set_destination,
+};
+
+static void
+viewporter_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+viewporter_get_viewport(struct wl_client *client, struct wl_resource *resource,
+			uint32_t id, struct wl_resource *surface_resource)
+{
+	struct weston_surface *surface = wl_resource_get_user_data(surface_resource);
+	struct aperture_viewport *viewport;
+	int version = wl_resource_get_version(resource);
+
+	if (surface->viewport_resource) {
+		wl_resource_post_error(resource, WP_VIEWPORTER_ERROR_VIEWPORT_EXISTS,
+				       "viewport object already exists for this surface");
+		return;
+	}
+
+	viewport = calloc(1, sizeof *viewport);
+	if (!viewport) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	viewport->resource = wl_resource_create(client, &wp_viewport_interface, version, id);
+	if (!viewport->resource) {
+		free(viewport);
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	viewport->surface = surface;
+	viewport->surface_destroy_listener.notify = destroy_viewport_for_surface;
+	wl_signal_add(&surface->destroy_signal, &viewport->surface_destroy_listener);
+	wl_resource_set_implementation(viewport->resource, &viewport_interface, viewport,
+				       viewport_destroy_resource);
+	surface->viewport_resource = viewport->resource;
+}
+
+static const struct wp_viewporter_interface viewporter_interface = {
+	viewporter_destroy,
+	viewporter_get_viewport,
+};
+
+static void
+bind_viewporter(struct wl_client *client, void *data, uint32_t version, uint32_t id)
+{
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client, &wp_viewporter_interface, version, id);
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &viewporter_interface, data, NULL);
+}
+
+static int
+create_viewporter(struct aperture_shell *shell)
+{
+	shell->viewporter_global = wl_global_create(shell->compositor->wl_display,
+						    &wp_viewporter_interface, 1, shell,
+						    bind_viewporter);
+	return shell->viewporter_global ? 0 : -1;
+}
+
+static void
+bind_fractional_scale_manager(struct wl_client *client, void *data, uint32_t version,
+			      uint32_t id)
+{
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client, &wp_fractional_scale_manager_v1_interface,
+				      version, id);
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &fractional_scale_manager_interface, data,
+				       NULL);
+}
+
+static int
+create_fractional_scale_manager(struct aperture_shell *shell)
+{
+	shell->fractional_scale_global = wl_global_create(
+		shell->compositor->wl_display, &wp_fractional_scale_manager_v1_interface, 1,
+		shell, bind_fractional_scale_manager);
+	return shell->fractional_scale_global ? 0 : -1;
+}
+
+static void
+bind_cursor_shape_manager(struct wl_client *client, void *data, uint32_t version,
+			  uint32_t id)
+{
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client, &wp_cursor_shape_manager_v1_interface,
+				      version, id);
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &cursor_shape_manager_interface, data,
+				       NULL);
+}
+
+static int
+create_cursor_shape_manager(struct aperture_shell *shell)
+{
+	shell->cursor_shape_global = wl_global_create(
+		shell->compositor->wl_display, &wp_cursor_shape_manager_v1_interface, 2,
+		shell, bind_cursor_shape_manager);
+	return shell->cursor_shape_global ? 0 : -1;
 }
 
 static void
@@ -656,6 +1175,7 @@ handle_control_command(struct aperture_control_client *client)
 {
 	unsigned int width;
 	unsigned int height;
+	unsigned int scale_numerator = 0;
 	unsigned int code;
 	unsigned int pressed;
 	double x;
@@ -664,23 +1184,33 @@ handle_control_command(struct aperture_control_client *client)
 	double dy;
 	uint32_t applied_width;
 	uint32_t applied_height;
+	uint32_t applied_scale_numerator;
+	uint32_t physical_width;
+	uint32_t physical_height;
 	char trailing;
 	const char *error;
 	char response[128];
 
-	if (sscanf(client->buffer, "resize %u %u %c", &width, &height, &trailing) == 2) {
+	if (sscanf(client->buffer, "resize %u %u %u %c", &width, &height,
+		   &scale_numerator, &trailing) == 3 ||
+	    sscanf(client->buffer, "resize %u %u %c", &width, &height, &trailing) == 2) {
 		applied_width = width;
 		applied_height = height;
+		applied_scale_numerator =
+			scale_numerator ? scale_numerator : client->shell->scale_numerator;
 		resolve_viewport_size(client->shell, &applied_width, &applied_height);
-		error = queue_viewport_resize(client->shell, applied_width, applied_height);
+		error = queue_viewport_resize(client->shell, applied_width, applied_height,
+					      applied_scale_numerator);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
 			return;
 		}
 
-		snprintf(response, sizeof response, "ok %u %u\n", applied_width,
-			 applied_height);
+		physical_width = scaled_dimension(applied_width, applied_scale_numerator);
+		physical_height = scaled_dimension(applied_height, applied_scale_numerator);
+		snprintf(response, sizeof response, "ok %u %u %u %u %u\n", applied_width,
+			 applied_height, applied_scale_numerator, physical_width, physical_height);
 		write_control_response(client, response);
 		return;
 	}
@@ -875,12 +1405,23 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_shell *shell = wl_container_of(listener, shell, destroy_listener);
 	struct aperture_control_client *control_client;
 	struct aperture_control_client *next_control_client;
+	struct aperture_fractional_scale *fractional_scale;
+	struct aperture_fractional_scale *next_fractional_scale;
 
 	wl_list_remove(&shell->destroy_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
 	if (shell->resize_timer)
 		wl_event_source_remove(shell->resize_timer);
+	if (shell->cursor_shape_global)
+		wl_global_destroy(shell->cursor_shape_global);
+	if (shell->fractional_scale_global)
+		wl_global_destroy(shell->fractional_scale_global);
+	if (shell->viewporter_global)
+		wl_global_destroy(shell->viewporter_global);
+	wl_list_for_each_safe(fractional_scale, next_fractional_scale,
+			      &shell->fractional_scales, link)
+		wl_resource_destroy(fractional_scale->resource);
 	wl_list_for_each_safe(control_client, next_control_client,
 			      &shell->control_clients, link)
 		destroy_control_client(control_client);
@@ -919,10 +1460,13 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	shell->control_fd = -1;
 	shell->width = parse_positive_env("APERTURE_VIEWPORT_WIDTH", 1280);
 	shell->height = parse_positive_env("APERTURE_VIEWPORT_HEIGHT", 720);
+	shell->scale_numerator = aperture_scale_denominator;
 	shell->pending_width = shell->width;
 	shell->pending_height = shell->height;
+	shell->pending_scale_numerator = shell->scale_numerator;
 	wl_list_init(&shell->surfaces);
 	wl_list_init(&shell->control_clients);
+	wl_list_init(&shell->fractional_scales);
 	weston_layer_init(&shell->background_layer, compositor);
 	weston_layer_init(&shell->normal_layer, compositor);
 	weston_layer_set_position(&shell->background_layer, WESTON_LAYER_POSITION_BACKGROUND);
@@ -941,6 +1485,12 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	shell->input_keyboard_initialized = true;
 
 	if (create_background(shell) < 0)
+		goto err;
+	if (create_fractional_scale_manager(shell) < 0)
+		goto err;
+	if (create_viewporter(shell) < 0)
+		goto err;
+	if (create_cursor_shape_manager(shell) < 0)
 		goto err;
 	if (setup_control_socket(shell) < 0)
 		goto err;

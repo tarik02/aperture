@@ -598,6 +598,34 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		defer cancel()
 		_ = wrapperServer.Shutdown(shutdownCtx)
 	}()
+	var pipeWire *exec.Cmd
+	var pipeWireDone <-chan error
+	var wirePlumber *exec.Cmd
+	var wirePlumberDone <-chan error
+	oldPipeWireRemote, hadPipeWireRemote := os.LookupEnv("PIPEWIRE_REMOTE")
+	if values.CompositorBackend == "pipewire" {
+		var err error
+		pipeWire, pipeWireDone, err = startSessionPipeWire(runtimeDir, values.SessionID)
+		if err != nil {
+			return err
+		}
+		if err := os.Setenv("PIPEWIRE_REMOTE", sessionPipeWireRemote(values.SessionID)); err != nil {
+			stopProcess(pipeWire, pipeWireDone)
+			return fmt.Errorf("set session PipeWire remote: %w", err)
+		}
+		wirePlumber, wirePlumberDone, err = startSessionWirePlumber(values.SessionID)
+		if err != nil {
+			stopProcess(pipeWire, pipeWireDone)
+			return err
+		}
+		defer func() {
+			if hadPipeWireRemote {
+				_ = os.Setenv("PIPEWIRE_REMOTE", oldPipeWireRemote)
+			} else {
+				_ = os.Unsetenv("PIPEWIRE_REMOTE")
+			}
+		}()
+	}
 	compositorLog := filepath.Join(values.CacheDir, "weston.log")
 	compositorConfig := filepath.Join(values.CacheDir, "weston.ini")
 	compositorConfigBody := "[shell]\npanel-position=none\nbackground-color=0x000000\nlocking=false\nanimation=none\nstartup-animation=none\n"
@@ -648,6 +676,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	compositor.Stdout = os.Stdout
 	compositor.Stderr = os.Stderr
 	if err := compositor.Start(); err != nil {
+		stopProcess(wirePlumber, wirePlumberDone)
+		stopProcess(pipeWire, pipeWireDone)
 		return fmt.Errorf("start compositor: %w", err)
 	}
 	compositorDone := make(chan error, 1)
@@ -659,12 +689,16 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		if compositor.ProcessState == nil {
 			stopProcess(compositor, compositorDone)
 		}
+		stopProcess(wirePlumber, wirePlumberDone)
+		stopProcess(pipeWire, pipeWireDone)
 		return err
 	}
 
 	oldWayland, hadWayland := os.LookupEnv("WAYLAND_DISPLAY")
 	if err := os.Setenv("WAYLAND_DISPLAY", socketName); err != nil {
 		stopProcess(compositor, compositorDone)
+		stopProcess(wirePlumber, wirePlumberDone)
+		stopProcess(pipeWire, pipeWireDone)
 		return fmt.Errorf("set nested WAYLAND_DISPLAY: %w", err)
 	}
 	defer func() {
@@ -701,10 +735,14 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	})
 	if err != nil {
 		stopProcess(compositor, compositorDone)
+		stopProcess(wirePlumber, wirePlumberDone)
+		stopProcess(pipeWire, pipeWireDone)
 		return err
 	}
 	if err := browserCmd.Start(); err != nil {
 		stopProcess(compositor, compositorDone)
+		stopProcess(wirePlumber, wirePlumberDone)
+		stopProcess(pipeWire, pipeWireDone)
 		return fmt.Errorf("start browser: %w", err)
 	}
 	browserDone := make(chan error, 1)
@@ -724,6 +762,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			if err != nil {
 				stopProcess(browserCmd, browserDone)
 				stopProcess(compositor, compositorDone)
+				stopProcess(wirePlumber, wirePlumberDone)
+				stopProcess(pipeWire, pipeWireDone)
 				return err
 			}
 			values.MediaProducerTarget = target
@@ -743,6 +783,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		if err != nil {
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
 			return err
 		}
 		wrapper.setMediaProducer(mediaProducer)
@@ -757,18 +799,42 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		case err := <-browserDone:
 			stopMediaProducer(mediaProducer)
 			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
 			return err
 		case err := <-compositorDone:
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
 			if err != nil {
 				return fmt.Errorf("compositor exited before browser: %w", err)
 			}
 			return fmt.Errorf("compositor exited before browser")
+		case err := <-wirePlumberDone:
+			stopMediaProducer(mediaProducer)
+			stopProcess(browserCmd, browserDone)
+			stopProcess(compositor, compositorDone)
+			stopProcess(pipeWire, pipeWireDone)
+			if err != nil {
+				return fmt.Errorf("session WirePlumber exited before browser: %w", err)
+			}
+			return fmt.Errorf("session WirePlumber exited before browser")
+		case err := <-pipeWireDone:
+			stopMediaProducer(mediaProducer)
+			stopProcess(browserCmd, browserDone)
+			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			if err != nil {
+				return fmt.Errorf("session PipeWire exited before browser: %w", err)
+			}
+			return fmt.Errorf("session PipeWire exited before browser")
 		case err := <-wrapperDone:
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
 			if err != nil {
 				return fmt.Errorf("wrapper api exited: %w", err)
 			}
@@ -777,9 +843,145 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
 			return nil
 		}
 	}
+}
+
+func sessionPipeWireRemote(sessionID string) string {
+	return "aperture-pipewire-" + sessionID
+}
+
+func startSessionPipeWire(runtimeDir string, sessionID string) (*exec.Cmd, <-chan error, error) {
+	pipewire, err := exec.LookPath("pipewire")
+	if err != nil {
+		return nil, nil, fmt.Errorf("locate pipewire: %w", err)
+	}
+	remote := sessionPipeWireRemote(sessionID)
+	socketPath := filepath.Join(runtimeDir, remote)
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		return nil, nil, fmt.Errorf("remove stale PipeWire socket: %w", err)
+	}
+	cmd := exec.Command(pipewire)
+	cmd.Env = append(filteredEnv("PIPEWIRE_REMOTE", "PIPEWIRE_CORE"), "PIPEWIRE_CORE="+remote)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("start session PipeWire: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	if err := waitForProcessSocket(socketPath, "session PipeWire", done); err != nil {
+		if cmd.ProcessState == nil {
+			stopProcess(cmd, done)
+		}
+		return nil, nil, err
+	}
+	return cmd, done, nil
+}
+
+func startSessionWirePlumber(sessionID string) (*exec.Cmd, <-chan error, error) {
+	wireplumber, err := exec.LookPath("wireplumber")
+	if err != nil {
+		return nil, nil, fmt.Errorf("locate wireplumber: %w", err)
+	}
+	remote := sessionPipeWireRemote(sessionID)
+	cmd := exec.Command(wireplumber)
+	cmd.Env = append(filteredEnv("PIPEWIRE_REMOTE", "PIPEWIRE_CORE"), "PIPEWIRE_REMOTE="+remote)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("start session WirePlumber: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	if err := waitForPipeWireClient(cmd.Process.Pid, done); err != nil {
+		if cmd.ProcessState == nil {
+			stopProcess(cmd, done)
+		}
+		return nil, nil, err
+	}
+	return cmd, done, nil
+}
+
+func filteredEnv(excludedKeys ...string) []string {
+	env := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		excluded := false
+		for _, key := range excludedKeys {
+			if strings.HasPrefix(entry, key+"=") {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			env = append(env, entry)
+		}
+	}
+	return env
+}
+
+func waitForPipeWireClient(pid int, done <-chan error) error {
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				return fmt.Errorf("WirePlumber exited before PipeWire client was ready: %w", err)
+			}
+			return fmt.Errorf("WirePlumber exited before PipeWire client was ready")
+		case <-timer.C:
+			if lastErr != nil {
+				return fmt.Errorf("timed out waiting for WirePlumber PipeWire client: %w", lastErr)
+			}
+			return fmt.Errorf("timed out waiting for WirePlumber PipeWire client")
+		case <-ticker.C:
+			if pipeWireClientReady(pid) {
+				return nil
+			}
+		}
+	}
+}
+
+func pipeWireClientReady(pid int) bool {
+	pwDump, err := exec.LookPath("pw-dump")
+	if err != nil {
+		return false
+	}
+	body, err := exec.Command(pwDump).Output()
+	if err != nil {
+		return false
+	}
+	var dump []pipeWireDumpObject
+	if err := json.Unmarshal(body, &dump); err != nil {
+		return false
+	}
+	for _, object := range dump {
+		if object.Type != "PipeWire:Interface:Client" {
+			continue
+		}
+		props := object.properties()
+		processID, ok := intPipeWireProperty(props, "application.process.id")
+		if !ok {
+			processID, ok = intPipeWireProperty(props, "pipewire.sec.pid")
+		}
+		if ok && processID == pid {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForPipeWireNodeTarget(
@@ -949,6 +1151,10 @@ func compositorProcessEnv() []string {
 }
 
 func waitForWaylandSocket(socketPath string, compositorDone <-chan error) error {
+	return waitForProcessSocket(socketPath, "compositor Wayland", compositorDone)
+}
+
+func waitForProcessSocket(socketPath string, label string, done <-chan error) error {
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 
@@ -957,13 +1163,13 @@ func waitForWaylandSocket(socketPath string, compositorDone <-chan error) error 
 
 	for {
 		select {
-		case err := <-compositorDone:
+		case err := <-done:
 			if err != nil {
-				return fmt.Errorf("compositor exited before Wayland socket was ready: %w", err)
+				return fmt.Errorf("%s process exited before socket was ready: %w", label, err)
 			}
-			return fmt.Errorf("compositor exited before Wayland socket was ready")
+			return fmt.Errorf("%s process exited before socket was ready", label)
 		case <-timer.C:
-			return fmt.Errorf("timed out waiting for compositor Wayland socket %s", socketPath)
+			return fmt.Errorf("timed out waiting for %s socket %s", label, socketPath)
 		case <-ticker.C:
 			if _, err := os.Stat(socketPath); err == nil {
 				return nil

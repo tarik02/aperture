@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -20,6 +21,16 @@ import (
 )
 
 const wrapperSignalProtocol = "aperture-webrtc.v1"
+const viewportScaleDenominator = 120
+
+type compositorViewport struct {
+	Width             int
+	Height            int
+	ScaleNumerator    int
+	PhysicalWidth     int
+	PhysicalHeight    int
+	DeviceScaleFactor float64
+}
 
 type wrapperRuntime struct {
 	values         RuntimeEnvValues
@@ -166,23 +177,24 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 		return
 	}
 	var body struct {
-		Width  int `json:"width"`
-		Height int `json:"height"`
+		Width             int     `json:"width"`
+		Height            int     `json:"height"`
+		DeviceScaleFactor float64 `json:"deviceScaleFactor"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		writeWrapperError(w, http.StatusBadRequest, "invalid viewport request")
 		return
 	}
-	width, height, err := resizeCompositor(req.Context(), r.controlSocket, body.Width, body.Height)
+	viewport, err := resizeCompositor(req.Context(), r.controlSocket, body.Width, body.Height, body.DeviceScaleFactor)
 	if mediaProducer := r.currentMediaProducer(); mediaProducer != nil && err == nil {
-		mediaProducer.setViewportSize(width, height)
-		mediaProducer.enqueue("viewport-metadata", map[string]any{"width": width, "height": height})
+		mediaProducer.setViewport(viewport)
+		mediaProducer.enqueue("viewport-metadata", viewportMetadata(viewport))
 	}
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeWrapperJSON(w, http.StatusOK, map[string]any{"width": width, "height": height})
+	writeWrapperJSON(w, http.StatusOK, viewportMetadata(viewport))
 }
 
 func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) {
@@ -528,27 +540,53 @@ func wrapperMediaProcessEnv(pluginPath string) []string {
 	return env
 }
 
-func resizeCompositor(ctx context.Context, socketPath string, width int, height int) (int, int, error) {
+func resizeCompositor(ctx context.Context, socketPath string, width int, height int, deviceScaleFactor float64) (compositorViewport, error) {
+	scaleNumerator := viewportScaleNumerator(deviceScaleFactor)
 	if width <= 0 || height <= 0 || width > 16384 || height > 16384 {
-		return 0, 0, fmt.Errorf("invalid viewport resize %dx%d", width, height)
+		return compositorViewport{}, fmt.Errorf("invalid viewport resize %dx%d", width, height)
 	}
 	response, err := sendCompositorControlCommand(
 		ctx,
 		socketPath,
-		fmt.Sprintf("resize %d %d\n", width, height),
+		fmt.Sprintf("resize %d %d %d\n", width, height, scaleNumerator),
 	)
 	if err != nil {
-		return 0, 0, err
+		return compositorViewport{}, err
 	}
 	if !strings.HasPrefix(response, "ok ") {
-		return 0, 0, fmt.Errorf("compositor resize rejected: %s", response)
+		return compositorViewport{}, fmt.Errorf("compositor resize rejected: %s", response)
 	}
-	var appliedWidth int
-	var appliedHeight int
-	if _, err := fmt.Sscanf(response, "ok %d %d", &appliedWidth, &appliedHeight); err != nil {
-		return 0, 0, fmt.Errorf("parse compositor resize response %q: %w", response, err)
+	viewport := compositorViewport{}
+	if _, err := fmt.Sscanf(
+		response,
+		"ok %d %d %d %d %d",
+		&viewport.Width,
+		&viewport.Height,
+		&viewport.ScaleNumerator,
+		&viewport.PhysicalWidth,
+		&viewport.PhysicalHeight,
+	); err != nil {
+		return compositorViewport{}, fmt.Errorf("parse compositor resize response %q: %w", response, err)
 	}
-	return appliedWidth, appliedHeight, nil
+	viewport.DeviceScaleFactor = float64(viewport.ScaleNumerator) / viewportScaleDenominator
+	return viewport, nil
+}
+
+func viewportScaleNumerator(deviceScaleFactor float64) int {
+	if deviceScaleFactor <= 0 || math.IsNaN(deviceScaleFactor) || math.IsInf(deviceScaleFactor, 0) {
+		return viewportScaleDenominator
+	}
+	return int(math.Round(deviceScaleFactor * viewportScaleDenominator))
+}
+
+func viewportMetadata(viewport compositorViewport) map[string]any {
+	return map[string]any{
+		"width":             viewport.Width,
+		"height":            viewport.Height,
+		"deviceScaleFactor": viewport.DeviceScaleFactor,
+		"physicalWidth":     viewport.PhysicalWidth,
+		"physicalHeight":    viewport.PhysicalHeight,
+	}
 }
 
 func sendCompositorControlCommand(ctx context.Context, socketPath string, command string) (string, error) {

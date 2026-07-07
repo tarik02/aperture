@@ -1,9 +1,10 @@
 import { Ban, MoreHorizontal, Plus } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TokenCreateModal } from "#/features/token/create-modal/token-create-modal.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
+import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import {
   InfiniteTableShell,
   TableSkeletonRows,
@@ -13,12 +14,21 @@ import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
 import { Input } from "#/components/ui/input.tsx";
+import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import {
   Select,
   SelectContent,
@@ -124,6 +134,7 @@ export function TokenListPage() {
   const clearSelectedTokens = useTokenListPageStore((state) => state.clearSelectedTokens);
   const removeSelectedToken = useTokenListPageStore((state) => state.removeSelectedToken);
   const setConfirmAction = useTokenListPageStore((state) => state.setConfirmAction);
+  const [viewToken, setViewToken] = useState<ApiToken | null>(null);
   const selectedTokenItems = useMemo(() => Object.values(selectedTokens), [selectedTokens]);
   const revokableTokenItems = selectedTokenItems.filter((token) => !token.revokedAt);
 
@@ -151,6 +162,9 @@ export function TokenListPage() {
       case "revoke":
         await revokeMutation.mutateAsync(action.token.id);
         removeSelectedToken(action.token.id);
+        if (viewToken?.id === action.token.id) {
+          setViewToken(null);
+        }
         return;
       default: {
         const _exhaustive: never = action;
@@ -348,6 +362,7 @@ export function TokenListPage() {
                   canRevoke={canCreate}
                   selected={Boolean(selectedTokens[token.id])}
                   onSelectedChange={(selected) => toggleTokenSelection(token, selected)}
+                  onView={() => setViewToken(token)}
                   onRevoke={() => setConfirmAction({ kind: "revoke", token })}
                 />
               ))}
@@ -357,6 +372,17 @@ export function TokenListPage() {
       </InfiniteTableShell>
 
       <TokenCreateModal />
+      <TokenViewModal
+        token={viewToken}
+        canRevoke={canCreate}
+        revokePending={revokeMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open) {
+            setViewToken(null);
+          }
+        }}
+        onRevoke={(token) => setConfirmAction({ kind: "revoke", token })}
+      />
 
       {confirmDialog ? (
         <ConfirmDialog
@@ -383,13 +409,29 @@ type TokenRowProps = {
   canRevoke: boolean;
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
+  onView: () => void;
   onRevoke: () => void;
 };
 
-function TokenRow({ token, canRevoke, selected, onSelectedChange, onRevoke }: TokenRowProps) {
+function TokenRow({
+  token,
+  canRevoke,
+  selected,
+  onSelectedChange,
+  onView,
+  onRevoke,
+}: TokenRowProps) {
   return (
-    <TableRow data-state={selected ? "selected" : undefined}>
-      <TableCell data-table-sticky="start" className={stickyTableStartCellClassName}>
+    <TableRow
+      data-state={selected ? "selected" : undefined}
+      className="cursor-pointer"
+      onClick={onView}
+    >
+      <TableCell
+        data-table-sticky="start"
+        className={stickyTableStartCellClassName}
+        onClick={(event) => event.stopPropagation()}
+      >
         <Checkbox
           aria-label={`Select token ${token.name}`}
           checked={selected}
@@ -410,21 +452,105 @@ function TokenRow({ token, canRevoke, selected, onSelectedChange, onRevoke }: To
       </TableCell>
       <TableCell className="text-muted-foreground">{formatTimestamp(token.createdAt)}</TableCell>
       <TableCell className="text-muted-foreground">{formatTimestamp(token.expiresAt)}</TableCell>
-      <TableCell data-table-sticky="end" className={stickyTableEndCellClassName}>
-        {canRevoke && !token.revokedAt ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
-              <MoreHorizontal />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+      <TableCell
+        data-table-sticky="end"
+        className={stickyTableEndCellClassName}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
+            <MoreHorizontal />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onView}>View</DropdownMenuItem>
+            {canRevoke && !token.revokedAt ? (
               <DropdownMenuItem variant="destructive" onClick={onRevoke}>
                 Revoke
               </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TableCell>
     </TableRow>
+  );
+}
+
+type TokenViewModalProps = {
+  token: ApiToken | null;
+  canRevoke: boolean;
+  revokePending: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRevoke: (token: ApiToken) => void;
+};
+
+function TokenViewModal({
+  token,
+  canRevoke,
+  revokePending,
+  onOpenChange,
+  onRevoke,
+}: TokenViewModalProps) {
+  return (
+    <Dialog open={token !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[min(80vh,640px)] flex-col overflow-hidden sm:max-w-2xl">
+        {token ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {token.name}
+                <RevokedBadge revokedAt={token.revokedAt} />
+              </DialogTitle>
+              <DialogDescription className="break-all font-mono">{token.id}</DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="min-h-0 flex-1">
+              <MetadataGrid
+                items={[
+                  { label: "ID", value: token.id },
+                  { label: "Name", value: token.name },
+                  {
+                    label: "Authority",
+                    value: token.authorityType === "system_admin" ? "System admin" : "Tenant",
+                  },
+                  { label: "Tenant", value: token.tenantId ?? "—" },
+                  { label: "Scopes", value: <ScopeList scopes={token.scopes} /> },
+                  { label: "Created", value: metadataTimestamp(token.createdAt) },
+                  { label: "Expires", value: metadataTimestamp(token.expiresAt) },
+                  { label: "Revoked", value: metadataTimestamp(token.revokedAt) },
+                ]}
+              />
+            </ScrollArea>
+            <DialogFooter showCloseButton>
+              {canRevoke && !token.revokedAt ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => onRevoke(token)}
+                  disabled={revokePending}
+                >
+                  Revoke
+                </Button>
+              ) : null}
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ScopeList({ scopes }: { scopes: string[] }) {
+  if (scopes.length === 0) {
+    return "—";
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {[...scopes].sort().map((scope) => (
+        <Badge key={scope} variant="secondary" className="font-normal">
+          {scopeLabel(scope)}
+        </Badge>
+      ))}
+    </div>
   );
 }
 
