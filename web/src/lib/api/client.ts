@@ -459,7 +459,7 @@ export const apiClient = {
 
   getSessionScreencastStatus(credentials: ApiCredentials, sessionId: string) {
     return request({
-      path: `/api/sessions/${sessionId}/screencast/status`,
+      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/status`,
       schema: screencastStatusSchema,
       credentials,
       tenantHeader: "tenant-scoped",
@@ -469,7 +469,7 @@ export const apiClient = {
   startSessionScreencast(credentials: ApiCredentials, sessionId: string) {
     return request({
       method: "POST",
-      path: `/api/sessions/${sessionId}/screencast/start`,
+      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/start`,
       schema: screencastStatusSchema,
       credentials,
       tenantHeader: "tenant-scoped",
@@ -480,7 +480,7 @@ export const apiClient = {
   stopSessionScreencast(credentials: ApiCredentials, sessionId: string) {
     return requestBlob({
       method: "POST",
-      path: `/api/sessions/${sessionId}/screencast/stop`,
+      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/stop`,
       credentials,
       tenantHeader: "tenant-scoped",
     });

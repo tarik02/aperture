@@ -23,11 +23,10 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	}
 	router := gin.New()
 	router.Use(gin.Recovery())
-	cdpBase := normalizedCDPRouteBase(cdpRouteBasePath)
-
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)
+		internal.GET("/forward-auth/live-session/:sessionId/:access", server.liveSessionForwardAuth)
 
 		jobs := internal.Group("/jobs")
 		jobs.Use(server.requireLoopback, server.requireJobToken)
@@ -86,11 +85,6 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
 			sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
 			sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
-			sessions.Any("/:sessionId/health", server.requireSessionsRead, server.proxySessionWrapper)
-			sessions.Any("/:sessionId/status", server.requireSessionsRead, server.proxySessionWrapper)
-			sessions.Any("/:sessionId/viewport", server.requireSessionsWrite, server.proxySessionWrapper)
-			sessions.Any("/:sessionId/webrtc/*path", server.requireSessionsWrite, server.proxySessionWrapper)
-			sessions.Any("/:sessionId/screencast/*path", server.requireSessionsWrite, server.proxySessionWrapper)
 		}
 
 		snapshots := api.Group("/snapshots")
@@ -104,27 +98,12 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 
 		api.GET("/events", server.requireAuth, server.requireSessionsRead, server.listEvents)
 
-		cdp := api.Group("/cdp")
-		cdp.Use(server.requireAuth, server.requireSessionsWrite)
-		{
-			cdp.Any("/:sessionId", server.proxyAPICDP)
-			cdp.Any("/:sessionId/*path", server.proxyAPICDP)
-		}
-
-		webrtc := api.Group("/webrtc")
-		webrtc.Use(server.requireAuth, server.requireSessionsWrite)
-		{
-			webrtc.GET("/:sessionId/signal", server.proxyLegacyWebRTCSignal)
-		}
 	}
 
-	publicCDP := router.Group(cdpBase)
-	publicCDP.Use(func(c *gin.Context) {
-		c.Set(cdpBasePathContextKey, cdpBase)
-	})
+	liveSessions := router.Group("/sessions")
 	{
-		publicCDP.Any("/:sessionId", server.proxyPublicCDP)
-		publicCDP.Any("/:sessionId/*path", server.proxyPublicCDP)
+		liveSessions.Any("/:sessionId/cdp", server.proxyLiveCDPDiscovery)
+		liveSessions.Any("/:sessionId/cdp/*path", server.proxyLiveCDPDiscovery)
 	}
 
 	registerStaticFallback(router, staticAssets, cdpRouteBasePath, server)

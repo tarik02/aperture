@@ -45,3 +45,27 @@ func (s *Service) RunningWrapperPort(ctx context.Context, tenantID, sessionID st
 	}
 	return values.WrapperPort, nil
 }
+
+// ValidateLiveSessionForwardAuth confirms a tenant-owned live session still exists.
+func (s *Service) ValidateLiveSessionForwardAuth(ctx context.Context, tenantID, sessionID string) error {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return err
+	}
+	if sessionRow.Status != db.SessionStatusRunning {
+		return ErrNotRunning
+	}
+	return nil
+}
+
+// RunningCDPToken returns the sealed CDP token for a tenant-owned running session.
+func (s *Service) RunningCDPToken(ctx context.Context, tenantID, sessionID string) (string, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if sessionRow.Status != db.SessionStatusRunning {
+		return "", ErrNotRunning
+	}
+	return LoadCDPTokenSeal(s.cfg, sessionID)
+}

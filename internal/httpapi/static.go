@@ -9,12 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func registerStaticFallback(router *gin.Engine, assets fs.FS, cdpRouteBasePath string, server *Server) {
+func registerStaticFallback(router *gin.Engine, assets fs.FS, cdpRouteBasePath string, _ *Server) {
 	cdpBase := normalizedCDPRouteBase(cdpRouteBasePath)
 	router.NoRoute(func(c *gin.Context) {
-		if server != nil && server.tryProxySessionWrapperNoRoute(c) {
-			return
-		}
 		if assets == nil {
 			c.Status(http.StatusNotFound)
 			return
@@ -57,6 +54,9 @@ func isReservedSPAPath(requestPath, cdpBase string) bool {
 		return true
 	}
 	if requestPath == "/internal" || strings.HasPrefix(requestPath, "/internal/") {
+		return true
+	}
+	if requestPath == "/sessions" || strings.HasPrefix(requestPath, "/sessions/") {
 		return true
 	}
 	if requestPath == cdpBase || strings.HasPrefix(requestPath, cdpBase+"/") {

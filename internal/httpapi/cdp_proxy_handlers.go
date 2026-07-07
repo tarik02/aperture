@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/session"
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 )
@@ -170,6 +171,123 @@ func (s *Server) proxyPublicCDP(c *gin.Context) {
 		return rewriteCDPDiscoveryResponse(resp, c, sessionID, rawCDPTokenFromCredential(credential))
 	}
 	proxy.ServeHTTP(c.Writer, req)
+}
+
+func (s *Server) proxyLiveCDPDiscovery(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+	if isWebSocketUpgrade(c.Request) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	sessionID := c.Param("sessionId")
+	port, rawCDPToken, err := s.liveCDPDiscoveryAccess(c, sessionID)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	targetPath := c.Param("path")
+	if targetPath == "" || targetPath == "/" {
+		targetPath = "/json/version"
+	}
+	if !strings.HasPrefix(targetPath, "/") {
+		targetPath = "/" + targetPath
+	}
+	if !isCDPDiscoveryPath(targetPath) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	target := &url.URL{
+		Scheme:   "http",
+		Host:     fmt.Sprintf("localhost:%d", port),
+		Path:     targetPath,
+		RawQuery: cdpTargetRawQuery(c.Request.URL),
+	}
+
+	req := c.Request.Clone(c.Request.Context())
+	sanitizeCDPProxyRequest(req)
+
+	c.Set(cdpBasePathContextKey, "/sessions/"+url.PathEscape(sessionID)+"/cdp")
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+		Scheme: "http",
+		Host:   target.Host,
+	})
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, proxyErr error) {
+		if !c.Writer.Written() {
+			WriteError(c, proxyErr)
+		}
+	}
+	proxy.Director = func(outReq *http.Request) {
+		outReq.URL.Scheme = target.Scheme
+		outReq.URL.Host = target.Host
+		outReq.URL.Path = target.Path
+		outReq.URL.RawPath = ""
+		outReq.URL.RawQuery = target.RawQuery
+		outReq.Host = target.Host
+		outReq.RequestURI = ""
+		outReq.Header.Del("Accept-Encoding")
+		sanitizeCDPProxyRequest(outReq)
+	}
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		return rewriteCDPDiscoveryResponse(resp, c, sessionID, rawCDPToken)
+	}
+	proxy.ServeHTTP(c.Writer, req)
+}
+
+func (s *Server) liveCDPDiscoveryAccess(c *gin.Context, sessionID string) (int, string, error) {
+	credential := cdpForwardAuthCredential(c)
+	if credential != "" {
+		port, err := s.Sessions.AuthorizedCDPPort(c.Request.Context(), sessionID, credential)
+		if err == nil {
+			return port, rawCDPTokenFromCredential(credential), nil
+		}
+	}
+
+	if s.Auth == nil {
+		if credential == "" {
+			return 0, "", auth.ErrTokenMissing
+		}
+		return 0, "", session.ErrCDPTokenInvalid
+	}
+
+	principal, err := s.authenticate(c)
+	if err != nil {
+		if credential != "" {
+			return 0, "", session.ErrCDPTokenInvalid
+		}
+		return 0, "", err
+	}
+	c.Set("principal", principal)
+	if !auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite) {
+		return 0, "", auth.ErrScopeDenied
+	}
+	tenantID, err := auth.ResolveTenantID(principal, selectedTenantID(c))
+	if err != nil {
+		return 0, "", err
+	}
+
+	port, err := s.Sessions.RunningCDPPort(
+		c.Request.Context(),
+		tenantID,
+		sessionID,
+	)
+	if err != nil {
+		return 0, "", err
+	}
+	rawCDPToken, err := s.Sessions.RunningCDPToken(
+		c.Request.Context(),
+		tenantID,
+		sessionID,
+	)
+	if err != nil {
+		return 0, "", err
+	}
+	return port, rawCDPToken, nil
 }
 
 func sanitizeCDPProxyRequest(req *http.Request) {
@@ -404,21 +522,23 @@ func publicCDPWebSocketURL(c *gin.Context, sessionID, rawTargetURL, rawToken str
 	}
 
 	targetPath := strings.TrimLeft(target.Path, "/")
-	publicPath := strings.TrimRight(cdpBasePathFromContext(c), "/") + "/" + url.PathEscape(sessionID)
+	publicPath := strings.TrimRight(cdpBasePathFromContext(c), "/")
 	if targetPath != "" {
 		publicPath += "/" + targetPath
 	}
 
-	values := target.Query()
-	if rawToken != "" {
-		values.Set("token", rawToken)
-	}
-
 	publicURL := url.URL{
-		Scheme:   publicWebSocketScheme(c),
-		Host:     publicHost(c),
-		Path:     publicPath,
-		RawQuery: values.Encode(),
+		Scheme: publicWebSocketScheme(c),
+		Host:   publicHost(c),
+		Path:   publicPath,
+	}
+	values := target.Query()
+	values.Del("token")
+	publicURL.RawQuery = values.Encode()
+	if rawToken != "" {
+		fragment := url.Values{}
+		fragment.Set("token", rawToken)
+		publicURL.Fragment = fragment.Encode()
 	}
 	return publicURL.String()
 }

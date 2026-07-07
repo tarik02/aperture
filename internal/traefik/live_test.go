@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/aperture/aperture/internal/httpapi"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/traefik"
+	"github.com/coder/websocket"
 	"go.uber.org/zap"
 )
 
@@ -80,9 +82,23 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		t.Fatalf("generate cdp token: %v", err)
 	}
 
+	webSocketQueries := make(chan string, 1)
 	cdpBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"Browser":"live-smoke","Protocol-Version":"1.3"}`)
+		if r.URL.Path == "/json/version" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"Browser":"live-smoke","Protocol-Version":"1.3","webSocketDebuggerUrl":"ws://127.0.0.1:1/devtools/browser/live-smoke"}`)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/devtools/browser/") {
+			webSocketQueries <- r.URL.RawQuery
+			conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+			if err != nil {
+				return
+			}
+			_ = conn.Close(websocket.StatusNormalClosure, "")
+			return
+		}
+		http.NotFound(w, r)
 	}))
 	t.Cleanup(cdpBackend.Close)
 
@@ -179,16 +195,16 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		_, _ = cmd.Process.Wait()
 	})
 
-	routeURL := "http://" + traefikAddr + "/cdp/" + sessionID + "/json/version"
+	routeURL := "http://" + traefikAddr + "/sessions/" + sessionID + "/cdp/json/version?token=" + url.QueryEscape(rawToken)
 	deadline := time.Now().Add(10 * time.Second)
 	var lastStatus int
 	var lastBody string
+	var payload map[string]string
 	for time.Now().Before(deadline) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, routeURL, nil)
 		if err != nil {
 			t.Fatalf("new request: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+rawToken)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			time.Sleep(200 * time.Millisecond)
@@ -199,18 +215,57 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		lastStatus = resp.StatusCode
 		lastBody = string(body)
 		if resp.StatusCode == http.StatusOK {
-			var payload map[string]string
 			if err := json.Unmarshal(body, &payload); err != nil {
 				t.Fatalf("decode cdp response: %v", err)
 			}
 			if payload["Browser"] != "live-smoke" {
 				t.Fatalf("unexpected cdp payload: %s", body)
 			}
-			return
+			break
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("cdp request through traefik never succeeded: status=%d body=%s", lastStatus, lastBody)
+	if payload == nil {
+		t.Fatalf("cdp request through traefik never succeeded: status=%d body=%s", lastStatus, lastBody)
+	}
+
+	webSocketURL, err := url.Parse(payload["webSocketDebuggerUrl"])
+	if err != nil {
+		t.Fatalf("parse websocket url: %v", err)
+	}
+	if webSocketURL.Query().Get("token") != "" {
+		t.Fatalf("websocket url leaked token query: %s", webSocketURL.String())
+	}
+	token := webSocketURL.Query().Get("token")
+	if token != "" {
+		t.Fatalf("websocket url query token = %q, want empty", token)
+	}
+	fragment, err := url.ParseQuery(webSocketURL.Fragment)
+	if err != nil {
+		t.Fatalf("parse websocket fragment: %v", err)
+	}
+	token = fragment.Get("token")
+	if token != rawToken {
+		t.Fatalf("websocket fragment token = %q, want CDP token", token)
+	}
+	webSocketURL.Fragment = ""
+
+	conn, _, err := websocket.Dial(ctx, webSocketURL.String(), &websocket.DialOptions{
+		Subprotocols: []string{"authorization.bearer." + token},
+	})
+	if err != nil {
+		t.Fatalf("dial cdp websocket through traefik: %v", err)
+	}
+	_ = conn.Close(websocket.StatusNormalClosure, "")
+
+	select {
+	case query := <-webSocketQueries:
+		if strings.Contains(query, "token=") {
+			t.Fatalf("cdp websocket backend received token query: %q", query)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cdp websocket backend was not reached")
+	}
 }
 
 func reserveTCPAddr() (string, error) {

@@ -1132,7 +1132,7 @@ function deriveMetrics(
 
 function buildSignalURL(sessionId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/webrtc/${encodeURIComponent(sessionId)}/signal?role=viewer`;
+  return `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/webrtc/signal?role=viewer`;
 }
 
 function buildSignalProtocols(credentials: ApiCredentials): string[] {

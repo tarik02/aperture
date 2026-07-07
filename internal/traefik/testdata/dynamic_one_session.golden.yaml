@@ -1,10 +1,54 @@
 http:
   routers:
-    aperture-cdp-018f1234000070008000000000000001:
-      rule: "Path(`/cdp/018f1234-0000-7000-8000-000000000001`) || PathPrefix(`/cdp/018f1234-0000-7000-8000-000000000001/`)"
+    aperture-browser-status-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/browser/status`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-read
+        - aperture-replace-path-018f1234000070008000000000000001-browserstatus
+      priority: 100
+      entryPoints:
+        - web
+    aperture-browser-viewport-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/browser/viewport`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
+        - aperture-replace-path-018f1234000070008000000000000001-browserviewport
+      priority: 100
+      entryPoints:
+        - web
+    aperture-cdp-discovery-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/cdp`) || Path(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/json`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/json/`)"
       service: aperture-api-blue-68fd220
+      priority: 110
+      entryPoints:
+        - web
+    aperture-cdp-websocket-018f1234000070008000000000000001:
+      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/devtools/`)"
+      service: aperture-cdp-018f1234000070008000000000000001
       middlewares:
         - aperture-cdp-forward-auth-018f1234000070008000000000000001
+        - aperture-cdp-strip-018f1234000070008000000000000001
+        - aperture-cdp-websocket-headers-018f1234000070008000000000000001
+      priority: 120
+      entryPoints:
+        - web
+    aperture-screencast-018f1234000070008000000000000001:
+      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/screencast/`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
+        - aperture-strip-session-018f1234000070008000000000000001-screencast
+      priority: 100
+      entryPoints:
+        - web
+    aperture-webrtc-018f1234000070008000000000000001:
+      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/webrtc/`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
+        - aperture-strip-session-018f1234000070008000000000000001-webrtc
       priority: 100
       entryPoints:
         - web
@@ -12,4 +56,41 @@ http:
     aperture-cdp-forward-auth-018f1234000070008000000000000001:
       forwardAuth:
         address: "http://127.0.0.1:28080/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001"
-  services: {}
+    aperture-cdp-strip-018f1234000070008000000000000001:
+      stripPrefix:
+        prefixes:
+          - /sessions/018f1234-0000-7000-8000-000000000001/cdp
+    aperture-cdp-websocket-headers-018f1234000070008000000000000001:
+      headers:
+        customRequestHeaders:
+          Authorization: ""
+          Sec-WebSocket-Protocol: ""
+    aperture-live-session-forward-auth-018f1234000070008000000000000001-read:
+      forwardAuth:
+        address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/read"
+    aperture-live-session-forward-auth-018f1234000070008000000000000001-write:
+      forwardAuth:
+        address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/write"
+    aperture-replace-path-018f1234000070008000000000000001-browserstatus:
+      replacePath:
+        path: "/status"
+    aperture-replace-path-018f1234000070008000000000000001-browserviewport:
+      replacePath:
+        path: "/viewport"
+    aperture-strip-session-018f1234000070008000000000000001-screencast:
+      stripPrefix:
+        prefixes:
+          - /sessions/018f1234-0000-7000-8000-000000000001
+    aperture-strip-session-018f1234000070008000000000000001-webrtc:
+      stripPrefix:
+        prefixes:
+          - /sessions/018f1234-0000-7000-8000-000000000001
+  services:
+    aperture-cdp-018f1234000070008000000000000001:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9222"
+    aperture-wrapper-018f1234000070008000000000000001:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9333"

@@ -3,10 +3,12 @@ package traefik
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/deploystate"
@@ -14,14 +16,17 @@ import (
 )
 
 const (
-	apiRouterPriority = 1
-	cdpRouterPriority = 100
+	apiRouterPriority          = 1
+	sessionRouterPriority      = 100
+	cdpDiscoveryRouterPriority = 110
+	cdpWebSocketRouterPriority = 120
 )
 
 // RunningSession describes a session that should receive a CDP Traefik route.
 type RunningSession struct {
-	ID      string
-	CDPPort int
+	ID          string
+	CDPPort     int
+	WrapperPort int
 }
 
 // RenderEdgeConfig renders deploy-owned Traefik edge routes.
@@ -79,32 +84,132 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 	}
 
 	serviceName := apiServiceName(state.ActiveColor, state.ActiveVersion)
-	cdpBase := normalizedCDPRouteBase(cfg.CdpRouteBasePath)
 	for _, session := range running {
-		if session.ID == "" || session.CDPPort <= 0 {
+		if session.ID == "" {
 			continue
 		}
 
-		routerName := cdpRouterName(session.ID)
-		middlewareName := cdpMiddlewareName(session.ID)
-		routePrefix := fmt.Sprintf("%s/%s", cdpBase, session.ID)
-		forwardAuthURL := fmt.Sprintf(
-			"%s/internal/forward-auth/cdp/%s",
-			strings.TrimRight(activeURL, "/"),
-			session.ID,
-		)
+		sessionBase := "/sessions/" + session.ID
+		cdpBase := sessionBase + "/cdp"
+		if session.CDPPort > 0 {
+			doc.HTTP.Routers[cdpDiscoveryRouterName(session.ID)] = routerConfig{
+				Rule:        cdpDiscoveryRouterRule(cdpBase),
+				Service:     serviceName,
+				Priority:    cdpDiscoveryRouterPriority,
+				EntryPoints: []string{"web"},
+			}
 
-		doc.HTTP.Routers[routerName] = routerConfig{
-			Rule:        cdpRouterRule(routePrefix),
-			Service:     serviceName,
-			Middlewares: []string{middlewareName},
-			Priority:    cdpRouterPriority,
-			EntryPoints: []string{"web"},
+			cdpService := cdpServiceName(session.ID)
+			doc.HTTP.Routers[cdpWebSocketRouterName(session.ID)] = routerConfig{
+				Rule:    cdpWebSocketRouterRule(cdpBase),
+				Service: cdpService,
+				Middlewares: []string{
+					cdpForwardAuthMiddlewareName(session.ID),
+					cdpStripMiddlewareName(session.ID),
+					cdpWebSocketHeadersMiddlewareName(session.ID),
+				},
+				Priority:    cdpWebSocketRouterPriority,
+				EntryPoints: []string{"web"},
+			}
+			doc.HTTP.Middlewares[cdpForwardAuthMiddlewareName(session.ID)] = middlewareConfig{
+				ForwardAuth: &forwardAuthConfig{
+					Address: fmt.Sprintf(
+						"%s/internal/forward-auth/cdp/%s",
+						strings.TrimRight(activeURL, "/"),
+						session.ID,
+					),
+				},
+			}
+			doc.HTTP.Middlewares[cdpStripMiddlewareName(session.ID)] = middlewareConfig{
+				StripPrefix: &stripPrefixConfig{Prefixes: []string{cdpBase}},
+			}
+			doc.HTTP.Middlewares[cdpWebSocketHeadersMiddlewareName(session.ID)] = middlewareConfig{
+				Headers: &headersConfig{
+					CustomRequestHeaders: map[string]string{
+						"Authorization":          "",
+						"Sec-WebSocket-Protocol": "",
+					},
+				},
+			}
+			doc.HTTP.Services[cdpService] = serviceConfig{
+				LoadBalancer: loadBalancerConfig{
+					Servers: []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.CDPPort)}},
+				},
+			}
 		}
-		doc.HTTP.Middlewares[middlewareName] = middlewareConfig{
-			ForwardAuth: &forwardAuthConfig{
-				Address: forwardAuthURL,
+
+		if session.WrapperPort <= 0 {
+			continue
+		}
+
+		wrapperService := wrapperServiceName(session.ID)
+		doc.HTTP.Services[wrapperService] = serviceConfig{
+			LoadBalancer: loadBalancerConfig{
+				Servers: []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.WrapperPort)}},
 			},
+		}
+
+		readAuth := liveSessionForwardAuthMiddlewareName(session.ID, "read")
+		writeAuth := liveSessionForwardAuthMiddlewareName(session.ID, "write")
+		doc.HTTP.Middlewares[readAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "read")
+		doc.HTTP.Middlewares[writeAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "write")
+
+		webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
+		screencastStrip := stripSessionPrefixMiddlewareName(session.ID, "screencast")
+		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
+		statusReplace := replacePathMiddlewareName(session.ID, "browser-status")
+
+		doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
+			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
+		}
+		doc.HTTP.Middlewares[screencastStrip] = middlewareConfig{
+			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
+		}
+		doc.HTTP.Middlewares[viewportReplace] = middlewareConfig{
+			ReplacePath: &replacePathConfig{Path: "/viewport"},
+		}
+		doc.HTTP.Middlewares[statusReplace] = middlewareConfig{
+			ReplacePath: &replacePathConfig{Path: "/status"},
+		}
+
+		for _, route := range []struct {
+			name        string
+			rule        string
+			auth        string
+			middlewares []string
+		}{
+			{
+				name:        webrtcRouterName(session.ID),
+				rule:        pathPrefixRouterRule(sessionBase + "/webrtc/"),
+				auth:        writeAuth,
+				middlewares: []string{webrtcStrip},
+			},
+			{
+				name:        screencastRouterName(session.ID),
+				rule:        pathPrefixRouterRule(sessionBase + "/screencast/"),
+				auth:        writeAuth,
+				middlewares: []string{screencastStrip},
+			},
+			{
+				name:        browserViewportRouterName(session.ID),
+				rule:        pathRouterRule(sessionBase + "/browser/viewport"),
+				auth:        writeAuth,
+				middlewares: []string{viewportReplace},
+			},
+			{
+				name:        browserStatusRouterName(session.ID),
+				rule:        pathRouterRule(sessionBase + "/browser/status"),
+				auth:        readAuth,
+				middlewares: []string{statusReplace},
+			},
+		} {
+			doc.HTTP.Routers[route.name] = routerConfig{
+				Rule:        route.rule,
+				Service:     wrapperService,
+				Middlewares: append([]string{route.auth}, route.middlewares...),
+				Priority:    sessionRouterPriority,
+				EntryPoints: []string{"web"},
+			}
 		}
 	}
 
@@ -161,17 +266,95 @@ func normalizedCDPRouteBase(cdpRouteBasePath string) string {
 	return base
 }
 
-func cdpRouterRule(routePrefix string) string {
-	escaped := escapeTraefikPath(routePrefix)
-	return fmt.Sprintf("Path(`%s`) || PathPrefix(`%s/`)", escaped, escaped)
+func liveSessionForwardAuthMiddleware(activeURL, sessionID, access string) middlewareConfig {
+	return middlewareConfig{
+		ForwardAuth: &forwardAuthConfig{
+			Address: fmt.Sprintf(
+				"%s/internal/forward-auth/live-session/%s/%s",
+				strings.TrimRight(activeURL, "/"),
+				sessionID,
+				access,
+			),
+		},
+	}
 }
 
-func cdpRouterName(sessionID string) string {
+func pathRouterRule(routePath string) string {
+	return fmt.Sprintf("Path(`%s`)", escapeTraefikPath(routePath))
+}
+
+func pathPrefixRouterRule(routePrefix string) string {
+	return fmt.Sprintf("PathPrefix(`%s`)", escapeTraefikPath(routePrefix))
+}
+
+func cdpDiscoveryRouterRule(cdpBase string) string {
+	escaped := escapeTraefikPath(cdpBase)
+	return fmt.Sprintf(
+		"Path(`%s`) || Path(`%s/json`) || PathPrefix(`%s/json/`)",
+		escaped,
+		escaped,
+		escaped,
+	)
+}
+
+func cdpWebSocketRouterRule(cdpBase string) string {
+	return pathPrefixRouterRule(cdpBase + "/devtools/")
+}
+
+func cdpDiscoveryRouterName(sessionID string) string {
+	return "aperture-cdp-discovery-" + sanitizeName(sessionID)
+}
+
+func cdpWebSocketRouterName(sessionID string) string {
+	return "aperture-cdp-websocket-" + sanitizeName(sessionID)
+}
+
+func webrtcRouterName(sessionID string) string {
+	return "aperture-webrtc-" + sanitizeName(sessionID)
+}
+
+func screencastRouterName(sessionID string) string {
+	return "aperture-screencast-" + sanitizeName(sessionID)
+}
+
+func browserViewportRouterName(sessionID string) string {
+	return "aperture-browser-viewport-" + sanitizeName(sessionID)
+}
+
+func browserStatusRouterName(sessionID string) string {
+	return "aperture-browser-status-" + sanitizeName(sessionID)
+}
+
+func cdpForwardAuthMiddlewareName(sessionID string) string {
+	return "aperture-cdp-forward-auth-" + sanitizeName(sessionID)
+}
+
+func cdpStripMiddlewareName(sessionID string) string {
+	return "aperture-cdp-strip-" + sanitizeName(sessionID)
+}
+
+func cdpWebSocketHeadersMiddlewareName(sessionID string) string {
+	return "aperture-cdp-websocket-headers-" + sanitizeName(sessionID)
+}
+
+func liveSessionForwardAuthMiddlewareName(sessionID, access string) string {
+	return "aperture-live-session-forward-auth-" + sanitizeName(sessionID) + "-" + sanitizeName(access)
+}
+
+func stripSessionPrefixMiddlewareName(sessionID, route string) string {
+	return "aperture-strip-session-" + sanitizeName(sessionID) + "-" + sanitizeName(route)
+}
+
+func replacePathMiddlewareName(sessionID, route string) string {
+	return "aperture-replace-path-" + sanitizeName(sessionID) + "-" + sanitizeName(route)
+}
+
+func cdpServiceName(sessionID string) string {
 	return "aperture-cdp-" + sanitizeName(sessionID)
 }
 
-func cdpMiddlewareName(sessionID string) string {
-	return "aperture-cdp-forward-auth-" + sanitizeName(sessionID)
+func wrapperServiceName(sessionID string) string {
+	return "aperture-wrapper-" + sanitizeName(sessionID)
 }
 
 func apiServiceName(color, version string) string {
@@ -220,8 +403,11 @@ type routerConfig struct {
 }
 
 type middlewareConfig struct {
-	ForwardAuth *forwardAuthConfig `yaml:"forwardAuth,omitempty"`
-	StripPrefix *stripPrefixConfig `yaml:"stripPrefix,omitempty"`
+	ForwardAuth      *forwardAuthConfig      `yaml:"forwardAuth,omitempty"`
+	StripPrefix      *stripPrefixConfig      `yaml:"stripPrefix,omitempty"`
+	ReplacePath      *replacePathConfig      `yaml:"replacePath,omitempty"`
+	ReplacePathRegex *replacePathRegexConfig `yaml:"replacePathRegex,omitempty"`
+	Headers          *headersConfig          `yaml:"headers,omitempty"`
 }
 
 type forwardAuthConfig struct {
@@ -230,6 +416,19 @@ type forwardAuthConfig struct {
 
 type stripPrefixConfig struct {
 	Prefixes []string `yaml:"prefixes"`
+}
+
+type replacePathConfig struct {
+	Path string `yaml:"path"`
+}
+
+type replacePathRegexConfig struct {
+	Regex       string `yaml:"regex"`
+	Replacement string `yaml:"replacement"`
+}
+
+type headersConfig struct {
+	CustomRequestHeaders map[string]string `yaml:"customRequestHeaders"`
 }
 
 type serviceConfig struct {
@@ -330,6 +529,23 @@ func middlewaresYAML(middlewares map[string]middlewareConfig) *yaml.Node {
 			yamlAppend(node, name, yamlMap(
 				"stripPrefix", yamlMap("prefixes", yamlStringSequence(middleware.StripPrefix.Prefixes)),
 			))
+		case middleware.ReplacePath != nil:
+			yamlAppend(node, name, yamlMap(
+				"replacePath", yamlMap("path", yamlQuotedString(middleware.ReplacePath.Path)),
+			))
+		case middleware.ReplacePathRegex != nil:
+			yamlAppend(node, name, yamlMap(
+				"replacePathRegex", yamlMap(
+					"regex", yamlQuotedString(middleware.ReplacePathRegex.Regex),
+					"replacement", yamlQuotedString(middleware.ReplacePathRegex.Replacement),
+				),
+			))
+		case middleware.Headers != nil:
+			yamlAppend(node, name, yamlMap(
+				"headers", yamlMap(
+					"customRequestHeaders", yamlStringMap(middleware.Headers.CustomRequestHeaders),
+				),
+			))
 		}
 	}
 	return node
@@ -390,6 +606,14 @@ func yamlStringSequence(values []string) *yaml.Node {
 	return node
 }
 
+func yamlStringMap(values map[string]string) *yaml.Node {
+	node := yamlMap()
+	for _, key := range sortedKeys(values) {
+		yamlAppend(node, key, yamlQuotedString(values[key]))
+	}
+	return node
+}
+
 // RunningSessionsFromDB converts running session rows into render input.
 func RunningSessionsFromDB(sessions []db.Session) []RunningSession {
 	running := make([]RunningSession, 0, len(sessions))
@@ -397,10 +621,20 @@ func RunningSessionsFromDB(sessions []db.Session) []RunningSession {
 		if session.CurrentCDPPort == nil || *session.CurrentCDPPort <= 0 {
 			continue
 		}
-		running = append(running, RunningSession{
+		view := RunningSession{
 			ID:      session.ID,
 			CDPPort: *session.CurrentCDPPort,
-		})
+		}
+		if session.RuntimeEnvPath != nil {
+			body, err := os.ReadFile(*session.RuntimeEnvPath)
+			if err == nil {
+				values, err := browser.ParseRuntimeEnv(body)
+				if err == nil {
+					view.WrapperPort = values.WrapperPort
+				}
+			}
+		}
+		running = append(running, view)
 	}
 	sort.Slice(running, func(i, j int) bool {
 		return running[i].ID < running[j].ID

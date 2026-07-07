@@ -157,20 +157,17 @@ const CDP_CALL_TIMEOUT_MS = 5000;
 const CDP_CONNECT_RETRY_MS = 500;
 const CDP_CONNECT_TIMEOUT_MS = 30_000;
 
-function buildCdpWebSocket(
-  sessionId: string,
-  rawWebSocketUrl: string,
-  credentials: ApiCredentials,
-): { url: string; protocols: string[] } {
-  const source = new URL(rawWebSocketUrl);
+function buildCdpWebSocket(rawWebSocketUrl: string): { url: string; protocols: string[] } {
+  const source = new URL(rawWebSocketUrl, window.location.origin);
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${protocol}//${window.location.host}/api/cdp/${encodeURIComponent(sessionId)}${source.pathname}${source.search}`;
-  const protocols = ["aperture-cdp.v1", `authorization.bearer.${credentials.token.trim()}`];
-  const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
-  if (tenantId) {
-    protocols.push(`x-aperture-tenant-id.${tenantId}`);
-  }
-  return { url, protocols };
+  const token = new URLSearchParams(source.hash.slice(1)).get("token");
+  source.protocol = protocol;
+  source.host = window.location.host;
+  source.hash = "";
+  return {
+    url: source.toString(),
+    protocols: token ? [`authorization.bearer.${token}`] : [],
+  };
 }
 
 function buildCdpHeaders(credentials: ApiCredentials): Headers {
@@ -195,7 +192,7 @@ async function fetchCdpJSON<T>(
   path: string,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const response = await fetch(`/api/cdp/${encodeURIComponent(sessionId)}${path}`, {
+  const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/cdp${path}`, {
     headers: buildCdpHeaders(credentials),
   });
   if (!response.ok) {
@@ -487,11 +484,7 @@ class BrowserControlConnectionRuntime {
         "/json/version",
         cdpVersionSchema,
       );
-      const { url, protocols } = buildCdpWebSocket(
-        this.sessionId,
-        version.webSocketDebuggerUrl,
-        this.credentials,
-      );
+      const { url, protocols } = buildCdpWebSocket(version.webSocketDebuggerUrl);
       if (this.closed) {
         return;
       }
