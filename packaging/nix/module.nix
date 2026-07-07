@@ -9,6 +9,25 @@ let
   userUID = config.users.users.${cfg.user}.uid;
   runtimeRoot = "/run/user/${toString userUID}/aperture";
   configFile = "/etc/aperture/aperture.toml";
+  deployVersion = self.shortRev or self.dirtyShortRev or "0.0.1";
+  apiEntrypoint = pkgs.writeShellScript "aperture-api-entrypoint" ''
+    case "$1" in
+      blue)
+        export APERTURE_DEPLOY_COLOR=blue
+        export APERTURE_LISTEN_ADDRESS=127.0.0.1:28080
+        ;;
+      green)
+        export APERTURE_DEPLOY_COLOR=green
+        export APERTURE_LISTEN_ADDRESS=127.0.0.1:28082
+        ;;
+      *)
+        echo "invalid aperture deploy color: $1" >&2
+        exit 64
+        ;;
+    esac
+
+    exec ${aperture}/bin/aperture serve --config ${configFile}
+  '';
 in
 {
   options.services.aperture = {
@@ -58,10 +77,10 @@ in
       artifact_root = "${storeRoot}/artifacts"
       traefik_dynamic_config_dir = "${runtimeRoot}/traefik/dynamic"
       external_base_url = "${cfg.externalBaseUrl}"
-      listen_address = "127.0.0.1:28080"
-      deploy_color = "blue"
+      deploy_state_path = "${storeRoot}/deployment-state.json"
       deploy_blue_url = "http://127.0.0.1:28080"
       deploy_green_url = "http://127.0.0.1:28082"
+      deploy_version = "${deployVersion}"
 
       [channels.chromium]
       executable = "${cfg.chromiumPackage}/bin/chromium"
@@ -84,11 +103,19 @@ in
       }
     ];
 
-    systemd.user.services.aperture = {
-      description = "Aperture Chromium session supervisor";
-      wantedBy = [ "graphical-session.target" ];
+    systemd.user.services."aperture@" = {
+      description = "Aperture Chromium session supervisor (%i)";
+      after = [ "graphical-session.target" ];
+      partOf = [ "graphical-session.target" ];
+      environment = {
+        APERTURE_DEPLOY_COLOR = "%i";
+        APERTURE_DEPLOY_BLUE_URL = "http://127.0.0.1:28080";
+        APERTURE_DEPLOY_GREEN_URL = "http://127.0.0.1:28082";
+        APERTURE_DEPLOY_VERSION = deployVersion;
+      };
       serviceConfig = {
-        ExecStart = "${aperture}/bin/aperture serve --config ${configFile}";
+        Type = "simple";
+        ExecStart = "${apiEntrypoint} %i";
         Restart = "on-failure";
       };
     };

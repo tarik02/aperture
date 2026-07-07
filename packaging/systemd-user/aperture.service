@@ -1,13 +1,6 @@
 [Unit]
-Description=Aperture Chromium session supervisor
-After=graphical-session.target
-PartOf=graphical-session.target
+Description=Aperture Chromium session supervisor (legacy disabled)
 
 [Service]
-Type=simple
-ExecStart=%h/.nix-profile/bin/aperture serve
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
+Type=oneshot
+ExecStart=@runtimeShell@ -c 'echo "aperture.service is obsolete; use aperture@blue.service or aperture@green.service" >&2; exit 1'

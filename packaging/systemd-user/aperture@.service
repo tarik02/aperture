@@ -1,0 +1,19 @@
+[Unit]
+Description=Aperture Chromium session supervisor (%i)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+Environment=APERTURE_DEPLOY_BLUE_URL=http://127.0.0.1:28080
+Environment=APERTURE_DEPLOY_GREEN_URL=http://127.0.0.1:28082
+Environment=APERTURE_DEPLOY_VERSION=@deployVersion@
+EnvironmentFile=-%h/.config/aperture/aperture.env
+EnvironmentFile=-%t/aperture/api/%i.env
+Environment=APERTURE_DEPLOY_COLOR=%i
+ExecStart=@runtimeShell@ -c 'case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

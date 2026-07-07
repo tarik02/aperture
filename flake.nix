@@ -145,6 +145,8 @@
           '';
         };
 
+        deployVersion = self.shortRev or self.dirtyShortRev or "0.0.1";
+
         aperture = (pkgs.buildGoModule (finalAttrs: {
           pname = "aperture";
           version = "0.0.1";
@@ -240,9 +242,36 @@
             cp ${./packaging/systemd-user}/*.service $out/lib/systemd/user/
             cp ${./packaging/systemd-user}/*.timer $out/lib/systemd/user/ 2>/dev/null || true
             cp ${./packaging/systemd-user}/*.socket $out/lib/systemd/user/ 2>/dev/null || true
+            install -m 0644 ${builtins.toFile "aperture-template.service" ''
+              [Unit]
+              Description=Aperture Chromium session supervisor (%i)
+              After=graphical-session.target
+              PartOf=graphical-session.target
+
+              [Service]
+              Type=simple
+              Environment=APERTURE_DEPLOY_BLUE_URL=http://127.0.0.1:28080
+              Environment=APERTURE_DEPLOY_GREEN_URL=http://127.0.0.1:28082
+              Environment=APERTURE_DEPLOY_VERSION=@deployVersion@
+              EnvironmentFile=-%h/.config/aperture/aperture.env
+              EnvironmentFile=-%t/aperture/api/%i.env
+              Environment=APERTURE_DEPLOY_COLOR=%i
+              ExecStart=@runtimeShell@ -c 'case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve'
+              Restart=on-failure
+              RestartSec=5
+
+              [Install]
+              WantedBy=default.target
+            ''} $out/lib/systemd/user/aperture@.service
 
             substituteInPlace $out/lib/systemd/user/browser-session@.service \
               --replace-fail '@browserSessionWrapper@' $out/bin/browser-session-wrapper
+            substituteInPlace $out/lib/systemd/user/aperture.service \
+              --replace-fail '@runtimeShell@' ${pkgs.runtimeShell}
+            substituteInPlace $out/lib/systemd/user/aperture@.service \
+              --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
+              --replace-fail '@apertureBin@' $out/bin/aperture \
+              --replace-fail '@deployVersion@' ${deployVersion}
             substituteInPlace $out/lib/systemd/user/aperture-traefik.service \
               --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
               --replace-fail '@staticConfigTemplate@' $out/share/aperture/traefik/static.yaml.template \
