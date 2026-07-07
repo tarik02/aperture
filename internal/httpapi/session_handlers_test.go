@@ -26,15 +26,15 @@ func newSessionTestEnv(t *testing.T) *testEnv {
 	env := newTestEnv(t)
 	root := t.TempDir()
 	cfg := config.Config{
-		StoreRoot:                filepath.Join(root, "store"),
-		RuntimeRoot:              filepath.Join(root, "runtime"),
-		ArtifactRoot:             filepath.Join(root, "artifacts"),
-		DatabasePath:             filepath.Join(root, "unused.db"),
-		TraefikDynamicConfigPath: filepath.Join(root, "runtime", "traefik", "dynamic.yaml"),
-		ListenAddress:            "127.0.0.1:8080",
-		SystemdBrowserUnitName:   "browser-session@.service",
-		SessionRetentionDays:     7,
-		SnapshotRetentionDays:    7,
+		StoreRoot:               filepath.Join(root, "store"),
+		RuntimeRoot:             filepath.Join(root, "runtime"),
+		ArtifactRoot:            filepath.Join(root, "artifacts"),
+		DatabasePath:            filepath.Join(root, "unused.db"),
+		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
+		ListenAddress:           "127.0.0.1:8080",
+		SystemdBrowserUnitName:  "browser-session@.service",
+		SessionRetentionDays:    7,
+		SnapshotRetentionDays:   7,
 		ChannelRegistry: map[string]config.ChannelConfig{
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},

@@ -6,9 +6,9 @@ PartOf=graphical-session.target
 [Service]
 Type=simple
 Environment=APERTURE_TRAEFIK_ENTRYPOINT_ADDRESS=:28081
-Environment=APERTURE_TRAEFIK_DYNAMIC_CONFIG_PATH=%t/aperture/traefik/dynamic.yaml
+Environment=APERTURE_TRAEFIK_DYNAMIC_CONFIG_DIR=%t/aperture/traefik/dynamic
 EnvironmentFile=-%t/aperture/traefik/env
-ExecStartPre=@runtimeShell@ -c 'install -d %t/aperture/traefik && sed -e "s|@ENTRYPOINT_ADDRESS@|$${APERTURE_TRAEFIK_ENTRYPOINT_ADDRESS}|g" -e "s|@DYNAMIC_CONFIG_PATH@|$${APERTURE_TRAEFIK_DYNAMIC_CONFIG_PATH}|g" @staticConfigTemplate@ > %t/aperture/traefik/static.yaml'
+ExecStartPre=@runtimeShell@ -c 'install -d %t/aperture/traefik "$${APERTURE_TRAEFIK_DYNAMIC_CONFIG_DIR}" && sed -e "s|@ENTRYPOINT_ADDRESS@|$${APERTURE_TRAEFIK_ENTRYPOINT_ADDRESS}|g" -e "s|@DYNAMIC_CONFIG_DIR@|$${APERTURE_TRAEFIK_DYNAMIC_CONFIG_DIR}|g" @staticConfigTemplate@ > %t/aperture/traefik/static.yaml'
 ExecStart=@traefikBin@ --configFile=%t/aperture/traefik/static.yaml
 Restart=on-failure
 RestartSec=5

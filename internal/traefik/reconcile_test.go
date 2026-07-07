@@ -9,6 +9,7 @@ import (
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/traefik"
 )
 
@@ -18,11 +19,15 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	cfg := config.Config{
-		StoreRoot:                filepath.Join(root, "store"),
-		RuntimeRoot:              filepath.Join(root, "runtime"),
-		TraefikDynamicConfigPath: filepath.Join(root, "runtime", "traefik", "dynamic.yaml"),
-		ListenAddress:            "127.0.0.1:8080",
-		CdpRouteBasePath:         "/cdp",
+		StoreRoot:               filepath.Join(root, "store"),
+		RuntimeRoot:             filepath.Join(root, "runtime"),
+		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
+		DeployColor:             config.DeployColorBlue,
+		DeployStatePath:         filepath.Join(root, "store", "deployment-state.json"),
+		DeployBlueURL:           "http://127.0.0.1:28080",
+		DeployGreenURL:          "http://127.0.0.1:28082",
+		ListenAddress:           "127.0.0.1:8080",
+		CdpRouteBasePath:        "/cdp",
 	}
 
 	database, err := db.Open(ctx, filepath.Join(root, "store", "aperture.db"))
@@ -71,16 +76,63 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
-	body, err := os.ReadFile(cfg.TraefikDynamicConfigPath)
+	body, err := os.ReadFile(traefik.SessionsConfigPath(cfg))
 	if err != nil {
-		t.Fatalf("read dynamic config: %v", err)
+		t.Fatalf("read sessions config: %v", err)
 	}
 	if !containsAll(string(body),
 		"aperture-cdp-018f1234000070008000000000000001",
-		"service: aperture-api",
-		"/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001",
+		"service: aperture-api-blue",
+		"http://127.0.0.1:28080/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001",
 	) {
 		t.Fatalf("dynamic config missing expected CDP route:\n%s", body)
+	}
+}
+
+func TestReconcileInactiveColorDoesNotOverwriteSessionsConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	cfg := config.Config{
+		StoreRoot:               filepath.Join(root, "store"),
+		RuntimeRoot:             filepath.Join(root, "runtime"),
+		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
+		DeployColor:             config.DeployColorGreen,
+		DeployStatePath:         filepath.Join(root, "store", "deployment-state.json"),
+		DeployBlueURL:           "http://127.0.0.1:28080",
+		DeployGreenURL:          "http://127.0.0.1:28082",
+		ListenAddress:           "127.0.0.1:8080",
+		CdpRouteBasePath:        "/cdp",
+	}
+
+	database, err := db.Open(ctx, filepath.Join(root, "store", "aperture.db"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	if _, err := deploystate.New(cfg).MarkActive(config.DeployColorBlue, "68fd220"); err != nil {
+		t.Fatalf("mark active: %v", err)
+	}
+	if err := traefik.WriteAtomic(traefik.SessionsConfigPath(cfg), []byte("active sessions\n")); err != nil {
+		t.Fatalf("seed sessions config: %v", err)
+	}
+
+	service := traefik.NewService(cfg, db.NewRepository(database))
+	if err := service.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	body, err := os.ReadFile(traefik.SessionsConfigPath(cfg))
+	if err != nil {
+		t.Fatalf("read sessions config: %v", err)
+	}
+	if string(body) != "active sessions\n" {
+		t.Fatalf("inactive reconcile overwrote sessions config:\n%s", body)
 	}
 }
 

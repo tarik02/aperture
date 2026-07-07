@@ -57,10 +57,10 @@ func LoadFromFileOnly(path string) (Config, error) {
 
 	cfg.ConfigFile = trimmed
 	cfg.applyDerivedPaths(explicitPaths{
-		artifactRoot:             v.IsSet("artifact_root"),
-		databasePath:             v.IsSet("database_path"),
-		traefikDynamicConfigPath: v.IsSet("traefik_dynamic_config_path"),
-		deployStatePath:          v.IsSet("deploy_state_path"),
+		artifactRoot:            v.IsSet("artifact_root"),
+		databasePath:            v.IsSet("database_path"),
+		traefikDynamicConfigDir: v.IsSet("traefik_dynamic_config_dir"),
+		deployStatePath:         v.IsSet("deploy_state_path"),
 	})
 
 	return cfg, Validate(cfg)

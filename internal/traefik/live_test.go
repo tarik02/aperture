@@ -17,6 +17,7 @@ import (
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/httpapi"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/traefik"
@@ -34,15 +35,18 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	cfg := config.Config{
-		StoreRoot:                filepath.Join(root, "store"),
-		RuntimeRoot:              filepath.Join(root, "runtime"),
-		ArtifactRoot:             filepath.Join(root, "artifacts"),
-		DatabasePath:             filepath.Join(root, "store", "aperture.db"),
-		TraefikDynamicConfigPath: filepath.Join(root, "runtime", "traefik", "dynamic.yaml"),
-		ListenAddress:            "127.0.0.1:0",
-		SystemdBrowserUnitName:   "browser-session@.service",
-		SessionRetentionDays:     7,
-		SnapshotRetentionDays:    7,
+		StoreRoot:               filepath.Join(root, "store"),
+		RuntimeRoot:             filepath.Join(root, "runtime"),
+		ArtifactRoot:            filepath.Join(root, "artifacts"),
+		DatabasePath:            filepath.Join(root, "store", "aperture.db"),
+		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
+		DeployColor:             config.DeployColorBlue,
+		DeployStatePath:         filepath.Join(root, "store", "deployment-state.json"),
+		DeployGreenURL:          "http://127.0.0.1:28082",
+		ListenAddress:           "127.0.0.1:0",
+		SystemdBrowserUnitName:  "browser-session@.service",
+		SessionRetentionDays:    7,
+		SnapshotRetentionDays:   7,
 		ChannelRegistry: map[string]config.ChannelConfig{
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
@@ -125,6 +129,7 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		t.Fatalf("listen aperture: %v", err)
 	}
 	cfg.ListenAddress = apertureListener.Addr().String()
+	cfg.DeployBlueURL = "http://" + cfg.ListenAddress
 	t.Cleanup(func() { _ = apertureListener.Close() })
 
 	sessions := session.NewService(cfg, repo, nil, nil, nil, traefik.NewService(cfg, repo))
@@ -140,6 +145,13 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		_ = apertureServer.Shutdown(shutdownCtx)
 	})
 
+	deployState := deploystate.New(cfg)
+	if _, err := deployState.MarkActive(config.DeployColorBlue, "live-smoke"); err != nil {
+		t.Fatalf("mark active: %v", err)
+	}
+	if err := traefik.WriteEdgeConfig(cfg, deployState); err != nil {
+		t.Fatalf("write edge config: %v", err)
+	}
 	if err := traefik.NewService(cfg, repo).Reconcile(ctx); err != nil {
 		t.Fatalf("reconcile traefik config: %v", err)
 	}
@@ -150,7 +162,7 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 	}
 
 	staticPath := filepath.Join(root, "traefik-static.yaml")
-	staticConfig, err := traefik.RenderStaticConfig(traefikAddr, cfg.TraefikDynamicConfigPath)
+	staticConfig, err := traefik.RenderStaticConfig(traefikAddr, cfg.TraefikDynamicConfigDir)
 	if err != nil {
 		t.Fatalf("render static config: %v", err)
 	}

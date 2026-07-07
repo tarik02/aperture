@@ -328,9 +328,9 @@ executable = "/usr/bin/chromium"
 	if cfg.RuntimeRoot != flagRuntimeRoot {
 		t.Fatalf("runtime root = %q, want flag override", cfg.RuntimeRoot)
 	}
-	wantTraefik := filepath.Join(flagRuntimeRoot, "traefik", "dynamic.yaml")
-	if cfg.TraefikDynamicConfigPath != wantTraefik {
-		t.Fatalf("traefik path = %q, want %q", cfg.TraefikDynamicConfigPath, wantTraefik)
+	wantTraefik := filepath.Join(flagRuntimeRoot, "traefik", "dynamic")
+	if cfg.TraefikDynamicConfigDir != wantTraefik {
+		t.Fatalf("traefik path = %q, want %q", cfg.TraefikDynamicConfigDir, wantTraefik)
 	}
 }
 
@@ -341,14 +341,14 @@ func TestLoadKeepsExplicitDerivedPaths(t *testing.T) {
 	runtimeRoot := filepath.Join(dir, "runtime")
 	customArtifactRoot := filepath.Join(dir, "custom-artifacts")
 	customDatabasePath := filepath.Join(dir, "custom.db")
-	customTraefikPath := filepath.Join(dir, "custom-traefik.yaml")
+	customTraefikPath := filepath.Join(dir, "custom-traefik")
 
 	contents := `
 store_root = "` + storeRoot + `"
 runtime_root = "` + runtimeRoot + `"
 artifact_root = "` + customArtifactRoot + `"
 database_path = "` + customDatabasePath + `"
-traefik_dynamic_config_path = "` + customTraefikPath + `"
+traefik_dynamic_config_dir = "` + customTraefikPath + `"
 external_base_url = "https://browser.example.test"
 
 [channels.chromium]
@@ -374,7 +374,7 @@ executable = "/usr/bin/chromium"
 	if cfg.DatabasePath != customDatabasePath {
 		t.Fatalf("database path = %q, want explicit config value", cfg.DatabasePath)
 	}
-	if cfg.TraefikDynamicConfigPath != customTraefikPath {
-		t.Fatalf("traefik path = %q, want explicit config value", cfg.TraefikDynamicConfigPath)
+	if cfg.TraefikDynamicConfigDir != customTraefikPath {
+		t.Fatalf("traefik path = %q, want explicit config value", cfg.TraefikDynamicConfigDir)
 	}
 }

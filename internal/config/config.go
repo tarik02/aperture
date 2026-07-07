@@ -41,7 +41,7 @@ type Config struct {
 	RuntimeRoot                      string                   `mapstructure:"runtime_root"`
 	ArtifactRoot                     string                   `mapstructure:"artifact_root"`
 	DatabasePath                     string                   `mapstructure:"database_path"`
-	TraefikDynamicConfigPath         string                   `mapstructure:"traefik_dynamic_config_path"`
+	TraefikDynamicConfigDir          string                   `mapstructure:"traefik_dynamic_config_dir"`
 	DeployColor                      string                   `mapstructure:"deploy_color"`
 	DeployStatePath                  string                   `mapstructure:"deploy_state_path"`
 	DeployVersion                    string                   `mapstructure:"deploy_version"`
@@ -86,7 +86,7 @@ func Defaults() Config {
 		RuntimeRoot:                      runtimeRoot,
 		ArtifactRoot:                     filepath.Join(storeRoot, "artifacts"),
 		DatabasePath:                     filepath.Join(storeRoot, "aperture.db"),
-		TraefikDynamicConfigPath:         filepath.Join(runtimeRoot, "traefik", "dynamic.yaml"),
+		TraefikDynamicConfigDir:          filepath.Join(runtimeRoot, "traefik", "dynamic"),
 		DeployColor:                      DeployColorBlue,
 		DeployStatePath:                  filepath.Join(storeRoot, "deployment-state.json"),
 		DeployVersion:                    "",
@@ -189,7 +189,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"runtime_root",
 		"artifact_root",
 		"database_path",
-		"traefik_dynamic_config_path",
+		"traefik_dynamic_config_dir",
 		"deploy_color",
 		"deploy_state_path",
 		"deploy_version",
@@ -256,18 +256,18 @@ func Load(flags *viper.Viper) (Config, error) {
 }
 
 type explicitPaths struct {
-	artifactRoot             bool
-	databasePath             bool
-	traefikDynamicConfigPath bool
-	deployStatePath          bool
+	artifactRoot            bool
+	databasePath            bool
+	traefikDynamicConfigDir bool
+	deployStatePath         bool
 }
 
 func explicitPathsFrom(v *viper.Viper, flags *viper.Viper) explicitPaths {
 	return explicitPaths{
-		artifactRoot:             v.IsSet("artifact_root") || flags.IsSet("artifact-root"),
-		databasePath:             v.IsSet("database_path") || flags.IsSet("database-path"),
-		traefikDynamicConfigPath: v.IsSet("traefik_dynamic_config_path") || flags.IsSet("traefik-dynamic-config-path"),
-		deployStatePath:          v.IsSet("deploy_state_path") || flags.IsSet("deploy-state-path"),
+		artifactRoot:            v.IsSet("artifact_root") || flags.IsSet("artifact-root"),
+		databasePath:            v.IsSet("database_path") || flags.IsSet("database-path"),
+		traefikDynamicConfigDir: v.IsSet("traefik_dynamic_config_dir") || flags.IsSet("traefik-dynamic-config-dir"),
+		deployStatePath:         v.IsSet("deploy_state_path") || flags.IsSet("deploy-state-path"),
 	}
 }
 
@@ -278,8 +278,8 @@ func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
 	if !explicit.databasePath && strings.TrimSpace(cfg.StoreRoot) != "" {
 		cfg.DatabasePath = filepath.Join(cfg.StoreRoot, "aperture.db")
 	}
-	if !explicit.traefikDynamicConfigPath && strings.TrimSpace(cfg.RuntimeRoot) != "" {
-		cfg.TraefikDynamicConfigPath = filepath.Join(cfg.RuntimeRoot, "traefik", "dynamic.yaml")
+	if !explicit.traefikDynamicConfigDir && strings.TrimSpace(cfg.RuntimeRoot) != "" {
+		cfg.TraefikDynamicConfigDir = filepath.Join(cfg.RuntimeRoot, "traefik", "dynamic")
 	}
 	if !explicit.deployStatePath && strings.TrimSpace(cfg.StoreRoot) != "" {
 		cfg.DeployStatePath = filepath.Join(cfg.StoreRoot, "deployment-state.json")
@@ -294,7 +294,7 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"runtime-root":                            "runtime_root",
 		"artifact-root":                           "artifact_root",
 		"database-path":                           "database_path",
-		"traefik-dynamic-config-path":             "traefik_dynamic_config_path",
+		"traefik-dynamic-config-dir":              "traefik_dynamic_config_dir",
 		"deploy-color":                            "deploy_color",
 		"deploy-state-path":                       "deploy_state_path",
 		"deploy-version":                          "deploy_version",

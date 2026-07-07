@@ -79,19 +79,19 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	storeRoot := filepath.Join(root, "store")
 	runtimeRoot := filepath.Join(runtimeBase, "aperture-e2e", filepath.Base(root))
 	cfg := config.Config{
-		StoreRoot:                storeRoot,
-		RuntimeRoot:              runtimeRoot,
-		ArtifactRoot:             filepath.Join(storeRoot, "artifacts"),
-		DatabasePath:             filepath.Join(storeRoot, "aperture.db"),
-		TraefikDynamicConfigPath: filepath.Join(runtimeRoot, "traefik", "dynamic.yaml"),
-		DeployColor:              config.DeployColorBlue,
-		DeployStatePath:          filepath.Join(storeRoot, "deployment-state.json"),
-		DeployBlueURL:            "http://127.0.0.1:28080",
-		DeployGreenURL:           "http://127.0.0.1:28082",
-		ListenAddress:            addr,
-		SystemdBrowserUnitName:   "browser-session@.service",
-		SessionRetentionDays:     7,
-		SnapshotRetentionDays:    7,
+		StoreRoot:               storeRoot,
+		RuntimeRoot:             runtimeRoot,
+		ArtifactRoot:            filepath.Join(storeRoot, "artifacts"),
+		DatabasePath:            filepath.Join(storeRoot, "aperture.db"),
+		TraefikDynamicConfigDir: filepath.Join(runtimeRoot, "traefik", "dynamic"),
+		DeployColor:             config.DeployColorBlue,
+		DeployStatePath:         filepath.Join(storeRoot, "deployment-state.json"),
+		DeployBlueURL:           "http://" + addr,
+		DeployGreenURL:          "http://127.0.0.1:28082",
+		ListenAddress:           addr,
+		SystemdBrowserUnitName:  "browser-session@.service",
+		SessionRetentionDays:    7,
+		SnapshotRetentionDays:   7,
 		ChannelRegistry: map[string]config.ChannelConfig{
 			"chromium": {
 				Executable:  chromiumPath,

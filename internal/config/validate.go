@@ -17,7 +17,7 @@ func Validate(cfg Config) error {
 	errs = append(errs, validateRequiredAbsolutePath("runtime_root", cfg.RuntimeRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("artifact_root", cfg.ArtifactRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("database_path", cfg.DatabasePath)...)
-	errs = append(errs, validateRequiredAbsolutePath("traefik_dynamic_config_path", cfg.TraefikDynamicConfigPath)...)
+	errs = append(errs, validateRequiredAbsolutePath("traefik_dynamic_config_dir", cfg.TraefikDynamicConfigDir)...)
 	errs = append(errs, validateRequiredAbsolutePath("deploy_state_path", cfg.DeployStatePath)...)
 
 	switch strings.ToLower(strings.TrimSpace(cfg.DeployColor)) {

@@ -2,7 +2,7 @@
 #
 # Substitute placeholders at install time:
 #   @ENTRYPOINT_ADDRESS@   - public HTTP listen address, for example :8443
-#   @DYNAMIC_CONFIG_PATH@  - absolute path to generated dynamic.yaml
+#   @DYNAMIC_CONFIG_DIR@   - absolute path to watched dynamic config directory
 
 entryPoints:
   web:
@@ -10,7 +10,7 @@ entryPoints:
 
 providers:
   file:
-    filename: "@DYNAMIC_CONFIG_PATH@"
+    directory: "@DYNAMIC_CONFIG_DIR@"
     watch: true
 
 api:

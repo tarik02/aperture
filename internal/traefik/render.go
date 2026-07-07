@@ -3,13 +3,13 @@ package traefik
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/deploystate"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,9 +24,48 @@ type RunningSession struct {
 	CDPPort int
 }
 
-// RenderDynamicConfig renders Traefik file-provider dynamic configuration.
-func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, error) {
-	apertureURL, err := apertureBaseURL(cfg.ListenAddress)
+// RenderEdgeConfig renders deploy-owned Traefik edge routes.
+func RenderEdgeConfig(cfg config.Config, state deploystate.State) ([]byte, error) {
+	activeURL, err := deploystate.ActiveURL(state)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRender, err)
+	}
+
+	serviceName := apiServiceName(state.ActiveColor, state.ActiveVersion)
+	doc := dynamicConfig{
+		HTTP: httpDynamicConfig{
+			Routers:     map[string]routerConfig{},
+			Middlewares: map[string]middlewareConfig{},
+			Services:    map[string]serviceConfig{},
+		},
+	}
+
+	doc.HTTP.Routers["aperture-api"] = routerConfig{
+		Rule:        apertureCatchAllRule(cfg.CdpRouteBasePath),
+		Service:     serviceName,
+		Priority:    apiRouterPriority,
+		EntryPoints: []string{"web"},
+	}
+	doc.HTTP.Services[serviceName] = serviceConfig{
+		LoadBalancer: loadBalancerConfig{
+			Servers: []serverConfig{{URL: activeURL}},
+		},
+	}
+
+	content, err := marshalDynamicYAML(doc)
+	if err != nil {
+		return nil, err
+	}
+	header := "# active color: " + strings.TrimSpace(state.ActiveColor) + "\n"
+	if version := strings.TrimSpace(state.ActiveVersion); version != "" {
+		header += "# active version: " + strings.ReplaceAll(version, "\n", " ") + "\n"
+	}
+	return append([]byte(header), content...), nil
+}
+
+// RenderSessionsConfig renders active API-owned live session routes.
+func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []RunningSession) ([]byte, error) {
+	activeURL, err := deploystate.ActiveURL(state)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRender, err)
 	}
@@ -39,18 +78,7 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 		},
 	}
 
-	doc.HTTP.Routers["aperture-api"] = routerConfig{
-		Rule:        apertureCatchAllRule(cfg.CdpRouteBasePath),
-		Service:     "aperture-api",
-		Priority:    apiRouterPriority,
-		EntryPoints: []string{"web"},
-	}
-	doc.HTTP.Services["aperture-api"] = serviceConfig{
-		LoadBalancer: loadBalancerConfig{
-			Servers: []serverConfig{{URL: apertureURL}},
-		},
-	}
-
+	serviceName := apiServiceName(state.ActiveColor, state.ActiveVersion)
 	cdpBase := normalizedCDPRouteBase(cfg.CdpRouteBasePath)
 	for _, session := range running {
 		if session.ID == "" || session.CDPPort <= 0 {
@@ -62,13 +90,13 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 		routePrefix := fmt.Sprintf("%s/%s", cdpBase, session.ID)
 		forwardAuthURL := fmt.Sprintf(
 			"%s/internal/forward-auth/cdp/%s",
-			strings.TrimRight(apertureURL, "/"),
+			strings.TrimRight(activeURL, "/"),
 			session.ID,
 		)
 
 		doc.HTTP.Routers[routerName] = routerConfig{
 			Rule:        cdpRouterRule(routePrefix),
-			Service:     "aperture-api",
+			Service:     serviceName,
 			Middlewares: []string{middlewareName},
 			Priority:    cdpRouterPriority,
 			EntryPoints: []string{"web"},
@@ -84,14 +112,14 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 }
 
 // RenderStaticConfig renders Traefik static configuration from install parameters.
-func RenderStaticConfig(entrypointAddress, dynamicConfigPath string) ([]byte, error) {
+func RenderStaticConfig(entrypointAddress, dynamicConfigDir string) ([]byte, error) {
 	entrypointAddress = strings.TrimSpace(entrypointAddress)
-	dynamicConfigPath = strings.TrimSpace(dynamicConfigPath)
+	dynamicConfigDir = strings.TrimSpace(dynamicConfigDir)
 	if entrypointAddress == "" {
 		return nil, fmt.Errorf("%w: entrypoint address is required", ErrRender)
 	}
-	if dynamicConfigPath == "" {
-		return nil, fmt.Errorf("%w: dynamic config path is required", ErrRender)
+	if dynamicConfigDir == "" {
+		return nil, fmt.Errorf("%w: dynamic config directory is required", ErrRender)
 	}
 
 	doc := staticConfig{
@@ -100,8 +128,8 @@ func RenderStaticConfig(entrypointAddress, dynamicConfigPath string) ([]byte, er
 		},
 		Providers: providersConfig{
 			File: fileProviderConfig{
-				Filename: dynamicConfigPath,
-				Watch:    true,
+				Directory: dynamicConfigDir,
+				Watch:     true,
 			},
 		},
 		API: apiConfig{
@@ -138,35 +166,35 @@ func cdpRouterRule(routePrefix string) string {
 	return fmt.Sprintf("Path(`%s`) || PathPrefix(`%s/`)", escaped, escaped)
 }
 
-func apertureBaseURL(listenAddress string) (string, error) {
-	host, port, err := net.SplitHostPort(strings.TrimSpace(listenAddress))
-	if err != nil {
-		return "", fmt.Errorf("parse listen address: %w", err)
-	}
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	return fmt.Sprintf("http://%s:%s", host, port), nil
-}
-
 func cdpRouterName(sessionID string) string {
 	return "aperture-cdp-" + sanitizeName(sessionID)
-}
-
-func cdpServiceName(sessionID string) string {
-	return "aperture-cdp-service-" + sanitizeName(sessionID)
 }
 
 func cdpMiddlewareName(sessionID string) string {
 	return "aperture-cdp-forward-auth-" + sanitizeName(sessionID)
 }
 
-func cdpStripMiddlewareName(sessionID string) string {
-	return "aperture-cdp-strip-" + sanitizeName(sessionID)
+func apiServiceName(color, version string) string {
+	name := "aperture-api-" + sanitizeName(color)
+	if version = sanitizeName(version); version != "" {
+		name += "-" + version
+	}
+	return name
 }
 
 func sanitizeName(value string) string {
-	return strings.NewReplacer("-", "", ":", "").Replace(value)
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
 }
 
 func escapeTraefikPath(path string) string {
@@ -232,8 +260,8 @@ type providersConfig struct {
 }
 
 type fileProviderConfig struct {
-	Filename string `yaml:"filename"`
-	Watch    bool   `yaml:"watch"`
+	Directory string `yaml:"directory"`
+	Watch     bool   `yaml:"watch"`
 }
 
 type apiConfig struct {

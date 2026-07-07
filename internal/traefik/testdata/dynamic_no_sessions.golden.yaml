@@ -1,13 +1,3 @@
 http:
-  routers:
-    aperture-api:
-      rule: "PathPrefix(`/`) && !PathPrefix(`/internal`) && !PathPrefix(`/cdp`)"
-      service: aperture-api
-      priority: 1
-      entryPoints:
-        - web
-  services:
-    aperture-api:
-      loadBalancer:
-        servers:
-          - url: "http://127.0.0.1:8080"
+  routers: {}
+  services: {}

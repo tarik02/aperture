@@ -56,8 +56,12 @@ in
       store_root = "${storeRoot}"
       runtime_root = "${runtimeRoot}"
       artifact_root = "${storeRoot}/artifacts"
+      traefik_dynamic_config_dir = "${runtimeRoot}/traefik/dynamic"
       external_base_url = "${cfg.externalBaseUrl}"
-      listen_address = "127.0.0.1:8080"
+      listen_address = "127.0.0.1:28080"
+      deploy_color = "blue"
+      deploy_blue_url = "http://127.0.0.1:28080"
+      deploy_green_url = "http://127.0.0.1:28082"
 
       [channels.chromium]
       executable = "${cfg.chromiumPackage}/bin/chromium"

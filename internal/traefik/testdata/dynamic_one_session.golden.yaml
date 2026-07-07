@@ -1,14 +1,8 @@
 http:
   routers:
-    aperture-api:
-      rule: "PathPrefix(`/`) && !PathPrefix(`/internal`) && !PathPrefix(`/cdp`)"
-      service: aperture-api
-      priority: 1
-      entryPoints:
-        - web
     aperture-cdp-018f1234000070008000000000000001:
       rule: "Path(`/cdp/018f1234-0000-7000-8000-000000000001`) || PathPrefix(`/cdp/018f1234-0000-7000-8000-000000000001/`)"
-      service: aperture-api
+      service: aperture-api-blue-68fd220
       middlewares:
         - aperture-cdp-forward-auth-018f1234000070008000000000000001
       priority: 100
@@ -17,9 +11,5 @@ http:
   middlewares:
     aperture-cdp-forward-auth-018f1234000070008000000000000001:
       forwardAuth:
-        address: "http://127.0.0.1:8080/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001"
-  services:
-    aperture-api:
-      loadBalancer:
-        servers:
-          - url: "http://127.0.0.1:8080"
+        address: "http://127.0.0.1:28080/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001"
+  services: {}

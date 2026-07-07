@@ -27,7 +27,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().String("runtime-root", "", "runtime state root")
 	cmd.PersistentFlags().String("artifact-root", "", "artifact storage root")
 	cmd.PersistentFlags().String("database-path", "", "sqlite database path")
-	cmd.PersistentFlags().String("traefik-dynamic-config-path", "", "traefik dynamic config path")
+	cmd.PersistentFlags().String("traefik-dynamic-config-dir", "", "traefik dynamic config directory")
 	cmd.PersistentFlags().String("deploy-color", "", "deployment color (blue, green)")
 	cmd.PersistentFlags().String("deploy-state-path", "", "deployment state file path")
 	cmd.PersistentFlags().String("deploy-version", "", "deployment version")

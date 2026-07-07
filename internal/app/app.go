@@ -116,6 +116,9 @@ func (a *App) Serve(ctx context.Context) error {
 	if err := a.Migrate(ctx); err != nil {
 		return err
 	}
+	if err := traefik.WriteEdgeConfig(a.Config, a.Deploy); err != nil {
+		return fmt.Errorf("write traefik edge config: %w", err)
+	}
 	if err := a.Sessions.ReconcileStartup(ctx); err != nil {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
