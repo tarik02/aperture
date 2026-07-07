@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REMOTE_HOST="${REMOTE_HOST:-polygon}"
+CONFIG_FILE="${CONFIG_FILE:-/etc/aperture/aperture.toml}"
+OUT_LINK="${OUT_LINK:-/tmp/aperture-deploy-result}"
+HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-60}"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+TMP_ROOT=""
+STORE_PATH=""
+EXPECTED_VERSION=""
+CANDIDATE_COLOR=""
+OLD_COLOR=""
+
+cleanup() {
+	if [ -n "${TMP_ROOT}" ]; then
+		rm -rf "${TMP_ROOT}"
+	fi
+}
+trap cleanup EXIT
+
+require_command() {
+	if ! command -v "$1" >/dev/null 2>&1; then
+		echo "missing required command: $1" >&2
+		exit 1
+	fi
+}
+
+deployment_version() {
+	local revision="nogit"
+	if git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+		revision="$(git -C "${REPO_ROOT}" rev-parse --short=12 HEAD)"
+		if ! git -C "${REPO_ROOT}" diff --quiet ||
+			! git -C "${REPO_ROOT}" diff --cached --quiet ||
+			[ -n "$(git -C "${REPO_ROOT}" ls-files --others --exclude-standard)" ]; then
+			revision="${revision}-dirty"
+		fi
+	fi
+
+	printf '%s-%s' "${revision}" "$(date -u +%Y%m%dT%H%M%SZ)"
+}
+
+remote_bash() {
+	ssh "${REMOTE_HOST}" \
+		env STORE_PATH="${STORE_PATH}" \
+		EXPECTED_VERSION="${EXPECTED_VERSION}" \
+		CANDIDATE_COLOR="${CANDIDATE_COLOR}" \
+		OLD_COLOR="${OLD_COLOR}" \
+		CONFIG_FILE="${CONFIG_FILE}" \
+		bash -s -- "$@"
+}
+
+remote_aperture() {
+	remote_bash "$@" <<'REMOTE'
+set -euo pipefail
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+exec "${STORE_PATH}/bin/aperture" "$@"
+REMOTE
+}
+
+remote_systemctl() {
+	remote_bash "$@" <<'REMOTE'
+set -euo pipefail
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+exec systemctl --user "$@"
+REMOTE
+}
+
+remote_curl() {
+	remote_bash "$1" <<'REMOTE'
+set -euo pipefail
+exec curl -fsS "$1"
+REMOTE
+}
+
+wait_for_health() {
+	local label="$1"
+	local url="$2"
+	local expected_color="$3"
+	local expected_role="$4"
+	local expected_version="$5"
+	local deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
+	local body=""
+	local status=""
+	local color=""
+	local role=""
+	local version=""
+
+	while [ "${SECONDS}" -lt "${deadline}" ]; do
+		if body="$(remote_curl "${url%/}/api/health" 2>/dev/null)"; then
+			status="$(jq -r '.status // ""' <<<"${body}")"
+			color="$(jq -r '.color // ""' <<<"${body}")"
+			role="$(jq -r '.role // ""' <<<"${body}")"
+			version="$(jq -r '.version // ""' <<<"${body}")"
+			if [ "${status}" = "ok" ] &&
+				[ "${color}" = "${expected_color}" ] &&
+				{ [ -z "${expected_role}" ] || [ "${role}" = "${expected_role}" ]; } &&
+				[ "${version}" = "${expected_version}" ]; then
+				return 0
+			fi
+		fi
+		sleep 1
+	done
+
+	echo "${label} health did not reach expected state" >&2
+	echo "url: ${url%/}/api/health" >&2
+	echo "expected color=${expected_color} role=${expected_role:-any} version=${expected_version}" >&2
+	if [ -n "${body}" ]; then
+		echo "last response: ${body}" >&2
+	fi
+	return 1
+}
+
+build_source_copy() {
+	TMP_ROOT="$(mktemp -d)"
+	local source_dir="${TMP_ROOT}/source"
+	mkdir -p "${source_dir}"
+
+	(
+		cd "${REPO_ROOT}"
+		tar \
+			--exclude='./.git' \
+			--exclude='./.direnv' \
+			--exclude='./result' \
+			-cf - .
+		) | tar -C "${source_dir}" -xf -
+
+	EXPECTED_VERSION="$(deployment_version)"
+	printf '%s' "${EXPECTED_VERSION}" >"${source_dir}/.aperture-deploy-version"
+
+	nix build "${source_dir}#aperture" --out-link "${OUT_LINK}"
+	nix copy --to "ssh://${REMOTE_HOST}" "${OUT_LINK}"
+
+	STORE_PATH="$(readlink -f "${OUT_LINK}")"
+	baked_version="$(sed -n 's/^Environment=APERTURE_DEPLOY_VERSION=//p' "${STORE_PATH}/lib/systemd/user/aperture@.service" | head -n 1)"
+	if [ -z "${baked_version}" ]; then
+		echo "could not determine deployment version from ${STORE_PATH}/lib/systemd/user/aperture@.service" >&2
+		exit 1
+	fi
+	if [ "${baked_version}" != "${EXPECTED_VERSION}" ]; then
+		echo "built deployment version mismatch: expected ${EXPECTED_VERSION}, got ${baked_version}" >&2
+		exit 1
+	fi
+}
+
+install_api_units_and_config() {
+	remote_bash <<'REMOTE'
+set -euo pipefail
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+
+install_unit() {
+	local source="$1"
+	local target="$2"
+	if [ -f "${target}" ] && cmp -s "${source}" "${target}"; then
+		return 1
+	fi
+	install -D -m 0644 "${source}" "${target}"
+	return 0
+}
+
+if [ ! -f "${CONFIG_FILE}" ]; then
+	echo "${CONFIG_FILE} does not exist on $(hostname)" >&2
+	exit 1
+fi
+
+user_unit_dir="${HOME}/.config/systemd/user"
+mkdir -p "${user_unit_dir}"
+install_unit "${STORE_PATH}/lib/systemd/user/aperture@.service" "${user_unit_dir}/aperture@.service" || true
+install_unit "${STORE_PATH}/lib/systemd/user/aperture-gc.service" "${user_unit_dir}/aperture-gc.service" || true
+
+traefik_changed=0
+if install_unit "${STORE_PATH}/lib/systemd/user/aperture-traefik.service" "${user_unit_dir}/aperture-traefik.service"; then
+	traefik_changed=1
+fi
+
+dynamic_dir="${XDG_RUNTIME_DIR}/aperture/traefik/dynamic"
+sudo cp "${CONFIG_FILE}" "${CONFIG_FILE}.deploy-polygon.bak"
+sudo sed -i -E "s#/nix/store/[[:alnum:]]+-aperture[^/[:space:]\"']*#${STORE_PATH}#g" "${CONFIG_FILE}"
+if sudo grep -qE '^[[:space:]]*deploy_version[[:space:]]*=' "${CONFIG_FILE}"; then
+	sudo sed -i -E "s#^([[:space:]]*deploy_version[[:space:]]*=).*#\1 \"${EXPECTED_VERSION}\"#" "${CONFIG_FILE}"
+else
+	printf '\ndeploy_version = "%s"\n' "${EXPECTED_VERSION}" | sudo tee -a "${CONFIG_FILE}" >/dev/null
+fi
+if sudo grep -qE '^[[:space:]]*traefik_dynamic_config_dir[[:space:]]*=' "${CONFIG_FILE}"; then
+	sudo sed -i -E "s#^([[:space:]]*traefik_dynamic_config_dir[[:space:]]*=).*#\1 \"${dynamic_dir}\"#" "${CONFIG_FILE}"
+else
+	printf '\ntraefik_dynamic_config_dir = "%s"\n' "${dynamic_dir}" | sudo tee -a "${CONFIG_FILE}" >/dev/null
+fi
+if sudo grep -qE '^[[:space:]]*traefik_dynamic_config_path[[:space:]]*=' "${CONFIG_FILE}"; then
+	sudo sed -i -E 's#^[[:space:]]*traefik_dynamic_config_path[[:space:]]*=.*##' "${CONFIG_FILE}"
+fi
+
+systemctl --user daemon-reload
+printf '%s\n' "${traefik_changed}"
+REMOTE
+}
+
+install_browser_unit() {
+	remote_bash <<'REMOTE'
+set -euo pipefail
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+install -D -m 0644 "${STORE_PATH}/lib/systemd/user/browser-session@.service" "${HOME}/.config/systemd/user/browser-session@.service"
+systemctl --user daemon-reload
+REMOTE
+}
+
+ensure_traefik() {
+	local traefik_unit_changed="$1"
+	if remote_systemctl is-active --quiet aperture-traefik.service; then
+		if [ "${traefik_unit_changed}" = "1" ]; then
+			remote_systemctl restart aperture-traefik.service
+		fi
+	else
+		remote_systemctl start aperture-traefik.service
+	fi
+}
+
+require_command jq
+require_command nix
+require_command readlink
+require_command ssh
+require_command tar
+
+build_source_copy
+
+state_json="$(remote_aperture deployment state get --config "${CONFIG_FILE}")"
+OLD_COLOR="$(jq -r '.activeColor' <<<"${state_json}")"
+case "${OLD_COLOR}" in
+	blue)
+		CANDIDATE_COLOR="green"
+		;;
+	green)
+		CANDIDATE_COLOR="blue"
+		;;
+	*)
+		echo "unexpected active deployment color: ${OLD_COLOR}" >&2
+		exit 1
+		;;
+esac
+
+candidate_url="$(jq -r --arg color "${CANDIDATE_COLOR}" 'if $color == "blue" then .blueURL else .greenURL end' <<<"${state_json}")"
+edge_url="http://127.0.0.1:28081"
+
+traefik_unit_changed="$(install_api_units_and_config)"
+
+remote_systemctl restart "aperture@${CANDIDATE_COLOR}.service"
+wait_for_health "candidate ${CANDIDATE_COLOR}" "${candidate_url}" "${CANDIDATE_COLOR}" "" "${EXPECTED_VERSION}"
+
+install_browser_unit
+
+remote_aperture deployment state mark-active "${CANDIDATE_COLOR}" --version "${EXPECTED_VERSION}" --config "${CONFIG_FILE}" >/dev/null
+wait_for_health "candidate ${CANDIDATE_COLOR} active" "${candidate_url}" "${CANDIDATE_COLOR}" active "${EXPECTED_VERSION}"
+
+remote_aperture deployment edge write --config "${CONFIG_FILE}"
+ensure_traefik "${traefik_unit_changed}"
+wait_for_health "edge" "${edge_url}" "${CANDIDATE_COLOR}" active "${EXPECTED_VERSION}"
+
+remote_systemctl stop "aperture@${OLD_COLOR}.service"
+
+echo "deployed ${STORE_PATH}: ${OLD_COLOR} -> ${CANDIDATE_COLOR} (${EXPECTED_VERSION})"

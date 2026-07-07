@@ -3,4 +3,4 @@ Description=Trigger Aperture garbage collection
 
 [Service]
 Type=oneshot
-ExecStart=%h/.nix-profile/bin/aperture trigger gc
+ExecStart=@apertureBin@ trigger gc --config /etc/aperture/aperture.toml

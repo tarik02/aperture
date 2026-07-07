@@ -145,7 +145,10 @@
           '';
         };
 
-        deployVersion = self.shortRev or self.dirtyShortRev or "0.0.1";
+        deployVersion =
+          if builtins.pathExists ./.aperture-deploy-version
+          then builtins.readFile ./.aperture-deploy-version
+          else self.shortRev or self.dirtyShortRev or "0.0.1";
 
         aperture = (pkgs.buildGoModule (finalAttrs: {
           pname = "aperture";
@@ -256,7 +259,7 @@
               EnvironmentFile=-%h/.config/aperture/aperture.env
               EnvironmentFile=-%t/aperture/api/%i.env
               Environment=APERTURE_DEPLOY_COLOR=%i
-              ExecStart=@runtimeShell@ -c 'case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve'
+              ExecStart=@runtimeShell@ -c 'case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve --config /etc/aperture/aperture.toml'
               Restart=on-failure
               RestartSec=5
 
@@ -272,6 +275,8 @@
               --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
               --replace-fail '@apertureBin@' $out/bin/aperture \
               --replace-fail '@deployVersion@' ${deployVersion}
+            substituteInPlace $out/lib/systemd/user/aperture-gc.service \
+              --replace-fail '@apertureBin@' $out/bin/aperture
             substituteInPlace $out/lib/systemd/user/aperture-traefik.service \
               --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
               --replace-fail '@staticConfigTemplate@' $out/share/aperture/traefik/static.yaml.template \

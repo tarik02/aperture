@@ -11,7 +11,7 @@ Environment=APERTURE_DEPLOY_VERSION=@deployVersion@
 EnvironmentFile=-%h/.config/aperture/aperture.env
 EnvironmentFile=-%t/aperture/api/%i.env
 Environment=APERTURE_DEPLOY_COLOR=%i
-ExecStart=@runtimeShell@ -c 'case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve'
+ExecStart=@runtimeShell@ -c 'case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve --config /etc/aperture/aperture.toml'
 Restart=on-failure
 RestartSec=5
 

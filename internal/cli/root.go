@@ -1,8 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/aperture/aperture/internal/config"
+	"github.com/aperture/aperture/internal/deploystate"
+	"github.com/aperture/aperture/internal/traefik"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -63,6 +68,7 @@ func newRootCmd() *cobra.Command {
 		newServeCmd(),
 		newMigrateCmd(),
 		newAdminCmd(),
+		newDeploymentCmd(),
 		newTriggerCmd(),
 	)
 
@@ -78,4 +84,103 @@ func placeholder(name string) *cobra.Command {
 			return fmt.Errorf("%s: not implemented", cmd.CommandPath())
 		},
 	}
+}
+
+func newDeploymentCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "deployment",
+		Short:  "deployment maintenance commands",
+		Hidden: true,
+	}
+
+	state := &cobra.Command{
+		Use:   "state",
+		Short: "deployment state commands",
+	}
+	state.AddCommand(
+		newDeploymentStateGetCmd(),
+		newDeploymentStateMarkActiveCmd(),
+	)
+
+	edge := &cobra.Command{
+		Use:   "edge",
+		Short: "deployment edge route commands",
+	}
+	edge.AddCommand(newDeploymentEdgeWriteCmd())
+
+	cmd.AddCommand(state, edge)
+	return cmd
+}
+
+func newDeploymentStateGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get",
+		Short: "print deployment state",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(rootFlags)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+
+			state, err := deploystate.New(cfg).Load()
+			if err != nil {
+				return fmt.Errorf("load deployment state: %w", err)
+			}
+			return writeDeploymentState(cmd, state)
+		},
+	}
+}
+
+func newDeploymentStateMarkActiveCmd() *cobra.Command {
+	var version string
+
+	cmd := &cobra.Command{
+		Use:   "mark-active COLOR",
+		Short: "mark a deployment color active",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(rootFlags)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+
+			activeVersion := version
+			if strings.TrimSpace(activeVersion) == "" {
+				activeVersion = cfg.DeployVersion
+			}
+			state, err := deploystate.New(cfg).MarkActive(args[0], activeVersion)
+			if err != nil {
+				return fmt.Errorf("mark active deployment state: %w", err)
+			}
+			return writeDeploymentState(cmd, state)
+		},
+	}
+	cmd.Flags().StringVar(&version, "version", "", "active deployment version")
+	return cmd
+}
+
+func newDeploymentEdgeWriteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "write",
+		Short: "write deployment edge dynamic config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(rootFlags)
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			if err := traefik.WriteEdgeConfig(cfg, deploystate.New(cfg)); err != nil {
+				return fmt.Errorf("write deployment edge config: %w", err)
+			}
+			return nil
+		},
+	}
+}
+
+func writeDeploymentState(cmd *cobra.Command, state deploystate.State) error {
+	encoder := json.NewEncoder(cmd.OutOrStdout())
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(state); err != nil {
+		return fmt.Errorf("encode deployment state: %w", err)
+	}
+	return nil
 }
