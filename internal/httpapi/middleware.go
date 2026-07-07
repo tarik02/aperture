@@ -5,6 +5,7 @@ import (
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/session"
@@ -15,15 +16,18 @@ import (
 
 // Server holds HTTP handler dependencies.
 type Server struct {
-	Auth      *auth.Service
-	Sessions  *session.Service
-	Snapshots *snapshot.Service
-	Promotion *snapshot.PromotionService
-	Events    *event.Service
-	GC        *gc.Service
-	Channels  *browser.Registry
-	Logger    *zap.Logger
-	jobToken  string
+	Auth          *auth.Service
+	Sessions      *session.Service
+	Snapshots     *snapshot.Service
+	Promotion     *snapshot.PromotionService
+	Events        *event.Service
+	GC            *gc.Service
+	Channels      *browser.Registry
+	Deploy        *deploystate.Service
+	DeployColor   string
+	DeployVersion string
+	Logger        *zap.Logger
+	jobToken      string
 }
 
 // SetJobToken configures the local job token for internal endpoints.

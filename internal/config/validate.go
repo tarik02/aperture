@@ -18,6 +18,15 @@ func Validate(cfg Config) error {
 	errs = append(errs, validateRequiredAbsolutePath("artifact_root", cfg.ArtifactRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("database_path", cfg.DatabasePath)...)
 	errs = append(errs, validateRequiredAbsolutePath("traefik_dynamic_config_path", cfg.TraefikDynamicConfigPath)...)
+	errs = append(errs, validateRequiredAbsolutePath("deploy_state_path", cfg.DeployStatePath)...)
+
+	switch strings.ToLower(strings.TrimSpace(cfg.DeployColor)) {
+	case DeployColorBlue, DeployColorGreen:
+	default:
+		errs = append(errs, errors.New("deploy_color must be blue or green"))
+	}
+	errs = append(errs, validateDeployURL("deploy_blue_url", cfg.DeployBlueURL)...)
+	errs = append(errs, validateDeployURL("deploy_green_url", cfg.DeployGreenURL)...)
 
 	if strings.TrimSpace(cfg.ListenAddress) == "" {
 		errs = append(errs, errors.New("listen_address is required"))
@@ -184,6 +193,26 @@ func validateRequiredAbsolutePath(name, value string) []error {
 	}
 	if !filepath.IsAbs(trimmed) {
 		return []error{fmt.Errorf("%s must be an absolute path", name)}
+	}
+	return nil
+}
+
+func validateDeployURL(name, value string) []error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return []error{fmt.Errorf("%s is required", name)}
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return []error{fmt.Errorf("%s: %w", name, err)}
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return []error{fmt.Errorf("%s must include scheme and host", name)}
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+	default:
+		return []error{fmt.Errorf("%s scheme must be http or https", name)}
 	}
 	return nil
 }

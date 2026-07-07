@@ -119,6 +119,9 @@ executable = "/usr/bin/chromium"
 	if cfg.DatabasePath != filepath.Join(envStoreRoot, "aperture.db") {
 		t.Fatalf("database path = %q, want derived from env store root", cfg.DatabasePath)
 	}
+	if cfg.DeployStatePath != filepath.Join(envStoreRoot, "deployment-state.json") {
+		t.Fatalf("deploy state path = %q, want derived from env store root", cfg.DeployStatePath)
+	}
 	if cfg.ExternalBaseURL != "https://file.example.test" {
 		t.Fatalf("external base url = %q, want file value", cfg.ExternalBaseURL)
 	}

@@ -24,6 +24,9 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetConfigFile(trimmed)
 
 	defaults := Defaults()
+	v.SetDefault("deploy_color", defaults.DeployColor)
+	v.SetDefault("deploy_blue_url", defaults.DeployBlueURL)
+	v.SetDefault("deploy_green_url", defaults.DeployGreenURL)
 	v.SetDefault("systemd_browser_unit_name", defaults.SystemdBrowserUnitName)
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
@@ -57,6 +60,7 @@ func LoadFromFileOnly(path string) (Config, error) {
 		artifactRoot:             v.IsSet("artifact_root"),
 		databasePath:             v.IsSet("database_path"),
 		traefikDynamicConfigPath: v.IsSet("traefik_dynamic_config_path"),
+		deployStatePath:          v.IsSet("deploy_state_path"),
 	})
 
 	return cfg, Validate(cfg)

@@ -111,12 +111,21 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var body map[string]string
+	var body healthResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if body["status"] != "ok" {
-		t.Fatalf("status field = %q, want ok", body["status"])
+	if body.Status != "ok" {
+		t.Fatalf("status field = %q, want ok", body.Status)
+	}
+	if body.Color != "blue" {
+		t.Fatalf("color = %q, want blue", body.Color)
+	}
+	if body.Role != "active" {
+		t.Fatalf("role = %q, want active", body.Role)
+	}
+	if body.ActiveColor != "blue" {
+		t.Fatalf("active color = %q, want blue", body.ActiveColor)
 	}
 }
 

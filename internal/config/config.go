@@ -18,6 +18,8 @@ const (
 	WebRTCMediaModeCDP           = "cdp"
 	WebRTCMediaProducerCodecVP8  = "vp8"
 	WebRTCMediaProducerCodecH264 = "h264-va"
+	DeployColorBlue              = "blue"
+	DeployColorGreen             = "green"
 )
 
 // ChannelConfig describes a configured browser channel.
@@ -40,6 +42,11 @@ type Config struct {
 	ArtifactRoot                     string                   `mapstructure:"artifact_root"`
 	DatabasePath                     string                   `mapstructure:"database_path"`
 	TraefikDynamicConfigPath         string                   `mapstructure:"traefik_dynamic_config_path"`
+	DeployColor                      string                   `mapstructure:"deploy_color"`
+	DeployStatePath                  string                   `mapstructure:"deploy_state_path"`
+	DeployVersion                    string                   `mapstructure:"deploy_version"`
+	DeployBlueURL                    string                   `mapstructure:"deploy_blue_url"`
+	DeployGreenURL                   string                   `mapstructure:"deploy_green_url"`
 	ListenAddress                    string                   `mapstructure:"listen_address"`
 	SystemdBrowserUnitName           string                   `mapstructure:"systemd_browser_unit_name"`
 	SessionRetentionDays             int                      `mapstructure:"session_retention_days"`
@@ -80,6 +87,11 @@ func Defaults() Config {
 		ArtifactRoot:                     filepath.Join(storeRoot, "artifacts"),
 		DatabasePath:                     filepath.Join(storeRoot, "aperture.db"),
 		TraefikDynamicConfigPath:         filepath.Join(runtimeRoot, "traefik", "dynamic.yaml"),
+		DeployColor:                      DeployColorBlue,
+		DeployStatePath:                  filepath.Join(storeRoot, "deployment-state.json"),
+		DeployVersion:                    "",
+		DeployBlueURL:                    "http://127.0.0.1:28080",
+		DeployGreenURL:                   "http://127.0.0.1:28082",
 		ListenAddress:                    "127.0.0.1:8080",
 		SystemdBrowserUnitName:           "browser-session@.service",
 		SessionRetentionDays:             7,
@@ -141,6 +153,9 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("store_root", defaults.StoreRoot)
 	v.SetDefault("runtime_root", defaults.RuntimeRoot)
 	v.SetDefault("listen_address", defaults.ListenAddress)
+	v.SetDefault("deploy_color", defaults.DeployColor)
+	v.SetDefault("deploy_blue_url", defaults.DeployBlueURL)
+	v.SetDefault("deploy_green_url", defaults.DeployGreenURL)
 	v.SetDefault("systemd_browser_unit_name", defaults.SystemdBrowserUnitName)
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
@@ -175,6 +190,11 @@ func Load(flags *viper.Viper) (Config, error) {
 		"artifact_root",
 		"database_path",
 		"traefik_dynamic_config_path",
+		"deploy_color",
+		"deploy_state_path",
+		"deploy_version",
+		"deploy_blue_url",
+		"deploy_green_url",
 		"listen_address",
 		"systemd_browser_unit_name",
 		"session_retention_days",
@@ -239,6 +259,7 @@ type explicitPaths struct {
 	artifactRoot             bool
 	databasePath             bool
 	traefikDynamicConfigPath bool
+	deployStatePath          bool
 }
 
 func explicitPathsFrom(v *viper.Viper, flags *viper.Viper) explicitPaths {
@@ -246,6 +267,7 @@ func explicitPathsFrom(v *viper.Viper, flags *viper.Viper) explicitPaths {
 		artifactRoot:             v.IsSet("artifact_root") || flags.IsSet("artifact-root"),
 		databasePath:             v.IsSet("database_path") || flags.IsSet("database-path"),
 		traefikDynamicConfigPath: v.IsSet("traefik_dynamic_config_path") || flags.IsSet("traefik-dynamic-config-path"),
+		deployStatePath:          v.IsSet("deploy_state_path") || flags.IsSet("deploy-state-path"),
 	}
 }
 
@@ -259,6 +281,9 @@ func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
 	if !explicit.traefikDynamicConfigPath && strings.TrimSpace(cfg.RuntimeRoot) != "" {
 		cfg.TraefikDynamicConfigPath = filepath.Join(cfg.RuntimeRoot, "traefik", "dynamic.yaml")
 	}
+	if !explicit.deployStatePath && strings.TrimSpace(cfg.StoreRoot) != "" {
+		cfg.DeployStatePath = filepath.Join(cfg.StoreRoot, "deployment-state.json")
+	}
 }
 
 func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
@@ -270,6 +295,11 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"artifact-root":                           "artifact_root",
 		"database-path":                           "database_path",
 		"traefik-dynamic-config-path":             "traefik_dynamic_config_path",
+		"deploy-color":                            "deploy_color",
+		"deploy-state-path":                       "deploy_state_path",
+		"deploy-version":                          "deploy_version",
+		"deploy-blue-url":                         "deploy_blue_url",
+		"deploy-green-url":                        "deploy_green_url",
 		"systemd-browser-unit-name":               "systemd_browser_unit_name",
 		"session-retention-days":                  "session_retention_days",
 		"snapshot-retention-days":                 "snapshot_retention_days",

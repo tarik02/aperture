@@ -10,6 +10,7 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
 	"github.com/aperture/aperture/internal/httpapi"
@@ -28,6 +29,7 @@ import (
 type App struct {
 	Config     config.Config
 	Logger     *zap.Logger
+	Deploy     *deploystate.Service
 	DB         *db.DB
 	Repository *db.Repository
 	Auth       *auth.Service
@@ -52,9 +54,16 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 
 	repo := db.NewRepository(database)
+	deployState := deploystate.New(cfg)
+	if _, err := deployState.EnsureActive(cfg.DeployColor, cfg.DeployVersion); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("ensure deployment state: %w", err)
+	}
+
 	return &App{
 		Config:     cfg,
 		Logger:     logger,
+		Deploy:     deployState,
 		DB:         database,
 		Repository: repo,
 		Auth:       auth.NewService(repo),
@@ -122,13 +131,16 @@ func (a *App) Serve(ctx context.Context) error {
 	go monitor.Run(monitorCtx)
 
 	server := &httpapi.Server{
-		Auth:      a.Auth,
-		Sessions:  a.Sessions,
-		Snapshots: a.Snapshots,
-		Promotion: a.Promotion,
-		Events:    a.Events,
-		GC:        a.GC,
-		Channels:  a.Channels,
+		Auth:          a.Auth,
+		Sessions:      a.Sessions,
+		Snapshots:     a.Snapshots,
+		Promotion:     a.Promotion,
+		Events:        a.Events,
+		GC:            a.GC,
+		Channels:      a.Channels,
+		Deploy:        a.Deploy,
+		DeployColor:   a.Config.DeployColor,
+		DeployVersion: a.Config.DeployVersion,
 	}
 	server.SetJobToken(jobToken)
 	router := httpapi.NewRouter(a.Logger, server, web.StaticAssets(), a.Config.CdpRouteBasePath)

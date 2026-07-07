@@ -3,7 +3,10 @@ package httpapi
 import (
 	"io/fs"
 	"net/http"
+	"strings"
 
+	"github.com/aperture/aperture/internal/config"
+	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -35,10 +38,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 
 	api := router.Group("/api")
 	{
-		api.GET("/health", func(c *gin.Context) {
-			logger.Debug("health check")
-			c.JSON(http.StatusOK, gin.H{"status": "ok"})
-		})
+		api.GET("/health", server.health)
 
 		authRoutes := api.Group("/auth")
 		authRoutes.Use(server.requireAuth)
@@ -130,4 +130,35 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	registerStaticFallback(router, staticAssets, cdpRouteBasePath, server)
 
 	return router
+}
+
+func (s *Server) health(c *gin.Context) {
+	if s.Logger != nil {
+		s.Logger.Debug("health check")
+	}
+
+	color := strings.ToLower(strings.TrimSpace(s.DeployColor))
+	if color == "" {
+		color = config.DeployColorBlue
+	}
+
+	role := deploystate.RoleActive
+	activeColor := color
+	if s.Deploy != nil {
+		state, err := s.Deploy.Load()
+		if err != nil {
+			WriteInternalError(c, err)
+			return
+		}
+		role = deploystate.Role(state, color)
+		activeColor = state.ActiveColor
+	}
+
+	c.JSON(http.StatusOK, healthResponse{
+		Status:      "ok",
+		Color:       color,
+		Role:        role,
+		Version:     s.DeployVersion,
+		ActiveColor: activeColor,
+	})
 }

@@ -108,6 +108,14 @@ type authMeResponse struct {
 	SelectedTenant *tenantResponse   `json:"selectedTenant"`
 }
 
+type healthResponse struct {
+	Status      string `json:"status"`
+	Color       string `json:"color"`
+	Role        string `json:"role"`
+	Version     string `json:"version"`
+	ActiveColor string `json:"activeColor"`
+}
+
 type browserChannelResponse struct {
 	Name string `json:"name"`
 }
