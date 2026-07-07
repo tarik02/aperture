@@ -25,6 +25,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const deployRolePollInterval = time.Second
+
 // App wires shared runtime handles for CLI commands.
 type App struct {
 	Config     config.Config
@@ -119,8 +121,19 @@ func (a *App) Serve(ctx context.Context) error {
 	if err := traefik.WriteEdgeConfig(a.Config, a.Deploy); err != nil {
 		return fmt.Errorf("write traefik edge config: %w", err)
 	}
-	if err := a.Sessions.ReconcileStartup(ctx); err != nil {
-		return fmt.Errorf("reconcile sessions: %w", err)
+
+	role, err := a.deployRole()
+	if err != nil {
+		return err
+	}
+	if role == deploystate.RoleActive {
+		if err := a.Sessions.ReconcileStartup(ctx); err != nil {
+			return fmt.Errorf("reconcile sessions: %w", err)
+		}
+	} else {
+		a.Logger.Info("skipping startup session reconciliation on inactive api",
+			zap.String("color", a.Config.DeployColor),
+		)
 	}
 
 	jobToken, err := jobtoken.Ensure(a.Config)
@@ -129,9 +142,11 @@ func (a *App) Serve(ctx context.Context) error {
 	}
 
 	monitor := session.NewMonitor(a.Sessions, a.Logger)
+	monitor.SetActiveChecker(a.deployColorActive)
 	monitorCtx, cancelMonitor := context.WithCancel(ctx)
 	defer cancelMonitor()
 	go monitor.Run(monitorCtx)
+	go a.reconcileSessionRoutesOnActivation(monitorCtx, role == deploystate.RoleActive)
 
 	server := &httpapi.Server{
 		Auth:          a.Auth,
@@ -175,6 +190,50 @@ func (a *App) Serve(ctx context.Context) error {
 			return fmt.Errorf("http server: %w", err)
 		}
 		return nil
+	}
+}
+
+func (a *App) deployRole() (string, error) {
+	state, err := a.Deploy.Load()
+	if err != nil {
+		return "", fmt.Errorf("load deployment state: %w", err)
+	}
+	return deploystate.Role(state, a.Config.DeployColor), nil
+}
+
+func (a *App) deployColorActive() (bool, error) {
+	role, err := a.deployRole()
+	if err != nil {
+		return false, err
+	}
+	return role == deploystate.RoleActive, nil
+}
+
+func (a *App) reconcileSessionRoutesOnActivation(ctx context.Context, wasActive bool) {
+	ticker := time.NewTicker(deployRolePollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			active, err := a.deployColorActive()
+			if err != nil {
+				a.Logger.Error("check deployment role", zap.Error(err))
+				continue
+			}
+			if active && !wasActive {
+				if err := a.Sessions.ReconcileRoutes(ctx); err != nil {
+					a.Logger.Error("reconcile session routes after activation", zap.Error(err))
+					continue
+				}
+				a.Logger.Info("reconciled session routes after api activation",
+					zap.String("color", a.Config.DeployColor),
+				)
+			}
+			wasActive = active
+		}
 	}
 }
 

@@ -10,9 +10,10 @@ import (
 
 // Monitor periodically refreshes leases for active running sessions.
 type Monitor struct {
-	service  *Service
-	logger   *zap.Logger
-	interval time.Duration
+	service       *Service
+	logger        *zap.Logger
+	interval      time.Duration
+	activeChecker func() (bool, error)
 }
 
 // NewMonitor constructs a running-session monitor.
@@ -22,6 +23,11 @@ func NewMonitor(service *Service, logger *zap.Logger) *Monitor {
 		logger:   logger,
 		interval: service.MonitorInterval(),
 	}
+}
+
+// SetActiveChecker configures ownership checks before each monitor tick.
+func (m *Monitor) SetActiveChecker(checker func() (bool, error)) {
+	m.activeChecker = checker
 }
 
 // Run executes the monitor loop until ctx is canceled.
@@ -42,6 +48,18 @@ func (m *Monitor) Run(ctx context.Context) {
 }
 
 func (m *Monitor) tick(ctx context.Context) {
+	if m.activeChecker != nil {
+		active, err := m.activeChecker()
+		if err != nil {
+			m.logger.Error("check deployment role", zap.Error(err))
+			return
+		}
+		if !active {
+			m.logger.Debug("skip session monitor tick on inactive api")
+			return
+		}
+	}
+
 	sessions, err := m.service.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
 		m.logger.Error("list running sessions", zap.Error(err))

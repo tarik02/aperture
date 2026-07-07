@@ -1,10 +1,17 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
@@ -13,6 +20,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+const inactiveHandoffTimeout = 15 * time.Second
 
 // Server holds HTTP handler dependencies.
 type Server struct {
@@ -33,6 +42,87 @@ type Server struct {
 // SetJobToken configures the local job token for internal endpoints.
 func (s *Server) SetJobToken(token string) {
 	s.jobToken = token
+}
+
+func (s *Server) handoffInactiveAPI(c *gin.Context) {
+	path := c.Request.URL.Path
+	if path != "/api" && !strings.HasPrefix(path, "/api/") {
+		c.Next()
+		return
+	}
+
+	state, color, role, err := s.deployRole()
+	if err != nil {
+		WriteInternalError(c, err)
+		c.Abort()
+		return
+	}
+	if role == deploystate.RoleActive {
+		c.Next()
+		return
+	}
+	if path == "/api/health" {
+		c.Next()
+		return
+	}
+	if strings.EqualFold(state.ActiveColor, color) {
+		c.Next()
+		return
+	}
+
+	activeURL, err := deploystate.ActiveURL(state)
+	if err != nil {
+		WriteInternalError(c, err)
+		c.Abort()
+		return
+	}
+	target, err := url.Parse(activeURL)
+	if err != nil {
+		WriteInternalError(c, err)
+		c.Abort()
+		return
+	}
+
+	if s.Logger != nil {
+		s.Logger.Info("proxying api request to active color",
+			zap.String("path", path),
+			zap.String("method", c.Request.Method),
+			zap.String("processColor", color),
+			zap.String("activeColor", state.ActiveColor),
+			zap.String("activeURL", activeURL),
+		)
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), inactiveHandoffTimeout)
+	defer cancel()
+	c.Request = c.Request.WithContext(ctx)
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
+		if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
+			http.Error(w, "handoff proxy timeout", http.StatusGatewayTimeout)
+			return
+		}
+		http.Error(w, proxyErr.Error(), http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(c.Writer, c.Request)
+	c.Abort()
+}
+
+func (s *Server) deployRole() (deploystate.State, string, string, error) {
+	color := strings.ToLower(strings.TrimSpace(s.DeployColor))
+	if color == "" {
+		color = config.DeployColorBlue
+	}
+	if s.Deploy == nil {
+		return deploystate.State{ActiveColor: color}, color, deploystate.RoleActive, nil
+	}
+
+	state, err := s.Deploy.Load()
+	if err != nil {
+		return deploystate.State{}, color, "", err
+	}
+	return state, color, deploystate.Role(state, color), nil
 }
 
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {

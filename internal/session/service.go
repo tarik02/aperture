@@ -739,6 +739,11 @@ func (s *Service) ReconcileStartup(ctx context.Context) error {
 	return s.traefik.Reconcile(ctx)
 }
 
+// ReconcileRoutes refreshes active-owned live session routes without changing session state.
+func (s *Service) ReconcileRoutes(ctx context.Context) error {
+	return s.traefik.Reconcile(ctx)
+}
+
 func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
 	activeIDs, err := s.browser.ListActiveSessionIDs(ctx)
 	if err != nil {

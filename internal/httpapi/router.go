@@ -3,10 +3,7 @@ package httpapi
 import (
 	"io/fs"
 	"net/http"
-	"strings"
 
-	"github.com/aperture/aperture/internal/config"
-	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -22,14 +19,14 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		server.Logger = logger
 	}
 	router := gin.New()
-	router.Use(gin.Recovery())
+	router.Use(gin.Recovery(), server.handoffInactiveAPI)
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)
 		internal.GET("/forward-auth/live-session/:sessionId/:access", server.liveSessionForwardAuth)
 
 		jobs := internal.Group("/jobs")
-		jobs.Use(server.requireLoopback, server.requireJobToken)
+		jobs.Use(server.rejectInactiveInternalJob, server.requireLoopback, server.requireJobToken)
 		{
 			jobs.POST("/gc", server.runGCJob)
 		}
@@ -116,21 +113,14 @@ func (s *Server) health(c *gin.Context) {
 		s.Logger.Debug("health check")
 	}
 
-	color := strings.ToLower(strings.TrimSpace(s.DeployColor))
-	if color == "" {
-		color = config.DeployColorBlue
+	state, color, role, err := s.deployRole()
+	if err != nil {
+		WriteInternalError(c, err)
+		return
 	}
-
-	role := deploystate.RoleActive
-	activeColor := color
-	if s.Deploy != nil {
-		state, err := s.Deploy.Load()
-		if err != nil {
-			WriteInternalError(c, err)
-			return
-		}
-		role = deploystate.Role(state, color)
-		activeColor = state.ActiveColor
+	activeColor := state.ActiveColor
+	if activeColor == "" {
+		activeColor = color
 	}
 
 	c.JSON(http.StatusOK, healthResponse{
