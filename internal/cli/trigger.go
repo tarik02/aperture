@@ -2,12 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/aperture/aperture/internal/config"
+	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/jobtoken"
 	"github.com/spf13/cobra"
 )
@@ -31,16 +34,23 @@ func newTriggerGCCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
+			state, err := deploystate.New(cfg).Load()
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("load deployment state: %s is missing; active api url is unknown", cfg.DeployStatePath)
+				}
+				return fmt.Errorf("load deployment state: %w", err)
+			}
+			activeURL, err := deploystate.ActiveURL(state)
+			if err != nil {
+				return fmt.Errorf("resolve active api url: %w", err)
+			}
+			url := strings.TrimRight(activeURL, "/") + "/internal/jobs/gc"
+
 			token, err := jobtoken.Load(cfg)
 			if err != nil {
 				return fmt.Errorf("load job token: %w", err)
 			}
-
-			url := strings.TrimRight(cfg.ListenAddress, "/")
-			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-				url = "http://" + url
-			}
-			url += "/internal/jobs/gc"
 
 			req, err := http.NewRequestWithContext(cmd.Context(), http.MethodPost, url, nil)
 			if err != nil {

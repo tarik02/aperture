@@ -1,6 +1,5 @@
 [Unit]
 Description=Trigger Aperture garbage collection
-After=aperture.service
 
 [Service]
 Type=oneshot
