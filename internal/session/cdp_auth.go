@@ -9,20 +9,7 @@ import (
 
 // ValidateCDPForwardAuth checks a CDP bearer token for Traefik ForwardAuth.
 func (s *Service) ValidateCDPForwardAuth(ctx context.Context, routeSessionID, authorization string) error {
-	_, err := s.authorizedCDPSession(ctx, routeSessionID, authorization)
-	return err
-}
-
-// AuthorizedCDPPort checks a CDP bearer token and returns the running CDP port.
-func (s *Service) AuthorizedCDPPort(ctx context.Context, routeSessionID, authorization string) (int, error) {
-	sessionRow, err := s.authorizedCDPSession(ctx, routeSessionID, authorization)
-	if err != nil {
-		return 0, err
-	}
-	if sessionRow.CurrentCDPPort == nil || *sessionRow.CurrentCDPPort <= 0 {
-		return 0, ErrNotRunning
-	}
-	return *sessionRow.CurrentCDPPort, nil
+	return s.WakeAuthorizedCDP(ctx, routeSessionID, authorization)
 }
 
 func (s *Service) authorizedCDPSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, error) {
@@ -65,7 +52,7 @@ func (s *Service) authorizedCDPSession(ctx context.Context, routeSessionID, auth
 	if sessionRow == nil {
 		return nil, ErrNotFound
 	}
-	if sessionRow.Status != db.SessionStatusRunning {
+	if sessionRow.Status != db.SessionStatusRunning && sessionRow.Status != db.SessionStatusSuspended {
 		return nil, ErrNotRunning
 	}
 	if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {

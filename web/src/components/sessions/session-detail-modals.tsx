@@ -207,9 +207,11 @@ function SessionDetailActionBar({
   onConnection,
   onEvents,
 }: SessionDetailActionBarProps) {
-  const canOpen = session.status === "running";
-  const canReopen = actions.canWrite && session.status !== "running";
-  const canRotate = actions.canWrite && session.status === "running";
+  const canOpen = session.status === "running" || session.status === "suspended";
+  const canReopen =
+    actions.canWrite && (session.status === "deleted" || session.status === "failed");
+  const canRotate =
+    actions.canWrite && (session.status === "running" || session.status === "suspended");
 
   return (
     <div className="flex flex-col justify-end gap-2 sm:border-l sm:border-border sm:pl-4">

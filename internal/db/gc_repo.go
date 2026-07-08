@@ -62,6 +62,7 @@ func (r *Repository) CountRetainedSessionsReferencingSnapshot(ctx context.Contex
 		Where("base_snapshot_id = ?", snapshotID).
 		Where("status IN (?)", bun.In([]string{
 			SessionStatusRunning,
+			SessionStatusSuspended,
 			SessionStatusDeleted,
 			SessionStatusFailed,
 			SessionStatusCreating,

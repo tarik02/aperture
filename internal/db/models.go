@@ -80,6 +80,8 @@ type Session struct {
 	DeletedAt       *string `bun:"deleted_at"`
 	ExpiresAt       string  `bun:"expires_at,notnull"`
 	ExpiredAt       *string `bun:"expired_at"`
+	LastConnectedAt *string `bun:"last_connected_at"`
+	SuspendedAt     *string `bun:"suspended_at"`
 }
 
 // SessionToken maps the session_tokens table.

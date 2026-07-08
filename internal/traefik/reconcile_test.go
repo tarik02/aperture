@@ -7,13 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/deploystate"
+	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/traefik"
 )
 
-func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
+func TestReconcileWritesCDPRoutableSessionRoutes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -21,6 +23,7 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 	cfg := config.Config{
 		StoreRoot:               filepath.Join(root, "store"),
 		RuntimeRoot:             filepath.Join(root, "runtime"),
+		ArtifactRoot:            filepath.Join(root, "artifacts"),
 		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
 		DeployColor:             config.DeployColorBlue,
 		DeployStatePath:         filepath.Join(root, "store", "deployment-state.json"),
@@ -49,12 +52,29 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 		t.Fatalf("create tenant: %v", err)
 	}
 
-	port := 9333
 	sessionID := "018f1234-0000-7000-8000-000000000001"
+	now := db.NowUTC()
+	cdpPort := 9222
+	layout, err := paths.Session(cfg, sessionID)
+	if err != nil {
+		t.Fatalf("session layout: %v", err)
+	}
+	if err := browser.WriteRuntimeEnv(layout.RuntimeEnv, browser.RuntimeEnvValues{
+		SessionID:         sessionID,
+		MergedUserDataDir: "/tmp/merged",
+		DownloadsDir:      "/tmp/downloads",
+		CacheDir:          "/tmp/cache",
+		ArtifactsDir:      "/tmp/artifacts",
+		CDPPort:           cdpPort,
+		WrapperPort:       9333,
+		BrowserExecutable: "/usr/bin/chromium",
+	}); err != nil {
+		t.Fatalf("write runtime env: %v", err)
+	}
 	if err := repo.CreateSession(ctx, &db.Session{
 		ID:              sessionID,
 		TenantID:        tenantID,
-		Status:          db.SessionStatusRunning,
+		Status:          db.SessionStatusSuspended,
 		OverlayPath:     "/tmp/overlay",
 		UpperPath:       "/tmp/upper",
 		WorkPath:        "/tmp/work",
@@ -64,9 +84,11 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 		ArtifactsPath:   "/tmp/artifacts",
 		BrowserChannel:  "chromium",
 		BrowserArgsJSON: "[]",
-		CreatedAt:       db.NowUTC(),
-		ExpiresAt:       db.NowUTC(),
-		CurrentCDPPort:  &port,
+		CreatedAt:       now,
+		ExpiresAt:       now,
+		RuntimeEnvPath:  &layout.RuntimeEnv,
+		CurrentCDPPort:  &cdpPort,
+		SuspendedAt:     &now,
 	}); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -98,6 +120,7 @@ func TestReconcileInactiveColorDoesNotOverwriteSessionsConfig(t *testing.T) {
 	cfg := config.Config{
 		StoreRoot:               filepath.Join(root, "store"),
 		RuntimeRoot:             filepath.Join(root, "runtime"),
+		ArtifactRoot:            filepath.Join(root, "artifacts"),
 		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
 		DeployColor:             config.DeployColorGreen,
 		DeployStatePath:         filepath.Join(root, "store", "deployment-state.json"),

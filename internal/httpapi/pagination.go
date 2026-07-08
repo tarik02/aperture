@@ -64,7 +64,7 @@ func parseOptionalStatus(c *gin.Context) (*string, error) {
 		return nil, nil
 	}
 	switch raw {
-	case db.SessionStatusCreating, db.SessionStatusRunning, db.SessionStatusDeleted, db.SessionStatusExpired, db.SessionStatusFailed:
+	case db.SessionStatusCreating, db.SessionStatusRunning, db.SessionStatusSuspended, db.SessionStatusDeleted, db.SessionStatusExpired, db.SessionStatusFailed:
 		status := raw
 		return &status, nil
 	default:

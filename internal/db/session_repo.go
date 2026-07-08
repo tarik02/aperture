@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	SessionStatusCreating = "creating"
-	SessionStatusRunning  = "running"
-	SessionStatusDeleted  = "deleted"
-	SessionStatusExpired  = "expired"
-	SessionStatusFailed   = "failed"
+	SessionStatusCreating  = "creating"
+	SessionStatusRunning   = "running"
+	SessionStatusSuspended = "suspended"
+	SessionStatusDeleted   = "deleted"
+	SessionStatusExpired   = "expired"
+	SessionStatusFailed    = "failed"
 )
 
 // CreateSession inserts a session row.
@@ -81,6 +82,38 @@ func (r *Repository) ListSessionsByStatus(ctx context.Context, status string) ([
 		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list sessions by status: %w", err)
+	}
+	return sessions, nil
+}
+
+// ListSessionsByStatuses returns sessions with any of the given statuses.
+func (r *Repository) ListSessionsByStatuses(ctx context.Context, statuses []string) ([]Session, error) {
+	sessions := make([]Session, 0)
+	if len(statuses) == 0 {
+		return sessions, nil
+	}
+	err := r.db.bun.NewSelect().
+		Model(&sessions).
+		Where("status IN (?)", bun.In(statuses)).
+		OrderExpr("created_at ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions by statuses: %w", err)
+	}
+	return sessions, nil
+}
+
+// ListRunningSessionsIdleBefore returns running sessions without recent connection activity.
+func (r *Repository) ListRunningSessionsIdleBefore(ctx context.Context, connectedBefore string) ([]Session, error) {
+	sessions := make([]Session, 0)
+	err := r.db.bun.NewSelect().
+		Model(&sessions).
+		Where("status = ?", SessionStatusRunning).
+		Where("COALESCE(last_connected_at, started_at, created_at) <= ?", connectedBefore).
+		OrderExpr("COALESCE(last_connected_at, started_at, created_at) ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list idle running sessions: %w", err)
 	}
 	return sessions, nil
 }

@@ -89,4 +89,13 @@ func (m *Monitor) tick(ctx context.Context) {
 			m.logger.Error("refresh session lease", zap.String("sessionId", sessionRow.ID), zap.Error(err))
 		}
 	}
+
+	suspended, err := m.service.SuspendIdleSessions(ctx)
+	if err != nil {
+		m.logger.Error("suspend idle sessions", zap.Error(err))
+		return
+	}
+	if suspended > 0 {
+		m.logger.Info("suspended idle sessions", zap.Int("count", suspended))
+	}
 }

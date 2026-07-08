@@ -28,7 +28,7 @@ func NewService(cfg config.Config, repo *db.Repository) *Service {
 	return &Service{cfg: cfg, repo: repo, deploy: deploystate.New(cfg)}
 }
 
-// Reconcile regenerates dynamic Traefik routes for running sessions.
+// Reconcile regenerates dynamic Traefik routes for sessions that can wake through CDP.
 func (s *Service) Reconcile(ctx context.Context) error {
 	state, err := s.loadState()
 	if err != nil {
@@ -38,9 +38,12 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		return nil
 	}
 
-	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
+	sessions, err := s.repo.ListSessionsByStatuses(ctx, []string{
+		db.SessionStatusRunning,
+		db.SessionStatusSuspended,
+	})
 	if err != nil {
-		return fmt.Errorf("list running sessions: %w", err)
+		return fmt.Errorf("list cdp-routable sessions: %w", err)
 	}
 
 	running := RunningSessionsFromDB(sessions)

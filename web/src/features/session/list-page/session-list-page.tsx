@@ -84,6 +84,7 @@ const ALL_STATUS = "__all__";
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: ALL_STATUS, label: "All" },
   { value: "running", label: "Running" },
+  { value: "suspended", label: "Suspended" },
   { value: "creating", label: "Creating" },
   { value: "deleted", label: "Deleted" },
   { value: "failed", label: "Failed" },
@@ -161,7 +162,7 @@ export function SessionListPage() {
   const setConfirmAction = useSessionListPageStore((state) => state.setConfirmAction);
   const selectedSessionItems = useMemo(() => Object.values(selectedSessions), [selectedSessions]);
   const reopenableSessionItems = selectedSessionItems.filter(
-    (session) => session.status !== "running",
+    (session) => session.status === "deleted" || session.status === "failed",
   );
   const tagsSession =
     tagModalOpen && tagResourceKey?.startsWith("session:") === true
@@ -631,7 +632,7 @@ function SessionActionsMenu({
         {canWrite ? (
           <>
             <DropdownMenuSeparator />
-            {session.status === "running" ? (
+            {session.status === "running" || session.status === "suspended" ? (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <AppWindow />
@@ -661,7 +662,7 @@ function SessionActionsMenu({
             <DropdownMenuItem className="whitespace-nowrap" onClick={onRotate}>
               Rotate CDP token
             </DropdownMenuItem>
-            {session.status !== "running" ? (
+            {session.status === "deleted" || session.status === "failed" ? (
               <DropdownMenuItem onClick={onReopen}>Reopen</DropdownMenuItem>
             ) : null}
             {canPromote ? <DropdownMenuItem onClick={onPromote}>Promote</DropdownMenuItem> : null}

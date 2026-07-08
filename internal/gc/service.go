@@ -138,6 +138,7 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
 	sessionRow.StoppedAt = &expiredAt
+	sessionRow.SuspendedAt = nil
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return err
 	}

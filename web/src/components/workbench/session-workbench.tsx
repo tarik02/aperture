@@ -34,10 +34,13 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
   const lastRecordedSessionId = useRef<string | null>(null);
 
   const { session: selectedSession, isResolvingRoute } = useWorkbenchSession(sessionId);
+  const canConnectSession = Boolean(
+    selectedSession?.status === "running" || selectedSession?.status === "suspended",
+  );
 
   const control = useBrowserControl({
-    sessionId: selectedSession?.status === "running" ? selectedSession.id : null,
-    enabled: canControl && tenantReady && selectedSession?.status === "running",
+    sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
+    enabled: canControl && tenantReady && canConnectSession,
     forceCDPMedia,
     webrtcProducerSupported:
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
@@ -97,7 +100,9 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
               <AppWindow />
             </EmptyMedia>
             <EmptyTitle>Session unavailable</EmptyTitle>
-            <EmptyDescription>Open a running session from the sessions table.</EmptyDescription>
+            <EmptyDescription>
+              Open a running or suspended session from the sessions table.
+            </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button variant="outline" size="sm" render={<Link to="/-/sessions" />}>

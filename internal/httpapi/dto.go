@@ -181,6 +181,8 @@ type sessionResponse struct {
 	StoppedAt        *string           `json:"stoppedAt,omitempty"`
 	DeletedAt        *string           `json:"deletedAt"`
 	ExpiresAt        string            `json:"expiresAt"`
+	LastConnectedAt  *string           `json:"lastConnectedAt,omitempty"`
+	SuspendedAt      *string           `json:"suspendedAt,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	CDPURL           string            `json:"cdpUrl,omitempty"`
 }

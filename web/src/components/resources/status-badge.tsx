@@ -4,6 +4,7 @@ import { Badge } from "#/components/ui/badge.tsx";
 const statusVariant: Record<SessionStatus, "default" | "secondary" | "destructive" | "outline"> = {
   running: "default",
   creating: "secondary",
+  suspended: "secondary",
   deleted: "outline",
   expired: "outline",
   failed: "destructive",
