@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,7 +84,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		},
 	}
 
-	serviceName := apiServiceName(state.ActiveColor, state.ActiveVersion)
 	for _, session := range running {
 		if session.ID == "" {
 			continue
@@ -92,13 +92,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		sessionBase := "/sessions/" + session.ID
 		cdpBase := sessionBase + "/cdp"
 		if session.CDPPort > 0 {
-			doc.HTTP.Routers[cdpDiscoveryRouterName(session.ID)] = routerConfig{
-				Rule:        cdpDiscoveryRouterRule(cdpBase),
-				Service:     serviceName,
-				Priority:    cdpDiscoveryRouterPriority,
-				EntryPoints: []string{"web"},
-			}
-
 			cdpService := cdpServiceName(session.ID)
 			doc.HTTP.Routers[cdpWebSocketRouterName(session.ID)] = routerConfig{
 				Rule:    cdpWebSocketRouterRule(cdpBase),
@@ -118,22 +111,29 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 						strings.TrimRight(activeURL, "/"),
 						session.ID,
 					),
+					AuthRequestHeaders: cdpForwardAuthRequestHeaders(),
 				},
 			}
 			doc.HTTP.Middlewares[cdpStripMiddlewareName(session.ID)] = middlewareConfig{
-				StripPrefix: &stripPrefixConfig{Prefixes: []string{cdpBase}},
+				ReplacePathRegex: &replacePathRegexConfig{
+					Regex:       "^" + regexp.QuoteMeta(cdpBase) + "/[^/]+(?:/(.*))?$",
+					Replacement: "/$1",
+				},
 			}
 			doc.HTTP.Middlewares[cdpWebSocketHeadersMiddlewareName(session.ID)] = middlewareConfig{
 				Headers: &headersConfig{
 					CustomRequestHeaders: map[string]string{
 						"Authorization":          "",
+						"Cookie":                 "",
 						"Sec-WebSocket-Protocol": "",
 					},
 				},
 			}
+			passHostHeader := false
 			doc.HTTP.Services[cdpService] = serviceConfig{
 				LoadBalancer: loadBalancerConfig{
-					Servers: []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.CDPPort)}},
+					PassHostHeader: &passHostHeader,
+					Servers:        []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.CDPPort)}},
 				},
 			}
 		}
@@ -170,6 +170,18 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		}
 		doc.HTTP.Middlewares[statusReplace] = middlewareConfig{
 			ReplacePath: &replacePathConfig{Path: "/status"},
+		}
+
+		if session.CDPPort > 0 {
+			doc.HTTP.Routers[cdpDiscoveryRouterName(session.ID)] = routerConfig{
+				Rule:    cdpDiscoveryRouterRule(cdpBase),
+				Service: wrapperService,
+				Middlewares: []string{
+					cdpForwardAuthMiddlewareName(session.ID),
+				},
+				Priority:    cdpDiscoveryRouterPriority,
+				EntryPoints: []string{"web"},
+			}
 		}
 
 		for _, route := range []struct {
@@ -275,7 +287,20 @@ func liveSessionForwardAuthMiddleware(activeURL, sessionID, access string) middl
 				sessionID,
 				access,
 			),
+			AuthRequestHeaders: liveSessionForwardAuthRequestHeaders(),
 		},
+	}
+}
+
+func cdpForwardAuthRequestHeaders() []string {
+	return []string{"X-Forwarded-Uri"}
+}
+
+func liveSessionForwardAuthRequestHeaders() []string {
+	return []string{
+		"Authorization",
+		"Sec-WebSocket-Protocol",
+		"X-Aperture-Tenant-Id",
 	}
 }
 
@@ -290,15 +315,16 @@ func pathPrefixRouterRule(routePrefix string) string {
 func cdpDiscoveryRouterRule(cdpBase string) string {
 	escaped := escapeTraefikPath(cdpBase)
 	return fmt.Sprintf(
-		"Path(`%s`) || Path(`%s/json`) || PathPrefix(`%s/json/`)",
-		escaped,
-		escaped,
+		"PathPrefix(`%s/cdp_`)",
 		escaped,
 	)
 }
 
 func cdpWebSocketRouterRule(cdpBase string) string {
-	return pathPrefixRouterRule(cdpBase + "/devtools/")
+	return fmt.Sprintf(
+		"PathRegexp(`^%s/[^/]+/devtools/`)",
+		regexp.QuoteMeta(cdpBase),
+	)
 }
 
 func cdpDiscoveryRouterName(sessionID string) string {
@@ -411,7 +437,8 @@ type middlewareConfig struct {
 }
 
 type forwardAuthConfig struct {
-	Address string `yaml:"address"`
+	Address            string   `yaml:"address"`
+	AuthRequestHeaders []string `yaml:"authRequestHeaders,omitempty"`
 }
 
 type stripPrefixConfig struct {
@@ -522,8 +549,16 @@ func middlewaresYAML(middlewares map[string]middlewareConfig) *yaml.Node {
 		middleware := middlewares[name]
 		switch {
 		case middleware.ForwardAuth != nil:
+			forwardAuth := yamlMap("address", yamlQuotedString(middleware.ForwardAuth.Address))
+			if len(middleware.ForwardAuth.AuthRequestHeaders) > 0 {
+				yamlAppend(
+					forwardAuth,
+					"authRequestHeaders",
+					yamlStringSequence(middleware.ForwardAuth.AuthRequestHeaders),
+				)
+			}
 			yamlAppend(node, name, yamlMap(
-				"forwardAuth", yamlMap("address", yamlQuotedString(middleware.ForwardAuth.Address)),
+				"forwardAuth", forwardAuth,
 			))
 		case middleware.StripPrefix != nil:
 			yamlAppend(node, name, yamlMap(

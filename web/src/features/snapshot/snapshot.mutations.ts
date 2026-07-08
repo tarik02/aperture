@@ -48,3 +48,15 @@ export function useReplaceSnapshotTagsMutation() {
     onError: (error) => toastMutationError(error, "Tags update failed"),
   });
 }
+
+export function useUpdateSnapshotMutation() {
+  const credentials = useApiCredentials();
+  const invalidate = useInvalidateSnapshots();
+
+  return useMutation({
+    mutationFn: ({ name, description }: { name: string; description: string | null }) =>
+      apiClient.updateSnapshot(credentials!, name, { description }),
+    onSuccess: invalidate,
+    onError: (error) => toastMutationError(error, "Snapshot update failed"),
+  });
+}

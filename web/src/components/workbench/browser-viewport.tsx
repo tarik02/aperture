@@ -612,9 +612,7 @@ export function BrowserViewport({
         ) : null}
         <StatusBadge status={status} />
       </div>
-      {performanceOverlayEnabled && showingWebRTC ? (
-        <PerformanceOverlay control={control} />
-      ) : null}
+      {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
       {disconnectedHint && cursorHintPoint ? (
         <div
           className="pointer-events-none absolute z-20 max-w-64 translate-x-3 translate-y-3 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"

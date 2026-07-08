@@ -1,4 +1,4 @@
-import { resolveTenantHeader, TENANT_HEADER, type ApiCredentials } from "#/lib/api/client.ts";
+import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 import type {
   ClientMessage,
   ControlError,
@@ -160,26 +160,13 @@ const CDP_CONNECT_TIMEOUT_MS = 30_000;
 function buildCdpWebSocket(rawWebSocketUrl: string): { url: string; protocols: string[] } {
   const source = new URL(rawWebSocketUrl, window.location.origin);
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const token = new URLSearchParams(source.hash.slice(1)).get("token");
   source.protocol = protocol;
   source.host = window.location.host;
   source.hash = "";
   return {
     url: source.toString(),
-    protocols: token ? [`authorization.bearer.${token}`] : [],
+    protocols: [],
   };
-}
-
-function buildCdpHeaders(credentials: ApiCredentials): Headers {
-  const headers = new Headers({
-    Accept: "application/json",
-    Authorization: `Bearer ${credentials.token.trim()}`,
-  });
-  const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
-  if (tenantId) {
-    headers.set(TENANT_HEADER, tenantId);
-  }
-  return headers;
 }
 
 function timeoutError(method: string): Error {
@@ -188,13 +175,18 @@ function timeoutError(method: string): Error {
 
 async function fetchCdpJSON<T>(
   sessionId: string,
-  credentials: ApiCredentials,
+  cdpToken: string,
   path: string,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/cdp${path}`, {
-    headers: buildCdpHeaders(credentials),
-  });
+  const response = await fetch(
+    `/sessions/${encodeURIComponent(sessionId)}/cdp/${encodeURIComponent(cdpToken)}${path}`,
+    {
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
   if (!response.ok) {
     throw new Error(`CDP request failed: ${response.status}`);
   }
@@ -410,6 +402,7 @@ class BrowserControlConnectionRuntime {
   private closed = false;
   private sessionId: string | null = null;
   private credentials: ApiCredentials | null = null;
+  private cdpToken: string | null = null;
   private browser: CdpSocket | null = null;
   private pageTargetId: Protocol.Target.TargetID | null = null;
   private pageSessionId: Protocol.Target.SessionID | null = null;
@@ -431,6 +424,7 @@ class BrowserControlConnectionRuntime {
     this.closed = false;
     this.sessionId = sessionId;
     this.credentials = credentials;
+    this.cdpToken = null;
     this.connectStartedAt = Date.now();
     this.callbacks.onPhaseChange?.("connecting");
     void this.openBrowserSocket();
@@ -458,6 +452,7 @@ class BrowserControlConnectionRuntime {
     this.delayedRefreshes = new Subscription();
     this.browser?.close();
     this.browser = null;
+    this.cdpToken = null;
     this.pageTargetId = null;
     this.pageSessionId = null;
     this.activeTargetId = null;
@@ -478,9 +473,10 @@ class BrowserControlConnectionRuntime {
 
     let browser: CdpSocket | null = null;
     try {
+      const cdpToken = await this.currentCDPToken();
       const version = await fetchCdpJSON(
         this.sessionId,
-        this.credentials,
+        cdpToken,
         "/json/version",
         cdpVersionSchema,
       );
@@ -556,6 +552,21 @@ class BrowserControlConnectionRuntime {
         this.emitError(error);
       }
     }
+  }
+
+  private async currentCDPToken() {
+    if (this.cdpToken) {
+      return this.cdpToken;
+    }
+    if (!this.sessionId || !this.credentials) {
+      throw new Error("CDP token unavailable");
+    }
+    const result = await apiClient.rotateSessionCdpToken(this.credentials, this.sessionId);
+    if (!result.cdpToken) {
+      throw new Error("CDP token unavailable");
+    }
+    this.cdpToken = result.cdpToken;
+    return result.cdpToken;
   }
 
   private async dispatch(message: ClientMessage) {

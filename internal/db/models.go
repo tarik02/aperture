@@ -44,6 +44,7 @@ type Snapshot struct {
 	ID                    string  `bun:"id,pk"`
 	TenantID              string  `bun:"tenant_id,notnull"`
 	Name                  string  `bun:"name,notnull"`
+	Description           *string `bun:"description"`
 	Path                  string  `bun:"path,notnull"`
 	ParentSnapshotID      *string `bun:"parent_snapshot_id"`
 	PromotedFromSessionID *string `bun:"promoted_from_session_id"`

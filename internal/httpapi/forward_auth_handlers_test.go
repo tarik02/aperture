@@ -47,7 +47,7 @@ func TestCDPForwardAuthRejectsMissingToken(t *testing.T) {
 	}
 }
 
-func TestCDPForwardAuthAllowsValidRunningSessionToken(t *testing.T) {
+func TestCDPForwardAuthRejectsAuthorizationHeaderToken(t *testing.T) {
 	t.Parallel()
 
 	env := newSessionTestEnv(t)
@@ -56,38 +56,33 @@ func TestCDPForwardAuthAllowsValidRunningSessionToken(t *testing.T) {
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
 		"Authorization": "Bearer " + created.CDPToken,
 	}, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 
-func TestCDPForwardAuthAllowsWebSocketProtocolToken(t *testing.T) {
+func TestCDPForwardAuthAllowsPathToken(t *testing.T) {
 	t.Parallel()
 
 	env := newSessionTestEnv(t)
 	created := createRunningSessionForForwardAuth(t, env)
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
-		"Connection":             "Upgrade",
-		"Upgrade":                "websocket",
-		"Sec-WebSocket-Protocol": "authorization.bearer." + created.CDPToken,
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.CDPToken + "/devtools/browser/test",
 	}, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }
 
-func TestCDPForwardAuthRejectsWebSocketQueryToken(t *testing.T) {
+func TestCDPForwardAuthRejectsQueryToken(t *testing.T) {
 	t.Parallel()
 
 	env := newSessionTestEnv(t)
 	created := createRunningSessionForForwardAuth(t, env)
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
-		"Connection":             "Upgrade",
-		"Upgrade":                "websocket",
-		"Sec-WebSocket-Protocol": "authorization.bearer." + created.CDPToken,
-		"X-Forwarded-Uri":        "/sessions/" + created.Session.ID + "/cdp/devtools/browser/test?token=" + created.CDPToken,
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/devtools/browser/test?token=" + created.CDPToken,
 	}, nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -101,10 +96,33 @@ func TestCDPForwardAuthRejectsMismatchedSessionID(t *testing.T) {
 	created := createRunningSessionForForwardAuth(t, env)
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/other-session", map[string]string{
-		"Authorization": "Bearer " + created.CDPToken,
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.CDPToken + "/devtools/browser/test",
 	}, nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestLiveSessionForwardAuthAllowsWebSocketProtocolToken(t *testing.T) {
+	t.Parallel()
+
+	env := newSessionTestEnv(t)
+	created := createRunningSessionForForwardAuth(t, env)
+	token, err := env.service.CreateToken(context.Background(), auth.CreateTokenInput{
+		AuthorityType: auth.AuthorityTenant,
+		TenantID:      &env.tenantID,
+		Name:          "signal-forward-auth",
+		Scopes:        []string{auth.ScopeSessionsWrite},
+	})
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/live-session/"+created.Session.ID+"/write", map[string]string{
+		"Sec-WebSocket-Protocol": "aperture-webrtc.v1, authorization.bearer." + token.Raw,
+	}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }
 
@@ -124,7 +142,7 @@ func TestCDPForwardAuthRejectsNonRunningSession(t *testing.T) {
 	}
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
-		"Authorization": "Bearer " + created.CDPToken,
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.CDPToken + "/devtools/browser/test",
 	}, nil)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)

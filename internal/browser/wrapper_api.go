@@ -122,8 +122,12 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	}
 	r.ctx = ctx
 	mux := http.NewServeMux()
+	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)
 	mux.HandleFunc("/status", r.handleStatus)
+	mux.HandleFunc("/sessions/", r.handleCDPDiscovery)
+	mux.HandleFunc("/json", r.handleCDPDiscovery)
+	mux.HandleFunc("/json/", r.handleCDPDiscovery)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/screencast/start", r.handleScreencastStart)

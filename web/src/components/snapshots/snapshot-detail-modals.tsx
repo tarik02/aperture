@@ -70,6 +70,7 @@ export function SnapshotDetailModals({
                 <MetadataGrid
                   items={[
                     { label: "ID", value: detailsSnapshot.id },
+                    { label: "Description", value: detailsSnapshot.description ?? "—" },
                     { label: "Tenant", value: detailsSnapshot.tenantId },
                     { label: "Parent", value: detailsSnapshot.parentSnapshotId ?? "—" },
                     {

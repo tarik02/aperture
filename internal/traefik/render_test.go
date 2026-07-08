@@ -82,15 +82,16 @@ func TestRenderSessionsConfigIncludesCustomCDPBase(t *testing.T) {
 	cfg.CdpRouteBasePath = "/browser"
 
 	got, err := traefik.RenderSessionsConfig(cfg, testState(), []traefik.RunningSession{{
-		ID:      "018f1234-0000-7000-8000-000000000001",
-		CDPPort: 9222,
+		ID:          "018f1234-0000-7000-8000-000000000001",
+		CDPPort:     9222,
+		WrapperPort: 9333,
 	}})
 	if err != nil {
 		t.Fatalf("RenderSessionsConfig() error = %v", err)
 	}
 	rendered := string(got)
 
-	if !strings.Contains(rendered, "Path(`/sessions/018f1234-0000-7000-8000-000000000001/cdp`)") {
+	if !strings.Contains(rendered, "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/cdp_`)") {
 		t.Fatalf("cdp router rule mismatch:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "/browser/018f1234-0000-7000-8000-000000000001") {

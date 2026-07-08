@@ -195,7 +195,7 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		_, _ = cmd.Process.Wait()
 	})
 
-	routeURL := "http://" + traefikAddr + "/sessions/" + sessionID + "/cdp/json/version?token=" + url.QueryEscape(rawToken)
+	routeURL := "http://" + traefikAddr + "/sessions/" + sessionID + "/cdp/" + url.PathEscape(rawToken) + "/json/version"
 	deadline := time.Now().Add(10 * time.Second)
 	var lastStatus int
 	var lastBody string
@@ -240,19 +240,14 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 	if token != "" {
 		t.Fatalf("websocket url query token = %q, want empty", token)
 	}
-	fragment, err := url.ParseQuery(webSocketURL.Fragment)
-	if err != nil {
-		t.Fatalf("parse websocket fragment: %v", err)
+	if webSocketURL.Fragment != "" {
+		t.Fatalf("websocket url fragment = %q, want empty", webSocketURL.Fragment)
 	}
-	token = fragment.Get("token")
-	if token != rawToken {
-		t.Fatalf("websocket fragment token = %q, want CDP token", token)
+	if !strings.Contains(webSocketURL.Path, "/cdp/"+rawToken+"/devtools/") {
+		t.Fatalf("websocket url path = %q, want token path", webSocketURL.Path)
 	}
-	webSocketURL.Fragment = ""
 
-	conn, _, err := websocket.Dial(ctx, webSocketURL.String(), &websocket.DialOptions{
-		Subprotocols: []string{"authorization.bearer." + token},
-	})
+	conn, _, err := websocket.Dial(ctx, webSocketURL.String(), nil)
 	if err != nil {
 		t.Fatalf("dial cdp websocket through traefik: %v", err)
 	}

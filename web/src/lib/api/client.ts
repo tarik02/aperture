@@ -268,8 +268,13 @@ export type CreateSessionInput = {
 
 export type PromoteSessionInput = {
   name: string;
+  description?: string | null;
   force?: boolean;
   tags?: Record<string, string>;
+};
+
+export type UpdateSnapshotInput = {
+  description: string | null;
 };
 
 export type CreateAdminTokenInput = {
@@ -440,6 +445,7 @@ export const apiClient = {
       tenantHeader: "tenant-scoped",
       body: {
         name: input.name,
+        description: input.description ?? null,
         force: input.force ?? false,
         tags: input.tags ?? {},
       },
@@ -532,6 +538,17 @@ export const apiClient = {
       credentials,
       tenantHeader: "tenant-scoped",
       body: { tags },
+    });
+  },
+
+  updateSnapshot(credentials: ApiCredentials, name: string, input: UpdateSnapshotInput) {
+    return request({
+      method: "PATCH",
+      path: `/api/snapshots/${encodeURIComponent(name)}`,
+      schema: snapshotMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: input,
     });
   },
 

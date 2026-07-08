@@ -19,13 +19,15 @@ http:
       entryPoints:
         - web
     aperture-cdp-discovery-018f1234000070008000000000000001:
-      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/cdp`) || Path(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/json`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/json/`)"
-      service: aperture-api-blue-68fd220
+      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/cdp_`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-cdp-forward-auth-018f1234000070008000000000000001
       priority: 110
       entryPoints:
         - web
     aperture-cdp-websocket-018f1234000070008000000000000001:
-      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/devtools/`)"
+      rule: "PathRegexp(`^/sessions/018f1234-0000-7000-8000-000000000001/cdp/[^/]+/devtools/`)"
       service: aperture-cdp-018f1234000070008000000000000001
       middlewares:
         - aperture-cdp-forward-auth-018f1234000070008000000000000001
@@ -56,21 +58,32 @@ http:
     aperture-cdp-forward-auth-018f1234000070008000000000000001:
       forwardAuth:
         address: "http://127.0.0.1:28080/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001"
+        authRequestHeaders:
+          - X-Forwarded-Uri
     aperture-cdp-strip-018f1234000070008000000000000001:
-      stripPrefix:
-        prefixes:
-          - /sessions/018f1234-0000-7000-8000-000000000001/cdp
+      replacePathRegex:
+        regex: "^/sessions/018f1234-0000-7000-8000-000000000001/cdp/[^/]+(?:/(.*))?$"
+        replacement: "/$1"
     aperture-cdp-websocket-headers-018f1234000070008000000000000001:
       headers:
         customRequestHeaders:
           Authorization: ""
+          Cookie: ""
           Sec-WebSocket-Protocol: ""
     aperture-live-session-forward-auth-018f1234000070008000000000000001-read:
       forwardAuth:
         address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/read"
+        authRequestHeaders:
+          - Authorization
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Tenant-Id
     aperture-live-session-forward-auth-018f1234000070008000000000000001-write:
       forwardAuth:
         address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/write"
+        authRequestHeaders:
+          - Authorization
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Tenant-Id
     aperture-replace-path-018f1234000070008000000000000001-browserstatus:
       replacePath:
         path: "/status"
@@ -90,6 +103,7 @@ http:
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:9222"
+        passHostHeader: false
     aperture-wrapper-018f1234000070008000000000000001:
       loadBalancer:
         servers:

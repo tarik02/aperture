@@ -13,6 +13,7 @@ func toSnapshotResponse(view *snapshot.SnapshotView) snapshotResponse {
 	return snapshotResponse{
 		ID:                    view.Snapshot.ID,
 		Name:                  view.Snapshot.Name,
+		Description:           view.Snapshot.Description,
 		TenantID:              view.Snapshot.TenantID,
 		ParentSnapshotID:      view.Snapshot.ParentSnapshotID,
 		PromotedFromSessionID: view.Snapshot.PromotedFromSessionID,
@@ -36,11 +37,12 @@ func (s *Server) promoteSession(c *gin.Context) {
 	}
 
 	view, err := s.Promotion.Promote(c.Request.Context(), snapshot.PromoteInput{
-		TenantID:  tenantIDFromContext(c),
-		SessionID: c.Param("sessionId"),
-		Name:      req.Name,
-		Force:     req.Force,
-		Tags:      req.Tags,
+		TenantID:    tenantIDFromContext(c),
+		SessionID:   c.Param("sessionId"),
+		Name:        req.Name,
+		Description: req.Description,
+		Force:       req.Force,
+		Tags:        req.Tags,
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -48,6 +50,27 @@ func (s *Server) promoteSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, promoteSessionResponse{Snapshot: toSnapshotResponse(view)})
+}
+
+func (s *Server) updateSnapshot(c *gin.Context) {
+	if s.Snapshots == nil {
+		WriteError(c, errSnapshotServiceUnavailable)
+		return
+	}
+
+	var req updateSnapshotRequest
+	if err := bindJSON(c, &req); err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	view, err := s.Snapshots.UpdateDescription(c.Request.Context(), tenantIDFromContext(c), c.Param("name"), req.Description)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: toSnapshotResponse(view)})
 }
 
 func (s *Server) replaceSnapshotTags(c *gin.Context) {

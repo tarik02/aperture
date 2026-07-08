@@ -212,9 +212,10 @@ type sessionMutationResponse struct {
 }
 
 type promoteSessionRequest struct {
-	Name  string            `json:"name"`
-	Force bool              `json:"force"`
-	Tags  map[string]string `json:"tags"`
+	Name        string            `json:"name"`
+	Description *string           `json:"description"`
+	Force       bool              `json:"force"`
+	Tags        map[string]string `json:"tags"`
 }
 
 func (r promoteSessionRequest) Validate() error {
@@ -224,6 +225,7 @@ func (r promoteSessionRequest) Validate() error {
 type snapshotResponse struct {
 	ID                    string            `json:"id"`
 	Name                  string            `json:"name"`
+	Description           *string           `json:"description"`
 	TenantID              string            `json:"tenantId"`
 	ParentSnapshotID      *string           `json:"parentSnapshotId,omitempty"`
 	PromotedFromSessionID *string           `json:"promotedFromSessionId,omitempty"`
@@ -252,6 +254,14 @@ type promoteSessionResponse struct {
 
 type snapshotMutationResponse struct {
 	Snapshot snapshotResponse `json:"snapshot"`
+}
+
+type updateSnapshotRequest struct {
+	Description *string `json:"description"`
+}
+
+func (r updateSnapshotRequest) Validate() error {
+	return nil
 }
 
 type replaceTagsRequest struct {

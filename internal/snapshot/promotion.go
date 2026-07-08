@@ -22,11 +22,12 @@ type BrowserSupervisor interface {
 
 // PromoteInput configures session promotion.
 type PromoteInput struct {
-	TenantID  string
-	SessionID string
-	Name      string
-	Force     bool
-	Tags      map[string]string
+	TenantID    string
+	SessionID   string
+	Name        string
+	Description *string
+	Force       bool
+	Tags        map[string]string
 }
 
 // PromotionService owns session promotion.
@@ -124,6 +125,7 @@ func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*Sn
 		ID:                    finalSnapshotID,
 		TenantID:              input.TenantID,
 		Name:                  input.Name,
+		Description:           input.Description,
 		Path:                  finalLayout.Root,
 		ParentSnapshotID:      parentSnapshotID,
 		PromotedFromSessionID: &sessionCopy.ID,

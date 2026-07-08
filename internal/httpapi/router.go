@@ -88,6 +88,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		snapshots.Use(server.requireAuth)
 		{
 			snapshots.GET("", server.requireSnapshotsRead, server.listSnapshots)
+			snapshots.PATCH("/:name", server.requireSnapshotsWrite, server.updateSnapshot)
 			snapshots.DELETE("/:name", server.requireSnapshotsWrite, server.deleteSnapshot)
 			snapshots.PUT("/:name/tags", server.requireSnapshotsWrite, server.replaceSnapshotTags)
 			snapshots.POST("/:name/restore", server.requireSnapshotsWrite, server.restoreSnapshot)
@@ -95,12 +96,6 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 
 		api.GET("/events", server.requireAuth, server.requireSessionsRead, server.listEvents)
 
-	}
-
-	liveSessions := router.Group("/sessions")
-	{
-		liveSessions.Any("/:sessionId/cdp", server.proxyLiveCDPDiscovery)
-		liveSessions.Any("/:sessionId/cdp/*path", server.proxyLiveCDPDiscovery)
 	}
 
 	registerStaticFallback(router, staticAssets, cdpRouteBasePath, server)

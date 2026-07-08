@@ -98,6 +98,20 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, name string, tags m
 	return s.view(ctx, snapshotRow)
 }
 
+// UpdateDescription replaces the optional description for a tenant-owned snapshot.
+func (s *Service) UpdateDescription(ctx context.Context, tenantID, name string, description *string) (*SnapshotView, error) {
+	snapshotRow, err := s.requireTenantSnapshot(ctx, tenantID, name)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshotRow.Description = description
+	if err := s.repo.UpdateSnapshot(ctx, snapshotRow); err != nil {
+		return nil, err
+	}
+	return s.view(ctx, snapshotRow)
+}
+
 // Delete tombstones a snapshot.
 func (s *Service) Delete(ctx context.Context, tenantID, name string) (*SnapshotView, error) {
 	snapshotRow, err := s.requireTenantSnapshot(ctx, tenantID, name)

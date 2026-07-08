@@ -81,6 +81,7 @@ export const sessionSchema = z.object({
 export const snapshotSchema = z.object({
   id: z.string(),
   name: z.string(),
+  description: z.string().nullable(),
   tenantId: z.string(),
   parentSnapshotId: z.string().nullable().optional(),
   promotedFromSessionId: z.string().nullable().optional(),

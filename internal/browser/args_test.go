@@ -12,6 +12,7 @@ func TestValidateBrowserArgsRejectsDeniedArgs(t *testing.T) {
 		"--user-data-dir=/tmp/profile",
 		"--remote-debugging-address=0.0.0.0",
 		"--remote-debugging-port=9222",
+		"--remote-allow-origins=https://example.test",
 		"--disk-cache-dir=/tmp/cache",
 		"--media-cache-dir=/tmp/cache",
 		"--download-default-directory=/tmp/downloads",
@@ -48,6 +49,9 @@ func TestBuildLaunchArgsPreservesRequiredArgs(t *testing.T) {
 
 	if args[0] != "--user-data-dir=/merged" {
 		t.Fatalf("first arg = %q", args[0])
+	}
+	if args[3] != "--remote-allow-origins=*" {
+		t.Fatalf("remote allow origins arg = %q", args[3])
 	}
 	if args[len(args)-1] != "--disable-sync" {
 		t.Fatalf("last arg = %q", args[len(args)-1])

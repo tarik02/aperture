@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestWriteDownloadPreferencesSetsDownloadDirectory(t *testing.T) {
+func TestWriteProfilePreferencesSetsDownloadDirectory(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -17,8 +17,8 @@ func TestWriteDownloadPreferencesSetsDownloadDirectory(t *testing.T) {
 		t.Fatalf("mkdir downloads: %v", err)
 	}
 
-	if err := WriteDownloadPreferences(merged, downloads); err != nil {
-		t.Fatalf("WriteDownloadPreferences() error = %v", err)
+	if err := WriteProfilePreferences(merged, downloads); err != nil {
+		t.Fatalf("WriteProfilePreferences() error = %v", err)
 	}
 
 	prefsPath := filepath.Join(merged, "Default", "Preferences")
@@ -44,7 +44,7 @@ func TestWriteDownloadPreferencesSetsDownloadDirectory(t *testing.T) {
 	}
 }
 
-func TestWriteDownloadPreferencesPreservesExistingKeys(t *testing.T) {
+func TestWriteProfilePreferencesPreservesExistingKeys(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -74,8 +74,8 @@ func TestWriteDownloadPreferencesPreservesExistingKeys(t *testing.T) {
 		t.Fatalf("write existing preferences: %v", err)
 	}
 
-	if err := WriteDownloadPreferences(merged, downloads); err != nil {
-		t.Fatalf("WriteDownloadPreferences() error = %v", err)
+	if err := WriteProfilePreferences(merged, downloads); err != nil {
+		t.Fatalf("WriteProfilePreferences() error = %v", err)
 	}
 
 	updated, err := os.ReadFile(filepath.Join(profileDir, "Preferences"))

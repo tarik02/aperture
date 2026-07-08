@@ -150,6 +150,8 @@ function publicCdpUrl(rawCdpUrl: string, publicOrigin: string | null) {
 
 function cdpUrlWithToken(cdpUrl: string, cdpToken: string) {
   const url = new URL(cdpUrl);
-  url.searchParams.set("token", cdpToken);
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(cdpToken)}`;
+  url.search = "";
+  url.hash = "";
   return url.toString();
 }

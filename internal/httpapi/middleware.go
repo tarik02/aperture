@@ -149,10 +149,8 @@ func rawTokenFromRequest(c *gin.Context) (string, error) {
 		}
 		return token, nil
 	}
-	if isWebSocketUpgrade(c.Request) {
-		if token, ok := rawTokenFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol")); ok {
-			return token, nil
-		}
+	if token, ok := rawTokenFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol")); ok {
+		return token, nil
 	}
 	return "", auth.ErrTokenMissing
 }
@@ -275,10 +273,7 @@ func selectedTenantID(c *gin.Context) string {
 	if header := strings.TrimSpace(c.GetHeader(auth.TenantHeader)); header != "" {
 		return header
 	}
-	if isWebSocketUpgrade(c.Request) {
-		return tenantIDFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol"))
-	}
-	return ""
+	return tenantIDFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol"))
 }
 
 func (s *Server) requireSnapshotsRead(c *gin.Context) {

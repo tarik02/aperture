@@ -82,7 +82,8 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 	}
 	if !containsAll(string(body),
 		"aperture-cdp-018f1234000070008000000000000001",
-		"service: aperture-api-blue",
+		"service: aperture-cdp-018f1234000070008000000000000001",
+		"url: \"http://127.0.0.1:9333\"",
 		"http://127.0.0.1:28080/internal/forward-auth/cdp/018f1234-0000-7000-8000-000000000001",
 	) {
 		t.Fatalf("dynamic config missing expected CDP route:\n%s", body)

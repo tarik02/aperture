@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/session"
@@ -77,29 +78,8 @@ func liveSessionForwardAuthScope(access string) (string, bool) {
 }
 
 func cdpForwardAuthCredential(c *gin.Context) string {
-	if isWebSocketUpgrade(c.Request) {
-		if token := c.Query("token"); token != "" {
-			return ""
-		}
-		if token := cdpTokenFromForwardedURI(c.GetHeader("X-Forwarded-Uri")); token != "" {
-			return ""
-		}
-		if token, ok := rawTokenFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol")); ok {
-			return "Bearer " + token
-		}
-		if authorization := c.GetHeader("Authorization"); authorization != "" {
-			return authorization
-		}
-		return ""
-	}
-	if token := c.Query("token"); token != "" {
-		return "Bearer " + token
-	}
 	if token := cdpTokenFromForwardedURI(c.GetHeader("X-Forwarded-Uri")); token != "" {
 		return "Bearer " + token
-	}
-	if authorization := c.GetHeader("Authorization"); authorization != "" {
-		return authorization
 	}
 	return ""
 }
@@ -112,7 +92,11 @@ func cdpTokenFromForwardedURI(forwardedURI string) string {
 	if err != nil {
 		return ""
 	}
-	return parsed.Query().Get("token")
+	parts := strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/")
+	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "cdp_") {
+		return parts[3]
+	}
+	return ""
 }
 
 func mapForwardAuthError(err error) (int, string) {

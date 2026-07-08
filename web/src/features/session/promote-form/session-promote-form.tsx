@@ -3,6 +3,7 @@ import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Switch } from "#/components/ui/switch.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
 import { TagEditor, entriesToTags } from "#/components/resources/tag-editor.tsx";
 import { usePromoteSessionMutation } from "#/features/session/session.mutations.ts";
 import { useSessionPromoteFormStore } from "#/features/session/promote-form/session-promote-form.store.ts";
@@ -13,7 +14,7 @@ export function SessionPromoteForm() {
   const draft = useSessionPromoteFormStore((state) => state.formData);
   const setFormData = useSessionPromoteFormStore((state) => state.setFormData);
   const closeModal = useSessionPromoteModalStore((state) => state.closeModal);
-  const { sessionId, name, force, tagEntries, nameError } = draft;
+  const { sessionId, name, description, force, tagEntries, nameError } = draft;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -30,7 +31,12 @@ export function SessionPromoteForm() {
     setFormData({ nameError: null });
     await mutation.mutateAsync({
       sessionId,
-      input: { name: trimmedName, force, tags: entriesToTags(tagEntries) },
+      input: {
+        name: trimmedName,
+        description: description === "" ? null : description,
+        force,
+        tags: entriesToTags(tagEntries),
+      },
     });
     closeModal();
   }
@@ -50,6 +56,15 @@ export function SessionPromoteForm() {
             disabled={mutation.isPending}
           />
           <FieldError>{nameError}</FieldError>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="promote-description">Description</FieldLabel>
+          <Textarea
+            id="promote-description"
+            value={description}
+            onChange={(event) => setFormData({ description: event.target.value })}
+            disabled={mutation.isPending}
+          />
         </Field>
         <Field orientation="horizontal">
           <FieldContent>

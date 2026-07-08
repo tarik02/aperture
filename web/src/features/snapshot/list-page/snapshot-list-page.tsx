@@ -1,5 +1,5 @@
 import { MoreHorizontal, RotateCcw, Tags as TagsIcon, Trash2 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { SnapshotDetailModals } from "#/components/snapshots/snapshot-detail-modals.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
@@ -16,6 +16,13 @@ import { TagFilter } from "#/components/resources/tag-filter.tsx";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,7 +46,10 @@ import {
   useDeleteSnapshotMutation,
   useReplaceSnapshotTagsMutation,
   useRestoreSnapshotMutation,
+  useUpdateSnapshotMutation,
 } from "#/features/snapshot/snapshot.mutations.ts";
+import { Field, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
+import { Textarea } from "#/components/ui/textarea.tsx";
 import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
@@ -57,6 +67,7 @@ const SNAPSHOT_SKELETON_COLUMNS = [
     sticky: "start",
   },
   { skeletonClassName: "h-4 w-44" },
+  { skeletonClassName: "h-4 w-64" },
   { skeletonClassName: "h-5 w-40 rounded-full" },
   { skeletonClassName: "h-4 w-36" },
   { skeletonClassName: "h-4 w-36" },
@@ -121,6 +132,9 @@ export function SnapshotListPage() {
   const deleteMutation = useDeleteSnapshotMutation();
   const restoreMutation = useRestoreSnapshotMutation();
   const replaceTagsMutation = useReplaceSnapshotTagsMutation();
+  const updateSnapshotMutation = useUpdateSnapshotMutation();
+  const [descriptionSnapshot, setDescriptionSnapshot] = useState<Snapshot | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
 
   async function handleBatchDelete() {
     try {
@@ -163,6 +177,21 @@ export function SnapshotListPage() {
         return _exhaustive;
       }
     }
+  }
+
+  async function handleDescriptionSave() {
+    if (!descriptionSnapshot) {
+      return;
+    }
+
+    const result = await updateSnapshotMutation.mutateAsync({
+      name: descriptionSnapshot.name,
+      description: descriptionDraft === "" ? null : descriptionDraft,
+    });
+    if (detailSnapshot?.id === result.snapshot.id && detailSection) {
+      showSnapshot(result.snapshot, detailSection);
+    }
+    setDescriptionSnapshot(null);
   }
 
   const confirmDialog =
@@ -288,6 +317,10 @@ export function SnapshotListPage() {
                         );
                         openTagModal();
                       }}
+                      onEditDescription={() => {
+                        setDescriptionSnapshot(snapshot);
+                        setDescriptionDraft(snapshot.description ?? "");
+                      }}
                       onRestore={() => void restoreMutation.mutateAsync(snapshot.name)}
                       onDelete={() => setConfirmAction({ kind: "delete", snapshot })}
                     />
@@ -329,6 +362,18 @@ export function SnapshotListPage() {
         section={detailSection}
         onSectionChange={setDetailSection}
       />
+      <SnapshotDescriptionModal
+        snapshot={descriptionSnapshot}
+        value={descriptionDraft}
+        pending={updateSnapshotMutation.isPending}
+        onValueChange={setDescriptionDraft}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDescriptionSnapshot(null);
+          }
+        }}
+        onSave={handleDescriptionSave}
+      />
 
       {confirmDialog ? (
         <ConfirmDialog
@@ -355,6 +400,7 @@ function SnapshotTableHeader() {
     <TableRow>
       <TableHead data-table-sticky="start" className={stickyTableStartHeaderClassName} />
       <TableHead>Name</TableHead>
+      <TableHead>Description</TableHead>
       <TableHead>Tags</TableHead>
       <TableHead>Created</TableHead>
       <TableHead>Expires</TableHead>
@@ -370,6 +416,7 @@ type SnapshotRowProps = {
   onSelectedChange: (selected: boolean) => void;
   onDetails: () => void;
   onEvents: () => void;
+  onEditDescription: () => void;
   onEditTags: () => void;
   onRestore: () => void;
   onDelete: () => void;
@@ -382,6 +429,7 @@ function SnapshotRow({
   onSelectedChange,
   onDetails,
   onEvents,
+  onEditDescription,
   onEditTags,
   onRestore,
   onDelete,
@@ -416,6 +464,9 @@ function SnapshotRow({
           <DeletedBadge deletedAt={snapshot.deletedAt} />
         </span>
       </TableCell>
+      <TableCell className="max-w-80 truncate text-muted-foreground">
+        {snapshot.description ?? "—"}
+      </TableCell>
       <TableCell>
         <TagBadges tags={snapshot.tags} />
       </TableCell>
@@ -431,6 +482,7 @@ function SnapshotRow({
           canWrite={canWrite}
           onDetails={onDetails}
           onEvents={onEvents}
+          onEditDescription={onEditDescription}
           onEditTags={onEditTags}
           onRestore={onRestore}
           onDelete={onDelete}
@@ -445,6 +497,7 @@ type SnapshotActionsMenuProps = {
   canWrite: boolean;
   onDetails: () => void;
   onEvents: () => void;
+  onEditDescription: () => void;
   onEditTags: () => void;
   onRestore: () => void;
   onDelete: () => void;
@@ -455,6 +508,7 @@ function SnapshotActionsMenu({
   canWrite,
   onDetails,
   onEvents,
+  onEditDescription,
   onEditTags,
   onRestore,
   onDelete,
@@ -475,6 +529,7 @@ function SnapshotActionsMenu({
         <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
         <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onEditDescription}>Edit description</DropdownMenuItem>
         <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
         {snapshot.deletedAt ? (
           <DropdownMenuItem onClick={onRestore}>Restore</DropdownMenuItem>
@@ -485,5 +540,57 @@ function SnapshotActionsMenu({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+type SnapshotDescriptionModalProps = {
+  snapshot: Snapshot | null;
+  value: string;
+  pending: boolean;
+  onValueChange: (value: string) => void;
+  onOpenChange: (open: boolean) => void;
+  onSave: () => Promise<void>;
+};
+
+function SnapshotDescriptionModal({
+  snapshot,
+  value,
+  pending,
+  onValueChange,
+  onOpenChange,
+  onSave,
+}: SnapshotDescriptionModalProps) {
+  return (
+    <Dialog open={snapshot !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{snapshot ? `Edit ${snapshot.name}` : "Edit description"}</DialogTitle>
+        </DialogHeader>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="snapshot-description">Description</FieldLabel>
+            <Textarea
+              id="snapshot-description"
+              value={value}
+              onChange={(event) => onValueChange(event.target.value)}
+              disabled={pending}
+            />
+          </Field>
+        </FieldGroup>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={pending}
+          >
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => void onSave()} disabled={pending}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -35,8 +35,8 @@ func TestLiveBrowserLaunchThroughBwrap(t *testing.T) {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	if err := WriteDownloadPreferences(merged, downloads); err != nil {
-		t.Fatalf("WriteDownloadPreferences() error = %v", err)
+	if err := WriteProfilePreferences(merged, downloads); err != nil {
+		t.Fatalf("WriteProfilePreferences() error = %v", err)
 	}
 
 	port, err := allocateTestPort()

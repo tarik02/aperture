@@ -4,6 +4,7 @@ import type { DraftTagEntry } from "#/features/session/form/session-form.store.t
 type SessionPromoteFormData = {
   sessionId: string | null;
   name: string;
+  description: string;
   force: boolean;
   tagEntries: DraftTagEntry[];
   nameError: string | null;
@@ -19,6 +20,7 @@ type SessionPromoteFormState = {
 const defaultFormData: SessionPromoteFormData = {
   sessionId: null,
   name: "",
+  description: "",
   force: false,
   tagEntries: [],
   nameError: null,
