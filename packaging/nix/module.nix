@@ -11,6 +11,8 @@ let
   configFile = "/etc/aperture/aperture.toml";
   deployVersion = self.shortRev or self.dirtyShortRev or "0.0.1";
   apiEntrypoint = pkgs.writeShellScript "aperture-api-entrypoint" ''
+    export PATH=${aperture}/bin:/run/wrappers/bin:/run/current-system/sw/bin:$PATH
+
     case "$1" in
       blue)
         export APERTURE_DEPLOY_COLOR=blue

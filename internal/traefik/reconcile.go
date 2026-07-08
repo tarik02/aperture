@@ -43,7 +43,15 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("list running sessions: %w", err)
 	}
 
-	content, err := RenderSessionsConfig(s.cfg, state, RunningSessionsFromDB(sessions))
+	running := RunningSessionsFromDB(sessions)
+	if len(running) == 0 {
+		if err := os.Remove(SessionsConfigPath(s.cfg)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("%w: %w", ErrWrite, err)
+		}
+		return nil
+	}
+
+	content, err := RenderSessionsConfig(s.cfg, state, running)
 	if err != nil {
 		return err
 	}

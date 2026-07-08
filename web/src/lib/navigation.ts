@@ -9,8 +9,8 @@ export type NavItem = {
 };
 
 export const primaryNavItems: NavItem[] = [
-  { title: "Sessions", to: "/sessions", icon: AppWindow },
-  { title: "Snapshots", to: "/snapshots", icon: Camera },
-  { title: "Tokens", to: "/tokens", icon: KeyRound },
-  { title: "Tenants", to: "/tenants", icon: Building2, adminOnly: true },
+  { title: "Sessions", to: "/-/sessions", icon: AppWindow },
+  { title: "Snapshots", to: "/-/snapshots", icon: Camera },
+  { title: "Tokens", to: "/-/tokens", icon: KeyRound },
+  { title: "Tenants", to: "/-/tenants", icon: Building2, adminOnly: true },
 ];

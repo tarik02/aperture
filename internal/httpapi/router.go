@@ -9,7 +9,7 @@ import (
 )
 
 // NewRouter returns the HTTP API router. staticAssets may be nil to disable SPA
-// fallback. cdpRouteBasePath reserves CDP paths from SPA fallback.
+// fallback.
 func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteBasePath string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	if logger == nil {

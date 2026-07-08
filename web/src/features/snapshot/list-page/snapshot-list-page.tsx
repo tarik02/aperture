@@ -394,13 +394,19 @@ function SnapshotRow({
     >
       <TableCell
         data-table-sticky="start"
-        className={stickyTableStartCellClassName}
-        onClick={(event) => event.stopPropagation()}
+        className={`${stickyTableStartCellClassName} ${canWrite ? "cursor-pointer" : ""}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (canWrite) {
+            onSelectedChange(!selected);
+          }
+        }}
       >
         <Checkbox
           aria-label={`Select snapshot ${snapshot.name}`}
           checked={selected}
           disabled={!canWrite}
+          onClick={(event) => event.stopPropagation()}
           onCheckedChange={onSelectedChange}
         />
       </TableCell>

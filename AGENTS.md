@@ -11,25 +11,23 @@
 ## Deploy
 
 - Deploy target is `polygon`, not the local machine.
-- Do not activate local `aperture.service` / `aperture-traefik.service` as a deployment.
-- Build from a source copy that includes untracked files when needed, because Nix flake Git sources can omit untracked files.
-- Current proven deploy shape:
-  - `nix build <source>#aperture --out-link /tmp/aperture-deploy-result`
-  - `nix copy --to ssh://polygon /tmp/aperture-deploy-result`
-  - update polygon user units to the new store path:
-    - `aperture.service`
-    - `browser-session@.service`
-    - `aperture-traefik.service`
-  - update `/etc/aperture/aperture.toml` paths that point at old Aperture binaries.
-  - restart `aperture.service` and `aperture-traefik.service` only.
-- Preserve active `browser-session@*.service` units unless explicitly asked to restart them.
+- Use `scripts/deploy-polygon` for normal deployments. The script builds from a temporary source copy that includes untracked files, copies the result to `polygon`, deploys the inactive blue/green API unit, health-checks it, switches the edge, and stops the old API color.
+- Do not use plain `nix build .#aperture` as the deployment source when untracked files may matter; Nix flake Git sources can omit them.
+- Do not activate local `aperture@*.service`, `aperture.service`, or `aperture-traefik.service` as a deployment.
+- The deploy script accepts:
+  - `REMOTE_HOST`, default `polygon`
+  - `CONFIG_FILE`, default `/etc/aperture/aperture.toml`
+  - `OUT_LINK`, default `/tmp/aperture-deploy-result`
+  - `HEALTH_TIMEOUT_SECONDS`, default `60`
+- The deploy script updates polygon user units and `/etc/aperture/aperture.toml`, restarts only the inactive candidate `aperture@<color>.service`, starts/restarts `aperture-traefik.service` only when needed, then stops the old API color after the edge is healthy.
+- Preserve active `browser-session@*.service` units unless explicitly asked to restart them; `scripts/deploy-polygon` updates the template without restarting existing browser sessions.
 - For remote user systemd over ssh, set:
   - `XDG_RUNTIME_DIR=/run/user/$(id -u)`
   - `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus`
 - Verify deploy on `polygon`:
-  - `curl -fsS http://127.0.0.1:28080/api/health`
   - `curl -fsS http://127.0.0.1:28081/api/health`
   - `curl -fsS http://polygon:28081/api/health`
+  - `curl -fsS https://aperture.tarik02.me/api/health`
 
 ## Runtime Notes
 

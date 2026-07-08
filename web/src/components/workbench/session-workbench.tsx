@@ -100,7 +100,7 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
             <EmptyDescription>Open a running session from the sessions table.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <Button variant="outline" size="sm" render={<Link to="/sessions" />}>
+            <Button variant="outline" size="sm" render={<Link to="/-/sessions" />}>
               Sessions
             </Button>
           </EmptyContent>

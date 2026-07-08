@@ -259,7 +259,7 @@
               EnvironmentFile=-%h/.config/aperture/aperture.env
               EnvironmentFile=-%t/aperture/api/%i.env
               Environment=APERTURE_DEPLOY_COLOR=%i
-              ExecStart=@runtimeShell@ -c 'case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve --config /etc/aperture/aperture.toml'
+              ExecStart=@runtimeShell@ -c 'export PATH="@apertureBinDir@:/run/wrappers/bin:/run/current-system/sw/bin:''${HOME}/.nix-profile/bin:''${PATH}"; case "%i" in blue) export APERTURE_DEPLOY_COLOR=blue APERTURE_LISTEN_ADDRESS=127.0.0.1:28080 ;; green) export APERTURE_DEPLOY_COLOR=green APERTURE_LISTEN_ADDRESS=127.0.0.1:28082 ;; *) echo "invalid aperture deploy color: %i" >&2; exit 64 ;; esac; exec @apertureBin@ serve --config /etc/aperture/aperture.toml'
               Restart=on-failure
               RestartSec=5
 
@@ -273,6 +273,7 @@
               --replace-fail '@runtimeShell@' ${pkgs.runtimeShell}
             substituteInPlace $out/lib/systemd/user/aperture@.service \
               --replace-fail '@runtimeShell@' ${pkgs.runtimeShell} \
+              --replace-fail '@apertureBinDir@' $out/bin \
               --replace-fail '@apertureBin@' $out/bin/aperture \
               --replace-fail '@deployVersion@' ${deployVersion}
             substituteInPlace $out/lib/systemd/user/aperture-gc.service \

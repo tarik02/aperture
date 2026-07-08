@@ -1,9 +1,10 @@
 import { autoUpdate } from "@floating-ui/dom";
 import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { Inbox } from "lucide-react";
+import { useLayoutEffect, useRef } from "react";
 import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import { Empty, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "#/components/ui/empty.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { TableCell, TableRow } from "#/components/ui/table.tsx";
@@ -49,9 +50,12 @@ export function InfiniteTableShell<T>({
   if (items.length === 0) {
     return (
       <TableScrollArea>
-        <div className="min-w-full">
-          <Empty className="min-h-48 border">
+        <div className="flex h-full min-h-full min-w-full flex-1">
+          <Empty className="min-h-full border">
             <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Inbox />
+              </EmptyMedia>
               <EmptyTitle>{emptyTitle}</EmptyTitle>
             </EmptyHeader>
           </Empty>
@@ -84,62 +88,59 @@ function TableScrollArea({ children }: { children: React.ReactNode }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const root = rootRef.current?.querySelector<HTMLElement>("[data-table-scroll]");
+  useLayoutEffect(() => {
+    const shell = rootRef.current;
+    const root = shell?.querySelector<HTMLElement>("[data-table-scroll]");
     const viewport = root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]');
     const content = contentRef.current;
-    if (!root || !viewport || !content) {
+    if (!shell || !root || !viewport || !content) {
       return;
     }
 
-    const scrollRoot = root;
+    const scrollShell = shell;
     const scrollViewport = viewport;
-    let animationFrame: number | null = null;
-
     function updateScrollState() {
       const maxScrollLeft = Math.max(0, scrollViewport.scrollWidth - scrollViewport.clientWidth);
-      scrollRoot.dataset.canScrollLeft = scrollViewport.scrollLeft > 1 ? "true" : "false";
-      scrollRoot.dataset.canScrollRight =
-        scrollViewport.scrollLeft < maxScrollLeft - 1 ? "true" : "false";
+      const canScrollLeft = scrollViewport.scrollLeft > 1 ? "true" : "false";
+      const canScrollRight = scrollViewport.scrollLeft < maxScrollLeft - 1 ? "true" : "false";
+      scrollShell.dataset.canScrollTop = scrollViewport.scrollTop > 1 ? "true" : "false";
+      scrollShell.dataset.canScrollLeft = canScrollLeft;
+      scrollShell.dataset.canScrollRight = canScrollRight;
     }
 
-    function scheduleUpdate() {
-      if (animationFrame !== null) {
-        return;
-      }
-
-      animationFrame = requestAnimationFrame(() => {
-        animationFrame = null;
-        updateScrollState();
-      });
-    }
-
-    const cleanupAutoUpdate = autoUpdate(scrollViewport, content, scheduleUpdate);
-    scrollViewport.addEventListener("scroll", scheduleUpdate, { passive: true });
-    scheduleUpdate();
+    updateScrollState();
+    const cleanupAutoUpdate = autoUpdate(scrollViewport, content, updateScrollState);
+    scrollViewport.addEventListener("scroll", updateScrollState, { passive: true });
 
     return () => {
       cleanupAutoUpdate();
-      scrollViewport.removeEventListener("scroll", scheduleUpdate);
-      if (animationFrame !== null) {
-        cancelAnimationFrame(animationFrame);
-      }
+      scrollViewport.removeEventListener("scroll", updateScrollState);
     };
   }, []);
 
   return (
-    <div ref={rootRef} className="contents">
+    <div
+      ref={rootRef}
+      data-table-scroll-shell
+      data-can-scroll-top="false"
+      data-can-scroll-left="false"
+      data-can-scroll-right="false"
+      className="relative flex h-full min-h-0 min-w-0 flex-1 [--table-scroll-padding-inline:0.75rem]"
+    >
       <ScrollArea
         data-table-scroll
-        data-can-scroll-left="false"
-        data-can-scroll-right="false"
         scrollbars="both"
-        className="min-h-0 flex-1 [--table-scroll-padding-inline:0.75rem]"
+        className="h-full min-h-0 min-w-0 flex-1"
+        viewportClassName="flex min-h-0 flex-col"
       >
-        <div ref={contentRef} className="flex min-w-full flex-col gap-2 px-3 pb-3">
+        <div
+          ref={contentRef}
+          className="flex h-full min-h-full min-w-full flex-1 flex-col gap-2 px-3 pb-3"
+        >
           {children}
         </div>
       </ScrollArea>
+      <div data-table-header-shadow aria-hidden="true" />
     </div>
   );
 }

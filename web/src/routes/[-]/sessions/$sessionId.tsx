@@ -5,7 +5,7 @@ type SessionSearch = {
   media?: "cdp";
 };
 
-export const Route = createFileRoute("/sessions/$sessionId")({
+export const Route = createFileRoute("/-/sessions/$sessionId")({
   validateSearch: (search: Record<string, unknown>): SessionSearch => ({
     media: search.media === "cdp" ? "cdp" : undefined,
   }),

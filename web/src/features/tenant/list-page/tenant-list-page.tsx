@@ -236,10 +236,18 @@ export function TenantListPage() {
                   key={tenant.id}
                   data-state={selectedTenants[tenant.id] ? "selected" : undefined}
                 >
-                  <TableCell data-table-sticky="start" className={stickyTableStartCellClassName}>
+                  <TableCell
+                    data-table-sticky="start"
+                    className={`${stickyTableStartCellClassName} cursor-pointer`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleTenantSelection(tenant, !selectedTenants[tenant.id]);
+                    }}
+                  >
                     <Checkbox
                       aria-label={`Select tenant ${tenant.displayName}`}
                       checked={Boolean(selectedTenants[tenant.id])}
+                      onClick={(event) => event.stopPropagation()}
                       onCheckedChange={(checked) => toggleTenantSelection(tenant, checked)}
                     />
                   </TableCell>

@@ -12,7 +12,7 @@ type AppShellProps = {
 export function AppShell({ children }: AppShellProps) {
   const [mounted, setMounted] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const isWorkbenchRoute = /^\/sessions\/[^/]+\/?$/.test(pathname);
+  const isWorkbenchRoute = /^\/-\/sessions\/[^/]+\/?$/.test(pathname);
   const pageTitle = resolvePageTitle(pathname);
 
   useEffect(() => {

@@ -45,7 +45,7 @@ export function SessionListPane({
   }, [sessions, search]);
 
   function selectSession(session: Session) {
-    void navigate({ to: "/sessions/$sessionId", params: { sessionId: session.id } });
+    void navigate({ to: "/-/sessions/$sessionId", params: { sessionId: session.id } });
   }
 
   return (

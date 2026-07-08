@@ -5,5 +5,5 @@ export const Route = createFileRoute("/")({
 });
 
 function IndexPage() {
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/-/sessions" replace />;
 }

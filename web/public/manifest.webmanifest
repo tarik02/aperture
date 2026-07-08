@@ -33,11 +33,11 @@
   "shortcuts": [
     {
       "name": "Sessions",
-      "url": "/sessions"
+      "url": "/-/sessions"
     },
     {
       "name": "Snapshots",
-      "url": "/snapshots"
+      "url": "/-/snapshots"
     }
   ]
 }

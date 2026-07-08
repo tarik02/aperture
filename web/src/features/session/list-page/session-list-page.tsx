@@ -9,6 +9,7 @@ import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { TagEditModal } from "#/features/tag/edit-modal/tag-edit-modal.tsx";
 import { tagsToEntries } from "#/components/resources/tag-editor.tsx";
+import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import {
   InfiniteTableShell,
   TableSkeletonRows,
@@ -19,6 +20,14 @@ import { TagFilter } from "#/components/resources/tag-filter.tsx";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Checkbox } from "#/components/ui/checkbox.tsx";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "#/components/ui/empty.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -412,13 +421,19 @@ export function SessionListPage() {
                     >
                       <TableCell
                         data-table-sticky="start"
-                        className={stickyTableStartCellClassName}
-                        onClick={(event) => event.stopPropagation()}
+                        className={`${stickyTableStartCellClassName} ${canWrite ? "cursor-pointer" : ""}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (canWrite) {
+                            toggleSessionSelection(session, !selectedSessions[session.id]);
+                          }
+                        }}
                       >
                         <Checkbox
                           aria-label={`Select session ${session.id}`}
                           checked={Boolean(selectedSessions[session.id])}
                           disabled={!canWrite}
+                          onClick={(event) => event.stopPropagation()}
                           onCheckedChange={(checked) => toggleSessionSelection(session, checked)}
                         />
                       </TableCell>
@@ -482,7 +497,22 @@ export function SessionListPage() {
             )}
           </InfiniteTableShell>
         </>
-      ) : null}
+      ) : (
+        <div className="flex min-h-0 flex-1 p-3 pt-0">
+          <Empty className="min-h-full border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <AppWindow />
+              </EmptyMedia>
+              <EmptyTitle>Select tenant</EmptyTitle>
+              <EmptyDescription>Select a tenant to view sessions.</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <SelectedTenantControl />
+            </EmptyContent>
+          </Empty>
+        </div>
+      )}
 
       <SessionCreateModal onCreated={openCreatedSession} />
 
@@ -609,14 +639,14 @@ function SessionActionsMenu({
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem
-                    render={<Link to="/sessions/$sessionId" params={{ sessionId: session.id }} />}
+                    render={<Link to="/-/sessions/$sessionId" params={{ sessionId: session.id }} />}
                   >
                     Default
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     render={
                       <Link
-                        to="/sessions/$sessionId"
+                        to="/-/sessions/$sessionId"
                         params={{ sessionId: session.id }}
                         search={{ media: "cdp" }}
                       />

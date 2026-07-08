@@ -429,13 +429,19 @@ function TokenRow({
     >
       <TableCell
         data-table-sticky="start"
-        className={stickyTableStartCellClassName}
-        onClick={(event) => event.stopPropagation()}
+        className={`${stickyTableStartCellClassName} ${canRevoke && !token.revokedAt ? "cursor-pointer" : ""}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (canRevoke && !token.revokedAt) {
+            onSelectedChange(!selected);
+          }
+        }}
       >
         <Checkbox
           aria-label={`Select token ${token.name}`}
           checked={selected}
           disabled={!canRevoke || Boolean(token.revokedAt)}
+          onClick={(event) => event.stopPropagation()}
           onCheckedChange={onSelectedChange}
         />
       </TableCell>

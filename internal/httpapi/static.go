@@ -10,7 +10,6 @@ import (
 )
 
 func registerStaticFallback(router *gin.Engine, assets fs.FS, cdpRouteBasePath string, _ *Server) {
-	cdpBase := normalizedCDPRouteBase(cdpRouteBasePath)
 	router.NoRoute(func(c *gin.Context) {
 		if assets == nil {
 			c.Status(http.StatusNotFound)
@@ -22,12 +21,12 @@ func registerStaticFallback(router *gin.Engine, assets fs.FS, cdpRouteBasePath s
 		}
 
 		requestPath := c.Request.URL.Path
-		if isReservedSPAPath(requestPath, cdpBase) {
-			c.Status(http.StatusNotFound)
+		if tryServeStaticFile(c, assets, requestPath) {
 			return
 		}
 
-		if tryServeStaticFile(c, assets, requestPath) {
+		if !isSPAPath(requestPath) {
+			c.Status(http.StatusNotFound)
 			return
 		}
 
@@ -41,28 +40,8 @@ func registerStaticFallback(router *gin.Engine, assets fs.FS, cdpRouteBasePath s
 	})
 }
 
-func normalizedCDPRouteBase(cdpRouteBasePath string) string {
-	base := strings.TrimRight(strings.TrimSpace(cdpRouteBasePath), "/")
-	if base == "" {
-		return "/cdp"
-	}
-	return base
-}
-
-func isReservedSPAPath(requestPath, cdpBase string) bool {
-	if requestPath == "/api" || strings.HasPrefix(requestPath, "/api/") {
-		return true
-	}
-	if requestPath == "/internal" || strings.HasPrefix(requestPath, "/internal/") {
-		return true
-	}
-	if requestPath == "/sessions" || strings.HasPrefix(requestPath, "/sessions/") {
-		return true
-	}
-	if requestPath == cdpBase || strings.HasPrefix(requestPath, cdpBase+"/") {
-		return true
-	}
-	return false
+func isSPAPath(requestPath string) bool {
+	return requestPath == "/" || requestPath == "/-" || strings.HasPrefix(requestPath, "/-/")
 }
 
 func tryServeStaticFile(c *gin.Context, assets fs.FS, requestPath string) bool {

@@ -54,6 +54,13 @@ Common pagination/filter params:
 
 ## Core Endpoints
 
+Path namespaces:
+
+- UI: `/-/*` (`/-/sessions`, `/-/sessions/:sessionId`, `/-/snapshots`, `/-/tokens`, `/-/tenants`)
+- REST API: `/api/*`
+- live session data plane: `/sessions/:sessionId/*`
+- internal proxy/auth/job routes: `/internal/*`
+
 Health:
 
 - `GET /api/health` -> `{"status":"ok"}`
@@ -167,13 +174,12 @@ Promote body:
 
 These routes are authenticated through the main API and forwarded to the per-session `browser-session-wrapper`.
 
-- `GET /api/sessions/:sessionId/health`
-- `GET /api/sessions/:sessionId/status`
-- `POST /api/sessions/:sessionId/viewport`
-- `GET /api/sessions/:sessionId/webrtc/signal?role=viewer`
-- `POST /api/sessions/:sessionId/screencast/start`
-- `POST /api/sessions/:sessionId/screencast/stop` returns the recorded WebM attachment
-- `GET /api/sessions/:sessionId/screencast/status`
+- `GET /sessions/:sessionId/browser/status`
+- `POST /sessions/:sessionId/browser/viewport`
+- `GET /sessions/:sessionId/webrtc/signal?role=viewer`
+- `POST /sessions/:sessionId/screencast/start`
+- `POST /sessions/:sessionId/screencast/stop` returns the recorded WebM attachment
+- `GET /sessions/:sessionId/screencast/status`
 
 Viewport body:
 
@@ -200,10 +206,6 @@ WebRTC signaling is a WebSocket endpoint. Use subprotocols:
 - `authorization.bearer.$TOKEN`
 - for system-admin tokens, also `x-aperture-tenant-id.$TENANT_ID`
 
-Legacy WebRTC route still exists:
-
-- `GET /api/webrtc/:sessionId/signal?role=viewer`
-
 ## Snapshots
 
 - `GET /api/snapshots`
@@ -223,17 +225,12 @@ Filters:
 
 ## CDP Proxy
 
-API-authenticated CDP proxy:
+Live CDP discovery proxy:
 
-- `/api/cdp/:sessionId`
-- `/api/cdp/:sessionId/*path`
+- `/sessions/:sessionId/cdp`
+- `/sessions/:sessionId/cdp/*path`
 
-Public edge CDP proxy uses configured `cdp_route_base_path`, usually:
-
-- `/cdp/:sessionId`
-- `/cdp/:sessionId/*path`
-
-The public CDP route uses session CDP token auth. The API route uses normal Aperture API auth.
+The CDP proxy uses session CDP token auth.
 
 ## Curl Patterns
 
@@ -260,7 +257,7 @@ curl -fsS -X POST \
   -H "X-Aperture-Tenant-Id: $TENANT_ID" \
   -H "Content-Type: application/json" \
   -d '{"width":1280,"height":720}' \
-  "http://polygon:28081/api/sessions/$SESSION_ID/viewport"
+  "http://polygon:28081/sessions/$SESSION_ID/browser/viewport"
 ```
 
 Start screencast:
@@ -271,7 +268,7 @@ curl -fsS -X POST \
   -H "X-Aperture-Tenant-Id: $TENANT_ID" \
   -H "Content-Type: application/json" \
   -d '{"fps":60,"bitrateKbps":6000,"codec":"vp8"}' \
-  "http://polygon:28081/api/sessions/$SESSION_ID/screencast/start"
+  "http://polygon:28081/sessions/$SESSION_ID/screencast/start"
 ```
 
 Stop and download screencast:
@@ -281,5 +278,5 @@ curl -fsS -X POST \
   -H "Authorization: Bearer $APERTURE_TOKEN" \
   -H "X-Aperture-Tenant-Id: $TENANT_ID" \
   -o "screencast-$SESSION_ID.webm" \
-  "http://polygon:28081/api/sessions/$SESSION_ID/screencast/stop"
+  "http://polygon:28081/sessions/$SESSION_ID/screencast/stop"
 ```

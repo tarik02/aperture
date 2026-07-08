@@ -10,102 +10,106 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as TokensIndexRouteImport } from './routes/tokens/index'
-import { Route as TenantsIndexRouteImport } from './routes/tenants/index'
-import { Route as SnapshotsIndexRouteImport } from './routes/snapshots/index'
-import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
-import { Route as SessionsSessionIdRouteImport } from './routes/sessions/$sessionId'
+import { Route as Char91Char93TokensIndexRouteImport } from './routes/[-]/tokens/index'
+import { Route as Char91Char93TenantsIndexRouteImport } from './routes/[-]/tenants/index'
+import { Route as Char91Char93SnapshotsIndexRouteImport } from './routes/[-]/snapshots/index'
+import { Route as Char91Char93SessionsIndexRouteImport } from './routes/[-]/sessions/index'
+import { Route as Char91Char93SessionsSessionIdRouteImport } from './routes/[-]/sessions/$sessionId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TokensIndexRoute = TokensIndexRouteImport.update({
-  id: '/tokens/',
-  path: '/tokens/',
+const Char91Char93TokensIndexRoute = Char91Char93TokensIndexRouteImport.update({
+  id: '/-/tokens/',
+  path: '/-/tokens/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TenantsIndexRoute = TenantsIndexRouteImport.update({
-  id: '/tenants/',
-  path: '/tenants/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SnapshotsIndexRoute = SnapshotsIndexRouteImport.update({
-  id: '/snapshots/',
-  path: '/snapshots/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SessionsIndexRoute = SessionsIndexRouteImport.update({
-  id: '/sessions/',
-  path: '/sessions/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SessionsSessionIdRoute = SessionsSessionIdRouteImport.update({
-  id: '/sessions/$sessionId',
-  path: '/sessions/$sessionId',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const Char91Char93TenantsIndexRoute =
+  Char91Char93TenantsIndexRouteImport.update({
+    id: '/-/tenants/',
+    path: '/-/tenants/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const Char91Char93SnapshotsIndexRoute =
+  Char91Char93SnapshotsIndexRouteImport.update({
+    id: '/-/snapshots/',
+    path: '/-/snapshots/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const Char91Char93SessionsIndexRoute =
+  Char91Char93SessionsIndexRouteImport.update({
+    id: '/-/sessions/',
+    path: '/-/sessions/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const Char91Char93SessionsSessionIdRoute =
+  Char91Char93SessionsSessionIdRouteImport.update({
+    id: '/-/sessions/$sessionId',
+    path: '/-/sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/sessions/$sessionId': typeof SessionsSessionIdRoute
-  '/sessions/': typeof SessionsIndexRoute
-  '/snapshots/': typeof SnapshotsIndexRoute
-  '/tenants/': typeof TenantsIndexRoute
-  '/tokens/': typeof TokensIndexRoute
+  '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
+  '/-/sessions/': typeof Char91Char93SessionsIndexRoute
+  '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
+  '/-/tenants/': typeof Char91Char93TenantsIndexRoute
+  '/-/tokens/': typeof Char91Char93TokensIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/sessions/$sessionId': typeof SessionsSessionIdRoute
-  '/sessions': typeof SessionsIndexRoute
-  '/snapshots': typeof SnapshotsIndexRoute
-  '/tenants': typeof TenantsIndexRoute
-  '/tokens': typeof TokensIndexRoute
+  '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
+  '/-/sessions': typeof Char91Char93SessionsIndexRoute
+  '/-/snapshots': typeof Char91Char93SnapshotsIndexRoute
+  '/-/tenants': typeof Char91Char93TenantsIndexRoute
+  '/-/tokens': typeof Char91Char93TokensIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/sessions/$sessionId': typeof SessionsSessionIdRoute
-  '/sessions/': typeof SessionsIndexRoute
-  '/snapshots/': typeof SnapshotsIndexRoute
-  '/tenants/': typeof TenantsIndexRoute
-  '/tokens/': typeof TokensIndexRoute
+  '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
+  '/-/sessions/': typeof Char91Char93SessionsIndexRoute
+  '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
+  '/-/tenants/': typeof Char91Char93TenantsIndexRoute
+  '/-/tokens/': typeof Char91Char93TokensIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/sessions/$sessionId'
-    | '/sessions/'
-    | '/snapshots/'
-    | '/tenants/'
-    | '/tokens/'
+    | '/-/sessions/$sessionId'
+    | '/-/sessions/'
+    | '/-/snapshots/'
+    | '/-/tenants/'
+    | '/-/tokens/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/sessions/$sessionId'
-    | '/sessions'
-    | '/snapshots'
-    | '/tenants'
-    | '/tokens'
+    | '/-/sessions/$sessionId'
+    | '/-/sessions'
+    | '/-/snapshots'
+    | '/-/tenants'
+    | '/-/tokens'
   id:
     | '__root__'
     | '/'
-    | '/sessions/$sessionId'
-    | '/sessions/'
-    | '/snapshots/'
-    | '/tenants/'
-    | '/tokens/'
+    | '/-/sessions/$sessionId'
+    | '/-/sessions/'
+    | '/-/snapshots/'
+    | '/-/tenants/'
+    | '/-/tokens/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  SessionsSessionIdRoute: typeof SessionsSessionIdRoute
-  SessionsIndexRoute: typeof SessionsIndexRoute
-  SnapshotsIndexRoute: typeof SnapshotsIndexRoute
-  TenantsIndexRoute: typeof TenantsIndexRoute
-  TokensIndexRoute: typeof TokensIndexRoute
+  Char91Char93SessionsSessionIdRoute: typeof Char91Char93SessionsSessionIdRoute
+  Char91Char93SessionsIndexRoute: typeof Char91Char93SessionsIndexRoute
+  Char91Char93SnapshotsIndexRoute: typeof Char91Char93SnapshotsIndexRoute
+  Char91Char93TenantsIndexRoute: typeof Char91Char93TenantsIndexRoute
+  Char91Char93TokensIndexRoute: typeof Char91Char93TokensIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -117,39 +121,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tokens/': {
-      id: '/tokens/'
-      path: '/tokens'
-      fullPath: '/tokens/'
-      preLoaderRoute: typeof TokensIndexRouteImport
+    '/-/tokens/': {
+      id: '/-/tokens/'
+      path: '/-/tokens'
+      fullPath: '/-/tokens/'
+      preLoaderRoute: typeof Char91Char93TokensIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tenants/': {
-      id: '/tenants/'
-      path: '/tenants'
-      fullPath: '/tenants/'
-      preLoaderRoute: typeof TenantsIndexRouteImport
+    '/-/tenants/': {
+      id: '/-/tenants/'
+      path: '/-/tenants'
+      fullPath: '/-/tenants/'
+      preLoaderRoute: typeof Char91Char93TenantsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/snapshots/': {
-      id: '/snapshots/'
-      path: '/snapshots'
-      fullPath: '/snapshots/'
-      preLoaderRoute: typeof SnapshotsIndexRouteImport
+    '/-/snapshots/': {
+      id: '/-/snapshots/'
+      path: '/-/snapshots'
+      fullPath: '/-/snapshots/'
+      preLoaderRoute: typeof Char91Char93SnapshotsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions/': {
-      id: '/sessions/'
-      path: '/sessions'
-      fullPath: '/sessions/'
-      preLoaderRoute: typeof SessionsIndexRouteImport
+    '/-/sessions/': {
+      id: '/-/sessions/'
+      path: '/-/sessions'
+      fullPath: '/-/sessions/'
+      preLoaderRoute: typeof Char91Char93SessionsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions/$sessionId': {
-      id: '/sessions/$sessionId'
-      path: '/sessions/$sessionId'
-      fullPath: '/sessions/$sessionId'
-      preLoaderRoute: typeof SessionsSessionIdRouteImport
+    '/-/sessions/$sessionId': {
+      id: '/-/sessions/$sessionId'
+      path: '/-/sessions/$sessionId'
+      fullPath: '/-/sessions/$sessionId'
+      preLoaderRoute: typeof Char91Char93SessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -157,11 +161,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  SessionsSessionIdRoute: SessionsSessionIdRoute,
-  SessionsIndexRoute: SessionsIndexRoute,
-  SnapshotsIndexRoute: SnapshotsIndexRoute,
-  TenantsIndexRoute: TenantsIndexRoute,
-  TokensIndexRoute: TokensIndexRoute,
+  Char91Char93SessionsSessionIdRoute: Char91Char93SessionsSessionIdRoute,
+  Char91Char93SessionsIndexRoute: Char91Char93SessionsIndexRoute,
+  Char91Char93SnapshotsIndexRoute: Char91Char93SnapshotsIndexRoute,
+  Char91Char93TenantsIndexRoute: Char91Char93TenantsIndexRoute,
+  Char91Char93TokensIndexRoute: Char91Char93TokensIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

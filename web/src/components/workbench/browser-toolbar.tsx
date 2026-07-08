@@ -124,7 +124,7 @@ export function BrowserToolbar({
                 size="icon-sm"
                 className="h-full aspect-square shrink-0 rounded-none"
                 aria-label="Back to sessions"
-                render={<Link to="/sessions" />}
+                render={<Link to="/-/sessions" />}
               />
             }
           >

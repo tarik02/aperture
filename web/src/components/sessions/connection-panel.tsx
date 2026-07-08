@@ -99,7 +99,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
         size="sm"
         className="rounded-r-none"
         disabled={disabled}
-        render={disabled ? undefined : <Link to="/sessions/$sessionId" params={{ sessionId }} />}
+        render={disabled ? undefined : <Link to="/-/sessions/$sessionId" params={{ sessionId }} />}
       >
         <AppWindow data-icon="inline-start" />
         Open
@@ -120,7 +120,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
         <DropdownMenuContent align="end" className="min-w-40">
           <DropdownMenuItem
             render={
-              <Link to="/sessions/$sessionId" params={{ sessionId }} search={{ media: "cdp" }} />
+              <Link to="/-/sessions/$sessionId" params={{ sessionId }} search={{ media: "cdp" }} />
             }
           >
             CDP fallback

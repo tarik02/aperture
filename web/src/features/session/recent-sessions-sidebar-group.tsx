@@ -39,8 +39,8 @@ export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGr
                 <SidebarMenuItem key={session.id}>
                   <SidebarMenuButton
                     size="lg"
-                    isActive={pathname === `/sessions/${session.id}`}
-                    render={<Link to="/sessions/$sessionId" params={{ sessionId: session.id }} />}
+                    isActive={pathname === `/-/sessions/${session.id}`}
+                    render={<Link to="/-/sessions/$sessionId" params={{ sessionId: session.id }} />}
                     tooltip={title}
                   >
                     <AppWindow />

@@ -142,11 +142,41 @@
     animation-timing-function: ease-out;
   }
 
-  [data-table-scroll] {
+  [data-table-scroll],
+  [data-table-scroll-shell] {
+    --table-header-shadow: 0 0.75rem 1rem -1rem
+      color-mix(in oklch, var(--foreground) 35%, transparent);
+    --table-sticky-end-shadow: -0.75rem 0 1rem -1rem
+      color-mix(in oklch, var(--foreground) 35%, transparent);
     --table-scrollbar-size: 0.625rem;
     --table-scroll-shadow-width: 1rem;
+    --table-shadow-transition-duration: 120ms;
+    --table-shadow-transition-easing: ease;
+    --table-sticky-start-shadow: 0.75rem 0 1rem -1rem
+      color-mix(in oklch, var(--foreground) 35%, transparent);
     --table-sticky-end-width: 2.75rem;
     --table-sticky-start-width: 2rem;
+  }
+
+  [data-table-scroll-shell]::before,
+  [data-table-scroll-shell]::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    z-index: 35;
+    height: 2.5rem;
+    background: var(--background);
+  }
+
+  [data-table-scroll-shell]::before {
+    left: 0;
+    width: calc(var(--table-scroll-padding-inline) + var(--table-sticky-start-width));
+  }
+
+  [data-table-scroll-shell]::after {
+    right: 0;
+    width: calc(var(--table-scroll-padding-inline) + var(--table-sticky-end-width));
   }
 
   [data-table-scroll]::before,
@@ -154,11 +184,12 @@
     content: "";
     pointer-events: none;
     position: absolute;
-    top: 0;
+    top: 2.5rem;
     bottom: var(--table-scrollbar-size);
     z-index: 30;
     opacity: 0;
-    transition: opacity 120ms ease;
+    transition: opacity var(--table-shadow-transition-duration)
+      var(--table-shadow-transition-easing);
   }
 
   [data-table-scroll]::before {
@@ -199,9 +230,59 @@
     z-index: 40;
   }
 
-  [data-table-scroll][data-can-scroll-left="true"]::before,
-  [data-table-scroll][data-can-scroll-right="true"]::after {
+  [data-table-scroll-shell][data-can-scroll-left="true"] [data-table-scroll]::before,
+  [data-table-scroll-shell][data-can-scroll-right="true"] [data-table-scroll]::after {
     opacity: 1;
+  }
+
+  [data-table-header-shadow] {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    top: 2.5rem;
+    right: var(--table-scroll-padding-inline);
+    left: var(--table-scroll-padding-inline);
+    z-index: 35;
+    height: 0.75rem;
+    opacity: 0;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--foreground) 8%, transparent),
+      transparent
+    );
+    transition:
+      opacity var(--table-shadow-transition-duration) var(--table-shadow-transition-easing),
+      right var(--table-shadow-transition-duration) var(--table-shadow-transition-easing),
+      left var(--table-shadow-transition-duration) var(--table-shadow-transition-easing);
+  }
+
+  [data-table-scroll-shell][data-can-scroll-left="true"] [data-table-header-shadow] {
+    left: calc(var(--table-scroll-padding-inline) + var(--table-sticky-start-width));
+  }
+
+  [data-table-scroll-shell][data-can-scroll-right="true"] [data-table-header-shadow] {
+    right: calc(var(--table-scroll-padding-inline) + var(--table-sticky-end-width));
+  }
+
+  [data-table-scroll-shell][data-can-scroll-top="true"] [data-table-header-shadow] {
+    opacity: 1;
+  }
+
+  [data-table-scroll] [data-slot="table-head"][data-table-sticky] {
+    transition: box-shadow var(--table-shadow-transition-duration)
+      var(--table-shadow-transition-easing);
+  }
+
+  [data-table-scroll-shell][data-can-scroll-top="false"][data-can-scroll-left="true"]
+    [data-table-scroll]
+    [data-slot="table-head"][data-table-sticky="start"] {
+    box-shadow: var(--table-sticky-start-shadow);
+  }
+
+  [data-table-scroll-shell][data-can-scroll-top="false"][data-can-scroll-right="true"]
+    [data-table-scroll]
+    [data-slot="table-head"][data-table-sticky="end"] {
+    box-shadow: var(--table-sticky-end-shadow);
   }
 
   [data-app-titlebar],
