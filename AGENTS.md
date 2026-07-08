@@ -19,6 +19,7 @@
   - `CONFIG_FILE`, default `/etc/aperture/aperture.toml`
   - `OUT_LINK`, default `/tmp/aperture-deploy-result`
   - `HEALTH_TIMEOUT_SECONDS`, default `60`
+  - `PUBLIC_BASE_URL`, default `https://aperture.tarik02.me`
 - The deploy script updates polygon user units and `/etc/aperture/aperture.toml`, restarts only the inactive candidate `aperture@<color>.service`, starts/restarts `aperture-traefik.service` only when needed, then stops the old API color after the edge is healthy.
 - Preserve active `browser-session@*.service` units unless explicitly asked to restart them; `scripts/deploy-polygon` updates the template without restarting existing browser sessions.
 - For remote user systemd over ssh, set:

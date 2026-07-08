@@ -5,6 +5,7 @@ REMOTE_HOST="${REMOTE_HOST:-polygon}"
 CONFIG_FILE="${CONFIG_FILE:-/etc/aperture/aperture.toml}"
 OUT_LINK="${OUT_LINK:-/tmp/aperture-deploy-result}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-60}"
+PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://aperture.tarik02.me}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
@@ -49,6 +50,7 @@ remote_bash() {
 		CANDIDATE_COLOR="${CANDIDATE_COLOR}" \
 		OLD_COLOR="${OLD_COLOR}" \
 		CONFIG_FILE="${CONFIG_FILE}" \
+		PUBLIC_BASE_URL="${PUBLIC_BASE_URL}" \
 		bash -s -- "$@"
 }
 
@@ -190,6 +192,11 @@ if sudo grep -qE '^[[:space:]]*traefik_dynamic_config_dir[[:space:]]*=' "${CONFI
 	sudo sed -i -E "s#^([[:space:]]*traefik_dynamic_config_dir[[:space:]]*=).*#\1 \"${dynamic_dir}\"#" "${CONFIG_FILE}"
 else
 	printf '\ntraefik_dynamic_config_dir = "%s"\n' "${dynamic_dir}" | sudo tee -a "${CONFIG_FILE}" >/dev/null
+fi
+if sudo grep -qE '^[[:space:]]*external_base_url[[:space:]]*=' "${CONFIG_FILE}"; then
+	sudo sed -i -E "s#^([[:space:]]*external_base_url[[:space:]]*=).*#\1 \"${PUBLIC_BASE_URL%/}\"#" "${CONFIG_FILE}"
+else
+	printf '\nexternal_base_url = "%s"\n' "${PUBLIC_BASE_URL%/}" | sudo tee -a "${CONFIG_FILE}" >/dev/null
 fi
 if sudo grep -qE '^[[:space:]]*traefik_dynamic_config_path[[:space:]]*=' "${CONFIG_FILE}"; then
 	sudo sed -i -E 's#^[[:space:]]*traefik_dynamic_config_path[[:space:]]*=.*##' "${CONFIG_FILE}"
