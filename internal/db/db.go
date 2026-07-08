@@ -75,9 +75,63 @@ func (d *DB) SQL() *sql.DB {
 
 // Migrate runs pending embedded SQL migrations under a write lock.
 func (d *DB) Migrate(ctx context.Context) error {
-	return d.WithImmediateTx(ctx, func(ctx context.Context, tx bun.IDB) error {
-		return runMigrations(ctx, tx)
-	})
+	conn, err := d.bun.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("disable sqlite foreign keys for migrations: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin migration transaction: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+		_, _ = conn.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+	}()
+
+	if err := runMigrations(ctx, conn); err != nil {
+		return err
+	}
+	if err := checkSQLiteForeignKeys(ctx, conn); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit migration transaction: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func checkSQLiteForeignKeys(ctx context.Context, tx bun.IDB) error {
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("check sqlite foreign keys: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return rows.Err()
+	}
+
+	var table string
+	var rowID sql.NullInt64
+	var parent string
+	var fkID int
+	if err := rows.Scan(&table, &rowID, &parent, &fkID); err != nil {
+		return fmt.Errorf("read sqlite foreign key check row: %w", err)
+	}
+	if rowID.Valid {
+		return fmt.Errorf("sqlite foreign key check failed: table %s rowid %d references %s fk %d", table, rowID.Int64, parent, fkID)
+	}
+	return fmt.Errorf("sqlite foreign key check failed: table %s references %s fk %d", table, parent, fkID)
 }
 
 // Repository provides transactional helpers for orchestration metadata access.
