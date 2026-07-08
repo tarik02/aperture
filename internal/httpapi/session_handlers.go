@@ -23,12 +23,14 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 			WebRTCProducer: view.Media.WebRTCProducer,
 			ICEServers:     toICEServerResponses(view.Media.ICEServers),
 		},
-		CreatedAt: view.Session.CreatedAt,
-		StartedAt: view.Session.StartedAt,
-		StoppedAt: view.Session.StoppedAt,
-		DeletedAt: view.Session.DeletedAt,
-		ExpiresAt: view.Session.ExpiresAt,
-		Tags:      view.Tags,
+		CreatedAt:       view.Session.CreatedAt,
+		StartedAt:       view.Session.StartedAt,
+		StoppedAt:       view.Session.StoppedAt,
+		DeletedAt:       view.Session.DeletedAt,
+		ExpiresAt:       view.Session.ExpiresAt,
+		LastConnectedAt: view.Session.LastConnectedAt,
+		SuspendedAt:     view.Session.SuspendedAt,
+		Tags:            view.Tags,
 	}
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL

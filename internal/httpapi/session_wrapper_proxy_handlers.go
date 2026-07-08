@@ -17,7 +17,7 @@ func (s *Server) proxySessionWrapper(c *gin.Context) {
 		return
 	}
 
-	port, err := s.Sessions.RunningWrapperPort(
+	port, release, err := s.Sessions.AcquireWrapperPort(
 		c.Request.Context(),
 		tenantIDFromContext(c),
 		c.Param("sessionId"),
@@ -26,6 +26,7 @@ func (s *Server) proxySessionWrapper(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	defer release()
 
 	targetPath := c.GetString("wrapperProxyPath")
 	if targetPath == "" {

@@ -18,14 +18,13 @@ const (
 	cdpRouterPriority = 100
 )
 
-// RunningSession describes a session that should receive a CDP Traefik route.
-type RunningSession struct {
-	ID      string
-	CDPPort int
+// CDPRoutableSession describes a session that should receive a CDP Traefik route.
+type CDPRoutableSession struct {
+	ID string
 }
 
 // RenderDynamicConfig renders Traefik file-provider dynamic configuration.
-func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, error) {
+func RenderDynamicConfig(cfg config.Config, sessions []CDPRoutableSession) ([]byte, error) {
 	apertureURL, err := apertureBaseURL(cfg.ListenAddress)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrRender, err)
@@ -52,8 +51,8 @@ func RenderDynamicConfig(cfg config.Config, running []RunningSession) ([]byte, e
 	}
 
 	cdpBase := normalizedCDPRouteBase(cfg.CdpRouteBasePath)
-	for _, session := range running {
-		if session.ID == "" || session.CDPPort <= 0 {
+	for _, session := range sessions {
+		if session.ID == "" {
 			continue
 		}
 
@@ -362,20 +361,14 @@ func yamlStringSequence(values []string) *yaml.Node {
 	return node
 }
 
-// RunningSessionsFromDB converts running session rows into render input.
-func RunningSessionsFromDB(sessions []db.Session) []RunningSession {
-	running := make([]RunningSession, 0, len(sessions))
+// CDPRoutableSessionsFromDB converts CDP-routable session rows into render input.
+func CDPRoutableSessionsFromDB(sessions []db.Session) []CDPRoutableSession {
+	routable := make([]CDPRoutableSession, 0, len(sessions))
 	for _, session := range sessions {
-		if session.CurrentCDPPort == nil || *session.CurrentCDPPort <= 0 {
-			continue
-		}
-		running = append(running, RunningSession{
-			ID:      session.ID,
-			CDPPort: *session.CurrentCDPPort,
-		})
+		routable = append(routable, CDPRoutableSession{ID: session.ID})
 	}
-	sort.Slice(running, func(i, j int) bool {
-		return running[i].ID < running[j].ID
+	sort.Slice(routable, func(i, j int) bool {
+		return routable[i].ID < routable[j].ID
 	})
-	return running
+	return routable
 }

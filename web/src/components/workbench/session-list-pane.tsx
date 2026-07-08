@@ -20,9 +20,12 @@ export function SessionListPane({
   onSearchChange,
 }: SessionListPaneProps) {
   const navigate = useNavigate();
-  const query = useSessionsInfiniteQuery({ status: "running", limit: 100 });
+  const query = useSessionsInfiniteQuery({ limit: 100 });
   const sessions = useMemo(
-    () => query.data?.pages.flatMap((page) => page.data) ?? [],
+    () =>
+      query.data?.pages
+        .flatMap((page) => page.data)
+        .filter((session) => session.status === "running" || session.status === "suspended") ?? [],
     [query.data],
   );
 
@@ -96,7 +99,7 @@ export function SessionListPane({
           ))}
           {filtered.length === 0 ? (
             <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-              No running sessions
+              No controllable sessions
             </div>
           ) : null}
         </div>

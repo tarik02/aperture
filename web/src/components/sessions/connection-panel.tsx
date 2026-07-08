@@ -40,7 +40,7 @@ export function ConnectionPanel({ session, transientCdp, onRotate }: ConnectionP
       cdpUrl && transientCdp?.cdpToken ? cdpUrlWithToken(cdpUrl, transientCdp.cdpToken) : null,
     [cdpUrl, transientCdp?.cdpToken],
   );
-  const canOpen = session.status === "running";
+  const canOpen = session.status === "running" || session.status === "suspended";
 
   useEffect(() => {
     setPublicOrigin(window.location.origin);
@@ -67,7 +67,10 @@ export function ConnectionPanel({ session, transientCdp, onRotate }: ConnectionP
           size="sm"
           className="whitespace-nowrap"
           onClick={() => setRotateConfirmOpen(true)}
-          disabled={rotateMutation.isPending || session.status !== "running"}
+          disabled={
+            rotateMutation.isPending ||
+            (session.status !== "running" && session.status !== "suspended")
+          }
         >
           Rotate CDP token
         </Button>

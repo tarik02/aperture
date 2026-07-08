@@ -35,7 +35,7 @@ func (s *Server) proxyAPICDP(c *gin.Context) {
 		return
 	}
 
-	port, err := s.Sessions.RunningCDPPort(
+	port, release, err := s.Sessions.AcquireCDPPort(
 		c.Request.Context(),
 		tenantIDFromContext(c),
 		c.Param("sessionId"),
@@ -44,6 +44,7 @@ func (s *Server) proxyAPICDP(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	defer release()
 
 	targetPath := c.Param("path")
 	if targetPath == "" {
@@ -101,12 +102,13 @@ func (s *Server) proxyPublicCDP(c *gin.Context) {
 
 	sessionID := c.Param("sessionId")
 	credential := cdpForwardAuthCredential(c)
-	port, err := s.Sessions.AuthorizedCDPPort(c.Request.Context(), sessionID, credential)
+	port, release, err := s.Sessions.AcquireAuthorizedCDPPort(c.Request.Context(), sessionID, credential)
 	if err != nil {
 		status, message := mapForwardAuthError(err)
 		c.String(status, message)
 		return
 	}
+	defer release()
 
 	targetPath := c.Param("path")
 	if targetPath == "" || targetPath == "/" {

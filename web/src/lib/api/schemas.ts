@@ -37,7 +37,14 @@ export const healthSchema = z.object({
   status: z.literal("ok"),
 });
 
-export const sessionStatusSchema = z.enum(["creating", "running", "deleted", "expired", "failed"]);
+export const sessionStatusSchema = z.enum([
+  "creating",
+  "running",
+  "suspended",
+  "deleted",
+  "expired",
+  "failed",
+]);
 
 const iceServerSchema = z.object({
   urls: z.array(z.string()),
@@ -74,6 +81,8 @@ export const sessionSchema = z.object({
   stoppedAt: z.string().nullable().optional(),
   deletedAt: z.string().nullable(),
   expiresAt: z.string(),
+  lastConnectedAt: z.string().nullable().optional(),
+  suspendedAt: z.string().nullable().optional(),
   tags: z.record(z.string(), z.string()).optional(),
   cdpUrl: z.string().optional(),
 });

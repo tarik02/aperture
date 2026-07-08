@@ -42,6 +42,15 @@ func WriteDownloadPreferences(mergedUserDataDir, downloadsDir string) error {
 	download["prompt_for_download"] = false
 	prefs["download"] = download
 
+	session := map[string]any{}
+	if raw, ok := prefs["session"].(map[string]any); ok {
+		for key, value := range raw {
+			session[key] = value
+		}
+	}
+	session["restore_on_startup"] = 1
+	prefs["session"] = session
+
 	body, err := json.MarshalIndent(prefs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal chromium preferences: %w", err)

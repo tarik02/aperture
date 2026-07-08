@@ -5,53 +5,49 @@ import type { Session } from "#/lib/api/schemas.ts";
 
 type UseWorkbenchSessionResult = {
   session: Session | null;
-  runningSessions: Session[];
   isResolvingRoute: boolean;
 };
 
 export function useWorkbenchSession(sessionId: string | undefined): UseWorkbenchSessionResult {
-  const runningSessionsQuery = useSessionsInfiniteQuery({ status: "running", limit: 50 });
-  const runningSessions = useMemo(
-    () => flattenInfinitePages(runningSessionsQuery.data?.pages),
-    [runningSessionsQuery.data],
+  const sessionsQuery = useSessionsInfiniteQuery({ limit: 50 });
+  const sessions = useMemo(
+    () => flattenInfinitePages(sessionsQuery.data?.pages),
+    [sessionsQuery.data],
   );
 
   const session = useMemo(
-    () => (sessionId ? (runningSessions.find((item) => item.id === sessionId) ?? null) : null),
-    [runningSessions, sessionId],
+    () => (sessionId ? (sessions.find((item) => item.id === sessionId) ?? null) : null),
+    [sessions, sessionId],
   );
 
   const isResolvingRoute = Boolean(
     sessionId &&
     !session &&
-    (runningSessionsQuery.isLoading ||
-      runningSessionsQuery.isFetchingNextPage ||
-      runningSessionsQuery.hasNextPage),
+    (sessionsQuery.isLoading || sessionsQuery.isFetchingNextPage || sessionsQuery.hasNextPage),
   );
 
   useEffect(() => {
     if (!sessionId || session) {
       return;
     }
-    if (runningSessionsQuery.isLoading || runningSessionsQuery.isFetchingNextPage) {
+    if (sessionsQuery.isLoading || sessionsQuery.isFetchingNextPage) {
       return;
     }
-    if (!runningSessionsQuery.hasNextPage) {
+    if (!sessionsQuery.hasNextPage) {
       return;
     }
-    void runningSessionsQuery.fetchNextPage();
+    void sessionsQuery.fetchNextPage();
   }, [
     sessionId,
     session,
-    runningSessionsQuery.isLoading,
-    runningSessionsQuery.isFetchingNextPage,
-    runningSessionsQuery.hasNextPage,
-    runningSessionsQuery.fetchNextPage,
+    sessionsQuery.isLoading,
+    sessionsQuery.isFetchingNextPage,
+    sessionsQuery.hasNextPage,
+    sessionsQuery.fetchNextPage,
   ]);
 
   return {
     session,
-    runningSessions,
     isResolvingRoute,
   };
 }

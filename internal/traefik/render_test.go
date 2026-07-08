@@ -37,9 +37,8 @@ func TestRenderDynamicConfigIncludesCustomCDPBase(t *testing.T) {
 	cfg := testConfig()
 	cfg.CdpRouteBasePath = "/browser"
 
-	got, err := traefik.RenderDynamicConfig(cfg, []traefik.RunningSession{{
-		ID:      "018f1234-0000-7000-8000-000000000001",
-		CDPPort: 9222,
+	got, err := traefik.RenderDynamicConfig(cfg, []traefik.CDPRoutableSession{{
+		ID: "018f1234-0000-7000-8000-000000000001",
 	}})
 	if err != nil {
 		t.Fatalf("RenderDynamicConfig() error = %v", err)
@@ -60,9 +59,8 @@ func TestRenderDynamicConfigIncludesCustomCDPBase(t *testing.T) {
 func TestRenderDynamicConfigGoldenOneSession(t *testing.T) {
 	t.Parallel()
 
-	got, err := traefik.RenderDynamicConfig(testConfig(), []traefik.RunningSession{{
-		ID:      "018f1234-0000-7000-8000-000000000001",
-		CDPPort: 9222,
+	got, err := traefik.RenderDynamicConfig(testConfig(), []traefik.CDPRoutableSession{{
+		ID: "018f1234-0000-7000-8000-000000000001",
 	}})
 	if err != nil {
 		t.Fatalf("RenderDynamicConfig() error = %v", err)

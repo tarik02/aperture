@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/browser"
@@ -21,6 +22,7 @@ import (
 
 const (
 	defaultMonitorInterval = 15 * time.Second
+	defaultSuspendAfter    = 15 * time.Minute
 )
 
 // OverlayClient mounts and unmounts session overlays.
@@ -46,6 +48,9 @@ type Service struct {
 	now          func() time.Time
 	mountLocal   func(ctx context.Context, sessionID string, baseSnapshotID *string) error
 	unmountLocal func(ctx context.Context, sessionID string) error
+	mu           sync.Mutex
+	inhibitors   map[string]int
+	wakes        map[string]*wakeCall
 }
 
 // NewService constructs a session service.
@@ -141,6 +146,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	}
 
 	now := s.now().UTC()
+	nowText := now.Format(time.RFC3339Nano)
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour)
 
 	argsJSON, err := json.Marshal(input.BrowserArgs)
@@ -163,8 +169,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		ArtifactsPath:   layout.Artifacts,
 		BrowserChannel:  channel.Name,
 		BrowserArgsJSON: string(argsJSON),
-		CreatedAt:       now.Format(time.RFC3339Nano),
+		CreatedAt:       nowText,
 		ExpiresAt:       expiresAt.Format(time.RFC3339Nano),
+		LastConnectedAt: &nowText,
 	}
 
 	if err := s.repo.CreateSession(ctx, sessionRow); err != nil {
@@ -329,6 +336,7 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	sessionRow.Status = db.SessionStatusDeleted
 	sessionRow.DeletedAt = &deletedAt
 	sessionRow.StoppedAt = &stoppedAt
+	sessionRow.SuspendedAt = nil
 	sessionRow.ExpiresAt = expiresAt
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
@@ -465,9 +473,11 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	sessionRow.DeletedAt = nil
 	sessionRow.StoppedAt = nil
 	sessionRow.StartedAt = &startedAt
+	sessionRow.SuspendedAt = nil
 	sessionRow.ExpiresAt = expiresAt
 	sessionRow.RuntimeEnvPath = &runtimePath
 	sessionRow.CurrentCDPPort = &port
+	sessionRow.LastConnectedAt = &startedAt
 
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		_ = s.cleanupPreparedRuntime(ctx, sessionID)
@@ -578,7 +588,7 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 		BaseSnapshotName: baseSnapshotName,
 		Media:            s.sessionMediaView(*sessionRow),
 	}
-	if sessionRow.Status == db.SessionStatusRunning && sessionRow.CurrentCDPPort != nil {
+	if retainedCDPAvailable(sessionRow.Status) {
 		view.CDPURL = s.cdpURL(sessionRow.ID)
 	}
 	return &view, nil
@@ -640,7 +650,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 			BaseSnapshotName: baseSnapshotName,
 			Media:            s.sessionMediaView(sessionRow),
 		}
-		if sessionRow.Status == db.SessionStatusRunning && sessionRow.CurrentCDPPort != nil {
+		if retainedCDPAvailable(sessionRow.Status) {
 			view.CDPURL = s.cdpURL(sessionRow.ID)
 		}
 		views = append(views, view)
@@ -803,8 +813,15 @@ func (s *Service) webrtcMediaProducerRuntimeEnabled() bool {
 func (s *Service) sessionMediaView(sessionRow db.Session) SessionMediaView {
 	view := SessionMediaView{Mode: s.effectiveWebRTCMediaMode()}
 	if view.Mode != config.WebRTCMediaModeAuto ||
-		sessionRow.Status != db.SessionStatusRunning ||
-		sessionRow.RuntimeEnvPath == nil {
+		!mediaViewAvailable(sessionRow.Status) {
+		return view
+	}
+	if sessionRow.Status == db.SessionStatusSuspended {
+		view.WebRTCProducer = s.webrtcMediaProducerRuntimeEnabled()
+		view.ICEServers = append([]config.WebRTCICEServer(nil), s.cfg.WebRTCICEServers...)
+		return view
+	}
+	if sessionRow.RuntimeEnvPath == nil {
 		return view
 	}
 
@@ -890,6 +907,7 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
 	sessionRow.StoppedAt = &now
+	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
@@ -913,6 +931,7 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
 	sessionRow.StoppedAt = &now
+	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
@@ -974,12 +993,7 @@ func isExpired(expiresAt string, now time.Time) bool {
 }
 
 func isRetainedOrRunning(status string) bool {
-	switch status {
-	case db.SessionStatusRunning, db.SessionStatusDeleted, db.SessionStatusFailed:
-		return true
-	default:
-		return false
-	}
+	return retainedActionable(status)
 }
 
 // SetMediaSessionCleaner configures cleanup for in-memory media state.

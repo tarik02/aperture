@@ -12,7 +12,7 @@ import (
 	"github.com/aperture/aperture/internal/traefik"
 )
 
-func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
+func TestReconcileWritesCDPRoutableSessionRoutes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -44,12 +44,12 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 		t.Fatalf("create tenant: %v", err)
 	}
 
-	port := 9333
 	sessionID := "018f1234-0000-7000-8000-000000000001"
+	now := db.NowUTC()
 	if err := repo.CreateSession(ctx, &db.Session{
 		ID:              sessionID,
 		TenantID:        tenantID,
-		Status:          db.SessionStatusRunning,
+		Status:          db.SessionStatusSuspended,
 		OverlayPath:     "/tmp/overlay",
 		UpperPath:       "/tmp/upper",
 		WorkPath:        "/tmp/work",
@@ -59,9 +59,9 @@ func TestReconcileWritesRunningSessionRoutes(t *testing.T) {
 		ArtifactsPath:   "/tmp/artifacts",
 		BrowserChannel:  "chromium",
 		BrowserArgsJSON: "[]",
-		CreatedAt:       db.NowUTC(),
-		ExpiresAt:       db.NowUTC(),
-		CurrentCDPPort:  &port,
+		CreatedAt:       now,
+		ExpiresAt:       now,
+		SuspendedAt:     &now,
 	}); err != nil {
 		t.Fatalf("create session: %v", err)
 	}

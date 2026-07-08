@@ -65,6 +65,15 @@ func TestMonitorRefreshesActiveRunningSessionLease(t *testing.T) {
 	service.now = func() time.Time {
 		return time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
 	}
+	recent := service.now().UTC().Format(time.RFC3339Nano)
+	sessionRow, err := repo.GetSessionByID(ctx, created.Session.ID)
+	if err != nil || sessionRow == nil {
+		t.Fatalf("load session: %v", err)
+	}
+	sessionRow.LastConnectedAt = &recent
+	if err := repo.UpdateSession(ctx, sessionRow); err != nil {
+		t.Fatalf("refresh activity: %v", err)
+	}
 
 	monitor := NewMonitor(service, zap.NewNop())
 	monitor.tick(ctx)
