@@ -426,6 +426,16 @@ export const apiClient = {
     });
   },
 
+  suspendSession(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      method: "POST",
+      path: `/api/sessions/${sessionId}/suspend`,
+      schema: sessionMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
   rotateSessionCdpToken(credentials: ApiCredentials, sessionId: string) {
     return request({
       method: "POST",

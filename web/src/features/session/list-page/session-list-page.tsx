@@ -1,5 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { AppWindow, MoreHorizontal, Plus, RotateCcw, Tags as TagsIcon, Trash2 } from "lucide-react";
+import {
+  AppWindow,
+  MoreHorizontal,
+  Pause,
+  Plus,
+  RotateCcw,
+  Tags as TagsIcon,
+  Trash2,
+} from "lucide-react";
 import { useMemo } from "react";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SessionCreateModal } from "#/features/session/create-modal/session-create-modal.tsx";
@@ -63,6 +71,7 @@ import {
   useReopenSessionMutation,
   useReplaceSessionTagsMutation,
   useRotateCdpTokenMutation,
+  useSuspendSessionMutation,
 } from "#/features/session/session.mutations.ts";
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
 import { hasAllScopes, hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
@@ -161,6 +170,9 @@ export function SessionListPage() {
   const removeSelectedSession = useSessionListPageStore((state) => state.removeSelectedSession);
   const setConfirmAction = useSessionListPageStore((state) => state.setConfirmAction);
   const selectedSessionItems = useMemo(() => Object.values(selectedSessions), [selectedSessions]);
+  const runningSessionItems = selectedSessionItems.filter(
+    (session) => session.status === "running",
+  );
   const reopenableSessionItems = selectedSessionItems.filter(
     (session) => session.status === "deleted" || session.status === "failed",
   );
@@ -173,6 +185,7 @@ export function SessionListPage() {
 
   const deleteMutation = useDeleteSessionMutation();
   const reopenMutation = useReopenSessionMutation();
+  const suspendMutation = useSuspendSessionMutation();
   const rotateMutation = useRotateCdpTokenMutation();
   const replaceTagsMutation = useReplaceSessionTagsMutation();
 
@@ -200,11 +213,26 @@ export function SessionListPage() {
     }
   }
 
+  async function handleBatchSuspend() {
+    try {
+      for (const session of runningSessionItems) {
+        await suspendMutation.mutateAsync(session.id);
+      }
+      clearSelectedSessions();
+    } catch {
+      return;
+    }
+  }
+
   async function handleReopen(session: Session) {
     const result = await reopenMutation.mutateAsync(session.id);
     if (result.cdpUrl && result.cdpToken) {
       openConnection(session, { cdpUrl: result.cdpUrl, cdpToken: result.cdpToken });
     }
+  }
+
+  async function handleSuspend(session: Session) {
+    await suspendMutation.mutateAsync(session.id);
   }
 
   async function handleRotate(session: Session) {
@@ -224,9 +252,15 @@ export function SessionListPage() {
       case "batch-delete":
         await handleBatchDelete();
         return;
+      case "batch-suspend":
+        await handleBatchSuspend();
+        return;
       case "delete":
         await deleteMutation.mutateAsync(action.session.id);
         removeSelectedSession(action.session.id);
+        return;
+      case "suspend":
+        await handleSuspend(action.session);
         return;
       case "rotate":
         await handleRotate(action.session);
@@ -247,23 +281,39 @@ export function SessionListPage() {
           variant: "destructive",
           pending: deleteMutation.isPending,
         }
-      : confirmAction?.kind === "delete"
+      : confirmAction?.kind === "batch-suspend"
         ? {
-            title: "Delete session",
-            description: `Delete session ${confirmAction.session.id}?`,
-            confirmLabel: "Delete",
-            variant: "destructive",
-            pending: deleteMutation.isPending,
+            title: "Suspend sessions",
+            description: `Suspend ${runningSessionItems.length} running session${runningSessionItems.length === 1 ? "" : "s"}?`,
+            confirmLabel: "Suspend",
+            variant: "default",
+            pending: suspendMutation.isPending,
           }
-        : confirmAction?.kind === "rotate"
+        : confirmAction?.kind === "delete"
           ? {
-              title: "Rotate CDP token",
-              description: "The current CDP token for this session will stop working.",
-              confirmLabel: "Rotate",
-              variant: "default",
-              pending: rotateMutation.isPending,
+              title: "Delete session",
+              description: `Delete session ${confirmAction.session.id}?`,
+              confirmLabel: "Delete",
+              variant: "destructive",
+              pending: deleteMutation.isPending,
             }
-          : null;
+          : confirmAction?.kind === "suspend"
+            ? {
+                title: "Suspend session",
+                description: `Suspend session ${confirmAction.session.id}?`,
+                confirmLabel: "Suspend",
+                variant: "default",
+                pending: suspendMutation.isPending,
+              }
+            : confirmAction?.kind === "rotate"
+              ? {
+                  title: "Rotate CDP token",
+                  description: "The current CDP token for this session will stop working.",
+                  confirmLabel: "Rotate",
+                  variant: "default",
+                  pending: rotateMutation.isPending,
+                }
+              : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -344,6 +394,16 @@ export function SessionListPage() {
             >
               <TagsIcon data-icon="inline-start" />
               Apply tags
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmAction({ kind: "batch-suspend" })}
+              disabled={!canWrite || runningSessionItems.length === 0 || suspendMutation.isPending}
+            >
+              <Pause data-icon="inline-start" />
+              Suspend
             </Button>
             <Button
               type="button"
@@ -476,6 +536,7 @@ export function SessionListPage() {
                           onEvents={() => openDetail(session, "events")}
                           onDelete={() => setConfirmAction({ kind: "delete", session })}
                           onReopen={() => void handleReopen(session)}
+                          onSuspend={() => setConfirmAction({ kind: "suspend", session })}
                           onPromote={() => {
                             initPromoteSessionForm(session.id);
                             openPromoteSessionModal();
@@ -555,6 +616,7 @@ export function SessionListPage() {
           canPromote,
           deletePending: deleteMutation.isPending,
           reopenPending: reopenMutation.isPending,
+          suspendPending: suspendMutation.isPending,
           rotatePending: rotateMutation.isPending,
           onDelete: (session) => setConfirmAction({ kind: "delete", session }),
           onEditTags: (session) => {
@@ -566,6 +628,7 @@ export function SessionListPage() {
             openPromoteSessionModal();
           },
           onReopen: (session) => void handleReopen(session),
+          onSuspend: (session) => setConfirmAction({ kind: "suspend", session }),
           onRotate: (session) => setConfirmAction({ kind: "rotate", session }),
         }}
       />
@@ -599,6 +662,7 @@ type SessionActionsMenuProps = {
   onEvents: () => void;
   onDelete: () => void;
   onReopen: () => void;
+  onSuspend: () => void;
   onPromote: () => void;
   onRotate: () => void;
   onEditTags: () => void;
@@ -613,6 +677,7 @@ function SessionActionsMenu({
   onEvents,
   onDelete,
   onReopen,
+  onSuspend,
   onPromote,
   onRotate,
   onEditTags,
@@ -664,6 +729,12 @@ function SessionActionsMenu({
             </DropdownMenuItem>
             {session.status === "deleted" || session.status === "failed" ? (
               <DropdownMenuItem onClick={onReopen}>Reopen</DropdownMenuItem>
+            ) : null}
+            {session.status === "running" ? (
+              <DropdownMenuItem onClick={onSuspend}>
+                <Pause />
+                Suspend
+              </DropdownMenuItem>
             ) : null}
             {canPromote ? <DropdownMenuItem onClick={onPromote}>Promote</DropdownMenuItem> : null}
             <DropdownMenuSeparator />

@@ -116,7 +116,7 @@ func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
 		if s.activeInhibitors(sessionRow.ID) > 0 {
 			continue
 		}
-		didSuspend, err := s.suspendSession(ctx, &sessionRow)
+		didSuspend, err := s.suspendSession(ctx, &sessionRow, "session suspended after idle timeout")
 		if err != nil {
 			return suspended, err
 		}
@@ -125,6 +125,61 @@ func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
 		}
 	}
 	return suspended, nil
+}
+
+// Suspend stops a running tenant-owned session while retaining it for later wake.
+func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if sessionRow.Status != db.SessionStatusRunning {
+		return nil, ErrInvalidState
+	}
+
+	didSuspend, err := s.suspendSession(ctx, sessionRow, "session manually suspended")
+	if err != nil {
+		return nil, err
+	}
+	if !didSuspend {
+		return nil, ErrInvalidState
+	}
+
+	updated, err := s.repo.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, ErrNotFound
+	}
+
+	tags, err := s.repo.ListSessionTags(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	var baseSnapshotName *string
+	if updated.BaseSnapshotID != nil {
+		snapshotNames, err := s.repo.ListSnapshotNamesByIDs(ctx, []string{*updated.BaseSnapshotID})
+		if err != nil {
+			return nil, err
+		}
+		if name, ok := snapshotNames[*updated.BaseSnapshotID]; ok {
+			nameCopy := name
+			baseSnapshotName = &nameCopy
+		}
+	}
+
+	view := SessionView{
+		Session:          *updated,
+		Tags:             tags,
+		BaseSnapshotName: baseSnapshotName,
+		Media:            s.sessionMediaView(*updated),
+	}
+	if retainedCDPAvailable(updated.Status) {
+		view.CDPURL = s.cdpURL(sessionID)
+	}
+	return &view, nil
 }
 
 func (s *Service) acquireInhibitor(sessionID string) func() {
@@ -283,7 +338,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 	return s.appendEvent(ctx, sessionRow, "session.woke", "session woke from suspension", nil)
 }
 
-func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session) (bool, error) {
+func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, eventMessage string) (bool, error) {
 	latest, err := s.repo.GetSessionByID(ctx, sessionRow.ID)
 	if err != nil {
 		return false, err
@@ -322,7 +377,7 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session) (b
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return false, err
 	}
-	if err := s.appendEvent(ctx, latest, "session.suspended", "session suspended after idle timeout", nil); err != nil {
+	if err := s.appendEvent(ctx, latest, "session.suspended", eventMessage, nil); err != nil {
 		return false, err
 	}
 	return true, nil

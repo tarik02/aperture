@@ -12,6 +12,7 @@ import {
   Clock,
   ExternalLink,
   KeyRound,
+  Pause,
   RotateCcw,
   Tags,
   Trash2,
@@ -52,11 +53,13 @@ type SessionDetailActions = {
   canPromote: boolean;
   deletePending: boolean;
   reopenPending: boolean;
+  suspendPending: boolean;
   rotatePending: boolean;
   onDelete: (session: Session) => void;
   onEditTags: (session: Session) => void;
   onPromote: (session: Session) => void;
   onReopen: (session: Session) => void;
+  onSuspend: (session: Session) => void;
   onRotate: (session: Session) => void;
 };
 
@@ -210,6 +213,7 @@ function SessionDetailActionBar({
   const canOpen = session.status === "running" || session.status === "suspended";
   const canReopen =
     actions.canWrite && (session.status === "deleted" || session.status === "failed");
+  const canSuspend = actions.canWrite && session.status === "running";
   const canRotate =
     actions.canWrite && (session.status === "running" || session.status === "suspended");
 
@@ -245,6 +249,18 @@ function SessionDetailActionBar({
             <KeyRound data-icon="inline-start" />
             Rotate CDP
           </Button>
+          {canSuspend ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => actions.onSuspend(session)}
+              disabled={actions.suspendPending}
+            >
+              <Pause data-icon="inline-start" />
+              Suspend
+            </Button>
+          ) : null}
           {canReopen ? (
             <Button
               type="button"

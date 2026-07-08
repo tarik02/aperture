@@ -6,7 +6,9 @@ import type { TagFilterValue } from "#/lib/tag-filter.ts";
 
 export type SessionConfirmAction =
   | { kind: "batch-delete" }
+  | { kind: "batch-suspend" }
   | { kind: "delete"; session: Session }
+  | { kind: "suspend"; session: Session }
   | { kind: "rotate"; session: Session };
 
 type SessionListPageState = {

@@ -137,6 +137,24 @@ func (s *Server) replaceSessionTags(c *gin.Context) {
 	})
 }
 
+func (s *Server) suspendSession(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+
+	view, err := s.Sessions.Suspend(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"))
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, sessionMutationResponse{
+		Session: toSessionResponse(view),
+		CDPURL:  view.CDPURL,
+	})
+}
+
 func (s *Server) reopenSession(c *gin.Context) {
 	if s.Sessions == nil {
 		WriteError(c, errSessionServiceUnavailable)
