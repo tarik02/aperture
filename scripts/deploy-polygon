@@ -229,6 +229,29 @@ ensure_traefik() {
 	fi
 }
 
+enable_reboot_units() {
+	remote_bash <<'REMOTE'
+set -euo pipefail
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+
+sudo loginctl enable-linger "$(id -un)"
+
+wants_dir="${HOME}/.config/systemd/user/default.target.wants"
+mkdir -p "${wants_dir}"
+for unit in aperture-traefik.service "aperture@${CANDIDATE_COLOR}.service" "aperture@${OLD_COLOR}.service"; do
+	target="${wants_dir}/${unit}"
+	if [ -e "${target}" ] && [ ! -L "${target}" ]; then
+		rm -f "${target}"
+	fi
+done
+
+systemctl --user enable aperture-traefik.service "aperture@${CANDIDATE_COLOR}.service" >/dev/null
+systemctl --user disable "aperture@${OLD_COLOR}.service" >/dev/null || true
+systemctl --user daemon-reload
+REMOTE
+}
+
 require_command jq
 require_command nix
 require_command readlink
@@ -276,6 +299,8 @@ wait_for_health "edge ${CANDIDATE_COLOR} inactive" "${edge_url}" "${CANDIDATE_CO
 remote_aperture deployment state mark-active "${CANDIDATE_COLOR}" --version "${EXPECTED_VERSION}" --config "${CONFIG_FILE}" >/dev/null
 wait_for_health "candidate ${CANDIDATE_COLOR} active" "${candidate_url}" "${CANDIDATE_COLOR}" active "${EXPECTED_VERSION}"
 wait_for_health "edge" "${edge_url}" "${CANDIDATE_COLOR}" active "${EXPECTED_VERSION}"
+
+enable_reboot_units
 
 if [ "${DRAIN_SECONDS}" -gt 0 ]; then
 	sleep "${DRAIN_SECONDS}"
