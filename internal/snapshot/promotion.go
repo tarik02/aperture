@@ -163,7 +163,7 @@ func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*Sn
 
 func (p *PromotionService) validatePromotable(ctx context.Context, sessionRow *db.Session) error {
 	switch sessionRow.Status {
-	case db.SessionStatusDeleted, db.SessionStatusFailed:
+	case db.SessionStatusDeleted, db.SessionStatusFailed, db.SessionStatusSuspended:
 	default:
 		return &PromotionConflictError{
 			SessionID: sessionRow.ID,

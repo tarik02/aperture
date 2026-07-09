@@ -1145,6 +1145,10 @@ func (s *Service) populateCDPCredentials(view *SessionView) error {
 	}
 	rawCDP, err := LoadCDPTokenSeal(s.cfg, view.Session.ID)
 	if err != nil {
+		if os.IsNotExist(err) {
+			view.CDPURL = s.cdpURL(view.Session.ID)
+			return nil
+		}
 		return err
 	}
 	view.CDPURL = s.cdpURL(view.Session.ID)

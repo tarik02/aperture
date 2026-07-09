@@ -202,6 +202,9 @@ function SessionDetailActionBar({
   const canOpen = session.status === "running" || session.status === "suspended";
   const canReopen =
     actions.canWrite && (session.status === "deleted" || session.status === "failed");
+  const canPromote =
+    actions.canPromote &&
+    (session.status === "suspended" || session.status === "deleted" || session.status === "failed");
   const canSuspend = actions.canWrite && session.status === "running";
   const canRotate =
     actions.canWrite && (session.status === "running" || session.status === "suspended");
@@ -262,7 +265,7 @@ function SessionDetailActionBar({
               Reopen
             </Button>
           ) : null}
-          {actions.canPromote ? (
+          {canPromote ? (
             <Button
               type="button"
               variant="outline"

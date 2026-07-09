@@ -676,6 +676,9 @@ function SessionActionsMenu({
   onRotate,
   onEditTags,
 }: SessionActionsMenuProps) {
+  const sessionPromotable =
+    session.status === "suspended" || session.status === "deleted" || session.status === "failed";
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -730,7 +733,9 @@ function SessionActionsMenu({
                 Suspend
               </DropdownMenuItem>
             ) : null}
-            {canPromote ? <DropdownMenuItem onClick={onPromote}>Promote</DropdownMenuItem> : null}
+            {canPromote && sessionPromotable ? (
+              <DropdownMenuItem onClick={onPromote}>Promote</DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={onDelete}>
               Delete

@@ -11,7 +11,7 @@ import (
 )
 
 func cdpTokenPath(cfg config.Config, sessionID string) (string, error) {
-	return paths.JoinUnderRoot(cfg.RuntimeRoot, "sessions", sessionID+".cdp-token")
+	return paths.JoinUnderRoot(cfg.StoreRoot, "session-cdp-tokens", sessionID)
 }
 
 // StoreCDPTokenSeal writes the raw CDP token for later reopen responses.
