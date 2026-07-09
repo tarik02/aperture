@@ -34,6 +34,7 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
   const openTokenAuthModal = useTokenAuthModalStore((state) => state.openModal);
 
   const [removeProfileId, setRemoveProfileId] = useState<string | null>(null);
+  const [removeProfileOpen, setRemoveProfileOpen] = useState(false);
   const removeProfileTarget = profiles.find((profile) => profile.id === removeProfileId) ?? null;
 
   function handleSwitch(profileId: string) {
@@ -50,6 +51,12 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
     }
 
     removeProfile(removeProfileTarget.id);
+    setRemoveProfileOpen(false);
+  }
+
+  function openRemoveProfile(profileId: string) {
+    setRemoveProfileId(profileId);
+    setRemoveProfileOpen(true);
   }
 
   const triggerLabel = activeProfile ? profileDisplayName(activeProfile) : "No token";
@@ -109,7 +116,7 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
           {activeProfile ? (
             <DropdownMenuItem
               variant="destructive"
-              onClick={() => setRemoveProfileId(activeProfile.id)}
+              onClick={() => openRemoveProfile(activeProfile.id)}
             >
               <Trash2 />
               Remove
@@ -121,16 +128,12 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
       <TokenAuthModal />
       {removeProfileTarget ? (
         <ConfirmDialog
-          open={removeProfileId !== null}
+          open={removeProfileOpen}
           title="Remove token"
           description={`Remove ${profileDisplayName(removeProfileTarget)} from this browser?`}
           confirmLabel="Remove"
           variant="destructive"
-          onOpenChange={(open) => {
-            if (!open) {
-              setRemoveProfileId(null);
-            }
-          }}
+          onOpenChange={setRemoveProfileOpen}
           onConfirm={handleRemove}
         />
       ) : null}

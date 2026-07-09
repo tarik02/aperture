@@ -62,6 +62,7 @@ import { useTokenCreateModalStore } from "#/features/token/create-modal/token-cr
 import {
   ALL_AUTHORITY,
   ALL_SCOPES,
+  type TokenConfirmAction,
   useTokenListPageStore,
 } from "#/features/token/list-page/token-list-page.store.ts";
 
@@ -135,8 +136,20 @@ export function TokenListPage() {
   const removeSelectedToken = useTokenListPageStore((state) => state.removeSelectedToken);
   const setConfirmAction = useTokenListPageStore((state) => state.setConfirmAction);
   const [viewToken, setViewToken] = useState<ApiToken | null>(null);
+  const [viewTokenOpen, setViewTokenOpen] = useState(false);
+  const [confirmActionOpen, setConfirmActionOpen] = useState(false);
   const selectedTokenItems = useMemo(() => Object.values(selectedTokens), [selectedTokens]);
   const revokableTokenItems = selectedTokenItems.filter((token) => !token.revokedAt);
+
+  function openViewToken(token: ApiToken) {
+    setViewToken(token);
+    setViewTokenOpen(true);
+  }
+
+  function openConfirmAction(action: TokenConfirmAction) {
+    setConfirmAction(action);
+    setConfirmActionOpen(true);
+  }
 
   async function handleBatchRevoke() {
     try {
@@ -163,7 +176,7 @@ export function TokenListPage() {
         await revokeMutation.mutateAsync(action.token.id);
         removeSelectedToken(action.token.id);
         if (viewToken?.id === action.token.id) {
-          setViewToken(null);
+          setViewTokenOpen(false);
         }
         return;
       default: {
@@ -309,7 +322,7 @@ export function TokenListPage() {
           type="button"
           variant="destructive"
           size="sm"
-          onClick={() => setConfirmAction({ kind: "batch-revoke" })}
+          onClick={() => openConfirmAction({ kind: "batch-revoke" })}
           disabled={!canCreate || revokableTokenItems.length === 0 || revokeMutation.isPending}
         >
           <Ban data-icon="inline-start" />
@@ -362,8 +375,8 @@ export function TokenListPage() {
                   canRevoke={canCreate}
                   selected={Boolean(selectedTokens[token.id])}
                   onSelectedChange={(selected) => toggleTokenSelection(token, selected)}
-                  onView={() => setViewToken(token)}
-                  onRevoke={() => setConfirmAction({ kind: "revoke", token })}
+                  onView={() => openViewToken(token)}
+                  onRevoke={() => openConfirmAction({ kind: "revoke", token })}
                 />
               ))}
             </TableBody>
@@ -374,29 +387,22 @@ export function TokenListPage() {
       <TokenCreateModal />
       <TokenViewModal
         token={viewToken}
+        open={viewTokenOpen}
         canRevoke={canCreate}
         revokePending={revokeMutation.isPending}
-        onOpenChange={(open) => {
-          if (!open) {
-            setViewToken(null);
-          }
-        }}
-        onRevoke={(token) => setConfirmAction({ kind: "revoke", token })}
+        onOpenChange={setViewTokenOpen}
+        onRevoke={(token) => openConfirmAction({ kind: "revoke", token })}
       />
 
       {confirmDialog ? (
         <ConfirmDialog
-          open={confirmAction !== null}
+          open={confirmActionOpen}
           title={confirmDialog.title}
           description={confirmDialog.description}
           confirmLabel={confirmDialog.confirmLabel}
           variant="destructive"
           pending={revokeMutation.isPending}
-          onOpenChange={(open) => {
-            if (!open) {
-              setConfirmAction(null);
-            }
-          }}
+          onOpenChange={setConfirmActionOpen}
           onConfirm={handleConfirmAction}
         />
       ) : null}
@@ -483,6 +489,7 @@ function TokenRow({
 
 type TokenViewModalProps = {
   token: ApiToken | null;
+  open: boolean;
   canRevoke: boolean;
   revokePending: boolean;
   onOpenChange: (open: boolean) => void;
@@ -491,13 +498,14 @@ type TokenViewModalProps = {
 
 function TokenViewModal({
   token,
+  open,
   canRevoke,
   revokePending,
   onOpenChange,
   onRevoke,
 }: TokenViewModalProps) {
   return (
-    <Dialog open={token !== null} onOpenChange={onOpenChange}>
+    <Dialog open={open && token !== null} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[min(80vh,640px)] flex-col overflow-hidden sm:max-w-2xl">
         {token ? (
           <>

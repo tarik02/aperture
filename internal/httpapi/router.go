@@ -76,6 +76,8 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		sessions.Use(server.requireAuth)
 		{
 			sessions.GET("", server.requireSessionsRead, server.listSessions)
+			sessions.POST("/bulk", server.requireSessionsRead, server.getSessionsBulk)
+			sessions.GET("/:sessionId", server.requireSessionsRead, server.getSession)
 			sessions.POST("", server.requireSessionsWrite, server.createSession)
 			sessions.DELETE("/:sessionId", server.requireSessionsWrite, server.deleteSession)
 			sessions.PUT("/:sessionId/tags", server.requireSessionsWrite, server.replaceSessionTags)

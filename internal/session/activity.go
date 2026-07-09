@@ -176,8 +176,8 @@ func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*Ses
 		BaseSnapshotName: baseSnapshotName,
 		Media:            s.sessionMediaView(*updated),
 	}
-	if retainedCDPAvailable(updated.Status) {
-		view.CDPURL = s.cdpURL(sessionID)
+	if err := s.populateCDPCredentials(&view); err != nil {
+		return nil, err
 	}
 	return &view, nil
 }
@@ -396,13 +396,21 @@ func (s *Service) runtimeEnvForSession(sessionRow *db.Session) (browser.RuntimeE
 	if err := json.Unmarshal([]byte(sessionRow.BrowserArgsJSON), &browserArgs); err != nil {
 		return browser.RuntimeEnvValues{}, "", fmt.Errorf("parse browser args: %w", err)
 	}
+	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionRow.ID)
+	if err != nil {
+		return browser.RuntimeEnvValues{}, "", err
+	}
+	cdpTokenSealPath, err := cdpTokenPath(s.cfg, sessionRow.ID)
+	if err != nil {
+		return browser.RuntimeEnvValues{}, "", err
+	}
 	if sessionRow.CurrentCDPPort != nil && *sessionRow.CurrentCDPPort > 0 {
 		port := *sessionRow.CurrentCDPPort
 		wrapperPort, err := wrapperPortForSession(sessionRow, port)
 		if err != nil {
 			return browser.RuntimeEnvValues{}, "", err
 		}
-		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort), layout.RuntimeEnv, nil
+		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP, cdpTokenSealPath), layout.RuntimeEnv, nil
 	}
 
 	port, err := AllocateCDPPort()
@@ -414,7 +422,7 @@ func (s *Service) runtimeEnvForSession(sessionRow *db.Session) (browser.RuntimeE
 		return browser.RuntimeEnvValues{}, "", err
 	}
 
-	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort), layout.RuntimeEnv, nil
+	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP, cdpTokenSealPath), layout.RuntimeEnv, nil
 }
 
 func (s *Service) runtimeEnvValues(
@@ -424,12 +432,17 @@ func (s *Service) runtimeEnvValues(
 	browserArgs []string,
 	port int,
 	wrapperPort int,
+	rawCDP string,
+	cdpTokenSealPath string,
 ) browser.RuntimeEnvValues {
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
 
 	return browser.RuntimeEnvValues{
 		SessionID:                  sessionRow.ID,
+		ExternalBaseURL:            s.cfg.ExternalBaseURL,
+		CDPToken:                   rawCDP,
+		CDPTokenPath:               cdpTokenSealPath,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,

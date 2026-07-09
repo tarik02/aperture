@@ -1,12 +1,8 @@
-import { useState } from "react";
 import { EventsPanel } from "#/components/resources/events-panel.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
-import {
-  ConnectionPanel,
-  type TransientCdpCredentials,
-} from "#/components/sessions/connection-panel.tsx";
+import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
@@ -16,8 +12,6 @@ type SessionInspectorPaneProps = {
 };
 
 export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
-  const [transientCdp, setTransientCdp] = useState<TransientCdpCredentials>(null);
-
   if (!session) {
     return (
       <div className="flex h-full items-center justify-center border-l p-4 text-sm text-muted-foreground">
@@ -60,11 +54,7 @@ export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
           ]}
         />
         <Separator />
-        <ConnectionPanel
-          session={session}
-          transientCdp={transientCdp}
-          onRotate={(credentials) => setTransientCdp(credentials)}
-        />
+        <ConnectionPanel session={session} />
         <Separator />
         <EventsPanel resourceType="session" resourceId={session.id} />
       </div>

@@ -17,7 +17,7 @@ type SessionFormData = {
 type SessionFormState = {
   mode: "create";
   formData: SessionFormData;
-  initForm: () => void;
+  initForm: (input?: { baseSnapshot?: string | null }) => void;
   setFormData: (patch: Partial<SessionFormData>) => void;
 };
 
@@ -33,6 +33,7 @@ const defaultFormData: SessionFormData = {
 export const useSessionFormStore = create<SessionFormState>()((set) => ({
   mode: "create",
   formData: defaultFormData,
-  initForm: () => set({ formData: defaultFormData }),
+  initForm: (input) =>
+    set({ formData: { ...defaultFormData, baseSnapshot: input?.baseSnapshot ?? null } }),
   setFormData: (patch) => set((state) => ({ formData: { ...state.formData, ...patch } })),
 }));

@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { apiClient } from "#/lib/api/client.ts";
 import { defaultListLimit, getNextPageParam, listQueryDefaults } from "#/lib/api/pagination.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
@@ -36,5 +36,20 @@ export function useSessionsInfiniteQuery(filters: SessionsFilters = {}) {
     getNextPageParam,
     enabled,
     ...listQueryDefaults,
+  });
+}
+
+export function useSessionsBulkQuery(sessionIds: string[]) {
+  const credentials = useApiCredentials();
+  const activeProfile = useTokenVaultStore(selectActiveProfile);
+  const profileId = activeProfile?.id ?? "none";
+  const tenantKey = resolveTenantKey(credentials);
+  const enabled = sessionIds.length > 0 && isTenantScopedQueryReady(credentials);
+
+  return useQuery({
+    queryKey: queryKeys.sessionsBulk(profileId, tenantKey, sessionIds),
+    queryFn: () => apiClient.getSessionsBulk(credentials!, sessionIds),
+    enabled,
+    select: (response) => response.sessions,
   });
 }

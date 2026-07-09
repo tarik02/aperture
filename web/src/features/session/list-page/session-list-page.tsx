@@ -157,12 +157,11 @@ export function SessionListPage() {
   const openTagModal = useTagEditModalStore((state) => state.openModal);
   const detailSession = useSessionListPageStore((state) => state.detailSession);
   const detailSection = useSessionListPageStore((state) => state.detailSection);
-  const transientCdp = useSessionListPageStore((state) => state.transientCdp);
   const selectedSessions = useSessionListPageStore((state) => state.selectedSessions);
   const confirmAction = useSessionListPageStore((state) => state.confirmAction);
   const openDetail = useSessionListPageStore((state) => state.openDetail);
+  const setDetailSession = useSessionListPageStore((state) => state.setDetailSession);
   const setDetailSection = useSessionListPageStore((state) => state.setDetailSection);
-  const setTransientCdp = useSessionListPageStore((state) => state.setTransientCdp);
   const openCreatedSession = useSessionListPageStore((state) => state.openCreatedSession);
   const openConnection = useSessionListPageStore((state) => state.openConnection);
   const toggleSessionSelection = useSessionListPageStore((state) => state.toggleSessionSelection);
@@ -226,9 +225,7 @@ export function SessionListPage() {
 
   async function handleReopen(session: Session) {
     const result = await reopenMutation.mutateAsync(session.id);
-    if (result.cdpUrl && result.cdpToken) {
-      openConnection(session, { cdpUrl: result.cdpUrl, cdpToken: result.cdpToken });
-    }
+    openConnection(result.session);
   }
 
   async function handleSuspend(session: Session) {
@@ -237,9 +234,7 @@ export function SessionListPage() {
 
   async function handleRotate(session: Session) {
     const result = await rotateMutation.mutateAsync(session.id);
-    if (result.cdpUrl && result.cdpToken) {
-      openConnection(session, { cdpUrl: result.cdpUrl, cdpToken: result.cdpToken });
-    }
+    openConnection(result.session);
   }
 
   async function handleConfirmAction() {
@@ -609,8 +604,7 @@ export function SessionListPage() {
         session={detailSession}
         section={detailSection}
         onSectionChange={setDetailSection}
-        transientCdp={transientCdp}
-        onTransientCdpChange={setTransientCdp}
+        onSessionChange={setDetailSession}
         actions={{
           canWrite,
           canPromote,

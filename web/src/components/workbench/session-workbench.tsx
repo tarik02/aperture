@@ -53,7 +53,7 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
     }
 
     lastRecordedSessionId.current = selectedSession.id;
-    recordRecentSession(selectedSession);
+    recordRecentSession(selectedSession.id);
   }, [recordRecentSession, selectedSession]);
 
   if (!tenantReady) {

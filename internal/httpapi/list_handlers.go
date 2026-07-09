@@ -34,6 +34,9 @@ func toSessionListItem(view session.SessionView) sessionListItemResponse {
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
 	}
+	if view.CDPToken != "" {
+		resp.CDPToken = view.CDPToken
+	}
 	return resp
 }
 
@@ -112,6 +115,31 @@ func (s *Server) listSessions(c *gin.Context) {
 		items = append(items, toSessionListItem(view))
 	}
 	c.JSON(http.StatusOK, paginatedResponse[sessionListItemResponse]{Data: items, Meta: page.Meta})
+}
+
+func (s *Server) getSessionsBulk(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+
+	var req sessionBulkRequest
+	if err := bindJSON(c, &req); err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	views, err := s.Sessions.GetByIDs(c.Request.Context(), tenantIDFromContext(c), req.IDs)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	sessions := make([]sessionResponse, 0, len(views))
+	for _, view := range views {
+		sessions = append(sessions, toSessionListItem(view))
+	}
+	c.JSON(http.StatusOK, sessionBulkResponse{Sessions: sessions})
 }
 
 func (s *Server) listSnapshots(c *gin.Context) {

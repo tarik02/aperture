@@ -71,6 +71,23 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 	return buildPageResult(sessions, params.Limit, func(s Session) string { return s.CreatedAt }, func(s Session) string { return s.ID })
 }
 
+// ListSessionsByTenantAndIDs returns non-deleted tenant sessions matching ids.
+func (r *Repository) ListSessionsByTenantAndIDs(ctx context.Context, tenantID string, sessionIDs []string) ([]Session, error) {
+	sessions := make([]Session, 0)
+	if len(sessionIDs) == 0 {
+		return sessions, nil
+	}
+	if err := r.db.bun.NewSelect().
+		Model(&sessions).
+		Where("tenant_id = ?", tenantID).
+		Where("id IN (?)", bun.In(sessionIDs)).
+		Where("deleted_at IS NULL").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list sessions by tenant and ids: %w", err)
+	}
+	return sessions, nil
+}
+
 // ListSessionTagsForSessions returns tags grouped by session id.
 func (r *Repository) ListSessionTagsForSessions(ctx context.Context, sessionIDs []string) (map[string]map[string]string, error) {
 	result := make(map[string]map[string]string)

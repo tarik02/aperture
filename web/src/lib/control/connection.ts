@@ -561,12 +561,12 @@ class BrowserControlConnectionRuntime {
     if (!this.sessionId || !this.credentials) {
       throw new Error("CDP token unavailable");
     }
-    const result = await apiClient.rotateSessionCdpToken(this.credentials, this.sessionId);
-    if (!result.cdpToken) {
+    const session = await apiClient.getSession(this.credentials, this.sessionId);
+    if (!session.cdpToken) {
       throw new Error("CDP token unavailable");
     }
-    this.cdpToken = result.cdpToken;
-    return result.cdpToken;
+    this.cdpToken = session.cdpToken;
+    return session.cdpToken;
   }
 
   private async dispatch(message: ClientMessage) {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/aperture/aperture/internal/ids"
 )
 
 var (
@@ -185,6 +187,7 @@ type sessionResponse struct {
 	SuspendedAt      *string           `json:"suspendedAt,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	CDPURL           string            `json:"cdpUrl,omitempty"`
+	CDPToken         string            `json:"cdpToken,omitempty"`
 }
 
 type sessionMedia struct {
@@ -200,6 +203,31 @@ type iceServerResponse struct {
 }
 
 type sessionListItemResponse = sessionResponse
+
+type sessionBulkRequest struct {
+	IDs []string `json:"ids"`
+}
+
+func (r sessionBulkRequest) Validate() error {
+	if len(r.IDs) > 100 {
+		return validationError("ids must contain at most 100 entries")
+	}
+	seen := make(map[string]struct{}, len(r.IDs))
+	for _, id := range r.IDs {
+		if err := ids.ValidateUUIDv7(id); err != nil {
+			return validationError("ids must be uuidv7 values")
+		}
+		if _, ok := seen[id]; ok {
+			return validationError("ids must be unique")
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+type sessionBulkResponse struct {
+	Sessions []sessionResponse `json:"sessions"`
+}
 
 type createSessionResponse struct {
 	Session  sessionResponse `json:"session"`

@@ -8,6 +8,8 @@ export const queryKeys = {
   tenants: (profileId: string, filters: TenantsFilters) => ["tenants", profileId, filters] as const,
   sessions: (profileId: string, tenantId: string | null, filters: SessionsFilters) =>
     ["sessions", profileId, tenantId, filters] as const,
+  sessionsBulk: (profileId: string, tenantId: string | null, sessionIds: string[]) =>
+    ["sessions-bulk", profileId, tenantId, sessionIds] as const,
   snapshots: (profileId: string, tenantId: string | null, filters: SnapshotsFilters) =>
     ["snapshots", profileId, tenantId, filters] as const,
   tokens: (profileId: string, mode: TokensQueryMode, filters: TokensFilters) =>

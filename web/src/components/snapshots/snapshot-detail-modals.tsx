@@ -2,14 +2,17 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "#/components/ui/dialog.tsx";
+import { AppWindow } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EventsPanel } from "#/components/resources/events-panel.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import { DeletedBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import type { Snapshot } from "#/lib/api/schemas.ts";
 
@@ -19,12 +22,16 @@ type SnapshotDetailModalsProps = {
   snapshot: Snapshot | null;
   section: SnapshotDetailSection | null;
   onSectionChange: (section: SnapshotDetailSection | null) => void;
+  canCreateSession: boolean;
+  onCreateSession: (snapshot: Snapshot) => void;
 };
 
 export function SnapshotDetailModals({
   snapshot,
   section,
   onSectionChange,
+  canCreateSession,
+  onCreateSession,
 }: SnapshotDetailModalsProps) {
   const [detailsContent, setDetailsContent] = useState<Snapshot | null>(null);
   const [eventsContent, setEventsContent] = useState<Snapshot | null>(null);
@@ -84,6 +91,14 @@ export function SnapshotDetailModals({
                   ]}
                 />
               </ScrollArea>
+              {canCreateSession && !detailsSnapshot.deletedAt ? (
+                <DialogFooter>
+                  <Button type="button" onClick={() => onCreateSession(detailsSnapshot)}>
+                    <AppWindow data-icon="inline-start" />
+                    Create session
+                  </Button>
+                </DialogFooter>
+              ) : null}
             </>
           ) : null}
         </DialogContent>

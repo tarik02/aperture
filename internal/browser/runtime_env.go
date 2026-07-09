@@ -16,6 +16,9 @@ import (
 // RuntimeEnvValues are written for browser-session-wrapper consumption.
 type RuntimeEnvValues struct {
 	SessionID                  string
+	ExternalBaseURL            string
+	CDPToken                   string
+	CDPTokenPath               string
 	MergedUserDataDir          string
 	DownloadsDir               string
 	CacheDir                   string
@@ -150,6 +153,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 
 	lines := []string{
 		"APERTURE_SESSION_ID=" + shellQuote(values.SessionID),
+		"EXTERNAL_BASE_URL=" + shellQuote(values.ExternalBaseURL),
+		"CDP_TOKEN=" + shellQuote(values.CDPToken),
+		"CDP_TOKEN_PATH=" + shellQuote(values.CDPTokenPath),
 		"MERGED_USER_DATA_DIR=" + shellQuote(values.MergedUserDataDir),
 		"DOWNLOADS_DIR=" + shellQuote(values.DownloadsDir),
 		"CACHE_DIR=" + shellQuote(values.CacheDir),
@@ -224,7 +230,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "CDP_TOKEN", "CDP_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -300,6 +306,12 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 	switch key {
 	case "APERTURE_SESSION_ID":
 		values.SessionID = value
+	case "EXTERNAL_BASE_URL":
+		values.ExternalBaseURL = value
+	case "CDP_TOKEN":
+		values.CDPToken = value
+	case "CDP_TOKEN_PATH":
+		values.CDPTokenPath = value
 	case "MERGED_USER_DATA_DIR":
 		values.MergedUserDataDir = value
 	case "DOWNLOADS_DIR":

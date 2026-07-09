@@ -9,19 +9,20 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "#/components/ui/sidebar.tsx";
-import {
-  useRecentSessionsStore,
-  type RecentSession,
-} from "#/features/session/recent-sessions.store.ts";
+import { useRecentSessionsStore } from "#/features/session/recent-sessions.store.ts";
+import { useSessionsBulkQuery } from "#/features/session/session.queries.ts";
+import type { Session } from "#/lib/api/schemas.ts";
 
 type RecentSessionsSidebarGroupProps = {
   pathname: string;
 };
 
 export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGroupProps) {
-  const sessions = useRecentSessionsStore((state) => state.sessions);
+  const sessionIds = useRecentSessionsStore((state) => state.sessionIds);
+  const sessionsQuery = useSessionsBulkQuery(sessionIds);
+  const sessions = sessionsQuery.data ?? [];
 
-  if (sessions.length === 0) {
+  if (sessionIds.length === 0 || sessions.length === 0) {
     return null;
   }
 
@@ -46,11 +47,11 @@ export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGr
                     <AppWindow />
                     <span data-sidebar-collapse-label className="flex min-w-0 flex-col">
                       <span className="truncate">{title}</span>
-                      {session.browserChannel ? (
-                        <span className="truncate text-xs font-normal text-sidebar-foreground/60">
-                          {session.browserChannel}
-                        </span>
-                      ) : null}
+                      <span className="truncate text-xs font-normal text-sidebar-foreground/60">
+                        {session.browserChannel
+                          ? `${session.status} · ${session.browserChannel}`
+                          : session.status}
+                      </span>
                     </span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -63,6 +64,6 @@ export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGr
   );
 }
 
-function recentSessionTitle(session: RecentSession) {
+function recentSessionTitle(session: Session) {
   return session.label ?? session.baseSnapshotName ?? session.id.slice(0, 8);
 }

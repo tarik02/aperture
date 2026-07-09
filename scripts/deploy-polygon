@@ -6,6 +6,7 @@ CONFIG_FILE="${CONFIG_FILE:-/etc/aperture/aperture.toml}"
 OUT_LINK="${OUT_LINK:-/tmp/aperture-deploy-result}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-60}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://aperture.tarik02.me}"
+DRAIN_SECONDS="${DRAIN_SECONDS:-30}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
@@ -234,6 +235,13 @@ require_command readlink
 require_command ssh
 require_command tar
 
+case "${DRAIN_SECONDS}" in
+	'' | *[!0-9]*)
+		echo "DRAIN_SECONDS must be a non-negative integer" >&2
+		exit 1
+		;;
+esac
+
 build_source_copy
 
 state_json="$(remote_aperture deployment state get --config "${CONFIG_FILE}")"
@@ -261,12 +269,17 @@ wait_for_health "candidate ${CANDIDATE_COLOR}" "${candidate_url}" "${CANDIDATE_C
 
 install_browser_unit
 
+remote_aperture deployment edge write --color "${CANDIDATE_COLOR}" --version "${EXPECTED_VERSION}" --config "${CONFIG_FILE}"
+ensure_traefik "${traefik_unit_changed}"
+wait_for_health "edge ${CANDIDATE_COLOR} inactive" "${edge_url}" "${CANDIDATE_COLOR}" inactive "${EXPECTED_VERSION}"
+
 remote_aperture deployment state mark-active "${CANDIDATE_COLOR}" --version "${EXPECTED_VERSION}" --config "${CONFIG_FILE}" >/dev/null
 wait_for_health "candidate ${CANDIDATE_COLOR} active" "${candidate_url}" "${CANDIDATE_COLOR}" active "${EXPECTED_VERSION}"
-
-remote_aperture deployment edge write --config "${CONFIG_FILE}"
-ensure_traefik "${traefik_unit_changed}"
 wait_for_health "edge" "${edge_url}" "${CANDIDATE_COLOR}" active "${EXPECTED_VERSION}"
+
+if [ "${DRAIN_SECONDS}" -gt 0 ]; then
+	sleep "${DRAIN_SECONDS}"
+fi
 
 remote_systemctl stop "aperture@${OLD_COLOR}.service"
 

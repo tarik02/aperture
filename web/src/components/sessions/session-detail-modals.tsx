@@ -32,10 +32,7 @@ import {
 } from "#/components/ui/dropdown-menu.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
-import {
-  ConnectionPanel,
-  type TransientCdpCredentials,
-} from "#/components/sessions/connection-panel.tsx";
+import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
 
 export type SessionDetailSection = "details" | "connection" | "events";
 
@@ -43,8 +40,7 @@ type SessionDetailModalsProps = {
   session: Session | null;
   section: SessionDetailSection | null;
   onSectionChange: (section: SessionDetailSection | null) => void;
-  transientCdp: TransientCdpCredentials;
-  onTransientCdpChange: (credentials: TransientCdpCredentials) => void;
+  onSessionChange: (session: Session) => void;
   actions: SessionDetailActions;
 };
 
@@ -65,15 +61,13 @@ type SessionDetailActions = {
 
 type ConnectionContent = {
   session: Session;
-  transientCdp: TransientCdpCredentials;
 };
 
 export function SessionDetailModals({
   session,
   section,
   onSectionChange,
-  transientCdp,
-  onTransientCdpChange,
+  onSessionChange,
   actions,
 }: SessionDetailModalsProps) {
   const [detailsContent, setDetailsContent] = useState<Session | null>(null);
@@ -91,14 +85,14 @@ export function SessionDetailModals({
     }
 
     if (section === "connection") {
-      setConnectionContent({ session, transientCdp });
+      setConnectionContent({ session });
       return;
     }
 
     if (section === "events") {
       setEventsContent(session);
     }
-  }, [section, session, transientCdp]);
+  }, [section, session]);
 
   function closeIfNeeded(open: boolean) {
     if (!open) {
@@ -107,8 +101,7 @@ export function SessionDetailModals({
   }
 
   const detailsSession = section === "details" && session ? session : detailsContent;
-  const connection =
-    section === "connection" && session ? { session, transientCdp } : connectionContent;
+  const connection = section === "connection" && session ? { session } : connectionContent;
   const eventsSession = section === "events" && session ? session : eventsContent;
 
   return (
@@ -166,11 +159,7 @@ export function SessionDetailModals({
                   {connection.session.id}
                 </DialogDescription>
               </DialogHeader>
-              <ConnectionPanel
-                session={connection.session}
-                transientCdp={connection.transientCdp}
-                onRotate={(credentials) => onTransientCdpChange(credentials)}
-              />
+              <ConnectionPanel session={connection.session} onRotate={onSessionChange} />
             </>
           ) : null}
         </DialogContent>

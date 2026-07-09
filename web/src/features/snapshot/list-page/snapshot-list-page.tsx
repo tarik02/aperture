@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { SnapshotDetailModals } from "#/components/snapshots/snapshot-detail-modals.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
+import { SessionCreateModal } from "#/features/session/create-modal/session-create-modal.tsx";
 import { TagEditModal } from "#/features/tag/edit-modal/tag-edit-modal.tsx";
 import { tagsToEntries } from "#/components/resources/tag-editor.tsx";
 import { DeletedStatusSelect } from "#/components/resources/deleted-status-select.tsx";
@@ -56,6 +57,8 @@ import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-cre
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import type { Snapshot } from "#/lib/api/schemas.ts";
+import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
+import { useSessionFormStore } from "#/features/session/form/session-form.store.ts";
 import { useSnapshotListPageStore } from "#/features/snapshot/list-page/snapshot-list-page.store.ts";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
@@ -82,6 +85,7 @@ export function SnapshotListPage() {
   const credentials = useApiCredentials();
   const scopes = useActiveScopes();
   const canWrite = hasScope(scopes, "snapshots:write");
+  const canCreateSession = hasScope(scopes, "sessions:write");
   const tenantReady = isTenantScopedQueryReady(credentials);
 
   const deleted = useSnapshotListPageStore((state) => state.deleted);
@@ -104,6 +108,8 @@ export function SnapshotListPage() {
   const detailSection = useSnapshotListPageStore((state) => state.detailSection);
   const showSnapshot = useSnapshotListPageStore((state) => state.showSnapshot);
   const setDetailSection = useSnapshotListPageStore((state) => state.setDetailSection);
+  const initCreateSessionForm = useSessionFormStore((state) => state.initForm);
+  const openCreateSessionModal = useSessionCreateModalStore((state) => state.openModal);
   const initTagForm = useTagFormStore((state) => state.initForm);
   const tagResourceKey = useTagFormStore((state) => state.formData.resourceKey);
   const tagModalOpen = useTagEditModalStore((state) => state.open);
@@ -135,6 +141,11 @@ export function SnapshotListPage() {
   const updateSnapshotMutation = useUpdateSnapshotMutation();
   const [descriptionSnapshot, setDescriptionSnapshot] = useState<Snapshot | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+
+  function handleCreateSession(snapshot: Snapshot) {
+    initCreateSessionForm({ baseSnapshot: snapshot.name });
+    openCreateSessionModal();
+  }
 
   async function handleBatchDelete() {
     try {
@@ -361,7 +372,10 @@ export function SnapshotListPage() {
         snapshot={detailSnapshot}
         section={detailSection}
         onSectionChange={setDetailSection}
+        canCreateSession={canCreateSession}
+        onCreateSession={handleCreateSession}
       />
+      <SessionCreateModal />
       <SnapshotDescriptionModal
         snapshot={descriptionSnapshot}
         value={descriptionDraft}

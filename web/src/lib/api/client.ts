@@ -10,6 +10,8 @@ import {
   healthSchema,
   promoteSessionResponseSchema,
   screencastStatusSchema,
+  sessionSchema,
+  sessionsBulkResponseSchema,
   sessionMutationResponseSchema,
   sessionsPageSchema,
   snapshotMutationResponseSchema,
@@ -384,6 +386,26 @@ export const apiClient = {
         tagOperator: params.tags?.map((tag) => tag.operator),
         tagValue: params.tags?.map((tag) => tag.values.join(",")),
       },
+    });
+  },
+
+  getSession(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      path: `/api/sessions/${sessionId}`,
+      schema: sessionSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  getSessionsBulk(credentials: ApiCredentials, sessionIds: string[]) {
+    return request({
+      method: "POST",
+      path: "/api/sessions/bulk",
+      schema: sessionsBulkResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: { ids: sessionIds },
     });
   },
 

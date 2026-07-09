@@ -70,6 +70,11 @@ func WriteEdgeConfig(cfg config.Config, deploy *deploystate.Service) error {
 	if err != nil {
 		return err
 	}
+	return WriteEdgeConfigForState(cfg, state)
+}
+
+// WriteEdgeConfigForState renders the API edge route for an explicit state into edge.yaml.
+func WriteEdgeConfigForState(cfg config.Config, state deploystate.State) error {
 	content, err := RenderEdgeConfig(cfg, state)
 	if err != nil {
 		return err

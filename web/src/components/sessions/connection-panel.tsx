@@ -14,50 +14,52 @@ import type { Session } from "#/lib/api/schemas.ts";
 import { useRotateCdpTokenMutation } from "#/features/session/session.mutations.ts";
 import { useEffect, useMemo, useState } from "react";
 
-export type TransientCdpCredentials = {
-  cdpUrl: string;
-  cdpToken: string;
-} | null;
-
 type ConnectionPanelProps = {
   session: Session;
-  transientCdp: TransientCdpCredentials;
-  onRotate?: (credentials: { cdpUrl: string; cdpToken: string }) => void;
+  onRotate?: (session: Session) => void;
 };
 
-export function ConnectionPanel({ session, transientCdp, onRotate }: ConnectionPanelProps) {
+export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
   const rotateMutation = useRotateCdpTokenMutation();
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
   const [rotateConfirmOpen, setRotateConfirmOpen] = useState(false);
+  const [rotatedSession, setRotatedSession] = useState<Session | null>(null);
 
-  const rawCdpUrl = transientCdp?.cdpUrl ?? session.cdpUrl;
+  const rotatedCredentials = rotatedSession?.id === session.id ? rotatedSession : null;
+  const currentSession = rotatedCredentials
+    ? { ...session, cdpUrl: rotatedCredentials.cdpUrl, cdpToken: rotatedCredentials.cdpToken }
+    : session;
+  const rawCdpUrl = currentSession.cdpUrl;
   const cdpUrl = useMemo(
     () => (rawCdpUrl ? publicCdpUrl(rawCdpUrl, publicOrigin) : null),
     [publicOrigin, rawCdpUrl],
   );
   const tokenizedCdpUrl = useMemo(
     () =>
-      cdpUrl && transientCdp?.cdpToken ? cdpUrlWithToken(cdpUrl, transientCdp.cdpToken) : null,
-    [cdpUrl, transientCdp?.cdpToken],
+      cdpUrl && currentSession.cdpToken ? cdpUrlWithToken(cdpUrl, currentSession.cdpToken) : null,
+    [cdpUrl, currentSession.cdpToken],
   );
-  const canOpen = session.status === "running" || session.status === "suspended";
+  const canOpen = currentSession.status === "running" || currentSession.status === "suspended";
 
   useEffect(() => {
     setPublicOrigin(window.location.origin);
   }, []);
 
+  useEffect(() => {
+    setRotatedSession(null);
+  }, [session.id]);
+
   async function handleRotate() {
     const result = await rotateMutation.mutateAsync(session.id);
-    if (result.cdpUrl && result.cdpToken && onRotate) {
-      onRotate({ cdpUrl: result.cdpUrl, cdpToken: result.cdpToken });
-    }
+    setRotatedSession(result.session);
+    onRotate?.(result.session);
   }
 
   return (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Connection</h3>
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
-      {transientCdp?.cdpToken ? <CopyField value={transientCdp.cdpToken} label="Token" /> : null}
+      {currentSession.cdpToken ? <CopyField value={currentSession.cdpToken} label="Token" /> : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       <Separator />
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -69,7 +71,7 @@ export function ConnectionPanel({ session, transientCdp, onRotate }: ConnectionP
           onClick={() => setRotateConfirmOpen(true)}
           disabled={
             rotateMutation.isPending ||
-            (session.status !== "running" && session.status !== "suspended")
+            (currentSession.status !== "running" && currentSession.status !== "suspended")
           }
         >
           Rotate CDP token

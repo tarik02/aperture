@@ -85,6 +85,7 @@ export const sessionSchema = z.object({
   suspendedAt: z.string().nullable().optional(),
   tags: z.record(z.string(), z.string()).optional(),
   cdpUrl: z.string().optional(),
+  cdpToken: z.string().optional(),
 });
 
 export const snapshotSchema = z.object({
@@ -113,6 +114,9 @@ export const tokenSchema = z.object({
 
 export const tenantsPageSchema = paginatedSchema(tenantSchema);
 export const sessionsPageSchema = paginatedSchema(sessionSchema);
+export const sessionsBulkResponseSchema = z.object({
+  sessions: z.array(sessionSchema),
+});
 export const snapshotsPageSchema = paginatedSchema(snapshotSchema);
 export const tokensPageSchema = paginatedSchema(tokenSchema);
 
@@ -174,6 +178,7 @@ export type Snapshot = z.infer<typeof snapshotSchema>;
 export type ApiToken = z.infer<typeof tokenSchema>;
 export type TenantsPage = z.infer<typeof tenantsPageSchema>;
 export type SessionsPage = z.infer<typeof sessionsPageSchema>;
+export type SessionsBulkResponse = z.infer<typeof sessionsBulkResponseSchema>;
 export type SnapshotsPage = z.infer<typeof snapshotsPageSchema>;
 export type TokensPage = z.infer<typeof tokensPageSchema>;
 export type BrowserChannel = z.infer<typeof browserChannelSchema>;

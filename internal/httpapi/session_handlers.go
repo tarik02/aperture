@@ -35,6 +35,9 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
 	}
+	if view.CDPToken != "" {
+		resp.CDPToken = view.CDPToken
+	}
 	return resp
 }
 
@@ -97,6 +100,21 @@ func (s *Server) createSession(c *gin.Context) {
 	})
 }
 
+func (s *Server) getSession(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+
+	view, err := s.Sessions.Get(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"))
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toSessionResponse(view))
+}
+
 func (s *Server) deleteSession(c *gin.Context) {
 	if s.Sessions == nil {
 		WriteError(c, errSessionServiceUnavailable)
@@ -150,8 +168,9 @@ func (s *Server) suspendSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view),
-		CDPURL:  view.CDPURL,
+		Session:  toSessionResponse(view),
+		CDPURL:   view.CDPURL,
+		CDPToken: view.CDPToken,
 	})
 }
 

@@ -172,6 +172,27 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		"browserCDPPort": r.values.CDPPort,
 		"screencast":     r.screencastStatusLocked(),
 	}
+	if r.values.ExternalBaseURL != "" {
+		status["cdpUrl"] = strings.TrimRight(r.values.ExternalBaseURL, "/") + "/sessions/" + r.values.SessionID + "/cdp"
+	}
+	if r.values.CDPTokenPath != "" {
+		body, err := os.ReadFile(r.values.CDPTokenPath)
+		if err != nil {
+			writeWrapperError(w, http.StatusInternalServerError, "cdp token unavailable")
+			return
+		}
+		token := string(body)
+		if token == "" {
+			writeWrapperError(w, http.StatusInternalServerError, "cdp token unavailable")
+			return
+		}
+		status["cdpToken"] = token
+		writeWrapperJSON(w, http.StatusOK, status)
+		return
+	}
+	if r.values.CDPToken != "" {
+		status["cdpToken"] = r.values.CDPToken
+	}
 	writeWrapperJSON(w, http.StatusOK, status)
 }
 

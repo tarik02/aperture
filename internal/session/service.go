@@ -201,6 +201,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	if err := StoreCDPTokenSeal(s.cfg, sessionID, rawCDP); err != nil {
 		return nil, err
 	}
+	cdpTokenSealPath, err := cdpTokenPath(s.cfg, sessionID)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := s.replaceTags(ctx, sessionID, input.Tags); err != nil {
 		return nil, err
@@ -227,6 +231,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 
 	runtimeEnv := browser.RuntimeEnvValues{
 		SessionID:                  sessionID,
+		ExternalBaseURL:            s.cfg.ExternalBaseURL,
+		CDPToken:                   rawCDP,
+		CDPTokenPath:               cdpTokenSealPath,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,
@@ -300,6 +307,101 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		CDPToken:         rawCDP,
 		Media:            s.sessionMediaView(*sessionRow),
 	}, nil
+}
+
+// Get returns a tenant-owned session with its current routable credentials.
+func (s *Service) Get(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	tags, err := s.repo.ListSessionTags(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	var baseSnapshotName *string
+	if sessionRow.BaseSnapshotID != nil {
+		snapshotNames, err := s.repo.ListSnapshotNamesByIDs(ctx, []string{*sessionRow.BaseSnapshotID})
+		if err != nil {
+			return nil, err
+		}
+		if name, ok := snapshotNames[*sessionRow.BaseSnapshotID]; ok {
+			nameCopy := name
+			baseSnapshotName = &nameCopy
+		}
+	}
+
+	view := SessionView{
+		Session:          *sessionRow,
+		Tags:             tags,
+		BaseSnapshotName: baseSnapshotName,
+		Media:            s.sessionMediaView(*sessionRow),
+	}
+	if err := s.populateCDPCredentials(&view); err != nil {
+		return nil, err
+	}
+	return &view, nil
+}
+
+// GetByIDs returns non-deleted tenant sessions in requested id order.
+func (s *Service) GetByIDs(ctx context.Context, tenantID string, sessionIDs []string) ([]SessionView, error) {
+	sessionRows, err := s.repo.ListSessionsByTenantAndIDs(ctx, tenantID, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(sessionRows) == 0 {
+		return []SessionView{}, nil
+	}
+
+	foundByID := make(map[string]db.Session, len(sessionRows))
+	foundIDs := make([]string, 0, len(sessionRows))
+	snapshotIDs := make([]string, 0)
+	for _, sessionRow := range sessionRows {
+		foundByID[sessionRow.ID] = sessionRow
+		foundIDs = append(foundIDs, sessionRow.ID)
+		if sessionRow.BaseSnapshotID != nil {
+			snapshotIDs = append(snapshotIDs, *sessionRow.BaseSnapshotID)
+		}
+	}
+
+	tagsBySession, err := s.repo.ListSessionTagsForSessions(ctx, foundIDs)
+	if err != nil {
+		return nil, err
+	}
+	snapshotNames, err := s.repo.ListSnapshotNamesByIDs(ctx, snapshotIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	views := make([]SessionView, 0, len(sessionRows))
+	for _, sessionID := range sessionIDs {
+		sessionRow, ok := foundByID[sessionID]
+		if !ok {
+			continue
+		}
+
+		var baseSnapshotName *string
+		if sessionRow.BaseSnapshotID != nil {
+			if name, ok := snapshotNames[*sessionRow.BaseSnapshotID]; ok {
+				nameCopy := name
+				baseSnapshotName = &nameCopy
+			}
+		}
+
+		view := SessionView{
+			Session:          sessionRow,
+			Tags:             tagsBySession[sessionRow.ID],
+			BaseSnapshotName: baseSnapshotName,
+			Media:            s.sessionMediaView(sessionRow),
+		}
+		if err := s.populateCDPCredentials(&view); err != nil {
+			return nil, err
+		}
+		views = append(views, view)
+	}
+	return views, nil
 }
 
 func normalizedOptionalString(value *string) *string {
@@ -394,7 +496,6 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err != nil {
 		return nil, err
 	}
-
 	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionID)
 	if err != nil {
 		return nil, err
@@ -470,9 +571,22 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
+	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionID)
+	if err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
+	}
+	cdpTokenSealPath, err := cdpTokenPath(s.cfg, sessionID)
+	if err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
+	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
 		SessionID:                  sessionID,
+		ExternalBaseURL:            s.cfg.ExternalBaseURL,
+		CDPToken:                   rawCDP,
+		CDPTokenPath:               cdpTokenSealPath,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,
@@ -539,11 +653,6 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err != nil {
 		return nil, err
 	}
-	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
 	return &SessionView{
 		Session:  *sessionRow,
 		Tags:     tags,
@@ -629,8 +738,8 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 		BaseSnapshotName: baseSnapshotName,
 		Media:            s.sessionMediaView(*sessionRow),
 	}
-	if retainedCDPAvailable(sessionRow.Status) {
-		view.CDPURL = s.cdpURL(sessionRow.ID)
+	if err := s.populateCDPCredentials(&view); err != nil {
+		return nil, err
 	}
 	return &view, nil
 }
@@ -691,8 +800,8 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 			BaseSnapshotName: baseSnapshotName,
 			Media:            s.sessionMediaView(sessionRow),
 		}
-		if retainedCDPAvailable(sessionRow.Status) {
-			view.CDPURL = s.cdpURL(sessionRow.ID)
+		if err := s.populateCDPCredentials(&view); err != nil {
+			return db.PageResult[SessionView]{}, err
 		}
 		views = append(views, view)
 	}
@@ -1028,6 +1137,19 @@ func (s *Service) overlayPresent(sessionRow *db.Session) bool {
 func (s *Service) cdpURL(sessionID string) string {
 	base := strings.TrimRight(s.cfg.ExternalBaseURL, "/")
 	return fmt.Sprintf("%s/sessions/%s/cdp", base, sessionID)
+}
+
+func (s *Service) populateCDPCredentials(view *SessionView) error {
+	if !retainedCDPAvailable(view.Session.Status) {
+		return nil
+	}
+	rawCDP, err := LoadCDPTokenSeal(s.cfg, view.Session.ID)
+	if err != nil {
+		return err
+	}
+	view.CDPURL = s.cdpURL(view.Session.ID)
+	view.CDPToken = rawCDP
+	return nil
 }
 
 func isExpired(expiresAt string, now time.Time) bool {

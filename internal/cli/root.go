@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/deploystate"
@@ -160,7 +161,10 @@ func newDeploymentStateMarkActiveCmd() *cobra.Command {
 }
 
 func newDeploymentEdgeWriteCmd() *cobra.Command {
-	return &cobra.Command{
+	var color string
+	var version string
+
+	cmd := &cobra.Command{
 		Use:   "write",
 		Short: "write deployment edge dynamic config",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -168,12 +172,37 @@ func newDeploymentEdgeWriteCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
+
+			if strings.TrimSpace(color) != "" {
+				edgeVersion := version
+				if strings.TrimSpace(edgeVersion) == "" {
+					edgeVersion = cfg.DeployVersion
+				}
+				state := deploystate.State{
+					ActiveColor:   color,
+					BlueURL:       cfg.DeployBlueURL,
+					GreenURL:      cfg.DeployGreenURL,
+					ActiveVersion: edgeVersion,
+					UpdatedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+				}
+				if err := deploystate.Validate(state); err != nil {
+					return fmt.Errorf("validate edge deployment state: %w", err)
+				}
+				if err := traefik.WriteEdgeConfigForState(cfg, state); err != nil {
+					return fmt.Errorf("write deployment edge config: %w", err)
+				}
+				return nil
+			}
+
 			if err := traefik.WriteEdgeConfig(cfg, deploystate.New(cfg)); err != nil {
 				return fmt.Errorf("write deployment edge config: %w", err)
 			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&color, "color", "", "edge deployment color")
+	cmd.Flags().StringVar(&version, "version", "", "edge deployment version")
+	return cmd
 }
 
 func writeDeploymentState(cmd *cobra.Command, state deploystate.State) error {
