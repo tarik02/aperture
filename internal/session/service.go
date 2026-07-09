@@ -194,15 +194,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		SessionID: sessionID,
 		TenantID:  input.TenantID,
 		TokenHash: hashCDP,
+		RawToken:  &rawCDP,
 		CreatedAt: now.Format(time.RFC3339Nano),
 	}); err != nil {
-		return nil, err
-	}
-	if err := StoreCDPTokenSeal(s.cfg, sessionID, rawCDP); err != nil {
-		return nil, err
-	}
-	cdpTokenSealPath, err := cdpTokenPath(s.cfg, sessionID)
-	if err != nil {
 		return nil, err
 	}
 
@@ -233,7 +227,6 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		SessionID:                  sessionID,
 		ExternalBaseURL:            s.cfg.ExternalBaseURL,
 		CDPToken:                   rawCDP,
-		CDPTokenPath:               cdpTokenSealPath,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,
@@ -339,7 +332,7 @@ func (s *Service) Get(ctx context.Context, tenantID, sessionID string) (*Session
 		BaseSnapshotName: baseSnapshotName,
 		Media:            s.sessionMediaView(*sessionRow),
 	}
-	if err := s.populateCDPCredentials(&view); err != nil {
+	if err := s.populateCDPCredentials(ctx, &view); err != nil {
 		return nil, err
 	}
 	return &view, nil
@@ -396,7 +389,7 @@ func (s *Service) GetByIDs(ctx context.Context, tenantID string, sessionIDs []st
 			BaseSnapshotName: baseSnapshotName,
 			Media:            s.sessionMediaView(sessionRow),
 		}
-		if err := s.populateCDPCredentials(&view); err != nil {
+		if err := s.populateCDPCredentials(ctx, &view); err != nil {
 			return nil, err
 		}
 		views = append(views, view)
@@ -496,18 +489,15 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err != nil {
 		return nil, err
 	}
-	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionID)
-	if err != nil {
+	view := &SessionView{
+		Session: *sessionRow,
+		Tags:    tags,
+		Media:   s.sessionMediaView(*sessionRow),
+	}
+	if err := s.populateCDPCredentials(ctx, view); err != nil {
 		return nil, err
 	}
-
-	return &SessionView{
-		Session:  *sessionRow,
-		Tags:     tags,
-		CDPURL:   s.cdpURL(sessionID),
-		CDPToken: rawCDP,
-		Media:    s.sessionMediaView(*sessionRow),
-	}, nil
+	return view, nil
 }
 
 // Reopen restores a retained deleted or failed session.
@@ -571,12 +561,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionID)
-	if err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return nil, err
-	}
-	cdpTokenSealPath, err := cdpTokenPath(s.cfg, sessionID)
+	rawCDP, err := s.ensureCDPToken(ctx, sessionRow)
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
@@ -586,7 +571,6 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		SessionID:                  sessionID,
 		ExternalBaseURL:            s.cfg.ExternalBaseURL,
 		CDPToken:                   rawCDP,
-		CDPTokenPath:               cdpTokenSealPath,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,
@@ -678,10 +662,7 @@ func (s *Service) RotateCDPToken(ctx context.Context, tenantID, sessionID string
 	}
 
 	now := s.now().UTC()
-	if err := s.repo.ReplaceSessionToken(ctx, sessionID, hashCDP, now.Format(time.RFC3339Nano)); err != nil {
-		return nil, err
-	}
-	if err := StoreCDPTokenSeal(s.cfg, sessionID, rawCDP); err != nil {
+	if err := s.repo.ReplaceSessionToken(ctx, sessionID, hashCDP, rawCDP, now.Format(time.RFC3339Nano)); err != nil {
 		return nil, err
 	}
 
@@ -738,7 +719,7 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 		BaseSnapshotName: baseSnapshotName,
 		Media:            s.sessionMediaView(*sessionRow),
 	}
-	if err := s.populateCDPCredentials(&view); err != nil {
+	if err := s.populateCDPCredentials(ctx, &view); err != nil {
 		return nil, err
 	}
 	return &view, nil
@@ -800,7 +781,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 			BaseSnapshotName: baseSnapshotName,
 			Media:            s.sessionMediaView(sessionRow),
 		}
-		if err := s.populateCDPCredentials(&view); err != nil {
+		if err := s.populateCDPCredentials(ctx, &view); err != nil {
 			return db.PageResult[SessionView]{}, err
 		}
 		views = append(views, view)
@@ -1139,13 +1120,54 @@ func (s *Service) cdpURL(sessionID string) string {
 	return fmt.Sprintf("%s/sessions/%s/cdp", base, sessionID)
 }
 
-func (s *Service) populateCDPCredentials(view *SessionView) error {
+func (s *Service) loadCDPToken(ctx context.Context, sessionID string) (string, error) {
+	tokenRow, err := s.repo.GetSessionToken(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken == "" {
+		return "", ErrCDPTokenMissing
+	}
+	return *tokenRow.RawToken, nil
+}
+
+func (s *Service) ensureCDPToken(ctx context.Context, sessionRow *db.Session) (string, error) {
+	rawCDP, err := s.loadCDPToken(ctx, sessionRow.ID)
+	if err == nil {
+		return rawCDP, nil
+	}
+	if !errors.Is(err, ErrCDPTokenMissing) {
+		return "", err
+	}
+
+	rawCDP, hashCDP, err := GenerateCDPToken(sessionRow.ID)
+	if err != nil {
+		return "", err
+	}
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	tokenRow, err := s.repo.GetSessionToken(ctx, sessionRow.ID)
+	if err != nil {
+		return "", err
+	}
+	if tokenRow == nil {
+		return rawCDP, s.repo.CreateSessionToken(ctx, &db.SessionToken{
+			SessionID: sessionRow.ID,
+			TenantID:  sessionRow.TenantID,
+			TokenHash: hashCDP,
+			RawToken:  &rawCDP,
+			CreatedAt: now,
+		})
+	}
+	return rawCDP, s.repo.ReplaceSessionToken(ctx, sessionRow.ID, hashCDP, rawCDP, now)
+}
+
+func (s *Service) populateCDPCredentials(ctx context.Context, view *SessionView) error {
 	if !retainedCDPAvailable(view.Session.Status) {
 		return nil
 	}
-	rawCDP, err := LoadCDPTokenSeal(s.cfg, view.Session.ID)
+	rawCDP, err := s.loadCDPToken(ctx, view.Session.ID)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, ErrCDPTokenMissing) {
 			view.CDPURL = s.cdpURL(view.Session.ID)
 			return nil
 		}

@@ -223,7 +223,7 @@ func TestCreateDeleteReopenSessionLifecycle(t *testing.T) {
 func TestReopenFailedSessionRetries(t *testing.T) {
 	t.Parallel()
 
-	service, cfg, repo, _, _ := newTestService(t)
+	service, _, repo, _, _ := newTestService(t)
 	tenantID := createTenant(t, repo)
 	ctx := context.Background()
 
@@ -250,8 +250,12 @@ func TestReopenFailedSessionRetries(t *testing.T) {
 	if reopened.Session.Status != db.SessionStatusRunning {
 		t.Fatalf("status = %q, want running", reopened.Session.Status)
 	}
-	if _, err := LoadCDPTokenSeal(cfg, created.Session.ID); err != nil {
-		t.Fatalf("cdp token seal missing: %v", err)
+	tokenRow, err := repo.GetSessionToken(ctx, created.Session.ID)
+	if err != nil {
+		t.Fatalf("load cdp token: %v", err)
+	}
+	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken == "" {
+		t.Fatal("cdp token missing")
 	}
 }
 

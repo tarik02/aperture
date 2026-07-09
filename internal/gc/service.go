@@ -124,10 +124,6 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	if err := s.ensureOverlayUnmounted(ctx, sessionRow); err != nil {
 		return err
 	}
-	if err := session.RemoveCDPTokenSeal(s.cfg, sessionRow.ID); err != nil {
-		return fmt.Errorf("remove cdp token seal for session %s: %w", sessionRow.ID, err)
-	}
-
 	if err := s.removeSessionOverlayState(sessionRow); err != nil {
 		return err
 	}

@@ -56,7 +56,7 @@ func (s *Service) ValidateLiveSessionForwardAuth(ctx context.Context, tenantID, 
 	return nil
 }
 
-// RunningCDPToken returns the sealed CDP token for a tenant-owned running session.
+// RunningCDPToken returns the stored CDP token for a tenant-owned running session.
 func (s *Service) RunningCDPToken(ctx context.Context, tenantID, sessionID string) (string, error) {
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {
@@ -65,5 +65,5 @@ func (s *Service) RunningCDPToken(ctx context.Context, tenantID, sessionID strin
 	if !retainedCDPAvailable(sessionRow.Status) {
 		return "", ErrNotRunning
 	}
-	return LoadCDPTokenSeal(s.cfg, sessionID)
+	return s.loadCDPToken(ctx, sessionID)
 }

@@ -91,6 +91,7 @@ type SessionToken struct {
 	SessionID string  `bun:"session_id,pk"`
 	TenantID  string  `bun:"tenant_id,notnull"`
 	TokenHash string  `bun:"token_hash,notnull"`
+	RawToken  *string `bun:"raw_token"`
 	CreatedAt string  `bun:"created_at,notnull"`
 	RevokedAt *string `bun:"revoked_at"`
 }

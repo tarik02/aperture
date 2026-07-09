@@ -176,7 +176,7 @@ func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*Ses
 		BaseSnapshotName: baseSnapshotName,
 		Media:            s.sessionMediaView(*updated),
 	}
-	if err := s.populateCDPCredentials(&view); err != nil {
+	if err := s.populateCDPCredentials(ctx, &view); err != nil {
 		return nil, err
 	}
 	return &view, nil
@@ -296,7 +296,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 		return &OverlayMountError{SessionID: sessionRow.ID, Err: err}
 	}
 
-	runtimeEnv, runtimePath, err := s.runtimeEnvForSession(sessionRow)
+	runtimeEnv, runtimePath, err := s.runtimeEnvForSession(ctx, sessionRow)
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return err
@@ -383,7 +383,7 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	return true, nil
 }
 
-func (s *Service) runtimeEnvForSession(sessionRow *db.Session) (browser.RuntimeEnvValues, string, error) {
+func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Session) (browser.RuntimeEnvValues, string, error) {
 	layout, err := paths.Session(s.cfg, sessionRow.ID)
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
@@ -396,11 +396,7 @@ func (s *Service) runtimeEnvForSession(sessionRow *db.Session) (browser.RuntimeE
 	if err := json.Unmarshal([]byte(sessionRow.BrowserArgsJSON), &browserArgs); err != nil {
 		return browser.RuntimeEnvValues{}, "", fmt.Errorf("parse browser args: %w", err)
 	}
-	rawCDP, err := LoadCDPTokenSeal(s.cfg, sessionRow.ID)
-	if err != nil {
-		return browser.RuntimeEnvValues{}, "", err
-	}
-	cdpTokenSealPath, err := cdpTokenPath(s.cfg, sessionRow.ID)
+	rawCDP, err := s.ensureCDPToken(ctx, sessionRow)
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
 	}
@@ -410,7 +406,7 @@ func (s *Service) runtimeEnvForSession(sessionRow *db.Session) (browser.RuntimeE
 		if err != nil {
 			return browser.RuntimeEnvValues{}, "", err
 		}
-		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP, cdpTokenSealPath), layout.RuntimeEnv, nil
+		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP), layout.RuntimeEnv, nil
 	}
 
 	port, err := AllocateCDPPort()
@@ -422,7 +418,7 @@ func (s *Service) runtimeEnvForSession(sessionRow *db.Session) (browser.RuntimeE
 		return browser.RuntimeEnvValues{}, "", err
 	}
 
-	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP, cdpTokenSealPath), layout.RuntimeEnv, nil
+	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP), layout.RuntimeEnv, nil
 }
 
 func (s *Service) runtimeEnvValues(
@@ -433,7 +429,6 @@ func (s *Service) runtimeEnvValues(
 	port int,
 	wrapperPort int,
 	rawCDP string,
-	cdpTokenSealPath string,
 ) browser.RuntimeEnvValues {
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
@@ -442,7 +437,6 @@ func (s *Service) runtimeEnvValues(
 		SessionID:                  sessionRow.ID,
 		ExternalBaseURL:            s.cfg.ExternalBaseURL,
 		CDPToken:                   rawCDP,
-		CDPTokenPath:               cdpTokenSealPath,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,

@@ -65,12 +65,12 @@ func TestRotateCDPTokenReplacesTokenAndExtendsLease(t *testing.T) {
 		t.Fatal("expected lease refresh on rotation")
 	}
 
-	sealed, err := LoadCDPTokenSeal(service.cfg, created.Session.ID)
+	tokenRow, err := repo.GetSessionToken(ctx, created.Session.ID)
 	if err != nil {
-		t.Fatalf("LoadCDPTokenSeal() error = %v", err)
+		t.Fatalf("load cdp token: %v", err)
 	}
-	if sealed != rotated.CDPToken {
-		t.Fatalf("sealed token mismatch")
+	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken != rotated.CDPToken {
+		t.Fatalf("stored token mismatch")
 	}
 
 	if err := service.ValidateCDPForwardAuth(ctx, created.Session.ID, "Bearer "+rotated.CDPToken); err != nil {

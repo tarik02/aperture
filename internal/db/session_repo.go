@@ -127,11 +127,12 @@ func (r *Repository) CreateSessionToken(ctx context.Context, token *SessionToken
 	return nil
 }
 
-// ReplaceSessionToken updates the stored CDP token hash for a session.
-func (r *Repository) ReplaceSessionToken(ctx context.Context, sessionID, tokenHash, createdAt string) error {
+// ReplaceSessionToken updates the stored CDP token for a session.
+func (r *Repository) ReplaceSessionToken(ctx context.Context, sessionID, tokenHash, rawToken, createdAt string) error {
 	result, err := r.db.bun.NewUpdate().
 		Model((*SessionToken)(nil)).
 		Set("token_hash = ?", tokenHash).
+		Set("raw_token = ?", rawToken).
 		Set("created_at = ?", createdAt).
 		Set("revoked_at = NULL").
 		Where("session_id = ?", sessionID).
