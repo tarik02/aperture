@@ -1,6 +1,6 @@
 ---
 name: aperture
-description: Use this skill when an agent needs to operate Aperture via its HTTP REST/WebSocket API: health checks, authentication, tenants, tokens, browser channels, sessions, snapshots, events, CDP proxy routes, WebRTC signaling, viewport resize, or screencast control.
+description: Use this skill when an agent needs to operate Aperture via its HTTP REST/WebSocket/MCP API: health checks, authentication, tenants, tokens, browser channels, sessions, snapshots, events, MCP tools, CDP proxy routes, WebRTC signaling, viewport resize, screencast control, or session files.
 ---
 
 # Aperture API
@@ -112,6 +112,32 @@ Tenant-local token body omits `authorityType` and `tenantId`:
 
 Token creation returns `rawToken` once. Store it immediately if needed.
 
+## MCP
+
+Aperture exposes Streamable HTTP MCP when `mcp_enabled` is true (the default):
+
+- central management MCP: `POST /mcp`
+- session-bound MCP: `POST /sessions/:sessionId/mcp`
+
+Both endpoints use `Authorization: Bearer ...`. The central endpoint accepts Aperture API tokens only. The session endpoint accepts either an authorized API token or that session's `sessionToken`.
+
+Central MCP tools take an explicit `tenantId` where needed and expose management, session, snapshot, event, and session-file workflows. Session-bound MCP binds the session from the URL and omits `sessionId` from tool input; a session token can use only the tools for that session and cannot access central management MCP or `/api/*`.
+
+The `sessionToken` is the live credential for exactly one session. It authorizes that session's routed live endpoints through forward auth, including CDP, WebRTC signaling, and per-session MCP; it does not authorize `/api/*`. Rotate it with `POST /api/sessions/:sessionId/session-token/rotate`.
+
+Agent-browser tools are selected when the MCP connection is established with the `agentBrowserTools` query parameter:
+
+```text
+/mcp?agentBrowserTools=core,tabs,mobile,network
+/sessions/$SESSION_ID/mcp?agentBrowserTools=core,tabs
+```
+
+The default is `core,tabs,mobile,network`. Profiles are validated at connection time; an invalid profile fails the request. Filtering is static for the lifetime of the MCP connection, so open a new connection to change profiles. Browser calls wake the target session for the call duration; listing tools and connecting do not wake it.
+
+Native MCP tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `events.list`, `session_files.list`, and `session_files.create_download_url`, plus authorized tenant and token administration tools. Session-bound MCP additionally provides `sessions.status`, `sessions.connection`, `sessions.suspend`, and (for API-token callers with the required scopes) `sessions.promote`.
+
+MCP tool output is capped at `tool_output_max_bytes` (16 MiB by default). Set `mcp_enabled = false` to make both MCP routes return `404`.
+
 ## Sessions
 
 List:
@@ -172,7 +198,7 @@ Promote body:
 
 ## Session Wrapper API
 
-These routes are authenticated through the main API and forwarded to the per-session `browser-session-wrapper`.
+These live-session routes are forwarded to the per-session `browser-session-wrapper` through the forward-auth/session-token model. Routed requests are authorized for the session; WebRTC signaling accepts the bound `sessionToken`.
 
 - `GET /sessions/:sessionId/browser/status`
 - `POST /sessions/:sessionId/browser/viewport`
@@ -198,7 +224,7 @@ Screencast start body:
 }
 ```
 
-`codec` may be `vp8` or `h264-va`. If `path` is omitted, the wrapper writes into the session artifacts directory.
+`codec` may be `vp8` or `h264-va`. If `path` is omitted, the wrapper writes into the session's `recordings` directory. Browser downloads are written into that session's `downloads` directory.
 
 WebRTC signaling is a WebSocket endpoint. Use subprotocols:
 
@@ -231,6 +257,26 @@ Live CDP discovery proxy:
 - `/sessions/:sessionId/cdp/*path`
 
 The CDP proxy uses session token auth.
+
+## Session Files
+
+Session files are limited to regular files below the session's `downloads` and `recordings` directories. Recordings created by the screencast wrapper and browser downloads are both included.
+
+Through MCP:
+
+- central `session_files.list` takes `tenantId` and `sessionId`
+- central `session_files.create_download_url` takes `tenantId`, `sessionId`, `relativePath`, and optional `ttlSeconds`
+- session-bound versions omit `tenantId` and `sessionId` and bind them from `/sessions/:sessionId/mcp`
+
+`session_files.list` returns `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`. MCP returns metadata and signed URLs rather than large file contents.
+
+Signed downloads use:
+
+```text
+/sessions/:sessionId/files/<relative-path>?token=...
+```
+
+The URL is bound to the exact session and relative path. Omitting `ttlSeconds` uses `signed_file_url_ttl` (15 minutes); callers may request any positive lifetime up to `signed_file_url_max_ttl` (24 hours), including one longer than the default. The route validates the signature, expiry, path, and session file root before serving an attachment.
 
 ## Curl Patterns
 

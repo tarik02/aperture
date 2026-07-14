@@ -79,6 +79,12 @@ in
       artifact_root = "${storeRoot}/artifacts"
       traefik_dynamic_config_dir = "${runtimeRoot}/traefik/dynamic"
       external_base_url = "${cfg.externalBaseUrl}"
+      mcp_enabled = true
+      agent_browser_tools_default = "core,tabs,mobile,network"
+      agent_browser_idle_timeout = "5m"
+      tool_output_max_bytes = 16777216
+      signed_file_url_ttl = "15m"
+      signed_file_url_max_ttl = "24h"
       deploy_state_path = "${storeRoot}/deployment-state.json"
       deploy_blue_url = "http://127.0.0.1:28080"
       deploy_green_url = "http://127.0.0.1:28082"
