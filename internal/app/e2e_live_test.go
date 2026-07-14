@@ -89,6 +89,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 		DeployBlueURL:           "http://" + addr,
 		DeployGreenURL:          "http://127.0.0.1:28082",
 		ListenAddress:           addr,
+		BrowserSupervisor:       config.BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:  "browser-session@.service",
 		SessionRetentionDays:    7,
 		SnapshotRetentionDays:   7,

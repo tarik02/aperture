@@ -25,6 +25,7 @@ func newInternalJobTestEnv(t *testing.T, jobToken string) *testEnv {
 		DatabasePath:            filepath.Join(root, "unused.db"),
 		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
 		ListenAddress:           "127.0.0.1:8080",
+		BrowserSupervisor:       config.BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:  "browser-session@.service",
 		SessionRetentionDays:    7,
 		SnapshotRetentionDays:   7,
