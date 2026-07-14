@@ -20,6 +20,9 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	}
 	router := gin.New()
 	router.Use(gin.Recovery(), server.handoffInactiveAPI)
+	server.initMCPHandler()
+	router.Any("/mcp", server.mcp)
+	router.Any("/sessions/:sessionId/mcp", server.mcp)
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.sessionTokenForwardAuth)

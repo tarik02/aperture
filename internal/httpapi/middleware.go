@@ -12,6 +12,7 @@ import (
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
+	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
@@ -25,6 +26,8 @@ const inactiveHandoffTimeout = 15 * time.Second
 
 // Server holds HTTP handler dependencies.
 type Server struct {
+	Config        config.Config
+	Repository    *db.Repository
 	Auth          *auth.Service
 	Sessions      *session.Service
 	Snapshots     *snapshot.Service
@@ -37,6 +40,7 @@ type Server struct {
 	DeployVersion string
 	Logger        *zap.Logger
 	jobToken      string
+	mcpHandler    http.Handler
 }
 
 // SetJobToken configures the local job token for internal endpoints.

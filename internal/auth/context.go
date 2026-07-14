@@ -17,6 +17,7 @@ type Principal struct {
 	TenantID      *string
 	Name          string
 	Scopes        []string
+	ExpiresAt     *string
 }
 
 // WithPrincipal stores principal on ctx.

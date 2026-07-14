@@ -149,6 +149,8 @@ func (a *App) Serve(ctx context.Context) error {
 	go a.reconcileSessionRoutesOnActivation(monitorCtx, role == deploystate.RoleActive)
 
 	server := &httpapi.Server{
+		Config:        a.Config,
+		Repository:    a.Repository,
 		Auth:          a.Auth,
 		Sessions:      a.Sessions,
 		Snapshots:     a.Snapshots,
