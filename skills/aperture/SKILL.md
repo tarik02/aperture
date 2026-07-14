@@ -1,129 +1,156 @@
 ---
 name: aperture
-description: Use this skill when an agent needs to operate Aperture via its HTTP REST/WebSocket/MCP API: health checks, authentication, tenants, tokens, browser channels, sessions, snapshots, events, MCP tools, CDP proxy routes, WebRTC signaling, viewport resize, screencast control, or session files.
+description: Operate an Aperture instance through its public HTTP, WebSocket, and MCP APIs. Use for authentication, tenant and token administration, browser channels, session lifecycle, snapshots, events, MCP tools, CDP discovery/proxying, WebRTC signaling, viewport control, screencast recording, and session files.
 ---
 
 # Aperture API
 
-## Auth
-
-Send API tokens as:
+Use the instance's public origin for every request:
 
 ```bash
+export APERTURE_BASE_URL="https://aperture.example.com"
+```
+
+Public surfaces:
+
+- control plane: `$APERTURE_BASE_URL/api/*`
+- central MCP: `$APERTURE_BASE_URL/mcp`
+- live session data plane: `$APERTURE_BASE_URL/sessions/:sessionId/*`
+- session-bound MCP: `$APERTURE_BASE_URL/sessions/:sessionId/mcp`
+
+Treat `/internal/*` as implementation-only. Do not call it directly.
+
+## Authentication
+
+Send API tokens on HTTP requests:
+
+```http
 Authorization: Bearer $APERTURE_TOKEN
 ```
 
-Tenant-scoped operations require an effective tenant:
+Tenant tokens are already bound to their tenant. System-admin tokens must select a tenant for tenant-scoped operations:
 
-```bash
+```http
 X-Aperture-Tenant-Id: $TENANT_ID
 ```
 
-Tenant tokens already bind to one tenant; system-admin tokens must pass `X-Aperture-Tenant-Id` for tenant-scoped endpoints.
+Do not send another tenant ID with a tenant token; a mismatched tenant selection is rejected.
 
-Scopes:
+Authorities are `system_admin` and `tenant`. Current scope behavior:
 
-- `system:admin`: full access, required for `/api/admin/*`
-- `tenants:write`: system-admin tenant administration
-- `tenant:write`: tenant self-management and tenant token management
-- `sessions:read`, `sessions:write`
-- `snapshots:read`, `snapshots:write`
+- `system:admin`: grants every scope and is required by `/api/admin/*`
+- `tenant:write`: tenant self-management and tenant token management; only tenant-authority tokens may use `/api/tenant*`
+- `sessions:read`, `sessions:write`: session control-plane and live data-plane access
+- `snapshots:read`, `snapshots:write`: snapshot access
+- `tenants:write`: accepted only on system-admin tokens, but does not replace `system:admin` for current admin routes
 
-## Response Shapes
+Creating a session from a snapshot also requires `snapshots:read`. Promoting a session requires both `sessions:write` and `snapshots:write`.
 
-Errors are JSON with an error code/message, handled by `WriteError`.
+The `sessionToken` is a live credential bound to exactly one session. It authorizes that session's routed live endpoints through forward auth, including CDP, WebRTC signaling, and per-session MCP. It does not authorize `/api/*` or central MCP.
 
-Paginated list responses:
+## Response Conventions
+
+Public API errors use:
+
+```json
+{
+  "error": {
+    "code": "validation_failed",
+    "message": "..."
+  }
+}
+```
+
+Paginated responses use:
 
 ```json
 {
   "data": [],
   "meta": {
-    "nextCursor": null
+    "limit": 50,
+    "nextCursor": "optional cursor",
+    "hasMore": false
   }
 }
 ```
 
-Common pagination/filter params:
+Pass `limit` and `cursor` to paginated endpoints. Treat cursors as opaque.
 
-- `limit`, `cursor`
-- `includeDeleted=true`
-- sessions: `status=creating|running|deleted|expired|failed`
-- snapshots: `deleted=active|deleted|all`
-- tag filters: repeat `tagKey`, `tagValue`, optional `tagOperator=eq|ne|in|not_in`
+## General Endpoints
 
-## Core Endpoints
+- `GET /api/health` — unauthenticated health check; `status` is `ok` when healthy
+- `GET /api/auth/me` — authenticated principal and selected tenant
+- `GET /api/browser/channels` — available browser channel names; requires `sessions:read`
+- `GET /api/events` — paginated tenant events; requires `sessions:read`
 
-Path namespaces:
+Event filters:
 
-- UI: `/-/*` (`/-/sessions`, `/-/sessions/:sessionId`, `/-/snapshots`, `/-/tokens`, `/-/tenants`)
-- REST API: `/api/*`
-- live session data plane: `/sessions/:sessionId/*`
-- internal proxy/auth/job routes: `/internal/*`
+- `resourceType`
+- `resourceId`
 
-Health:
+## Tenants and API Tokens
 
-- `GET /api/health` -> `{"status":"ok"}`
+System administration, requiring a system-admin token:
 
-Current principal:
-
-- `GET /api/auth/me`
-
-Browser channels:
-
-- `GET /api/browser/channels`
-
-System admin:
-
-- `POST /api/admin/tenants` body `{ "displayName": "Acme" }`
+- `POST /api/admin/tenants`
 - `GET /api/admin/tenants`
-- `PATCH /api/admin/tenants/:tenantId` body `{ "displayName": "New name" }`
+- `PATCH /api/admin/tenants/:tenantId`
 - `DELETE /api/admin/tenants/:tenantId`
 - `POST /api/admin/tenants/:tenantId/restore`
 - `POST /api/admin/tokens`
 - `GET /api/admin/tokens`
-- `POST /api/admin/tokens/:tokenId/revoke`
+- `POST /api/admin/tokens/:tokenId/revoke` — returns `204`
 
-Tenant self:
+Tenant self-service, requiring a tenant token with `tenant:write`:
 
 - `GET /api/tenant`
-- `PATCH /api/tenant` body `{ "displayName": "New name" }`
+- `PATCH /api/tenant`
 - `POST /api/tenant/tokens`
 - `GET /api/tenant/tokens`
-- `POST /api/tenant/tokens/:tokenId/revoke`
+- `POST /api/tenant/tokens/:tokenId/revoke` — returns `204`
 
-Token creation body:
+Tenant create/update body:
+
+```json
+{ "displayName": "Acme" }
+```
+
+Admin token creation body:
 
 ```json
 {
   "name": "agent",
   "authorityType": "tenant",
-  "tenantId": "optional-for-tenant-token-from-admin-route",
+  "tenantId": "required for tenant authority",
   "scopes": ["sessions:read", "sessions:write"],
-  "expiresAt": "optional RFC3339Nano"
+  "expiresAt": "optional RFC3339Nano timestamp"
 }
 ```
 
-Tenant-local token body omits `authorityType` and `tenantId`:
+Tenant-local token creation omits `authorityType` and `tenantId`:
 
 ```json
-{ "name": "agent", "scopes": ["sessions:read"], "expiresAt": null }
+{
+  "name": "agent",
+  "scopes": ["sessions:read"],
+  "expiresAt": null
+}
 ```
 
-Token creation returns `rawToken` once. Store it immediately if needed.
+Token creation returns `{ "token": {...}, "rawToken": "apt_..." }`. The raw token is returned only on creation; persist it immediately when required.
+
+Tenant and token lists are paginated. Tenant lists accept `deleted=active|deleted|all` or `includeDeleted=true`. Token lists accept `name`, `scope`, `revoked=active|revoked|all`; the admin list also accepts `tenantId` and `authorityType=system_admin|tenant`.
 
 ## MCP
 
 Aperture exposes Streamable HTTP MCP when `mcp_enabled` is true (the default):
 
-- central management MCP: `POST /mcp`
-- session-bound MCP: `POST /sessions/:sessionId/mcp`
+- central management MCP: `/mcp`
+- session-bound MCP: `/sessions/:sessionId/mcp`
 
-Both endpoints use `Authorization: Bearer ...`. The central endpoint accepts Aperture API tokens only. The session endpoint accepts either an authorized API token or that session's `sessionToken`.
+Both endpoints use `Authorization: Bearer ...`. Central MCP accepts Aperture API tokens only. Session-bound MCP accepts either an authorized API token or that session's `sessionToken`.
 
-Central MCP tools take an explicit `tenantId` where needed and expose management, session, snapshot, event, and session-file workflows. Session-bound MCP binds the session from the URL and omits `sessionId` from tool input; a session token can use only the tools for that session and cannot access central management MCP or `/api/*`.
-
-The `sessionToken` is the live credential for exactly one session. It authorizes that session's routed live endpoints through forward auth, including CDP, WebRTC signaling, and per-session MCP; it does not authorize `/api/*`. Rotate it with `POST /api/sessions/:sessionId/session-token/rotate`.
+Central tools take `tenantId` or `sessionId` where required and expose management, session, snapshot, event, and session-file workflows. Session-bound MCP binds the session from the URL and omits `sessionId` from tool inputs. A session token can use only tools for its bound session.
 
 Agent-browser tools are selected when the MCP connection is established with the `agentBrowserTools` query parameter:
 
@@ -132,21 +159,40 @@ Agent-browser tools are selected when the MCP connection is established with the
 /sessions/$SESSION_ID/mcp?agentBrowserTools=core,tabs
 ```
 
-The default is `core,tabs,mobile,network`. Profiles are validated at connection time; an invalid profile fails the request. Filtering is static for the lifetime of the MCP connection, so open a new connection to change profiles. Browser calls wake the target session for the call duration; listing tools and connecting do not wake it.
+The default is `core,tabs,mobile,network`. Profiles are validated at connection time and remain fixed for that connection. Open a new connection to change profiles. Browser calls wake the target session for the call duration; connecting and listing tools do not wake it.
 
-Native MCP tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `events.list`, `session_files.list`, and `session_files.create_download_url`, plus authorized tenant and token administration tools. Session-bound MCP additionally provides `sessions.status`, `sessions.connection`, `sessions.suspend`, and (for API-token callers with the required scopes) `sessions.promote`.
+Native tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `events.list`, `session_files.list`, and `session_files.create_download_url`, plus authorized tenant and token administration tools.
 
 MCP tool output is capped at `tool_output_max_bytes` (16 MiB by default). Set `mcp_enabled = false` to make both MCP routes return `404`.
 
 ## Sessions
 
-List:
+Endpoints:
 
-- `GET /api/sessions`
+- `GET /api/sessions` — paginated list
+- `POST /api/sessions/bulk` — fetch up to 100 unique UUIDv7 session IDs
+- `GET /api/sessions/:sessionId`
+- `POST /api/sessions` — create
+- `DELETE /api/sessions/:sessionId`
+- `PUT /api/sessions/:sessionId/tags` — replace all tags
+- `POST /api/sessions/:sessionId/suspend`
+- `POST /api/sessions/:sessionId/reopen`
+- `POST /api/sessions/:sessionId/session-token/rotate`
+- `POST /api/sessions/:sessionId/promote`
 
-Create:
+Session list filters:
 
-- `POST /api/sessions`
+- `includeDeleted=true`
+- `status=creating|running|suspended|deleted|expired|failed`
+- repeated tag filters: matching `tagKey`, `tagValue`, and optional `tagOperator=eq|ne|in|not_in`
+
+Bulk request:
+
+```json
+{ "ids": ["01900000-0000-7000-8000-000000000001"] }
+```
+
+Create request:
 
 ```json
 {
@@ -162,7 +208,9 @@ Create:
 }
 ```
 
-Create returns:
+`browser.channel` is required. Use `GET /api/browser/channels` rather than assuming a channel name.
+
+Create returns `201`:
 
 ```json
 {
@@ -175,43 +223,74 @@ Create returns:
       "webrtcProducer": true,
       "iceServers": []
     },
-    "cdpUrl": "..."
+    "cdpUrl": "https://aperture.example.com/sessions/.../cdp",
+    "sessionToken": "..."
   },
-  "cdpUrl": "...",
+  "cdpUrl": "https://aperture.example.com/sessions/.../cdp",
   "sessionToken": "..."
 }
 ```
 
-Mutations:
+Session reads may include `cdpUrl` and `sessionToken` while retained live access is available. Suspend, reopen, and session-token rotation return `{ "session": {...}, "cdpUrl": "...", "sessionToken": "..." }`; other mutations return `{ "session": {...} }`.
 
-- `DELETE /api/sessions/:sessionId`
-- `PUT /api/sessions/:sessionId/tags` body `{ "tags": { "key": "value" } }`
-- `POST /api/sessions/:sessionId/reopen`
-- `POST /api/sessions/:sessionId/session-token/rotate`
-- `POST /api/sessions/:sessionId/promote`
-
-Promote body:
+Promotion body:
 
 ```json
-{ "name": "snapshot-name", "force": false, "tags": {} }
+{
+  "name": "snapshot-name",
+  "description": "optional description",
+  "force": false,
+  "tags": {}
+}
 ```
 
-## Session Wrapper API
+Promotion returns `{ "snapshot": {...} }`.
 
-These live-session routes are forwarded to the per-session `browser-session-wrapper` through the forward-auth/session-token model. Routed requests are authorized for the session; WebRTC signaling accepts the bound `sessionToken`.
+## Snapshots
 
-- `GET /sessions/:sessionId/browser/status`
-- `POST /sessions/:sessionId/browser/viewport`
-- `GET /sessions/:sessionId/webrtc/signal?role=viewer`
-- `POST /sessions/:sessionId/screencast/start`
-- `POST /sessions/:sessionId/screencast/stop` returns the recorded WebM attachment
-- `GET /sessions/:sessionId/screencast/status`
+- `GET /api/snapshots` — paginated list
+- `PATCH /api/snapshots/:name` — update description
+- `DELETE /api/snapshots/:name`
+- `PUT /api/snapshots/:name/tags` — replace all tags
+- `POST /api/snapshots/:name/restore`
+
+Description update body:
+
+```json
+{ "description": "new description or null" }
+```
+
+Mutation responses use `{ "snapshot": {...} }`.
+
+Snapshot list filters:
+
+- `deleted=active|deleted|all` or `includeDeleted=true`
+- repeated `tagKey`, `tagValue`, and optional `tagOperator`
+
+## Live Session Data Plane
+
+These public routes are forwarded to the running session wrapper:
+
+- `GET /sessions/:sessionId/browser/status` — `sessions:read`
+- `POST /sessions/:sessionId/browser/viewport` — `sessions:write`
+- `GET /sessions/:sessionId/webrtc/signal?role=viewer` — WebSocket, `sessions:write`
+- `POST /sessions/:sessionId/screencast/start` — `sessions:write`
+- `POST /sessions/:sessionId/screencast/stop` — `sessions:write`, returns a WebM attachment
+- `GET /sessions/:sessionId/screencast/status` — `sessions:write`
+
+Use an authorized API bearer token and tenant header, or the bound `sessionToken`, for routed live-session requests.
 
 Viewport body:
 
 ```json
-{ "width": 1280, "height": 720 }
+{
+  "width": 1280,
+  "height": 720,
+  "deviceScaleFactor": 1
+}
 ```
+
+The viewport response reports logical and physical dimensions plus the effective scale.
 
 Screencast start body:
 
@@ -220,53 +299,50 @@ Screencast start body:
   "fps": 60,
   "bitrateKbps": 6000,
   "codec": "vp8",
-  "path": "/absolute/path/optional.webm"
+  "path": "optional-relative-output.webm"
 }
 ```
 
-`codec` may be `vp8` or `h264-va`. If `path` is omitted, the wrapper writes into the session's `recordings` directory. Browser downloads are written into that session's `downloads` directory.
-
-WebRTC signaling is a WebSocket endpoint. Use subprotocols:
-
-- `aperture-webrtc.v1`
-- `authorization.bearer.$SESSION_TOKEN`
-- session tokens are bound to the session and do not need a tenant header
-
-## Snapshots
-
-- `GET /api/snapshots`
-- `DELETE /api/snapshots/:name`
-- `PUT /api/snapshots/:name/tags` body `{ "tags": { "key": "value" } }`
-- `POST /api/snapshots/:name/restore`
-
-## Events
-
-- `GET /api/events`
-
-Filters:
-
-- `resourceType`
-- `resourceId`
-- plus pagination params
+Supported codecs are `vp8` and `h264-va`. Omitted or non-positive FPS/bitrate values use instance defaults. Recordings are restricted to the session's `recordings` directory; omitting `path` generates a name there. Screencast start/status return fields such as `active`, `path`, `startedAt`, `stoppedAt`, `fps`, `codec`, and `sizeBytes` when applicable.
 
 ## CDP Proxy
 
-Live CDP discovery proxy:
+CDP uses the session-specific `sessionToken`, not the Aperture API bearer token. Append the token as the next path segment after the returned `cdpUrl`:
 
-- `/sessions/:sessionId/cdp`
-- `/sessions/:sessionId/cdp/*path`
+```bash
+curl -fsS "$CDP_URL/$SESSION_TOKEN/json/version"
+curl -fsS "$CDP_URL/$SESSION_TOKEN/json/list"
+```
 
-The CDP proxy uses session token auth.
+Discovery responses contain rewritten WebSocket debugger URLs under the same tokenized public path. Connect to those URLs without an `Authorization` header or WebSocket subprotocol.
+
+Rotate a compromised session token with `POST /api/sessions/:sessionId/session-token/rotate`; previously issued live-session URLs then stop authorizing.
+
+## WebRTC Signaling
+
+Connect to:
+
+```text
+wss://aperture.example.com/sessions/:sessionId/webrtc/signal?role=viewer
+```
+
+Send these WebSocket subprotocols:
+
+- `aperture-webrtc.v1`
+- `authorization.bearer.$SESSION_TOKEN` or an authorized API token
+- `x-aperture-tenant-id.$TENANT_ID` when using a system-admin token
+
+The selected WebSocket protocol is `aperture-webrtc.v1`. Only the `viewer` role is accepted, and a new viewer replaces the previous viewer for that session.
 
 ## Session Files
 
-Session files are limited to regular files below the session's `downloads` and `recordings` directories. Recordings created by the screencast wrapper and browser downloads are both included.
+Session files are limited to regular files below the session's `downloads` and `recordings` directories. Browser downloads and screencasts created by the wrapper are included.
 
 Through MCP:
 
-- central `session_files.list` takes `tenantId` and `sessionId`
-- central `session_files.create_download_url` takes `tenantId`, `sessionId`, `relativePath`, and optional `ttlSeconds`
-- session-bound versions omit `tenantId` and `sessionId` and bind them from `/sessions/:sessionId/mcp`
+- central `session_files.list` takes `sessionId` and `tenantId` where required by the caller's authority
+- central `session_files.create_download_url` takes `sessionId`, `relativePath`, optional `ttlSeconds`, and `tenantId` where required
+- session-bound versions omit tenant and session identity inputs and bind them from `/sessions/:sessionId/mcp`
 
 `session_files.list` returns `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`. MCP returns metadata and signed URLs rather than large file contents.
 
@@ -276,53 +352,50 @@ Signed downloads use:
 /sessions/:sessionId/files/<relative-path>?token=...
 ```
 
-The URL is bound to the exact session and relative path. Omitting `ttlSeconds` uses `signed_file_url_ttl` (15 minutes); callers may request any positive lifetime up to `signed_file_url_max_ttl` (24 hours), including one longer than the default. The route validates the signature, expiry, path, and session file root before serving an attachment.
+The URL is bound to the exact session and relative path. Omitting `ttlSeconds` uses `signed_file_url_ttl` (15 minutes by default); callers may request any positive lifetime up to `signed_file_url_max_ttl` (24 hours by default). The route validates the signature, expiry, path, and session file root before serving an attachment.
 
-## Curl Patterns
+## Generic Curl Patterns
 
 Health:
 
 ```bash
-curl -fsS http://polygon:28081/api/health
+curl -fsS "$APERTURE_BASE_URL/api/health"
 ```
 
-List sessions:
+List sessions with a system-admin token:
 
 ```bash
 curl -fsS \
   -H "Authorization: Bearer $APERTURE_TOKEN" \
   -H "X-Aperture-Tenant-Id: $TENANT_ID" \
-  "http://polygon:28081/api/sessions?limit=20"
+  "$APERTURE_BASE_URL/api/sessions?limit=20"
 ```
 
-Resize a session viewport:
+Suspend a session with a tenant token:
 
 ```bash
 curl -fsS -X POST \
   -H "Authorization: Bearer $APERTURE_TOKEN" \
-  -H "X-Aperture-Tenant-Id: $TENANT_ID" \
+  "$APERTURE_BASE_URL/api/sessions/$SESSION_ID/suspend"
+```
+
+Resize a viewport:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $APERTURE_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"width":1280,"height":720}' \
-  "http://polygon:28081/sessions/$SESSION_ID/browser/viewport"
+  -d '{"width":1280,"height":720,"deviceScaleFactor":1}' \
+  "$APERTURE_BASE_URL/sessions/$SESSION_ID/browser/viewport"
 ```
 
-Start screencast:
+Stop and download a screencast:
 
 ```bash
 curl -fsS -X POST \
   -H "Authorization: Bearer $APERTURE_TOKEN" \
-  -H "X-Aperture-Tenant-Id: $TENANT_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"fps":60,"bitrateKbps":6000,"codec":"vp8"}' \
-  "http://polygon:28081/sessions/$SESSION_ID/screencast/start"
-```
-
-Stop and download screencast:
-
-```bash
-curl -fsS -X POST \
-  -H "Authorization: Bearer $APERTURE_TOKEN" \
-  -H "X-Aperture-Tenant-Id: $TENANT_ID" \
   -o "screencast-$SESSION_ID.webm" \
-  "http://polygon:28081/sessions/$SESSION_ID/screencast/stop"
+  "$APERTURE_BASE_URL/sessions/$SESSION_ID/screencast/stop"
 ```
+
+Add `X-Aperture-Tenant-Id` to tenant-scoped examples when using a system-admin token.

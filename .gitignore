@@ -1,4 +1,5 @@
 .DS_Store
+/result
 /vendor/
 node_modules/
 web/dist/

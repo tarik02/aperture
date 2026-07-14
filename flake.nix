@@ -12,6 +12,23 @@
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
 
+        goLatest = pkgs.go_1_26.overrideAttrs (_: {
+          version = "1.26.5";
+          src = pkgs.fetchurl {
+            url = "https://go.dev/dl/go1.26.5.src.tar.gz";
+            hash = "sha256-SVvkvIcXasVnOS5bQRar2YRm0z17SdQedkzMaXay3EI=";
+          };
+        });
+
+        pnpmLatest = pkgs.pnpm.override {
+          version = "11.13.0";
+          hash = "sha256-hlx2vZERpFykH27u1AZ/8Ozf7p6sg6rSQXnIP/6+dZk=";
+        };
+
+        buildGoModule = pkgs.buildGoModule.override {
+          go = goLatest;
+        };
+
         isPackageSourceExcluded = path:
           let
             root = (toString ./.) + "/";
@@ -112,11 +129,11 @@
 
         agentBrowser = pkgs.stdenvNoCC.mkDerivation {
           pname = "agent-browser";
-          version = "0.31.1";
+          version = "0.31.2";
 
           src = pkgs.fetchurl {
-            url = "https://registry.npmjs.org/agent-browser/-/agent-browser-0.31.1.tgz";
-            hash = "sha512-RjgfT0EsHe1oZQbwzUqJTPb7w3sU8DGbbAjMxLNI5dW1y0cc81TbVsqgjqQJmsy3GEbEcKe/ryARwmWGqJAXXQ==";
+            url = "https://registry.npmjs.org/agent-browser/-/agent-browser-0.31.2.tgz";
+            hash = "sha512-TkqqlFIIs9XFR7GCX92syuWdbWy3pcGkTsBKk/oncofVfICmaMJHnAeXk2MciE1SEUonzRqVNUCnYCqcO8rqWA==";
           };
 
           nativeBuildInputs = with pkgs; [
@@ -150,11 +167,11 @@
           then builtins.readFile ./.aperture-deploy-version
           else self.shortRev or self.dirtyShortRev or "0.0.1";
 
-        aperture = (pkgs.buildGoModule (finalAttrs: {
+        aperture = (buildGoModule (finalAttrs: {
           pname = "aperture";
           version = "0.0.1";
           inherit src;
-          vendorHash = "sha256-Ac6aLjZF7wZyTc+enMPilm7qMdvFhSca9aypaEDj4pE=";
+          vendorHash = "sha256-5RfTdeGMonET/IQ0Epj61u5AULRFwHo7eIERe5eJwCc=";
 
           subPackages = [
             "cmd/aperture"
@@ -165,18 +182,18 @@
 
           pnpmDeps = pkgs.fetchPnpmDeps {
             inherit (finalAttrs) pname version src;
-            pnpm = pkgs.pnpm;
-            fetcherVersion = 3;
+            pnpm = pnpmLatest;
+            fetcherVersion = 4;
             pnpmWorkspaces = [ "@aperture/web" ];
-            hash = "sha256-M/L5eP8I5iGzwKoLCqQ2e9iXER8vN2qDKgUFVbK/X1g=";
+            hash = "sha256-qvsj4YLNMwY84NJ7hRCjonf4GEeB6xXwqsGWvIEMmTw=";
           };
 
-          nativeBuildInputs = with pkgs; [
-            makeWrapper
-            nodejs_22
-            pnpm
-            pnpmConfigHook
-            pkg-config
+          nativeBuildInputs = [
+            pkgs.makeWrapper
+            pkgs.nodejs_22
+            pnpmLatest
+            pkgs.pnpmConfigHook
+            pkgs.pkg-config
           ];
 
           buildInputs = with pkgs; [
@@ -198,7 +215,7 @@
           overrideModAttrs = oldAttrs: {
             nativeBuildInputs = builtins.filter (drv:
               drv != pkgs.pnpmConfigHook
-              && drv != pkgs.pnpm
+              && drv != pnpmLatest
               && drv != pkgs.nodejs_22
             ) (oldAttrs.nativeBuildInputs or [ ]);
             preBuild = "";
@@ -208,8 +225,6 @@
           doCheck = true;
 
           postInstall = ''
-            install -m 0755 ${agentBrowser}/bin/agent-browser $out/bin/agent-browser
-
             mkdir -p $out/lib/weston
             mkdir -p $TMPDIR/aperture-wayland-protocols
             ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
@@ -318,20 +333,20 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            go
-            gopls
-            nodejs_22
-            pnpm
-            pkg-config
-            sqlite
-            traefik
-            chromium
-            ffmpeg
-            bubblewrap
-            libxkbcommon
-            pixman
-            wayland.dev
+          packages = [
+            goLatest
+            pkgs.gopls
+            pkgs.nodejs_22
+            pnpmLatest
+            pkgs.pkg-config
+            pkgs.sqlite
+            pkgs.traefik
+            pkgs.chromium
+            pkgs.ffmpeg
+            pkgs.bubblewrap
+            pkgs.libxkbcommon
+            pkgs.pixman
+            pkgs.wayland.dev
             patchedWeston
             agentBrowser
           ];

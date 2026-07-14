@@ -1,5 +1,5 @@
 {
-  "agent_browser_version": "0.31.1",
+  "agent_browser_version": "0.31.2",
   "profiles": {
     "all": {
       "tools": [
@@ -2869,6 +2869,10 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "debug": {
+            "description": "Verbose diagnostics from the probes' scratch daemons.",
+            "type": "boolean"
+          },
           "extraArgs": {
             "description": "Advanced: extra CLI arguments for this command, preserving full CLI parity.",
             "items": {
@@ -2877,6 +2881,10 @@
             "type": "array"
           },
           "fix": {
+            "type": "boolean"
+          },
+          "headed": {
+            "description": "Run the WebGPU probe headed to validate the capture path (auto-Xvfb on displayless Linux). Explicit true/false overrides AGENT_BROWSER_HEADED/config.",
             "type": "boolean"
           },
           "namespace": {
@@ -2930,6 +2938,10 @@
             "description": "Maximum time to wait for this tool call.",
             "minimum": 1,
             "type": "integer"
+          },
+          "webgpu": {
+            "description": "Also run a live WebGPU render probe (launches a second Chrome).",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -6096,8 +6108,7 @@
             "type": "array"
           },
           "headed": {
-            "default": false,
-            "description": "Show the browser window.",
+            "description": "Show the browser window. Explicit true/false overrides AGENT_BROWSER_HEADED and config; omit to use those defaults.",
             "type": "boolean"
           },
           "namespace": {
@@ -6149,6 +6160,10 @@
           "url": {
             "description": "URL to open. Omit to launch about:blank.",
             "type": "string"
+          },
+          "webgpu": {
+            "description": "Enable WebGPU (SwiftShader software Vulkan on Linux; no GPU required). Explicit true/false overrides AGENT_BROWSER_WEBGPU and config; omit to use those defaults.",
+            "type": "boolean"
           }
         },
         "type": "object"

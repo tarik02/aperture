@@ -55,7 +55,7 @@ channels:
     default_args: []
 ```
 
-The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token. Per-session MCP accepts an authorized API bearer token or the session-bound `sessionToken`. A session token authorizes only that session's CDP, WebRTC, and per-session MCP access; it does not authorize `/api/*` or central MCP.
+The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token. Per-session MCP accepts an authorized API bearer token or the session-bound `sessionToken`. A session token authorizes that session's routed live endpoints, including CDP, WebRTC, and per-session MCP; it does not authorize `/api/*` or central MCP.
 
 On first `aperture serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
 
