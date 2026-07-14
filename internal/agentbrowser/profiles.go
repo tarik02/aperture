@@ -15,9 +15,21 @@ type Profile struct {
 	Tools []string `json:"tools"`
 }
 
+type Tool struct {
+	Name         string         `json:"name"`
+	Title        string         `json:"title,omitempty"`
+	Description  string         `json:"description,omitempty"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema any            `json:"outputSchema,omitempty"`
+	Annotations  any            `json:"annotations,omitempty"`
+	Meta         any            `json:"_meta,omitempty"`
+	Icons        any            `json:"icons,omitempty"`
+}
+
 type Metadata struct {
 	Version  string             `json:"agent_browser_version"`
 	Profiles map[string]Profile `json:"profiles"`
+	Tools    map[string]Tool    `json:"tools"`
 }
 
 func MetadataFromEmbedded() (Metadata, error) {
@@ -86,4 +98,24 @@ func SortedToolsForProfiles(profiles []string) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func ToolsForProfilesMetadata(profiles []string) (map[string]Tool, error) {
+	metadata, err := MetadataFromEmbedded()
+	if err != nil {
+		return nil, err
+	}
+	names, err := ToolsForProfiles(profiles)
+	if err != nil {
+		return nil, err
+	}
+	tools := make(map[string]Tool, len(names))
+	for name := range names {
+		tool, ok := metadata.Tools[name]
+		if !ok {
+			return nil, fmt.Errorf("missing metadata for agent-browser tool %q", name)
+		}
+		tools[name] = tool
+	}
+	return tools, nil
 }

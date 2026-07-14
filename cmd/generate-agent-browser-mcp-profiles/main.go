@@ -19,9 +19,21 @@ type profileMetadata struct {
 	Tools []string `json:"tools"`
 }
 
+type toolMetadata struct {
+	Name         string         `json:"name"`
+	Title        string         `json:"title,omitempty"`
+	Description  string         `json:"description,omitempty"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema any            `json:"outputSchema,omitempty"`
+	Annotations  any            `json:"annotations,omitempty"`
+	Meta         any            `json:"_meta,omitempty"`
+	Icons        any            `json:"icons,omitempty"`
+}
+
 type metadata struct {
 	Version  string                     `json:"agent_browser_version"`
 	Profiles map[string]profileMetadata `json:"profiles"`
+	Tools    map[string]toolMetadata    `json:"tools"`
 }
 
 func main() {
@@ -39,14 +51,24 @@ func main() {
 
 	profileNames := []string{"all", "core", "debug", "mobile", "network", "react", "state", "tabs"}
 	profiles := make(map[string]profileMetadata, len(profileNames))
+	toolDefinitions := make(map[string]toolMetadata)
 	for _, profile := range profileNames {
 		tools, err := listTools(agentBrowser, profile)
 		if err != nil {
 			fail(fmt.Errorf("list %s tools: %w", profile, err))
 		}
-		profiles[profile] = profileMetadata{Tools: tools}
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			names = append(names, tool.Name)
+			inputSchema, ok := tool.InputSchema.(map[string]any)
+			if !ok {
+				fail(fmt.Errorf("tool %s has invalid input schema", tool.Name))
+			}
+			toolDefinitions[tool.Name] = toolMetadata{Name: tool.Name, Title: tool.Title, Description: tool.Description, InputSchema: inputSchema, OutputSchema: tool.OutputSchema, Annotations: tool.Annotations, Meta: tool.Meta, Icons: tool.Icons}
+		}
+		profiles[profile] = profileMetadata{Tools: names}
 	}
-	contents, err := json.MarshalIndent(metadata{Version: version, Profiles: profiles}, "", "  ")
+	contents, err := json.MarshalIndent(metadata{Version: version, Profiles: profiles, Tools: toolDefinitions}, "", "  ")
 	if err != nil {
 		fail(fmt.Errorf("encode metadata: %w", err))
 	}
@@ -69,7 +91,7 @@ func bundledVersion(agentBrowser string) (string, error) {
 	return version, nil
 }
 
-func listTools(agentBrowser, profile string) ([]string, error) {
+func listTools(agentBrowser, profile string) ([]*mcp.Tool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -81,7 +103,7 @@ func listTools(agentBrowser, profile string) ([]string, error) {
 	}
 	defer session.Close()
 
-	seen := make(map[string]struct{})
+	seen := make(map[string]*mcp.Tool)
 	for cursor := ""; ; {
 		params := (*mcp.ListToolsParams)(nil)
 		if cursor != "" {
@@ -92,7 +114,7 @@ func listTools(agentBrowser, profile string) ([]string, error) {
 			return nil, err
 		}
 		for _, tool := range result.Tools {
-			seen[tool.Name] = struct{}{}
+			seen[tool.Name] = tool
 		}
 		if result.NextCursor == "" {
 			break
@@ -100,11 +122,11 @@ func listTools(agentBrowser, profile string) ([]string, error) {
 		cursor = result.NextCursor
 	}
 
-	tools := make([]string, 0, len(seen))
-	for tool := range seen {
+	tools := make([]*mcp.Tool, 0, len(seen))
+	for _, tool := range seen {
 		tools = append(tools, tool)
 	}
-	sort.Strings(tools)
+	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	return tools, nil
 }
 

@@ -163,6 +163,7 @@ func (a *App) Serve(ctx context.Context) error {
 		DeployVersion: a.Config.DeployVersion,
 	}
 	server.SetJobToken(jobToken)
+	defer server.Close()
 	router := httpapi.NewRouter(a.Logger, server, web.StaticAssets(), a.Config.CdpRouteBasePath)
 	httpServer := &http.Server{
 		Addr:    a.Config.ListenAddress,

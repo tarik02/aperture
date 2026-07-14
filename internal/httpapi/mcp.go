@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 )
 
 type mcpAuth struct {
+	profiles    []string
 	principal   *auth.Principal
 	sessionID   string
 	tenantID    string
@@ -45,6 +47,13 @@ func mcpAuthFromContext(ctx context.Context) (mcpAuth, error) {
 func (s *Server) initMCPHandler() {
 	if !s.Config.MCPEnabled || s.mcpHandler != nil {
 		return
+	}
+	s.agentBrowser = agentbrowser.NewManager(s.Config.AgentBrowserIdleTimeout, s.Logger)
+	if s.Sessions != nil {
+		s.Sessions.SetMediaSessionCleaner(s.agentBrowser)
+	}
+	if s.GC != nil {
+		s.GC.SetMediaSessionCleaner(s.agentBrowser)
 	}
 	streamable := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		authn, ok := r.Context().Value(mcpContextKey{}).(mcpAuth)
@@ -76,6 +85,16 @@ func (s *Server) mcp(c *gin.Context) {
 		mcpHTTPError(c, http.StatusUnauthorized, err)
 		return
 	}
+	profileValue := strings.TrimSpace(c.Request.URL.Query().Get("agentBrowserTools"))
+	if profileValue == "" {
+		profileValue = s.Config.AgentBrowserToolsDefault
+	}
+	profiles, err := agentbrowser.ParseProfiles(profileValue)
+	if err != nil {
+		mcpHTTPError(c, http.StatusBadRequest, fmt.Errorf("invalid_profile: %w", err))
+		return
+	}
+	authn.profiles = profiles
 	request := c.Request.WithContext(withMCPAuth(c.Request.Context(), authn))
 	if s.Config.ToolOutputMaxBytes > 0 {
 		request.Body = http.MaxBytesReader(c.Writer, request.Body, s.Config.ToolOutputMaxBytes)
@@ -411,28 +430,141 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
-		return server
+	} else {
+		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.list", Description: "List snapshots before creating a browser session."}, s.mcpSnapshotsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.get", Description: "Get a snapshot by tenant and name."}, s.mcpSnapshotsGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.create", Description: "Create a browser session and return its session token and connection data for later browser tools."}, s.mcpSessionsCreate)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.create_from_snapshot", Description: "Create a browser session from the required snapshotName and return immediate connection data."}, s.mcpSessionsCreateFromSnapshot)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.list", Description: "List sessions without waking or promoting suspended sessions."}, s.mcpSessionsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.get", Description: "Get one session by tenant and session ID."}, s.mcpSessionsGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.bulk_get", Description: "Get several tenant-owned sessions without waking them."}, s.mcpSessionsBulkGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get current status for a session."}, s.mcpSessionStatus)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get current connection data for a session."}, s.mcpSessionConnection)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend a running session."}, s.mcpSessionSuspend)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.delete", Description: "Delete a tenant-owned session."}, s.mcpSessionDelete)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
+		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "tokens.list", Description: "List API tokens for system or tenant administration."}, s.mcpTokensList)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenants.create", Description: "Create a tenant for subsequent session and snapshot workflows."}, s.mcpTenantsCreate)
+		mcp.AddTool(server, &mcp.Tool{Name: "tokens.create", Description: "Create an API bearer token for authorized Aperture access."}, s.mcpTokensCreate)
+		mcp.AddTool(server, &mcp.Tool{Name: "tokens.revoke", Description: "Revoke an API bearer token."}, s.mcpTokensRevoke)
 	}
-	mcp.AddTool(server, &mcp.Tool{Name: "snapshots.list", Description: "List snapshots before creating a browser session."}, s.mcpSnapshotsList)
-	mcp.AddTool(server, &mcp.Tool{Name: "snapshots.get", Description: "Get a snapshot by tenant and name."}, s.mcpSnapshotsGet)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.create", Description: "Create a browser session and return its session token and connection data for later browser tools."}, s.mcpSessionsCreate)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.create_from_snapshot", Description: "Create a browser session from the required snapshotName and return immediate connection data."}, s.mcpSessionsCreateFromSnapshot)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.list", Description: "List sessions without waking or promoting suspended sessions."}, s.mcpSessionsList)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.get", Description: "Get one session by tenant and session ID."}, s.mcpSessionsGet)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.bulk_get", Description: "Get several tenant-owned sessions without waking them."}, s.mcpSessionsBulkGet)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get current status for a session."}, s.mcpSessionStatus)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get current connection data for a session."}, s.mcpSessionConnection)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend a running session."}, s.mcpSessionSuspend)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.delete", Description: "Delete a tenant-owned session."}, s.mcpSessionDelete)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
-	mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
-	mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
-	mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
-	mcp.AddTool(server, &mcp.Tool{Name: "tokens.list", Description: "List API tokens for system or tenant administration."}, s.mcpTokensList)
-	mcp.AddTool(server, &mcp.Tool{Name: "tenants.create", Description: "Create a tenant for subsequent session and snapshot workflows."}, s.mcpTenantsCreate)
-	mcp.AddTool(server, &mcp.Tool{Name: "tokens.create", Description: "Create an API bearer token for authorized Aperture access."}, s.mcpTokensCreate)
-	mcp.AddTool(server, &mcp.Tool{Name: "tokens.revoke", Description: "Revoke an API bearer token."}, s.mcpTokensRevoke)
+	canProxy := a.sessionOnly || (a.principal != nil && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite))
+	tools, err := agentbrowser.ToolsForProfilesMetadata(a.profiles)
+	if canProxy && err == nil {
+		for name, definition := range tools {
+			if name == "sessions.status" || name == "sessions.connection" {
+				continue
+			}
+			tool := adaptAgentBrowserTool(definition, a.pathBound)
+			server.AddTool(tool, s.agentBrowserToolHandler(a, name, a.pathBound))
+		}
+	}
 	return server
+}
+
+func adaptAgentBrowserTool(definition agentbrowser.Tool, pathBound bool) *mcp.Tool {
+	schema := make(map[string]any)
+	encoded, _ := json.Marshal(definition.InputSchema)
+	_ = json.Unmarshal(encoded, &schema)
+	properties, _ := schema["properties"].(map[string]any)
+	delete(properties, "session")
+	delete(properties, "sessionId")
+	required, _ := schema["required"].([]any)
+	filteredRequired := required[:0]
+	for _, item := range required {
+		if item != "session" && item != "sessionId" {
+			filteredRequired = append(filteredRequired, item)
+		}
+	}
+	if pathBound {
+		if len(filteredRequired) == 0 {
+			delete(schema, "required")
+		} else {
+			schema["required"] = filteredRequired
+		}
+	} else {
+		if properties == nil {
+			properties = map[string]any{}
+			schema["properties"] = properties
+		}
+		properties["sessionId"] = map[string]any{"type": "string", "description": "Aperture session ID."}
+		filteredRequired = append(filteredRequired, "sessionId")
+		schema["required"] = filteredRequired
+	}
+	tool := &mcp.Tool{Name: definition.Name, Title: definition.Title, Description: definition.Description, InputSchema: schema, OutputSchema: definition.OutputSchema}
+	if definition.Annotations != nil {
+		b, _ := json.Marshal(definition.Annotations)
+		_ = json.Unmarshal(b, &tool.Annotations)
+	}
+	if definition.Meta != nil {
+		b, _ := json.Marshal(definition.Meta)
+		_ = json.Unmarshal(b, &tool.Meta)
+	}
+	if definition.Icons != nil {
+		b, _ := json.Marshal(definition.Icons)
+		_ = json.Unmarshal(b, &tool.Icons)
+	}
+	return tool
+}
+
+func (s *Server) agentBrowserToolHandler(a mcpAuth, name string, pathBound bool) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		arguments := map[string]any{}
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &arguments); err != nil {
+				return nil, mcpToolError("invalid_arguments", err)
+			}
+		}
+		if _, ok := arguments["session"]; ok {
+			return nil, mcpToolError("invalid_arguments", errors.New("agent-browser session cannot be overridden"))
+		}
+		sessionID := a.sessionID
+		if !pathBound {
+			value, ok := arguments["sessionId"].(string)
+			if !ok || value == "" {
+				return nil, mcpToolError("invalid_arguments", errors.New("sessionId is required"))
+			}
+			sessionID = value
+			delete(arguments, "sessionId")
+		}
+		view, err := s.resolveProxySession(ctx, a, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		port, release, err := s.Sessions.AcquireCDPPort(ctx, view.Session.TenantID, sessionID)
+		if err != nil {
+			return nil, mcpToolError("session_unavailable", err)
+		}
+		defer release()
+		result, err := s.agentBrowser.Call(ctx, sessionID, fmt.Sprintf("http://127.0.0.1:%d", port), name, arguments)
+		if err != nil {
+			return nil, mcpToolError("agent_browser_error", err)
+		}
+		return result, nil
+	}
+}
+
+func (s *Server) resolveProxySession(ctx context.Context, a mcpAuth, sessionID string) (*session.SessionView, error) {
+	if a.sessionID != "" && sessionID != a.sessionID {
+		return nil, mcpToolError("forbidden", nil)
+	}
+	if a.sessionOnly {
+		return s.Sessions.Get(ctx, a.tenantID, sessionID)
+	}
+	row, err := s.Repository.GetSessionByID(ctx, sessionID)
+	if err != nil || row == nil {
+		return nil, mcpToolError("session_not_found", err)
+	}
+	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) {
+		return nil, mcpToolError("forbidden", nil)
+	}
+	if _, err := auth.ResolveTenantID(*a.principal, row.TenantID); err != nil {
+		return nil, mcpToolError("forbidden", nil)
+	}
+	return s.Sessions.Get(ctx, row.TenantID, sessionID)
 }
 
 func (s *Server) mcpTenant(a mcpAuth, requested string, scope string) (string, error) {
