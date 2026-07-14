@@ -17,10 +17,11 @@ import (
 type RuntimeEnvValues struct {
 	SessionID                  string
 	ExternalBaseURL            string
-	SessionToken                   string
-	SessionTokenPath               string
+	SessionToken               string
+	SessionTokenPath           string
 	MergedUserDataDir          string
 	DownloadsDir               string
+	RecordingsDir              string
 	CacheDir                   string
 	ArtifactsDir               string
 	CDPPort                    int
@@ -57,6 +58,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	}
 	if strings.TrimSpace(values.DownloadsDir) == "" {
 		return nil, fmt.Errorf("downloads dir is required")
+	}
+	if strings.TrimSpace(values.RecordingsDir) == "" {
+		return nil, fmt.Errorf("recordings dir is required")
 	}
 	if strings.TrimSpace(values.CacheDir) == "" {
 		return nil, fmt.Errorf("cache dir is required")
@@ -158,6 +162,7 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"SESSION_TOKEN_PATH=" + shellQuote(values.SessionTokenPath),
 		"MERGED_USER_DATA_DIR=" + shellQuote(values.MergedUserDataDir),
 		"DOWNLOADS_DIR=" + shellQuote(values.DownloadsDir),
+		"RECORDINGS_DIR=" + shellQuote(values.RecordingsDir),
 		"CACHE_DIR=" + shellQuote(values.CacheDir),
 		"ARTIFACTS_DIR=" + shellQuote(values.ArtifactsDir),
 		"CDP_PORT=" + strconv.Itoa(values.CDPPort),
@@ -230,7 +235,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -316,6 +321,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.MergedUserDataDir = value
 	case "DOWNLOADS_DIR":
 		values.DownloadsDir = value
+	case "RECORDINGS_DIR":
+		values.RecordingsDir = value
 	case "CACHE_DIR":
 		values.CacheDir = value
 	case "ARTIFACTS_DIR":

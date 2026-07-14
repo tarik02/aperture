@@ -410,6 +410,35 @@ type mcpListTokensOutput struct {
 	Meta db.PageMeta `json:"meta"`
 }
 
+type mcpSessionFilesInput struct {
+	TenantID  string `json:"tenantId,omitempty"`
+	SessionID string `json:"sessionId"`
+}
+type mcpSessionFileInput struct {
+	TenantID     string `json:"tenantId,omitempty"`
+	SessionID    string `json:"sessionId"`
+	RelativePath string `json:"relativePath"`
+	TTLSeconds   int    `json:"ttlSeconds,omitempty"`
+}
+type mcpBoundSessionFileInput struct {
+	RelativePath string `json:"relativePath"`
+	TTLSeconds   int    `json:"ttlSeconds,omitempty"`
+}
+type mcpSessionFile struct {
+	Name         string    `json:"name"`
+	RelativePath string    `json:"relativePath"`
+	Size         int64     `json:"size"`
+	ModifiedAt   time.Time `json:"modifiedAt"`
+	MIMEType     string    `json:"mimeType"`
+}
+type mcpSessionFilesOutput struct {
+	Files []mcpSessionFile `json:"files"`
+}
+type mcpSessionFileURLOutput struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
 type mcpStatusOutput struct {
 	Session mcpSession `json:"session"`
 }
@@ -424,6 +453,8 @@ type mcpConnectionOutput struct {
 func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "aperture", Version: s.DeployVersion}, nil)
 	if a.pathBound {
+		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in this session."}, s.mcpBoundSessionFilesList)
+		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in this session."}, s.mcpBoundSessionFileURL)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get status for this session without waking it."}, s.mcpBoundStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get live connection data for this session without waking it."}, s.mcpBoundConnection)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend this running session."}, s.mcpBoundSuspend)
@@ -444,6 +475,8 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.delete", Description: "Delete a tenant-owned session."}, s.mcpSessionDelete)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
+		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
+		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.list", Description: "List API tokens for system or tenant administration."}, s.mcpTokensList)

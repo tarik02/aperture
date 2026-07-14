@@ -23,6 +23,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	server.initMCPHandler()
 	router.Any("/mcp", server.mcp)
 	router.Any("/sessions/:sessionId/mcp", server.mcp)
+	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.sessionTokenForwardAuth)

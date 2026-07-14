@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aperture/aperture/internal/paths"
+
 	"github.com/coder/websocket"
 )
 
@@ -359,10 +361,13 @@ func (r *wrapperRuntime) startScreencast(request wrapperScreencastRequest) (map[
 	codec := normalizeWrapperCodec(request.Codec, r.values.MediaProducerCodec)
 	path := strings.TrimSpace(request.Path)
 	if path == "" {
-		path = filepath.Join(r.values.ArtifactsDir, "screencast-"+time.Now().UTC().Format("20060102T150405Z")+".webm")
+		path = filepath.Join(r.values.RecordingsDir, "screencast-"+time.Now().UTC().Format("20060102T150405Z")+".webm")
 	}
 	if !filepath.IsAbs(path) {
 		return nil, fmt.Errorf("screencast path must be absolute")
+	}
+	if err := paths.ValidateTrustedPath(r.values.RecordingsDir, path); err != nil {
+		return nil, fmt.Errorf("screencast path must be inside recordings root: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir screencast dir: %w", err)
@@ -443,7 +448,7 @@ func (r *wrapperRuntime) screencastFileLocked() *wrapperScreencastFile {
 	if r.lastScreencast != nil {
 		return r.lastScreencast
 	}
-	matches, err := filepath.Glob(filepath.Join(r.values.ArtifactsDir, "screencast-*.webm"))
+	matches, err := filepath.Glob(filepath.Join(r.values.RecordingsDir, "screencast-*.webm"))
 	if err != nil {
 		return nil
 	}

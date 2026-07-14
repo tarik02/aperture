@@ -439,6 +439,7 @@ func (s *Service) runtimeEnvValues(
 		SessionToken:               rawSessionToken,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
+		RecordingsDir:              layout.Recordings,
 		CacheDir:                   layout.Cache,
 		ArtifactsDir:               layout.Artifacts,
 		CDPPort:                    port,
