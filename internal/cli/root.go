@@ -28,6 +28,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.PersistentFlags().String("config", "", "config file path")
 	cmd.PersistentFlags().String("listen-address", "", "loopback listen address")
+	cmd.PersistentFlags().String("browser-supervisor", "", "browser supervisor (systemd, direct)")
 	cmd.PersistentFlags().String("log-level", "", "log level (debug, info, warn, error)")
 	cmd.PersistentFlags().String("store-root", "", "persistent store root")
 	cmd.PersistentFlags().String("runtime-root", "", "runtime state root")

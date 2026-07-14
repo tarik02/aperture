@@ -2,6 +2,8 @@
 
 Aperture is packaged with Nix and runs as a per-user desktop service on NixOS (or any Linux host with user systemd).
 
+For the single-container deployment, see [Docker](docker.md).
+
 ## Build and install
 
 From the repository:

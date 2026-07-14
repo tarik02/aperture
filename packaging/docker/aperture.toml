@@ -1,0 +1,44 @@
+store_root = "/var/lib/aperture"
+runtime_root = "/run/aperture/state"
+artifact_root = "/var/lib/aperture/artifacts"
+database_path = "/var/lib/aperture/aperture.db"
+traefik_dynamic_config_dir = "/run/aperture/traefik/dynamic"
+external_base_url = "http://127.0.0.1:8080"
+listen_address = "127.0.0.1:28080"
+browser_supervisor = "direct"
+session_retention_days = 7
+snapshot_retention_days = 7
+mcp_enabled = true
+agent_browser_tools_default = "core,tabs,mobile,network"
+agent_browser_idle_timeout = "5m"
+tool_output_max_bytes = 16777216
+signed_file_url_ttl = "15m"
+signed_file_url_max_ttl = "24h"
+deploy_color = "blue"
+deploy_state_path = "/var/lib/aperture/deployment-state.json"
+deploy_blue_url = "http://127.0.0.1:28080"
+deploy_green_url = "http://127.0.0.1:28080"
+deploy_version = "@DEPLOY_VERSION@"
+webrtc_media_mode = "auto"
+webrtc_compositor_enabled = true
+webrtc_compositor_executable = "@WESTON@/bin/weston"
+webrtc_compositor_backend = "pipewire"
+webrtc_compositor_renderer = "gl"
+webrtc_compositor_shell = "aperture"
+webrtc_compositor_width = 1280
+webrtc_compositor_height = 720
+webrtc_media_producer_enabled = true
+webrtc_media_producer_gst_executable = "@GSTREAMER@/bin/gst-launch-1.0"
+webrtc_media_producer_plugin_path = "@GSTREAMER_PLUGIN_PATH@"
+webrtc_media_producer_target = "weston.pipewire"
+webrtc_media_producer_codec = "vp8"
+webrtc_media_producer_fps = 60
+webrtc_media_producer_bitrate_kbps = 6000
+webrtc_media_producer_keyframe_interval = 120
+
+[channels.chromium]
+executable = "@CHROMIUM@/bin/chromium"
+default_args = ["--disable-breakpad", "--no-sandbox"]
+
+[[webrtc_ice_servers]]
+urls = ["stun:stun.l.google.com:19302"]

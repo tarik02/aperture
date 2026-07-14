@@ -1,0 +1,26 @@
+services:
+  aperture:
+    image: ${APERTURE_IMAGE:-aperture:local}
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
+    shm_size: 2gb
+    stop_grace_period: 35s
+    environment:
+      APERTURE_EXTERNAL_BASE_URL: ${APERTURE_EXTERNAL_BASE_URL:?APERTURE_EXTERNAL_BASE_URL is required}
+      APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC: ${APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC:-vp8}
+    ports:
+      - "8080:8080"
+    tmpfs:
+      - /run/aperture:rw,nosuid,nodev,size=512m
+    volumes:
+      - aperture-data:/var/lib/aperture
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+
+volumes:
+  aperture-data:

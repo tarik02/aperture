@@ -89,6 +89,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 		DeployBlueURL:           "http://" + addr,
 		DeployGreenURL:          "http://127.0.0.1:28082",
 		ListenAddress:           addr,
+		BrowserSupervisor:       config.BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:  "browser-session@.service",
 		SessionRetentionDays:    7,
 		SnapshotRetentionDays:   7,
@@ -157,7 +158,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 		t.Fatalf("create session status = %d body = %s", createResp.StatusCode, readBody(createResp))
 	}
 	var created struct {
-		Session  db.Session `json:"session"`
+		Session      db.Session `json:"session"`
 		SessionToken string     `json:"sessionToken"`
 	}
 	decodeJSON(t, createResp, &created)

@@ -37,8 +37,14 @@ func Validate(cfg Config) error {
 		errs = append(errs, errors.New("listen_address must be loopback"))
 	}
 
-	if strings.TrimSpace(cfg.SystemdBrowserUnitName) == "" {
-		errs = append(errs, errors.New("systemd_browser_unit_name is required"))
+	switch strings.ToLower(strings.TrimSpace(cfg.BrowserSupervisor)) {
+	case BrowserSupervisorDirect:
+	case BrowserSupervisorSystemd:
+		if strings.TrimSpace(cfg.SystemdBrowserUnitName) == "" {
+			errs = append(errs, errors.New("systemd_browser_unit_name is required when browser_supervisor is systemd"))
+		}
+	default:
+		errs = append(errs, errors.New("browser_supervisor must be systemd or direct"))
 	}
 	if captureProofDir := strings.TrimSpace(cfg.WebRTCCaptureProofExtensionDir); captureProofDir != "" && !filepath.IsAbs(captureProofDir) {
 		errs = append(errs, errors.New("webrtc_capture_proof_extension_dir must be an absolute path"))

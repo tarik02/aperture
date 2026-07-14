@@ -27,6 +27,7 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("deploy_color", defaults.DeployColor)
 	v.SetDefault("deploy_blue_url", defaults.DeployBlueURL)
 	v.SetDefault("deploy_green_url", defaults.DeployGreenURL)
+	v.SetDefault("browser_supervisor", defaults.BrowserSupervisor)
 	v.SetDefault("systemd_browser_unit_name", defaults.SystemdBrowserUnitName)
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)

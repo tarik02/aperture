@@ -162,6 +162,38 @@
           '';
         };
 
+        s6OverlayVersion = "3.2.3.1";
+        s6OverlayArch =
+          if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then {
+            archive = "x86_64";
+            hash = "sha256-7XL9s6vxlkctEhsCa+1jtG80Q1B70s5n32vRh/fU3Ao=";
+          }
+          else if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then {
+            archive = "aarch64";
+            hash = "sha256-x5tcx+XkBfbhrhRmqBYKyE0puGYU4eAf8PsR3IMv7hs=";
+          }
+          else null;
+
+        s6OverlayNoarch = pkgs.fetchurl {
+          url = "https://github.com/just-containers/s6-overlay/releases/download/v${s6OverlayVersion}/s6-overlay-noarch.tar.xz";
+          hash = "sha256-Q9mdJm/v4yzcFRCWOqreshHMhFC2CvJ4F7ZK9FDJNL4=";
+        };
+
+        s6OverlayRootfs =
+          if pkgs.stdenv.isLinux then
+            pkgs.runCommand "s6-overlay-rootfs-${s6OverlayVersion}" {
+              nativeBuildInputs = [ pkgs.gnutar pkgs.xz ];
+            } ''
+              mkdir -p $out
+              tar -C $out --no-same-owner --no-same-permissions -Jxf ${s6OverlayNoarch}
+              tar -C $out --no-same-owner --no-same-permissions -Jxf ${pkgs.fetchurl {
+                url = "https://github.com/just-containers/s6-overlay/releases/download/v${s6OverlayVersion}/s6-overlay-${s6OverlayArch.archive}.tar.xz";
+                hash = s6OverlayArch.hash;
+              }}
+            ''
+          else
+            null;
+
         deployVersion =
           if builtins.pathExists ./.aperture-deploy-version
           then builtins.readFile ./.aperture-deploy-version
@@ -330,6 +362,127 @@
             runHook postCheck
           '';
         });
+
+        gstreamerPluginPath = lib.makeSearchPath "lib/gstreamer-1.0" [
+          pkgs.gst_all_1.gstreamer
+          pkgs.gst_all_1.gst-plugins-base
+          pkgs.gst_all_1.gst-plugins-good
+          pkgs.gst_all_1.gst-plugins-bad
+          pkgs.pipewire
+        ];
+
+        dockerRootfs =
+          if pkgs.stdenv.isLinux then
+            pkgs.runCommand "aperture-docker-rootfs" { } ''
+              mkdir -p $out
+              cp -R ${./packaging/docker/rootfs}/. $out/
+              chmod -R u+w $out
+              mkdir -p $out/etc/aperture
+              substitute ${./packaging/docker/aperture.toml} $out/etc/aperture/aperture.toml \
+                --replace-fail '@DEPLOY_VERSION@' '${deployVersion}' \
+                --replace-fail '@WESTON@' '${patchedWeston}' \
+                --replace-fail '@GSTREAMER@' '${pkgs.gst_all_1.gstreamer}' \
+                --replace-fail '@GSTREAMER_PLUGIN_PATH@' '${gstreamerPluginPath}' \
+                --replace-fail '@CHROMIUM@' '${pkgs.chromium}'
+              substitute ${./packaging/traefik/static.yaml.template} $out/etc/aperture/traefik.yaml \
+                --replace-fail '@ENTRYPOINT_ADDRESS@' ':8080' \
+                --replace-fail '@DYNAMIC_CONFIG_DIR@' '/run/aperture/traefik/dynamic'
+            ''
+          else
+            null;
+
+        dockerImage = if pkgs.stdenv.isLinux then pkgs.dockerTools.buildLayeredImage {
+          name = "aperture";
+          tag = deployVersion;
+          maxLayers = 120;
+          contents = [
+            aperture
+            agentBrowser
+            pkgs.traefik
+            pkgs.chromium
+            pkgs.bashInteractive
+            pkgs.coreutils
+            pkgs.curl
+            pkgs.findutils
+            pkgs.gnugrep
+            pkgs.gnused
+            pkgs.sudo
+            pkgs.cacert
+          ];
+          extraCommands = ''
+            cp -R --preserve=mode,timestamps --no-preserve=ownership ${s6OverlayRootfs}/. .
+            chmod u+w .
+            chmod -R u+w etc
+            cp -R --preserve=mode,timestamps --no-preserve=ownership ${dockerRootfs}/. .
+            chmod u+w .
+            chmod -R u+w etc
+
+            mkdir -p etc/aperture home/aperture run usr/local/bin var/lib/aperture tmp
+            chmod 0644 etc/aperture/aperture.toml
+            chmod 0755 \
+              etc/cont-init.d/00-aperture \
+              etc/services.d/aperture/run \
+              etc/services.d/gc/run \
+              etc/services.d/traefik/run
+
+            cat > etc/passwd <<'EOF'
+            root:x:0:0:root:/root:/bin/sh
+            aperture:x:1000:1000:Aperture:/home/aperture:/bin/sh
+            nobody:x:65534:65534:Nobody:/:/sbin/nologin
+            EOF
+            cat > etc/group <<'EOF'
+            root:x:0:
+            aperture:x:1000:
+            nobody:x:65534:
+            EOF
+            cat > etc/nsswitch.conf <<'EOF'
+            passwd: files
+            group: files
+            hosts: files dns
+            EOF
+            rm -f etc/sudoers
+            rm -rf etc/sudoers.d
+            mkdir -p etc/sudoers.d
+            cat > etc/sudoers <<'EOF'
+            Defaults env_reset
+            Defaults secure_path="/usr/local/bin:${lib.makeBinPath [ aperture pkgs.coreutils pkgs.sudo ]}"
+            root ALL=(ALL:ALL) ALL
+            @includedir /etc/sudoers.d
+            EOF
+            cat > etc/sudoers.d/aperture <<'EOF'
+            aperture ALL=(root) NOPASSWD: ${aperture}/bin/aperture-mount-session *
+            aperture ALL=(root) NOPASSWD: ${aperture}/bin/aperture-unmount-session *
+            EOF
+            chmod 0440 etc/sudoers etc/sudoers.d/aperture
+            cp ${pkgs.sudo}/bin/sudo usr/local/bin/sudo
+            chmod 1777 tmp
+          '';
+          fakeRootCommands = ''
+            chmod 4755 package/admin/s6-overlay-helpers-0.1.2.2/command/s6-overlay-suexec
+            chmod 4755 usr/local/bin/sudo
+          '';
+          config = {
+            Entrypoint = [ "/init" ];
+            WorkingDir = "/var/lib/aperture";
+            Env = [
+              "HOME=/home/aperture"
+              "XDG_RUNTIME_DIR=/run/aperture/user"
+              "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "PATH=/command:/usr/local/bin:${lib.makeBinPath [ aperture agentBrowser pkgs.traefik pkgs.chromium pkgs.bashInteractive pkgs.coreutils pkgs.curl pkgs.findutils pkgs.gnugrep pkgs.gnused pkgs.sudo ]}"
+              "S6_BEHAVIOUR_IF_STAGE2_FAILS=2"
+              "S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0"
+              "S6_KILL_GRACETIME=30000"
+              "S6_SERVICES_GRACETIME=30000"
+            ];
+            ExposedPorts = { "8080/tcp" = { }; };
+            Volumes = { "/var/lib/aperture" = { }; };
+            Labels = {
+              "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
+              "org.opencontainers.image.revision" = deployVersion;
+              "org.opencontainers.image.version" = deployVersion;
+            };
+          };
+        } else null;
       in
       {
         devShells.default = pkgs.mkShell {
@@ -352,8 +505,12 @@
           ];
         };
 
-        packages.default = aperture;
-        packages.aperture = aperture;
+        packages = {
+          default = aperture;
+          aperture = aperture;
+        } // lib.optionalAttrs pkgs.stdenv.isLinux {
+          aperture-docker = dockerImage;
+        };
 
         checks.default = aperture;
       }) // {
