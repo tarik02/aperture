@@ -44,9 +44,9 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, release), nil
 }
 
-// AcquireAuthorizedCDPPort wakes a CDP-token-authorized session if needed and holds an activity inhibitor.
+// AcquireAuthorizedCDPPort wakes a session-token-authorized session if needed and holds an activity inhibitor.
 func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, authorization string) (int, func(), error) {
-	sessionRow, err := s.authorizedCDPSession(ctx, routeSessionID, authorization)
+	sessionRow, err := s.authorizedSession(ctx, routeSessionID, authorization)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -68,8 +68,8 @@ func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, 
 	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, release), nil
 }
 
-// WakeAuthorizedCDP validates a public CDP token and waits until a suspended session is ready.
-func (s *Service) WakeAuthorizedCDP(ctx context.Context, routeSessionID, authorization string) error {
+// WakeAuthorizedSession validates a public session token and waits until a suspended session is ready.
+func (s *Service) WakeAuthorizedSession(ctx context.Context, routeSessionID, authorization string) error {
 	_, release, err := s.AcquireAuthorizedCDPPort(ctx, routeSessionID, authorization)
 	if err != nil {
 		return err
@@ -176,7 +176,7 @@ func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*Ses
 		BaseSnapshotName: baseSnapshotName,
 		Media:            s.sessionMediaView(*updated),
 	}
-	if err := s.populateCDPCredentials(ctx, &view); err != nil {
+	if err := s.populateSessionCredentials(ctx, &view); err != nil {
 		return nil, err
 	}
 	return &view, nil
@@ -396,7 +396,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 	if err := json.Unmarshal([]byte(sessionRow.BrowserArgsJSON), &browserArgs); err != nil {
 		return browser.RuntimeEnvValues{}, "", fmt.Errorf("parse browser args: %w", err)
 	}
-	rawCDP, err := s.ensureCDPToken(ctx, sessionRow)
+	rawSessionToken, err := s.ensureSessionToken(ctx, sessionRow)
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
 	}
@@ -406,7 +406,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		if err != nil {
 			return browser.RuntimeEnvValues{}, "", err
 		}
-		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP), layout.RuntimeEnv, nil
+		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
 	}
 
 	port, err := AllocateCDPPort()
@@ -418,7 +418,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		return browser.RuntimeEnvValues{}, "", err
 	}
 
-	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawCDP), layout.RuntimeEnv, nil
+	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
 }
 
 func (s *Service) runtimeEnvValues(
@@ -428,7 +428,7 @@ func (s *Service) runtimeEnvValues(
 	browserArgs []string,
 	port int,
 	wrapperPort int,
-	rawCDP string,
+	rawSessionToken string,
 ) browser.RuntimeEnvValues {
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
@@ -436,7 +436,7 @@ func (s *Service) runtimeEnvValues(
 	return browser.RuntimeEnvValues{
 		SessionID:                  sessionRow.ID,
 		ExternalBaseURL:            s.cfg.ExternalBaseURL,
-		CDPToken:                   rawCDP,
+		SessionToken:               rawSessionToken,
 		MergedUserDataDir:          layout.Merged,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,
@@ -510,7 +510,7 @@ func (s *Service) touchConnectedByID(ctx context.Context, sessionID string) erro
 	if err != nil {
 		return err
 	}
-	if sessionRow == nil || !retainedCDPAvailable(sessionRow.Status) {
+	if sessionRow == nil || !retainedSessionAvailable(sessionRow.Status) {
 		return nil
 	}
 	return s.touchConnected(ctx, sessionRow)
@@ -566,7 +566,7 @@ func mediaViewAvailable(status string) bool {
 	return status == db.SessionStatusRunning || status == db.SessionStatusSuspended
 }
 
-func retainedCDPAvailable(status string) bool {
+func retainedSessionAvailable(status string) bool {
 	return status == db.SessionStatusRunning || status == db.SessionStatusSuspended
 }
 

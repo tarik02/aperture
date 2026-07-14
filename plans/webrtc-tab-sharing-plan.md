@@ -115,7 +115,7 @@ if any of these blockers holds after the named validation stage:
   not ready to run or configure TURN.
 - The fallback path cannot switch from WebRTC failure to CDP screencast without
   losing input control or leaving stale capture state.
-- The media credential model would expose API tokens or session CDP tokens to
+- The media credential model would expose API tokens or session tokens to
   captured pages.
 
 When a bailout happens, leave the codebase in one of two states: no compositor
@@ -372,7 +372,7 @@ Validation:
 
 Bail out if:
 
-- The producer cannot authenticate without exposing normal API or CDP tokens.
+- The producer cannot authenticate without exposing normal API or session tokens.
 - Signaling state leaks across tenants or sessions.
 - The coordinator needs to inspect or modify encoded media to make the design
   work.
@@ -528,7 +528,7 @@ Validation:
 - Expiry removes generated media runtime files.
 - Browser crash clears producer state.
 - Go shutdown does not leave persistent secrets outside session runtime paths.
-- Existing GC behavior still removes CDP token seals and session runtime state.
+- Existing GC behavior still removes session token seals and session runtime state.
 - Local validation:
   - `git diff --check`
   - `mise x go@latest -- go test ./...`
@@ -562,7 +562,7 @@ Review:
 - SDP and ICE candidate logging does not expose private network details unless
   debug logging is explicitly enabled.
 - Public Traefik routes do not expose producer endpoints without auth.
-- The fallback CDP path does not leak the session CDP token into the web UI.
+- The fallback CDP path does not leak the session token into the web UI.
 - GPU, render-node, PipeWire, and runtime-directory sandbox bindings are scoped
   narrowly enough for the deployment model.
 - Stage 9 implementation/review boundary:

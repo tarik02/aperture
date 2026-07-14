@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-func TestParseCDPTokenAllowsUnderscoreInSecret(t *testing.T) {
+func TestParseSessionTokenAllowsUnderscoreInSecret(t *testing.T) {
 	t.Parallel()
 
 	sessionID := "018f1234-0000-7000-8000-000000000001"
 	secret := "abc_def"
-	raw := "cdp_" + sessionID + "_" + secret
+	raw := "session_" + sessionID + "_" + secret
 
-	gotSessionID, gotSecret, err := ParseCDPToken(raw)
+	gotSessionID, gotSecret, err := ParseSessionToken(raw)
 	if err != nil {
-		t.Fatalf("ParseCDPToken() error = %v", err)
+		t.Fatalf("ParseSessionToken() error = %v", err)
 	}
 	if gotSessionID != sessionID {
 		t.Fatalf("session id = %q, want %q", gotSessionID, sessionID)
@@ -24,13 +24,13 @@ func TestParseCDPTokenAllowsUnderscoreInSecret(t *testing.T) {
 	}
 }
 
-func TestParseCDPTokenRejectsMalformedToken(t *testing.T) {
+func TestParseSessionTokenRejectsMalformedToken(t *testing.T) {
 	t.Parallel()
 
-	if _, _, err := ParseCDPToken("apt_bad"); err == nil {
+	if _, _, err := ParseSessionToken("apt_bad"); err == nil {
 		t.Fatal("expected malformed token error")
 	}
-	if _, _, err := ParseCDPToken("cdp_" + strings.Repeat("a", 36)); err == nil {
+	if _, _, err := ParseSessionToken("session_" + strings.Repeat("a", 36)); err == nil {
 		t.Fatal("expected missing secret error")
 	}
 }

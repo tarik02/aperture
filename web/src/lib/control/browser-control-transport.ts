@@ -64,6 +64,7 @@ type ConnectOptions = {
 
 type BrowserControlOptions = ConnectOptions & {
   sessionId: string;
+  sessionToken: string;
   credentials: ApiCredentials;
   input$: Observable<ClientMessage>;
   viewport$: Observable<ViewportPreset>;
@@ -143,6 +144,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
         active
           ? webRTCMedia$({
               sessionId: options.sessionId,
+              sessionToken: options.sessionToken,
               credentials: options.credentials,
               iceServers: options.iceServers,
               input$: webRTCInput$,

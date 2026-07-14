@@ -32,7 +32,7 @@ func TestParseRawTokenRejectsInvalidFormat(t *testing.T) {
 		"bad",
 		"apt_onlyprefix",
 		"apt_id_",
-		"cdp_018f1234-0000-7000-8000-000000000001_secret",
+		"session_018f1234-0000-7000-8000-000000000001_secret",
 	}
 
 	for _, raw := range cases {

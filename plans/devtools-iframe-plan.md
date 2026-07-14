@@ -13,7 +13,7 @@ proxy, not directly to Chromium's loopback port.
 - Use vendored DevTools assets. Do not depend on
   `chrome-devtools-frontend.appspot.com` at runtime.
 - Serve DevTools assets from `/devtools/*`.
-- Do not expose raw CDP tokens to the workspace iframe flow.
+- Do not expose raw session tokens to the workspace iframe flow.
 - Do not let `/devtools/*` fall back to the SPA shell.
 - Do not start a dev server for validation.
 - Do not add new tests. Use existing checks and manual smoke validation.
@@ -130,7 +130,7 @@ Implementation notes:
 
 Validation:
 
-- Launch endpoint returns no raw CDP token.
+- Launch endpoint returns no raw session token.
 - Launch endpoint fails without `sessions:write`.
 - Launch endpoint fails for stopped, expired, missing, or wrong-tenant sessions.
 - WebSocket upgrade succeeds with `?ticket=...` and no Authorization header.
@@ -173,7 +173,7 @@ Validation:
 - The browser Network view shows DevTools assets loading from `/devtools/*`.
 - No runtime request goes to `chrome-devtools-frontend.appspot.com`.
 - The DevTools WebSocket connects through `/cdp/{sessionId}/...`.
-- Raw CDP token is absent from the DOM, iframe URL, logs, and storage.
+- Raw session token is absent from the DOM, iframe URL, logs, and storage.
 - Switching away from DevTools closes the DevTools WebSocket.
 - Switching back to the browser viewport restores the existing control flow.
 
@@ -204,13 +204,13 @@ Validation:
 - `/internal/*` remains unavailable through public routing.
 - `/api/*`, `/cdp/*`, and `/devtools/*` do not return the SPA shell on missing
   paths.
-- Public CDP token auth still works for external clients.
+- Public session token auth still works for external clients.
 - DevTools ticket auth cannot be used as a bearer token.
 - Ticket denial logs include reason and session id but no secret material.
 
 Bail out if:
 
-- Ticket auth weakens public CDP token isolation.
+- Ticket auth weakens public session token isolation.
 - Traefik routing needs a broad rule change that risks exposing internal routes.
 
 ## Stage 5, package and smoke validate
@@ -263,7 +263,7 @@ The feature is complete only when:
 
 - DevTools loads from `/devtools/*`.
 - DevTools renders inside the workspace iframe.
-- DevTools connects through a short-lived ticket, not a raw CDP token.
+- DevTools connects through a short-lived ticket, not a raw session token.
 - Missing `/devtools/*`, `/api/*`, and `/cdp/*` paths never return the SPA shell.
 - Existing browser viewport control still works.
 - No runtime dependency on hosted DevTools remains.

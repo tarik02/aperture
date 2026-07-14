@@ -175,23 +175,23 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	if r.values.ExternalBaseURL != "" {
 		status["cdpUrl"] = strings.TrimRight(r.values.ExternalBaseURL, "/") + "/sessions/" + r.values.SessionID + "/cdp"
 	}
-	if r.values.CDPTokenPath != "" {
-		body, err := os.ReadFile(r.values.CDPTokenPath)
+	if r.values.SessionTokenPath != "" {
+		body, err := os.ReadFile(r.values.SessionTokenPath)
 		if err != nil {
-			writeWrapperError(w, http.StatusInternalServerError, "cdp token unavailable")
+			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
 			return
 		}
 		token := string(body)
 		if token == "" {
-			writeWrapperError(w, http.StatusInternalServerError, "cdp token unavailable")
+			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
 			return
 		}
-		status["cdpToken"] = token
+		status["sessionToken"] = token
 		writeWrapperJSON(w, http.StatusOK, status)
 		return
 	}
-	if r.values.CDPToken != "" {
-		status["cdpToken"] = r.values.CDPToken
+	if r.values.SessionToken != "" {
+		status["sessionToken"] = r.values.SessionToken
 	}
 	writeWrapperJSON(w, http.StatusOK, status)
 }

@@ -34,8 +34,8 @@ func toSessionListItem(view session.SessionView) sessionListItemResponse {
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
 	}
-	if view.CDPToken != "" {
-		resp.CDPToken = view.CDPToken
+	if view.SessionToken != "" {
+		resp.SessionToken = view.SessionToken
 	}
 	return resp
 }

@@ -35,6 +35,7 @@ import { apiClient } from "#/lib/api/client.ts";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
+  sessionToken: string | null;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: RTCIceServer[];
@@ -97,6 +98,7 @@ const emptyIceServers: RTCIceServer[] = [];
 
 export function useBrowserControl({
   sessionId,
+  sessionToken,
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
@@ -131,8 +133,15 @@ export function useBrowserControl({
     (input$) =>
       input$.pipe(
         switchMap(
-          ([nextEnabled, nextSessionId, nextCredentials, nextWebrtcPreferred, nextIceServers]) => {
-            if (!nextEnabled || !nextSessionId || !nextCredentials) {
+          ([
+            nextEnabled,
+            nextSessionId,
+            nextSessionToken,
+            nextCredentials,
+            nextWebrtcPreferred,
+            nextIceServers,
+          ]) => {
+            if (!nextEnabled || !nextSessionId || !nextSessionToken || !nextCredentials) {
               return of<BrowserControlOutput>({
                 type: "state",
                 state: initialBrowserControlState,
@@ -140,6 +149,7 @@ export function useBrowserControl({
             }
             return browserControl$({
               sessionId: nextSessionId,
+              sessionToken: nextSessionToken,
               credentials: nextCredentials,
               webrtcPreferred: nextWebrtcPreferred,
               iceServers: nextIceServers,
@@ -154,7 +164,7 @@ export function useBrowserControl({
         ),
         share(),
       ),
-    [enabled, sessionId, credentials, webrtcPreferred, webrtcIceServers],
+    [enabled, sessionId, sessionToken, credentials, webrtcPreferred, webrtcIceServers],
   );
   const controlState$ = useMemo(
     () =>

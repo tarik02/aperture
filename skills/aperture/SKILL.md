@@ -152,7 +152,7 @@ Create returns:
     "cdpUrl": "..."
   },
   "cdpUrl": "...",
-  "cdpToken": "..."
+  "sessionToken": "..."
 }
 ```
 
@@ -161,7 +161,7 @@ Mutations:
 - `DELETE /api/sessions/:sessionId`
 - `PUT /api/sessions/:sessionId/tags` body `{ "tags": { "key": "value" } }`
 - `POST /api/sessions/:sessionId/reopen`
-- `POST /api/sessions/:sessionId/cdp-token/rotate`
+- `POST /api/sessions/:sessionId/session-token/rotate`
 - `POST /api/sessions/:sessionId/promote`
 
 Promote body:
@@ -203,8 +203,8 @@ Screencast start body:
 WebRTC signaling is a WebSocket endpoint. Use subprotocols:
 
 - `aperture-webrtc.v1`
-- `authorization.bearer.$TOKEN`
-- for system-admin tokens, also `x-aperture-tenant-id.$TENANT_ID`
+- `authorization.bearer.$SESSION_TOKEN`
+- session tokens are bound to the session and do not need a tenant header
 
 ## Snapshots
 
@@ -230,7 +230,7 @@ Live CDP discovery proxy:
 - `/sessions/:sessionId/cdp`
 - `/sessions/:sessionId/cdp/*path`
 
-The CDP proxy uses session CDP token auth.
+The CDP proxy uses session token auth.
 
 ## Curl Patterns
 

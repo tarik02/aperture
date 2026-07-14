@@ -40,6 +40,8 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
 
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
+    sessionToken:
+      canConnectSession && selectedSession ? (selectedSession.sessionToken ?? null) : null,
     enabled: canControl && tenantReady && canConnectSession,
     forceCDPMedia,
     webrtcProducerSupported:

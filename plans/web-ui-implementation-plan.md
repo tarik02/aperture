@@ -86,7 +86,7 @@ Raw CDP remains available for external protocol clients at:
 ```
 
 This route uses CDP bearer tokens and Traefik ForwardAuth. The UI should not
-need to reveal CDP tokens for browser control. CDP token display belongs only in
+need to reveal session tokens for browser control. session token display belongs only in
 the connection panel for external clients when a token was just returned by
 create, reopen, or rotate.
 
@@ -101,7 +101,7 @@ Add:
 This route accepts normal API bearer tokens and requires `sessions:write`.
 It proxies raw CDP HTTP and WebSocket traffic to the selected running session.
 This gives the UI and trusted API clients a way to use CDP without exposing raw
-CDP tokens.
+session tokens.
 
 ### Traefik routing
 
@@ -311,8 +311,7 @@ Session list response item should include:
 - expires at
 - tags
 - CDP URL when available
-
-Session list must not include CDP tokens.
+- persistent sessionToken when the authorized session contract exposes live access.
 
 Snapshot list response item should include:
 
@@ -365,7 +364,7 @@ Behavior:
 - proxy HTTP CDP endpoints such as `/json/version`
 - proxy WebSocket upgrades
 - strip the `/api/cdp/{sessionId}` prefix before forwarding to Chromium
-- do not require or reveal the session CDP token
+- do not require or reveal the session token beyond the authorized persistent sessionToken contract
 
 Use a maintained WebSocket library for upgrade and proxy handling. Do not
 hand-roll WebSocket framing.
@@ -540,7 +539,7 @@ Client requirements:
 - parses every response with handwritten Zod schemas
 - parses structured API errors
 - exposes pagination helpers for TanStack Query infinite queries
-- never logs or stores raw CDP tokens outside explicit create, reopen, rotate,
+- never logs or stores raw session tokens outside explicit create, reopen, rotate,
   or connection-panel flows
 
 Do not generate an OpenAPI client in the first pass.
@@ -614,7 +613,7 @@ Sessions page:
 - delete action
 - reopen action
 - promote action
-- rotate CDP token action
+- rotate session token action
 - edit tags action
 - detail drawer with metadata, events, connection panel, and raw CDP URL
 
@@ -705,10 +704,10 @@ Connection panel:
 - show API-auth CDP proxy URL
 - show raw CDP URL
 - copy URL buttons
-- show CDP token only when the current UI action just received one
+- show the persistent sessionToken for authorized sessions wherever the session contract provides it
 - rotate token action
 
-Do not require the user to handle raw CDP tokens for normal browser control.
+Do not require the user to handle raw session tokens for normal browser control.
 
 ## Packaging work
 

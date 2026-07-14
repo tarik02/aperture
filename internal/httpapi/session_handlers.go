@@ -35,8 +35,8 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
 	}
-	if view.CDPToken != "" {
-		resp.CDPToken = view.CDPToken
+	if view.SessionToken != "" {
+		resp.SessionToken = view.SessionToken
 	}
 	return resp
 }
@@ -94,9 +94,9 @@ func (s *Server) createSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, createSessionResponse{
-		Session:  toSessionResponse(view),
-		CDPURL:   view.CDPURL,
-		CDPToken: view.CDPToken,
+		Session:      toSessionResponse(view),
+		CDPURL:       view.CDPURL,
+		SessionToken: view.SessionToken,
 	})
 }
 
@@ -168,9 +168,9 @@ func (s *Server) suspendSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:  toSessionResponse(view),
-		CDPURL:   view.CDPURL,
-		CDPToken: view.CDPToken,
+		Session:      toSessionResponse(view),
+		CDPURL:       view.CDPURL,
+		SessionToken: view.SessionToken,
 	})
 }
 
@@ -187,8 +187,8 @@ func (s *Server) reopenSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:  toSessionResponse(view),
-		CDPURL:   view.CDPURL,
-		CDPToken: view.CDPToken,
+		Session:      toSessionResponse(view),
+		CDPURL:       view.CDPURL,
+		SessionToken: view.SessionToken,
 	})
 }

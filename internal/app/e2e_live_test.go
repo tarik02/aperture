@@ -158,7 +158,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	}
 	var created struct {
 		Session  db.Session `json:"session"`
-		CDPToken string     `json:"cdpToken"`
+		SessionToken string     `json:"sessionToken"`
 	}
 	decodeJSON(t, createResp, &created)
 	sessionID := created.Session.ID
@@ -168,7 +168,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	waitForCDPVersion(t, cdpPort)
 
 	faReq, _ := http.NewRequest(http.MethodGet, baseURL+"/internal/forward-auth/cdp/"+sessionID, nil)
-	faReq.Header.Set("Authorization", "Bearer "+created.CDPToken)
+	faReq.Header.Set("Authorization", "Bearer "+created.SessionToken)
 	faResp, err := client.Do(faReq)
 	if err != nil {
 		t.Fatalf("forward auth: %v", err)

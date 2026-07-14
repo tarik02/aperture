@@ -36,7 +36,7 @@ import {
 } from "rxjs";
 import { webSocket, type WebSocketSubject } from "rxjs/webSocket";
 import { z } from "zod";
-import { resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
+import type { ApiCredentials } from "#/lib/api/client.ts";
 import type { ClientMessage } from "#/lib/control/messages.ts";
 
 export type WebRTCMediaPhase = "idle" | "connecting" | "live" | "failed";
@@ -146,6 +146,7 @@ export type WebRTCInputMessage =
 
 export type WebRTCMediaOptions = {
   sessionId: string;
+  sessionToken: string;
   credentials: ApiCredentials;
   iceServers: RTCIceServer[];
   input$: Observable<WebRTCInputMessage>;
@@ -370,7 +371,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       });
     }
 
-    const signal = signalSocket(options.sessionId, options.credentials);
+    const signal = signalSocket(options.sessionId, options.sessionToken);
     const peerEvents$ = peerConnection$(pc, signal.send).pipe(share());
     const stream$ = peerEvents$.pipe(
       filter(
@@ -560,13 +561,13 @@ function reduce(state: WebRTCMediaStateInternal, event: TransportEvent): WebRTCM
   }
 }
 
-function signalSocket(sessionId: string, credentials: ApiCredentials): SignalSocket {
+function signalSocket(sessionId: string, sessionToken: string): SignalSocket {
   const open$ = new Subject<void>();
   let socket: WebSocketSubject<SignalFrame> | null = null;
   const inbound$ = defer(() => {
     const nextSocket = webSocket<SignalFrame>({
       url: buildSignalURL(sessionId),
-      protocol: buildSignalProtocols(credentials),
+      protocol: buildSignalProtocols(sessionToken),
       serializer: (frame) => JSON.stringify(frame),
       deserializer: (event) => parseSignalMessage(event.data),
       openObserver: { next: () => open$.next() },
@@ -1135,13 +1136,8 @@ function buildSignalURL(sessionId: string): string {
   return `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/webrtc/signal?role=viewer`;
 }
 
-function buildSignalProtocols(credentials: ApiCredentials): string[] {
-  const protocols = [SIGNAL_PROTOCOL, `authorization.bearer.${credentials.token}`];
-  const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
-  if (tenantId) {
-    protocols.push(`x-aperture-tenant-id.${tenantId}`);
-  }
-  return protocols;
+function buildSignalProtocols(sessionToken: string): string[] {
+  return [SIGNAL_PROTOCOL, `authorization.bearer.${sessionToken}`];
 }
 
 function parseSignalMessage(data: unknown): SignalMessage {

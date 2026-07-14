@@ -285,7 +285,7 @@ API tokens:
 - system-admin tokens can manage tenants and tenant tokens
 - tenant tokens operate only within their tenant
 
-CDP tokens:
+session tokens:
 
 - stored hashed or encrypted according to implementation choice
 - one persisted token per session lifetime
@@ -294,7 +294,7 @@ CDP tokens:
 - valid while the retained session exists
 - Traefik ForwardAuth checks token, tenant, route, and session state
 - distinct from API tokens
-- wire format is `cdp_<sessionId>_<secret>`
+- wire format is `session_<sessionId>_<secret>`
 - independently revocable
 - rotatable without deleting or reopening the session
 
@@ -542,14 +542,14 @@ Behavior:
 4. resolve optional `baseSnapshotName` within tenant
 5. create session id
 6. create session row
-7. create CDP token for session lifetime
+7. create session token for session lifetime
 8. create overlay dirs
 9. mount overlayfs
 10. allocate random local CDP port
 11. write runtime env file
 12. start `browser-session@{sessionId}.service`
 13. reconcile Traefik config
-14. return session, CDP URL, and CDP token
+14. return session, CDP URL, and session token
 
 The browser is running when the response succeeds.
 
@@ -590,7 +590,7 @@ Behavior:
 6. write fresh runtime env file
 7. start `browser-session@{sessionId}.service`
 8. reconcile Traefik config
-9. return session and existing persisted CDP token
+9. return session and existing persisted session token
 
 Reopen uses the same session id.
 
@@ -604,24 +604,24 @@ Session lease refresh rules:
 - refresh on reopen
 - refresh on delete/tombstone
 - refresh on promote
-- refresh on CDP token rotation
+- refresh on session token rotation
 - refresh on session tag update
 - refresh on explicit `POST /sessions/{id}/touch`
 - refresh periodically while status is `running`
 - do not refresh on `GET /sessions/{id}` or list sessions
 - do not refresh on raw CDP traffic because Aperture is not in the CDP data path
 
-### Rotate CDP Token
+### Rotate Session Token
 
-`POST /sessions/{id}/cdp-token/rotate`
+`POST /sessions/{id}/session-token/rotate`
 
 Behavior:
 
 1. authenticate and authorize tenant
 2. require retained or running session
-3. revoke existing CDP token
-4. create replacement CDP token for the same session
-5. return session, stable CDP URL, and new CDP token
+3. revoke existing session token
+4. create replacement session token for the same session
+5. return session, stable CDP URL, and new session token
 
 Rotation does not delete, reopen, or restart the browser session.
 
@@ -854,19 +854,19 @@ If Aperture is down, new CDP ForwardAuth checks fail closed. Existing upgraded C
 Clients receive:
 
 - `cdpUrl`
-- `cdpToken`
+- `sessionToken`
 
 Clients send:
 
 ```http
-Authorization: Bearer {cdpToken}
+Authorization: Bearer {sessionToken}
 ```
 
-CDP token is created at session creation and persists for session lifetime.
+session token is created at session creation and persists for session lifetime.
 
-CDP token values are returned only on session create, session reopen, and CDP token rotation. Ordinary session reads may return the stable CDP URL but must not return the CDP token.
+Authorized session responses expose the persistent sessionToken alongside the stable CDP URL wherever the existing session contract exposes live access, including create, get, status, list, bulk, reopen, and rotation responses.
 
-Portal access uses normal API auth, not the CDP token.
+Portal access uses normal API auth, not the session token.
 
 ## API Authentication and Tenancy
 
@@ -898,7 +898,7 @@ Tenant is a hard API/data ownership boundary for:
 
 - sessions
 - snapshots
-- CDP tokens
+- session tokens
 - tags
 - events
 
@@ -943,7 +943,7 @@ Tag mutation follows resource write scopes:
 
 Session and snapshot write scope semantics:
 
-- `sessions:write` allows create, delete/tombstone, reopen, CDP token rotation, and session tag updates
+- `sessions:write` allows create, delete/tombstone, reopen, session token rotation, and session tag updates
 - creating an empty session requires `sessions:write`
 - creating a session from `baseSnapshotName` requires `sessions:write` and `snapshots:read`
 - `snapshots:write` allows delete, restore, and snapshot tag updates
@@ -1026,7 +1026,7 @@ Response:
     }
   },
   "cdpUrl": "https://browser.example.test/sessions/018f1234-0000-7000-8000-000000000000/cdp",
-  "cdpToken": "returned-token-value"
+  "sessionToken": "returned-token-value"
 }
 ```
 
@@ -1057,7 +1057,7 @@ POST /sessions/{sessionId}/reopen
 Authorization: Bearer {apiToken}
 ```
 
-Response includes existing CDP token:
+Response includes existing session token:
 
 ```json
 {
@@ -1066,18 +1066,18 @@ Response includes existing CDP token:
     "status": "running"
   },
   "cdpUrl": "https://browser.example.test/sessions/018f1234-0000-7000-8000-000000000000/cdp",
-  "cdpToken": "same-session-token"
+  "sessionToken": "same-session-token"
 }
 ```
 
-### Rotate Session CDP Token
+### Rotate Session Token
 
 ```http
-POST /sessions/{sessionId}/cdp-token/rotate
+POST /sessions/{sessionId}/session-token/rotate
 Authorization: Bearer {apiToken}
 ```
 
-Response includes a replacement CDP token:
+Response includes a replacement session token:
 
 ```json
 {
@@ -1086,7 +1086,7 @@ Response includes a replacement CDP token:
     "status": "running"
   },
   "cdpUrl": "https://browser.example.test/sessions/018f1234-0000-7000-8000-000000000000/cdp",
-  "cdpToken": "new-session-token"
+  "sessionToken": "new-session-token"
 }
 ```
 
@@ -1559,13 +1559,13 @@ Deliverables:
 - API routes through Traefik except `/internal/*`
 - CDP routes to session Chromium ports
 - ForwardAuth endpoint
-- `cdp_<sessionId>_<secret>` token generation, validation, and rotation
+- `session_<sessionId>_<secret>` token generation, validation, and rotation
 
 Tests:
 
 - Traefik config render golden tests
 - ForwardAuth handler tests
-- CDP token rotation tests
+- session token rotation tests
 - live Traefik WebSocket/CDP smoke test
 
 ### Stage 6: Snapshots and Promotion

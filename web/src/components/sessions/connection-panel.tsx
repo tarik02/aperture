@@ -11,7 +11,7 @@ import {
 } from "#/components/ui/dropdown-menu.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
-import { useRotateCdpTokenMutation } from "#/features/session/session.mutations.ts";
+import { useRotateSessionTokenMutation } from "#/features/session/session.mutations.ts";
 import { useEffect, useMemo, useState } from "react";
 
 type ConnectionPanelProps = {
@@ -20,14 +20,18 @@ type ConnectionPanelProps = {
 };
 
 export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
-  const rotateMutation = useRotateCdpTokenMutation();
+  const rotateMutation = useRotateSessionTokenMutation();
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
   const [rotateConfirmOpen, setRotateConfirmOpen] = useState(false);
   const [rotatedSession, setRotatedSession] = useState<Session | null>(null);
 
   const rotatedCredentials = rotatedSession?.id === session.id ? rotatedSession : null;
   const currentSession = rotatedCredentials
-    ? { ...session, cdpUrl: rotatedCredentials.cdpUrl, cdpToken: rotatedCredentials.cdpToken }
+    ? {
+        ...session,
+        cdpUrl: rotatedCredentials.cdpUrl,
+        sessionToken: rotatedCredentials.sessionToken,
+      }
     : session;
   const rawCdpUrl = currentSession.cdpUrl;
   const cdpUrl = useMemo(
@@ -36,8 +40,10 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
   );
   const tokenizedCdpUrl = useMemo(
     () =>
-      cdpUrl && currentSession.cdpToken ? cdpUrlWithToken(cdpUrl, currentSession.cdpToken) : null,
-    [cdpUrl, currentSession.cdpToken],
+      cdpUrl && currentSession.sessionToken
+        ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken)
+        : null,
+    [cdpUrl, currentSession.sessionToken],
   );
   const canOpen = currentSession.status === "running" || currentSession.status === "suspended";
 
@@ -59,7 +65,9 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Connection</h3>
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
-      {currentSession.cdpToken ? <CopyField value={currentSession.cdpToken} label="Token" /> : null}
+      {currentSession.sessionToken ? (
+        <CopyField value={currentSession.sessionToken} label="Token" />
+      ) : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       <Separator />
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -74,14 +82,14 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
             (currentSession.status !== "running" && currentSession.status !== "suspended")
           }
         >
-          Rotate CDP token
+          Rotate session token
         </Button>
         <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
       </div>
       <ConfirmDialog
         open={rotateConfirmOpen}
-        title="Rotate CDP token"
-        description="The current CDP token for this session will stop working."
+        title="Rotate session token"
+        description="The current session token for this session will stop working."
         confirmLabel="Rotate"
         pending={rotateMutation.isPending}
         onOpenChange={setRotateConfirmOpen}
@@ -153,9 +161,9 @@ function publicCdpUrl(rawCdpUrl: string, publicOrigin: string | null) {
   }
 }
 
-function cdpUrlWithToken(cdpUrl: string, cdpToken: string) {
+function cdpUrlWithToken(cdpUrl: string, sessionToken: string) {
   const url = new URL(cdpUrl);
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(cdpToken)}`;
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(sessionToken)}`;
   url.search = "";
   url.hash = "";
   return url.toString();

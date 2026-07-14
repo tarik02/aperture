@@ -19,7 +19,7 @@ http:
       entryPoints:
         - web
     aperture-cdp-discovery-018f1234000070008000000000000001:
-      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/cdp_`)"
+      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/session_`)"
       service: aperture-wrapper-018f1234000070008000000000000001
       middlewares:
         - aperture-cdp-forward-auth-018f1234000070008000000000000001

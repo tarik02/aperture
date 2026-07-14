@@ -22,7 +22,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	router.Use(gin.Recovery(), server.handoffInactiveAPI)
 	internal := router.Group("/internal")
 	{
-		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)
+		internal.GET("/forward-auth/cdp/:sessionId", server.sessionTokenForwardAuth)
 		internal.GET("/forward-auth/live-session/:sessionId/:access", server.liveSessionForwardAuth)
 
 		jobs := internal.Group("/jobs")
@@ -83,7 +83,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			sessions.PUT("/:sessionId/tags", server.requireSessionsWrite, server.replaceSessionTags)
 			sessions.POST("/:sessionId/suspend", server.requireSessionsWrite, server.suspendSession)
 			sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
-			sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
+			sessions.POST("/:sessionId/session-token/rotate", server.requireSessionsWrite, server.rotateSessionToken)
 			sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
 		}
 

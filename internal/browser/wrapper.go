@@ -1235,8 +1235,8 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values := RuntimeEnvValues{
 		SessionID:         *required["APERTURE_SESSION_ID"],
 		ExternalBaseURL:   strings.TrimSpace(os.Getenv("EXTERNAL_BASE_URL")),
-		CDPToken:          strings.TrimSpace(os.Getenv("CDP_TOKEN")),
-		CDPTokenPath:      strings.TrimSpace(os.Getenv("CDP_TOKEN_PATH")),
+		SessionToken:          strings.TrimSpace(os.Getenv("SESSION_TOKEN")),
+		SessionTokenPath:      strings.TrimSpace(os.Getenv("SESSION_TOKEN_PATH")),
 		MergedUserDataDir: *required["MERGED_USER_DATA_DIR"],
 		DownloadsDir:      *required["DOWNLOADS_DIR"],
 		CacheDir:          *required["CACHE_DIR"],
