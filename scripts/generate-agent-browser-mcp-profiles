@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+output_path="${1:-${repo_root}/internal/agentbrowser/profiles.json}"
+agent_browser_bin="${AGENT_BROWSER_BIN:-agent-browser}"
+
+exec go run -tags tools ./cmd/generate-agent-browser-mcp-profiles "${agent_browser_bin}" "${output_path}"

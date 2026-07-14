@@ -154,7 +154,7 @@
           pname = "aperture";
           version = "0.0.1";
           inherit src;
-          vendorHash = "sha256-iqKAicw4N/AJnBJwV/y+zcGUMePJSGMBf3jme2jqIZg=";
+          vendorHash = "sha256-3CCHCq2g4fMCZzJiF/j6mTONLX9scbKvaMKJcuu/9to=";
 
           subPackages = [
             "cmd/aperture"
@@ -208,6 +208,8 @@
           doCheck = true;
 
           postInstall = ''
+            install -m 0755 ${agentBrowser}/bin/agent-browser $out/bin/agent-browser
+
             mkdir -p $out/lib/weston
             mkdir -p $TMPDIR/aperture-wayland-protocols
             ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
