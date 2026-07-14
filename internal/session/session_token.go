@@ -10,7 +10,7 @@ import (
 
 const sessionTokenSecretBytes = 32
 
-// GenerateSessionToken creates session_<sessionId>_<secret> and its stored hash.
+// GenerateSessionToken creates aps_<sessionId>_<secret> and its stored hash.
 func GenerateSessionToken(sessionID string) (raw string, hash string, err error) {
 	secretBytes := make([]byte, sessionTokenSecretBytes)
 	if _, err := rand.Read(secretBytes); err != nil {
@@ -18,7 +18,7 @@ func GenerateSessionToken(sessionID string) (raw string, hash string, err error)
 	}
 
 	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
-	raw = fmt.Sprintf("session_%s_%s", sessionID, secret)
+	raw = fmt.Sprintf("aps_%s_%s", sessionID, secret)
 
 	hashBytes, err := auth.HashSecret(secret)
 	if err != nil {
@@ -28,9 +28,9 @@ func GenerateSessionToken(sessionID string) (raw string, hash string, err error)
 	return raw, hashBytes, nil
 }
 
-// ParseSessionToken splits session_<sessionId>_<secret> into session id and secret.
+// ParseSessionToken splits aps_<sessionId>_<secret> into session id and secret.
 func ParseSessionToken(raw string) (sessionID string, secret string, err error) {
-	const prefix = "session_"
+	const prefix = "aps_"
 	if len(raw) <= len(prefix) || raw[:len(prefix)] != prefix {
 		return "", "", fmt.Errorf("invalid session token format")
 	}

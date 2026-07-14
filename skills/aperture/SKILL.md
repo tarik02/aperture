@@ -46,7 +46,7 @@ Authorities are `system_admin` and `tenant`. Current scope behavior:
 
 Creating a session from a snapshot also requires `snapshots:read`. Promoting a session requires both `sessions:write` and `snapshots:write`.
 
-The `sessionToken` is a live credential bound to exactly one session. It authorizes that session's routed live endpoints through forward auth, including CDP, WebRTC signaling, and per-session MCP. It does not authorize `/api/*` or central MCP.
+API tokens use `apt_<tokenId>_<secret>`. The `sessionToken` uses `aps_<sessionId>_<secret>` and is bound to exactly one session. It authorizes that session's routed live endpoints through forward auth, including CDP, WebRTC signaling, and per-session MCP. It does not authorize `/api/*` or central MCP.
 
 ## Response Conventions
 
@@ -352,7 +352,7 @@ Signed downloads use:
 /sessions/:sessionId/files/<relative-path>?token=...
 ```
 
-The URL is bound to the exact session and relative path. Omitting `ttlSeconds` uses `signed_file_url_ttl` (15 minutes by default); callers may request any positive lifetime up to `signed_file_url_max_ttl` (24 hours by default). The route validates the signature, expiry, path, and session file root before serving an attachment.
+The query token uses `apf_<payload>.<signature>` and is bound to the exact session and relative path. Omitting `ttlSeconds` uses `signed_file_url_ttl` (15 minutes by default); callers may request any positive lifetime up to `signed_file_url_max_ttl` (24 hours by default). The route validates the signature, expiry, path, and session file root before serving an attachment.
 
 ## Generic Curl Patterns
 

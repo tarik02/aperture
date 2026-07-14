@@ -82,12 +82,12 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 }
 
 func liveSessionTokenAuthorization(c *gin.Context) string {
-	if authorization := c.GetHeader("Authorization"); strings.HasPrefix(strings.TrimSpace(authorization), "Bearer session_") {
+	if authorization := c.GetHeader("Authorization"); strings.HasPrefix(strings.TrimSpace(authorization), "Bearer aps_") {
 		return authorization
 	}
 	for _, protocol := range strings.Split(c.GetHeader("Sec-WebSocket-Protocol"), ",") {
 		protocol = strings.TrimSpace(protocol)
-		if strings.HasPrefix(protocol, "authorization.bearer.session_") {
+		if strings.HasPrefix(protocol, "authorization.bearer.aps_") {
 			return "Bearer " + strings.TrimPrefix(protocol, "authorization.bearer.")
 		}
 	}
@@ -121,7 +121,7 @@ func sessionTokenFromForwardedURI(forwardedURI string) string {
 		return ""
 	}
 	parts := strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/")
-	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "session_") {
+	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "aps_") {
 		return parts[3]
 	}
 	return ""

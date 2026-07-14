@@ -26,6 +26,8 @@ var (
 	ErrInvalidToken = errors.New("invalid file token")
 )
 
+const tokenPrefix = "apf_"
+
 type File struct {
 	Name         string    `json:"name"`
 	RelativePath string    `json:"relativePath"`
@@ -138,15 +140,16 @@ func IssueToken(secret, sessionID, relative string, expiresAt time.Time) (string
 		return "", err
 	}
 	encoded := base64.RawURLEncoding.EncodeToString(body)
+	signed := tokenPrefix + encoded
 	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(encoded))
+	_, _ = mac.Write([]byte(signed))
 	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	return encoded + "." + signature, nil
+	return signed + "." + signature, nil
 }
 
 func VerifyToken(secret, token, sessionID, relative string, now time.Time) (string, error) {
 	parts := strings.Split(token, ".")
-	if len(parts) != 2 || secret == "" {
+	if len(parts) != 2 || secret == "" || !strings.HasPrefix(parts[0], tokenPrefix) {
 		return "", ErrInvalidToken
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -155,7 +158,7 @@ func VerifyToken(secret, token, sessionID, relative string, now time.Time) (stri
 	if err != nil || subtle.ConstantTimeCompare(expected, mac.Sum(nil)) != 1 {
 		return "", ErrInvalidToken
 	}
-	body, err := base64.RawURLEncoding.DecodeString(parts[0])
+	body, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(parts[0], tokenPrefix))
 	if err != nil {
 		return "", ErrInvalidToken
 	}
