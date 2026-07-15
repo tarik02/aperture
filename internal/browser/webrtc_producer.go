@@ -1083,7 +1083,7 @@ func rtpCodecCapability(codec string) webrtc.RTPCodecCapability {
 
 func mediaProcessEnv(pluginPath string) []string {
 	env := make([]string, 0, 4)
-	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS", "LIBVA_DRIVER_NAME", "NVIDIA_VISIBLE_DEVICES"} {
+	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS", "LIBVA_DRIVER_NAME", "LIBVA_DRIVERS_PATH", "NVIDIA_VISIBLE_DEVICES"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			env = append(env, key+"="+value)
 		}

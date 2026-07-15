@@ -1,0 +1,3 @@
+#!/command/with-contenv sh
+exec 2>&1
+exec s6-setuidgid aperture aperture serve --config /etc/aperture/aperture.toml

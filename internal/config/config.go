@@ -16,10 +16,16 @@ const (
 
 	WebRTCMediaModeAuto          = "auto"
 	WebRTCMediaModeCDP           = "cdp"
+	GPUModeAuto                  = "auto"
+	GPUModeSoftware              = "software"
+	GPUModeHardware              = "hardware"
+	WebRTCMediaProducerCodecAuto = "auto"
 	WebRTCMediaProducerCodecVP8  = "vp8"
 	WebRTCMediaProducerCodecH264 = "h264-va"
 	DeployColorBlue              = "blue"
 	DeployColorGreen             = "green"
+	BrowserSupervisorSystemd     = "systemd"
+	BrowserSupervisorDirect      = "direct"
 )
 
 // ChannelConfig describes a configured browser channel.
@@ -48,6 +54,7 @@ type Config struct {
 	DeployBlueURL                    string                   `mapstructure:"deploy_blue_url"`
 	DeployGreenURL                   string                   `mapstructure:"deploy_green_url"`
 	ListenAddress                    string                   `mapstructure:"listen_address"`
+	BrowserSupervisor                string                   `mapstructure:"browser_supervisor"`
 	SystemdBrowserUnitName           string                   `mapstructure:"systemd_browser_unit_name"`
 	SessionRetentionDays             int                      `mapstructure:"session_retention_days"`
 	SnapshotRetentionDays            int                      `mapstructure:"snapshot_retention_days"`
@@ -56,6 +63,7 @@ type Config struct {
 	CdpRouteBasePath                 string                   `mapstructure:"cdp_route_base_path"`
 	WebRTCCaptureProofExtensionDir   string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
 	WebRTCMediaMode                  string                   `mapstructure:"webrtc_media_mode"`
+	GPUMode                          string                   `mapstructure:"gpu_mode"`
 	WebRTCCompositorEnabled          bool                     `mapstructure:"webrtc_compositor_enabled"`
 	WebRTCCompositorExecutable       string                   `mapstructure:"webrtc_compositor_executable"`
 	WebRTCCompositorBackend          string                   `mapstructure:"webrtc_compositor_backend"`
@@ -93,6 +101,7 @@ func Defaults() Config {
 		DeployBlueURL:                    "http://127.0.0.1:28080",
 		DeployGreenURL:                   "http://127.0.0.1:28082",
 		ListenAddress:                    "127.0.0.1:8080",
+		BrowserSupervisor:                BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:           "browser-session@.service",
 		SessionRetentionDays:             7,
 		SnapshotRetentionDays:            7,
@@ -101,6 +110,7 @@ func Defaults() Config {
 		CdpRouteBasePath:                 "/cdp",
 		WebRTCCaptureProofExtensionDir:   "",
 		WebRTCMediaMode:                  WebRTCMediaModeAuto,
+		GPUMode:                          GPUModeAuto,
 		WebRTCCompositorEnabled:          false,
 		WebRTCCompositorExecutable:       "",
 		WebRTCCompositorBackend:          "pipewire",
@@ -112,7 +122,7 @@ func Defaults() Config {
 		WebRTCMediaProducerGSTExecutable: "",
 		WebRTCMediaProducerPluginPath:    "",
 		WebRTCMediaProducerTarget:        "weston.pipewire",
-		WebRTCMediaProducerCodec:         WebRTCMediaProducerCodecVP8,
+		WebRTCMediaProducerCodec:         WebRTCMediaProducerCodecAuto,
 		WebRTCMediaProducerFPS:           60,
 		WebRTCMediaProducerBitrateKbps:   6000,
 		WebRTCMediaProducerKeyframe:      120,
@@ -153,6 +163,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("store_root", defaults.StoreRoot)
 	v.SetDefault("runtime_root", defaults.RuntimeRoot)
 	v.SetDefault("listen_address", defaults.ListenAddress)
+	v.SetDefault("browser_supervisor", defaults.BrowserSupervisor)
 	v.SetDefault("deploy_color", defaults.DeployColor)
 	v.SetDefault("deploy_blue_url", defaults.DeployBlueURL)
 	v.SetDefault("deploy_green_url", defaults.DeployGreenURL)
@@ -161,6 +172,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
 	v.SetDefault("webrtc_media_mode", defaults.WebRTCMediaMode)
+	v.SetDefault("gpu_mode", defaults.GPUMode)
 	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)
 	v.SetDefault("webrtc_compositor_backend", defaults.WebRTCCompositorBackend)
 	v.SetDefault("webrtc_compositor_renderer", defaults.WebRTCCompositorRenderer)
@@ -196,6 +208,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"deploy_blue_url",
 		"deploy_green_url",
 		"listen_address",
+		"browser_supervisor",
 		"systemd_browser_unit_name",
 		"session_retention_days",
 		"snapshot_retention_days",
@@ -203,6 +216,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"cdp_route_base_path",
 		"webrtc_capture_proof_extension_dir",
 		"webrtc_media_mode",
+		"gpu_mode",
 		"webrtc_compositor_enabled",
 		"webrtc_compositor_executable",
 		"webrtc_compositor_backend",
@@ -289,6 +303,7 @@ func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
 func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 	flagBindings := map[string]string{
 		"listen-address":                          "listen_address",
+		"browser-supervisor":                      "browser_supervisor",
 		"log-level":                               "log_level",
 		"store-root":                              "store_root",
 		"runtime-root":                            "runtime_root",
@@ -306,6 +321,7 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"external-base-url":                       "external_base_url",
 		"cdp-route-base-path":                     "cdp_route_base_path",
 		"webrtc-media-mode":                       "webrtc_media_mode",
+		"gpu-mode":                                "gpu_mode",
 		"webrtc-compositor-enabled":               "webrtc_compositor_enabled",
 		"webrtc-compositor-executable":            "webrtc_compositor_executable",
 		"webrtc-compositor-backend":               "webrtc_compositor_backend",

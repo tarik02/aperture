@@ -234,6 +234,7 @@ type LaunchConfig struct {
 	ExtraArgs                []string
 	CaptureProofExtensionDir string
 	HardwareAcceleration     bool
+	RenderNode               string
 	NestedWaylandSocket      string
 }
 
@@ -307,7 +308,7 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	}
 
 	if cfg.HardwareAcceleration {
-		hardwareMounts, err := hardwareAccelerationBindMounts()
+		hardwareMounts, err := hardwareAccelerationBindMounts(cfg.RenderNode)
 		if err != nil {
 			return nil, err
 		}
@@ -401,16 +402,15 @@ func runtimeBindMounts(nestedWaylandSocket string) ([][]string, error) {
 	return mounts, nil
 }
 
-func hardwareAccelerationBindMounts() ([][]string, error) {
-	renderNodes, err := filepath.Glob("/dev/dri/renderD*")
-	if err != nil || len(renderNodes) == 0 {
-		return nil, fmt.Errorf("hardware acceleration requires /dev/dri/renderD*")
+func hardwareAccelerationBindMounts(renderNode string) ([][]string, error) {
+	if strings.TrimSpace(renderNode) == "" {
+		return nil, fmt.Errorf("hardware acceleration requires a render node")
 	}
 	if _, err := os.Stat("/sys"); err != nil {
 		return nil, fmt.Errorf("hardware acceleration requires /sys: %w", err)
 	}
 
-	mounts := make([][]string, 0, len(renderNodes)+4)
+	mounts := make([][]string, 0, 5)
 	mounts = append(mounts, []string{"--ro-bind", "/sys", "/sys"})
 	for _, path := range []string{"/run/opengl-driver", "/run/opengl-driver-32"} {
 		if _, err := os.Stat(path); err == nil {
@@ -418,12 +418,10 @@ func hardwareAccelerationBindMounts() ([][]string, error) {
 		}
 	}
 	mounts = append(mounts, []string{"--dir", "/dev/dri"})
-	for _, path := range renderNodes {
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		mounts = append(mounts, []string{"--dev-bind", path, path})
+	if _, err := os.Stat(renderNode); err != nil {
+		return nil, fmt.Errorf("stat render node: %w", err)
 	}
+	mounts = append(mounts, []string{"--dev-bind", renderNode, renderNode})
 	return mounts, nil
 }
 
@@ -462,6 +460,9 @@ func passthroughEnvKeys(isolatedRuntime bool) []string {
 			"XDG_RUNTIME_DIR",
 			"NVIDIA_VISIBLE_DEVICES",
 			"LIBVA_DRIVER_NAME",
+			"LIBVA_DRIVERS_PATH",
+			"LIBGL_DRIVERS_PATH",
+			"__EGL_VENDOR_LIBRARY_FILENAMES",
 		}
 	}
 	return []string{
@@ -474,6 +475,9 @@ func passthroughEnvKeys(isolatedRuntime bool) []string {
 		"XDG_CURRENT_DESKTOP",
 		"NVIDIA_VISIBLE_DEVICES",
 		"LIBVA_DRIVER_NAME",
+		"LIBVA_DRIVERS_PATH",
+		"LIBGL_DRIVERS_PATH",
+		"__EGL_VENDOR_LIBRARY_FILENAMES",
 		"MOZ_DISABLE_RDD_SANDBOX",
 	}
 }
@@ -487,6 +491,12 @@ func LaunchFromRuntimeEnv() error {
 	if values.MediaProducerEnabled && !values.CompositorEnabled {
 		return fmt.Errorf("media producer requires compositor mode")
 	}
+
+	values, err = resolveGPU(values)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "browser-session-wrapper: gpu mode=%s renderNode=%s mediaCodec=%s\n", values.GPUMode, values.RenderNode, values.MediaProducerCodec)
 
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
@@ -508,6 +518,8 @@ func LaunchFromRuntimeEnv() error {
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                values.BrowserExtraArgs,
 		CaptureProofExtensionDir: values.CaptureProofExtensionDir,
+		HardwareAcceleration:     values.GPUMode == gpuModeHardware,
+		RenderNode:               values.RenderNode,
 	})
 	if err != nil {
 		return err
@@ -666,7 +678,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		"--config=" + compositorConfig,
 	}
 	compositor := exec.Command(values.CompositorExecutable, compositorArgs...)
-	compositor.Env = compositorProcessEnv()
+	compositor.Env = compositorProcessEnv(values.GPUMode)
 	compositor.Env = append(
 		compositor.Env,
 		"APERTURE_CONTROL_SOCKET="+controlSocket,
@@ -709,16 +721,18 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		}
 	}()
 
+	hardwareAcceleration := values.GPUMode == gpuModeHardware
 	extraArgs := append([]string(nil), values.BrowserExtraArgs...)
 	extraArgs = append(extraArgs,
 		"--ozone-platform=wayland",
 		"--class="+compositorBrowserAppID,
-		"--ignore-gpu-blocklist",
-		"--enable-gpu-rasterization",
 		"--kiosk",
 		fmt.Sprintf("--window-size=%d,%d", values.CompositorWidth, values.CompositorHeight),
 		"about:blank",
 	)
+	if hardwareAcceleration {
+		extraArgs = append(extraArgs, "--ignore-gpu-blocklist", "--enable-gpu-rasterization")
+	}
 	browserCmd, err := BuildBwrapCommand(LaunchConfig{
 		BwrapPath:                bwrapPath,
 		BrowserExecutable:        values.BrowserExecutable,
@@ -730,7 +744,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                extraArgs,
 		CaptureProofExtensionDir: values.CaptureProofExtensionDir,
-		HardwareAcceleration:     true,
+		HardwareAcceleration:     hardwareAcceleration,
+		RenderNode:               values.RenderNode,
 		NestedWaylandSocket:      socketName,
 	})
 	if err != nil {
@@ -1140,12 +1155,25 @@ func stringPipeWireProperty(props pipeWireDumpProperty, key string) string {
 	}
 }
 
-func compositorProcessEnv() []string {
-	env := make([]string, 0, 5)
-	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS", "LIBVA_DRIVER_NAME", "NVIDIA_VISIBLE_DEVICES"} {
+func compositorProcessEnv(gpuMode string) []string {
+	keys := []string{
+		"XDG_RUNTIME_DIR",
+		"PIPEWIRE_REMOTE",
+		"DBUS_SESSION_BUS_ADDRESS",
+		"LIBVA_DRIVER_NAME",
+		"LIBVA_DRIVERS_PATH",
+		"NVIDIA_VISIBLE_DEVICES",
+		"LIBGL_DRIVERS_PATH",
+		"__EGL_VENDOR_LIBRARY_FILENAMES",
+	}
+	env := make([]string, 0, len(keys))
+	for _, key := range keys {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			env = append(env, key+"="+value)
 		}
+	}
+	if gpuMode == gpuModeSoftware {
+		env = append(env, "LIBGL_ALWAYS_SOFTWARE=1")
 	}
 	return env
 }
@@ -1266,6 +1294,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		values.BrowserExtraArgs = args
 	}
 	values.CaptureProofExtensionDir = strings.TrimSpace(os.Getenv("CAPTURE_PROOF_EXTENSION_DIR"))
+	values.GPUMode = strings.TrimSpace(os.Getenv("GPU_MODE"))
 	values.CompositorEnabled = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_ENABLED")) == "1"
 	values.CompositorExecutable = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_EXECUTABLE"))
 	values.CompositorBackend = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_BACKEND"))

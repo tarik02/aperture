@@ -29,6 +29,8 @@ type RuntimeEnvValues struct {
 	BrowserDefaultArgs         []string
 	BrowserExtraArgs           []string
 	CaptureProofExtensionDir   string
+	GPUMode                    string
+	RenderNode                 string
 	CompositorEnabled          bool
 	CompositorExecutable       string
 	CompositorBackend          string
@@ -75,6 +77,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	}
 	if extensionDir := strings.TrimSpace(values.CaptureProofExtensionDir); extensionDir != "" && !filepath.IsAbs(extensionDir) {
 		return nil, fmt.Errorf("capture proof extension dir must be absolute")
+	}
+	if strings.TrimSpace(values.GPUMode) == "" {
+		values.GPUMode = gpuModeAuto
 	}
 	if values.CompositorEnabled {
 		if strings.TrimSpace(values.CompositorExecutable) == "" {
@@ -165,6 +170,7 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"BROWSER_EXECUTABLE=" + shellQuote(values.BrowserExecutable),
 		"BROWSER_DEFAULT_ARGS=" + defaultArgs,
 		"BROWSER_EXTRA_ARGS=" + extraArgs,
+		"GPU_MODE=" + shellQuote(values.GPUMode),
 	}
 	if strings.TrimSpace(values.CaptureProofExtensionDir) != "" {
 		lines = append(lines, "CAPTURE_PROOF_EXTENSION_DIR="+shellQuote(values.CaptureProofExtensionDir))
@@ -230,7 +236,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "CDP_TOKEN", "CDP_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "CDP_TOKEN", "CDP_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -324,6 +330,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.BrowserExecutable = value
 	case "CAPTURE_PROOF_EXTENSION_DIR":
 		values.CaptureProofExtensionDir = value
+	case "GPU_MODE":
+		values.GPUMode = value
 	case "WEBRTC_COMPOSITOR_EXECUTABLE":
 		values.CompositorExecutable = value
 	case "WEBRTC_COMPOSITOR_BACKEND":

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
@@ -11,24 +12,40 @@ import (
 	"github.com/aperture/aperture/internal/systemd"
 )
 
-// Browser supervises browser runtime env files and systemd user units.
+type browserBackend interface {
+	Start(context.Context, string) error
+	Stop(context.Context, string) error
+	IsActive(context.Context, string) (bool, error)
+	ListActiveSessionIDs(context.Context) ([]string, error)
+	Close(context.Context) error
+}
+
+// Browser supervises browser runtime environments and processes.
 type Browser struct {
 	cfg     config.Config
-	adapter *systemd.UserAdapter
-	runner  systemd.CommandRunner
+	backend browserBackend
 }
 
 // NewBrowser constructs a browser supervisor.
 func NewBrowser(cfg config.Config, runner systemd.CommandRunner) (*Browser, error) {
-	adapter, err := systemd.NewUserAdapter(cfg)
-	if err != nil {
-		return nil, err
+	var backend browserBackend
+	switch strings.ToLower(strings.TrimSpace(cfg.BrowserSupervisor)) {
+	case config.BrowserSupervisorDirect:
+		direct, err := newDirectBackend(cfg)
+		if err != nil {
+			return nil, err
+		}
+		backend = direct
+	case config.BrowserSupervisorSystemd:
+		adapter, err := systemd.NewUserAdapter(cfg)
+		if err != nil {
+			return nil, err
+		}
+		backend = &systemdBackend{adapter: adapter, runner: runner}
+	default:
+		return nil, fmt.Errorf("unsupported browser supervisor: %s", cfg.BrowserSupervisor)
 	}
-	return &Browser{
-		cfg:     cfg,
-		adapter: adapter,
-		runner:  runner,
-	}, nil
+	return &Browser{cfg: cfg, backend: backend}, nil
 }
 
 // PrepareRuntime writes Chromium preferences and the runtime env file for a session.
@@ -49,9 +66,9 @@ func (b *Browser) PrepareRuntime(values browser.RuntimeEnvValues) error {
 	return nil
 }
 
-// Start starts the browser systemd user unit for sessionID.
+// Start starts the browser process for sessionID.
 func (b *Browser) Start(ctx context.Context, sessionID string) error {
-	if err := b.adapter.Start(ctx, b.runner, sessionID); err != nil {
+	if err := b.backend.Start(ctx, sessionID); err != nil {
 		return &BrowserSupervisorError{
 			SessionID: sessionID,
 			Operation: "start",
@@ -61,9 +78,9 @@ func (b *Browser) Start(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// Stop stops the browser systemd user unit for sessionID.
+// Stop stops the browser process for sessionID.
 func (b *Browser) Stop(ctx context.Context, sessionID string) error {
-	if err := b.adapter.Stop(ctx, b.runner, sessionID); err != nil {
+	if err := b.backend.Stop(ctx, sessionID); err != nil {
 		return &BrowserSupervisorError{
 			SessionID: sessionID,
 			Operation: "stop",
@@ -73,9 +90,9 @@ func (b *Browser) Stop(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// IsActive reports whether the browser unit is active.
+// IsActive reports whether the browser process is active.
 func (b *Browser) IsActive(ctx context.Context, sessionID string) (bool, error) {
-	return b.adapter.IsActive(ctx, b.runner, sessionID)
+	return b.backend.IsActive(ctx, sessionID)
 }
 
 // RemoveRuntimeEnv deletes the runtime env file for a session.
@@ -102,10 +119,13 @@ func (b *Browser) RuntimeEnvPath(sessionID string) (string, error) {
 	return layout.RuntimeEnv, nil
 }
 
-// ListActiveSessionIDs returns session ids with active browser units.
+// ListActiveSessionIDs returns session ids with active browser processes.
 func (b *Browser) ListActiveSessionIDs(ctx context.Context) ([]string, error) {
-	return b.adapter.ListActiveInstances(ctx, b.runner)
+	return b.backend.ListActiveSessionIDs(ctx)
 }
+
+// Close stops browser processes owned by this supervisor.
+func (b *Browser) Close(ctx context.Context) error { return b.backend.Close(ctx) }
 
 // RuntimeEnvExists reports whether the runtime env file exists for a session.
 func (b *Browser) RuntimeEnvExists(sessionID string) (bool, error) {
@@ -122,3 +142,26 @@ func (b *Browser) RuntimeEnvExists(sessionID string) (bool, error) {
 	}
 	return false, err
 }
+
+type systemdBackend struct {
+	adapter *systemd.UserAdapter
+	runner  systemd.CommandRunner
+}
+
+func (b *systemdBackend) Start(ctx context.Context, sessionID string) error {
+	return b.adapter.Start(ctx, b.runner, sessionID)
+}
+
+func (b *systemdBackend) Stop(ctx context.Context, sessionID string) error {
+	return b.adapter.Stop(ctx, b.runner, sessionID)
+}
+
+func (b *systemdBackend) IsActive(ctx context.Context, sessionID string) (bool, error) {
+	return b.adapter.IsActive(ctx, b.runner, sessionID)
+}
+
+func (b *systemdBackend) ListActiveSessionIDs(ctx context.Context) ([]string, error) {
+	return b.adapter.ListActiveInstances(ctx, b.runner)
+}
+
+func (b *systemdBackend) Close(context.Context) error { return nil }
