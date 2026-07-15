@@ -413,6 +413,8 @@
             pkgs.gnugrep
             pkgs.gnused
             pkgs.sudo
+            (lib.getOutput "out" pkgs.fontconfig)
+            pkgs.dejavu_fonts
             pkgs.cacert
           ] ++ vaDriverPackages;
           extraCommands = ''
