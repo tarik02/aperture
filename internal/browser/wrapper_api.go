@@ -160,7 +160,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 }
 
 func (r *wrapperRuntime) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeWrapperJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": r.values.SessionID})
+	writeWrapperJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": r.values.SessionID, "gpuMode": r.values.GPUMode, "mediaCodec": r.values.MediaProducerCodec})
 }
 
 func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -172,7 +172,12 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		"compositorPid":  r.compositorPID,
 		"pipewireTarget": r.pipewireTarget,
 		"browserCDPPort": r.values.CDPPort,
+		"gpuMode":        r.values.GPUMode,
+		"mediaCodec":     r.values.MediaProducerCodec,
 		"screencast":     r.screencastStatusLocked(),
+	}
+	if r.values.RenderNode != "" {
+		status["renderNode"] = r.values.RenderNode
 	}
 	if r.values.ExternalBaseURL != "" {
 		status["cdpUrl"] = strings.TrimRight(r.values.ExternalBaseURL, "/") + "/sessions/" + r.values.SessionID + "/cdp"
@@ -559,7 +564,7 @@ func normalizeWrapperCodec(requested string, fallback string) string {
 
 func wrapperMediaProcessEnv(pluginPath string) []string {
 	env := make([]string, 0, 6)
-	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS", "LIBVA_DRIVER_NAME", "NVIDIA_VISIBLE_DEVICES"} {
+	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS", "LIBVA_DRIVER_NAME", "LIBVA_DRIVERS_PATH", "NVIDIA_VISIBLE_DEVICES"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			env = append(env, key+"="+value)
 		}

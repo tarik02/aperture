@@ -1,0 +1,6 @@
+#!/command/with-contenv sh
+exec 2>&1
+
+while sleep 3600; do
+  s6-setuidgid aperture aperture trigger gc --config /etc/aperture/aperture.toml || true
+done

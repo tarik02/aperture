@@ -24,6 +24,7 @@ func validTestConfig(t *testing.T) Config {
 		DeployBlueURL:           "http://127.0.0.1:28080",
 		DeployGreenURL:          "http://127.0.0.1:28082",
 		ListenAddress:           "127.0.0.1:8080",
+		BrowserSupervisor:       BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:  "browser-session@.service",
 		SessionRetentionDays:    7,
 		SnapshotRetentionDays:   7,

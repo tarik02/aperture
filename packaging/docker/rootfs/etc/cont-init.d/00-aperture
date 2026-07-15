@@ -1,0 +1,28 @@
+#!/command/with-contenv sh
+set -eu
+
+if [ -z "${APERTURE_EXTERNAL_BASE_URL:-}" ]; then
+  echo "APERTURE_EXTERNAL_BASE_URL is required" >&2
+  exit 64
+fi
+
+seen_device_gids=""
+for device in /dev/dri/card* /dev/dri/renderD*; do
+  [ -e "$device" ] || continue
+  gid="$(stat -c %g "$device")"
+  case " $seen_device_gids " in
+    *" $gid "*) continue ;;
+  esac
+  echo "aperture-device-$gid:x:$gid:aperture" >> /etc/group
+  seen_device_gids="$seen_device_gids $gid"
+done
+
+install -d -m 0750 -o aperture -g aperture \
+  /home/aperture \
+  /var/lib/aperture \
+  /var/lib/aperture/artifacts \
+  /run/aperture \
+  /run/aperture/state \
+  /run/aperture/traefik \
+  /run/aperture/traefik/dynamic
+install -d -m 0700 -o aperture -g aperture /run/aperture/user

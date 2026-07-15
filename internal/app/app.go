@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -41,6 +42,7 @@ type App struct {
 	Events     *event.Service
 	GC         *gc.Service
 	Channels   *browser.Registry
+	Browser    *supervisor.Browser
 }
 
 // New constructs an App with a production Zap logger and opens the configured database.
@@ -93,6 +95,7 @@ func (a *App) initSessions() error {
 		return fmt.Errorf("browser supervisor: %w", err)
 	}
 	a.Channels = channels
+	a.Browser = browserSupervisor
 	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
 	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
 	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
@@ -243,14 +246,21 @@ func (a *App) reconcileSessionRoutesOnActivation(ctx context.Context, wasActive 
 // Close releases app resources.
 func (a *App) Close() error {
 	var closeErr error
+	if a.Browser != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		if err := a.Browser.Close(ctx); err != nil {
+			closeErr = err
+		}
+		cancel()
+	}
 	if a.DB != nil {
 		if err := a.DB.Close(); err != nil {
-			closeErr = err
+			closeErr = errors.Join(closeErr, err)
 		}
 	}
 	if a.Logger != nil {
 		if err := a.Logger.Sync(); err != nil {
-			closeErr = err
+			closeErr = errors.Join(closeErr, err)
 		}
 	}
 	return closeErr

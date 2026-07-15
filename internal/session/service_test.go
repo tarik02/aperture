@@ -126,6 +126,7 @@ func newTestService(t *testing.T) (*Service, config.Config, *db.Repository, *fak
 		DatabasePath:            filepath.Join(root, "store", "aperture.db"),
 		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
 		ListenAddress:           "127.0.0.1:8080",
+		BrowserSupervisor:       config.BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:  "browser-session@.service",
 		SessionRetentionDays:    7,
 		SnapshotRetentionDays:   7,
