@@ -57,6 +57,15 @@ func Validate(cfg Config) error {
 	default:
 		errs = append(errs, errors.New("webrtc_media_mode must be auto or cdp"))
 	}
+	gpuMode := strings.ToLower(strings.TrimSpace(cfg.GPUMode))
+	if gpuMode == "" {
+		gpuMode = GPUModeAuto
+	}
+	switch gpuMode {
+	case GPUModeAuto, GPUModeSoftware, GPUModeHardware:
+	default:
+		errs = append(errs, errors.New("gpu_mode must be auto, software, or hardware"))
+	}
 	webRTCRuntimeEnabled := mediaMode == WebRTCMediaModeAuto
 	if webRTCRuntimeEnabled && cfg.WebRTCCompositorEnabled {
 		if executable := strings.TrimSpace(cfg.WebRTCCompositorExecutable); executable == "" {
@@ -108,9 +117,12 @@ func Validate(cfg Config) error {
 			errs = append(errs, errors.New("webrtc_media_producer_target is required when webrtc_media_producer_enabled is true"))
 		}
 		switch strings.ToLower(strings.TrimSpace(cfg.WebRTCMediaProducerCodec)) {
-		case WebRTCMediaProducerCodecVP8, WebRTCMediaProducerCodecH264:
+		case WebRTCMediaProducerCodecAuto, WebRTCMediaProducerCodecVP8, WebRTCMediaProducerCodecH264:
 		default:
-			errs = append(errs, errors.New("webrtc_media_producer_codec must be vp8 or h264-va"))
+			errs = append(errs, errors.New("webrtc_media_producer_codec must be auto, vp8, or h264-va"))
+		}
+		if gpuMode == GPUModeSoftware && strings.EqualFold(strings.TrimSpace(cfg.WebRTCMediaProducerCodec), WebRTCMediaProducerCodecH264) {
+			errs = append(errs, errors.New("webrtc_media_producer_codec h264-va is incompatible with gpu_mode software"))
 		}
 		if cfg.WebRTCMediaProducerFPS <= 0 || cfg.WebRTCMediaProducerFPS > 120 {
 			errs = append(errs, errors.New("webrtc_media_producer_fps must be between 1 and 120"))

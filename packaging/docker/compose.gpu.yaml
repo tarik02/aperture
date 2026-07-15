@@ -1,0 +1,4 @@
+services:
+  aperture:
+    devices:
+      - /dev/dri:/dev/dri

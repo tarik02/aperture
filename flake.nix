@@ -363,6 +363,13 @@
           '';
         });
 
+        vaDriverPackages = [ pkgs.mesa ] ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
+          pkgs.intel-media-driver
+          pkgs.intel-vaapi-driver
+        ];
+
+        vaDriverPath = lib.makeSearchPath "lib/dri" vaDriverPackages;
+
         gstreamerPluginPath = lib.makeSearchPath "lib/gstreamer-1.0" [
           pkgs.gst_all_1.gstreamer.out
           pkgs.gst_all_1.gst-plugins-base
@@ -405,10 +412,9 @@
             pkgs.findutils
             pkgs.gnugrep
             pkgs.gnused
-            pkgs.mesa
             pkgs.sudo
             pkgs.cacert
-          ];
+          ] ++ vaDriverPackages;
           extraCommands = ''
             cp -R --preserve=mode,timestamps --no-preserve=ownership ${s6OverlayRootfs}/. .
             chmod u+w .
@@ -482,8 +488,8 @@
               "S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0"
               "S6_KILL_GRACETIME=30000"
               "S6_SERVICES_GRACETIME=30000"
-              "LIBGL_ALWAYS_SOFTWARE=1"
               "LIBGL_DRIVERS_PATH=${pkgs.mesa}/lib/dri"
+              "LIBVA_DRIVERS_PATH=${vaDriverPath}"
               "__EGL_VENDOR_LIBRARY_FILENAMES=${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json"
             ];
             ExposedPorts = { "8080/tcp" = { }; };
