@@ -269,7 +269,7 @@ func mcpSnapshotView(view *snapshot.SnapshotView) mcpSnapshot {
 }
 
 type mcpListSnapshotsInput struct {
-	TenantID       string `json:"tenantId"`
+	TenantID       string `json:"tenantId,omitempty"`
 	Cursor         string `json:"cursor,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
 	IncludeDeleted bool   `json:"includeDeleted,omitempty"`
@@ -279,11 +279,11 @@ type mcpListSnapshotsOutput struct {
 	Meta db.PageMeta   `json:"meta"`
 }
 type mcpGetSnapshotInput struct {
-	TenantID string `json:"tenantId"`
+	TenantID string `json:"tenantId,omitempty"`
 	Name     string `json:"name"`
 }
 type mcpCreateSessionInput struct {
-	TenantID         string            `json:"tenantId"`
+	TenantID         string            `json:"tenantId,omitempty"`
 	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
 	Label            *string           `json:"label,omitempty"`
 	BrowserChannel   string            `json:"browserChannel"`
@@ -291,7 +291,7 @@ type mcpCreateSessionInput struct {
 	Tags             map[string]string `json:"tags,omitempty"`
 }
 type mcpCreateFromSnapshotInput struct {
-	TenantID       string            `json:"tenantId"`
+	TenantID       string            `json:"tenantId,omitempty"`
 	SnapshotName   string            `json:"snapshotName"`
 	Label          *string           `json:"label,omitempty"`
 	BrowserChannel string            `json:"browserChannel"`
@@ -306,11 +306,11 @@ type mcpCreateSessionOutput struct {
 	SessionToken string     `json:"sessionToken"`
 }
 type mcpGetSessionInput struct {
-	TenantID  string `json:"tenantId"`
+	TenantID  string `json:"tenantId,omitempty"`
 	SessionID string `json:"sessionId"`
 }
 type mcpListSessionsInput struct {
-	TenantID       string `json:"tenantId"`
+	TenantID       string `json:"tenantId,omitempty"`
 	Cursor         string `json:"cursor,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
 	IncludeDeleted bool   `json:"includeDeleted,omitempty"`
@@ -320,7 +320,7 @@ type mcpListSessionsOutput struct {
 	Meta db.PageMeta  `json:"meta"`
 }
 type mcpBulkSessionsInput struct {
-	TenantID   string   `json:"tenantId"`
+	TenantID   string   `json:"tenantId,omitempty"`
 	SessionIDs []string `json:"sessionIds"`
 }
 type mcpBulkSessionsOutput struct {
@@ -349,7 +349,7 @@ type mcpPromoteOutput struct {
 	Snapshot mcpSnapshot `json:"snapshot"`
 }
 type mcpListEventsInput struct {
-	TenantID     string  `json:"tenantId"`
+	TenantID     string  `json:"tenantId,omitempty"`
 	ResourceType *string `json:"resourceType,omitempty"`
 	ResourceID   *string `json:"resourceId,omitempty"`
 	Cursor       string  `json:"cursor,omitempty"`
@@ -609,6 +609,9 @@ func (s *Server) mcpTenant(a mcpAuth, requested string, scope string) (string, e
 	}
 	if !auth.HasScope(a.principal.Scopes, scope) {
 		return "", mcpToolError("forbidden", nil)
+	}
+	if a.principal.AuthorityType == auth.AuthorityTenant && requested != "" {
+		return "", mcpToolError("tenant_selection_forbidden", auth.ErrTenantForbidden)
 	}
 	tenantID, err := auth.ResolveTenantID(*a.principal, requested)
 	if err != nil {
