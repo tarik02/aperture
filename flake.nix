@@ -406,6 +406,7 @@
             pkgs.findutils
             pkgs.gnugrep
             pkgs.gnused
+            pkgs.mesa
             pkgs.sudo
             pkgs.cacert
           ];
@@ -443,6 +444,7 @@
             rm -f etc/sudoers
             rm -rf etc/sudoers.d
             mkdir -p etc/sudoers.d
+            mkdir -p etc/pam.d
             cat > etc/sudoers <<'EOF'
             Defaults env_reset
             Defaults secure_path="/usr/local/bin:${lib.makeBinPath [ aperture pkgs.coreutils pkgs.sudo ]}"
@@ -450,11 +452,19 @@
             @includedir /etc/sudoers.d
             EOF
             cat > etc/sudoers.d/aperture <<'EOF'
-            aperture ALL=(root) NOPASSWD: ${aperture}/bin/aperture-mount-session *
-            aperture ALL=(root) NOPASSWD: ${aperture}/bin/aperture-unmount-session *
+            aperture ALL=(root) NOPASSWD: /bin/aperture-mount-session *
+            aperture ALL=(root) NOPASSWD: /bin/aperture-unmount-session *
+            EOF
+            cat > etc/pam.d/sudo <<'EOF'
+            auth required ${pkgs.pam}/lib/security/pam_permit.so
+            account required ${pkgs.pam}/lib/security/pam_permit.so
+            session required ${pkgs.pam}/lib/security/pam_permit.so
             EOF
             chmod 0440 etc/sudoers etc/sudoers.d/aperture
+            chmod 0644 etc/pam.d/sudo
             cp ${pkgs.sudo}/bin/sudo usr/local/bin/sudo
+            rm -f bin/sudo
+            ln -s ../usr/local/bin/sudo bin/sudo
             chmod 1777 tmp
           '';
           fakeRootCommands = ''
@@ -473,6 +483,9 @@
               "S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0"
               "S6_KILL_GRACETIME=30000"
               "S6_SERVICES_GRACETIME=30000"
+              "LIBGL_ALWAYS_SOFTWARE=1"
+              "LIBGL_DRIVERS_PATH=${pkgs.mesa}/lib/dri"
+              "__EGL_VENDOR_LIBRARY_FILENAMES=${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json"
             ];
             ExposedPorts = { "8080/tcp" = { }; };
             Volumes = { "/var/lib/aperture" = { }; };
