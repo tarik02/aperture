@@ -91,7 +91,7 @@ func TestRenderSessionsConfigIncludesCustomCDPBase(t *testing.T) {
 	}
 	rendered := string(got)
 
-	if !strings.Contains(rendered, "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/session_`)") {
+	if !strings.Contains(rendered, "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/aps_`)") {
 		t.Fatalf("cdp router rule mismatch:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "/browser/018f1234-0000-7000-8000-000000000001") {

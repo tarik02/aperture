@@ -1,6 +1,6 @@
 # Docker
 
-The Docker image contains the complete Aperture runtime: Chromium, the WebRTC media stack, the patched Weston compositor, GStreamer, PipeWire/WirePlumber, bubblewrap, Traefik, and s6-overlay. It is available for Linux amd64 and arm64.
+The Docker image contains the complete Aperture runtime: Chromium, the WebRTC media stack, the patched Weston compositor, GStreamer, PipeWire/WirePlumber, bubblewrap, agent-browser, Traefik, and s6-overlay. It is available for Linux amd64 and arm64.
 
 ## Build
 

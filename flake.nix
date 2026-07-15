@@ -404,6 +404,7 @@
           maxLayers = 120;
           contents = [
             aperture
+            agentBrowser
             pkgs.traefik
             pkgs.chromium
             pkgs.bashInteractive
@@ -485,7 +486,7 @@
               "HOME=/home/aperture"
               "XDG_RUNTIME_DIR=/run/aperture/user"
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-              "PATH=/command:/usr/local/bin:${lib.makeBinPath [ aperture pkgs.traefik pkgs.chromium pkgs.bashInteractive pkgs.coreutils pkgs.curl pkgs.findutils pkgs.gnugrep pkgs.gnused pkgs.sudo ]}"
+              "PATH=/command:/usr/local/bin:${lib.makeBinPath [ aperture agentBrowser pkgs.traefik pkgs.chromium pkgs.bashInteractive pkgs.coreutils pkgs.curl pkgs.findutils pkgs.gnugrep pkgs.gnused pkgs.sudo ]}"
               "S6_BEHAVIOUR_IF_STAGE2_FAILS=2"
               "S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0"
               "S6_KILL_GRACETIME=30000"

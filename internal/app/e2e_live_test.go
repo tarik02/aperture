@@ -158,7 +158,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 		t.Fatalf("create session status = %d body = %s", createResp.StatusCode, readBody(createResp))
 	}
 	var created struct {
-		Session  db.Session `json:"session"`
+		Session      db.Session `json:"session"`
 		SessionToken string     `json:"sessionToken"`
 	}
 	decodeJSON(t, createResp, &created)

@@ -315,7 +315,7 @@ func pathPrefixRouterRule(routePrefix string) string {
 func cdpDiscoveryRouterRule(cdpBase string) string {
 	escaped := escapeTraefikPath(cdpBase)
 	return fmt.Sprintf(
-		"PathPrefix(`%s/session_`)",
+		"PathPrefix(`%s/aps_`)",
 		escaped,
 	)
 }
