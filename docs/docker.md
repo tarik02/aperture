@@ -23,13 +23,28 @@ docker compose -f packaging/docker/compose.yaml up -d
 
 The container exposes Traefik on port `8080`. Put TLS or an external ingress in front of that port when the public URL uses HTTPS.
 
-The Compose definition grants `CAP_SYS_ADMIN` for overlay mounts, allocates 2 GiB of shared memory, persists all state in the `aperture-data` volume, and keeps `/run/aperture` ephemeral. Replacing the container may terminate active browser sessions; the Docker deployment does not provide blue/green rollout semantics.
+The base Compose definition runs without a GPU. It grants `CAP_SYS_ADMIN` for overlay mounts, allocates 2 GiB of shared memory, persists all state in the `aperture-data` volume, and keeps `/run/aperture` ephemeral. Replacing the container may terminate active browser sessions; the Docker deployment does not provide blue/green rollout semantics.
 
-The default media codec is software VP8. For VA-API H.264, pass `/dev/dri` into the container and set:
+To expose the host DRM devices, add the GPU override:
 
 ```bash
-APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC=h264-va
+docker compose \
+  -f packaging/docker/compose.yaml \
+  -f packaging/docker/compose.gpu.yaml \
+  up -d
 ```
+
+The container adds the `aperture` user to the groups owning the supplied DRM devices. The same image contains Mesa VA drivers and, on amd64, Intel media drivers.
+
+GPU selection is controlled by `APERTURE_GPU_MODE`:
+
+- `auto` selects the full hardware path only when a render node and the requested VA-API pipeline pass preflight; otherwise it selects software before the session starts.
+- `software` ignores supplied DRM devices and uses software GL with VP8 when the codec is `auto`.
+- `hardware` requires an accessible render node. Missing devices or codec elements fail session startup; there is no runtime fallback.
+
+`APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC` accepts `auto`, `vp8`, or `h264-va`. The default `auto` selects H.264 VA in resolved hardware mode and VP8 in resolved software mode. Explicit `h264-va` requires hardware, while explicit `vp8` permits GPU rendering with software media encoding.
+
+The per-session `/browser/status` response reports the resolved `gpuMode`, `mediaCodec`, and `renderNode` when hardware is active.
 
 To use a custom config, bind-mount a regular root-owned file at `/etc/aperture/aperture.toml`. The mount helpers intentionally reject untrusted and symlinked config files.
 

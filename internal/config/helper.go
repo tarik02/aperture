@@ -32,6 +32,7 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
+	v.SetDefault("gpu_mode", defaults.GPUMode)
 	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)
 	v.SetDefault("webrtc_compositor_backend", defaults.WebRTCCompositorBackend)
 	v.SetDefault("webrtc_compositor_renderer", defaults.WebRTCCompositorRenderer)

@@ -448,6 +448,7 @@ func (s *Service) runtimeEnvValues(
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
+		GPUMode:                    s.cfg.GPUMode,
 		CompositorEnabled:          compositorEnabled,
 		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
 		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
