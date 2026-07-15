@@ -642,14 +642,15 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	compositorConfig := filepath.Join(values.CacheDir, "weston.ini")
 	compositorConfigBody := "[shell]\npanel-position=none\nbackground-color=0x000000\nlocking=false\nanimation=none\nstartup-animation=none\n"
 	apertureShellPath := ""
-	if compositorShell == "lua-shell" || compositorShell == "lua-shell.so" {
+	switch compositorShell {
+	case "lua-shell", "lua-shell.so":
 		luaShellScript := filepath.Join(values.CacheDir, "aperture-shell.lua")
 		if err := os.WriteFile(luaShellScript, []byte(compositorLuaShellScript), 0o600); err != nil {
 			return fmt.Errorf("write compositor lua shell: %w", err)
 		}
 		compositorConfigBody = "[shell]\nlua-script=" + luaShellScript + "\n"
 		compositorShell = "lua-shell.so"
-	} else if compositorShell == "aperture" || compositorShell == "aperture-weston-shell.so" {
+	case "aperture", "aperture-weston-shell.so":
 		var err error
 		apertureShellPath, err = apertureWestonShellPath()
 		if err != nil {

@@ -494,14 +494,14 @@ func doJSON(t *testing.T, client *http.Client, method, url, token, tenant string
 
 func decodeJSON(t *testing.T, resp *http.Response, dst any) {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 }
 
 func readBody(resp *http.Response) string {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return string(body)
 }

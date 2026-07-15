@@ -54,7 +54,7 @@ func tryServeStaticFile(c *gin.Context, assets fs.FS, requestPath string) bool {
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	info, err := file.Stat()
 	if err != nil || info.IsDir() {

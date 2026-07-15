@@ -22,7 +22,7 @@ func newMigrateCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("init app: %w", err)
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			return application.Migrate(cmd.Context())
 		},

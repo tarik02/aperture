@@ -253,7 +253,7 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	if err != nil {
 		return
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(64 << 10)
 
 	ctx, cancel := context.WithCancel(req.Context())
@@ -627,7 +627,7 @@ func sendCompositorControlCommand(ctx context.Context, socketPath string, comman
 	if err != nil {
 		return "", fmt.Errorf("dial compositor control socket: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)

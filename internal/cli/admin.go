@@ -40,7 +40,7 @@ func newBootstrapCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -64,9 +64,11 @@ func newBootstrapCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), "bootstrap token (store securely, shown once):")
-			fmt.Fprintln(cmd.OutOrStdout(), created.Raw)
-			return nil
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "bootstrap token (store securely, shown once):"); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), created.Raw)
+			return err
 		},
 	}
 
@@ -104,7 +106,7 @@ func newAdminTenantsCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -117,8 +119,7 @@ func newAdminTenantsCreateCmd() *cobra.Command {
 				return err
 			}
 
-			printTenant(cmd.OutOrStdout(), tenant)
-			return nil
+			return printTenant(cmd.OutOrStdout(), tenant)
 		},
 	}
 
@@ -139,7 +140,7 @@ func newAdminTenantsListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -151,7 +152,9 @@ func newAdminTenantsListCmd() *cobra.Command {
 			}
 
 			for _, tenant := range tenants {
-				printTenant(cmd.OutOrStdout(), &tenant)
+				if err := printTenant(cmd.OutOrStdout(), &tenant); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
@@ -174,7 +177,7 @@ func newAdminTenantsUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -187,8 +190,7 @@ func newAdminTenantsUpdateCmd() *cobra.Command {
 				return err
 			}
 
-			printTenant(cmd.OutOrStdout(), tenant)
-			return nil
+			return printTenant(cmd.OutOrStdout(), tenant)
 		},
 	}
 
@@ -211,7 +213,7 @@ func newAdminTenantsDeleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -222,8 +224,7 @@ func newAdminTenantsDeleteCmd() *cobra.Command {
 				return err
 			}
 
-			printTenant(cmd.OutOrStdout(), tenant)
-			return nil
+			return printTenant(cmd.OutOrStdout(), tenant)
 		},
 	}
 
@@ -244,7 +245,7 @@ func newAdminTenantsRestoreCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -255,8 +256,7 @@ func newAdminTenantsRestoreCmd() *cobra.Command {
 				return err
 			}
 
-			printTenant(cmd.OutOrStdout(), tenant)
-			return nil
+			return printTenant(cmd.OutOrStdout(), tenant)
 		},
 	}
 
@@ -295,7 +295,7 @@ func newAdminTokensCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -327,10 +327,13 @@ func newAdminTokensCreateCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), "api token (store securely, shown once):")
-			fmt.Fprintln(cmd.OutOrStdout(), created.Raw)
-			printToken(cmd.OutOrStdout(), &created.Token)
-			return nil
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "api token (store securely, shown once):"); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), created.Raw); err != nil {
+				return err
+			}
+			return printToken(cmd.OutOrStdout(), &created.Token)
 		},
 	}
 
@@ -357,7 +360,7 @@ func newAdminTokensRevokeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer application.Close()
+			defer func() { _ = application.Close() }()
 
 			if err := application.Migrate(cmd.Context()); err != nil {
 				return err
@@ -367,8 +370,8 @@ func newAdminTokensRevokeCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "revoked token %s\n", tokenID)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "revoked token %s\n", tokenID)
+			return err
 		},
 	}
 
@@ -391,12 +394,12 @@ func openApp(cmd *cobra.Command) (*app.App, error) {
 	return application, nil
 }
 
-func printTenant(out io.Writer, tenant *db.Tenant) {
+func printTenant(out io.Writer, tenant *db.Tenant) error {
 	deleted := "active"
 	if tenant.DeletedAt != nil {
 		deleted = *tenant.DeletedAt
 	}
-	fmt.Fprintf(
+	_, err := fmt.Fprintf(
 		out,
 		"tenant id=%s display_name=%q created_at=%s deleted_at=%s\n",
 		tenant.ID,
@@ -404,14 +407,15 @@ func printTenant(out io.Writer, tenant *db.Tenant) {
 		tenant.CreatedAt,
 		deleted,
 	)
+	return err
 }
 
-func printToken(out io.Writer, token *db.APIToken) {
+func printToken(out io.Writer, token *db.APIToken) error {
 	tenant := ""
 	if token.TenantID != nil {
 		tenant = *token.TenantID
 	}
-	fmt.Fprintf(
+	_, err := fmt.Fprintf(
 		out,
 		"token id=%s authority_type=%s tenant_id=%s name=%q scopes=%s\n",
 		token.ID,
@@ -420,4 +424,5 @@ func printToken(out io.Writer, token *db.APIToken) {
 		token.Name,
 		token.ScopesJSON,
 	)
+	return err
 }

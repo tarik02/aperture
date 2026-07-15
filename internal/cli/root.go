@@ -9,6 +9,7 @@ import (
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/traefik"
+	"github.com/aperture/aperture/internal/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -22,9 +23,11 @@ func Execute() error {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "aperture",
-		Short: "chromium session supervisor",
+		Use:     "aperture",
+		Short:   "chromium session supervisor",
+		Version: version.Short(),
 	}
+	cmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
 	cmd.PersistentFlags().String("config", "", "config file path")
 	cmd.PersistentFlags().String("listen-address", "", "loopback listen address")
@@ -73,20 +76,10 @@ func newRootCmd() *cobra.Command {
 		newAdminCmd(),
 		newDeploymentCmd(),
 		newTriggerCmd(),
+		newVersionCommand(),
 	)
 
 	return cmd
-}
-
-func placeholder(name string) *cobra.Command {
-	return &cobra.Command{
-		Use:    name,
-		Short:  "not implemented",
-		Hidden: false,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("%s: not implemented", cmd.CommandPath())
-		},
-	}
 }
 
 func newDeploymentCmd() *cobra.Command {

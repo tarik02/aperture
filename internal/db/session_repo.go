@@ -94,7 +94,7 @@ func (r *Repository) ListSessionsByStatuses(ctx context.Context, statuses []stri
 	}
 	err := r.db.bun.NewSelect().
 		Model(&sessions).
-		Where("status IN (?)", bun.In(statuses)).
+		Where("status IN (?)", bun.List(statuses)).
 		OrderExpr("created_at ASC").
 		Scan(ctx)
 	if err != nil {
