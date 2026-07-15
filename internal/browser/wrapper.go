@@ -709,16 +709,22 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		}
 	}()
 
+	renderNodes, err := filepath.Glob("/dev/dri/renderD*")
+	if err != nil {
+		return fmt.Errorf("discover render nodes: %w", err)
+	}
+	hardwareAcceleration := len(renderNodes) > 0
 	extraArgs := append([]string(nil), values.BrowserExtraArgs...)
 	extraArgs = append(extraArgs,
 		"--ozone-platform=wayland",
 		"--class="+compositorBrowserAppID,
-		"--ignore-gpu-blocklist",
-		"--enable-gpu-rasterization",
 		"--kiosk",
 		fmt.Sprintf("--window-size=%d,%d", values.CompositorWidth, values.CompositorHeight),
 		"about:blank",
 	)
+	if hardwareAcceleration {
+		extraArgs = append(extraArgs, "--ignore-gpu-blocklist", "--enable-gpu-rasterization")
+	}
 	browserCmd, err := BuildBwrapCommand(LaunchConfig{
 		BwrapPath:                bwrapPath,
 		BrowserExecutable:        values.BrowserExecutable,
@@ -730,7 +736,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                extraArgs,
 		CaptureProofExtensionDir: values.CaptureProofExtensionDir,
-		HardwareAcceleration:     true,
+		HardwareAcceleration:     hardwareAcceleration,
 		NestedWaylandSocket:      socketName,
 	})
 	if err != nil {
@@ -1141,8 +1147,18 @@ func stringPipeWireProperty(props pipeWireDumpProperty, key string) string {
 }
 
 func compositorProcessEnv() []string {
-	env := make([]string, 0, 5)
-	for _, key := range []string{"XDG_RUNTIME_DIR", "PIPEWIRE_REMOTE", "DBUS_SESSION_BUS_ADDRESS", "LIBVA_DRIVER_NAME", "NVIDIA_VISIBLE_DEVICES"} {
+	keys := []string{
+		"XDG_RUNTIME_DIR",
+		"PIPEWIRE_REMOTE",
+		"DBUS_SESSION_BUS_ADDRESS",
+		"LIBVA_DRIVER_NAME",
+		"NVIDIA_VISIBLE_DEVICES",
+		"LIBGL_ALWAYS_SOFTWARE",
+		"LIBGL_DRIVERS_PATH",
+		"__EGL_VENDOR_LIBRARY_FILENAMES",
+	}
+	env := make([]string, 0, len(keys))
+	for _, key := range keys {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			env = append(env, key+"="+value)
 		}
