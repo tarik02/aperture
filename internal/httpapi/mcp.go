@@ -366,7 +366,7 @@ type mcpBoundPromoteInput struct {
 	Force       bool              `json:"force,omitempty"`
 	Tags        map[string]string `json:"tags,omitempty"`
 }
-type mcpPromoteOutput struct {
+type mcpSnapshotOutput struct {
 	Snapshot mcpSnapshot `json:"snapshot"`
 }
 type mcpListEventsInput struct {
@@ -491,6 +491,10 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 	} else {
 		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.list", Description: "List snapshots before creating a browser session."}, s.mcpSnapshotsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.get", Description: "Get a snapshot by tenant and name."}, s.mcpSnapshotsGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.update", Description: "Replace the optional description for a snapshot."}, s.mcpSnapshotUpdate)
+		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.delete", Description: "Delete a tenant-owned snapshot."}, s.mcpSnapshotDelete)
+		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.replace_tags", Description: "Replace all tags on a snapshot."}, s.mcpSnapshotReplaceTags)
+		mcp.AddTool(server, &mcp.Tool{Name: "snapshots.restore", Description: "Restore a deleted snapshot."}, s.mcpSnapshotRestore)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.create", Description: "Create a browser session and return its session token and connection data for later browser tools."}, s.mcpSessionsCreate)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.create_from_snapshot", Description: "Create a browser session from the required snapshotName and return immediate connection data."}, s.mcpSessionsCreateFromSnapshot)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.list", Description: "List sessions without waking or promoting suspended sessions."}, s.mcpSessionsList)
@@ -499,6 +503,8 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get current status for a session."}, s.mcpSessionStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get current connection data for a session."}, s.mcpSessionConnection)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend a running session."}, s.mcpSessionSuspend)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.reopen", Description: "Reopen a retained deleted or failed session."}, s.mcpSessionReopen)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.replace_tags", Description: "Replace all tags on a session."}, s.mcpSessionReplaceTags)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.delete", Description: "Delete a tenant-owned session."}, s.mcpSessionDelete)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
@@ -508,7 +514,13 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "screencast.status", Description: "Get screencast recording status for a session."}, s.mcpScreencastStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "screencast.stop", Description: "Stop a screencast and return its session file path."}, s.mcpScreencastStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenant.update", Description: "Update the tenant associated with this tenant-scoped token."}, s.mcpTenantUpdate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenants.update", Description: "Update a tenant for system administration."}, s.mcpTenantsUpdate)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenants.delete", Description: "Deactivate a tenant and revoke its tenant-scoped tokens."}, s.mcpTenantsDelete)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenants.restore", Description: "Restore a deactivated tenant."}, s.mcpTenantsRestore)
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.list", Description: "List API tokens for system or tenant administration."}, s.mcpTokensList)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.create", Description: "Create a tenant for subsequent session and snapshot workflows."}, s.mcpTenantsCreate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.create", Description: "Create an API bearer token for authorized Aperture access."}, s.mcpTokensCreate)
@@ -863,23 +875,23 @@ func (s *Server) mcpSessionTokenRotate(ctx context.Context, _ *mcp.CallToolReque
 	}
 	return nil, mcpStatusOutput{Session: mcpSessionView(updated)}, nil
 }
-func (s *Server) mcpSessionsPromote(ctx context.Context, _ *mcp.CallToolRequest, in mcpPromoteInput) (*mcp.CallToolResult, mcpPromoteOutput, error) {
+func (s *Server) mcpSessionsPromote(ctx context.Context, _ *mcp.CallToolRequest, in mcpPromoteInput) (*mcp.CallToolResult, mcpSnapshotOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpPromoteOutput{}, err
+		return nil, mcpSnapshotOutput{}, err
 	}
 	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSessionsWrite)
 	if err != nil {
-		return nil, mcpPromoteOutput{}, err
+		return nil, mcpSnapshotOutput{}, err
 	}
 	if !auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
-		return nil, mcpPromoteOutput{}, mcpToolError("forbidden", nil)
+		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", nil)
 	}
 	view, err := s.Promotion.Promote(ctx, snapshot.PromoteInput{TenantID: tenantID, SessionID: in.SessionID, Name: in.Name, Description: in.Description, Force: in.Force, Tags: in.Tags})
 	if err != nil {
-		return nil, mcpPromoteOutput{}, mcpToolError("session_unavailable", err)
+		return nil, mcpSnapshotOutput{}, mcpToolError("session_unavailable", err)
 	}
-	return nil, mcpPromoteOutput{Snapshot: mcpSnapshotView(view)}, nil
+	return nil, mcpSnapshotOutput{Snapshot: mcpSnapshotView(view)}, nil
 }
 func (s *Server) mcpEventsList(ctx context.Context, _ *mcp.CallToolRequest, in mcpListEventsInput) (*mcp.CallToolResult, mcpListEventsOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
@@ -1028,10 +1040,10 @@ func (s *Server) mcpBoundConnection(ctx context.Context, req *mcp.CallToolReques
 	}
 	return s.mcpSessionConnection(ctx, req, mcpSessionIDInput{TenantID: a.tenantID, SessionID: a.sessionID})
 }
-func (s *Server) mcpBoundPromote(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundPromoteInput) (*mcp.CallToolResult, mcpPromoteOutput, error) {
+func (s *Server) mcpBoundPromote(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundPromoteInput) (*mcp.CallToolResult, mcpSnapshotOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpPromoteOutput{}, err
+		return nil, mcpSnapshotOutput{}, err
 	}
 	return s.mcpSessionsPromote(ctx, req, mcpPromoteInput{TenantID: a.tenantID, SessionID: a.sessionID, Name: in.Name, Description: in.Description, Force: in.Force, Tags: in.Tags})
 }
