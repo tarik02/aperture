@@ -331,6 +331,27 @@ type mcpSessionIDInput struct {
 	TenantID  string `json:"tenantId,omitempty"`
 	SessionID string `json:"sessionId"`
 }
+type mcpScreencastInput struct {
+	TenantID    string `json:"tenantId,omitempty"`
+	SessionID   string `json:"sessionId"`
+	FPS         int    `json:"fps,omitempty"`
+	BitrateKbps int    `json:"bitrateKbps,omitempty"`
+	Codec       string `json:"codec,omitempty"`
+}
+type mcpBoundScreencastInput struct {
+	FPS         int    `json:"fps,omitempty"`
+	BitrateKbps int    `json:"bitrateKbps,omitempty"`
+	Codec       string `json:"codec,omitempty"`
+}
+type mcpScreencastOutput struct {
+	Active       bool   `json:"active"`
+	RelativePath string `json:"relativePath,omitempty"`
+	StartedAt    string `json:"startedAt,omitempty"`
+	StoppedAt    string `json:"stoppedAt,omitempty"`
+	SizeBytes    int64  `json:"sizeBytes,omitempty"`
+	FPS          int    `json:"fps,omitempty"`
+	Codec        string `json:"codec,omitempty"`
+}
 type mcpPromoteInput struct {
 	TenantID    string            `json:"tenantId,omitempty"`
 	SessionID   string            `json:"sessionId,omitempty"`
@@ -461,6 +482,9 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get status for this session without waking it."}, s.mcpBoundStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get live connection data for this session without waking it."}, s.mcpBoundConnection)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend this running session."}, s.mcpBoundSuspend)
+		mcp.AddTool(server, &mcp.Tool{Name: "screencast.start", Description: "Start a screencast recording for this session."}, s.mcpBoundScreencastStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "screencast.status", Description: "Get screencast recording status for this session."}, s.mcpBoundScreencastStatus)
+		mcp.AddTool(server, &mcp.Tool{Name: "screencast.stop", Description: "Stop the active screencast and return its session file path."}, s.mcpBoundScreencastStop)
 		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
@@ -480,6 +504,9 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
+		mcp.AddTool(server, &mcp.Tool{Name: "screencast.start", Description: "Start a screencast recording for a session."}, s.mcpScreencastStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "screencast.status", Description: "Get screencast recording status for a session."}, s.mcpScreencastStatus)
+		mcp.AddTool(server, &mcp.Tool{Name: "screencast.stop", Description: "Stop a screencast and return its session file path."}, s.mcpScreencastStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.list", Description: "List API tokens for system or tenant administration."}, s.mcpTokensList)
@@ -491,7 +518,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 	tools, err := agentbrowser.ToolsForProfilesMetadata(a.profiles)
 	if canProxy && err == nil {
 		for name, definition := range tools {
-			if name == "sessions.status" || name == "sessions.connection" {
+			if name == "agent_browser_close" || name == "sessions.status" || name == "sessions.connection" {
 				continue
 			}
 			tool := adaptAgentBrowserTool(definition, a.pathBound)

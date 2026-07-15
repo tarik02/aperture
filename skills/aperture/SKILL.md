@@ -160,8 +160,9 @@ Agent-browser tools are selected when the MCP connection is established with the
 ```
 
 The default is `core,tabs,mobile,network`. Profiles are validated at connection time and remain fixed for that connection. Open a new connection to change profiles. Browser calls wake the target session for the call duration; connecting and listing tools do not wake it.
+`agent_browser_close` is excluded because Aperture owns the browser session lifecycle. Use `sessions.suspend` or `sessions.delete` instead.
 
-Native tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `events.list`, `session_files.list`, and `session_files.create_download_url`, plus authorized tenant and token administration tools.
+Native tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `events.list`, `session_files.list`, `session_files.create_download_url`, `screencast.start`, `screencast.status`, and `screencast.stop`, plus authorized tenant and token administration tools.
 
 MCP tool output is capped at `tool_output_max_bytes` (16 MiB by default). Set `mcp_enabled = false` to make both MCP routes return `404`.
 
