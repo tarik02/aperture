@@ -61,7 +61,10 @@ func (s *Server) initMCPHandler() {
 			return nil
 		}
 		return s.newMCPServer(authn)
-	}, &mcp.StreamableHTTPOptions{JSONResponse: true})
+	}, &mcp.StreamableHTTPOptions{
+		JSONResponse:               true,
+		DisableLocalhostProtection: true,
+	})
 	s.mcpHandler = mcpauth.RequireBearerToken(func(ctx context.Context, _ string, r *http.Request) (*mcpauth.TokenInfo, error) {
 		authn, err := s.authenticateMCP(r)
 		if err != nil {
