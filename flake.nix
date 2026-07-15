@@ -151,7 +151,7 @@
 
             ${lib.optionalString pkgs.stdenv.isLinux ''
               patchelf \
-                --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
+                --set-interpreter ${pkgs.stdenv.cc.bintools.dynamicLinker} \
                 $out/lib/agent-browser/bin/${agentBrowserBinary}
             ''}
 
