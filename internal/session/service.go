@@ -447,22 +447,18 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if sessionRow.Status == db.SessionStatusExpired {
 		return nil, ErrExpired
 	}
+	wasRunning := sessionRow.Status == db.SessionStatusRunning
 
 	if err := s.retireMediaSession(sessionID); err != nil {
 		return nil, err
 	}
-	if sessionRow.Status == db.SessionStatusRunning {
+	if wasRunning {
 		if err := s.browser.Stop(ctx, sessionID); err != nil {
 			return nil, err
 		}
 	}
 	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
 		return nil, err
-	}
-	if sessionRow.Status == db.SessionStatusRunning {
-		if err := s.unmountOverlay(ctx, sessionID); err != nil {
-			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
-		}
 	}
 
 	now := s.now().UTC()
@@ -484,6 +480,11 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	s.closeMediaSession(sessionID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
+	}
+	if wasRunning {
+		if err := s.unmountOverlay(ctx, sessionID); err != nil {
+			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+		}
 	}
 
 	tags, err := s.repo.ListSessionTags(ctx, sessionID)
@@ -1040,7 +1041,6 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
@@ -1057,14 +1057,18 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 		return err
 	}
 
-	return s.appendEvent(ctx, sessionRow, "session.failed", message, cause)
+	if err := s.appendEvent(ctx, sessionRow, "session.failed", message, cause); err != nil {
+		return err
+	}
+
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	return nil
 }
 
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
 	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
@@ -1079,7 +1083,12 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
 	}
-	return s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause)
+	if err := s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause); err != nil {
+		return err
+	}
+
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	return nil
 }
 
 func (s *Service) appendEvent(ctx context.Context, sessionRow *db.Session, eventType, message string, cause error) error {
