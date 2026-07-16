@@ -57,6 +57,8 @@ type Config struct {
 	BrowserSupervisor                string                   `mapstructure:"browser_supervisor"`
 	SystemdBrowserUnitName           string                   `mapstructure:"systemd_browser_unit_name"`
 	SessionRetentionDays             int                      `mapstructure:"session_retention_days"`
+	SessionUploadMaxFileBytes        int64                    `mapstructure:"session_upload_max_file_bytes"`
+	SessionStorageQuotaBytes         int64                    `mapstructure:"session_storage_quota_bytes"`
 	SnapshotRetentionDays            int                      `mapstructure:"snapshot_retention_days"`
 	ChannelRegistry                  map[string]ChannelConfig `mapstructure:"channels"`
 	ExternalBaseURL                  string                   `mapstructure:"external_base_url"`
@@ -104,6 +106,8 @@ func Defaults() Config {
 		BrowserSupervisor:                BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:           "browser-session@.service",
 		SessionRetentionDays:             7,
+		SessionUploadMaxFileBytes:        100 * 1024 * 1024,
+		SessionStorageQuotaBytes:         1024 * 1024 * 1024,
 		SnapshotRetentionDays:            7,
 		ChannelRegistry:                  nil,
 		ExternalBaseURL:                  "",
@@ -169,6 +173,8 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("deploy_green_url", defaults.DeployGreenURL)
 	v.SetDefault("systemd_browser_unit_name", defaults.SystemdBrowserUnitName)
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
+	v.SetDefault("session_upload_max_file_bytes", defaults.SessionUploadMaxFileBytes)
+	v.SetDefault("session_storage_quota_bytes", defaults.SessionStorageQuotaBytes)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
 	v.SetDefault("webrtc_media_mode", defaults.WebRTCMediaMode)
@@ -211,6 +217,8 @@ func Load(flags *viper.Viper) (Config, error) {
 		"browser_supervisor",
 		"systemd_browser_unit_name",
 		"session_retention_days",
+		"session_upload_max_file_bytes",
+		"session_storage_quota_bytes",
 		"snapshot_retention_days",
 		"external_base_url",
 		"cdp_route_base_path",

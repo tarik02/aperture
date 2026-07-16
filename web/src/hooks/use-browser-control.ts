@@ -31,10 +31,12 @@ import type {
   WebRTCMediaPhase,
   WebRTCStreamSettings,
 } from "#/lib/control/webrtc-media-transport.ts";
-import { apiClient } from "#/lib/api/client.ts";
+import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
+  credentials?: ApiCredentials;
+  cdpToken?: string;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: RTCIceServer[];
@@ -97,12 +99,15 @@ const emptyIceServers: RTCIceServer[] = [];
 
 export function useBrowserControl({
   sessionId,
+  credentials: credentialsOverride,
+  cdpToken,
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
   forceCDPMedia = false,
 }: UseBrowserControlOptions): UseBrowserControlResult {
-  const credentials = useApiCredentials();
+  const profileCredentials = useApiCredentials();
+  const credentials = credentialsOverride ?? profileCredentials;
   const [targets, setTargets] = useState<ControlTarget[]>([]);
   const [frameStale, setFrameStale] = useState(false);
   const [viewport, setViewport] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
@@ -131,7 +136,14 @@ export function useBrowserControl({
     (input$) =>
       input$.pipe(
         switchMap(
-          ([nextEnabled, nextSessionId, nextCredentials, nextWebrtcPreferred, nextIceServers]) => {
+          ([
+            nextEnabled,
+            nextSessionId,
+            nextCredentials,
+            nextCdpToken,
+            nextWebrtcPreferred,
+            nextIceServers,
+          ]) => {
             if (!nextEnabled || !nextSessionId || !nextCredentials) {
               return of<BrowserControlOutput>({
                 type: "state",
@@ -141,6 +153,7 @@ export function useBrowserControl({
             return browserControl$({
               sessionId: nextSessionId,
               credentials: nextCredentials,
+              cdpToken: nextCdpToken,
               webrtcPreferred: nextWebrtcPreferred,
               iceServers: nextIceServers,
               viewport: viewportRef.current,
@@ -154,7 +167,7 @@ export function useBrowserControl({
         ),
         share(),
       ),
-    [enabled, sessionId, credentials, webrtcPreferred, webrtcIceServers],
+    [enabled, sessionId, credentials, cdpToken, webrtcPreferred, webrtcIceServers],
   );
   const controlState$ = useMemo(
     () =>

@@ -37,6 +37,7 @@ type wrapperRuntime struct {
 	controlSocket  string
 	ctx            context.Context
 	mu             sync.Mutex
+	uploadMu       sync.Mutex
 	compositorPID  int
 	pipewireTarget string
 	screencast     *wrapperScreencast
@@ -116,11 +117,27 @@ func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
 	}
 }
 
+func (r *wrapperRuntime) disconnectViewer() {
+	r.mu.Lock()
+	viewer := r.viewer
+	r.viewer = nil
+	r.mu.Unlock()
+	if viewer != nil {
+		viewer.cancel()
+	}
+}
+
 func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error, error) {
 	if r.values.WrapperPort <= 0 {
 		return nil, nil, fmt.Errorf("wrapper port is required")
 	}
 	r.ctx = ctx
+	if err := r.watchCDPToken(ctx); err != nil {
+		return nil, nil, err
+	}
+	if err := r.reconcilePendingUploads(); err != nil {
+		return nil, nil, fmt.Errorf("reconcile pending uploads: %w", err)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)
@@ -133,6 +150,9 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/screencast/start", r.handleScreencastStart)
 	mux.HandleFunc("/screencast/stop", r.handleScreencastStop)
 	mux.HandleFunc("/screencast/status", r.handleScreencastStatus)
+	mux.HandleFunc("/files", r.handleFiles)
+	mux.HandleFunc("/files/", r.handleFileDownload)
+	mux.HandleFunc("/uploads", r.handleUploads)
 
 	server := &http.Server{Handler: mux}
 	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.WrapperPort)))
@@ -180,23 +200,25 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	if r.values.ExternalBaseURL != "" {
 		status["cdpUrl"] = strings.TrimRight(r.values.ExternalBaseURL, "/") + "/sessions/" + r.values.SessionID + "/cdp"
 	}
-	if r.values.CDPTokenPath != "" {
-		body, err := os.ReadFile(r.values.CDPTokenPath)
-		if err != nil {
-			writeWrapperError(w, http.StatusInternalServerError, "cdp token unavailable")
+	iceServers := make([]struct {
+		URLs       []string `json:"urls"`
+		Username   string   `json:"username,omitempty"`
+		Credential string   `json:"credential,omitempty"`
+	}, 0)
+	if r.values.MediaProducerICEServers != "" {
+		if err := json.Unmarshal([]byte(r.values.MediaProducerICEServers), &iceServers); err != nil {
+			writeWrapperError(w, http.StatusInternalServerError, "media ICE servers unavailable")
 			return
 		}
-		token := string(body)
-		if token == "" {
-			writeWrapperError(w, http.StatusInternalServerError, "cdp token unavailable")
-			return
-		}
-		status["cdpToken"] = token
-		writeWrapperJSON(w, http.StatusOK, status)
-		return
 	}
-	if r.values.CDPToken != "" {
-		status["cdpToken"] = r.values.CDPToken
+	mediaMode := "cdp"
+	if r.values.MediaProducerEnabled {
+		mediaMode = "auto"
+	}
+	status["media"] = map[string]any{
+		"mode":           mediaMode,
+		"webrtcProducer": r.values.MediaProducerEnabled,
+		"iceServers":     iceServers,
 	}
 	writeWrapperJSON(w, http.StatusOK, status)
 }
@@ -308,6 +330,9 @@ func (r *wrapperRuntime) handleScreencastStart(w http.ResponseWriter, req *http.
 	var body wrapperScreencastRequest
 	if req.Body != nil {
 		_ = json.NewDecoder(req.Body).Decode(&body)
+	}
+	if req.Header.Get("X-Aperture-Actor-Kind") == "session_capability" {
+		body.Path = ""
 	}
 	status, err := r.startScreencast(body)
 	if err != nil {

@@ -65,6 +65,7 @@ type ConnectOptions = {
 type BrowserControlOptions = ConnectOptions & {
   sessionId: string;
   credentials: ApiCredentials;
+  cdpToken?: string;
   input$: Observable<ClientMessage>;
   viewport$: Observable<ViewportPreset>;
   streamSettings$: Observable<WebRTCStreamSettings>;
@@ -123,6 +124,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
         cdpControl$({
           sessionId: options.sessionId,
           credentials: options.credentials,
+          cdpToken: options.cdpToken,
           input$: cdpInput$,
         }),
       ),

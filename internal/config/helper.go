@@ -30,6 +30,8 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("browser_supervisor", defaults.BrowserSupervisor)
 	v.SetDefault("systemd_browser_unit_name", defaults.SystemdBrowserUnitName)
 	v.SetDefault("session_retention_days", defaults.SessionRetentionDays)
+	v.SetDefault("session_upload_max_file_bytes", defaults.SessionUploadMaxFileBytes)
+	v.SetDefault("session_storage_quota_bytes", defaults.SessionStorageQuotaBytes)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
 	v.SetDefault("gpu_mode", defaults.GPUMode)

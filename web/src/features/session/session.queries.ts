@@ -53,3 +53,21 @@ export function useSessionsBulkQuery(sessionIds: string[]) {
     select: (response) => response.sessions,
   });
 }
+
+export function useSessionQuery(sessionId: string | undefined) {
+  const credentials = useApiCredentials();
+  const activeProfile = useTokenVaultStore(selectActiveProfile);
+  const profileId = activeProfile?.id ?? "none";
+  const tenantKey = resolveTenantKey(credentials);
+
+  return useQuery({
+    queryKey: queryKeys.session(profileId, tenantKey, sessionId ?? "none"),
+    queryFn: () => {
+      if (!credentials || !sessionId) {
+        throw new Error("Session credentials unavailable");
+      }
+      return apiClient.getSession(credentials, sessionId);
+    },
+    enabled: Boolean(sessionId && isTenantScopedQueryReady(credentials)),
+  });
+}

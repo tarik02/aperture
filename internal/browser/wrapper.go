@@ -525,6 +525,18 @@ func LaunchFromRuntimeEnv() error {
 		return err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wrapper := newWrapperRuntime(values, "")
+	wrapperServer, _, err := wrapper.serve(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		_ = wrapperServer.Shutdown(shutdownCtx)
+	}()
 	return cmd.Run()
 }
 
@@ -1265,7 +1277,9 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		ExternalBaseURL:   strings.TrimSpace(os.Getenv("EXTERNAL_BASE_URL")),
 		CDPToken:          strings.TrimSpace(os.Getenv("CDP_TOKEN")),
 		CDPTokenPath:      strings.TrimSpace(os.Getenv("CDP_TOKEN_PATH")),
+		InternalAPIURL:    strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
 		MergedUserDataDir: *required["MERGED_USER_DATA_DIR"],
+		UpperDir:          strings.TrimSpace(os.Getenv("UPPER_DIR")),
 		DownloadsDir:      *required["DOWNLOADS_DIR"],
 		CacheDir:          *required["CACHE_DIR"],
 		ArtifactsDir:      *required["ARTIFACTS_DIR"],
@@ -1277,6 +1291,20 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	}
 	if _, err := fmt.Sscanf(wrapperPortRaw, "%d", &values.WrapperPort); err != nil {
 		return RuntimeEnvValues{}, fmt.Errorf("parse wrapper port: %w", err)
+	}
+	if raw := strings.TrimSpace(os.Getenv("SESSION_UPLOAD_MAX_FILE_BYTES")); raw != "" {
+		limit, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse session upload max file bytes: %w", err)
+		}
+		values.SessionUploadMaxFileBytes = limit
+	}
+	if raw := strings.TrimSpace(os.Getenv("SESSION_STORAGE_QUOTA_BYTES")); raw != "" {
+		limit, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse session storage quota bytes: %w", err)
+		}
+		values.SessionStorageQuotaBytes = limit
 	}
 
 	if encoded := strings.TrimSpace(os.Getenv("BROWSER_DEFAULT_ARGS")); encoded != "" {

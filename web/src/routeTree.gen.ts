@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ShareRouteImport } from './routes/share'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as Char91Char93TokensIndexRouteImport } from './routes/[-]/tokens/index'
 import { Route as Char91Char93TenantsIndexRouteImport } from './routes/[-]/tenants/index'
@@ -16,6 +17,11 @@ import { Route as Char91Char93SnapshotsIndexRouteImport } from './routes/[-]/sna
 import { Route as Char91Char93SessionsIndexRouteImport } from './routes/[-]/sessions/index'
 import { Route as Char91Char93SessionsSessionIdRouteImport } from './routes/[-]/sessions/$sessionId'
 
+const ShareRoute = ShareRouteImport.update({
+  id: '/share',
+  path: '/share',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -53,6 +59,7 @@ const Char91Char93SessionsSessionIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
@@ -61,6 +68,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots': typeof Char91Char93SnapshotsIndexRoute
@@ -70,6 +78,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
@@ -80,6 +89,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
     | '/-/snapshots/'
@@ -88,6 +98,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions'
     | '/-/snapshots'
@@ -96,6 +107,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
     | '/-/snapshots/'
@@ -105,6 +117,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ShareRoute: typeof ShareRoute
   Char91Char93SessionsSessionIdRoute: typeof Char91Char93SessionsSessionIdRoute
   Char91Char93SessionsIndexRoute: typeof Char91Char93SessionsIndexRoute
   Char91Char93SnapshotsIndexRoute: typeof Char91Char93SnapshotsIndexRoute
@@ -114,6 +127,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/share': {
+      id: '/share'
+      path: '/share'
+      fullPath: '/share'
+      preLoaderRoute: typeof ShareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -161,6 +181,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ShareRoute: ShareRoute,
   Char91Char93SessionsSessionIdRoute: Char91Char93SessionsSessionIdRoute,
   Char91Char93SessionsIndexRoute: Char91Char93SessionsIndexRoute,
   Char91Char93SnapshotsIndexRoute: Char91Char93SnapshotsIndexRoute,

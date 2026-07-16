@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Circle,
+  Copy,
   Gauge,
   Loader2,
   Maximize2,
@@ -43,9 +44,13 @@ import {
 } from "#/lib/control/viewport.ts";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
+import { copyText } from "#/components/resources/copy-button.tsx";
+import { toast } from "sonner";
 
 type BrowserToolbarProps = {
   control: UseBrowserControlResult;
+  guestMode: boolean;
+  cdpUrl: string | null;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
 };
@@ -91,6 +96,8 @@ const VIEWPORT_LIMITS = {
 
 export function BrowserToolbar({
   control,
+  guestMode,
+  cdpUrl,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
 }: BrowserToolbarProps) {
@@ -116,22 +123,24 @@ export function BrowserToolbar({
         data-workbench-titlebar
         className="flex min-w-0 shrink-0 items-stretch border-b bg-muted/35"
       >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="h-full aspect-square shrink-0 rounded-none"
-                aria-label="Back to sessions"
-                render={<Link to="/-/sessions" />}
-              />
-            }
-          >
-            <PanelLeftIcon />
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Sessions</TooltipContent>
-        </Tooltip>
+        {!guestMode ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-full aspect-square shrink-0 rounded-none"
+                  aria-label="Back to sessions"
+                  render={<Link to="/-/sessions" />}
+                />
+              }
+            >
+              <PanelLeftIcon />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Sessions</TooltipContent>
+          </Tooltip>
+        ) : null}
         <BrowserTabStrip
           targets={control.targets}
           activeTargetId={control.activeTargetId}
@@ -187,6 +196,7 @@ export function BrowserToolbar({
         {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
         <BrowserMenu
           control={control}
+          cdpUrl={cdpUrl}
           busy={busy}
           connected={connected}
           performanceOverlayEnabled={performanceOverlayEnabled}
@@ -231,6 +241,7 @@ function ToolbarButton({
 
 function BrowserMenu({
   control,
+  cdpUrl,
   busy,
   connected,
   performanceOverlayEnabled,
@@ -238,6 +249,7 @@ function BrowserMenu({
   onReconnect,
 }: {
   control: UseBrowserControlResult;
+  cdpUrl: string | null;
   busy: boolean;
   connected: boolean;
   performanceOverlayEnabled: boolean;
@@ -255,6 +267,21 @@ function BrowserMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuGroup>
+          <DropdownMenuItem
+            disabled={!cdpUrl}
+            onClick={() => {
+              if (!cdpUrl) {
+                return;
+              }
+              void copyText(cdpUrl).then(
+                () => toast.success("CDP URL copied"),
+                () => toast.error("Copy failed"),
+              );
+            }}
+          >
+            <Copy />
+            Copy CDP URL
+          </DropdownMenuItem>
           <DropdownMenuItem disabled={busy} onClick={onReconnect}>
             <RotateCcw />
             Reconnect
