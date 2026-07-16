@@ -720,7 +720,7 @@ function buildSignalURL(sessionId: string): string {
 }
 
 function buildSignalProtocols(credentials: ApiCredentials): string[] {
-  const protocols = [`authorization.bearer.${credentials.token}`];
+  const protocols = ["aperture-webrtc.v1", `authorization.bearer.${credentials.token}`];
   const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
   if (tenantId) {
     protocols.push(`x-aperture-tenant-id.${tenantId}`);

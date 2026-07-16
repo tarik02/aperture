@@ -19,6 +19,7 @@ import (
 
 const (
 	mediaQualityOption = "aperture"
+	signalingProtocol  = "aperture-webrtc.v1"
 	iceUDPPortMin      = 50000
 	iceUDPPortMax      = 50010
 )
@@ -117,6 +118,7 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string, target str
 		ICECredential:       iceCredential,
 		UDPPortMin:          iceUDPPortMin,
 		UDPPortMax:          iceUDPPortMax,
+		Subprotocols:        []string{signalingProtocol},
 		MaxPeers:            1,
 		ReplaceExistingPeer: true,
 		AllowedOrigins:      []string{"*"},
