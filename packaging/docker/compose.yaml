@@ -11,6 +11,7 @@ services:
       APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC: ${APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC:-auto}
     ports:
       - "8080:8080"
+      - "50000-50010:50000-50010/udp"
     tmpfs:
       - /run/aperture:rw,nosuid,nodev,size=512m
     volumes:

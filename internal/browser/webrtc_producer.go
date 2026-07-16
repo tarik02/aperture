@@ -17,7 +17,11 @@ import (
 	"go.uber.org/zap"
 )
 
-const mediaQualityOption = "aperture"
+const (
+	mediaQualityOption = "aperture"
+	iceUDPPortMin      = 50000
+	iceUDPPortMax      = 50010
+)
 
 type producer struct {
 	cancel context.CancelFunc
@@ -111,6 +115,8 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string, target str
 		ICEServers:          iceServers,
 		ICEUsername:         iceUsername,
 		ICECredential:       iceCredential,
+		UDPPortMin:          iceUDPPortMin,
+		UDPPortMax:          iceUDPPortMax,
 		MaxPeers:            1,
 		ReplaceExistingPeer: true,
 		AllowedOrigins:      []string{"*"},
