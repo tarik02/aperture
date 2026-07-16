@@ -124,7 +124,7 @@ func probeMediaCodec(values RuntimeEnvValues, codec string) error {
 	}
 	for _, element := range elements {
 		cmd := exec.Command(inspectExecutable, "--exists", element)
-		cmd.Env = mediaProcessEnv(values.MediaProducerPluginPath)
+		cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
 		cmd.Env = append(cmd.Env, "GST_REGISTRY_1_0="+filepath.Join(values.CacheDir, "gstreamer-registry.bin"))
 		if output, err := cmd.CombinedOutput(); err != nil {
 			detail := strings.TrimSpace(string(output))

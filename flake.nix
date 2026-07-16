@@ -203,7 +203,7 @@
           pname = "aperture";
           version = "0.0.1";
           inherit src;
-          vendorHash = "sha256-TK0I2N35qYamODc4OmfgsRhKCBSIZzolWl327boEkDk=";
+          vendorHash = "sha256-xQudEHP3K462sbnrXrHJVQhvc70AEjkg36uiAS/vgbA=";
 
           subPackages = [
             "cmd/aperture"
@@ -229,6 +229,8 @@
           ];
 
           buildInputs = with pkgs; [
+            gst_all_1.gstreamer
+            gst_all_1.gst-plugins-base
             libxkbcommon
             pixman
             wayland.dev
@@ -516,6 +518,8 @@
             pkgs.traefik
             pkgs.chromium
             pkgs.ffmpeg
+            pkgs.gst_all_1.gstreamer
+            pkgs.gst_all_1.gst-plugins-base
             pkgs.bubblewrap
             pkgs.libxkbcommon
             pkgs.pixman
