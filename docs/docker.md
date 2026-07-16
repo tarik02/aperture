@@ -21,7 +21,7 @@ export APERTURE_IMAGE=aperture:SOURCE_REVISION
 docker compose -f packaging/docker/compose.yaml up -d
 ```
 
-The container exposes Traefik on port `8080`. Put TLS or an external ingress in front of that port when the public URL uses HTTPS.
+The base Compose definition uses Linux host networking so WebRTC advertises the Docker host's reachable LAN addresses instead of container bridge addresses. Traefik listens on TCP port `8080` and WebRTC ICE uses UDP ports `50000-50010`. Put TLS or an external ingress in front of port `8080` when the public URL uses HTTPS, and allow or forward the UDP range to the host for direct WebRTC connectivity.
 
 The base Compose definition runs without a GPU. It grants `CAP_SYS_ADMIN` for overlay mounts, allocates 2 GiB of shared memory, persists all state in the `aperture-data` volume, and keeps `/run/aperture` ephemeral. Replacing the container may terminate active browser sessions; the Docker deployment does not provide blue/green rollout semantics.
 

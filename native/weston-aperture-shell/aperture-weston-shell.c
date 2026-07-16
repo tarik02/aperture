@@ -162,16 +162,6 @@ scaled_dimension(uint32_t value, uint32_t scale_numerator)
 			  aperture_scale_denominator);
 }
 
-static int32_t
-native_output_scale(uint32_t scale_numerator)
-{
-	if (scale_numerator >= aperture_scale_denominator &&
-	    scale_numerator % aperture_scale_denominator == 0)
-		return (int32_t)(scale_numerator / aperture_scale_denominator);
-
-	return 1;
-}
-
 static void
 send_fractional_scale(struct aperture_fractional_scale *scale)
 {
@@ -212,7 +202,7 @@ resize_output(struct aperture_shell *shell, uint32_t width, uint32_t height,
 	struct weston_mode mode;
 	uint32_t physical_width = scaled_dimension(width, scale_numerator);
 	uint32_t physical_height = scaled_dimension(height, scale_numerator);
-	int32_t output_scale = native_output_scale(scale_numerator);
+	int32_t output_scale = 1;
 
 	if (!output || !output->current_mode)
 		return "output is unavailable";
@@ -390,7 +380,7 @@ apply_viewport_size(struct aperture_shell *shell, uint32_t width, uint32_t heigh
 	const char *error;
 	uint32_t physical_width = scaled_dimension(width, scale_numerator);
 	uint32_t physical_height = scaled_dimension(height, scale_numerator);
-	int32_t output_scale = native_output_scale(scale_numerator);
+	int32_t output_scale = 1;
 
 	if (shell->width == width && shell->height == height &&
 	    shell->scale_numerator == scale_numerator)
