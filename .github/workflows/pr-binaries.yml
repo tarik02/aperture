@@ -41,6 +41,15 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libei-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            pkg-config
+
       - name: Build snapshot artifacts
         uses: goreleaser/goreleaser-action@v7.2.3
         with:
