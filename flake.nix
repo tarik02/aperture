@@ -56,7 +56,7 @@
 
         patchedWeston = pkgs.weston.overrideAttrs (oldAttrs: {
           patches = (oldAttrs.patches or [ ]) ++ [
-            (builtins.toFile "weston-pipewire-reconnect-on-mode-switch.patch" ''
+            (builtins.toFile "weston-pipewire-renegotiate-on-mode-switch.patch" ''
               diff --git a/libweston/compositor.c b/libweston/compositor.c
               index c7f4c0f3d..5a6c87c1a 100644
               --- a/libweston/compositor.c
@@ -99,16 +99,39 @@
               +${"\t"}output->original_scale = 0;
 
               diff --git a/libweston/backend-pipewire/pipewire.c b/libweston/backend-pipewire/pipewire.c
-              index 0a2bb1b2d..c1f4d87fa 100644
+              index 0a2bb1b2d..e2d767537 100644
               --- a/libweston/backend-pipewire/pipewire.c
               +++ b/libweston/backend-pipewire/pipewire.c
-              @@ -1161,0 +1162,2 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
-              +${"\t"}pw_stream_disconnect(output->stream);
-              +
-              @@ -1174 +1176,6 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
+              @@ -1149,4 +1149,9 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
+               {
+              +${"\t"}uint8_t buffer[1024];
+              +${"\t"}struct spa_pod_builder builder =
+              +${"\t"}${"\t"}SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+              +${"\t"}const struct spa_pod *params[2];
+              +${"\t"}int i = 0;
+               ${"\t"}struct pipewire_output *output = to_pipewire_output(base);
+               ${"\t"}struct weston_mode *local_mode;
+               ${"\t"}struct weston_size fb_size;
+              @@ -1174,2 +1179,23 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
               -${"\t"}return 0;
-              +${"\t"}if (pipewire_output_connect(output) < 0) {
-              +${"\t"}${"\t"}weston_log("Failed to reconnect PipeWire stream after mode switch\n");
+              +${"\t"}if (pipewire_backend_has_dmabuf_allocator(output->backend)) {
+              +${"\t"}${"\t"}uint64_t modifier[] = { DRM_FORMAT_MOD_LINEAR };
+              +${"\t"}${"\t"}params[i++] = spa_pod_build_format(&builder,
+              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->width,
+              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->height,
+              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->refresh / 1000,
+              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   output->pixel_format->format,
+              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   modifier);
+              +${"\t"}}
+              +
+              +${"\t"}params[i++] = spa_pod_build_format(&builder,
+              +${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->width,
+              +${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->height,
+              +${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->refresh / 1000,
+              +${"\t"}${"\t"}${"\t"}${"\t"}   output->pixel_format->format, NULL);
+              +
+              +${"\t"}if (pw_stream_update_params(output->stream, params, i) < 0) {
+              +${"\t"}${"\t"}weston_log("Failed to update PipeWire stream after mode switch\n");
               +${"\t"}${"\t"}return -1;
               +${"\t"}}
               +
