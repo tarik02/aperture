@@ -56,7 +56,7 @@ func UnmountOverlayFS(merged string) error {
 		return nil
 	}
 
-	if err := unix.Unmount(merged, 0); err != nil {
+	if err := unix.Unmount(merged, unix.MNT_DETACH); err != nil {
 		return fmt.Errorf("%w: %v", ErrOverlayUnmount, err)
 	}
 	return nil

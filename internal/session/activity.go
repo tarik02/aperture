@@ -357,9 +357,6 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	if err := s.browser.Stop(ctx, latest.ID); err != nil {
 		return false, err
 	}
-	if err := s.unmountOverlay(ctx, latest.ID); err != nil {
-		return false, &OverlayMountError{SessionID: latest.ID, Err: err}
-	}
 
 	now := s.now().UTC()
 	nowText := now.Format(time.RFC3339Nano)
@@ -379,6 +376,9 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	}
 	if err := s.appendEvent(ctx, latest, "session.suspended", eventMessage, nil); err != nil {
 		return false, err
+	}
+	if err := s.unmountOverlay(ctx, latest.ID); err != nil {
+		return false, &OverlayMountError{SessionID: latest.ID, Err: err}
 	}
 	return true, nil
 }

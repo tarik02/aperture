@@ -15,6 +15,7 @@ const (
 	mediaCodecAuto  = "auto"
 	mediaCodecVP8   = "vp8"
 	mediaCodecH264  = "h264-va"
+	mediaCodecX264  = "h264-software"
 )
 
 func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
@@ -39,7 +40,11 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 		if requestedCodec == mediaCodecH264 {
 			return RuntimeEnvValues{}, fmt.Errorf("h264-va requires gpu_mode hardware or auto with an accessible render node")
 		}
-		values.MediaProducerCodec = mediaCodecVP8
+		if requestedCodec == mediaCodecX264 {
+			values.MediaProducerCodec = mediaCodecX264
+		} else {
+			values.MediaProducerCodec = mediaCodecVP8
+		}
 	case gpuModeHardware:
 		if renderErr != nil {
 			return RuntimeEnvValues{}, fmt.Errorf("gpu_mode hardware: %w", renderErr)
@@ -60,8 +65,8 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 			values.GPUMode = gpuModeHardware
 			values.RenderNode = renderNode
 			values.MediaProducerCodec = mediaCodecH264
-		case mediaCodecVP8:
-			values.MediaProducerCodec = mediaCodecVP8
+		case mediaCodecVP8, mediaCodecX264:
+			values.MediaProducerCodec = requestedCodec
 			if renderErr == nil {
 				values.GPUMode = gpuModeHardware
 				values.RenderNode = renderNode
@@ -119,12 +124,14 @@ func probeMediaCodec(values RuntimeEnvValues, codec string) error {
 		elements = append(elements, "videoconvert", "vp8enc", "rtpvp8pay")
 	case mediaCodecH264:
 		elements = append(elements, "vapostproc", "vah264enc", "h264parse", "rtph264pay")
+	case mediaCodecX264:
+		elements = append(elements, "videoconvert", "x264enc", "h264parse", "rtph264pay")
 	default:
 		return fmt.Errorf("unsupported media producer codec %q", codec)
 	}
 	for _, element := range elements {
 		cmd := exec.Command(inspectExecutable, "--exists", element)
-		cmd.Env = mediaProcessEnv(values.MediaProducerPluginPath)
+		cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
 		cmd.Env = append(cmd.Env, "GST_REGISTRY_1_0="+filepath.Join(values.CacheDir, "gstreamer-registry.bin"))
 		if output, err := cmd.CombinedOutput(); err != nil {
 			detail := strings.TrimSpace(string(output))
