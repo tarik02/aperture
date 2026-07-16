@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/tarik02/webdesktop v0.0.0-nightly.1.b5e76891d1d3.0.20260716122651-ec843dc82c56
+	github.com/tarik02/webdesktop v0.0.0-nightly.1.b5e76891d1d3.0.20260716140254-bff0d17d5eb6
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
 	github.com/uptrace/bun/driver/sqliteshim v1.2.18
