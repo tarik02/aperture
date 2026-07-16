@@ -25,12 +25,19 @@ const (
 )
 
 type producer struct {
-	cancel context.CancelFunc
-	done   chan struct{}
-	media  *media.Service
-	webrtc *rtc.Service
-	input  *remoteinput.Controller
-	sender *compositorInputSender
+	cancel   context.CancelFunc
+	done     chan struct{}
+	media    *media.Service
+	profiles []mediaProfile
+	webrtc   *rtc.Service
+	input    *remoteinput.Controller
+	sender   *compositorInputSender
+}
+
+type mediaProfile struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Codec string `json:"codec"`
 }
 
 type mediaSourceAdapter struct {
@@ -50,24 +57,49 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string, target str
 	case "vp8":
 	case "h264-va":
 		profileName = webdesktopconfig.VideoProfileH264VAAPI
+	case "h264-software":
+		profileName = webdesktopconfig.VideoProfileH264Software
 	default:
-		return nil, errors.New("media producer codec must be vp8 or h264-va")
+		return nil, errors.New("media producer codec must be vp8, h264-va, or h264-software")
 	}
 
-	profiles := webdesktopconfig.DefaultVideoProfiles()
-	profile := profiles[profileName]
-	mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
-	profile.DefaultOption = mediaQualityOption
-	profile.Options = map[string]media.QualityOption{
-		mediaQualityOption: {
-			Label:       "Aperture",
-			Width:       mediaWidth,
-			Height:      mediaHeight,
-			Framerate:   values.MediaProducerFPS,
-			BitrateKbps: values.MediaProducerBitrateKbps,
-		},
+	defaultProfiles := webdesktopconfig.DefaultVideoProfiles()
+	profiles := make(map[string]media.EncoderProfile, len(defaultProfiles))
+	availableProfiles := make([]mediaProfile, 0, len(defaultProfiles))
+	for _, candidate := range []struct {
+		name  string
+		codec string
+	}{
+		{name: webdesktopconfig.VideoProfileVP8, codec: mediaCodecVP8},
+		{name: webdesktopconfig.VideoProfileH264VAAPI, codec: mediaCodecH264},
+		{name: webdesktopconfig.VideoProfileH264Software, codec: mediaCodecX264},
+	} {
+		if candidate.codec == mediaCodecH264 && values.RenderNode == "" {
+			continue
+		}
+		if err := probeMediaCodec(values, candidate.codec); err != nil {
+			continue
+		}
+		profile := defaultProfiles[candidate.name]
+		mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
+		profile.DefaultOption = mediaQualityOption
+		profile.Options = map[string]media.QualityOption{
+			mediaQualityOption: {
+				Label:       "Aperture",
+				Width:       mediaWidth,
+				Height:      mediaHeight,
+				Framerate:   values.MediaProducerFPS,
+				BitrateKbps: values.MediaProducerBitrateKbps,
+			},
+		}
+		profiles[candidate.name] = profile
+		availableProfiles = append(availableProfiles, mediaProfile{ID: candidate.name, Label: profile.Label, Codec: profile.Codec.ID})
 	}
-	profiles = map[string]media.EncoderProfile{profileName: profile}
+	profile, exists := profiles[profileName]
+	if !exists {
+		return nil, fmt.Errorf("selected media producer profile %q is unavailable", profileName)
+	}
+	mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
 
 	logger := zap.NewNop()
 	mediaService, err := media.New(media.Config{
@@ -137,12 +169,13 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string, target str
 
 	ctx, cancel := context.WithCancel(context.Background())
 	result := &producer{
-		cancel: cancel,
-		done:   make(chan struct{}),
-		media:  mediaService,
-		webrtc: webrtcService,
-		input:  inputController,
-		sender: sender,
+		cancel:   cancel,
+		done:     make(chan struct{}),
+		media:    mediaService,
+		profiles: availableProfiles,
+		webrtc:   webrtcService,
+		input:    inputController,
+		sender:   sender,
 	}
 	go result.run(ctx, source)
 	return result, nil
@@ -211,6 +244,8 @@ func normalizeCodec(raw string) string {
 		return "vp8"
 	case "h264", "h264-va":
 		return "h264-va"
+	case "h264-software", "x264":
+		return "h264-software"
 	default:
 		return strings.ToLower(strings.TrimSpace(raw))
 	}

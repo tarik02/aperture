@@ -148,6 +148,19 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		"mediaCodec":     r.values.MediaProducerCodec,
 		"screencast":     r.screencastStatusLocked(),
 	}
+	if r.mediaProducer != nil {
+		quality := r.mediaProducer.media.Quality()
+		status["mediaQuality"] = map[string]any{
+			"profile":     quality.Profile,
+			"option":      quality.Option,
+			"width":       quality.Width,
+			"height":      quality.Height,
+			"framerate":   quality.Framerate,
+			"bitrateKbps": quality.BitrateKbps,
+		}
+		status["mediaProfiles"] = r.mediaProducer.profiles
+		status["mediaKeyframeInterval"] = r.values.MediaProducerKeyframe
+	}
 	if r.values.RenderNode != "" {
 		status["renderNode"] = r.values.RenderNode
 	}

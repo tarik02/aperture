@@ -226,7 +226,7 @@
           pname = "aperture";
           version = "0.0.1";
           inherit src;
-          vendorHash = "sha256-IOT0Uack2V18fbAe/W27jQVWKCQO/JB4bJf+ilcX7lQ=";
+          vendorHash = "sha256-npJEvlUyhcUi336VXtr4PNqleRA23SX3cikz+MFmvbY=";
 
           subPackages = [
             "cmd/aperture"
@@ -400,6 +400,7 @@
           pkgs.gst_all_1.gst-plugins-base
           pkgs.gst_all_1.gst-plugins-good
           pkgs.gst_all_1.gst-plugins-bad
+          pkgs.gst_all_1.gst-plugins-ugly
           pkgs.pipewire
         ];
 

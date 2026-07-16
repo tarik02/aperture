@@ -36,6 +36,7 @@ import {
   type WebRTCMediaSize,
   type WebRTCMediaState,
   type WebRTCStreamSettings,
+  type WebRTCVideoProfile,
   type WebRTCViewportRequest,
 } from "#/lib/control/webrtc-media-transport.ts";
 
@@ -50,6 +51,7 @@ export type BrowserControlState = {
   mediaStream: MediaStream | null;
   mediaSize: WebRTCMediaSize | null;
   mediaStreamSettings: WebRTCStreamSettings | null;
+  mediaVideoProfiles: WebRTCVideoProfile[];
   mediaMetrics: WebRTCMediaMetrics | null;
   mediaError: string | null;
   mediaPath: BrowserMediaPath;
@@ -88,6 +90,7 @@ const initialMediaState: WebRTCMediaState = {
   stream: null,
   size: null,
   streamSettings: null,
+  videoProfiles: [],
   metrics: null,
   error: null,
   inputReady: false,
@@ -113,6 +116,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
     const webRTCInput$ = new Subject<WebRTCInputMessage>();
     const webRTCViewport$ = new ReplaySubject<WebRTCViewportRequest>(1);
     const webRTCStreamSettings$ = new ReplaySubject<WebRTCStreamSettings>(1);
+    const webRTCReconnect$ = new Subject<void>();
     const viewport$ = options.viewport$.pipe(
       startWith(options.viewport),
       shareReplay({ bufferSize: 1, refCount: true }),
@@ -138,8 +142,8 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       map((state) => options.webrtcPreferred && state.phase === "connected"),
       distinctUntilChanged(),
     );
-    const media$ = mediaActive$.pipe(
-      switchMap((active) =>
+    const media$ = combineLatest([mediaActive$, webRTCReconnect$.pipe(startWith(undefined))]).pipe(
+      switchMap(([active]) =>
         active
           ? webRTCMedia$({
               sessionId: options.sessionId,
@@ -148,6 +152,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
               input$: webRTCInput$,
               viewportSize$: webRTCViewport$,
               streamSettings$: webRTCStreamSettings$,
+              reconnect: () => webRTCReconnect$.next(),
             })
           : of(initialMediaState),
       ),
@@ -242,6 +247,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       webRTCInput$.complete();
       webRTCViewport$.complete();
       webRTCStreamSettings$.complete();
+      webRTCReconnect$.complete();
     };
   });
 }
@@ -261,6 +267,7 @@ function browserState(
     mediaStream: media.stream,
     mediaSize: media.size,
     mediaStreamSettings: media.streamSettings,
+    mediaVideoProfiles: media.videoProfiles,
     mediaMetrics: media.metrics,
     mediaError: media.error ? webRTCMediaErrorMessage(media.error) : null,
     mediaPath: resolveMediaPath(webrtcPreferred, media.phase, media.stream),

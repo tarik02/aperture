@@ -300,12 +300,37 @@ function BrowserMenu({
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-64">
                 <DropdownMenuLabel>Stream</DropdownMenuLabel>
+                {control.mediaVideoProfiles.length > 1 && control.mediaStreamSettings ? (
+                  <>
+                    <DropdownMenuLabel>Codec</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={control.mediaStreamSettings.profile}
+                      onValueChange={(profile) => {
+                        const settings = control.mediaStreamSettings;
+                        if (settings) {
+                          control.setWebRTCStreamSettings({ ...settings, profile });
+                        }
+                      }}
+                    >
+                      {control.mediaVideoProfiles.map((profile) => (
+                        <DropdownMenuRadioItem key={profile.id} value={profile.id}>
+                          <span className="flex min-w-0 flex-col">
+                            <span>{profile.label}</span>
+                            <span className="text-xs text-muted-foreground">{profile.codec}</span>
+                          </span>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
                 <DropdownMenuRadioGroup
                   value={activeStreamPresetId(control.mediaStreamSettings)}
                   onValueChange={(value) => {
                     const preset = STREAM_PRESETS.find((item) => item.id === value);
-                    if (preset) {
-                      control.setWebRTCStreamSettings(preset.settings);
+                    const settings = control.mediaStreamSettings;
+                    if (preset && settings) {
+                      control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
                     }
                   }}
                 >
@@ -530,7 +555,9 @@ function CustomStreamSettings({
         disabled={!nextSettings || unchanged}
         onClick={() => {
           if (nextSettings) {
-            onApply(nextSettings);
+            if (settings) {
+              onApply({ ...settings, ...nextSettings });
+            }
           }
         }}
       >

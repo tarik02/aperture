@@ -1,4 +1,12 @@
-import { Observable, Subscription, animationFrameScheduler, auditTime, filter, merge } from "rxjs";
+import {
+  Observable,
+  Subscription,
+  animationFrameScheduler,
+  auditTime,
+  distinctUntilChanged,
+  filter,
+  merge,
+} from "rxjs";
 import { z } from "zod";
 import { TENANT_HEADER, resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import type { ClientMessage } from "#/lib/control/messages.ts";
@@ -20,9 +28,16 @@ export type WebRTCViewportRequest = {
 };
 
 export type WebRTCStreamSettings = {
+  profile: string;
   fps: number;
   bitrateKbps: number;
   keyframeInterval: number;
+};
+
+export type WebRTCVideoProfile = {
+  id: string;
+  label: string;
+  codec: string;
 };
 
 export type WebRTCMediaMetrics = {
@@ -56,7 +71,8 @@ export type WebRTCMediaFailure =
 
 export type WebRTCMediaError =
   | WebRTCMediaFailure
-  | { kind: "producer-resize-failed"; detail: string };
+  | { kind: "producer-resize-failed"; detail: string }
+  | { kind: "producer-quality-failed"; detail: string };
 
 export function webRTCMediaErrorMessage(error: WebRTCMediaError): string {
   switch (error.kind) {
@@ -84,6 +100,8 @@ export function webRTCMediaErrorMessage(error: WebRTCMediaError): string {
       return `WebRTC media timed out while ${error.progress}`;
     case "producer-resize-failed":
       return `WebRTC resize failed: ${error.detail}`;
+    case "producer-quality-failed":
+      return `WebRTC stream update failed: ${error.detail}`;
     case "unexpected":
       return error.cause instanceof Error ? error.cause.message : "WebRTC media failed";
     default: {
@@ -98,6 +116,7 @@ export type WebRTCMediaState = {
   stream: MediaStream | null;
   size: WebRTCMediaSize | null;
   streamSettings: WebRTCStreamSettings | null;
+  videoProfiles: WebRTCVideoProfile[];
   metrics: WebRTCMediaMetrics | null;
   error: WebRTCMediaError | null;
   inputReady: boolean;
@@ -115,6 +134,7 @@ export type WebRTCMediaOptions = {
   input$: Observable<WebRTCInputMessage>;
   viewportSize$: Observable<WebRTCViewportRequest>;
   streamSettings$: Observable<WebRTCStreamSettings>;
+  reconnect: () => void;
 };
 
 type WebRTCPointerButton = NonNullable<
@@ -278,12 +298,54 @@ const controlResponseSchema = z.discriminatedUnion("type", [
     .object({
       version: z.literal(3),
       id: z.string(),
+      type: z.literal("video.quality.set.result"),
+      ok: z.literal(true),
+      quality: z
+        .object({
+          profile: z.string(),
+          option: z.string(),
+          width: z.number().int().positive(),
+          height: z.number().int().positive(),
+          framerate: z.number().int().positive(),
+          bitrate_kbps: z.number().int().positive(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(3),
+      id: z.string(),
       type: z.literal("error"),
       ok: z.literal(false),
       error: z.object({ code: z.string(), message: z.string() }).strict(),
     })
     .strict(),
 ]);
+const mediaStatusSchema = z
+  .object({
+    mediaQuality: z
+      .object({
+        profile: z.string(),
+        option: z.string(),
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        framerate: z.number().int().positive(),
+        bitrateKbps: z.number().int().positive(),
+      })
+      .strict(),
+    mediaProfiles: z.array(
+      z
+        .object({
+          id: z.string(),
+          label: z.string(),
+          codec: z.string(),
+        })
+        .strict(),
+    ),
+    mediaKeyframeInterval: z.number().int().positive(),
+  })
+  .passthrough();
 const viewportMetadataSchema = z
   .object({
     width: z.number().positive(),
@@ -352,6 +414,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         stream: null,
         size: null,
         streamSettings: null,
+        videoProfiles: [],
         metrics: null,
         error: { kind: "setup-failed", cause },
         inputReady: false,
@@ -365,6 +428,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       stream: null,
       size: null,
       streamSettings: null,
+      videoProfiles: [],
       metrics: null,
       error: null,
       inputReady: false,
@@ -372,6 +436,13 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     let closed = false;
     let inputSequence = 0;
     let controlRequest = 0;
+    let keyframeInterval = 60;
+    let mediaStatusLoaded = false;
+    let pendingStreamSettings: WebRTCStreamSettings | null = null;
+    let reconnectAfterProfileChange = false;
+    let viewportRequest = 0;
+    let viewportSettled = 0;
+    const qualityRequests = new Map<string, WebRTCStreamSettings>();
     let statsSample: StatsSample | null = null;
     let statsTimer: number | null = null;
     let mediaTimeout: number | null = window.setTimeout(() => {
@@ -414,6 +485,59 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       inputSequence += 1;
       input.send(JSON.stringify({ version: 1, sequence: inputSequence, ...message }));
     };
+    const sendStreamSettings = () => {
+      if (
+        !mediaStatusLoaded ||
+        !pendingStreamSettings ||
+        control.readyState !== "open" ||
+        viewportRequest !== viewportSettled
+      ) {
+        return;
+      }
+      controlRequest += 1;
+      const id = `quality-${controlRequest}`;
+      const profileChanged =
+        state.streamSettings !== null &&
+        pendingStreamSettings.profile !== state.streamSettings.profile;
+      reconnectAfterProfileChange = profileChanged;
+      qualityRequests.set(id, pendingStreamSettings);
+      control.send(
+        JSON.stringify({
+          version: 3,
+          id,
+          type: "video.quality.set",
+          quality: {
+            ...(profileChanged ? { profile: pendingStreamSettings.profile } : {}),
+            ...(state.size
+              ? {
+                  width: state.size.physicalWidth,
+                  height: state.size.physicalHeight,
+                }
+              : {}),
+            framerate: pendingStreamSettings.fps,
+            bitrate_kbps: pendingStreamSettings.bitrateKbps,
+          },
+        }),
+      );
+    };
+
+    void loadMediaStatus(options)
+      .then((status) => {
+        keyframeInterval = status.mediaKeyframeInterval;
+        mediaStatusLoaded = true;
+        emit({
+          streamSettings: {
+            profile: status.mediaQuality.profile,
+            fps: status.mediaQuality.framerate,
+            bitrateKbps: status.mediaQuality.bitrateKbps,
+            keyframeInterval,
+          },
+          videoProfiles: status.mediaProfiles,
+        });
+        sendStreamSettings();
+      })
+      .catch(() => undefined);
+
     const sendPointerMotion = (x: number, y: number) => {
       const width = state.size?.width;
       const height = state.size?.height;
@@ -511,11 +635,18 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         .catch(() => fail({ kind: "invalid-ice-candidate" }));
     });
     socket.addEventListener("close", () => {
+      if (!closed && reconnectAfterProfileChange) {
+        queueMicrotask(options.reconnect);
+        return;
+      }
       if (!closed && state.phase !== "failed") {
         fail({ kind: "unexpected", cause: new Error("WebRTC signaling closed") });
       }
     });
     socket.addEventListener("error", () => {
+      if (reconnectAfterProfileChange) {
+        return;
+      }
       fail({ kind: "unexpected", cause: new Error("WebRTC signaling failed") });
     });
 
@@ -526,11 +657,17 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     });
     connection.addEventListener("connectionstatechange", () => {
       if (connection.connectionState === "failed" || connection.connectionState === "closed") {
+        if (reconnectAfterProfileChange) {
+          return;
+        }
         fail({ kind: "peer-connection-lost", state: connection.connectionState });
       }
     });
     connection.addEventListener("iceconnectionstatechange", () => {
       if (connection.iceConnectionState === "failed") {
+        if (reconnectAfterProfileChange) {
+          return;
+        }
         fail({ kind: "ice-failed" });
       }
     });
@@ -573,7 +710,10 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         }),
       );
     };
-    control.addEventListener("open", acquireInput);
+    control.addEventListener("open", () => {
+      acquireInput();
+      sendStreamSettings();
+    });
     input.addEventListener("open", acquireInput);
     control.addEventListener("message", (event) => {
       const parsed = z
@@ -585,8 +725,38 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         return;
       }
       if (parsed.data.type === "error") {
+        const qualityRequest = qualityRequests.get(parsed.data.id);
+        if (qualityRequest) {
+          qualityRequests.delete(parsed.data.id);
+          reconnectAfterProfileChange = false;
+          emit({
+            error: {
+              kind: "producer-quality-failed",
+              detail: parsed.data.error.message,
+            },
+          });
+          return;
+        }
         console.warn("WebRTC input acquisition failed", parsed.data.error);
         emit({ inputReady: false });
+        return;
+      }
+      if (parsed.data.type === "video.quality.set.result") {
+        const requested = qualityRequests.get(parsed.data.id);
+        qualityRequests.delete(parsed.data.id);
+        const previousProfile = state.streamSettings?.profile;
+        emit({
+          streamSettings: {
+            profile: parsed.data.quality.profile,
+            fps: parsed.data.quality.framerate,
+            bitrateKbps: parsed.data.quality.bitrate_kbps,
+            keyframeInterval: requested?.keyframeInterval ?? keyframeInterval,
+          },
+          error: null,
+        });
+        if (previousProfile && previousProfile !== parsed.data.quality.profile) {
+          reconnectAfterProfileChange = true;
+        }
         return;
       }
       emit({ inputReady: parsed.data.input.pointer || parsed.data.input.keyboard });
@@ -655,17 +825,47 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     );
     subscriptions.add(
       options.viewportSize$.pipe(auditTime(32)).subscribe((viewport) => {
+        viewportRequest += 1;
+        const request = viewportRequest;
         void updateViewport(options, viewport)
-          .then((size) => emit({ size, error: null }))
+          .then((size) => {
+            if (request !== viewportRequest) {
+              return;
+            }
+            viewportSettled = request;
+            emit({ size, error: null });
+            sendStreamSettings();
+          })
           .catch((cause: unknown) => {
+            if (request !== viewportRequest) {
+              return;
+            }
+            viewportSettled = request;
             emit({
               error: {
                 kind: "producer-resize-failed",
                 detail: cause instanceof Error ? cause.message : "resize failed",
               },
             });
+            sendStreamSettings();
           });
       }),
+    );
+    subscriptions.add(
+      options.streamSettings$
+        .pipe(
+          distinctUntilChanged(
+            (left, right) =>
+              left.profile === right.profile &&
+              left.fps === right.fps &&
+              left.bitrateKbps === right.bitrateKbps &&
+              left.keyframeInterval === right.keyframeInterval,
+          ),
+        )
+        .subscribe((settings) => {
+          pendingStreamSettings = settings;
+          sendStreamSettings();
+        }),
     );
 
     return cleanup;
@@ -712,6 +912,26 @@ async function updateViewport(
     throw new Error((await response.text()) || `resize failed with status ${response.status}`);
   }
   return viewportMetadataSchema.parse(await response.json());
+}
+
+async function loadMediaStatus(options: WebRTCMediaOptions) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.credentials.token.trim()}`,
+  };
+  const tenantId = resolveTenantHeader(options.credentials, "tenant-scoped");
+  if (tenantId) {
+    headers[TENANT_HEADER] = tenantId;
+  }
+  const response = await fetch(
+    `/sessions/${encodeURIComponent(options.sessionId)}/browser/status`,
+    {
+      headers,
+    },
+  );
+  if (!response.ok) {
+    throw new Error((await response.text()) || `status failed with status ${response.status}`);
+  }
+  return mediaStatusSchema.parse(await response.json());
 }
 
 function buildSignalURL(sessionId: string): string {
