@@ -742,7 +742,6 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         return;
       }
       if (parsed.data.type === "video.quality.set.result") {
-        const requested = qualityRequests.get(parsed.data.id);
         qualityRequests.delete(parsed.data.id);
         const previousProfile = state.streamSettings?.profile;
         emit({
@@ -750,7 +749,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
             profile: parsed.data.quality.profile,
             fps: parsed.data.quality.framerate,
             bitrateKbps: parsed.data.quality.bitrate_kbps,
-            keyframeInterval: requested?.keyframeInterval ?? keyframeInterval,
+            keyframeInterval,
           },
           error: null,
         });
@@ -858,8 +857,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
             (left, right) =>
               left.profile === right.profile &&
               left.fps === right.fps &&
-              left.bitrateKbps === right.bitrateKbps &&
-              left.keyframeInterval === right.keyframeInterval,
+              left.bitrateKbps === right.bitrateKbps,
           ),
         )
         .subscribe((settings) => {
