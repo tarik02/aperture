@@ -9,7 +9,7 @@ import (
 	"github.com/aperture/aperture/internal/auth"
 )
 
-func TestRotateCDPTokenHandler(t *testing.T) {
+func TestRotateSessionTokenHandler(t *testing.T) {
 	t.Parallel()
 
 	env := newSessionTestEnv(t)
@@ -25,7 +25,7 @@ func TestRotateCDPTokenHandler(t *testing.T) {
 		t.Fatalf("create token: %v", err)
 	}
 
-	rec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/cdp-token/rotate", token.Raw, "", nil)
+	rec := env.do(t, http.MethodPost, "/api/sessions/"+created.Session.ID+"/session-token/rotate", token.Raw, "", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("rotate status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -34,7 +34,7 @@ func TestRotateCDPTokenHandler(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rotated); err != nil {
 		t.Fatalf("decode rotate response: %v", err)
 	}
-	if rotated.CDPToken == "" || rotated.CDPToken == created.CDPToken {
+	if rotated.SessionToken == "" || rotated.SessionToken == created.SessionToken {
 		t.Fatalf("expected replacement token in response")
 	}
 	if rotated.CDPURL != created.CDPURL {

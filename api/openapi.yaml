@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Aperture API
   version: 0.0.0
-  description: API for managing Aperture tenants, browser sessions, snapshots, and tokens.
+  description: REST API for managing Aperture tenants, browser sessions, snapshots, and tokens. MCP transport and capability-based session file delivery are documented separately.
 servers:
   - url: /
 security:
@@ -262,11 +262,11 @@ paths:
       responses:
         '200': {description: Reopened session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
-  /api/sessions/{sessionId}/cdp-token/rotate:
+  /api/sessions/{sessionId}/session-token/rotate:
     post:
-      operationId: rotateSessionCDPToken
+      operationId: rotateSessionToken
       tags: [sessions]
-      summary: Rotate a browser session CDP token
+      summary: Rotate a browser session token
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -530,7 +530,7 @@ components:
         suspendedAt: {type: string, format: date-time, nullable: true}
         tags: {$ref: '#/components/schemas/StringMap'}
         cdpUrl: {type: string, format: uri}
-        cdpToken: {type: string}
+        sessionToken: {type: string}
     SessionPage:
       type: object
       required: [data, meta]
@@ -547,12 +547,12 @@ components:
     SessionBulkResponse: {type: object, required: [sessions], properties: {sessions: {type: array, items: {$ref: '#/components/schemas/Session'}}}}
     CreateSessionResult:
       type: object
-      required: [session, cdpUrl, cdpToken]
-      properties: {session: {$ref: '#/components/schemas/Session'}, cdpUrl: {type: string, format: uri}, cdpToken: {type: string}}
+      required: [session, cdpUrl, sessionToken]
+      properties: {session: {$ref: '#/components/schemas/Session'}, cdpUrl: {type: string, format: uri}, sessionToken: {type: string}}
     SessionMutation:
       type: object
       required: [session]
-      properties: {session: {$ref: '#/components/schemas/Session'}, cdpUrl: {type: string, format: uri}, cdpToken: {type: string}}
+      properties: {session: {$ref: '#/components/schemas/Session'}, cdpUrl: {type: string, format: uri}, sessionToken: {type: string}}
     PromoteSessionInput:
       type: object
       required: [name]

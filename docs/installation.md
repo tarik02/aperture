@@ -33,7 +33,8 @@ The package provides:
 Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment variables). Required values include:
 
 - `store_root`, `runtime_root` — persistent and runtime state directories
-- `external_base_url` — public URL Traefik serves (for generated CDP links)
+- `external_base_url` — public URL Traefik serves (for generated connection and signed-file links)
+- MCP settings — enabled by default; see the example below
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
 
 Example:
@@ -43,12 +44,20 @@ store_root: /home/USER/.local/state/aperture
 runtime_root: /run/user/UID/aperture
 external_base_url: https://browser.example.test
 listen_address: 127.0.0.1:8080
+mcp_enabled: true
+agent_browser_tools_default: core,tabs,mobile,network
+agent_browser_idle_timeout: 5m
+tool_output_max_bytes: 16777216
+signed_file_url_ttl: 15m
+signed_file_url_max_ttl: 24h
 
 channels:
   chromium:
     executable: /run/current-system/sw/bin/chromium
     default_args: []
 ```
+
+The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the session-bound `sessionToken` (`aps_<sessionId>_<secret>`). A session token authorizes that session's routed live endpoints, including CDP, WebRTC, and per-session MCP; it does not authorize `/api/*` or central MCP. Signed session-file URLs use `apf_<payload>.<signature>` query tokens.
 
 On first `aperture serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
 

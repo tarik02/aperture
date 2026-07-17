@@ -66,7 +66,7 @@ func wrapperCDPDiscoveryRoute(path, forwardedURI string) (string, string) {
 	}
 
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(parts) < 4 || parts[0] != "sessions" || parts[2] != "cdp" || !strings.HasPrefix(parts[3], "cdp_") {
+	if len(parts) < 4 || parts[0] != "sessions" || parts[2] != "cdp" || !strings.HasPrefix(parts[3], "aps_") {
 		return "", ""
 	}
 	basePath := "/" + strings.Join(parts[:4], "/")
@@ -159,12 +159,12 @@ func publicCDPBasePathFromForwardedURI(forwardedURI string) string {
 			continue
 		}
 		baseParts := parts[:index]
-		if len(baseParts) < 4 || baseParts[0] != "sessions" || baseParts[2] != "cdp" || !strings.HasPrefix(baseParts[3], "cdp_") {
+		if len(baseParts) < 4 || baseParts[0] != "sessions" || baseParts[2] != "cdp" || !strings.HasPrefix(baseParts[3], "aps_") {
 			return ""
 		}
 		return "/" + strings.Join(baseParts, "/")
 	}
-	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "cdp_") {
+	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "aps_") {
 		return "/" + strings.Join(parts[:4], "/")
 	}
 	return ""

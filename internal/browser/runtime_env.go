@@ -17,12 +17,13 @@ import (
 type RuntimeEnvValues struct {
 	SessionID                  string
 	ExternalBaseURL            string
-	CDPToken                   string
-	CDPTokenPath               string
+	SessionToken               string
+	SessionTokenPath           string
 	InternalAPIURL             string
 	MergedUserDataDir          string
 	UpperDir                   string
 	DownloadsDir               string
+	RecordingsDir              string
 	CacheDir                   string
 	ArtifactsDir               string
 	SessionUploadMaxFileBytes  int64
@@ -63,6 +64,9 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	}
 	if strings.TrimSpace(values.DownloadsDir) == "" {
 		return nil, fmt.Errorf("downloads dir is required")
+	}
+	if strings.TrimSpace(values.RecordingsDir) == "" {
+		return nil, fmt.Errorf("recordings dir is required")
 	}
 	if strings.TrimSpace(values.CacheDir) == "" {
 		return nil, fmt.Errorf("cache dir is required")
@@ -163,10 +167,11 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	lines := []string{
 		"APERTURE_SESSION_ID=" + shellQuote(values.SessionID),
 		"EXTERNAL_BASE_URL=" + shellQuote(values.ExternalBaseURL),
-		"CDP_TOKEN=" + shellQuote(values.CDPToken),
-		"CDP_TOKEN_PATH=" + shellQuote(values.CDPTokenPath),
+		"SESSION_TOKEN=" + shellQuote(values.SessionToken),
+		"SESSION_TOKEN_PATH=" + shellQuote(values.SessionTokenPath),
 		"MERGED_USER_DATA_DIR=" + shellQuote(values.MergedUserDataDir),
 		"DOWNLOADS_DIR=" + shellQuote(values.DownloadsDir),
+		"RECORDINGS_DIR=" + shellQuote(values.RecordingsDir),
 		"CACHE_DIR=" + shellQuote(values.CacheDir),
 		"ARTIFACTS_DIR=" + shellQuote(values.ArtifactsDir),
 		"CDP_PORT=" + strconv.Itoa(values.CDPPort),
@@ -240,13 +245,13 @@ func WriteRuntimeEnv(path string, values RuntimeEnvValues) error {
 	return nil
 }
 
-func WriteCDPToken(path, token string) error {
+func WriteSessionToken(path, token string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("mkdir cdp token dir: %w", err)
+		return fmt.Errorf("mkdir session token dir: %w", err)
 	}
 	if err := renameio.WriteFile(path, []byte(token), 0o600, renameio.WithStaticPermissions(0o600)); err != nil {
-		return fmt.Errorf("write cdp token: %w", err)
+		return fmt.Errorf("write session token: %w", err)
 	}
 	return nil
 }
@@ -263,13 +268,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR":
-			unquoted, err := shellUnquote(val)
-			if err != nil {
-				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
-			}
-			assignRuntimeString(&values, key, unquoted)
-		case "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "CDP_TOKEN", "CDP_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -359,10 +358,10 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.SessionID = value
 	case "EXTERNAL_BASE_URL":
 		values.ExternalBaseURL = value
-	case "CDP_TOKEN":
-		values.CDPToken = value
-	case "CDP_TOKEN_PATH":
-		values.CDPTokenPath = value
+	case "SESSION_TOKEN":
+		values.SessionToken = value
+	case "SESSION_TOKEN_PATH":
+		values.SessionTokenPath = value
 	case "INTERNAL_API_URL":
 		values.InternalAPIURL = value
 	case "MERGED_USER_DATA_DIR":
@@ -371,6 +370,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.UpperDir = value
 	case "DOWNLOADS_DIR":
 		values.DownloadsDir = value
+	case "RECORDINGS_DIR":
+		values.RecordingsDir = value
 	case "CACHE_DIR":
 		values.CacheDir = value
 	case "ARTIFACTS_DIR":

@@ -319,12 +319,12 @@ func (s openAPIServer) GetSession(ctx context.Context, _ generated.GetSessionReq
 	return openAPIPassthroughResponse{}, nil
 }
 
-func (s openAPIServer) RotateSessionCDPToken(ctx context.Context, _ generated.RotateSessionCDPTokenRequestObject) (generated.RotateSessionCDPTokenResponseObject, error) {
+func (s openAPIServer) RotateSessionToken(ctx context.Context, _ generated.RotateSessionTokenRequestObject) (generated.RotateSessionTokenResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
 		return nil, errOpenAPIContext
 	}
-	s.server.rotateCDPToken(c)
+	s.server.rotateSessionToken(c)
 	return openAPIPassthroughResponse{}, nil
 }
 
@@ -522,7 +522,7 @@ func (openAPIPassthroughResponse) VisitGetSessionResponse(http.ResponseWriter) e
 	return nil
 }
 
-func (openAPIPassthroughResponse) VisitRotateSessionCDPTokenResponse(http.ResponseWriter) error {
+func (openAPIPassthroughResponse) VisitRotateSessionTokenResponse(http.ResponseWriter) error {
 	return nil
 }
 

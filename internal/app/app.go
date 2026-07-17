@@ -152,6 +152,8 @@ func (a *App) Serve(ctx context.Context) error {
 	go a.reconcileSessionRoutesOnActivation(monitorCtx, role == deploystate.RoleActive)
 
 	server := &httpapi.Server{
+		Config:        a.Config,
+		Repository:    a.Repository,
 		Auth:          a.Auth,
 		Sessions:      a.Sessions,
 		Snapshots:     a.Snapshots,
@@ -164,6 +166,7 @@ func (a *App) Serve(ctx context.Context) error {
 		DeployVersion: a.Config.DeployVersion,
 	}
 	server.SetJobToken(jobToken)
+	defer server.Close()
 	router := httpapi.NewRouter(a.Logger, server, web.StaticAssets(), a.Config.CdpRouteBasePath)
 	httpServer := &http.Server{
 		Addr:    a.Config.ListenAddress,

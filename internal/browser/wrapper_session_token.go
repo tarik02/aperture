@@ -10,21 +10,21 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func (r *wrapperRuntime) watchCDPToken(ctx context.Context) error {
-	if r.values.CDPTokenPath == "" {
+func (r *wrapperRuntime) watchSessionToken(ctx context.Context) error {
+	if r.values.SessionTokenPath == "" {
 		return nil
 	}
-	current, err := os.ReadFile(r.values.CDPTokenPath)
+	current, err := os.ReadFile(r.values.SessionTokenPath)
 	if err != nil {
-		return fmt.Errorf("read cdp token: %w", err)
+		return fmt.Errorf("read session token: %w", err)
 	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return fmt.Errorf("watch cdp token: %w", err)
+		return fmt.Errorf("watch session token: %w", err)
 	}
-	if err := watcher.Add(filepath.Dir(r.values.CDPTokenPath)); err != nil {
+	if err := watcher.Add(filepath.Dir(r.values.SessionTokenPath)); err != nil {
 		_ = watcher.Close()
-		return fmt.Errorf("watch cdp token directory: %w", err)
+		return fmt.Errorf("watch session token directory: %w", err)
 	}
 	currentToken := strings.TrimSpace(string(current))
 	go func() {
@@ -35,7 +35,7 @@ func (r *wrapperRuntime) watchCDPToken(ctx context.Context) error {
 				return
 			case <-watcher.Errors:
 			case <-watcher.Events:
-				body, err := os.ReadFile(r.values.CDPTokenPath)
+				body, err := os.ReadFile(r.values.SessionTokenPath)
 				if err != nil {
 					continue
 				}

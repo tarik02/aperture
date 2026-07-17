@@ -187,7 +187,7 @@ type sessionResponse struct {
 	SuspendedAt      *string           `json:"suspendedAt,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	CDPURL           string            `json:"cdpUrl,omitempty"`
-	CDPToken         string            `json:"cdpToken,omitempty"`
+	SessionToken     string            `json:"sessionToken,omitempty"`
 }
 
 type sessionMedia struct {
@@ -230,15 +230,15 @@ type sessionBulkResponse struct {
 }
 
 type createSessionResponse struct {
-	Session  sessionResponse `json:"session"`
-	CDPURL   string          `json:"cdpUrl"`
-	CDPToken string          `json:"cdpToken"`
+	Session      sessionResponse `json:"session"`
+	CDPURL       string          `json:"cdpUrl"`
+	SessionToken string          `json:"sessionToken"`
 }
 
 type sessionMutationResponse struct {
-	Session  sessionResponse `json:"session"`
-	CDPURL   string          `json:"cdpUrl,omitempty"`
-	CDPToken string          `json:"cdpToken,omitempty"`
+	Session      sessionResponse `json:"session"`
+	CDPURL       string          `json:"cdpUrl,omitempty"`
+	SessionToken string          `json:"sessionToken,omitempty"`
 }
 
 type promoteSessionRequest struct {

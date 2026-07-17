@@ -12,6 +12,7 @@ import (
 // Validate checks resolved configuration before service startup.
 func Validate(cfg Config) error {
 	var errs []error
+	errs = append(errs, validateMCP(cfg)...)
 
 	errs = append(errs, validateRequiredAbsolutePath("store_root", cfg.StoreRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("runtime_root", cfg.RuntimeRoot)...)

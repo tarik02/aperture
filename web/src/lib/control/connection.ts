@@ -33,7 +33,7 @@ export type ControlConnectionEvent =
 export type BrowserControlConnectionOptions = {
   sessionId: string;
   credentials: ApiCredentials;
-  cdpToken?: string;
+  sessionToken?: string;
   input$: Observable<ClientMessage>;
 };
 
@@ -176,12 +176,12 @@ function timeoutError(method: string): Error {
 
 async function fetchCdpJSON<T>(
   sessionId: string,
-  cdpToken: string,
+  sessionToken: string,
   path: string,
   schema: z.ZodType<T>,
 ): Promise<T> {
   const response = await fetch(
-    `/sessions/${encodeURIComponent(sessionId)}/cdp/${encodeURIComponent(cdpToken)}${path}`,
+    `/sessions/${encodeURIComponent(sessionId)}/cdp/${encodeURIComponent(sessionToken)}${path}`,
     {
       headers: {
         Accept: "application/json",
@@ -389,7 +389,7 @@ export function browserControlConnection$(
       error: (cause) => subscriber.error(cause),
     });
 
-    connection.connect(options.sessionId, options.credentials, options.cdpToken);
+    connection.connect(options.sessionId, options.credentials, options.sessionToken);
 
     return () => {
       inputSubscription.unsubscribe();
@@ -403,7 +403,7 @@ class BrowserControlConnectionRuntime {
   private closed = false;
   private sessionId: string | null = null;
   private credentials: ApiCredentials | null = null;
-  private cdpToken: string | null = null;
+  private sessionToken: string | null = null;
   private browser: CdpSocket | null = null;
   private pageTargetId: Protocol.Target.TargetID | null = null;
   private pageSessionId: Protocol.Target.SessionID | null = null;
@@ -420,12 +420,12 @@ class BrowserControlConnectionRuntime {
     this.callbacks = callbacks;
   }
 
-  connect(sessionId: string, credentials: ApiCredentials, cdpToken?: string) {
+  connect(sessionId: string, credentials: ApiCredentials, sessionToken?: string) {
     this.close();
     this.closed = false;
     this.sessionId = sessionId;
     this.credentials = credentials;
-    this.cdpToken = cdpToken ?? null;
+    this.sessionToken = sessionToken ?? null;
     this.connectStartedAt = Date.now();
     this.callbacks.onPhaseChange?.("connecting");
     void this.openBrowserSocket();
@@ -453,7 +453,7 @@ class BrowserControlConnectionRuntime {
     this.delayedRefreshes = new Subscription();
     this.browser?.close();
     this.browser = null;
-    this.cdpToken = null;
+    this.sessionToken = null;
     this.pageTargetId = null;
     this.pageSessionId = null;
     this.activeTargetId = null;
@@ -474,10 +474,10 @@ class BrowserControlConnectionRuntime {
 
     let browser: CdpSocket | null = null;
     try {
-      const cdpToken = await this.currentCDPToken();
+      const sessionToken = await this.currentSessionToken();
       const version = await fetchCdpJSON(
         this.sessionId,
-        cdpToken,
+        sessionToken,
         "/json/version",
         cdpVersionSchema,
       );
@@ -555,19 +555,19 @@ class BrowserControlConnectionRuntime {
     }
   }
 
-  private async currentCDPToken() {
-    if (this.cdpToken) {
-      return this.cdpToken;
+  private async currentSessionToken() {
+    if (this.sessionToken) {
+      return this.sessionToken;
     }
     if (!this.sessionId || !this.credentials) {
-      throw new Error("CDP token unavailable");
+      throw new Error("Session token unavailable");
     }
     const session = await apiClient.getSession(this.credentials, this.sessionId);
-    if (!session.cdpToken) {
-      throw new Error("CDP token unavailable");
+    if (!session.sessionToken) {
+      throw new Error("Session token unavailable");
     }
-    this.cdpToken = session.cdpToken;
-    return session.cdpToken;
+    this.sessionToken = session.sessionToken;
+    return session.sessionToken;
   }
 
   private async dispatch(message: ClientMessage) {

@@ -19,6 +19,7 @@ type SessionLayout struct {
 	Downloads  string
 	Cache      string
 	Metadata   string
+	Recordings string
 	Artifacts  string
 	Logs       string
 	CrashDumps string
@@ -82,6 +83,7 @@ func Session(cfg config.Config, sessionID string) (SessionLayout, error) {
 		Downloads:  filepath.Join(root, "downloads"),
 		Cache:      filepath.Join(root, "cache"),
 		Metadata:   filepath.Join(root, "metadata"),
+		Recordings: filepath.Join(root, "recordings"),
 		Artifacts:  artifactsRoot,
 		Logs:       filepath.Join(artifactsRoot, "logs"),
 		CrashDumps: filepath.Join(artifactsRoot, "crash-dumps"),

@@ -342,9 +342,9 @@ type CreateSessionInput struct {
 
 // CreateSessionResult defines model for CreateSessionResult.
 type CreateSessionResult struct {
-	CdpToken string  `json:"cdpToken"`
-	CdpUrl   string  `json:"cdpUrl"`
-	Session  Session `json:"session"`
+	CdpUrl       string  `json:"cdpUrl"`
+	Session      Session `json:"session"`
+	SessionToken string  `json:"sessionToken"`
 }
 
 // CreateTenantTokenInput defines model for CreateTenantTokenInput.
@@ -437,7 +437,6 @@ type ReplaceTagsInput struct {
 type Session struct {
 	BaseSnapshotName *string            `json:"baseSnapshotName,omitempty"`
 	BrowserChannel   *string            `json:"browserChannel,omitempty"`
-	CdpToken         *string            `json:"cdpToken,omitempty"`
 	CdpUrl           *string            `json:"cdpUrl,omitempty"`
 	CreatedAt        time.Time          `json:"createdAt"`
 	DeletedAt        *time.Time         `json:"deletedAt,omitempty"`
@@ -446,6 +445,7 @@ type Session struct {
 	Label            *string            `json:"label,omitempty"`
 	LastConnectedAt  *time.Time         `json:"lastConnectedAt,omitempty"`
 	Media            SessionMedia       `json:"media"`
+	SessionToken     *string            `json:"sessionToken,omitempty"`
 	StartedAt        *time.Time         `json:"startedAt,omitempty"`
 	Status           SessionStatus      `json:"status"`
 	StoppedAt        *time.Time         `json:"stoppedAt,omitempty"`
@@ -473,9 +473,9 @@ type SessionMedia struct {
 
 // SessionMutation defines model for SessionMutation.
 type SessionMutation struct {
-	CdpToken *string `json:"cdpToken,omitempty"`
-	CdpUrl   *string `json:"cdpUrl,omitempty"`
-	Session  Session `json:"session"`
+	CdpUrl       *string `json:"cdpUrl,omitempty"`
+	Session      Session `json:"session"`
+	SessionToken *string `json:"sessionToken,omitempty"`
 }
 
 // SessionPage defines model for SessionPage.
@@ -708,12 +708,6 @@ type GetSessionParams struct {
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
-// RotateSessionCDPTokenParams defines parameters for RotateSessionCDPToken.
-type RotateSessionCDPTokenParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
-	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
-}
-
 // PromoteSessionParams defines parameters for PromoteSession.
 type PromoteSessionParams struct {
 	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
@@ -722,6 +716,12 @@ type PromoteSessionParams struct {
 
 // ReopenSessionParams defines parameters for ReopenSession.
 type ReopenSessionParams struct {
+	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// RotateSessionTokenParams defines parameters for RotateSessionToken.
+type RotateSessionTokenParams struct {
 	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
@@ -1022,9 +1022,6 @@ type ClientInterface interface {
 	// GetSession request
 	GetSession(ctx context.Context, sessionId SessionId, params *GetSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RotateSessionCDPToken request
-	RotateSessionCDPToken(ctx context.Context, sessionId SessionId, params *RotateSessionCDPTokenParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// PromoteSessionWithBody request with any body
 	PromoteSessionWithBody(ctx context.Context, sessionId SessionId, params *PromoteSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1032,6 +1029,9 @@ type ClientInterface interface {
 
 	// ReopenSession request
 	ReopenSession(ctx context.Context, sessionId SessionId, params *ReopenSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RotateSessionToken request
+	RotateSessionToken(ctx context.Context, sessionId SessionId, params *RotateSessionTokenParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SuspendSession request
 	SuspendSession(ctx context.Context, sessionId SessionId, params *SuspendSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1344,18 +1344,6 @@ func (c *Client) GetSession(ctx context.Context, sessionId SessionId, params *Ge
 	return c.Client.Do(req)
 }
 
-func (c *Client) RotateSessionCDPToken(ctx context.Context, sessionId SessionId, params *RotateSessionCDPTokenParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRotateSessionCDPTokenRequest(c.Server, sessionId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) PromoteSessionWithBody(ctx context.Context, sessionId SessionId, params *PromoteSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPromoteSessionRequestWithBody(c.Server, sessionId, params, contentType, body)
 	if err != nil {
@@ -1382,6 +1370,18 @@ func (c *Client) PromoteSession(ctx context.Context, sessionId SessionId, params
 
 func (c *Client) ReopenSession(ctx context.Context, sessionId SessionId, params *ReopenSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReopenSessionRequest(c.Server, sessionId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) RotateSessionToken(ctx context.Context, sessionId SessionId, params *RotateSessionTokenParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRotateSessionTokenRequest(c.Server, sessionId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2579,55 +2579,6 @@ func NewGetSessionRequest(server string, sessionId SessionId, params *GetSession
 	return req, nil
 }
 
-// NewRotateSessionCDPTokenRequest generates requests for RotateSessionCDPToken
-func NewRotateSessionCDPTokenRequest(server string, sessionId SessionId, params *RotateSessionCDPTokenParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/sessions/%s/cdp-token/rotate", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-
-		if params.XApertureTenantId != nil {
-			var headerParam0 string
-
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-			if err != nil {
-				return nil, err
-			}
-
-			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
-		}
-
-	}
-
-	return req, nil
-}
-
 // NewPromoteSessionRequest calls the generic PromoteSession builder with application/json body
 func NewPromoteSessionRequest(server string, sessionId SessionId, params *PromoteSessionParams, body PromoteSessionJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2707,6 +2658,55 @@ func NewReopenSessionRequest(server string, sessionId SessionId, params *ReopenS
 	}
 
 	operationPath := fmt.Sprintf("/api/sessions/%s/reopen", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewRotateSessionTokenRequest generates requests for RotateSessionToken
+func NewRotateSessionTokenRequest(server string, sessionId SessionId, params *RotateSessionTokenParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/session-token/rotate", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3548,9 +3548,6 @@ type ClientWithResponsesInterface interface {
 	// GetSessionWithResponse request
 	GetSessionWithResponse(ctx context.Context, sessionId SessionId, params *GetSessionParams, reqEditors ...RequestEditorFn) (*GetSessionResponse, error)
 
-	// RotateSessionCDPTokenWithResponse request
-	RotateSessionCDPTokenWithResponse(ctx context.Context, sessionId SessionId, params *RotateSessionCDPTokenParams, reqEditors ...RequestEditorFn) (*RotateSessionCDPTokenResponse, error)
-
 	// PromoteSessionWithBodyWithResponse request with any body
 	PromoteSessionWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *PromoteSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PromoteSessionResponse, error)
 
@@ -3558,6 +3555,9 @@ type ClientWithResponsesInterface interface {
 
 	// ReopenSessionWithResponse request
 	ReopenSessionWithResponse(ctx context.Context, sessionId SessionId, params *ReopenSessionParams, reqEditors ...RequestEditorFn) (*ReopenSessionResponse, error)
+
+	// RotateSessionTokenWithResponse request
+	RotateSessionTokenWithResponse(ctx context.Context, sessionId SessionId, params *RotateSessionTokenParams, reqEditors ...RequestEditorFn) (*RotateSessionTokenResponse, error)
 
 	// SuspendSessionWithResponse request
 	SuspendSessionWithResponse(ctx context.Context, sessionId SessionId, params *SuspendSessionParams, reqEditors ...RequestEditorFn) (*SuspendSessionResponse, error)
@@ -4131,37 +4131,6 @@ func (r GetSessionResponse) ContentType() string {
 	return ""
 }
 
-type RotateSessionCDPTokenResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *SessionMutation
-	JSONDefault  *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r RotateSessionCDPTokenResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r RotateSessionCDPTokenResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r RotateSessionCDPTokenResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type PromoteSessionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4218,6 +4187,37 @@ func (r ReopenSessionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ReopenSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RotateSessionTokenResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SessionMutation
+	JSONDefault  *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r RotateSessionTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RotateSessionTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RotateSessionTokenResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4788,15 +4788,6 @@ func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, sessio
 	return ParseGetSessionResponse(rsp)
 }
 
-// RotateSessionCDPTokenWithResponse request returning *RotateSessionCDPTokenResponse
-func (c *ClientWithResponses) RotateSessionCDPTokenWithResponse(ctx context.Context, sessionId SessionId, params *RotateSessionCDPTokenParams, reqEditors ...RequestEditorFn) (*RotateSessionCDPTokenResponse, error) {
-	rsp, err := c.RotateSessionCDPToken(ctx, sessionId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRotateSessionCDPTokenResponse(rsp)
-}
-
 // PromoteSessionWithBodyWithResponse request with arbitrary body returning *PromoteSessionResponse
 func (c *ClientWithResponses) PromoteSessionWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *PromoteSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PromoteSessionResponse, error) {
 	rsp, err := c.PromoteSessionWithBody(ctx, sessionId, params, contentType, body, reqEditors...)
@@ -4821,6 +4812,15 @@ func (c *ClientWithResponses) ReopenSessionWithResponse(ctx context.Context, ses
 		return nil, err
 	}
 	return ParseReopenSessionResponse(rsp)
+}
+
+// RotateSessionTokenWithResponse request returning *RotateSessionTokenResponse
+func (c *ClientWithResponses) RotateSessionTokenWithResponse(ctx context.Context, sessionId SessionId, params *RotateSessionTokenParams, reqEditors ...RequestEditorFn) (*RotateSessionTokenResponse, error) {
+	rsp, err := c.RotateSessionToken(ctx, sessionId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRotateSessionTokenResponse(rsp)
 }
 
 // SuspendSessionWithResponse request returning *SuspendSessionResponse
@@ -5518,39 +5518,6 @@ func ParseGetSessionResponse(rsp *http.Response) (*GetSessionResponse, error) {
 	return response, nil
 }
 
-// ParseRotateSessionCDPTokenResponse parses an HTTP response from a RotateSessionCDPTokenWithResponse call
-func ParseRotateSessionCDPTokenResponse(rsp *http.Response) (*RotateSessionCDPTokenResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &RotateSessionCDPTokenResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionMutation
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParsePromoteSessionResponse parses an HTTP response from a PromoteSessionWithResponse call
 func ParsePromoteSessionResponse(rsp *http.Response) (*PromoteSessionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5593,6 +5560,39 @@ func ParseReopenSessionResponse(rsp *http.Response) (*ReopenSessionResponse, err
 	}
 
 	response := &ReopenSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionMutation
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRotateSessionTokenResponse parses an HTTP response from a RotateSessionTokenWithResponse call
+func ParseRotateSessionTokenResponse(rsp *http.Response) (*RotateSessionTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RotateSessionTokenResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -6059,15 +6059,15 @@ type ServerInterface interface {
 	// Get a browser session
 	// (GET /api/sessions/{sessionId})
 	GetSession(c *gin.Context, sessionId SessionId, params GetSessionParams)
-	// Rotate a browser session CDP token
-	// (POST /api/sessions/{sessionId}/cdp-token/rotate)
-	RotateSessionCDPToken(c *gin.Context, sessionId SessionId, params RotateSessionCDPTokenParams)
 	// Promote a browser session to a snapshot
 	// (POST /api/sessions/{sessionId}/promote)
 	PromoteSession(c *gin.Context, sessionId SessionId, params PromoteSessionParams)
 	// Reopen a browser session
 	// (POST /api/sessions/{sessionId}/reopen)
 	ReopenSession(c *gin.Context, sessionId SessionId, params ReopenSessionParams)
+	// Rotate a browser session token
+	// (POST /api/sessions/{sessionId}/session-token/rotate)
+	RotateSessionToken(c *gin.Context, sessionId SessionId, params RotateSessionTokenParams)
 	// Suspend a browser session
 	// (POST /api/sessions/{sessionId}/suspend)
 	SuspendSession(c *gin.Context, sessionId SessionId, params SuspendSessionParams)
@@ -6803,57 +6803,6 @@ func (siw *ServerInterfaceWrapper) GetSession(c *gin.Context) {
 	siw.Handler.GetSession(c, sessionId, params)
 }
 
-// RotateSessionCDPToken operation middleware
-func (siw *ServerInterfaceWrapper) RotateSessionCDPToken(c *gin.Context) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "sessionId" -------------
-	var sessionId SessionId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
-		return
-	}
-
-	c.Set(string(BearerAuthScopes), []string{})
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params RotateSessionCDPTokenParams
-
-	headers := c.Request.Header
-
-	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
-		var XApertureTenantId SelectedTenantId
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
-			return
-		}
-
-		params.XApertureTenantId = &XApertureTenantId
-
-	}
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		middleware(c)
-		if c.IsAborted() {
-			return
-		}
-	}
-
-	siw.Handler.RotateSessionCDPToken(c, sessionId, params)
-}
-
 // PromoteSession operation middleware
 func (siw *ServerInterfaceWrapper) PromoteSession(c *gin.Context) {
 
@@ -6954,6 +6903,57 @@ func (siw *ServerInterfaceWrapper) ReopenSession(c *gin.Context) {
 	}
 
 	siw.Handler.ReopenSession(c, sessionId, params)
+}
+
+// RotateSessionToken operation middleware
+func (siw *ServerInterfaceWrapper) RotateSessionToken(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RotateSessionTokenParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RotateSessionToken(c, sessionId, params)
 }
 
 // SuspendSession operation middleware
@@ -7529,9 +7529,9 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/sessions/bulk", wrapper.GetSessionsBulk)
 	router.DELETE(options.BaseURL+"/api/sessions/:sessionId", wrapper.DeleteSession)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId", wrapper.GetSession)
-	router.POST(options.BaseURL+"/api/sessions/:sessionId/cdp-token/rotate", wrapper.RotateSessionCDPToken)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/promote", wrapper.PromoteSession)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/reopen", wrapper.ReopenSession)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/session-token/rotate", wrapper.RotateSessionToken)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/suspend", wrapper.SuspendSession)
 	router.PUT(options.BaseURL+"/api/sessions/:sessionId/tags", wrapper.ReplaceSessionTags)
 	router.GET(options.BaseURL+"/api/snapshots", wrapper.ListSnapshots)
@@ -8191,46 +8191,6 @@ func (response GetSessiondefaultJSONResponse) VisitGetSessionResponse(w http.Res
 	return err
 }
 
-type RotateSessionCDPTokenRequestObject struct {
-	SessionId SessionId `json:"sessionId"`
-	Params    RotateSessionCDPTokenParams
-}
-
-type RotateSessionCDPTokenResponseObject interface {
-	VisitRotateSessionCDPTokenResponse(w http.ResponseWriter) error
-}
-
-type RotateSessionCDPToken200JSONResponse SessionMutation
-
-func (response RotateSessionCDPToken200JSONResponse) VisitRotateSessionCDPTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type RotateSessionCDPTokendefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response RotateSessionCDPTokendefaultJSONResponse) VisitRotateSessionCDPTokenResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type PromoteSessionRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Params    PromoteSessionParams
@@ -8301,6 +8261,46 @@ type ReopenSessiondefaultJSONResponse struct {
 }
 
 func (response ReopenSessiondefaultJSONResponse) VisitReopenSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotateSessionTokenRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    RotateSessionTokenParams
+}
+
+type RotateSessionTokenResponseObject interface {
+	VisitRotateSessionTokenResponse(w http.ResponseWriter) error
+}
+
+type RotateSessionToken200JSONResponse SessionMutation
+
+func (response RotateSessionToken200JSONResponse) VisitRotateSessionTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotateSessionTokendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RotateSessionTokendefaultJSONResponse) VisitRotateSessionTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -8835,15 +8835,15 @@ type StrictServerInterface interface {
 	// Get a browser session
 	// (GET /api/sessions/{sessionId})
 	GetSession(ctx context.Context, request GetSessionRequestObject) (GetSessionResponseObject, error)
-	// Rotate a browser session CDP token
-	// (POST /api/sessions/{sessionId}/cdp-token/rotate)
-	RotateSessionCDPToken(ctx context.Context, request RotateSessionCDPTokenRequestObject) (RotateSessionCDPTokenResponseObject, error)
 	// Promote a browser session to a snapshot
 	// (POST /api/sessions/{sessionId}/promote)
 	PromoteSession(ctx context.Context, request PromoteSessionRequestObject) (PromoteSessionResponseObject, error)
 	// Reopen a browser session
 	// (POST /api/sessions/{sessionId}/reopen)
 	ReopenSession(ctx context.Context, request ReopenSessionRequestObject) (ReopenSessionResponseObject, error)
+	// Rotate a browser session token
+	// (POST /api/sessions/{sessionId}/session-token/rotate)
+	RotateSessionToken(ctx context.Context, request RotateSessionTokenRequestObject) (RotateSessionTokenResponseObject, error)
 	// Suspend a browser session
 	// (POST /api/sessions/{sessionId}/suspend)
 	SuspendSession(ctx context.Context, request SuspendSessionRequestObject) (SuspendSessionResponseObject, error)
@@ -9410,33 +9410,6 @@ func (sh *strictHandler) GetSession(ctx *gin.Context, sessionId SessionId, param
 	}
 }
 
-// RotateSessionCDPToken operation middleware
-func (sh *strictHandler) RotateSessionCDPToken(ctx *gin.Context, sessionId SessionId, params RotateSessionCDPTokenParams) {
-	var request RotateSessionCDPTokenRequestObject
-
-	request.SessionId = sessionId
-	request.Params = params
-
-	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
-		return sh.ssi.RotateSessionCDPToken(ctx, request.(RotateSessionCDPTokenRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RotateSessionCDPToken")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		sh.options.HandlerErrorFunc(ctx, err)
-	} else if validResponse, ok := response.(RotateSessionCDPTokenResponseObject); ok {
-		if err := validResponse.VisitRotateSessionCDPTokenResponse(ctx.Writer); err != nil {
-			sh.options.ResponseErrorHandlerFunc(ctx, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // PromoteSession operation middleware
 func (sh *strictHandler) PromoteSession(ctx *gin.Context, sessionId SessionId, params PromoteSessionParams) {
 	var request PromoteSessionRequestObject
@@ -9491,6 +9464,33 @@ func (sh *strictHandler) ReopenSession(ctx *gin.Context, sessionId SessionId, pa
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(ReopenSessionResponseObject); ok {
 		if err := validResponse.VisitReopenSessionResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RotateSessionToken operation middleware
+func (sh *strictHandler) RotateSessionToken(ctx *gin.Context, sessionId SessionId, params RotateSessionTokenParams) {
+	var request RotateSessionTokenRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.RotateSessionToken(ctx, request.(RotateSessionTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RotateSessionToken")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(RotateSessionTokenResponseObject); ok {
+		if err := validResponse.VisitRotateSessionTokenResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {
@@ -9850,60 +9850,61 @@ func (sh *strictHandler) RevokeTenantToken(ctx *gin.Context, tokenId TokenId) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

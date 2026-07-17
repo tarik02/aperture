@@ -63,6 +63,7 @@ func TestReconcileWritesCDPRoutableSessionRoutes(t *testing.T) {
 		SessionID:         sessionID,
 		MergedUserDataDir: "/tmp/merged",
 		DownloadsDir:      "/tmp/downloads",
+		RecordingsDir:     "/tmp/recordings",
 		CacheDir:          "/tmp/cache",
 		ArtifactsDir:      "/tmp/artifacts",
 		CDPPort:           cdpPort,

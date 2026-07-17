@@ -405,16 +405,16 @@ func (r *wrapperRuntime) uploadAuditRequest(method, action string, payload any, 
 		}
 	}
 	for {
-		token := r.values.CDPToken
-		if r.values.CDPTokenPath != "" {
-			tokenBody, err := os.ReadFile(r.values.CDPTokenPath)
+		token := r.values.SessionToken
+		if r.values.SessionTokenPath != "" {
+			tokenBody, err := os.ReadFile(r.values.SessionTokenPath)
 			if err != nil {
 				return err
 			}
 			token = strings.TrimSpace(string(tokenBody))
 		}
 		if token == "" {
-			return fmt.Errorf("upload audit token is unavailable")
+			return fmt.Errorf("upload audit session token is unavailable")
 		}
 		attemptCtx, cancel := context.WithTimeout(r.ctx, 5*time.Second)
 		auditReq, err := http.NewRequestWithContext(attemptCtx, method, strings.TrimRight(r.values.InternalAPIURL, "/")+"/internal/session-events/"+url.PathEscape(r.values.SessionID)+"/upload/"+action, bytes.NewReader(body))

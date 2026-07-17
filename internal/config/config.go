@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -82,6 +83,12 @@ type Config struct {
 	WebRTCMediaProducerBitrateKbps   int                      `mapstructure:"webrtc_media_producer_bitrate_kbps"`
 	WebRTCMediaProducerKeyframe      int                      `mapstructure:"webrtc_media_producer_keyframe_interval"`
 	WebRTCICEServers                 []WebRTCICEServer        `mapstructure:"webrtc_ice_servers"`
+	MCPEnabled                       bool                     `mapstructure:"mcp_enabled"`
+	AgentBrowserToolsDefault         string                   `mapstructure:"agent_browser_tools_default"`
+	AgentBrowserIdleTimeout          time.Duration            `mapstructure:"agent_browser_idle_timeout"`
+	ToolOutputMaxBytes               int64                    `mapstructure:"tool_output_max_bytes"`
+	SignedFileURLTTL                 time.Duration            `mapstructure:"signed_file_url_ttl"`
+	SignedFileURLMaxTTL              time.Duration            `mapstructure:"signed_file_url_max_ttl"`
 	LogLevel                         string                   `mapstructure:"log_level"`
 	ConfigFile                       string                   `mapstructure:"-"`
 }
@@ -131,6 +138,12 @@ func Defaults() Config {
 		WebRTCMediaProducerBitrateKbps:   6000,
 		WebRTCMediaProducerKeyframe:      120,
 		WebRTCICEServers:                 nil,
+		MCPEnabled:                       true,
+		AgentBrowserToolsDefault:         "core,tabs,mobile,network",
+		AgentBrowserIdleTimeout:          5 * time.Minute,
+		ToolOutputMaxBytes:               16 * 1024 * 1024,
+		SignedFileURLTTL:                 15 * time.Minute,
+		SignedFileURLMaxTTL:              24 * time.Hour,
 		LogLevel:                         "info",
 	}
 }
@@ -192,6 +205,12 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("webrtc_media_producer_bitrate_kbps", defaults.WebRTCMediaProducerBitrateKbps)
 	v.SetDefault("webrtc_media_producer_keyframe_interval", defaults.WebRTCMediaProducerKeyframe)
 	v.SetDefault("webrtc_ice_servers", defaults.WebRTCICEServers)
+	v.SetDefault("mcp_enabled", defaults.MCPEnabled)
+	v.SetDefault("agent_browser_tools_default", defaults.AgentBrowserToolsDefault)
+	v.SetDefault("agent_browser_idle_timeout", defaults.AgentBrowserIdleTimeout)
+	v.SetDefault("tool_output_max_bytes", defaults.ToolOutputMaxBytes)
+	v.SetDefault("signed_file_url_ttl", defaults.SignedFileURLTTL)
+	v.SetDefault("signed_file_url_max_ttl", defaults.SignedFileURLMaxTTL)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if configFile := flags.GetString("config"); configFile != "" {
@@ -241,6 +260,12 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_media_producer_bitrate_kbps",
 		"webrtc_media_producer_keyframe_interval",
 		"webrtc_ice_servers",
+		"mcp_enabled",
+		"agent_browser_tools_default",
+		"agent_browser_idle_timeout",
+		"tool_output_max_bytes",
+		"signed_file_url_ttl",
+		"signed_file_url_max_ttl",
 		"log_level",
 	} {
 		if err := v.BindEnv(key); err != nil {

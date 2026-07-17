@@ -61,12 +61,12 @@ export function useSuspendSessionMutation() {
   });
 }
 
-export function useRotateCdpTokenMutation() {
+export function useRotateSessionTokenMutation() {
   const credentials = useApiCredentials();
   const invalidate = useInvalidateSessions();
 
   return useMutation({
-    mutationFn: (sessionId: string) => apiClient.rotateSessionCdpToken(credentials!, sessionId),
+    mutationFn: (sessionId: string) => apiClient.rotateSessionToken(credentials!, sessionId),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Rotate failed"),
   });
