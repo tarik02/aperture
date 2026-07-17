@@ -30,6 +30,7 @@ import type {
   WebRTCMediaMetrics,
   WebRTCMediaPhase,
   WebRTCStreamSettings,
+  WebRTCVideoProfile,
 } from "#/lib/control/webrtc-media-transport.ts";
 import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 
@@ -59,6 +60,7 @@ export type UseBrowserControlResult = {
   mediaStream: MediaStream | null;
   mediaSize: BrowserViewportSize | null;
   mediaStreamSettings: WebRTCStreamSettings | null;
+  mediaVideoProfiles: WebRTCVideoProfile[];
   mediaMetrics: WebRTCMediaMetrics | null;
   mediaError: string | null;
   mediaPath: BrowserMediaPath;
@@ -517,6 +519,7 @@ export function useBrowserControl({
     mediaStream: controlState.mediaStream,
     mediaSize: controlState.mediaSize,
     mediaStreamSettings: controlState.mediaStreamSettings,
+    mediaVideoProfiles: controlState.mediaVideoProfiles,
     mediaMetrics: controlState.mediaMetrics,
     mediaError: controlState.mediaError,
     mediaPath: controlState.mediaPath,

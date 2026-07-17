@@ -60,32 +60,31 @@ const STREAM_PRESETS = [
     id: "low-data",
     label: "Low data",
     detail: "15 fps · 800 kbps",
-    settings: { fps: 15, bitrateKbps: 800, keyframeInterval: 30 },
+    settings: { fps: 15, bitrateKbps: 800 },
   },
   {
     id: "balanced",
     label: "Balanced",
     detail: "30 fps · 2500 kbps",
-    settings: { fps: 30, bitrateKbps: 2500, keyframeInterval: 60 },
+    settings: { fps: 30, bitrateKbps: 2500 },
   },
   {
     id: "sharp",
     label: "Sharp",
     detail: "30 fps · 6000 kbps",
-    settings: { fps: 30, bitrateKbps: 6000, keyframeInterval: 60 },
+    settings: { fps: 30, bitrateKbps: 6000 },
   },
   {
     id: "realtime",
     label: "Realtime",
     detail: "60 fps · 3500 kbps",
-    settings: { fps: 60, bitrateKbps: 3500, keyframeInterval: 120 },
+    settings: { fps: 60, bitrateKbps: 3500 },
   },
 ] as const;
 
 const STREAM_LIMITS = {
   fps: { min: 1, max: 120 },
   bitrateKbps: { min: 1, max: 50_000 },
-  keyframeInterval: { min: 1, max: 600 },
 } as const;
 
 const VIEWPORT_LIMITS = {
@@ -327,12 +326,37 @@ function BrowserMenu({
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-64">
                 <DropdownMenuLabel>Stream</DropdownMenuLabel>
+                {control.mediaVideoProfiles.length > 1 && control.mediaStreamSettings ? (
+                  <>
+                    <DropdownMenuLabel>Codec</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={control.mediaStreamSettings.profile}
+                      onValueChange={(profile) => {
+                        const settings = control.mediaStreamSettings;
+                        if (settings) {
+                          control.setWebRTCStreamSettings({ ...settings, profile });
+                        }
+                      }}
+                    >
+                      {control.mediaVideoProfiles.map((profile) => (
+                        <DropdownMenuRadioItem key={profile.id} value={profile.id}>
+                          <span className="flex min-w-0 flex-col">
+                            <span>{profile.label}</span>
+                            <span className="text-xs text-muted-foreground">{profile.codec}</span>
+                          </span>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
                 <DropdownMenuRadioGroup
                   value={activeStreamPresetId(control.mediaStreamSettings)}
                   onValueChange={(value) => {
                     const preset = STREAM_PRESETS.find((item) => item.id === value);
-                    if (preset) {
-                      control.setWebRTCStreamSettings(preset.settings);
+                    const settings = control.mediaStreamSettings;
+                    if (preset && settings) {
+                      control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
                     }
                   }}
                 >
@@ -519,23 +543,17 @@ function CustomStreamSettings({
 }) {
   const [fps, setFps] = useState(String(settings?.fps ?? 60));
   const [bitrateKbps, setBitrateKbps] = useState(String(settings?.bitrateKbps ?? 6000));
-  const [keyframeInterval, setKeyframeInterval] = useState(
-    String(settings?.keyframeInterval ?? 120),
-  );
 
   useEffect(() => {
     if (settings) {
       setFps(String(settings.fps));
       setBitrateKbps(String(settings.bitrateKbps));
-      setKeyframeInterval(String(settings.keyframeInterval));
     }
   }, [settings]);
 
-  const nextSettings = parseStreamSettings({ fps, bitrateKbps, keyframeInterval });
+  const nextSettings = parseStreamSettings({ fps, bitrateKbps });
   const unchanged = settings
-    ? settings.fps === nextSettings?.fps &&
-      settings.bitrateKbps === nextSettings?.bitrateKbps &&
-      settings.keyframeInterval === nextSettings?.keyframeInterval
+    ? settings.fps === nextSettings?.fps && settings.bitrateKbps === nextSettings?.bitrateKbps
     : false;
 
   return (
@@ -545,10 +563,9 @@ function CustomStreamSettings({
       onKeyDown={(event) => event.stopPropagation()}
     >
       <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <StreamNumberField label="FPS" value={fps} onChange={setFps} />
         <StreamNumberField label="Kbps" value={bitrateKbps} onChange={setBitrateKbps} />
-        <StreamNumberField label="Key" value={keyframeInterval} onChange={setKeyframeInterval} />
       </div>
       <Button
         type="button"
@@ -557,7 +574,9 @@ function CustomStreamSettings({
         disabled={!nextSettings || unchanged}
         onClick={() => {
           if (nextSettings) {
-            onApply(nextSettings);
+            if (settings) {
+              onApply({ ...settings, ...nextSettings });
+            }
           }
         }}
       >
@@ -615,16 +634,8 @@ function ViewportScaleField({
   );
 }
 
-function parseStreamSettings({
-  fps,
-  bitrateKbps,
-  keyframeInterval,
-}: {
-  fps: string;
-  bitrateKbps: string;
-  keyframeInterval: string;
-}) {
-  if (!fps || !bitrateKbps || !keyframeInterval) {
+function parseStreamSettings({ fps, bitrateKbps }: { fps: string; bitrateKbps: string }) {
+  if (!fps || !bitrateKbps) {
     return null;
   }
   return {
@@ -633,11 +644,6 @@ function parseStreamSettings({
       Number(bitrateKbps),
       STREAM_LIMITS.bitrateKbps.min,
       STREAM_LIMITS.bitrateKbps.max,
-    ),
-    keyframeInterval: clampInteger(
-      Number(keyframeInterval),
-      STREAM_LIMITS.keyframeInterval.min,
-      STREAM_LIMITS.keyframeInterval.max,
     ),
   };
 }
@@ -714,9 +720,7 @@ function activeStreamPresetId(settings: UseBrowserControlResult["mediaStreamSett
   }
   const preset = STREAM_PRESETS.find(
     (item) =>
-      settings.fps === item.settings.fps &&
-      settings.bitrateKbps === item.settings.bitrateKbps &&
-      settings.keyframeInterval === item.settings.keyframeInterval,
+      settings.fps === item.settings.fps && settings.bitrateKbps === item.settings.bitrateKbps,
   );
   return preset?.id ?? "";
 }

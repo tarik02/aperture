@@ -4,13 +4,12 @@ services:
     restart: unless-stopped
     cap_add:
       - SYS_ADMIN
+    network_mode: host
     shm_size: 2gb
     stop_grace_period: 35s
     environment:
       APERTURE_EXTERNAL_BASE_URL: ${APERTURE_EXTERNAL_BASE_URL:?APERTURE_EXTERNAL_BASE_URL is required}
       APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC: ${APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC:-auto}
-    ports:
-      - "8080:8080"
     tmpfs:
       - /run/aperture:rw,nosuid,nodev,size=512m
     volumes:

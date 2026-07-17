@@ -806,7 +806,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		}
 
 		var err error
-		mediaProducer, err = newWebRTCProducer(values, controlSocket, mediaProducerTargetName, compositor.Process.Pid)
+		mediaProducer, err = newWebRTCProducer(values, controlSocket, mediaProducerTargetName)
 		if err != nil {
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -1222,7 +1222,7 @@ func waitForProcessSocket(socketPath string, label string, done <-chan error) er
 
 func stopMediaProducer(mediaProducer *producer) {
 	if mediaProducer != nil {
-		mediaProducer.stopPeer()
+		_ = mediaProducer.Close()
 	}
 }
 

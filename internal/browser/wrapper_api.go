@@ -16,11 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/coder/websocket"
 )
 
-const wrapperSignalProtocol = "aperture-webrtc.v1"
 const viewportScaleDenominator = 120
 
 type compositorViewport struct {
@@ -194,6 +191,19 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		"mediaCodec":     r.values.MediaProducerCodec,
 		"screencast":     r.screencastStatusLocked(),
 	}
+	if r.mediaProducer != nil {
+		quality := r.mediaProducer.media.Quality()
+		status["mediaQuality"] = map[string]any{
+			"profile":     quality.Profile,
+			"option":      quality.Option,
+			"width":       quality.Width,
+			"height":      quality.Height,
+			"framerate":   quality.Framerate,
+			"bitrateKbps": quality.BitrateKbps,
+		}
+		status["mediaProfiles"] = r.mediaProducer.profiles
+		status["mediaKeyframeInterval"] = r.values.MediaProducerKeyframe
+	}
 	if r.values.RenderNode != "" {
 		status["renderNode"] = r.values.RenderNode
 	}
@@ -238,9 +248,10 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 		return
 	}
 	viewport, err := resizeCompositor(req.Context(), r.controlSocket, body.Width, body.Height, body.DeviceScaleFactor)
-	if mediaProducer := r.currentMediaProducer(); mediaProducer != nil && err == nil {
-		mediaProducer.setViewport(viewport)
-		mediaProducer.enqueue("viewport-metadata", viewportMetadata(viewport))
+	if err == nil {
+		if mediaProducer := r.currentMediaProducer(); mediaProducer != nil {
+			err = mediaProducer.setViewport(viewport)
+		}
 	}
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
@@ -250,76 +261,17 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 }
 
 func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	role := strings.TrimSpace(req.URL.Query().Get("role"))
-	if role != "" && role != "viewer" {
-		writeWrapperError(w, http.StatusBadRequest, "signal role must be viewer")
-		return
-	}
-	if !headerHasProtocol(req.Header.Get("Sec-WebSocket-Protocol"), wrapperSignalProtocol) {
-		writeWrapperError(w, http.StatusBadRequest, "websocket protocol aperture-webrtc.v1 is required")
-		return
-	}
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer == nil {
 		writeWrapperError(w, http.StatusConflict, "media producer is not enabled")
 		return
 	}
-	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-		Subprotocols:       []string{wrapperSignalProtocol},
-	})
-	if err != nil {
-		return
-	}
-	defer conn.CloseNow()
-	conn.SetReadLimit(64 << 10)
-
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 	viewer := &wrapperViewer{cancel: cancel}
 	r.claimViewer(viewer)
 	defer r.releaseViewer(viewer)
-
-	mediaProducer.dropQueuedSignals()
-	mediaProducer.announceState()
-
-	errc := make(chan error, 2)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				errc <- ctx.Err()
-				return
-			case body := <-mediaProducer.out:
-				if err := conn.Write(ctx, websocket.MessageText, body); err != nil {
-					errc <- err
-					return
-				}
-			}
-		}
-	}()
-	go func() {
-		for {
-			messageType, body, err := conn.Read(ctx)
-			if err != nil {
-				errc <- err
-				return
-			}
-			if messageType != websocket.MessageText || !json.Valid(body) {
-				continue
-			}
-			if err := mediaProducer.handleViewerSignalMessage(ctx, body); err != nil {
-				errc <- err
-				return
-			}
-		}
-	}()
-	<-errc
-	mediaProducer.stopPeer()
+	mediaProducer.Handler().ServeHTTP(w, req.WithContext(ctx))
 }
 
 func (r *wrapperRuntime) handleScreencastStart(w http.ResponseWriter, req *http.Request) {
