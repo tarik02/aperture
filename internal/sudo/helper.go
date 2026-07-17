@@ -178,6 +178,9 @@ func UnmountSession(ctx context.Context, cfg config.Config, sessionID string) er
 	if err := UnmountOverlayFS(layout.Merged); err != nil {
 		return fmt.Errorf("unmount overlay: %w", err)
 	}
+	if err := os.RemoveAll(layout.Work); err != nil {
+		return fmt.Errorf("remove overlay work directory: %w", err)
+	}
 
 	return nil
 }
