@@ -67,7 +67,7 @@ Copy or link units from the package into `~/.config/systemd/user/` (the NixOS/Ho
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now aperture.service
+systemctl --user enable --now aperture@blue.service
 systemctl --user enable --now aperture-gc.timer
 systemctl --user enable --now aperture-traefik.service
 ```
@@ -106,14 +106,15 @@ Garbage collection is not scheduled inside `aperture serve`; enable `aperture-gc
 
 ## NixOS module
 
-The flake exposes `nixosModules.aperture` at the flake root (not per-system). It wires a **partial** desktop integration for a single login user:
+The flake exposes `nixosModules.aperture` at the flake root (not per-system). It configures a single login user with:
 
-- installs the package
-- writes `/etc/aperture/aperture.toml` with store/runtime paths and a Chromium channel (same path trusted by sudo mount helpers)
-- enables user systemd units: `aperture.service`, `aperture-gc.timer`, and `browser-session@.service`
-- grants `${user}` passwordless sudo for the packaged mount/unmount helpers
+- the Aperture package
+- generated `/etc/aperture/aperture.toml` settings, or an external root-owned config file
+- blue/green API, browser session, optional Traefik, and garbage collection user units
+- passwordless sudo for the packaged mount/unmount helpers
+- the `aperture-rollout` health-checked blue/green deployment helper
 
-Traefik, TLS, and edge networking remain manual. Import the module and set the required options:
+Import the module and set the required options:
 
 ```nix
 imports = [ inputs.aperture.nixosModules.aperture ];
@@ -121,8 +122,45 @@ services.aperture = {
   enable = true;
   user = "alice";
   externalBaseUrl = "https://browser.example.test";
+  storeRoot = "/srv/aperture";
+
+  settings = {
+    log_level = "info";
+    webrtc_media_mode = "auto";
+    webrtc_compositor_enabled = true;
+  };
+
+  environmentFile = "/home/alice/.config/aperture/aperture.env";
+  traefik.enable = true;
 };
 ```
+
+`settings` accepts non-secret Aperture TOML values. The module owns storage, runtime, deployment, public URL, and default Chromium channel fields so dedicated module options remain authoritative. Use `configFile` to replace the generated config entirely.
+
+Keep credentials out of `settings`, because generated Nix files are readable from the Nix store. Put environment overrides in the file selected by `environmentFile`, with permissions limited to the Aperture user. For example:
+
+```bash
+APERTURE_WEBRTC_ICE_SERVERS='[{"urls":["turn:turn.example.test:3478"],"username":"aperture","credential":"..."}]'
+```
+
+The deployment defaults are:
+
+- blue API: `127.0.0.1:28080`
+- green API: `127.0.0.1:28082`
+- drain time: 30 seconds
+- candidate health timeout: 30 seconds
+
+Enable the edge proxy with `services.aperture.traefik.enable = true`; its default entrypoint is `127.0.0.1:28081`. TLS and external ingress remain outside the module.
+
+On the first activation, reload the user manager, start blue, and make that instance persistent:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start aperture@blue.service
+systemctl --user add-wants default.target aperture@blue.service
+```
+
+For subsequent NixOS generations, reload the user manager and run `aperture-rollout`. The helper starts the inactive color, waits for `/api/health`, updates deployment state and Traefik routing, waits for the configured drain period, then stops the old API. A failed health check leaves the active color unchanged; a cutover error starts and restores the previous color.
 
 ## Verification
 
