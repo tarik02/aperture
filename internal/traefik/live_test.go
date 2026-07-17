@@ -78,9 +78,9 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 	}
 
 	sessionID := "018f1234-0000-7000-8000-000000000001"
-	rawToken, hashToken, err := session.GenerateCDPToken(sessionID)
+	rawToken, hashToken, err := session.GenerateSessionToken(sessionID)
 	if err != nil {
-		t.Fatalf("generate cdp token: %v", err)
+		t.Fatalf("generate session token: %v", err)
 	}
 
 	webSocketQueries := make(chan string, 1)

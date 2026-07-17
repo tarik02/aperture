@@ -4,12 +4,12 @@ Aperture session tokens can be shared as short-lived capabilities for one browse
 
 ## Share links
 
-Account tokens with `sessions:write` can retrieve the session token from session creation and single-session detail responses. Session lists, bulk responses, read-only detail responses, wrapper status responses, and ordinary mutation responses do not expose it.
+Session creation, detail, list, bulk, mutation, and wrapper status responses expose the current session token when it is available.
 
 The web interface copies links in this form:
 
 ```text
-https://aperture.example/share/#token=cdp_<session-id>_<secret>
+https://aperture.example/share/#token=aps_<session-id>_<secret>
 ```
 
 The share route moves the token into tab-scoped session storage and removes it from the address bar. It uses the session ID embedded in the token to connect to the existing session routes. Opening a share link never adopts or falls back to account credentials already stored in the browser.
@@ -21,13 +21,13 @@ Rotating the session token invalidates new share, browser transport, file, and C
 Session HTTP routes accept the token as a bearer credential:
 
 ```http
-Authorization: Bearer cdp_<session-id>_<secret>
+Authorization: Bearer aps_<session-id>_<secret>
 ```
 
 WebSocket routes use the existing bearer subprotocol:
 
 ```text
-authorization.bearer.cdp_<session-id>_<secret>
+authorization.bearer.aps_<session-id>_<secret>
 ```
 
 No tenant header is required. The token's embedded session ID must match the routed `/sessions/:sessionId/...` path. Suspended sessions wake through the same activity path used by direct CDP access.

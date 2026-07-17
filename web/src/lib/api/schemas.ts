@@ -91,7 +91,7 @@ export const sessionSchema = z.object({
   suspendedAt: z.string().nullable().optional(),
   tags: z.record(z.string(), z.string()).optional(),
   cdpUrl: z.string().optional(),
-  cdpToken: z.string().optional(),
+  sessionToken: z.string().optional(),
 });
 
 export const snapshotSchema = z.object({
@@ -150,13 +150,13 @@ export const eventsPageSchema = paginatedSchema(eventSchema);
 export const createSessionResponseSchema = z.object({
   session: sessionSchema,
   cdpUrl: z.string(),
-  cdpToken: z.string(),
+  sessionToken: z.string(),
 });
 
 export const sessionMutationResponseSchema = z.object({
   session: sessionSchema,
   cdpUrl: z.string().optional(),
-  cdpToken: z.string().optional(),
+  sessionToken: z.string().optional(),
 });
 
 export const snapshotMutationResponseSchema = z.object({

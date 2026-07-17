@@ -72,7 +72,7 @@ import {
   useDeleteSessionMutation,
   useReopenSessionMutation,
   useReplaceSessionTagsMutation,
-  useRotateCdpTokenMutation,
+  useRotateSessionTokenMutation,
   useSuspendSessionMutation,
 } from "#/features/session/session.mutations.ts";
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
@@ -189,7 +189,7 @@ export function SessionListPage() {
   const deleteMutation = useDeleteSessionMutation();
   const reopenMutation = useReopenSessionMutation();
   const suspendMutation = useSuspendSessionMutation();
-  const rotateMutation = useRotateCdpTokenMutation();
+  const rotateMutation = useRotateSessionTokenMutation();
   const replaceTagsMutation = useReplaceSessionTagsMutation();
   const [copyingShareSessionId, setCopyingShareSessionId] = useState<string | null>(null);
 
@@ -251,11 +251,11 @@ export function SessionListPage() {
     setCopyingShareSessionId(session.id);
     try {
       const detailedSession = await apiClient.getSession(credentials, session.id);
-      if (!detailedSession.cdpToken) {
+      if (!detailedSession.sessionToken) {
         throw new Error("Session token unavailable");
       }
       const shareUrl = new URL("/share/", window.location.origin);
-      shareUrl.hash = new URLSearchParams({ token: detailedSession.cdpToken }).toString();
+      shareUrl.hash = new URLSearchParams({ token: detailedSession.sessionToken }).toString();
       await copyText(shareUrl.toString());
       toast.success("Share URL copied");
     } catch (error) {
@@ -331,8 +331,8 @@ export function SessionListPage() {
               }
             : confirmAction?.kind === "rotate"
               ? {
-                  title: "Rotate CDP token",
-                  description: "The current CDP token for this session will stop working.",
+                  title: "Rotate session token",
+                  description: "The current session token for this session will stop working.",
                   confirmLabel: "Rotate",
                   variant: "default",
                   pending: rotateMutation.isPending,
@@ -765,7 +765,7 @@ function SessionActionsMenu({
             ) : null}
             <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
             <DropdownMenuItem className="whitespace-nowrap" onClick={onRotate}>
-              Rotate CDP token
+              Rotate session token
             </DropdownMenuItem>
             {session.status === "deleted" || session.status === "failed" ? (
               <DropdownMenuItem onClick={onReopen}>Reopen</DropdownMenuItem>

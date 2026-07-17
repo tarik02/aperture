@@ -100,6 +100,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 		TenantID:      row.TenantID,
 		Name:          row.Name,
 		Scopes:        scopes,
+		ExpiresAt:     row.ExpiresAt,
 	}, nil
 }
 

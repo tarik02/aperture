@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/aperture/aperture/internal/paths"
 )
 
 const viewportScaleDenominator = 120
@@ -129,7 +131,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 		return nil, nil, fmt.Errorf("wrapper port is required")
 	}
 	r.ctx = ctx
-	if err := r.watchCDPToken(ctx); err != nil {
+	if err := r.watchSessionToken(ctx); err != nil {
 		return nil, nil, err
 	}
 	if err := r.reconcilePendingUploads(); err != nil {
@@ -229,6 +231,21 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		"mode":           mediaMode,
 		"webrtcProducer": r.values.MediaProducerEnabled,
 		"iceServers":     iceServers,
+	}
+	if r.values.SessionTokenPath != "" {
+		body, err := os.ReadFile(r.values.SessionTokenPath)
+		if err != nil {
+			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
+			return
+		}
+		token := strings.TrimSpace(string(body))
+		if token == "" {
+			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
+			return
+		}
+		status["sessionToken"] = token
+	} else if r.values.SessionToken != "" {
+		status["sessionToken"] = r.values.SessionToken
 	}
 	writeWrapperJSON(w, http.StatusOK, status)
 }
@@ -341,10 +358,13 @@ func (r *wrapperRuntime) startScreencast(request wrapperScreencastRequest) (map[
 	codec := normalizeWrapperCodec(request.Codec, r.values.MediaProducerCodec)
 	path := strings.TrimSpace(request.Path)
 	if path == "" {
-		path = filepath.Join(r.values.ArtifactsDir, "screencast-"+time.Now().UTC().Format("20060102T150405Z")+".webm")
+		path = filepath.Join(r.values.RecordingsDir, "screencast-"+time.Now().UTC().Format("20060102T150405Z")+".webm")
 	}
 	if !filepath.IsAbs(path) {
 		return nil, fmt.Errorf("screencast path must be absolute")
+	}
+	if err := paths.ValidateTrustedPath(r.values.RecordingsDir, path); err != nil {
+		return nil, fmt.Errorf("screencast path must be inside recordings root: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir screencast dir: %w", err)
@@ -425,7 +445,7 @@ func (r *wrapperRuntime) screencastFileLocked() *wrapperScreencastFile {
 	if r.lastScreencast != nil {
 		return r.lastScreencast
 	}
-	matches, err := filepath.Glob(filepath.Join(r.values.ArtifactsDir, "screencast-*.webm"))
+	matches, err := filepath.Glob(filepath.Join(r.values.RecordingsDir, "screencast-*.webm"))
 	if err != nil {
 		return nil
 	}

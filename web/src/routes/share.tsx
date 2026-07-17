@@ -14,7 +14,7 @@ import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 import { ApiRequestError } from "#/lib/api/errors.ts";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 
-const capabilityStorageKey = "aperture.share.cdp-token";
+const capabilityStorageKey = "aperture.share.session-token";
 
 type CapabilityState =
   | { kind: "loading" }
@@ -150,7 +150,7 @@ function ShareRoute() {
           status: "running",
           media: statusQuery.data.media,
           cdpUrl: statusQuery.data.cdpUrl,
-          cdpToken: capability.token,
+          sessionToken: capability.token,
         },
       }}
     />
@@ -179,7 +179,7 @@ function ShareState({
 
 function parseCapabilitySessionId(token: string): string | null {
   const sessionId = token.slice(4, 40);
-  if (!token.startsWith("cdp_") || token[40] !== "_" || !sessionId || !token.slice(41)) {
+  if (!token.startsWith("aps_") || token[40] !== "_" || !sessionId || !token.slice(41)) {
     return null;
   }
   return sessionId;

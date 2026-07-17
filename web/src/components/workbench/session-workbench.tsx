@@ -25,7 +25,7 @@ type SessionWorkbenchProps = {
   forceCDPMedia?: boolean;
   capability?: {
     credentials: ApiCredentials;
-    session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "cdpToken">;
+    session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "sessionToken">;
   };
 };
 
@@ -54,27 +54,27 @@ export function SessionWorkbench({
     selectedSession?.status === "running" || selectedSession?.status === "suspended",
   );
   const cdpUrl = useMemo(() => {
-    if (!selectedSession?.cdpUrl || !selectedSession.cdpToken || !publicOrigin) {
+    if (!selectedSession?.cdpUrl || !selectedSession.sessionToken || !publicOrigin) {
       return null;
     }
     const sourceUrl = new URL(selectedSession.cdpUrl, publicOrigin);
     const url = new URL(publicOrigin);
-    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.cdpToken)}`;
+    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.sessionToken)}`;
     return url.toString();
-  }, [publicOrigin, selectedSession?.cdpToken, selectedSession?.cdpUrl]);
+  }, [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl]);
   const shareUrl = useMemo(() => {
-    if (!publicOrigin || !selectedSession?.cdpToken) {
+    if (!publicOrigin || !selectedSession?.sessionToken) {
       return null;
     }
     const url = new URL("/share/", publicOrigin);
-    url.hash = new URLSearchParams({ token: selectedSession.cdpToken }).toString();
+    url.hash = new URLSearchParams({ token: selectedSession.sessionToken }).toString();
     return url.toString();
-  }, [publicOrigin, selectedSession?.cdpToken]);
+  }, [publicOrigin, selectedSession?.sessionToken]);
 
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
     credentials: capability?.credentials,
-    cdpToken: capability?.session.cdpToken,
+    sessionToken: capability?.session.sessionToken,
     enabled: canControl && tenantReady && canConnectSession,
     forceCDPMedia,
     webrtcProducerSupported:

@@ -176,7 +176,7 @@
 
             ${lib.optionalString pkgs.stdenv.isLinux ''
               patchelf \
-                --set-interpreter "$(cat $NIX_CC/nix-support/dynamic-linker)" \
+                --set-interpreter ${pkgs.stdenv.cc.bintools.dynamicLinker} \
                 $out/lib/agent-browser/bin/${agentBrowserBinary}
             ''}
 
@@ -228,7 +228,7 @@
           pname = "aperture";
           inherit version;
           inherit src;
-          vendorHash = "sha256-hXAgH1j4B9G5luWf4PnU58hEqVCJOZNhdrnf/r9Yirc=";
+          vendorHash = "sha256-E71aUOs3JNhrGDnN4C9fXU+wmze5r0ikDuzDIpbepg8=";
 
           subPackages = [
             "cmd/aperture"
@@ -438,6 +438,7 @@
           maxLayers = 120;
           contents = [
             aperture
+            agentBrowser
             pkgs.traefik
             pkgs.chromium
             pkgs.bashInteractive
@@ -519,7 +520,7 @@
               "HOME=/home/aperture"
               "XDG_RUNTIME_DIR=/run/aperture/user"
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-              "PATH=/command:/usr/local/bin:${lib.makeBinPath [ aperture pkgs.traefik pkgs.chromium pkgs.bashInteractive pkgs.coreutils pkgs.curl pkgs.findutils pkgs.gnugrep pkgs.gnused pkgs.sudo ]}"
+              "PATH=/command:/usr/local/bin:${lib.makeBinPath [ aperture agentBrowser pkgs.traefik pkgs.chromium pkgs.bashInteractive pkgs.coreutils pkgs.curl pkgs.findutils pkgs.gnugrep pkgs.gnused pkgs.sudo ]}"
               "S6_BEHAVIOUR_IF_STAGE2_FAILS=2"
               "S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0"
               "S6_KILL_GRACETIME=30000"

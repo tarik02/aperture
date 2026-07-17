@@ -37,7 +37,7 @@ import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 type UseBrowserControlOptions = {
   sessionId: string | null;
   credentials?: ApiCredentials;
-  cdpToken?: string;
+  sessionToken?: string;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: RTCIceServer[];
@@ -102,7 +102,7 @@ const emptyIceServers: RTCIceServer[] = [];
 export function useBrowserControl({
   sessionId,
   credentials: credentialsOverride,
-  cdpToken,
+  sessionToken,
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
@@ -142,7 +142,7 @@ export function useBrowserControl({
             nextEnabled,
             nextSessionId,
             nextCredentials,
-            nextCdpToken,
+            nextSessionToken,
             nextWebrtcPreferred,
             nextIceServers,
           ]) => {
@@ -155,7 +155,7 @@ export function useBrowserControl({
             return browserControl$({
               sessionId: nextSessionId,
               credentials: nextCredentials,
-              cdpToken: nextCdpToken,
+              sessionToken: nextSessionToken,
               webrtcPreferred: nextWebrtcPreferred,
               iceServers: nextIceServers,
               viewport: viewportRef.current,
@@ -169,7 +169,7 @@ export function useBrowserControl({
         ),
         share(),
       ),
-    [enabled, sessionId, credentials, cdpToken, webrtcPreferred, webrtcIceServers],
+    [enabled, sessionId, credentials, sessionToken, webrtcPreferred, webrtcIceServers],
   );
   const controlState$ = useMemo(
     () =>

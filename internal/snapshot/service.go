@@ -77,6 +77,15 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 	}, nil
 }
 
+// Get returns a tenant-owned snapshot by name.
+func (s *Service) Get(ctx context.Context, tenantID, name string) (*SnapshotView, error) {
+	snapshotRow, err := s.requireTenantSnapshot(ctx, tenantID, name)
+	if err != nil {
+		return nil, err
+	}
+	return s.view(ctx, snapshotRow)
+}
+
 // ReplaceTags replaces the exact tag set for a tenant-owned snapshot.
 func (s *Service) ReplaceTags(ctx context.Context, tenantID, name string, tags map[string]string) (*SnapshotView, error) {
 	snapshotRow, err := s.requireTenantSnapshot(ctx, tenantID, name)

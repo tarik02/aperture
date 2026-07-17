@@ -20,9 +20,13 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	}
 	router := gin.New()
 	router.Use(gin.Recovery(), server.handoffInactiveAPI)
+	server.initMCPHandler()
+	router.Any("/mcp", server.mcp)
+	router.Any("/sessions/:sessionId/mcp", server.mcp)
+	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
 	internal := router.Group("/internal")
 	{
-		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)
+		internal.GET("/forward-auth/cdp/:sessionId", server.sessionTokenForwardAuth)
 		internal.GET("/forward-auth/live-session/:sessionId/:access", server.liveSessionForwardAuth)
 		internal.GET("/session-events/:sessionId/upload/pending", server.requireLoopback, server.listPendingSessionUploads)
 		internal.POST("/session-events/:sessionId/upload/prepare", server.requireLoopback, server.prepareSessionUpload)
@@ -87,7 +91,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 			sessions.PUT("/:sessionId/tags", server.requireSessionsWrite, server.replaceSessionTags)
 			sessions.POST("/:sessionId/suspend", server.requireSessionsWrite, server.suspendSession)
 			sessions.POST("/:sessionId/reopen", server.requireSessionsWrite, server.reopenSession)
-			sessions.POST("/:sessionId/cdp-token/rotate", server.requireSessionsWrite, server.rotateCDPToken)
+			sessions.POST("/:sessionId/session-token/rotate", server.requireSessionsWrite, server.rotateSessionToken)
 			sessions.POST("/:sessionId/promote", server.requirePromotionScopes, server.promoteSession)
 		}
 

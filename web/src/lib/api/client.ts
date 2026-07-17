@@ -467,10 +467,10 @@ export const apiClient = {
     });
   },
 
-  rotateSessionCdpToken(credentials: ApiCredentials, sessionId: string) {
+  rotateSessionToken(credentials: ApiCredentials, sessionId: string) {
     return request({
       method: "POST",
-      path: `/api/sessions/${sessionId}/cdp-token/rotate`,
+      path: `/api/sessions/${sessionId}/session-token/rotate`,
       schema: sessionMutationResponseSchema,
       credentials,
       tenantHeader: "tenant-scoped",

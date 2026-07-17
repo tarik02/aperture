@@ -6,18 +6,18 @@ import (
 	"time"
 )
 
-func TestParseCDPToken(t *testing.T) {
+func TestParseSessionToken(t *testing.T) {
 	t.Parallel()
 
 	sessionID := "018f1234-0000-7000-8000-000000000001"
-	raw, _, err := GenerateCDPToken(sessionID)
+	raw, _, err := GenerateSessionToken(sessionID)
 	if err != nil {
-		t.Fatalf("GenerateCDPToken() error = %v", err)
+		t.Fatalf("GenerateSessionToken() error = %v", err)
 	}
 
-	gotSessionID, secret, err := ParseCDPToken(raw)
+	gotSessionID, secret, err := ParseSessionToken(raw)
 	if err != nil {
-		t.Fatalf("ParseCDPToken() error = %v", err)
+		t.Fatalf("ParseSessionToken() error = %v", err)
 	}
 	if gotSessionID != sessionID {
 		t.Fatalf("session id = %q, want %q", gotSessionID, sessionID)
@@ -27,7 +27,7 @@ func TestParseCDPToken(t *testing.T) {
 	}
 }
 
-func TestRotateCDPTokenReplacesTokenAndExtendsLease(t *testing.T) {
+func TestRotateSessionTokenReplacesTokenAndExtendsLease(t *testing.T) {
 	t.Parallel()
 
 	service, _, repo, _, _ := newTestService(t)
@@ -41,19 +41,19 @@ func TestRotateCDPTokenReplacesTokenAndExtendsLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	originalToken := created.CDPToken
+	originalToken := created.SessionToken
 	originalExpiresAt := created.Session.ExpiresAt
 
 	service.now = func() time.Time {
 		return time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
 	}
 
-	rotated, err := service.RotateCDPToken(ctx, tenantID, created.Session.ID)
+	rotated, err := service.RotateSessionToken(ctx, tenantID, created.Session.ID)
 	if err != nil {
-		t.Fatalf("RotateCDPToken() error = %v", err)
+		t.Fatalf("RotateSessionToken() error = %v", err)
 	}
-	if rotated.CDPToken == "" || rotated.CDPToken == originalToken {
-		t.Fatalf("expected replacement token, got %q", rotated.CDPToken)
+	if rotated.SessionToken == "" || rotated.SessionToken == originalToken {
+		t.Fatalf("expected replacement token, got %q", rotated.SessionToken)
 	}
 	if rotated.CDPURL != created.CDPURL {
 		t.Fatalf("cdp url changed: %q -> %q", created.CDPURL, rotated.CDPURL)
@@ -67,21 +67,21 @@ func TestRotateCDPTokenReplacesTokenAndExtendsLease(t *testing.T) {
 
 	tokenRow, err := repo.GetSessionToken(ctx, created.Session.ID)
 	if err != nil {
-		t.Fatalf("load cdp token: %v", err)
+		t.Fatalf("load session token: %v", err)
 	}
-	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken != rotated.CDPToken {
+	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken != rotated.SessionToken {
 		t.Fatalf("stored token mismatch")
 	}
 
-	if err := service.ValidateCDPForwardAuth(ctx, created.Session.ID, "Bearer "+rotated.CDPToken); err != nil {
-		t.Fatalf("ValidateCDPForwardAuth(new token) error = %v", err)
+	if err := service.ValidateSessionTokenForwardAuth(ctx, created.Session.ID, "Bearer "+rotated.SessionToken); err != nil {
+		t.Fatalf("ValidateSessionTokenForwardAuth(new token) error = %v", err)
 	}
-	if err := service.ValidateCDPForwardAuth(ctx, created.Session.ID, "Bearer "+originalToken); err == nil {
+	if err := service.ValidateSessionTokenForwardAuth(ctx, created.Session.ID, "Bearer "+originalToken); err == nil {
 		t.Fatal("expected old token to be rejected after rotation")
 	}
 }
 
-func TestRotateCDPTokenRejectsExpiredSession(t *testing.T) {
+func TestRotateSessionTokenRejectsExpiredSession(t *testing.T) {
 	t.Parallel()
 
 	service, _, repo, _, _ := newTestService(t)
@@ -99,7 +99,7 @@ func TestRotateCDPTokenRejectsExpiredSession(t *testing.T) {
 	service.now = func() time.Time {
 		return time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	}
-	if _, err := service.RotateCDPToken(ctx, tenantID, created.Session.ID); err == nil {
+	if _, err := service.RotateSessionToken(ctx, tenantID, created.Session.ID); err == nil {
 		t.Fatal("expected expired session rotation to fail")
 	}
 }

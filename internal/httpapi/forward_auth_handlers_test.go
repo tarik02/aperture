@@ -54,7 +54,7 @@ func TestCDPForwardAuthRejectsAuthorizationHeaderToken(t *testing.T) {
 	created := createRunningSessionForForwardAuth(t, env)
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
-		"Authorization": "Bearer " + created.CDPToken,
+		"Authorization": "Bearer " + created.SessionToken,
 	}, nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -68,7 +68,7 @@ func TestCDPForwardAuthAllowsPathToken(t *testing.T) {
 	created := createRunningSessionForForwardAuth(t, env)
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
-		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.CDPToken + "/devtools/browser/test",
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.SessionToken + "/devtools/browser/test",
 	}, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -82,7 +82,7 @@ func TestCDPForwardAuthRejectsQueryToken(t *testing.T) {
 	created := createRunningSessionForForwardAuth(t, env)
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
-		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/devtools/browser/test?token=" + created.CDPToken,
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/devtools/browser/test?token=" + created.SessionToken,
 	}, nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -96,7 +96,7 @@ func TestCDPForwardAuthRejectsMismatchedSessionID(t *testing.T) {
 	created := createRunningSessionForForwardAuth(t, env)
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/other-session", map[string]string{
-		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.CDPToken + "/devtools/browser/test",
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.SessionToken + "/devtools/browser/test",
 	}, nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -142,7 +142,7 @@ func TestCDPForwardAuthRejectsNonRunningSession(t *testing.T) {
 	}
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/cdp/"+created.Session.ID, map[string]string{
-		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.CDPToken + "/devtools/browser/test",
+		"X-Forwarded-Uri": "/sessions/" + created.Session.ID + "/cdp/" + created.SessionToken + "/devtools/browser/test",
 	}, nil)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)

@@ -197,8 +197,8 @@ func TestCreateDeleteReopenSessionLifecycle(t *testing.T) {
 	if created.Session.Status != db.SessionStatusRunning {
 		t.Fatalf("status = %q, want running", created.Session.Status)
 	}
-	if created.CDPToken == "" {
-		t.Fatal("expected cdp token")
+	if created.SessionToken == "" {
+		t.Fatal("expected session token")
 	}
 
 	deleted, err := service.Delete(ctx, tenantID, created.Session.ID)
@@ -216,8 +216,8 @@ func TestCreateDeleteReopenSessionLifecycle(t *testing.T) {
 	if reopened.Session.Status != db.SessionStatusRunning {
 		t.Fatalf("status = %q, want running", reopened.Session.Status)
 	}
-	if reopened.CDPToken != created.CDPToken {
-		t.Fatalf("cdp token changed on reopen")
+	if reopened.SessionToken != created.SessionToken {
+		t.Fatalf("session token changed on reopen")
 	}
 }
 
@@ -253,10 +253,10 @@ func TestReopenFailedSessionRetries(t *testing.T) {
 	}
 	tokenRow, err := repo.GetSessionToken(ctx, created.Session.ID)
 	if err != nil {
-		t.Fatalf("load cdp token: %v", err)
+		t.Fatalf("load session token: %v", err)
 	}
 	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken == "" {
-		t.Fatal("cdp token missing")
+		t.Fatal("session token missing")
 	}
 }
 

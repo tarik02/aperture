@@ -91,13 +91,13 @@ func TestRenderSessionsConfigIncludesCustomCDPBase(t *testing.T) {
 	}
 	rendered := string(got)
 
-	if !strings.Contains(rendered, "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/cdp_`)") {
+	if !strings.Contains(rendered, "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/cdp/aps_`)") {
 		t.Fatalf("cdp router rule mismatch:\n%s", rendered)
 	}
 	if strings.Contains(rendered, "/browser/018f1234-0000-7000-8000-000000000001") {
 		t.Fatalf("cdp router must use live session path, not configured legacy base:\n%s", rendered)
 	}
-	if strings.Contains(rendered, "cdp-token/rotate") {
+	if strings.Contains(rendered, "session-token/rotate") {
 		t.Fatalf("cdp router must not match rotate API path:\n%s", rendered)
 	}
 }

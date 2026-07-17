@@ -6,12 +6,15 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/agentbrowser"
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
+	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
@@ -25,6 +28,8 @@ const inactiveHandoffTimeout = 15 * time.Second
 
 // Server holds HTTP handler dependencies.
 type Server struct {
+	Config        config.Config
+	Repository    *db.Repository
 	Auth          *auth.Service
 	Sessions      *session.Service
 	Snapshots     *snapshot.Service
@@ -37,6 +42,8 @@ type Server struct {
 	DeployVersion string
 	Logger        *zap.Logger
 	jobToken      string
+	mcpHandler    http.Handler
+	agentBrowser  *agentbrowser.Manager
 }
 
 // SetJobToken configures the local job token for internal endpoints.
@@ -339,4 +346,10 @@ func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
 
 func tenantIDFromContext(c *gin.Context) string {
 	return c.GetString("tenantId")
+}
+
+func (s *Server) Close() {
+	if s.agentBrowser != nil {
+		s.agentBrowser.Close()
+	}
 }

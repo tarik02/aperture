@@ -1251,6 +1251,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		"APERTURE_SESSION_ID":  nil,
 		"MERGED_USER_DATA_DIR": nil,
 		"DOWNLOADS_DIR":        nil,
+		"RECORDINGS_DIR":       nil,
 		"CACHE_DIR":            nil,
 		"ARTIFACTS_DIR":        nil,
 		"BROWSER_EXECUTABLE":   nil,
@@ -1276,12 +1277,13 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values := RuntimeEnvValues{
 		SessionID:         *required["APERTURE_SESSION_ID"],
 		ExternalBaseURL:   strings.TrimSpace(os.Getenv("EXTERNAL_BASE_URL")),
-		CDPToken:          strings.TrimSpace(os.Getenv("CDP_TOKEN")),
-		CDPTokenPath:      strings.TrimSpace(os.Getenv("CDP_TOKEN_PATH")),
+		SessionToken:      strings.TrimSpace(os.Getenv("SESSION_TOKEN")),
+		SessionTokenPath:  strings.TrimSpace(os.Getenv("SESSION_TOKEN_PATH")),
 		InternalAPIURL:    strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
 		MergedUserDataDir: *required["MERGED_USER_DATA_DIR"],
 		UpperDir:          strings.TrimSpace(os.Getenv("UPPER_DIR")),
 		DownloadsDir:      *required["DOWNLOADS_DIR"],
+		RecordingsDir:     *required["RECORDINGS_DIR"],
 		CacheDir:          *required["CACHE_DIR"],
 		ArtifactsDir:      *required["ARTIFACTS_DIR"],
 		BrowserExecutable: *required["BROWSER_EXECUTABLE"],
@@ -1382,6 +1384,7 @@ func ensureSessionPaths(values RuntimeEnvValues) error {
 	for name, path := range map[string]string{
 		"merged user data dir": values.MergedUserDataDir,
 		"downloads dir":        values.DownloadsDir,
+		"recordings dir":       values.RecordingsDir,
 		"cache dir":            values.CacheDir,
 		"artifacts dir":        values.ArtifactsDir,
 	} {

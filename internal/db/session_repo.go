@@ -118,7 +118,7 @@ func (r *Repository) ListRunningSessionsIdleBefore(ctx context.Context, connecte
 	return sessions, nil
 }
 
-// CreateSessionToken inserts a session CDP token row.
+// CreateSessionToken inserts a session token row.
 func (r *Repository) CreateSessionToken(ctx context.Context, token *SessionToken) error {
 	_, err := r.db.bun.NewInsert().Model(token).Exec(ctx)
 	if err != nil {
@@ -127,7 +127,7 @@ func (r *Repository) CreateSessionToken(ctx context.Context, token *SessionToken
 	return nil
 }
 
-// ReplaceSessionToken updates the stored CDP token for a session.
+// ReplaceSessionToken updates the stored session token for a session.
 func (r *Repository) ReplaceSessionToken(ctx context.Context, sessionID, tokenHash, rawToken, createdAt string) error {
 	result, err := r.db.bun.NewUpdate().
 		Model((*SessionToken)(nil)).
@@ -151,7 +151,7 @@ func (r *Repository) ReplaceSessionToken(ctx context.Context, sessionID, tokenHa
 	return nil
 }
 
-// GetSessionToken returns the persisted CDP token row for a session.
+// GetSessionToken returns the persisted session token row for a session.
 func (r *Repository) GetSessionToken(ctx context.Context, sessionID string) (*SessionToken, error) {
 	token := new(SessionToken)
 	err := r.db.bun.NewSelect().

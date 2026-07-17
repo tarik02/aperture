@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func toSessionResponse(view *session.SessionView, includeCDPToken bool) sessionResponse {
+func toSessionResponse(view *session.SessionView) sessionResponse {
 	resp := sessionResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
@@ -35,8 +35,9 @@ func toSessionResponse(view *session.SessionView, includeCDPToken bool) sessionR
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
 	}
-	if includeCDPToken && view.CDPToken != "" {
-		resp.CDPToken = view.CDPToken
+	if view.SessionToken != "" {
+		resp.SessionToken = view.SessionToken
+
 	}
 	return resp
 }
@@ -94,9 +95,9 @@ func (s *Server) createSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, createSessionResponse{
-		Session:  toSessionResponse(view, true),
-		CDPURL:   view.CDPURL,
-		CDPToken: view.CDPToken,
+		Session:      toSessionResponse(view),
+		CDPURL:       view.CDPURL,
+		SessionToken: view.SessionToken,
 	})
 }
 
@@ -112,8 +113,7 @@ func (s *Server) getSession(c *gin.Context) {
 		return
 	}
 
-	principal := c.MustGet("principal").(auth.Principal)
-	c.JSON(http.StatusOK, toSessionResponse(view, auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite)))
+	c.JSON(http.StatusOK, toSessionResponse(view))
 }
 
 func (s *Server) deleteSession(c *gin.Context) {
@@ -129,7 +129,7 @@ func (s *Server) deleteSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view, false),
+		Session: toSessionResponse(view),
 	})
 }
 
@@ -152,7 +152,7 @@ func (s *Server) replaceSessionTags(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view, false),
+		Session: toSessionResponse(view),
 	})
 }
 
@@ -169,7 +169,9 @@ func (s *Server) suspendSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view, false),
+		Session:      toSessionResponse(view),
+		CDPURL:       view.CDPURL,
+		SessionToken: view.SessionToken,
 	})
 }
 
@@ -186,6 +188,8 @@ func (s *Server) reopenSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view, false),
+		Session:      toSessionResponse(view),
+		CDPURL:       view.CDPURL,
+		SessionToken: view.SessionToken,
 	})
 }

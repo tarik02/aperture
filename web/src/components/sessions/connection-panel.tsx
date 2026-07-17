@@ -11,7 +11,7 @@ import {
 } from "#/components/ui/dropdown-menu.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
-import { useRotateCdpTokenMutation } from "#/features/session/session.mutations.ts";
+import { useRotateSessionTokenMutation } from "#/features/session/session.mutations.ts";
 import { useSessionQuery } from "#/features/session/session.queries.ts";
 import { useEffect, useMemo, useState } from "react";
 
@@ -21,7 +21,7 @@ type ConnectionPanelProps = {
 };
 
 export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
-  const rotateMutation = useRotateCdpTokenMutation();
+  const rotateMutation = useRotateSessionTokenMutation();
   const sessionQuery = useSessionQuery(session.id);
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
   const [rotateConfirmOpen, setRotateConfirmOpen] = useState(false);
@@ -33,7 +33,7 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
     ? {
         ...detailedSession,
         cdpUrl: rotatedCredentials.cdpUrl,
-        cdpToken: rotatedCredentials.cdpToken,
+        sessionToken: rotatedCredentials.sessionToken,
       }
     : detailedSession;
   const rawCdpUrl = currentSession.cdpUrl;
@@ -43,17 +43,19 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
   );
   const tokenizedCdpUrl = useMemo(
     () =>
-      cdpUrl && currentSession.cdpToken ? cdpUrlWithToken(cdpUrl, currentSession.cdpToken) : null,
-    [cdpUrl, currentSession.cdpToken],
+      cdpUrl && currentSession.sessionToken
+        ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken)
+        : null,
+    [cdpUrl, currentSession.sessionToken],
   );
   const shareLink = useMemo(() => {
-    if (!publicOrigin || !currentSession.cdpToken) {
+    if (!publicOrigin || !currentSession.sessionToken) {
       return null;
     }
     const url = new URL("/share/", publicOrigin);
-    url.hash = new URLSearchParams({ token: currentSession.cdpToken }).toString();
+    url.hash = new URLSearchParams({ token: currentSession.sessionToken }).toString();
     return url.toString();
-  }, [currentSession.cdpToken, publicOrigin]);
+  }, [currentSession.sessionToken, publicOrigin]);
   const canOpen = currentSession.status === "running" || currentSession.status === "suspended";
 
   useEffect(() => {
@@ -74,7 +76,9 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Connection</h3>
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
-      {currentSession.cdpToken ? <CopyField value={currentSession.cdpToken} label="Token" /> : null}
+      {currentSession.sessionToken ? (
+        <CopyField value={currentSession.sessionToken} label="Token" />
+      ) : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       {shareLink ? <CopyField value={shareLink} label="Share link" /> : null}
       <Separator />
@@ -90,14 +94,14 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
             (currentSession.status !== "running" && currentSession.status !== "suspended")
           }
         >
-          Rotate CDP token
+          Rotate Session token
         </Button>
         <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
       </div>
       <ConfirmDialog
         open={rotateConfirmOpen}
-        title="Rotate CDP token"
-        description="The current CDP token for this session will stop working."
+        title="Rotate Session token"
+        description="The current Session token for this session will stop working."
         confirmLabel="Rotate"
         pending={rotateMutation.isPending}
         onOpenChange={setRotateConfirmOpen}
@@ -169,9 +173,9 @@ function publicCdpUrl(rawCdpUrl: string, publicOrigin: string | null) {
   }
 }
 
-function cdpUrlWithToken(cdpUrl: string, cdpToken: string) {
+function cdpUrlWithToken(cdpUrl: string, sessionToken: string) {
   const url = new URL(cdpUrl);
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(cdpToken)}`;
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(sessionToken)}`;
   url.search = "";
   url.hash = "";
   return url.toString();

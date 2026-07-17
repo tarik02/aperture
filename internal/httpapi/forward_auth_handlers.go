@@ -17,17 +17,17 @@ const (
 	forwardedClientIPHeader  = "X-Aperture-Client-IP"
 )
 
-func (s *Server) cdpForwardAuth(c *gin.Context) {
+func (s *Server) sessionTokenForwardAuth(c *gin.Context) {
 	if s.Sessions == nil {
 		c.Status(http.StatusUnauthorized)
 		return
 	}
 
 	sessionID := c.Param("sessionId")
-	err := s.Sessions.ValidateCDPForwardAuth(
+	err := s.Sessions.ValidateSessionTokenForwardAuth(
 		c.Request.Context(),
 		sessionID,
-		cdpForwardAuthCredential(c),
+		sessionTokenForwardAuthCredential(c),
 	)
 	if err != nil {
 		status, _ := mapForwardAuthError(err)
@@ -49,13 +49,8 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 		return
 	}
 
-	rawToken, rawTokenErr := rawTokenFromRequest(c)
-	if rawTokenErr == nil && strings.HasPrefix(rawToken, "cdp_") {
-		if err := s.Sessions.ValidateCDPForwardAuth(
-			c.Request.Context(),
-			c.Param("sessionId"),
-			"Bearer "+rawToken,
-		); err != nil {
+	if authorization := liveSessionTokenAuthorization(c); authorization != "" {
+		if err := s.Sessions.ValidateSessionTokenForwardAuth(c.Request.Context(), c.Param("sessionId"), authorization); err != nil {
 			status, _ := mapForwardAuthError(err)
 			c.Status(status)
 			return
@@ -124,6 +119,19 @@ func writeLiveSessionForwardAuthSuccess(c *gin.Context, actorKind string) {
 	c.Status(http.StatusOK)
 }
 
+func liveSessionTokenAuthorization(c *gin.Context) string {
+	if authorization := c.GetHeader("Authorization"); strings.HasPrefix(strings.TrimSpace(authorization), "Bearer aps_") {
+		return authorization
+	}
+	for _, protocol := range strings.Split(c.GetHeader("Sec-WebSocket-Protocol"), ",") {
+		protocol = strings.TrimSpace(protocol)
+		if strings.HasPrefix(protocol, "authorization.bearer.aps_") {
+			return "Bearer " + strings.TrimPrefix(protocol, "authorization.bearer.")
+		}
+	}
+	return ""
+}
+
 func liveSessionForwardAuthScope(access string) (string, bool) {
 	switch access {
 	case "read":
@@ -135,14 +143,14 @@ func liveSessionForwardAuthScope(access string) (string, bool) {
 	}
 }
 
-func cdpForwardAuthCredential(c *gin.Context) string {
-	if token := cdpTokenFromForwardedURI(c.GetHeader("X-Forwarded-Uri")); token != "" {
+func sessionTokenForwardAuthCredential(c *gin.Context) string {
+	if token := sessionTokenFromForwardedURI(c.GetHeader("X-Forwarded-Uri")); token != "" {
 		return "Bearer " + token
 	}
 	return ""
 }
 
-func cdpTokenFromForwardedURI(forwardedURI string) string {
+func sessionTokenFromForwardedURI(forwardedURI string) string {
 	if forwardedURI == "" {
 		return ""
 	}
@@ -151,7 +159,7 @@ func cdpTokenFromForwardedURI(forwardedURI string) string {
 		return ""
 	}
 	parts := strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/")
-	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "cdp_") {
+	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "aps_") {
 		return parts[3]
 	}
 	return ""
@@ -159,7 +167,7 @@ func cdpTokenFromForwardedURI(forwardedURI string) string {
 
 func mapForwardAuthError(err error) (int, string) {
 	switch {
-	case errors.Is(err, session.ErrCDPTokenMissing), errors.Is(err, session.ErrCDPTokenInvalid), errors.Is(err, session.ErrCDPTokenRevoked):
+	case errors.Is(err, session.ErrSessionTokenMissing), errors.Is(err, session.ErrSessionTokenInvalid), errors.Is(err, session.ErrSessionTokenRevoked):
 		return http.StatusUnauthorized, err.Error()
 	case errors.Is(err, session.ErrNotFound):
 		return http.StatusNotFound, err.Error()
@@ -168,17 +176,17 @@ func mapForwardAuthError(err error) (int, string) {
 	case errors.Is(err, session.ErrExpired):
 		return http.StatusGone, err.Error()
 	default:
-		return http.StatusUnauthorized, "cdp authorization failed"
+		return http.StatusUnauthorized, "session token authorization failed"
 	}
 }
 
-func (s *Server) rotateCDPToken(c *gin.Context) {
+func (s *Server) rotateSessionToken(c *gin.Context) {
 	if s.Sessions == nil {
 		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
 
-	view, err := s.Sessions.RotateCDPToken(
+	view, err := s.Sessions.RotateSessionToken(
 		c.Request.Context(),
 		tenantIDFromContext(c),
 		c.Param("sessionId"),
@@ -189,8 +197,8 @@ func (s *Server) rotateCDPToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:  toSessionResponse(view, false),
-		CDPURL:   view.CDPURL,
-		CDPToken: view.CDPToken,
+		Session:      toSessionResponse(view),
+		CDPURL:       view.CDPURL,
+		SessionToken: view.SessionToken,
 	})
 }
