@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/paths"
 )
@@ -432,15 +435,24 @@ func (s *Service) runtimeEnvValues(
 ) browser.RuntimeEnvValues {
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
+	internalAPIURL := s.cfg.DeployBlueURL
+	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
+		internalAPIURL = s.cfg.DeployGreenURL
+	}
 
 	return browser.RuntimeEnvValues{
 		SessionID:                  sessionRow.ID,
 		ExternalBaseURL:            s.cfg.ExternalBaseURL,
 		CDPToken:                   rawCDP,
+		CDPTokenPath:               filepath.Join(layout.Metadata, "cdp-token"),
+		InternalAPIURL:             internalAPIURL,
 		MergedUserDataDir:          layout.Merged,
+		UpperDir:                   layout.Upper,
 		DownloadsDir:               layout.Downloads,
 		CacheDir:                   layout.Cache,
 		ArtifactsDir:               layout.Artifacts,
+		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
+		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
 		BrowserExecutable:          channel.Executable,

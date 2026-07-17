@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func toSessionResponse(view *session.SessionView) sessionResponse {
+func toSessionResponse(view *session.SessionView, includeCDPToken bool) sessionResponse {
 	resp := sessionResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
@@ -35,7 +35,7 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
 	}
-	if view.CDPToken != "" {
+	if includeCDPToken && view.CDPToken != "" {
 		resp.CDPToken = view.CDPToken
 	}
 	return resp
@@ -94,7 +94,7 @@ func (s *Server) createSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, createSessionResponse{
-		Session:  toSessionResponse(view),
+		Session:  toSessionResponse(view, true),
 		CDPURL:   view.CDPURL,
 		CDPToken: view.CDPToken,
 	})
@@ -112,7 +112,8 @@ func (s *Server) getSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toSessionResponse(view))
+	principal := c.MustGet("principal").(auth.Principal)
+	c.JSON(http.StatusOK, toSessionResponse(view, auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite)))
 }
 
 func (s *Server) deleteSession(c *gin.Context) {
@@ -128,7 +129,7 @@ func (s *Server) deleteSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view),
+		Session: toSessionResponse(view, false),
 	})
 }
 
@@ -151,7 +152,7 @@ func (s *Server) replaceSessionTags(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session: toSessionResponse(view),
+		Session: toSessionResponse(view, false),
 	})
 }
 
@@ -168,9 +169,7 @@ func (s *Server) suspendSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:  toSessionResponse(view),
-		CDPURL:   view.CDPURL,
-		CDPToken: view.CDPToken,
+		Session: toSessionResponse(view, false),
 	})
 }
 
@@ -187,8 +186,6 @@ func (s *Server) reopenSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:  toSessionResponse(view),
-		CDPURL:   view.CDPURL,
-		CDPToken: view.CDPToken,
+		Session: toSessionResponse(view, false),
 	})
 }

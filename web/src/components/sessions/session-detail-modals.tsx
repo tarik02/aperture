@@ -10,6 +10,7 @@ import {
   AppWindow,
   ChevronDown,
   Clock,
+  Copy,
   ExternalLink,
   KeyRound,
   Pause,
@@ -51,12 +52,14 @@ type SessionDetailActions = {
   reopenPending: boolean;
   suspendPending: boolean;
   rotatePending: boolean;
+  copySharePending: boolean;
   onDelete: (session: Session) => void;
   onEditTags: (session: Session) => void;
   onPromote: (session: Session) => void;
   onReopen: (session: Session) => void;
   onSuspend: (session: Session) => void;
   onRotate: (session: Session) => void;
+  onCopyShareUrl: (session: Session) => void;
 };
 
 type ConnectionContent = {
@@ -216,6 +219,18 @@ function SessionDetailActionBar({
         <ExternalLink data-icon="inline-start" />
         Connection
       </Button>
+      {actions.canWrite ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => actions.onCopyShareUrl(session)}
+          disabled={actions.copySharePending}
+        >
+          <Copy data-icon="inline-start" />
+          Copy share URL
+        </Button>
+      ) : null}
       <Button type="button" variant="outline" size="sm" onClick={onEvents}>
         <Clock data-icon="inline-start" />
         Events

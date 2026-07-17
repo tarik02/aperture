@@ -213,6 +213,90 @@ func (r *Repository) CreateEvent(ctx context.Context, event *Event) error {
 	return nil
 }
 
+func (r *Repository) CreateEvents(ctx context.Context, events []Event) error {
+	return r.db.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewInsert().Model(&events).On("CONFLICT (id) DO NOTHING").Exec(ctx); err != nil {
+			return fmt.Errorf("insert events: %w", err)
+		}
+		eventIDs := make([]string, 0, len(events))
+		expected := make(map[string]Event, len(events))
+		for _, event := range events {
+			eventIDs = append(eventIDs, event.ID)
+			expected[event.ID] = event
+		}
+		stored := make([]Event, 0, len(events))
+		if err := tx.NewSelect().Model(&stored).Where("id IN (?)", bun.In(eventIDs)).Scan(ctx); err != nil {
+			return fmt.Errorf("read events: %w", err)
+		}
+		if len(stored) != len(events) {
+			return fmt.Errorf("verify events: event count mismatch")
+		}
+		for _, event := range stored {
+			candidate := expected[event.ID]
+			if event.TenantID != candidate.TenantID || event.ResourceType != candidate.ResourceType || event.ResourceID != candidate.ResourceID || event.Type != candidate.Type || event.Message != candidate.Message || event.DataJSON != candidate.DataJSON {
+				return fmt.Errorf("verify events: event id conflict")
+			}
+		}
+		return nil
+	})
+}
+
+func (r *Repository) ListEventsForResourceType(ctx context.Context, resourceType, resourceID, eventType string) ([]Event, error) {
+	events := make([]Event, 0)
+	if err := r.db.bun.NewSelect().
+		Model(&events).
+		Where("resource_type = ?", resourceType).
+		Where("resource_id = ?", resourceID).
+		Where("type = ?", eventType).
+		OrderExpr("created_at ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list events by type: %w", err)
+	}
+	return events, nil
+}
+
+func (r *Repository) FinalizeEvents(ctx context.Context, resourceType, resourceID, pendingType, finalType, finalMessage string, eventIDs []string) error {
+	return r.db.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewUpdate().
+			Model((*Event)(nil)).
+			Set("type = ?", finalType).
+			Set("message = ?", finalMessage).
+			Where("id IN (?)", bun.In(eventIDs)).
+			Where("resource_type = ?", resourceType).
+			Where("resource_id = ?", resourceID).
+			Where("type = ?", pendingType).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("finalize events: %w", err)
+		}
+		stored := make([]Event, 0, len(eventIDs))
+		if err := tx.NewSelect().Model(&stored).Where("id IN (?)", bun.In(eventIDs)).Scan(ctx); err != nil {
+			return fmt.Errorf("read finalized events: %w", err)
+		}
+		if len(stored) != len(eventIDs) {
+			return fmt.Errorf("verify finalized events: event count mismatch")
+		}
+		for _, event := range stored {
+			if event.ResourceType != resourceType || event.ResourceID != resourceID || event.Type != finalType {
+				return fmt.Errorf("verify finalized events: event state mismatch")
+			}
+		}
+		return nil
+	})
+}
+
+func (r *Repository) DeletePendingEvents(ctx context.Context, resourceType, resourceID, pendingType string, eventIDs []string) error {
+	if _, err := r.db.bun.NewDelete().
+		Model((*Event)(nil)).
+		Where("id IN (?)", bun.In(eventIDs)).
+		Where("resource_type = ?", resourceType).
+		Where("resource_id = ?", resourceID).
+		Where("type = ?", pendingType).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("delete pending events: %w", err)
+	}
+	return nil
+}
+
 // ListEventsForResource returns events for a resource ordered by creation time.
 func (r *Repository) ListEventsForResource(ctx context.Context, resourceType, resourceID string) ([]Event, error) {
 	events := make([]Event, 0)

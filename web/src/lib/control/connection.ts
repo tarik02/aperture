@@ -33,6 +33,7 @@ export type ControlConnectionEvent =
 export type BrowserControlConnectionOptions = {
   sessionId: string;
   credentials: ApiCredentials;
+  cdpToken?: string;
   input$: Observable<ClientMessage>;
 };
 
@@ -388,7 +389,7 @@ export function browserControlConnection$(
       error: (cause) => subscriber.error(cause),
     });
 
-    connection.connect(options.sessionId, options.credentials);
+    connection.connect(options.sessionId, options.credentials, options.cdpToken);
 
     return () => {
       inputSubscription.unsubscribe();
@@ -419,12 +420,12 @@ class BrowserControlConnectionRuntime {
     this.callbacks = callbacks;
   }
 
-  connect(sessionId: string, credentials: ApiCredentials) {
+  connect(sessionId: string, credentials: ApiCredentials, cdpToken?: string) {
     this.close();
     this.closed = false;
     this.sessionId = sessionId;
     this.credentials = credentials;
-    this.cdpToken = null;
+    this.cdpToken = cdpToken ?? null;
     this.connectStartedAt = Date.now();
     this.callbacks.onPhaseChange?.("connecting");
     void this.openBrowserSocket();
