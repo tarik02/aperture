@@ -567,6 +567,8 @@
         packages = {
           default = aperture;
           aperture = aperture;
+          agent-browser = agentBrowser;
+          patched-weston = patchedWeston;
         } // lib.optionalAttrs pkgs.stdenv.isLinux {
           aperture-docker = dockerImage;
         };

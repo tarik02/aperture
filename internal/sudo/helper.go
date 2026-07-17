@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -87,6 +88,10 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 		}
 	}
 
+	if err := chownSessionTreeToInvoker(layout); err != nil {
+		return fmt.Errorf("chown session tree: %w", err)
+	}
+
 	if err := MountOverlayFS(lowerDir, layout.Upper, layout.Work, layout.Merged); err != nil {
 		return fmt.Errorf("mount overlay: %w", err)
 	}
@@ -114,6 +119,7 @@ func chownSessionTreeToInvoker(layout paths.SessionLayout) error {
 	}
 
 	for _, dir := range []string{
+		filepath.Dir(layout.Root),
 		layout.Root,
 		layout.Upper,
 		layout.Work,
@@ -122,6 +128,7 @@ func chownSessionTreeToInvoker(layout paths.SessionLayout) error {
 		layout.Recordings,
 		layout.Cache,
 		layout.Metadata,
+		filepath.Dir(layout.Artifacts),
 		layout.Artifacts,
 		layout.Logs,
 		layout.CrashDumps,
@@ -170,6 +177,9 @@ func UnmountSession(ctx context.Context, cfg config.Config, sessionID string) er
 
 	if err := UnmountOverlayFS(layout.Merged); err != nil {
 		return fmt.Errorf("unmount overlay: %w", err)
+	}
+	if err := os.RemoveAll(layout.Work); err != nil {
+		return fmt.Errorf("remove overlay work directory: %w", err)
 	}
 
 	return nil

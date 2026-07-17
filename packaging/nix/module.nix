@@ -31,6 +31,7 @@ let
         lib.recursiveUpdate cfg.settings {
           store_root = cfg.storeRoot;
           runtime_root = cfg.runtimeRoot;
+          listen_address = cfg.deployment.blueAddress;
           artifact_root = "${cfg.storeRoot}/artifacts";
           traefik_dynamic_config_dir = "${cfg.runtimeRoot}/traefik/dynamic";
           external_base_url = cfg.externalBaseUrl;
@@ -99,6 +100,24 @@ let
           ${aperture}/bin/aperture "$@"
       }
 
+      user_unit_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+      wants_dir="$user_unit_dir/default.target.wants"
+      enable_instance() {
+        local color="$1"
+        mkdir -p "$wants_dir"
+        rm -f "$user_unit_dir/aperture@$color.service"
+        ln -sfn /etc/systemd/user/aperture@.service \
+          "$wants_dir/aperture@$color.service"
+        systemctl --user daemon-reload
+      }
+      disable_instance() {
+        local color="$1"
+        rm -f \
+          "$user_unit_dir/aperture@$color.service" \
+          "$wants_dir/aperture@$color.service"
+        systemctl --user daemon-reload
+      }
+
       state="$(aperture_cli deployment state get --config ${configFileArg})"
       active="$(jq -r .activeColor <<<"$state")"
       case "$active" in
@@ -107,6 +126,8 @@ let
         *) echo "invalid active deployment color: $active" >&2; exit 1 ;;
       esac
 
+      enable_instance "$active"
+      disable_instance "$candidate"
       systemctl --user start "aperture@$candidate.service"
       ready=false
       for _ in $(seq 1 ${toString cfg.deployment.healthTimeoutSeconds}); do
@@ -123,9 +144,6 @@ let
         exit 1
       fi
 
-      user_unit_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-      candidate_link="$user_unit_dir/default.target.wants/aperture@$candidate.service"
-      active_link="$user_unit_dir/default.target.wants/aperture@$active.service"
       switched=false
       candidate_enabled=false
       active_disabled=false
@@ -133,7 +151,7 @@ let
         status=$?
         trap - ERR
         if [[ "$active_disabled" == true ]]; then
-          systemctl --user add-wants default.target "aperture@$active.service" || true
+          enable_instance "$active" || true
         fi
         if [[ "$switched" == true ]]; then
           systemctl --user start "aperture@$active.service" || true
@@ -141,23 +159,21 @@ let
           aperture_cli deployment edge write --config ${configFileArg} || true
         fi
         if [[ "$candidate_enabled" == true ]]; then
-          rm -f "$candidate_link"
-          systemctl --user daemon-reload || true
+          disable_instance "$candidate" || true
         fi
         systemctl --user stop "aperture@$candidate.service" || true
         exit "$status"
       }
       trap rollback ERR
 
-      systemctl --user add-wants default.target "aperture@$candidate.service"
       candidate_enabled=true
+      enable_instance "$candidate"
       aperture_cli deployment state mark-active "$candidate" --config ${configFileArg} >/dev/null
       switched=true
       aperture_cli deployment edge write --config ${configFileArg}
       sleep ${toString cfg.deployment.drainSeconds}
-      rm -f "$active_link"
       active_disabled=true
-      systemctl --user daemon-reload
+      disable_instance "$active"
       systemctl --user stop "aperture@$active.service"
       trap - ERR
       echo "activated $candidate"
@@ -216,7 +232,7 @@ in
     };
     extraPath = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = [ ];
+      default = [ self.packages.${pkgs.system}.agent-browser ];
       description = "Additional packages available to Aperture API services.";
     };
     chromiumPackage = lib.mkOption {

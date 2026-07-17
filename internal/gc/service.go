@@ -154,19 +154,11 @@ func (s *Service) ensureOverlayUnmounted(ctx context.Context, sessionRow *db.Ses
 		merged = layout.Merged
 	}
 
-	mounted, err := overlay.IsMergedMounted(merged)
-	if err != nil {
-		return &SessionOverlayUnmountError{SessionID: sessionRow.ID, Err: err}
-	}
-	if !mounted {
-		return nil
-	}
-
 	if err := s.overlay.Unmount(ctx, sessionRow.ID); err != nil {
 		return &SessionOverlayUnmountError{SessionID: sessionRow.ID, Err: err}
 	}
 
-	mounted, err = overlay.IsMergedMounted(merged)
+	mounted, err := overlay.IsMergedMounted(merged)
 	if err != nil {
 		return &SessionOverlayUnmountError{SessionID: sessionRow.ID, Err: err}
 	}
