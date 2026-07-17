@@ -152,7 +152,10 @@ jobs:
     needs:
       - build
       - publish
-    if: always() && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      always() &&
+      github.event.label.name == 'build-docker' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     uses: ./.github/workflows/remove-build-label.yml
     with:
       app-id: ${{ vars.APP_ID }}
