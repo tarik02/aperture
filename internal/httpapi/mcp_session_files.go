@@ -63,8 +63,8 @@ func (s *Server) mcpSessionFileURL(ctx context.Context, _ *mcp.CallToolRequest, 
 	}
 	ttl := s.Config.SignedFileURLTTL
 	if in.TTLSeconds > 0 {
-		maxSeconds := s.Config.SignedFileURLMaxTTL / time.Second
-		if int64(in.TTLSeconds) > int64(maxSeconds) {
+		maxTTLSeconds := int64(s.Config.SignedFileURLMaxTTL / time.Second)
+		if int64(in.TTLSeconds) > maxTTLSeconds {
 			return nil, mcpSessionFileURLOutput{}, mcpToolError("invalid_arguments", errors.New("ttl exceeds configured maximum"))
 		}
 		ttl = time.Duration(in.TTLSeconds) * time.Second

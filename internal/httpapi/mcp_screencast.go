@@ -112,7 +112,7 @@ func (s *Server) mcpScreencastRequest(ctx context.Context, tenantID, sessionID, 
 	if err != nil {
 		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", fmt.Errorf("wrapper returned %s: %s", response.Status, message))

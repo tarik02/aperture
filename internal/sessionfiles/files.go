@@ -123,7 +123,7 @@ func detectMIME(name string) string {
 	if err != nil {
 		return "application/octet-stream"
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	buffer := make([]byte, 512)
 	n, _ := file.Read(buffer)
 	return http.DetectContentType(buffer[:n])
