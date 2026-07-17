@@ -157,7 +157,11 @@ On the first activation, reload the user manager, start blue, and make that inst
 ```bash
 systemctl --user daemon-reload
 systemctl --user start aperture@blue.service
-systemctl --user add-wants default.target aperture@blue.service
+mkdir -p ~/.config/systemd/user/default.target.wants
+rm -f ~/.config/systemd/user/aperture@blue.service
+ln -sfn /etc/systemd/user/aperture@.service \
+  ~/.config/systemd/user/default.target.wants/aperture@blue.service
+systemctl --user daemon-reload
 ```
 
 For subsequent NixOS generations, reload the user manager and run `aperture-rollout`. The helper starts the inactive color, waits for `/api/health`, updates deployment state and Traefik routing, waits for the configured drain period, then stops the old API. A failed health check leaves the active color unchanged; a cutover error starts and restores the previous color.
