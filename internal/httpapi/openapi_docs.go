@@ -37,12 +37,12 @@ func openAPISpec(c *gin.Context) {
 
 			badges := make([]map[string]string, 0)
 			if public, _ := auth["public"].(bool); public {
-				badges = append(badges, map[string]string{"name": "public", "color": "green"})
+				badges = append(badges, map[string]string{"name": "public"})
 			}
 			if scopes, ok := auth["requiredScopes"].([]any); ok {
 				for _, value := range scopes {
 					if scope, ok := value.(string); ok {
-						badges = append(badges, map[string]string{"name": scope, "color": "blue"})
+						badges = append(badges, map[string]string{"name": scope})
 					}
 				}
 			}
@@ -53,7 +53,7 @@ func openAPISpec(c *gin.Context) {
 						continue
 					}
 					if scope, ok := conditionalScope["scope"].(string); ok {
-						badges = append(badges, map[string]string{"name": scope + " (conditional)", "color": "orange"})
+						badges = append(badges, map[string]string{"name": scope + " (conditional)"})
 					}
 				}
 			}
