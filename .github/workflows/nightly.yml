@@ -1,0 +1,90 @@
+name: nightly
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    name: nightly release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        !startsWith(github.event.head_commit.message, 'chore: release') &&
+        !startsWith(github.event.head_commit.message, 'chore(master): release')
+      )
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libei-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            pkg-config
+
+      - name: Create nightly tag
+        id: version
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::12}"
+          version="0.0.0-nightly.${GITHUB_RUN_NUMBER}.${short_sha}"
+          git tag "v${version}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Publish nightly release
+        uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: nightly docker image
+    needs: nightly
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-image.yml
+    with:
+      version: ${{ needs.nightly.outputs.version }}
+      ref: ${{ github.sha }}
+      tags: |
+        nightly
+        nightly-${{ needs.nightly.outputs.short_sha }}

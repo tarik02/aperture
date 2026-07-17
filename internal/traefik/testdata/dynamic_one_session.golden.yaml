@@ -36,12 +36,30 @@ http:
       priority: 120
       entryPoints:
         - web
+    aperture-files-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/files`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/files/`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
+        - aperture-strip-session-018f1234000070008000000000000001-files
+      priority: 100
+      entryPoints:
+        - web
     aperture-screencast-018f1234000070008000000000000001:
       rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/screencast/`)"
       service: aperture-wrapper-018f1234000070008000000000000001
       middlewares:
         - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
         - aperture-strip-session-018f1234000070008000000000000001-screencast
+      priority: 100
+      entryPoints:
+        - web
+    aperture-uploads-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/uploads`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/uploads/`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
+        - aperture-strip-session-018f1234000070008000000000000001-uploads
       priority: 100
       entryPoints:
         - web
@@ -77,6 +95,11 @@ http:
           - Authorization
           - Sec-WebSocket-Protocol
           - X-Aperture-Tenant-Id
+        authResponseHeaders:
+          - Authorization
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Actor-Kind
+          - X-Aperture-Client-IP
     aperture-live-session-forward-auth-018f1234000070008000000000000001-write:
       forwardAuth:
         address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/write"
@@ -84,13 +107,26 @@ http:
           - Authorization
           - Sec-WebSocket-Protocol
           - X-Aperture-Tenant-Id
+        authResponseHeaders:
+          - Authorization
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Actor-Kind
+          - X-Aperture-Client-IP
     aperture-replace-path-018f1234000070008000000000000001-browserstatus:
       replacePath:
         path: "/status"
     aperture-replace-path-018f1234000070008000000000000001-browserviewport:
       replacePath:
         path: "/viewport"
+    aperture-strip-session-018f1234000070008000000000000001-files:
+      stripPrefix:
+        prefixes:
+          - /sessions/018f1234-0000-7000-8000-000000000001
     aperture-strip-session-018f1234000070008000000000000001-screencast:
+      stripPrefix:
+        prefixes:
+          - /sessions/018f1234-0000-7000-8000-000000000001
+    aperture-strip-session-018f1234000070008000000000000001-uploads:
       stripPrefix:
         prefixes:
           - /sessions/018f1234-0000-7000-8000-000000000001

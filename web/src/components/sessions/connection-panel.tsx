@@ -12,6 +12,7 @@ import {
 import { Separator } from "#/components/ui/separator.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
 import { useRotateSessionTokenMutation } from "#/features/session/session.mutations.ts";
+import { useSessionQuery } from "#/features/session/session.queries.ts";
 import { useEffect, useMemo, useState } from "react";
 
 type ConnectionPanelProps = {
@@ -21,18 +22,20 @@ type ConnectionPanelProps = {
 
 export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
   const rotateMutation = useRotateSessionTokenMutation();
+  const sessionQuery = useSessionQuery(session.id);
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
   const [rotateConfirmOpen, setRotateConfirmOpen] = useState(false);
   const [rotatedSession, setRotatedSession] = useState<Session | null>(null);
 
-  const rotatedCredentials = rotatedSession?.id === session.id ? rotatedSession : null;
+  const detailedSession = sessionQuery.data ?? session;
+  const rotatedCredentials = rotatedSession?.id === detailedSession.id ? rotatedSession : null;
   const currentSession = rotatedCredentials
     ? {
-        ...session,
+        ...detailedSession,
         cdpUrl: rotatedCredentials.cdpUrl,
         sessionToken: rotatedCredentials.sessionToken,
       }
-    : session;
+    : detailedSession;
   const rawCdpUrl = currentSession.cdpUrl;
   const cdpUrl = useMemo(
     () => (rawCdpUrl ? publicCdpUrl(rawCdpUrl, publicOrigin) : null),
@@ -40,11 +43,17 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
   );
   const tokenizedCdpUrl = useMemo(
     () =>
-      cdpUrl && currentSession.sessionToken
-        ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken)
-        : null,
+      cdpUrl && currentSession.sessionToken ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken) : null,
     [cdpUrl, currentSession.sessionToken],
   );
+  const shareLink = useMemo(() => {
+    if (!publicOrigin || !currentSession.sessionToken) {
+      return null;
+    }
+    const url = new URL("/share/", publicOrigin);
+    url.hash = new URLSearchParams({ token: currentSession.sessionToken }).toString();
+    return url.toString();
+  }, [currentSession.sessionToken, publicOrigin]);
   const canOpen = currentSession.status === "running" || currentSession.status === "suspended";
 
   useEffect(() => {
@@ -65,10 +74,9 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Connection</h3>
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
-      {currentSession.sessionToken ? (
-        <CopyField value={currentSession.sessionToken} label="Token" />
-      ) : null}
+      {currentSession.sessionToken ? <CopyField value={currentSession.sessionToken} label="Token" /> : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
+      {shareLink ? <CopyField value={shareLink} label="Share link" /> : null}
       <Separator />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button
@@ -82,14 +90,14 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
             (currentSession.status !== "running" && currentSession.status !== "suspended")
           }
         >
-          Rotate session token
+          Rotate Session token
         </Button>
         <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
       </div>
       <ConfirmDialog
         open={rotateConfirmOpen}
-        title="Rotate session token"
-        description="The current session token for this session will stop working."
+        title="Rotate Session token"
+        description="The current Session token for this session will stop working."
         confirmLabel="Rotate"
         pending={rotateMutation.isPending}
         onOpenChange={setRotateConfirmOpen}

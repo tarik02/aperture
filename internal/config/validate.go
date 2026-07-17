@@ -161,6 +161,14 @@ func Validate(cfg Config) error {
 	if cfg.SessionRetentionDays <= 0 {
 		errs = append(errs, errors.New("session_retention_days must be positive"))
 	}
+	if cfg.SessionUploadMaxFileBytes <= 0 {
+		errs = append(errs, errors.New("session_upload_max_file_bytes must be positive"))
+	}
+	if cfg.SessionStorageQuotaBytes <= 0 {
+		errs = append(errs, errors.New("session_storage_quota_bytes must be positive"))
+	} else if cfg.SessionUploadMaxFileBytes > cfg.SessionStorageQuotaBytes {
+		errs = append(errs, errors.New("session_upload_max_file_bytes must not exceed session_storage_quota_bytes"))
+	}
 	if cfg.SnapshotRetentionDays <= 0 {
 		errs = append(errs, errors.New("snapshot_retention_days must be positive"))
 	}

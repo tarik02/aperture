@@ -18,11 +18,8 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
-
-	"github.com/coder/websocket"
 )
 
-const wrapperSignalProtocol = "aperture-webrtc.v1"
 const viewportScaleDenominator = 120
 
 type compositorViewport struct {
@@ -39,6 +36,7 @@ type wrapperRuntime struct {
 	controlSocket  string
 	ctx            context.Context
 	mu             sync.Mutex
+	uploadMu       sync.Mutex
 	compositorPID  int
 	pipewireTarget string
 	screencast     *wrapperScreencast
@@ -118,11 +116,27 @@ func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
 	}
 }
 
+func (r *wrapperRuntime) disconnectViewer() {
+	r.mu.Lock()
+	viewer := r.viewer
+	r.viewer = nil
+	r.mu.Unlock()
+	if viewer != nil {
+		viewer.cancel()
+	}
+}
+
 func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error, error) {
 	if r.values.WrapperPort <= 0 {
 		return nil, nil, fmt.Errorf("wrapper port is required")
 	}
 	r.ctx = ctx
+	if err := r.watchSessionToken(ctx); err != nil {
+		return nil, nil, err
+	}
+	if err := r.reconcilePendingUploads(); err != nil {
+		return nil, nil, fmt.Errorf("reconcile pending uploads: %w", err)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)
@@ -135,6 +149,9 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/screencast/start", r.handleScreencastStart)
 	mux.HandleFunc("/screencast/stop", r.handleScreencastStop)
 	mux.HandleFunc("/screencast/status", r.handleScreencastStatus)
+	mux.HandleFunc("/files", r.handleFiles)
+	mux.HandleFunc("/files/", r.handleFileDownload)
+	mux.HandleFunc("/uploads", r.handleUploads)
 
 	server := &http.Server{Handler: mux}
 	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.WrapperPort)))
@@ -176,11 +193,44 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		"mediaCodec":     r.values.MediaProducerCodec,
 		"screencast":     r.screencastStatusLocked(),
 	}
+	if r.mediaProducer != nil {
+		quality := r.mediaProducer.media.Quality()
+		status["mediaQuality"] = map[string]any{
+			"profile":     quality.Profile,
+			"option":      quality.Option,
+			"width":       quality.Width,
+			"height":      quality.Height,
+			"framerate":   quality.Framerate,
+			"bitrateKbps": quality.BitrateKbps,
+		}
+		status["mediaProfiles"] = r.mediaProducer.profiles
+		status["mediaKeyframeInterval"] = r.values.MediaProducerKeyframe
+	}
 	if r.values.RenderNode != "" {
 		status["renderNode"] = r.values.RenderNode
 	}
 	if r.values.ExternalBaseURL != "" {
 		status["cdpUrl"] = strings.TrimRight(r.values.ExternalBaseURL, "/") + "/sessions/" + r.values.SessionID + "/cdp"
+	}
+	iceServers := make([]struct {
+		URLs       []string `json:"urls"`
+		Username   string   `json:"username,omitempty"`
+		Credential string   `json:"credential,omitempty"`
+	}, 0)
+	if r.values.MediaProducerICEServers != "" {
+		if err := json.Unmarshal([]byte(r.values.MediaProducerICEServers), &iceServers); err != nil {
+			writeWrapperError(w, http.StatusInternalServerError, "media ICE servers unavailable")
+			return
+		}
+	}
+	mediaMode := "cdp"
+	if r.values.MediaProducerEnabled {
+		mediaMode = "auto"
+	}
+	status["media"] = map[string]any{
+		"mode":           mediaMode,
+		"webrtcProducer": r.values.MediaProducerEnabled,
+		"iceServers":     iceServers,
 	}
 	if r.values.SessionTokenPath != "" {
 		body, err := os.ReadFile(r.values.SessionTokenPath)
@@ -188,16 +238,13 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
 			return
 		}
-		token := string(body)
+		token := strings.TrimSpace(string(body))
 		if token == "" {
 			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
 			return
 		}
 		status["sessionToken"] = token
-		writeWrapperJSON(w, http.StatusOK, status)
-		return
-	}
-	if r.values.SessionToken != "" {
+	} else if r.values.SessionToken != "" {
 		status["sessionToken"] = r.values.SessionToken
 	}
 	writeWrapperJSON(w, http.StatusOK, status)
@@ -218,9 +265,10 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 		return
 	}
 	viewport, err := resizeCompositor(req.Context(), r.controlSocket, body.Width, body.Height, body.DeviceScaleFactor)
-	if mediaProducer := r.currentMediaProducer(); mediaProducer != nil && err == nil {
-		mediaProducer.setViewport(viewport)
-		mediaProducer.enqueue("viewport-metadata", viewportMetadata(viewport))
+	if err == nil {
+		if mediaProducer := r.currentMediaProducer(); mediaProducer != nil {
+			err = mediaProducer.setViewport(viewport)
+		}
 	}
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
@@ -230,76 +278,17 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 }
 
 func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	role := strings.TrimSpace(req.URL.Query().Get("role"))
-	if role != "" && role != "viewer" {
-		writeWrapperError(w, http.StatusBadRequest, "signal role must be viewer")
-		return
-	}
-	if !headerHasProtocol(req.Header.Get("Sec-WebSocket-Protocol"), wrapperSignalProtocol) {
-		writeWrapperError(w, http.StatusBadRequest, "websocket protocol aperture-webrtc.v1 is required")
-		return
-	}
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer == nil {
 		writeWrapperError(w, http.StatusConflict, "media producer is not enabled")
 		return
 	}
-	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-		Subprotocols:       []string{wrapperSignalProtocol},
-	})
-	if err != nil {
-		return
-	}
-	defer conn.CloseNow()
-	conn.SetReadLimit(64 << 10)
-
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 	viewer := &wrapperViewer{cancel: cancel}
 	r.claimViewer(viewer)
 	defer r.releaseViewer(viewer)
-
-	mediaProducer.dropQueuedSignals()
-	mediaProducer.announceState()
-
-	errc := make(chan error, 2)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				errc <- ctx.Err()
-				return
-			case body := <-mediaProducer.out:
-				if err := conn.Write(ctx, websocket.MessageText, body); err != nil {
-					errc <- err
-					return
-				}
-			}
-		}
-	}()
-	go func() {
-		for {
-			messageType, body, err := conn.Read(ctx)
-			if err != nil {
-				errc <- err
-				return
-			}
-			if messageType != websocket.MessageText || !json.Valid(body) {
-				continue
-			}
-			if err := mediaProducer.handleViewerSignalMessage(ctx, body); err != nil {
-				errc <- err
-				return
-			}
-		}
-	}()
-	<-errc
-	mediaProducer.stopPeer()
+	mediaProducer.Handler().ServeHTTP(w, req.WithContext(ctx))
 }
 
 func (r *wrapperRuntime) handleScreencastStart(w http.ResponseWriter, req *http.Request) {
@@ -310,6 +299,9 @@ func (r *wrapperRuntime) handleScreencastStart(w http.ResponseWriter, req *http.
 	var body wrapperScreencastRequest
 	if req.Body != nil {
 		_ = json.NewDecoder(req.Body).Decode(&body)
+	}
+	if req.Header.Get("X-Aperture-Actor-Kind") == "session_capability" {
+		body.Path = ""
 	}
 	status, err := r.startScreencast(body)
 	if err != nil {
@@ -632,7 +624,7 @@ func sendCompositorControlCommand(ctx context.Context, socketPath string, comman
 	if err != nil {
 		return "", fmt.Errorf("dial compositor control socket: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
@@ -659,13 +651,4 @@ func writeWrapperJSON(w http.ResponseWriter, status int, body any) {
 
 func writeWrapperError(w http.ResponseWriter, status int, message string) {
 	writeWrapperJSON(w, status, map[string]any{"error": message})
-}
-
-func headerHasProtocol(header string, protocol string) bool {
-	for _, part := range strings.Split(header, ",") {
-		if strings.TrimSpace(part) == protocol {
-			return true
-		}
-	}
-	return false
 }

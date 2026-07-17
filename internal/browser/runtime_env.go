@@ -19,11 +19,15 @@ type RuntimeEnvValues struct {
 	ExternalBaseURL            string
 	SessionToken               string
 	SessionTokenPath           string
+	InternalAPIURL             string
 	MergedUserDataDir          string
+	UpperDir                   string
 	DownloadsDir               string
 	RecordingsDir              string
 	CacheDir                   string
 	ArtifactsDir               string
+	SessionUploadMaxFileBytes  int64
+	SessionStorageQuotaBytes   int64
 	CDPPort                    int
 	WrapperPort                int
 	BrowserExecutable          string
@@ -177,6 +181,18 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"BROWSER_EXTRA_ARGS=" + extraArgs,
 		"GPU_MODE=" + shellQuote(values.GPUMode),
 	}
+	if strings.TrimSpace(values.InternalAPIURL) != "" {
+		lines = append(lines, "INTERNAL_API_URL="+shellQuote(values.InternalAPIURL))
+	}
+	if strings.TrimSpace(values.UpperDir) != "" {
+		lines = append(lines, "UPPER_DIR="+shellQuote(values.UpperDir))
+	}
+	if values.SessionUploadMaxFileBytes > 0 {
+		lines = append(lines, "SESSION_UPLOAD_MAX_FILE_BYTES="+strconv.FormatInt(values.SessionUploadMaxFileBytes, 10))
+	}
+	if values.SessionStorageQuotaBytes > 0 {
+		lines = append(lines, "SESSION_STORAGE_QUOTA_BYTES="+strconv.FormatInt(values.SessionStorageQuotaBytes, 10))
+	}
 	if strings.TrimSpace(values.CaptureProofExtensionDir) != "" {
 		lines = append(lines, "CAPTURE_PROOF_EXTENSION_DIR="+shellQuote(values.CaptureProofExtensionDir))
 	}
@@ -229,6 +245,17 @@ func WriteRuntimeEnv(path string, values RuntimeEnvValues) error {
 	return nil
 }
 
+func WriteSessionToken(path, token string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir session token dir: %w", err)
+	}
+	if err := renameio.WriteFile(path, []byte(token), 0o600, renameio.WithStaticPermissions(0o600)); err != nil {
+		return fmt.Errorf("write session token: %w", err)
+	}
+	return nil
+}
+
 // ParseRuntimeEnv parses a rendered runtime env file body.
 func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 	values := RuntimeEnvValues{}
@@ -241,7 +268,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -263,6 +290,18 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 				return RuntimeEnvValues{}, fmt.Errorf("parse wrapper port: %w", err)
 			}
 			values.WrapperPort = port
+		case "SESSION_UPLOAD_MAX_FILE_BYTES":
+			limit, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse session upload max file bytes: %w", err)
+			}
+			values.SessionUploadMaxFileBytes = limit
+		case "SESSION_STORAGE_QUOTA_BYTES":
+			limit, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse session storage quota bytes: %w", err)
+			}
+			values.SessionStorageQuotaBytes = limit
 		case "WEBRTC_COMPOSITOR_WIDTH":
 			width, err := strconv.Atoi(val)
 			if err != nil {
@@ -323,8 +362,12 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.SessionToken = value
 	case "SESSION_TOKEN_PATH":
 		values.SessionTokenPath = value
+	case "INTERNAL_API_URL":
+		values.InternalAPIURL = value
 	case "MERGED_USER_DATA_DIR":
 		values.MergedUserDataDir = value
+	case "UPPER_DIR":
+		values.UpperDir = value
 	case "DOWNLOADS_DIR":
 		values.DownloadsDir = value
 	case "RECORDINGS_DIR":

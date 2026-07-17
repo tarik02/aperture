@@ -18,7 +18,7 @@ func (d *DB) WithImmediateTx(ctx context.Context, fn func(ctx context.Context, t
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("begin immediate: %w", err)

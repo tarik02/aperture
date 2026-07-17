@@ -23,6 +23,7 @@ export type CdpControlState = {
 export type CdpControlOptions = {
   sessionId: string;
   credentials: ApiCredentials;
+  sessionToken?: string;
   input$: Observable<ClientMessage>;
 };
 

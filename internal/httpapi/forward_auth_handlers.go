@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -9,6 +10,11 @@ import (
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	forwardedActorKindHeader = "X-Aperture-Actor-Kind"
+	forwardedClientIPHeader  = "X-Aperture-Client-IP"
 )
 
 func (s *Server) sessionTokenForwardAuth(c *gin.Context) {
@@ -37,6 +43,11 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 		c.Status(http.StatusUnauthorized)
 		return
 	}
+	scope, ok := liveSessionForwardAuthScope(c.Param("access"))
+	if !ok {
+		c.Status(http.StatusNotFound)
+		return
+	}
 
 	if authorization := liveSessionTokenAuthorization(c); authorization != "" {
 		if err := s.Sessions.ValidateSessionTokenForwardAuth(c.Request.Context(), c.Param("sessionId"), authorization); err != nil {
@@ -44,7 +55,8 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 			c.Status(status)
 			return
 		}
-		c.Status(http.StatusOK)
+
+		writeLiveSessionForwardAuthSuccess(c, "session_capability")
 		return
 	}
 
@@ -60,11 +72,6 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 	}
 	c.Set("principal", principal)
 
-	scope, ok := liveSessionForwardAuthScope(c.Param("access"))
-	if !ok {
-		c.Status(http.StatusNotFound)
-		return
-	}
 	if !s.requireSessionScope(c, scope) {
 		return
 	}
@@ -78,6 +85,37 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 		return
 	}
 
+	writeLiveSessionForwardAuthSuccess(c, "account")
+}
+
+func writeLiveSessionForwardAuthSuccess(c *gin.Context, actorKind string) {
+	protocols := make([]string, 0)
+	for _, protocol := range strings.Split(c.GetHeader("Sec-WebSocket-Protocol"), ",") {
+		protocol = strings.TrimSpace(protocol)
+		if protocol == "" || strings.HasPrefix(protocol, "authorization.bearer.") || strings.HasPrefix(protocol, "x-aperture-tenant-id.") {
+			continue
+		}
+		protocols = append(protocols, protocol)
+	}
+
+	c.Writer.Header()["Authorization"] = []string{""}
+	c.Writer.Header()["Sec-Websocket-Protocol"] = []string{strings.Join(protocols, ", ")}
+	c.Header(forwardedActorKindHeader, actorKind)
+	clientIP := strings.TrimSpace(c.GetHeader("X-Real-Ip"))
+	if net.ParseIP(clientIP) == nil {
+		forwarded := strings.Split(c.GetHeader("X-Forwarded-For"), ",")
+		for index := len(forwarded) - 1; index >= 0; index-- {
+			candidate := strings.TrimSpace(forwarded[index])
+			if net.ParseIP(candidate) != nil {
+				clientIP = candidate
+				break
+			}
+		}
+	}
+	if net.ParseIP(clientIP) == nil {
+		clientIP, _, _ = net.SplitHostPort(c.Request.RemoteAddr)
+	}
+	c.Header(forwardedClientIPHeader, clientIP)
 	c.Status(http.StatusOK)
 }
 

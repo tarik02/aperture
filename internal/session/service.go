@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -222,16 +223,26 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
+	internalAPIURL := s.cfg.DeployBlueURL
+	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
+		internalAPIURL = s.cfg.DeployGreenURL
+	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:                  sessionID,
-		ExternalBaseURL:            s.cfg.ExternalBaseURL,
-		SessionToken:               rawSessionToken,
+		SessionID:        sessionID,
+		ExternalBaseURL:  s.cfg.ExternalBaseURL,
+		SessionToken:     rawSessionToken,
+		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
+		InternalAPIURL:   internalAPIURL,
+
 		MergedUserDataDir:          layout.Merged,
+		UpperDir:                   layout.Upper,
 		DownloadsDir:               layout.Downloads,
 		RecordingsDir:              layout.Recordings,
 		CacheDir:                   layout.Cache,
 		ArtifactsDir:               layout.Artifacts,
+		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
+		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
 		BrowserExecutable:          channel.Executable,
@@ -448,22 +459,18 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if sessionRow.Status == db.SessionStatusExpired {
 		return nil, ErrExpired
 	}
+	wasRunning := sessionRow.Status == db.SessionStatusRunning
 
 	if err := s.retireMediaSession(sessionID); err != nil {
 		return nil, err
 	}
-	if sessionRow.Status == db.SessionStatusRunning {
+	if wasRunning {
 		if err := s.browser.Stop(ctx, sessionID); err != nil {
 			return nil, err
 		}
 	}
 	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
 		return nil, err
-	}
-	if sessionRow.Status == db.SessionStatusRunning {
-		if err := s.unmountOverlay(ctx, sessionID); err != nil {
-			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
-		}
 	}
 
 	now := s.now().UTC()
@@ -485,6 +492,11 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	s.closeMediaSession(sessionID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
+	}
+	if wasRunning {
+		if err := s.unmountOverlay(ctx, sessionID); err != nil {
+			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+		}
 	}
 
 	tags, err := s.repo.ListSessionTags(ctx, sessionID)
@@ -563,21 +575,32 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
+	internalAPIURL := s.cfg.DeployBlueURL
+	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
+		internalAPIURL = s.cfg.DeployGreenURL
+	}
 	rawSessionToken, err := s.ensureSessionToken(ctx, sessionRow)
+
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:                  sessionID,
-		ExternalBaseURL:            s.cfg.ExternalBaseURL,
-		SessionToken:               rawSessionToken,
+		SessionID:        sessionID,
+		ExternalBaseURL:  s.cfg.ExternalBaseURL,
+		SessionToken:     rawSessionToken,
+		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
+		InternalAPIURL:   internalAPIURL,
+
 		MergedUserDataDir:          layout.Merged,
+		UpperDir:                   layout.Upper,
 		DownloadsDir:               layout.Downloads,
 		RecordingsDir:              layout.Recordings,
 		CacheDir:                   layout.Cache,
 		ArtifactsDir:               layout.Artifacts,
+		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
+		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
 		BrowserExecutable:          channel.Executable,
@@ -665,13 +688,28 @@ func (s *Service) RotateSessionToken(ctx context.Context, tenantID, sessionID st
 		return nil, err
 	}
 
+	previousToken, err := s.repo.GetSessionToken(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if previousToken == nil || previousToken.RawToken == nil {
+		return nil, ErrSessionTokenMissing
+	}
+
 	now := s.now().UTC()
 	if err := s.repo.ReplaceSessionToken(ctx, sessionID, hashSessionToken, rawSessionToken, now.Format(time.RFC3339Nano)); err != nil {
+		return nil, err
+	}
+	if err := s.browser.UpdateSessionToken(sessionID, rawSessionToken); err != nil {
+		_ = s.repo.ReplaceSessionToken(ctx, sessionID, previousToken.TokenHash, *previousToken.RawToken, previousToken.CreatedAt)
 		return nil, err
 	}
 
 	sessionRow.ExpiresAt = now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return nil, err
+	}
+	if err := s.appendEvent(ctx, sessionRow, "session.token_rotated", "session token rotated", nil); err != nil {
 		return nil, err
 	}
 
@@ -687,6 +725,78 @@ func (s *Service) RotateSessionToken(ctx context.Context, tenantID, sessionID st
 		SessionToken: rawSessionToken,
 		Media:        s.sessionMediaView(*sessionRow),
 	}, nil
+}
+
+type UploadedFileEvent struct {
+	EventID   string
+	Path      string
+	SizeBytes int64
+}
+
+func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authorization string, files []UploadedFileEvent, actorKind, clientIP string) error {
+	sessionRow, err := s.authorizedSession(ctx, sessionID, authorization)
+	if err != nil {
+		return err
+	}
+	events := make([]db.Event, 0, len(files))
+	for _, file := range files {
+		dataJSON, err := json.Marshal(map[string]any{
+			"path":      file.Path,
+			"sizeBytes": file.SizeBytes,
+			"actorKind": actorKind,
+			"clientIp":  clientIP,
+		})
+		if err != nil {
+			return err
+		}
+		events = append(events, db.Event{
+			ID:           file.EventID,
+			TenantID:     sessionRow.TenantID,
+			ResourceType: "session",
+			ResourceID:   sessionRow.ID,
+			Type:         "session.file_upload_pending",
+			Message:      "file upload pending",
+			DataJSON:     string(dataJSON),
+			CreatedAt:    s.now().UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return s.repo.CreateEvents(ctx, events)
+}
+
+func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authorization string) ([]UploadedFileEvent, error) {
+	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+		return nil, err
+	}
+	events, err := s.repo.ListEventsForResourceType(ctx, "session", sessionID, "session.file_upload_pending")
+	if err != nil {
+		return nil, err
+	}
+	files := make([]UploadedFileEvent, 0, len(events))
+	for _, event := range events {
+		var data struct {
+			Path      string `json:"path"`
+			SizeBytes int64  `json:"sizeBytes"`
+		}
+		if err := json.Unmarshal([]byte(event.DataJSON), &data); err != nil {
+			return nil, err
+		}
+		files = append(files, UploadedFileEvent{EventID: event.ID, Path: data.Path, SizeBytes: data.SizeBytes})
+	}
+	return files, nil
+}
+
+func (s *Service) FinalizeFilesUploaded(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
+	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+		return err
+	}
+	return s.repo.FinalizeEvents(ctx, "session", sessionID, "session.file_upload_pending", "session.file_uploaded", "file uploaded", eventIDs)
+}
+
+func (s *Service) CancelPendingFileUploads(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
+	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+		return err
+	}
+	return s.repo.DeletePendingEvents(ctx, "session", sessionID, "session.file_upload_pending", eventIDs)
 }
 
 // ReplaceTags replaces the exact tag set for a tenant-owned session.
@@ -1042,7 +1152,6 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
@@ -1059,14 +1168,18 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 		return err
 	}
 
-	return s.appendEvent(ctx, sessionRow, "session.failed", message, cause)
+	if err := s.appendEvent(ctx, sessionRow, "session.failed", message, cause); err != nil {
+		return err
+	}
+
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	return nil
 }
 
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
 	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
@@ -1081,7 +1194,12 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
 	}
-	return s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause)
+	if err := s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause); err != nil {
+		return err
+	}
+
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	return nil
 }
 
 func (s *Service) appendEvent(ctx context.Context, sessionRow *db.Session, eventType, message string, cause error) error {

@@ -156,6 +156,8 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 
 		webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
 		screencastStrip := stripSessionPrefixMiddlewareName(session.ID, "screencast")
+		filesStrip := stripSessionPrefixMiddlewareName(session.ID, "files")
+		uploadsStrip := stripSessionPrefixMiddlewareName(session.ID, "uploads")
 		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
 		statusReplace := replacePathMiddlewareName(session.ID, "browser-status")
 
@@ -163,6 +165,12 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[screencastStrip] = middlewareConfig{
+			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
+		}
+		doc.HTTP.Middlewares[filesStrip] = middlewareConfig{
+			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
+		}
+		doc.HTTP.Middlewares[uploadsStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[viewportReplace] = middlewareConfig{
@@ -213,6 +221,18 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				rule:        pathRouterRule(sessionBase + "/browser/status"),
 				auth:        readAuth,
 				middlewares: []string{statusReplace},
+			},
+			{
+				name:        filesRouterName(session.ID),
+				rule:        pathTreeRouterRule(sessionBase + "/files"),
+				auth:        writeAuth,
+				middlewares: []string{filesStrip},
+			},
+			{
+				name:        uploadsRouterName(session.ID),
+				rule:        pathTreeRouterRule(sessionBase + "/uploads"),
+				auth:        writeAuth,
+				middlewares: []string{uploadsStrip},
 			},
 		} {
 			doc.HTTP.Routers[route.name] = routerConfig{
@@ -288,6 +308,12 @@ func liveSessionForwardAuthMiddleware(activeURL, sessionID, access string) middl
 				access,
 			),
 			AuthRequestHeaders: liveSessionForwardAuthRequestHeaders(),
+			AuthResponseHeaders: []string{
+				"Authorization",
+				"Sec-WebSocket-Protocol",
+				"X-Aperture-Actor-Kind",
+				"X-Aperture-Client-IP",
+			},
 		},
 	}
 }
@@ -310,6 +336,11 @@ func pathRouterRule(routePath string) string {
 
 func pathPrefixRouterRule(routePrefix string) string {
 	return fmt.Sprintf("PathPrefix(`%s`)", escapeTraefikPath(routePrefix))
+}
+
+func pathTreeRouterRule(routePath string) string {
+	escaped := escapeTraefikPath(routePath)
+	return fmt.Sprintf("Path(`%s`) || PathPrefix(`%s/`)", escaped, escaped)
 }
 
 func cdpDiscoveryRouterRule(cdpBase string) string {
@@ -349,6 +380,14 @@ func browserViewportRouterName(sessionID string) string {
 
 func browserStatusRouterName(sessionID string) string {
 	return "aperture-browser-status-" + sanitizeName(sessionID)
+}
+
+func filesRouterName(sessionID string) string {
+	return "aperture-files-" + sanitizeName(sessionID)
+}
+
+func uploadsRouterName(sessionID string) string {
+	return "aperture-uploads-" + sanitizeName(sessionID)
 }
 
 func cdpForwardAuthMiddlewareName(sessionID string) string {
@@ -437,8 +476,9 @@ type middlewareConfig struct {
 }
 
 type forwardAuthConfig struct {
-	Address            string   `yaml:"address"`
-	AuthRequestHeaders []string `yaml:"authRequestHeaders,omitempty"`
+	Address             string   `yaml:"address"`
+	AuthRequestHeaders  []string `yaml:"authRequestHeaders,omitempty"`
+	AuthResponseHeaders []string `yaml:"authResponseHeaders,omitempty"`
 }
 
 type stripPrefixConfig struct {
@@ -555,6 +595,13 @@ func middlewaresYAML(middlewares map[string]middlewareConfig) *yaml.Node {
 					forwardAuth,
 					"authRequestHeaders",
 					yamlStringSequence(middleware.ForwardAuth.AuthRequestHeaders),
+				)
+			}
+			if len(middleware.ForwardAuth.AuthResponseHeaders) > 0 {
+				yamlAppend(
+					forwardAuth,
+					"authResponseHeaders",
+					yamlStringSequence(middleware.ForwardAuth.AuthResponseHeaders),
 				)
 			}
 			yamlAppend(node, name, yamlMap(

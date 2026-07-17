@@ -37,6 +37,7 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 	}
 	if view.SessionToken != "" {
 		resp.SessionToken = view.SessionToken
+
 	}
 	return resp
 }

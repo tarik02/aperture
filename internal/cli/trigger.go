@@ -62,15 +62,15 @@ func newTriggerGCCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("trigger gc: %w", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			body, _ := io.ReadAll(resp.Body)
 			if resp.StatusCode != http.StatusOK {
 				return fmt.Errorf("trigger gc: status %d: %s", resp.StatusCode, bytes.TrimSpace(body))
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), string(bytes.TrimSpace(body)))
-			return nil
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), string(bytes.TrimSpace(body)))
+			return err
 		},
 	}
 }

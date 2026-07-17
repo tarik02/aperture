@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/paths"
 )
@@ -357,9 +360,6 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	if err := s.browser.Stop(ctx, latest.ID); err != nil {
 		return false, err
 	}
-	if err := s.unmountOverlay(ctx, latest.ID); err != nil {
-		return false, &OverlayMountError{SessionID: latest.ID, Err: err}
-	}
 
 	now := s.now().UTC()
 	nowText := now.Format(time.RFC3339Nano)
@@ -379,6 +379,9 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	}
 	if err := s.appendEvent(ctx, latest, "session.suspended", eventMessage, nil); err != nil {
 		return false, err
+	}
+	if err := s.unmountOverlay(ctx, latest.ID); err != nil {
+		return false, &OverlayMountError{SessionID: latest.ID, Err: err}
 	}
 	return true, nil
 }
@@ -432,16 +435,26 @@ func (s *Service) runtimeEnvValues(
 ) browser.RuntimeEnvValues {
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
+	internalAPIURL := s.cfg.DeployBlueURL
+	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
+		internalAPIURL = s.cfg.DeployGreenURL
+	}
 
 	return browser.RuntimeEnvValues{
-		SessionID:                  sessionRow.ID,
-		ExternalBaseURL:            s.cfg.ExternalBaseURL,
-		SessionToken:               rawSessionToken,
+		SessionID:        sessionRow.ID,
+		ExternalBaseURL:  s.cfg.ExternalBaseURL,
+		SessionToken:     rawSessionToken,
+		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
+		InternalAPIURL:   internalAPIURL,
+
 		MergedUserDataDir:          layout.Merged,
+		UpperDir:                   layout.Upper,
 		DownloadsDir:               layout.Downloads,
 		RecordingsDir:              layout.Recordings,
 		CacheDir:                   layout.Cache,
 		ArtifactsDir:               layout.Artifacts,
+		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
+		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
 		BrowserExecutable:          channel.Executable,

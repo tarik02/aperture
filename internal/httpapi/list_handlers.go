@@ -37,6 +37,7 @@ func toSessionListItem(view session.SessionView) sessionListItemResponse {
 	if view.SessionToken != "" {
 		resp.SessionToken = view.SessionToken
 	}
+
 	return resp
 }
 

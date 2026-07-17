@@ -33,6 +33,7 @@ export type ControlConnectionEvent =
 export type BrowserControlConnectionOptions = {
   sessionId: string;
   credentials: ApiCredentials;
+  sessionToken?: string;
   input$: Observable<ClientMessage>;
 };
 
@@ -388,7 +389,7 @@ export function browserControlConnection$(
       error: (cause) => subscriber.error(cause),
     });
 
-    connection.connect(options.sessionId, options.credentials);
+    connection.connect(options.sessionId, options.credentials, options.sessionToken);
 
     return () => {
       inputSubscription.unsubscribe();
@@ -419,12 +420,12 @@ class BrowserControlConnectionRuntime {
     this.callbacks = callbacks;
   }
 
-  connect(sessionId: string, credentials: ApiCredentials) {
+  connect(sessionId: string, credentials: ApiCredentials, sessionToken?: string) {
     this.close();
     this.closed = false;
     this.sessionId = sessionId;
     this.credentials = credentials;
-    this.sessionToken = null;
+    this.sessionToken = sessionToken ?? null;
     this.connectStartedAt = Date.now();
     this.callbacks.onPhaseChange?.("connecting");
     void this.openBrowserSocket();
@@ -559,11 +560,11 @@ class BrowserControlConnectionRuntime {
       return this.sessionToken;
     }
     if (!this.sessionId || !this.credentials) {
-      throw new Error("session token unavailable");
+      throw new Error("Session token unavailable");
     }
     const session = await apiClient.getSession(this.credentials, this.sessionId);
     if (!session.sessionToken) {
-      throw new Error("session token unavailable");
+      throw new Error("Session token unavailable");
     }
     this.sessionToken = session.sessionToken;
     return session.sessionToken;

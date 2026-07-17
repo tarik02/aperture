@@ -36,14 +36,12 @@ func (r *wrapperRuntime) handleCDPDiscovery(w http.ResponseWriter, req *http.Req
 		Path:     targetPath,
 		RawQuery: wrapperCDPTargetRawQuery(req.URL),
 	}
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
-		Scheme: target.Scheme,
-		Host:   target.Host,
-	})
+	proxy := &httputil.ReverseProxy{}
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
-	proxy.Director = func(outReq *http.Request) {
+	proxy.Rewrite = func(proxyReq *httputil.ProxyRequest) {
+		outReq := proxyReq.Out
 		outReq.URL.Scheme = target.Scheme
 		outReq.URL.Host = target.Host
 		outReq.URL.Path = target.Path

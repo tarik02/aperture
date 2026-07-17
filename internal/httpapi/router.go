@@ -28,6 +28,10 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.sessionTokenForwardAuth)
 		internal.GET("/forward-auth/live-session/:sessionId/:access", server.liveSessionForwardAuth)
+		internal.GET("/session-events/:sessionId/upload/pending", server.requireLoopback, server.listPendingSessionUploads)
+		internal.POST("/session-events/:sessionId/upload/prepare", server.requireLoopback, server.prepareSessionUpload)
+		internal.POST("/session-events/:sessionId/upload/finalize", server.requireLoopback, server.finalizeSessionUpload)
+		internal.POST("/session-events/:sessionId/upload/cancel", server.requireLoopback, server.cancelPendingSessionUpload)
 
 		jobs := internal.Group("/jobs")
 		jobs.Use(server.rejectInactiveInternalJob, server.requireLoopback, server.requireJobToken)

@@ -525,6 +525,18 @@ func LaunchFromRuntimeEnv() error {
 		return err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wrapper := newWrapperRuntime(values, "")
+	wrapperServer, _, err := wrapper.serve(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		_ = wrapperServer.Shutdown(shutdownCtx)
+	}()
 	return cmd.Run()
 }
 
@@ -642,14 +654,15 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	compositorConfig := filepath.Join(values.CacheDir, "weston.ini")
 	compositorConfigBody := "[shell]\npanel-position=none\nbackground-color=0x000000\nlocking=false\nanimation=none\nstartup-animation=none\n"
 	apertureShellPath := ""
-	if compositorShell == "lua-shell" || compositorShell == "lua-shell.so" {
+	switch compositorShell {
+	case "lua-shell", "lua-shell.so":
 		luaShellScript := filepath.Join(values.CacheDir, "aperture-shell.lua")
 		if err := os.WriteFile(luaShellScript, []byte(compositorLuaShellScript), 0o600); err != nil {
 			return fmt.Errorf("write compositor lua shell: %w", err)
 		}
 		compositorConfigBody = "[shell]\nlua-script=" + luaShellScript + "\n"
 		compositorShell = "lua-shell.so"
-	} else if compositorShell == "aperture" || compositorShell == "aperture-weston-shell.so" {
+	case "aperture", "aperture-weston-shell.so":
 		var err error
 		apertureShellPath, err = apertureWestonShellPath()
 		if err != nil {
@@ -794,7 +807,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		}
 
 		var err error
-		mediaProducer, err = newWebRTCProducer(values, controlSocket, mediaProducerTargetName, compositor.Process.Pid)
+		mediaProducer, err = newWebRTCProducer(values, controlSocket, mediaProducerTargetName)
 		if err != nil {
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -1210,7 +1223,7 @@ func waitForProcessSocket(socketPath string, label string, done <-chan error) er
 
 func stopMediaProducer(mediaProducer *producer) {
 	if mediaProducer != nil {
-		mediaProducer.stopPeer()
+		_ = mediaProducer.Close()
 	}
 }
 
@@ -1266,7 +1279,9 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		ExternalBaseURL:   strings.TrimSpace(os.Getenv("EXTERNAL_BASE_URL")),
 		SessionToken:      strings.TrimSpace(os.Getenv("SESSION_TOKEN")),
 		SessionTokenPath:  strings.TrimSpace(os.Getenv("SESSION_TOKEN_PATH")),
+		InternalAPIURL:    strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
 		MergedUserDataDir: *required["MERGED_USER_DATA_DIR"],
+		UpperDir:          strings.TrimSpace(os.Getenv("UPPER_DIR")),
 		DownloadsDir:      *required["DOWNLOADS_DIR"],
 		RecordingsDir:     *required["RECORDINGS_DIR"],
 		CacheDir:          *required["CACHE_DIR"],
@@ -1279,6 +1294,20 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	}
 	if _, err := fmt.Sscanf(wrapperPortRaw, "%d", &values.WrapperPort); err != nil {
 		return RuntimeEnvValues{}, fmt.Errorf("parse wrapper port: %w", err)
+	}
+	if raw := strings.TrimSpace(os.Getenv("SESSION_UPLOAD_MAX_FILE_BYTES")); raw != "" {
+		limit, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse session upload max file bytes: %w", err)
+		}
+		values.SessionUploadMaxFileBytes = limit
+	}
+	if raw := strings.TrimSpace(os.Getenv("SESSION_STORAGE_QUOTA_BYTES")); raw != "" {
+		limit, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse session storage quota bytes: %w", err)
+		}
+		values.SessionStorageQuotaBytes = limit
 	}
 
 	if encoded := strings.TrimSpace(os.Getenv("BROWSER_DEFAULT_ARGS")); encoded != "" {

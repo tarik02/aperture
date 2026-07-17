@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import {
   Empty,
@@ -17,31 +17,64 @@ import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { AppWindow, Loader2 } from "lucide-react";
+import type { ApiCredentials } from "#/lib/api/client.ts";
+import type { Session } from "#/lib/api/schemas.ts";
 
 type SessionWorkbenchProps = {
   sessionId: string;
   forceCDPMedia?: boolean;
+  capability?: {
+    credentials: ApiCredentials;
+    session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "sessionToken">;
+  };
 };
 
 const emptyIceServers: RTCIceServer[] = [];
 
-export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWorkbenchProps) {
-  const credentials = useApiCredentials();
+export function SessionWorkbench({
+  sessionId,
+  forceCDPMedia = false,
+  capability,
+}: SessionWorkbenchProps) {
+  const profileCredentials = useApiCredentials();
+  const credentials = capability?.credentials ?? profileCredentials;
   const scopes = useActiveScopes();
-  const canControl = hasScope(scopes, "sessions:write");
-  const tenantReady = isTenantScopedQueryReady(credentials);
+  const guestMode = capability !== undefined;
+  const canControl = guestMode || hasScope(scopes, "sessions:write");
+  const tenantReady = guestMode || isTenantScopedQueryReady(credentials);
   const recordRecentSession = useRecentSessionsStore((state) => state.recordSession);
   const lastRecordedSessionId = useRef<string | null>(null);
+  const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
 
-  const { session: selectedSession, isResolvingRoute } = useWorkbenchSession(sessionId);
+  const { session: ownerSession, isResolvingRoute } = useWorkbenchSession(
+    guestMode ? undefined : sessionId,
+  );
+  const selectedSession = capability?.session ?? ownerSession;
   const canConnectSession = Boolean(
     selectedSession?.status === "running" || selectedSession?.status === "suspended",
   );
+  const cdpUrl = useMemo(() => {
+    if (!selectedSession?.cdpUrl || !selectedSession.sessionToken || !publicOrigin) {
+      return null;
+    }
+    const sourceUrl = new URL(selectedSession.cdpUrl, publicOrigin);
+    const url = new URL(publicOrigin);
+    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.sessionToken)}`;
+    return url.toString();
+  }, [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl]);
+  const shareUrl = useMemo(() => {
+    if (!publicOrigin || !selectedSession?.sessionToken) {
+      return null;
+    }
+    const url = new URL("/share/", publicOrigin);
+    url.hash = new URLSearchParams({ token: selectedSession.sessionToken }).toString();
+    return url.toString();
+  }, [publicOrigin, selectedSession?.sessionToken]);
 
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
-    sessionToken:
-      canConnectSession && selectedSession ? (selectedSession.sessionToken ?? null) : null,
+    credentials: capability?.credentials,
+    sessionToken: capability?.session.sessionToken,
     enabled: canControl && tenantReady && canConnectSession,
     forceCDPMedia,
     webrtcProducerSupported:
@@ -50,13 +83,17 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
   });
 
   useEffect(() => {
-    if (!selectedSession || lastRecordedSessionId.current === selectedSession.id) {
+    setPublicOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    if (guestMode || !selectedSession || lastRecordedSessionId.current === selectedSession.id) {
       return;
     }
 
     lastRecordedSessionId.current = selectedSession.id;
     recordRecentSession(selectedSession.id);
-  }, [recordRecentSession, selectedSession]);
+  }, [guestMode, recordRecentSession, selectedSession]);
 
   if (!tenantReady) {
     return (
@@ -94,7 +131,12 @@ export function SessionWorkbench({ sessionId, forceCDPMedia = false }: SessionWo
           </EmptyHeader>
         </Empty>
       ) : selectedSession ? (
-        <BrowserControlPane control={control} />
+        <BrowserControlPane
+          control={control}
+          guestMode={guestMode}
+          cdpUrl={cdpUrl}
+          shareUrl={shareUrl}
+        />
       ) : (
         <Empty className="h-full border-none">
           <EmptyHeader>

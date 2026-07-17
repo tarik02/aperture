@@ -45,13 +45,13 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 			query = query.Where(
 				"EXISTS (SELECT 1 FROM session_tags st WHERE st.session_id = sessions.id AND st.key = ? AND st.value IN (?))",
 				tag.Key,
-				bun.In(tag.Values),
+				bun.List(tag.Values),
 			)
 		case TagOperatorNotIn:
 			query = query.Where(
 				"EXISTS (SELECT 1 FROM session_tags st WHERE st.session_id = sessions.id AND st.key = ? AND st.value NOT IN (?))",
 				tag.Key,
-				bun.In(tag.Values),
+				bun.List(tag.Values),
 			)
 		default:
 			query = query.Where(
@@ -80,7 +80,7 @@ func (r *Repository) ListSessionsByTenantAndIDs(ctx context.Context, tenantID st
 	if err := r.db.bun.NewSelect().
 		Model(&sessions).
 		Where("tenant_id = ?", tenantID).
-		Where("id IN (?)", bun.In(sessionIDs)).
+		Where("id IN (?)", bun.List(sessionIDs)).
 		Where("deleted_at IS NULL").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list sessions by tenant and ids: %w", err)
@@ -98,7 +98,7 @@ func (r *Repository) ListSessionTagsForSessions(ctx context.Context, sessionIDs 
 	tags := make([]SessionTag, 0)
 	if err := r.db.bun.NewSelect().
 		Model(&tags).
-		Where("session_id IN (?)", bun.In(sessionIDs)).
+		Where("session_id IN (?)", bun.List(sessionIDs)).
 		OrderExpr("session_id ASC, key ASC").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list session tags for sessions: %w", err)
@@ -124,7 +124,7 @@ func (r *Repository) ListSnapshotNamesByIDs(ctx context.Context, snapshotIDs []s
 	if err := r.db.bun.NewSelect().
 		Model(&rows).
 		Column("id", "name").
-		Where("id IN (?)", bun.In(snapshotIDs)).
+		Where("id IN (?)", bun.List(snapshotIDs)).
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list snapshot names by ids: %w", err)
 	}
