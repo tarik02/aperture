@@ -216,7 +216,7 @@ in
     };
     extraPath = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = [ ];
+      default = [ self.packages.${pkgs.system}.agent-browser ];
       description = "Additional packages available to Aperture API services.";
     };
     chromiumPackage = lib.mkOption {
