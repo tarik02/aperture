@@ -75,6 +75,126 @@ func (e CreateAdminTokenInput1AuthorityType) Valid() bool {
 	}
 }
 
+// Defines values for HealthActiveColor.
+const (
+	HealthActiveColorBlue  HealthActiveColor = "blue"
+	HealthActiveColorGreen HealthActiveColor = "green"
+)
+
+// Valid indicates whether the value is a known member of the HealthActiveColor enum.
+func (e HealthActiveColor) Valid() bool {
+	switch e {
+	case HealthActiveColorBlue:
+		return true
+	case HealthActiveColorGreen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthColor.
+const (
+	HealthColorBlue  HealthColor = "blue"
+	HealthColorGreen HealthColor = "green"
+)
+
+// Valid indicates whether the value is a known member of the HealthColor enum.
+func (e HealthColor) Valid() bool {
+	switch e {
+	case HealthColorBlue:
+		return true
+	case HealthColorGreen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthRole.
+const (
+	HealthRoleActive   HealthRole = "active"
+	HealthRoleInactive HealthRole = "inactive"
+)
+
+// Valid indicates whether the value is a known member of the HealthRole enum.
+func (e HealthRole) Valid() bool {
+	switch e {
+	case HealthRoleActive:
+		return true
+	case HealthRoleInactive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthStatus.
+const (
+	Ok HealthStatus = "ok"
+)
+
+// Valid indicates whether the value is a known member of the HealthStatus enum.
+func (e HealthStatus) Valid() bool {
+	switch e {
+	case Ok:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Scope.
+const (
+	ScopeSessionsRead   Scope = "sessions:read"
+	ScopeSessionsWrite  Scope = "sessions:write"
+	ScopeSnapshotsRead  Scope = "snapshots:read"
+	ScopeSnapshotsWrite Scope = "snapshots:write"
+	ScopeSystemAdmin    Scope = "system:admin"
+	ScopeTenantWrite    Scope = "tenant:write"
+	ScopeTenantsWrite   Scope = "tenants:write"
+)
+
+// Valid indicates whether the value is a known member of the Scope enum.
+func (e Scope) Valid() bool {
+	switch e {
+	case ScopeSessionsRead:
+		return true
+	case ScopeSessionsWrite:
+		return true
+	case ScopeSnapshotsRead:
+		return true
+	case ScopeSnapshotsWrite:
+		return true
+	case ScopeSystemAdmin:
+		return true
+	case ScopeTenantWrite:
+		return true
+	case ScopeTenantsWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionMediaMode.
+const (
+	Auto SessionMediaMode = "auto"
+	Cdp  SessionMediaMode = "cdp"
+)
+
+// Valid indicates whether the value is a known member of the SessionMediaMode enum.
+func (e SessionMediaMode) Valid() bool {
+	switch e {
+	case Auto:
+		return true
+	case Cdp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SessionStatus.
 const (
 	SessionStatusCreating  SessionStatus = "creating"
@@ -99,6 +219,33 @@ func (e SessionStatus) Valid() bool {
 	case SessionStatusRunning:
 		return true
 	case SessionStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TenantScope.
+const (
+	TenantScopeSessionsRead   TenantScope = "sessions:read"
+	TenantScopeSessionsWrite  TenantScope = "sessions:write"
+	TenantScopeSnapshotsRead  TenantScope = "snapshots:read"
+	TenantScopeSnapshotsWrite TenantScope = "snapshots:write"
+	TenantScopeTenantWrite    TenantScope = "tenant:write"
+)
+
+// Valid indicates whether the value is a known member of the TenantScope enum.
+func (e TenantScope) Valid() bool {
+	switch e {
+	case TenantScopeSessionsRead:
+		return true
+	case TenantScopeSessionsWrite:
+		return true
+	case TenantScopeSnapshotsRead:
+		return true
+	case TenantScopeSnapshotsWrite:
+		return true
+	case TenantScopeTenantWrite:
 		return true
 	default:
 		return false
@@ -193,7 +340,7 @@ func (e ListAdminTokensParamsRevoked) Valid() bool {
 const (
 	ListSessionsParamsTagOperatorEq    ListSessionsParamsTagOperator = "eq"
 	ListSessionsParamsTagOperatorIn    ListSessionsParamsTagOperator = "in"
-	ListSessionsParamsTagOperatorNe    ListSessionsParamsTagOperator = "ne"
+	ListSessionsParamsTagOperatorNeq   ListSessionsParamsTagOperator = "neq"
 	ListSessionsParamsTagOperatorNotIn ListSessionsParamsTagOperator = "not_in"
 )
 
@@ -204,7 +351,7 @@ func (e ListSessionsParamsTagOperator) Valid() bool {
 		return true
 	case ListSessionsParamsTagOperatorIn:
 		return true
-	case ListSessionsParamsTagOperatorNe:
+	case ListSessionsParamsTagOperatorNeq:
 		return true
 	case ListSessionsParamsTagOperatorNotIn:
 		return true
@@ -238,7 +385,7 @@ func (e ListSnapshotsParamsDeleted) Valid() bool {
 const (
 	ListSnapshotsParamsTagOperatorEq    ListSnapshotsParamsTagOperator = "eq"
 	ListSnapshotsParamsTagOperatorIn    ListSnapshotsParamsTagOperator = "in"
-	ListSnapshotsParamsTagOperatorNe    ListSnapshotsParamsTagOperator = "ne"
+	ListSnapshotsParamsTagOperatorNeq   ListSnapshotsParamsTagOperator = "neq"
 	ListSnapshotsParamsTagOperatorNotIn ListSnapshotsParamsTagOperator = "not_in"
 )
 
@@ -249,7 +396,7 @@ func (e ListSnapshotsParamsTagOperator) Valid() bool {
 		return true
 	case ListSnapshotsParamsTagOperatorIn:
 		return true
-	case ListSnapshotsParamsTagOperatorNe:
+	case ListSnapshotsParamsTagOperatorNeq:
 		return true
 	case ListSnapshotsParamsTagOperatorNotIn:
 		return true
@@ -260,51 +407,58 @@ func (e ListSnapshotsParamsTagOperator) Valid() bool {
 
 // Defines values for ListTenantTokensParamsRevoked.
 const (
-	Active  ListTenantTokensParamsRevoked = "active"
-	All     ListTenantTokensParamsRevoked = "all"
-	Revoked ListTenantTokensParamsRevoked = "revoked"
+	ListTenantTokensParamsRevokedActive  ListTenantTokensParamsRevoked = "active"
+	ListTenantTokensParamsRevokedAll     ListTenantTokensParamsRevoked = "all"
+	ListTenantTokensParamsRevokedRevoked ListTenantTokensParamsRevoked = "revoked"
 )
 
 // Valid indicates whether the value is a known member of the ListTenantTokensParamsRevoked enum.
 func (e ListTenantTokensParamsRevoked) Valid() bool {
 	switch e {
-	case Active:
+	case ListTenantTokensParamsRevokedActive:
 		return true
-	case All:
+	case ListTenantTokensParamsRevokedAll:
 		return true
-	case Revoked:
+	case ListTenantTokensParamsRevokedRevoked:
 		return true
 	default:
 		return false
 	}
 }
 
-// AuthMe defines model for AuthMe.
+// AuthMe Current principal and its effective tenant selection.
 type AuthMe struct {
-	Principal      Principal `json:"principal"`
-	SelectedTenant *Tenant   `json:"selectedTenant,omitempty"`
+	// Principal Authenticated API token identity and authorization context.
+	Principal Principal `json:"principal"`
+
+	// SelectedTenant Effective tenant, or `null` when a system administrator did not select one.
+	SelectedTenant *Tenant `json:"selectedTenant,omitempty"`
 }
 
-// AuthorityType defines model for AuthorityType.
+// AuthorityType Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
 type AuthorityType string
 
-// BrowserChannel defines model for BrowserChannel.
+// BrowserChannel Browser runtime selectable when creating a session.
 type BrowserChannel struct {
+	// Name Configured browser channel name.
 	Name string `json:"name"`
 }
 
-// BrowserChannels defines model for BrowserChannels.
+// BrowserChannels Browser channels enabled on this deployment.
 type BrowserChannels struct {
 	Channels []BrowserChannel `json:"channels"`
 }
 
-// BrowserConfig defines model for BrowserConfig.
+// BrowserConfig Browser runtime configuration used to create or reopen the session.
 type BrowserConfig struct {
-	Args    *[]string `json:"args,omitempty"`
-	Channel string    `json:"channel"`
+	// Args Additional Chromium command-line arguments. Aperture rejects arguments that conflict with supervisor-owned behavior or deployment policy.
+	Args *[]string `json:"args,omitempty"`
+
+	// Channel Channel returned by `GET /api/browser/channels`.
+	Channel string `json:"channel"`
 }
 
-// CreateAdminTokenInput defines model for CreateAdminTokenInput.
+// CreateAdminTokenInput Token definition accepted by the system administrator token endpoint.
 type CreateAdminTokenInput struct {
 	union json.RawMessage
 }
@@ -312,9 +466,15 @@ type CreateAdminTokenInput struct {
 // CreateAdminTokenInput0 defines model for .
 type CreateAdminTokenInput0 struct {
 	AuthorityType CreateAdminTokenInput0AuthorityType `json:"authorityType"`
-	ExpiresAt     *time.Time                          `json:"expiresAt,omitempty"`
-	Name          string                              `json:"name"`
-	Scopes        []string                            `json:"scopes"`
+
+	// ExpiresAt Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Name Operator-assigned name. Leading and trailing whitespace is removed.
+	Name string `json:"name"`
+
+	// Scopes Must include `system:admin`.
+	Scopes []Scope `json:"scopes"`
 }
 
 // CreateAdminTokenInput0AuthorityType defines model for CreateAdminTokenInput.0.AuthorityType.
@@ -323,237 +483,457 @@ type CreateAdminTokenInput0AuthorityType string
 // CreateAdminTokenInput1 defines model for .
 type CreateAdminTokenInput1 struct {
 	AuthorityType CreateAdminTokenInput1AuthorityType `json:"authorityType"`
-	ExpiresAt     *time.Time                          `json:"expiresAt,omitempty"`
-	Name          string                              `json:"name"`
-	Scopes        []string                            `json:"scopes"`
-	TenantId      string                              `json:"tenantId"`
+
+	// ExpiresAt Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Name Operator-assigned name. Leading and trailing whitespace is removed.
+	Name string `json:"name"`
+
+	// Scopes Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
+	Scopes []TenantScope `json:"scopes"`
+
+	// TenantId Active tenant to bind permanently to the token.
+	TenantId UUIDv7 `json:"tenantId"`
 }
 
 // CreateAdminTokenInput1AuthorityType defines model for CreateAdminTokenInput.1.AuthorityType.
 type CreateAdminTokenInput1AuthorityType string
 
-// CreateSessionInput defines model for CreateSessionInput.
+// CreateSessionInput Configuration for a new retained browser session.
 type CreateSessionInput struct {
-	BaseSnapshotName *string       `json:"baseSnapshotName,omitempty"`
-	Browser          BrowserConfig `json:"browser"`
-	Label            *string       `json:"label,omitempty"`
-	Tags             *StringMap    `json:"tags,omitempty"`
+	// BaseSnapshotName Active snapshot used as the browser filesystem base. Omit, send `null`, or send an empty value for a blank session. A non-empty value also requires `snapshots:read`.
+	BaseSnapshotName *string `json:"baseSnapshotName,omitempty"`
+
+	// Browser Browser runtime configuration used to create or reopen the session.
+	Browser BrowserConfig `json:"browser"`
+
+	// Label Optional operator-facing label for the session.
+	Label *string `json:"label,omitempty"`
+
+	// Tags Initial session tags.
+	Tags *StringMap `json:"tags,omitempty"`
 }
 
-// CreateSessionResult defines model for CreateSessionResult.
+// CreateSessionResult Newly created session and its one-time initial access credentials.
 type CreateSessionResult struct {
-	CdpUrl       string  `json:"cdpUrl"`
-	Session      Session `json:"session"`
-	SessionToken string  `json:"sessionToken"`
+	// CdpUrl Authenticated Chrome DevTools endpoint for the new session.
+	CdpUrl string `json:"cdpUrl"`
+
+	// Session Browser session state, retention metadata, tags, and currently available access credentials.
+	Session Session `json:"session"`
+
+	// SessionToken Initial session access secret. Store it immediately.
+	SessionToken string `json:"sessionToken"`
 }
 
-// CreateTenantTokenInput defines model for CreateTenantTokenInput.
+// CreateTenantTokenInput Token definition automatically bound to the authenticated tenant.
 type CreateTenantTokenInput struct {
+	// ExpiresAt Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	Name      string     `json:"name"`
-	Scopes    []string   `json:"scopes"`
+
+	// Name Operator-assigned name. Leading and trailing whitespace is removed.
+	Name string `json:"name"`
+
+	// Scopes Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
+	Scopes []TenantScope `json:"scopes"`
 }
 
-// CreateTokenResponse defines model for CreateTokenResponse.
+// CreateTokenResponse Created token metadata and its one-time bearer secret.
 type CreateTokenResponse struct {
+	// RawToken One-time Aperture API bearer token. Store it immediately; later reads return only token metadata.
 	RawToken string `json:"rawToken"`
-	Token    Token  `json:"token"`
+
+	// Token API token metadata. The raw bearer secret is never included in this schema.
+	Token Token `json:"token"`
 }
 
-// Error defines model for Error.
+// Error Standard error envelope returned by REST API operations.
 type Error struct {
+	// Error Stable machine-readable error code with a human-readable explanation.
 	Error ErrorDetail `json:"error"`
 }
 
-// ErrorDetail defines model for ErrorDetail.
+// ErrorDetail Stable machine-readable error code with a human-readable explanation.
 type ErrorDetail struct {
-	Code    string `json:"code"`
+	// Code Stable code suitable for programmatic handling.
+	Code string `json:"code"`
+
+	// Message Human-readable explanation. It may include resource or validation context.
 	Message string `json:"message"`
 }
 
-// Event defines model for Event.
+// Event Immutable tenant-scoped audit or lifecycle event.
 type Event struct {
-	CreatedAt    time.Time              `json:"createdAt"`
-	Data         map[string]interface{} `json:"data"`
-	Id           string                 `json:"id"`
-	Message      string                 `json:"message"`
-	ResourceId   string                 `json:"resourceId"`
-	ResourceType string                 `json:"resourceType"`
-	TenantId     string                 `json:"tenantId"`
-	Type         string                 `json:"type"`
+	// CreatedAt Time the event was recorded.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Data Event-specific JSON payload, such as error details or upload metadata.
+	Data map[string]interface{} `json:"data"`
+
+	// Id Event identifier.
+	Id UUIDv7 `json:"id"`
+
+	// Message Human-readable event summary.
+	Message string `json:"message"`
+
+	// ResourceId Identifier of the associated resource. Its format depends on `resourceType`.
+	ResourceId string `json:"resourceId"`
+
+	// ResourceType Resource category associated with the event. Currently session events are the primary source; new categories may be added.
+	ResourceType string `json:"resourceType"`
+
+	// TenantId Tenant that owns the event.
+	TenantId UUIDv7 `json:"tenantId"`
+
+	// Type Extensible event type used for programmatic handling.
+	Type string `json:"type"`
 }
 
-// EventPage defines model for EventPage.
+// EventPage Cursor-paginated tenant events.
 type EventPage struct {
-	Data []Event  `json:"data"`
+	Data []Event `json:"data"`
+
+	// Meta Cursor pagination metadata for a newest-first result page.
 	Meta PageMeta `json:"meta"`
 }
 
-// Health defines model for Health.
+// Health Local deployment health and blue-green role information.
 type Health struct {
-	ActiveColor string `json:"activeColor"`
-	Color       string `json:"color"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
-	Version     string `json:"version"`
+	// ActiveColor Deployment color currently selected as active.
+	ActiveColor HealthActiveColor `json:"activeColor"`
+
+	// Color Deployment color of the process that handled the request.
+	Color HealthColor `json:"color"`
+
+	// Role Whether this deployment color currently serves active traffic.
+	Role HealthRole `json:"role"`
+
+	// Status Process health. A successful response currently reports `ok`.
+	Status HealthStatus `json:"status"`
+
+	// Version Build or release version embedded in the running binary.
+	Version string `json:"version"`
 }
 
-// IceServer defines model for IceServer.
+// HealthActiveColor Deployment color currently selected as active.
+type HealthActiveColor string
+
+// HealthColor Deployment color of the process that handled the request.
+type HealthColor string
+
+// HealthRole Whether this deployment color currently serves active traffic.
+type HealthRole string
+
+// HealthStatus Process health. A successful response currently reports `ok`.
+type HealthStatus string
+
+// IceServer ICE server configuration supplied to WebRTC consumers.
 type IceServer struct {
-	Credential *string  `json:"credential,omitempty"`
-	Urls       []string `json:"urls"`
-	Username   *string  `json:"username,omitempty"`
+	// Credential TURN credential. Treat it as a secret and do not persist it in logs.
+	Credential *string `json:"credential,omitempty"`
+
+	// Urls STUN or TURN server URLs.
+	Urls []string `json:"urls"`
+
+	// Username TURN username. Omitted when the server does not require authentication.
+	Username *string `json:"username,omitempty"`
 }
 
-// PageMeta defines model for PageMeta.
+// PageMeta Cursor pagination metadata for a newest-first result page.
 type PageMeta struct {
-	HasMore    bool    `json:"hasMore"`
+	// HasMore Whether another page is available.
+	HasMore bool `json:"hasMore"`
+
+	// Limit Effective page size after applying the default and maximum.
+	Limit int `json:"limit"`
+
+	// NextCursor Opaque cursor for the next page. Omitted when there is no next page.
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
-// Principal defines model for Principal.
+// Principal Authenticated API token identity and authorization context.
 type Principal struct {
+	// AuthorityType Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
 	AuthorityType AuthorityType `json:"authorityType"`
-	Name          string        `json:"name"`
-	Scopes        []string      `json:"scopes"`
-	TenantId      *string       `json:"tenantId,omitempty"`
-	TokenId       string        `json:"tokenId"`
+
+	// Name Operator-assigned token name.
+	Name string `json:"name"`
+
+	// Scopes Scopes granted to the token.
+	Scopes []Scope `json:"scopes"`
+
+	// TenantId Bound tenant for a tenant token, or `null` for a system administrator token.
+	TenantId *UUIDv7 `json:"tenantId,omitempty"`
+
+	// TokenId Identifier of the API token used for authentication.
+	TokenId UUIDv7 `json:"tokenId"`
 }
 
-// PromoteSessionInput defines model for PromoteSessionInput.
+// PromoteSessionInput Snapshot metadata created from a stopped, retained session.
 type PromoteSessionInput struct {
-	Description *string    `json:"description,omitempty"`
-	Force       *bool      `json:"force,omitempty"`
-	Name        string     `json:"name"`
-	Tags        *StringMap `json:"tags,omitempty"`
+	// Description Optional snapshot description. `null` creates the snapshot without a description.
+	Description *string `json:"description,omitempty"`
+
+	// Force Allow reuse of a name owned by a deleted snapshot. This never overwrites an active snapshot.
+	Force *bool `json:"force,omitempty"`
+
+	// Name Tenant-unique snapshot name. Leading and trailing whitespace is removed.
+	Name string `json:"name"`
+
+	// Tags Initial complete tag map for the new snapshot.
+	Tags *StringMap `json:"tags,omitempty"`
 }
 
-// ReplaceTagsInput defines model for ReplaceTagsInput.
+// ReplaceTagsInput Complete replacement tag set. The map may be empty to clear all tags.
 type ReplaceTagsInput struct {
+	// Tags Complete tag map. Keys and values must contain non-whitespace characters.
 	Tags StringMap `json:"tags"`
 }
 
-// Session defines model for Session.
+// Scope Permission granted to an API token. `system:admin` implies every scope. Tenant tokens cannot receive `system:admin` or `tenants:write`.
+type Scope string
+
+// Session Browser session state, retention metadata, tags, and currently available access credentials.
 type Session struct {
-	BaseSnapshotName *string            `json:"baseSnapshotName,omitempty"`
-	BrowserChannel   *string            `json:"browserChannel,omitempty"`
-	CdpUrl           *string            `json:"cdpUrl,omitempty"`
-	CreatedAt        time.Time          `json:"createdAt"`
-	DeletedAt        *time.Time         `json:"deletedAt,omitempty"`
-	ExpiresAt        time.Time          `json:"expiresAt"`
-	Id               openapi_types.UUID `json:"id"`
-	Label            *string            `json:"label,omitempty"`
-	LastConnectedAt  *time.Time         `json:"lastConnectedAt,omitempty"`
-	Media            SessionMedia       `json:"media"`
-	SessionToken     *string            `json:"sessionToken,omitempty"`
-	StartedAt        *time.Time         `json:"startedAt,omitempty"`
-	Status           SessionStatus      `json:"status"`
-	StoppedAt        *time.Time         `json:"stoppedAt,omitempty"`
-	SuspendedAt      *time.Time         `json:"suspendedAt,omitempty"`
-	Tags             *StringMap         `json:"tags,omitempty"`
-	TenantId         string             `json:"tenantId"`
+	// BaseSnapshotName Snapshot name used as the session base. Omitted for a blank session.
+	BaseSnapshotName *string `json:"baseSnapshotName,omitempty"`
+
+	// BrowserChannel Browser channel used to create and reopen the session.
+	BrowserChannel *string `json:"browserChannel,omitempty"`
+
+	// CdpUrl Authenticated Chrome DevTools endpoint. Omitted when the session is not currently routable. Use it with `sessionToken`.
+	CdpUrl *string `json:"cdpUrl,omitempty"`
+
+	// CreatedAt Time the session record was created.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DeletedAt Soft-deletion time, or `null` for a session that has not been deleted.
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// ExpiresAt Retention deadline after which the session and its overlay may be purged. This is not token expiry.
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Id Session identifier.
+	Id UUIDv7 `json:"id"`
+
+	// Label Optional operator-facing session label.
+	Label *string `json:"label,omitempty"`
+
+	// LastConnectedAt Most recent routed client activity time. Omitted until a client connects.
+	LastConnectedAt *time.Time `json:"lastConnectedAt,omitempty"`
+
+	// Media Media capabilities currently available for the session.
+	Media SessionMedia `json:"media"`
+
+	// SessionToken Session access secret returned when live access credentials are available. Rotation invalidates the previous token immediately.
+	SessionToken *string `json:"sessionToken,omitempty"`
+
+	// StartedAt Most recent successful browser start time. Omitted before startup succeeds.
+	StartedAt *time.Time `json:"startedAt,omitempty"`
+
+	// Status Session lifecycle state:
+	//
+	// - `creating`: browser startup is in progress.
+	// - `running`: browser and routing are available.
+	// - `suspended`: browser is intentionally stopped while retained state remains available.
+	// - `deleted`: session is soft-deleted and may be reopened while retained.
+	// - `expired`: retention elapsed and the session can no longer be used.
+	// - `failed`: startup or reopen failed; retained state may still be reopenable.
+	Status SessionStatus `json:"status"`
+
+	// StoppedAt Most recent browser stop time. Omitted while no stop has occurred.
+	StoppedAt *time.Time `json:"stoppedAt,omitempty"`
+
+	// SuspendedAt Most recent suspension time. Omitted unless the session is suspended.
+	SuspendedAt *time.Time `json:"suspendedAt,omitempty"`
+
+	// Tags Session metadata tags. Omitted when no tags are set.
+	Tags *StringMap `json:"tags,omitempty"`
+
+	// TenantId Tenant that owns the session.
+	TenantId UUIDv7 `json:"tenantId"`
 }
 
-// SessionBulkInput defines model for SessionBulkInput.
+// SessionBulkInput Ordered session IDs for a tenant-scoped bulk lookup. Missing, foreign, and deleted IDs are omitted from the result.
 type SessionBulkInput struct {
-	Ids []string `json:"ids"`
+	// Ids Up to 100 unique UUIDv7 values. An empty array is valid.
+	Ids []UUIDv7 `json:"ids"`
 }
 
-// SessionBulkResponse defines model for SessionBulkResponse.
+// SessionBulkResponse Sessions found for the requested IDs, preserving request order.
 type SessionBulkResponse struct {
 	Sessions []Session `json:"sessions"`
 }
 
-// SessionMedia defines model for SessionMedia.
+// SessionMedia Media capabilities currently available for the session.
 type SessionMedia struct {
-	IceServers     *[]IceServer `json:"iceServers,omitempty"`
-	Mode           string       `json:"mode"`
-	WebrtcProducer bool         `json:"webrtcProducer"`
+	// IceServers ICE configuration for WebRTC setup. Omitted when WebRTC is unavailable or does not need configured ICE servers.
+	IceServers *[]IceServer `json:"iceServers,omitempty"`
+
+	// Mode Configured media mode. `auto` enables deployment-selected media support; `cdp` exposes Chrome DevTools access only.
+	Mode SessionMediaMode `json:"mode"`
+
+	// WebrtcProducer Whether the compositor WebRTC producer is available for this session.
+	WebrtcProducer bool `json:"webrtcProducer"`
 }
 
-// SessionMutation defines model for SessionMutation.
+// SessionMediaMode Configured media mode. `auto` enables deployment-selected media support; `cdp` exposes Chrome DevTools access only.
+type SessionMediaMode string
+
+// SessionMutation Updated session and operation-specific live access credentials when available.
 type SessionMutation struct {
-	CdpUrl       *string `json:"cdpUrl,omitempty"`
-	Session      Session `json:"session"`
+	// CdpUrl Current Chrome DevTools endpoint. Omitted by operations that do not expose live access.
+	CdpUrl *string `json:"cdpUrl,omitempty"`
+
+	// Session Browser session state, retention metadata, tags, and currently available access credentials.
+	Session Session `json:"session"`
+
+	// SessionToken Current raw session access secret. Omitted by operations that do not expose or replace credentials.
 	SessionToken *string `json:"sessionToken,omitempty"`
 }
 
-// SessionPage defines model for SessionPage.
+// SessionPage Cursor-paginated browser sessions.
 type SessionPage struct {
 	Data []Session `json:"data"`
-	Meta PageMeta  `json:"meta"`
+
+	// Meta Cursor pagination metadata for a newest-first result page.
+	Meta PageMeta `json:"meta"`
 }
 
-// SessionStatus defines model for SessionStatus.
+// SessionStatus Session lifecycle state:
+//
+// - `creating`: browser startup is in progress.
+// - `running`: browser and routing are available.
+// - `suspended`: browser is intentionally stopped while retained state remains available.
+// - `deleted`: session is soft-deleted and may be reopened while retained.
+// - `expired`: retention elapsed and the session can no longer be used.
+// - `failed`: startup or reopen failed; retained state may still be reopenable.
 type SessionStatus string
 
-// Snapshot defines model for Snapshot.
+// Snapshot Reusable retained browser filesystem state. Deletion is soft until the retention deadline.
 type Snapshot struct {
-	CreatedAt             time.Time  `json:"createdAt"`
-	DeletedAt             *time.Time `json:"deletedAt,omitempty"`
-	Description           *string    `json:"description,omitempty"`
-	ExpiresAt             *time.Time `json:"expiresAt,omitempty"`
-	Id                    string     `json:"id"`
-	Name                  string     `json:"name"`
-	ParentSnapshotId      *string    `json:"parentSnapshotId,omitempty"`
-	PromotedFromSessionId *string    `json:"promotedFromSessionId,omitempty"`
-	Tags                  *StringMap `json:"tags,omitempty"`
-	TenantId              string     `json:"tenantId"`
+	// CreatedAt Time the snapshot was created.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DeletedAt Soft-deletion time, or `null` for an active snapshot.
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// Description Operator-provided description, or `null` when none is set.
+	Description *string `json:"description,omitempty"`
+
+	// ExpiresAt Purge eligibility time for a deleted snapshot. Omitted for active snapshots.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Id Snapshot identifier.
+	Id UUIDv7 `json:"id"`
+
+	// Name Human-selected tenant-unique snapshot name.
+	Name string `json:"name"`
+
+	// ParentSnapshotId Base snapshot from which the source session was created. Omitted for snapshots without a parent.
+	ParentSnapshotId *UUIDv7 `json:"parentSnapshotId,omitempty"`
+
+	// PromotedFromSessionId Session whose retained overlay produced this snapshot. Omitted when lineage is unavailable.
+	PromotedFromSessionId *UUIDv7 `json:"promotedFromSessionId,omitempty"`
+
+	// Tags Snapshot metadata tags. Omitted when no tags are set.
+	Tags *StringMap `json:"tags,omitempty"`
+
+	// TenantId Tenant that owns the snapshot.
+	TenantId UUIDv7 `json:"tenantId"`
 }
 
-// SnapshotMutation defines model for SnapshotMutation.
+// SnapshotMutation Snapshot returned after a mutation.
 type SnapshotMutation struct {
+	// Snapshot Reusable retained browser filesystem state. Deletion is soft until the retention deadline.
 	Snapshot Snapshot `json:"snapshot"`
 }
 
-// SnapshotPage defines model for SnapshotPage.
+// SnapshotPage Cursor-paginated snapshots.
 type SnapshotPage struct {
 	Data []Snapshot `json:"data"`
-	Meta PageMeta   `json:"meta"`
+
+	// Meta Cursor pagination metadata for a newest-first result page.
+	Meta PageMeta `json:"meta"`
 }
 
-// StringMap defines model for StringMap.
+// StringMap Arbitrary string key-value metadata. Tag-writing operations additionally reject blank keys and blank values.
 type StringMap map[string]string
 
-// Tenant defines model for Tenant.
+// Tenant Tenant account. Deletion is a reversible soft deactivation.
 type Tenant struct {
-	CreatedAt   time.Time  `json:"createdAt"`
-	DeletedAt   *time.Time `json:"deletedAt,omitempty"`
-	DisplayName string     `json:"displayName"`
-	Id          string     `json:"id"`
+	// CreatedAt Time the tenant was created.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DeletedAt Soft-deactivation time, or `null` for an active tenant.
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// DisplayName Human-readable tenant name.
+	DisplayName string `json:"displayName"`
+
+	// Id Tenant identifier.
+	Id UUIDv7 `json:"id"`
 }
 
-// TenantInput defines model for TenantInput.
+// TenantInput Tenant fields accepted by create and update operations.
 type TenantInput struct {
+	// DisplayName Human-readable tenant name. Leading and trailing whitespace is removed and whitespace-only values are rejected.
 	DisplayName string `json:"displayName"`
 }
 
-// TenantPage defines model for TenantPage.
+// TenantPage Cursor-paginated tenants.
 type TenantPage struct {
 	Data []Tenant `json:"data"`
+
+	// Meta Cursor pagination metadata for a newest-first result page.
 	Meta PageMeta `json:"meta"`
 }
 
-// Token defines model for Token.
+// TenantScope Scope allowed on a tenant-bound API token.
+type TenantScope string
+
+// Token API token metadata. The raw bearer secret is never included in this schema.
 type Token struct {
+	// AuthorityType Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
 	AuthorityType AuthorityType `json:"authorityType"`
-	CreatedAt     time.Time     `json:"createdAt"`
-	ExpiresAt     *time.Time    `json:"expiresAt,omitempty"`
-	Id            string        `json:"id"`
-	Name          string        `json:"name"`
-	RevokedAt     *time.Time    `json:"revokedAt,omitempty"`
-	Scopes        []string      `json:"scopes"`
-	TenantId      *string       `json:"tenantId,omitempty"`
+
+	// CreatedAt Time the token was created.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// ExpiresAt Authentication expiry time, or `null` when the token does not expire automatically.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+
+	// Id Token identifier. This is not the bearer secret.
+	Id UUIDv7 `json:"id"`
+
+	// Name Operator-assigned token name, unique within its authority and tenant context.
+	Name string `json:"name"`
+
+	// RevokedAt Revocation time, or `null` while the token is active.
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+
+	// Scopes Unique scopes granted to the token.
+	Scopes []Scope `json:"scopes"`
+
+	// TenantId Bound tenant for a tenant token, or `null` for a system administrator token.
+	TenantId *UUIDv7 `json:"tenantId,omitempty"`
 }
 
-// TokenPage defines model for TokenPage.
+// TokenPage Cursor-paginated API token metadata without bearer secrets.
 type TokenPage struct {
-	Data []Token  `json:"data"`
+	Data []Token `json:"data"`
+
+	// Meta Cursor pagination metadata for a newest-first result page.
 	Meta PageMeta `json:"meta"`
 }
 
-// UpdateSnapshotInput defines model for UpdateSnapshotInput.
+// UUIDv7 Time-ordered UUID version 7 generated by Aperture.
+type UUIDv7 = openapi_types.UUID
+
+// UpdateSnapshotInput Replacement snapshot description.
 type UpdateSnapshotInput struct {
+	// Description New description. Send `null` to clear it; an empty string is stored as an empty description.
 	Description *string `json:"description,omitempty"`
 }
 
@@ -566,17 +946,20 @@ type Deleted string
 // IncludeDeleted defines model for IncludeDeleted.
 type IncludeDeleted = bool
 
+// LegacyIncludeDeleted defines model for LegacyIncludeDeleted.
+type LegacyIncludeDeleted = bool
+
 // Limit defines model for Limit.
 type Limit = int
 
 // RevokedFilter defines model for RevokedFilter.
 type RevokedFilter string
 
-// SelectedTenantId defines model for SelectedTenantId.
-type SelectedTenantId = string
+// SelectedTenantId Time-ordered UUID version 7 generated by Aperture.
+type SelectedTenantId = UUIDv7
 
-// SessionId defines model for SessionId.
-type SessionId = openapi_types.UUID
+// SessionId Time-ordered UUID version 7 generated by Aperture.
+type SessionId = UUIDv7
 
 // SnapshotName defines model for SnapshotName.
 type SnapshotName = string
@@ -590,37 +973,37 @@ type TagOperator = []string
 // TagValue defines model for TagValue.
 type TagValue = []string
 
-// TenantId defines model for TenantId.
-type TenantId = string
+// TenantId Time-ordered UUID version 7 generated by Aperture.
+type TenantId = UUIDv7
 
-// TokenId defines model for TokenId.
-type TokenId = string
+// TokenId Time-ordered UUID version 7 generated by Aperture.
+type TokenId = UUIDv7
 
-// CreateAdminToken defines model for CreateAdminToken.
+// CreateAdminToken Token definition accepted by the system administrator token endpoint.
 type CreateAdminToken = CreateAdminTokenInput
 
-// CreateSession defines model for CreateSession.
+// CreateSession Configuration for a new retained browser session.
 type CreateSession = CreateSessionInput
 
-// CreateTenant defines model for CreateTenant.
+// CreateTenant Tenant fields accepted by create and update operations.
 type CreateTenant = TenantInput
 
-// CreateTenantToken defines model for CreateTenantToken.
+// CreateTenantToken Token definition automatically bound to the authenticated tenant.
 type CreateTenantToken = CreateTenantTokenInput
 
-// PromoteSession defines model for PromoteSession.
+// PromoteSession Snapshot metadata created from a stopped, retained session.
 type PromoteSession = PromoteSessionInput
 
-// ReplaceTags defines model for ReplaceTags.
+// ReplaceTags Complete replacement tag set. The map may be empty to clear all tags.
 type ReplaceTags = ReplaceTagsInput
 
-// SessionBulk defines model for SessionBulk.
+// SessionBulk Ordered session IDs for a tenant-scoped bulk lookup. Missing, foreign, and deleted IDs are omitted from the result.
 type SessionBulk = SessionBulkInput
 
-// UpdateSnapshot defines model for UpdateSnapshot.
+// UpdateSnapshot Replacement snapshot description.
 type UpdateSnapshot = UpdateSnapshotInput
 
-// UpdateTenant defines model for UpdateTenant.
+// UpdateTenant Tenant fields accepted by create and update operations.
 type UpdateTenant = TenantInput
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
@@ -628,9 +1011,17 @@ type bearerAuthContextKey string
 
 // ListTenantsParams defines parameters for ListTenants.
 type ListTenantsParams struct {
-	Limit   *Limit                    `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor  *Cursor                   `form:"cursor,omitempty" json:"cursor,omitempty"`
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Deleted Select active resources, deleted resources only, or both. The default is `active`.
 	Deleted *ListTenantsParamsDeleted `form:"deleted,omitempty" json:"deleted,omitempty"`
+
+	// IncludeDeleted Legacy switch that includes active and deleted resources when `true`. Ignored when `deleted` is supplied; prefer `deleted=all`.
+	IncludeDeleted *LegacyIncludeDeleted `form:"includeDeleted,omitempty" json:"includeDeleted,omitempty"`
 }
 
 // ListTenantsParamsDeleted defines parameters for ListTenants.
@@ -638,13 +1029,26 @@ type ListTenantsParamsDeleted string
 
 // ListAdminTokensParams defines parameters for ListAdminTokens.
 type ListAdminTokensParams struct {
-	Limit         *Limit                        `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor        *Cursor                       `form:"cursor,omitempty" json:"cursor,omitempty"`
-	AuthorityType *AuthorityType                `form:"authorityType,omitempty" json:"authorityType,omitempty"`
-	TenantId      *string                       `form:"tenantId,omitempty" json:"tenantId,omitempty"`
-	Name          *string                       `form:"name,omitempty" json:"name,omitempty"`
-	Scope         *string                       `form:"scope,omitempty" json:"scope,omitempty"`
-	Revoked       *ListAdminTokensParamsRevoked `form:"revoked,omitempty" json:"revoked,omitempty"`
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// AuthorityType Exact token authority type.
+	AuthorityType *AuthorityType `form:"authorityType,omitempty" json:"authorityType,omitempty"`
+
+	// TenantId Exact bound tenant ID. System administrator tokens have no tenant ID.
+	TenantId *UUIDv7 `form:"tenantId,omitempty" json:"tenantId,omitempty"`
+
+	// Name Case-insensitive substring matched against the token name.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// Scope Return tokens containing this exact scope.
+	Scope *Scope `form:"scope,omitempty" json:"scope,omitempty"`
+
+	// Revoked Select active tokens, revoked tokens only, or both. Omitting the parameter is equivalent to `all`.
+	Revoked *ListAdminTokensParamsRevoked `form:"revoked,omitempty" json:"revoked,omitempty"`
 }
 
 // ListAdminTokensParamsRevoked defines parameters for ListAdminTokens.
@@ -652,32 +1056,52 @@ type ListAdminTokensParamsRevoked string
 
 // GetCurrentPrincipalParams defines parameters for GetCurrentPrincipal.
 type GetCurrentPrincipalParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
-	Limit        *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor       *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-	ResourceType *string `form:"resourceType,omitempty" json:"resourceType,omitempty"`
-	ResourceId   *string `form:"resourceId,omitempty" json:"resourceId,omitempty"`
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// ResourceType Exact resource category, such as `session`.
+	ResourceType *string `form:"resourceType,omitempty" json:"resourceType,omitempty"`
+
+	// ResourceId Exact resource identifier within the selected tenant.
+	ResourceId *string `form:"resourceId,omitempty" json:"resourceId,omitempty"`
+
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ListSessionsParams defines parameters for ListSessions.
 type ListSessionsParams struct {
-	Limit          *Limit          `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor         *Cursor         `form:"cursor,omitempty" json:"cursor,omitempty"`
-	IncludeDeleted *IncludeDeleted `form:"includeDeleted,omitempty" json:"includeDeleted,omitempty"`
-	Status         *SessionStatus  `form:"status,omitempty" json:"status,omitempty"`
-	TagKey         *TagKey         `form:"tagKey,omitempty" json:"tagKey,omitempty"`
-	TagValue       *TagValue       `form:"tagValue,omitempty" json:"tagValue,omitempty"`
-	TagOperator    *TagOperator    `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// IncludeDeleted Include soft-deleted sessions when `true`. The default is `false`.
+	IncludeDeleted *IncludeDeleted `form:"includeDeleted,omitempty" json:"includeDeleted,omitempty"`
+
+	// Status Exact session lifecycle status.
+	Status *SessionStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// TagKey Repeatable tag key. Each entry pairs by position with `tagValue` and, when supplied, `tagOperator`. Multiple predicates are combined with logical AND.
+	TagKey *TagKey `form:"tagKey,omitempty" json:"tagKey,omitempty"`
+
+	// TagValue Repeatable tag value paired with `tagKey`. `eq` and `neq` accept one value. `in` and `not_in` accept comma-separated values in the matching entry.
+	TagValue *TagValue `form:"tagValue,omitempty" json:"tagValue,omitempty"`
+
+	// TagOperator Optional operator paired by position with each tag predicate. Omit the entire parameter to use `eq` for every predicate. If supplied, its entry count must match `tagKey`.
+	TagOperator *TagOperator `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
+
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -686,68 +1110,82 @@ type ListSessionsParamsTagOperator string
 
 // CreateSessionParams defines parameters for CreateSession.
 type CreateSessionParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionsBulkParams defines parameters for GetSessionsBulk.
 type GetSessionsBulkParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // DeleteSessionParams defines parameters for DeleteSession.
 type DeleteSessionParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // PromoteSessionParams defines parameters for PromoteSession.
 type PromoteSessionParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReopenSessionParams defines parameters for ReopenSession.
 type ReopenSessionParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RotateSessionTokenParams defines parameters for RotateSessionToken.
 type RotateSessionTokenParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // SuspendSessionParams defines parameters for SuspendSession.
 type SuspendSessionParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReplaceSessionTagsParams defines parameters for ReplaceSessionTags.
 type ReplaceSessionTagsParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ListSnapshotsParams defines parameters for ListSnapshots.
 type ListSnapshotsParams struct {
-	Limit       *Limit                      `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor      *Cursor                     `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Deleted     *ListSnapshotsParamsDeleted `form:"deleted,omitempty" json:"deleted,omitempty"`
-	TagKey      *TagKey                     `form:"tagKey,omitempty" json:"tagKey,omitempty"`
-	TagValue    *TagValue                   `form:"tagValue,omitempty" json:"tagValue,omitempty"`
-	TagOperator *TagOperator                `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Deleted Select active resources, deleted resources only, or both. The default is `active`.
+	Deleted *ListSnapshotsParamsDeleted `form:"deleted,omitempty" json:"deleted,omitempty"`
+
+	// IncludeDeleted Legacy switch that includes active and deleted resources when `true`. Ignored when `deleted` is supplied; prefer `deleted=all`.
+	IncludeDeleted *LegacyIncludeDeleted `form:"includeDeleted,omitempty" json:"includeDeleted,omitempty"`
+
+	// TagKey Repeatable tag key. Each entry pairs by position with `tagValue` and, when supplied, `tagOperator`. Multiple predicates are combined with logical AND.
+	TagKey *TagKey `form:"tagKey,omitempty" json:"tagKey,omitempty"`
+
+	// TagValue Repeatable tag value paired with `tagKey`. `eq` and `neq` accept one value. `in` and `not_in` accept comma-separated values in the matching entry.
+	TagValue *TagValue `form:"tagValue,omitempty" json:"tagValue,omitempty"`
+
+	// TagOperator Optional operator paired by position with each tag predicate. Omit the entire parameter to use `eq` for every predicate. If supplied, its entry count must match `tagKey`.
+	TagOperator *TagOperator `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
+
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -759,34 +1197,43 @@ type ListSnapshotsParamsTagOperator string
 
 // DeleteSnapshotParams defines parameters for DeleteSnapshot.
 type DeleteSnapshotParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // UpdateSnapshotParams defines parameters for UpdateSnapshot.
 type UpdateSnapshotParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RestoreSnapshotParams defines parameters for RestoreSnapshot.
 type RestoreSnapshotParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReplaceSnapshotTagsParams defines parameters for ReplaceSnapshotTags.
 type ReplaceSnapshotTagsParams struct {
-	// XApertureTenantId Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ListTenantTokensParams defines parameters for ListTenantTokens.
 type ListTenantTokensParams struct {
-	Limit   *Limit                         `form:"limit,omitempty" json:"limit,omitempty"`
-	Cursor  *Cursor                        `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Name    *string                        `form:"name,omitempty" json:"name,omitempty"`
-	Scope   *string                        `form:"scope,omitempty" json:"scope,omitempty"`
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Name Case-insensitive substring matched against the token name.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// Scope Return tokens containing this exact scope.
+	Scope *Scope `form:"scope,omitempty" json:"scope,omitempty"`
+
+	// Revoked Select active tokens, revoked tokens only, or both. Omitting the parameter is equivalent to `all`.
 	Revoked *ListTenantTokensParamsRevoked `form:"revoked,omitempty" json:"revoked,omitempty"`
 }
 
@@ -1660,6 +2107,18 @@ func NewListTenantsRequest(server string, params *ListTenantsParams) (*http.Requ
 
 		}
 
+		if params.IncludeDeleted != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeDeleted", *params.IncludeDeleted, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if encoded := queryValues.Encode(); encoded != "" {
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
@@ -1720,7 +2179,7 @@ func NewDeleteTenantRequest(server string, tenantId TenantId) (*http.Request, er
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
 	if err != nil {
 		return nil, err
 	}
@@ -1765,7 +2224,7 @@ func NewUpdateTenantRequestWithBody(server string, tenantId TenantId, contentTyp
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
 	if err != nil {
 		return nil, err
 	}
@@ -1801,7 +2260,7 @@ func NewRestoreTenantRequest(server string, tenantId TenantId) (*http.Request, e
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
 	if err != nil {
 		return nil, err
 	}
@@ -1895,7 +2354,7 @@ func NewListAdminTokensRequest(server string, params *ListAdminTokensParams) (*h
 
 		if params.TenantId != nil {
 
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "tenantId", *params.TenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "tenantId", *params.TenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -2001,7 +2460,7 @@ func NewRevokeAdminTokenRequest(server string, tokenId TokenId) (*http.Request, 
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tokenId", tokenId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tokenId", tokenId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
 	if err != nil {
 		return nil, err
 	}
@@ -2058,7 +2517,7 @@ func NewGetCurrentPrincipalRequest(server string, params *GetCurrentPrincipalPar
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2190,7 +2649,7 @@ func NewListEventsRequest(server string, params *ListEventsParams) (*http.Reques
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2358,7 +2817,7 @@ func NewListSessionsRequest(server string, params *ListSessionsParams) (*http.Re
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2413,7 +2872,7 @@ func NewCreateSessionRequestWithBody(server string, params *CreateSessionParams,
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2468,7 +2927,7 @@ func NewGetSessionsBulkRequestWithBody(server string, params *GetSessionsBulkPar
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2517,7 +2976,7 @@ func NewDeleteSessionRequest(server string, sessionId SessionId, params *DeleteS
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2566,7 +3025,7 @@ func NewGetSessionRequest(server string, sessionId SessionId, params *GetSession
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2628,7 +3087,7 @@ func NewPromoteSessionRequestWithBody(server string, sessionId SessionId, params
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2677,7 +3136,7 @@ func NewReopenSessionRequest(server string, sessionId SessionId, params *ReopenS
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2726,7 +3185,7 @@ func NewRotateSessionTokenRequest(server string, sessionId SessionId, params *Ro
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2775,7 +3234,7 @@ func NewSuspendSessionRequest(server string, sessionId SessionId, params *Suspen
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2837,7 +3296,7 @@ func NewReplaceSessionTagsRequestWithBody(server string, sessionId SessionId, pa
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -2914,6 +3373,18 @@ func NewListSnapshotsRequest(server string, params *ListSnapshotsParams) (*http.
 
 		}
 
+		if params.IncludeDeleted != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeDeleted", *params.IncludeDeleted, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if params.TagKey != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "tagKey", *params.TagKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
@@ -2966,7 +3437,7 @@ func NewListSnapshotsRequest(server string, params *ListSnapshotsParams) (*http.
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -3015,7 +3486,7 @@ func NewDeleteSnapshotRequest(server string, name SnapshotName, params *DeleteSn
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -3077,7 +3548,7 @@ func NewUpdateSnapshotRequestWithBody(server string, name SnapshotName, params *
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -3126,7 +3597,7 @@ func NewRestoreSnapshotRequest(server string, name SnapshotName, params *Restore
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -3188,7 +3659,7 @@ func NewReplaceSnapshotTagsRequestWithBody(server string, name SnapshotName, par
 		if params.XApertureTenantId != nil {
 			var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
 			if err != nil {
 				return nil, err
 			}
@@ -3416,7 +3887,7 @@ func NewRevokeTenantTokenRequest(server string, tokenId TokenId) (*http.Request,
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tokenId", tokenId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tokenId", tokenId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
 	if err != nil {
 		return nil, err
 	}
@@ -6150,6 +6621,14 @@ func (siw *ServerInterfaceWrapper) ListTenants(c *gin.Context) {
 		return
 	}
 
+	// ------------- Optional query parameter "includeDeleted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "includeDeleted", c.Request.URL.Query(), &params.IncludeDeleted, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter includeDeleted: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -6184,7 +6663,7 @@ func (siw *ServerInterfaceWrapper) DeleteTenant(c *gin.Context) {
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
 		return
@@ -6211,7 +6690,7 @@ func (siw *ServerInterfaceWrapper) UpdateTenant(c *gin.Context) {
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
 		return
@@ -6238,7 +6717,7 @@ func (siw *ServerInterfaceWrapper) RestoreTenant(c *gin.Context) {
 	// ------------- Path parameter "tenantId" -------------
 	var tenantId TenantId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
 		return
@@ -6293,7 +6772,7 @@ func (siw *ServerInterfaceWrapper) ListAdminTokens(c *gin.Context) {
 
 	// ------------- Optional query parameter "tenantId" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "tenantId", c.Request.URL.Query(), &params.TenantId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tenantId", c.Request.URL.Query(), &params.TenantId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
 		return
@@ -6357,7 +6836,7 @@ func (siw *ServerInterfaceWrapper) RevokeAdminToken(c *gin.Context) {
 	// ------------- Path parameter "tokenId" -------------
 	var tokenId TokenId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tokenId", c.Param("tokenId"), &tokenId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "tokenId", c.Param("tokenId"), &tokenId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tokenId: %w", err), http.StatusBadRequest)
 		return
@@ -6397,7 +6876,7 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6486,7 +6965,7 @@ func (siw *ServerInterfaceWrapper) ListEvents(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6597,7 +7076,7 @@ func (siw *ServerInterfaceWrapper) ListSessions(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6639,7 +7118,7 @@ func (siw *ServerInterfaceWrapper) CreateSession(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6681,7 +7160,7 @@ func (siw *ServerInterfaceWrapper) GetSessionsBulk(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6732,7 +7211,7 @@ func (siw *ServerInterfaceWrapper) DeleteSession(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6783,7 +7262,7 @@ func (siw *ServerInterfaceWrapper) GetSession(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6834,7 +7313,7 @@ func (siw *ServerInterfaceWrapper) PromoteSession(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6885,7 +7364,7 @@ func (siw *ServerInterfaceWrapper) ReopenSession(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6936,7 +7415,7 @@ func (siw *ServerInterfaceWrapper) RotateSessionToken(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -6987,7 +7466,7 @@ func (siw *ServerInterfaceWrapper) SuspendSession(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -7038,7 +7517,7 @@ func (siw *ServerInterfaceWrapper) ReplaceSessionTags(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -7093,6 +7572,14 @@ func (siw *ServerInterfaceWrapper) ListSnapshots(c *gin.Context) {
 		return
 	}
 
+	// ------------- Optional query parameter "includeDeleted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "includeDeleted", c.Request.URL.Query(), &params.IncludeDeleted, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter includeDeleted: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	// ------------- Optional query parameter "tagKey" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "tagKey", c.Request.URL.Query(), &params.TagKey, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
@@ -7128,7 +7615,7 @@ func (siw *ServerInterfaceWrapper) ListSnapshots(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -7179,7 +7666,7 @@ func (siw *ServerInterfaceWrapper) DeleteSnapshot(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -7230,7 +7717,7 @@ func (siw *ServerInterfaceWrapper) UpdateSnapshot(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -7281,7 +7768,7 @@ func (siw *ServerInterfaceWrapper) RestoreSnapshot(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -7332,7 +7819,7 @@ func (siw *ServerInterfaceWrapper) ReplaceSnapshotTags(c *gin.Context) {
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
 		if err != nil {
 			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
 			return
@@ -7467,7 +7954,7 @@ func (siw *ServerInterfaceWrapper) RevokeTenantToken(c *gin.Context) {
 	// ------------- Path parameter "tokenId" -------------
 	var tokenId TokenId
 
-	err = runtime.BindStyledParameterWithOptions("simple", "tokenId", c.Param("tokenId"), &tokenId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	err = runtime.BindStyledParameterWithOptions("simple", "tokenId", c.Param("tokenId"), &tokenId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tokenId: %w", err), http.StatusBadRequest)
 		return
@@ -9850,61 +10337,190 @@ func (sh *strictHandler) RevokeTenantToken(ctx *gin.Context, tokenId TokenId) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
