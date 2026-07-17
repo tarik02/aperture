@@ -20,6 +20,8 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	}
 	router := gin.New()
 	router.Use(gin.Recovery(), server.handoffInactiveAPI)
+	router.GET("/docs", scalarAPIReference)
+	router.GET("/openapi.json", openAPISpec)
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.cdpForwardAuth)

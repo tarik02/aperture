@@ -1,0 +1,596 @@
+openapi: 3.0.3
+info:
+  title: Aperture API
+  version: 0.0.0
+  description: API for managing Aperture tenants, browser sessions, snapshots, and tokens.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+  - name: auth
+  - name: browser
+  - name: tenants
+  - name: tokens
+  - name: sessions
+  - name: snapshots
+  - name: events
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      tags: [system]
+      summary: Get service health
+      security: []
+      responses:
+        '200': {description: Service health, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+  /api/auth/me:
+    get:
+      operationId: getCurrentPrincipal
+      tags: [auth]
+      summary: Get the authenticated principal
+      parameters:
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Current principal, content: {application/json: {schema: {$ref: '#/components/schemas/AuthMe'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/browser/channels:
+    get:
+      operationId: listBrowserChannels
+      tags: [browser]
+      summary: List available browser channels
+      responses:
+        '200': {description: Browser channels, content: {application/json: {schema: {$ref: '#/components/schemas/BrowserChannels'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants:
+    post:
+      operationId: createTenant
+      tags: [tenants]
+      summary: Create a tenant
+      requestBody: {$ref: '#/components/requestBodies/CreateTenant'}
+      responses:
+        '201': {description: Created tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      operationId: listTenants
+      tags: [tenants]
+      summary: List tenants
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Deleted'}
+      responses:
+        '200': {description: Tenant page, content: {application/json: {schema: {$ref: '#/components/schemas/TenantPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}:
+    parameters:
+      - {$ref: '#/components/parameters/TenantId'}
+    patch:
+      operationId: updateTenant
+      tags: [tenants]
+      summary: Update a tenant
+      requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
+      responses:
+        '200': {description: Updated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteTenant
+      tags: [tenants]
+      summary: Deactivate a tenant
+      responses:
+        '200': {description: Deactivated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}/restore:
+    post:
+      operationId: restoreTenant
+      tags: [tenants]
+      summary: Restore a tenant
+      parameters:
+        - {$ref: '#/components/parameters/TenantId'}
+      responses:
+        '200': {description: Restored tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tokens:
+    post:
+      operationId: createAdminToken
+      tags: [tokens]
+      summary: Create an API token
+      requestBody: {$ref: '#/components/requestBodies/CreateAdminToken'}
+      responses:
+        '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      operationId: listAdminTokens
+      tags: [tokens]
+      summary: List API tokens
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: authorityType, in: query, schema: {$ref: '#/components/schemas/AuthorityType'}}
+        - {name: tenantId, in: query, schema: {type: string}}
+        - {name: name, in: query, schema: {type: string}}
+        - {name: scope, in: query, schema: {type: string}}
+        - {$ref: '#/components/parameters/RevokedFilter'}
+      responses:
+        '200': {description: Token page, content: {application/json: {schema: {$ref: '#/components/schemas/TokenPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tokens/{tokenId}/revoke:
+    post:
+      operationId: revokeAdminToken
+      tags: [tokens]
+      summary: Revoke an API token
+      parameters:
+        - {$ref: '#/components/parameters/TokenId'}
+      responses:
+        '204': {description: Token revoked}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tenant:
+    get:
+      operationId: getTenant
+      tags: [tenants]
+      summary: Get the selected tenant
+      responses:
+        '200': {description: Selected tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: updateSelectedTenant
+      tags: [tenants]
+      summary: Update the selected tenant
+      requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
+      responses:
+        '200': {description: Updated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tenant/tokens:
+    post:
+      operationId: createTenantToken
+      tags: [tokens]
+      summary: Create a token for the selected tenant
+      requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
+      responses:
+        '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      operationId: listTenantTokens
+      tags: [tokens]
+      summary: List tokens for the selected tenant
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: name, in: query, schema: {type: string}}
+        - {name: scope, in: query, schema: {type: string}}
+        - {$ref: '#/components/parameters/RevokedFilter'}
+      responses:
+        '200': {description: Token page, content: {application/json: {schema: {$ref: '#/components/schemas/TokenPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tenant/tokens/{tokenId}/revoke:
+    post:
+      operationId: revokeTenantToken
+      tags: [tokens]
+      summary: Revoke a selected tenant token
+      parameters:
+        - {$ref: '#/components/parameters/TokenId'}
+      responses:
+        '204': {description: Token revoked}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions:
+    parameters:
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      summary: List browser sessions
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/IncludeDeleted'}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/SessionStatus'}}
+        - {$ref: '#/components/parameters/TagKey'}
+        - {$ref: '#/components/parameters/TagValue'}
+        - {$ref: '#/components/parameters/TagOperator'}
+      responses:
+        '200': {description: Session page, content: {application/json: {schema: {$ref: '#/components/schemas/SessionPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createSession
+      tags: [sessions]
+      summary: Create a browser session
+      requestBody: {$ref: '#/components/requestBodies/CreateSession'}
+      responses:
+        '201': {description: Created session, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/bulk:
+    parameters:
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    post:
+      operationId: getSessionsBulk
+      tags: [sessions]
+      summary: Get browser sessions by ID
+      requestBody: {$ref: '#/components/requestBodies/SessionBulk'}
+      responses:
+        '200': {description: Browser sessions, content: {application/json: {schema: {$ref: '#/components/schemas/SessionBulkResponse'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}:
+    parameters:
+      - {$ref: '#/components/parameters/SessionId'}
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: getSession
+      tags: [sessions]
+      summary: Get a browser session
+      responses:
+        '200': {description: Browser session, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteSession
+      tags: [sessions]
+      summary: Delete a browser session
+      responses:
+        '200': {description: Deleted session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/tags:
+    put:
+      operationId: replaceSessionTags
+      tags: [sessions]
+      summary: Replace browser session tags
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/ReplaceTags'}
+      responses:
+        '200': {description: Updated session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/suspend:
+    post:
+      operationId: suspendSession
+      tags: [sessions]
+      summary: Suspend a browser session
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Suspended session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/reopen:
+    post:
+      operationId: reopenSession
+      tags: [sessions]
+      summary: Reopen a browser session
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Reopened session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/cdp-token/rotate:
+    post:
+      operationId: rotateSessionCDPToken
+      tags: [sessions]
+      summary: Rotate a browser session CDP token
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Session and new token, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/promote:
+    post:
+      operationId: promoteSession
+      tags: [snapshots]
+      summary: Promote a browser session to a snapshot
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/PromoteSession'}
+      responses:
+        '200': {description: Created snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots:
+    parameters:
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: listSnapshots
+      tags: [snapshots]
+      summary: List snapshots
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Deleted'}
+        - {$ref: '#/components/parameters/TagKey'}
+        - {$ref: '#/components/parameters/TagValue'}
+        - {$ref: '#/components/parameters/TagOperator'}
+      responses:
+        '200': {description: Snapshot page, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots/{name}:
+    parameters:
+      - {$ref: '#/components/parameters/SnapshotName'}
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    patch:
+      operationId: updateSnapshot
+      tags: [snapshots]
+      summary: Update snapshot description
+      requestBody: {$ref: '#/components/requestBodies/UpdateSnapshot'}
+      responses:
+        '200': {description: Updated snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteSnapshot
+      tags: [snapshots]
+      summary: Delete a snapshot
+      responses:
+        '200': {description: Deleted snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots/{name}/tags:
+    put:
+      operationId: replaceSnapshotTags
+      tags: [snapshots]
+      summary: Replace snapshot tags
+      parameters:
+        - {$ref: '#/components/parameters/SnapshotName'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/ReplaceTags'}
+      responses:
+        '200': {description: Updated snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots/{name}/restore:
+    post:
+      operationId: restoreSnapshot
+      tags: [snapshots]
+      summary: Restore a snapshot
+      parameters:
+        - {$ref: '#/components/parameters/SnapshotName'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Restored snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List tenant events
+      parameters:
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: resourceType, in: query, schema: {type: string}}
+        - {name: resourceId, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Event page, content: {application/json: {schema: {$ref: '#/components/schemas/EventPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  parameters:
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 0}}
+    Cursor: {name: cursor, in: query, schema: {type: string}}
+    IncludeDeleted: {name: includeDeleted, in: query, schema: {type: boolean}}
+    Deleted: {name: deleted, in: query, schema: {type: string, enum: [active, deleted, all]}}
+    RevokedFilter: {name: revoked, in: query, schema: {type: string, enum: [active, revoked, all]}}
+    SelectedTenantId:
+      name: X-Aperture-Tenant-Id
+      in: header
+      description: Required for system administrator tokens on tenant-scoped operations. Tenant tokens may omit it.
+      schema: {type: string}
+    TenantId: {name: tenantId, in: path, required: true, schema: {type: string}}
+    TokenId: {name: tokenId, in: path, required: true, schema: {type: string}}
+    SessionId: {name: sessionId, in: path, required: true, schema: {type: string, format: uuid}}
+    SnapshotName: {name: name, in: path, required: true, schema: {type: string}}
+    TagKey: {name: tagKey, in: query, schema: {type: array, items: {type: string}}, style: form, explode: true}
+    TagValue: {name: tagValue, in: query, schema: {type: array, items: {type: string}}, style: form, explode: true}
+    TagOperator: {name: tagOperator, in: query, schema: {type: array, items: {type: string, enum: [eq, ne, in, not_in]}}, style: form, explode: true}
+  requestBodies:
+    CreateTenant: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TenantInput'}}}}
+    UpdateTenant: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TenantInput'}}}}
+    CreateAdminToken: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateAdminTokenInput'}}}}
+    CreateTenantToken: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTenantTokenInput'}}}}
+    CreateSession: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionInput'}}}}
+    SessionBulk: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SessionBulkInput'}}}}
+    ReplaceTags: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReplaceTagsInput'}}}}
+    PromoteSession: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PromoteSessionInput'}}}}
+    UpdateSnapshot: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateSnapshotInput'}}}}
+  responses:
+    Error:
+      description: API error
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+  schemas:
+    AuthorityType: {type: string, enum: [system_admin, tenant]}
+    SessionStatus: {type: string, enum: [creating, running, suspended, deleted, expired, failed]}
+    StringMap: {type: object, additionalProperties: {type: string}}
+    PageMeta:
+      type: object
+      required: [hasMore]
+      properties:
+        nextCursor: {type: string, nullable: true}
+        hasMore: {type: boolean}
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties: {code: {type: string}, message: {type: string}}
+    Error:
+      type: object
+      required: [error]
+      properties: {error: {$ref: '#/components/schemas/ErrorDetail'}}
+    Health:
+      type: object
+      required: [status, color, role, version, activeColor]
+      properties: {status: {type: string}, color: {type: string}, role: {type: string}, version: {type: string}, activeColor: {type: string}}
+    TenantInput:
+      type: object
+      required: [displayName]
+      properties: {displayName: {type: string, minLength: 1}}
+    Tenant:
+      type: object
+      required: [id, displayName, createdAt]
+      properties:
+        id: {type: string}
+        displayName: {type: string}
+        createdAt: {type: string, format: date-time}
+        deletedAt: {type: string, format: date-time, nullable: true}
+    TenantPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Tenant'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    Principal:
+      type: object
+      required: [tokenId, name, authorityType, scopes]
+      properties:
+        tokenId: {type: string}
+        name: {type: string}
+        authorityType: {$ref: '#/components/schemas/AuthorityType'}
+        tenantId: {type: string, nullable: true}
+        scopes: {type: array, items: {type: string}}
+    AuthMe:
+      type: object
+      required: [principal]
+      properties: {principal: {$ref: '#/components/schemas/Principal'}, selectedTenant: {$ref: '#/components/schemas/Tenant', nullable: true}}
+    BrowserChannel: {type: object, required: [name], properties: {name: {type: string}}}
+    BrowserChannels: {type: object, required: [channels], properties: {channels: {type: array, items: {$ref: '#/components/schemas/BrowserChannel'}}}}
+    Token:
+      type: object
+      required: [id, authorityType, name, scopes, createdAt]
+      properties:
+        id: {type: string}
+        authorityType: {$ref: '#/components/schemas/AuthorityType'}
+        tenantId: {type: string, nullable: true}
+        name: {type: string}
+        scopes: {type: array, items: {type: string}}
+        createdAt: {type: string, format: date-time}
+        expiresAt: {type: string, format: date-time, nullable: true}
+        revokedAt: {type: string, format: date-time, nullable: true}
+    CreateAdminTokenInput:
+      oneOf:
+        - type: object
+          required: [name, authorityType, scopes]
+          properties:
+            name: {type: string, minLength: 1}
+            authorityType: {type: string, enum: [system_admin]}
+            scopes: {type: array, minItems: 1, items: {type: string}}
+            expiresAt: {type: string, format: date-time, nullable: true}
+        - type: object
+          required: [name, authorityType, tenantId, scopes]
+          properties:
+            name: {type: string, minLength: 1}
+            authorityType: {type: string, enum: [tenant]}
+            tenantId: {type: string, minLength: 1}
+            scopes: {type: array, minItems: 1, items: {type: string}}
+            expiresAt: {type: string, format: date-time, nullable: true}
+    CreateTenantTokenInput:
+      type: object
+      required: [name, scopes]
+      properties:
+        name: {type: string, minLength: 1}
+        scopes: {type: array, minItems: 1, items: {type: string}}
+        expiresAt: {type: string, format: date-time, nullable: true}
+    CreateTokenResponse:
+      type: object
+      required: [token, rawToken]
+      properties: {token: {$ref: '#/components/schemas/Token'}, rawToken: {type: string}}
+    TokenPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Token'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    BrowserConfig:
+      type: object
+      required: [channel]
+      properties: {channel: {type: string, minLength: 1}, args: {type: array, items: {type: string}}}
+    CreateSessionInput:
+      type: object
+      required: [browser]
+      properties:
+        baseSnapshotName: {type: string, nullable: true}
+        label: {type: string, nullable: true}
+        browser: {$ref: '#/components/schemas/BrowserConfig'}
+        tags: {$ref: '#/components/schemas/StringMap'}
+    IceServer:
+      type: object
+      required: [urls]
+      properties: {urls: {type: array, items: {type: string}}, username: {type: string}, credential: {type: string}}
+    SessionMedia:
+      type: object
+      required: [mode, webrtcProducer]
+      properties: {mode: {type: string}, webrtcProducer: {type: boolean}, iceServers: {type: array, items: {$ref: '#/components/schemas/IceServer'}}}
+    Session:
+      type: object
+      required: [id, tenantId, status, media, createdAt, expiresAt]
+      properties:
+        id: {type: string, format: uuid}
+        tenantId: {type: string}
+        baseSnapshotName: {type: string, nullable: true}
+        label: {type: string, nullable: true}
+        status: {$ref: '#/components/schemas/SessionStatus'}
+        browserChannel: {type: string}
+        media: {$ref: '#/components/schemas/SessionMedia'}
+        createdAt: {type: string, format: date-time}
+        startedAt: {type: string, format: date-time, nullable: true}
+        stoppedAt: {type: string, format: date-time, nullable: true}
+        deletedAt: {type: string, format: date-time, nullable: true}
+        expiresAt: {type: string, format: date-time}
+        lastConnectedAt: {type: string, format: date-time, nullable: true}
+        suspendedAt: {type: string, format: date-time, nullable: true}
+        tags: {$ref: '#/components/schemas/StringMap'}
+        cdpUrl: {type: string, format: uri}
+        cdpToken: {type: string}
+    SessionPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Session'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    SessionBulkInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: {type: string, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'}
+    SessionBulkResponse: {type: object, required: [sessions], properties: {sessions: {type: array, items: {$ref: '#/components/schemas/Session'}}}}
+    CreateSessionResult:
+      type: object
+      required: [session, cdpUrl, cdpToken]
+      properties: {session: {$ref: '#/components/schemas/Session'}, cdpUrl: {type: string, format: uri}, cdpToken: {type: string}}
+    SessionMutation:
+      type: object
+      required: [session]
+      properties: {session: {$ref: '#/components/schemas/Session'}, cdpUrl: {type: string, format: uri}, cdpToken: {type: string}}
+    PromoteSessionInput:
+      type: object
+      required: [name]
+      properties: {name: {type: string, minLength: 1}, description: {type: string, nullable: true}, force: {type: boolean}, tags: {$ref: '#/components/schemas/StringMap'}}
+    Snapshot:
+      type: object
+      required: [id, name, tenantId, createdAt]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        tenantId: {type: string}
+        description: {type: string, nullable: true}
+        parentSnapshotId: {type: string, nullable: true}
+        promotedFromSessionId: {type: string, nullable: true}
+        createdAt: {type: string, format: date-time}
+        deletedAt: {type: string, format: date-time, nullable: true}
+        expiresAt: {type: string, format: date-time, nullable: true}
+        tags: {$ref: '#/components/schemas/StringMap'}
+    SnapshotPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Snapshot'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    SnapshotMutation: {type: object, required: [snapshot], properties: {snapshot: {$ref: '#/components/schemas/Snapshot'}}}
+    UpdateSnapshotInput: {type: object, properties: {description: {type: string, nullable: true}}}
+    ReplaceTagsInput: {type: object, required: [tags], properties: {tags: {$ref: '#/components/schemas/StringMap'}}}
+    Event:
+      type: object
+      required: [id, tenantId, resourceType, resourceId, type, message, data, createdAt]
+      properties:
+        id: {type: string}
+        tenantId: {type: string}
+        resourceType: {type: string}
+        resourceId: {type: string}
+        type: {type: string}
+        message: {type: string}
+        data: {type: object, additionalProperties: true}
+        createdAt: {type: string, format: date-time}
+    EventPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Event'}}, meta: {$ref: '#/components/schemas/PageMeta'}}

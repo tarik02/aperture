@@ -54,3 +54,8 @@ jobs:
           version: v2.12.2
           args: --timeout=5m
           problem-matchers: true
+
+      - name: Verify generated OpenAPI code
+        run: |
+          ./scripts/generate-openapi.sh
+          git diff --exit-code -- api internal/httpapi/openapi
