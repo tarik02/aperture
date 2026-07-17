@@ -2,6 +2,15 @@
 
 The Docker image contains the complete Aperture runtime: Chromium, the WebRTC media stack, the patched Weston compositor, GStreamer, PipeWire/WirePlumber, bubblewrap, Traefik, and s6-overlay. It is available for Linux amd64 and arm64.
 
+Stable and nightly multi-architecture images are published to GitHub Container Registry:
+
+```text
+ghcr.io/tarik02/aperture:<version>
+ghcr.io/tarik02/aperture:latest
+ghcr.io/tarik02/aperture:nightly
+ghcr.io/tarik02/aperture:nightly-<commit>
+```
+
 ## Build
 
 Build the image on the target architecture and load it into Docker:

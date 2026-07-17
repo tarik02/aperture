@@ -1,0 +1,51 @@
+name: pr docker
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-docker-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build ${{ matrix.arch }} image
+    if: github.event.label.name == 'build-docker'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: cachix/install-nix-action@v31.10.7
+
+      - name: Build image
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          short_sha="${SHA::12}"
+          printf '0.0.0-pr.%s.%s' "$PR_NUMBER" "$short_sha" > .aperture-deploy-version
+          nix build path:.#aperture-docker --print-build-logs
+          cp --dereference result "aperture-pr-${PR_NUMBER}-${{ matrix.arch }}.tar.gz"
+
+      - name: Upload image
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aperture-pr-docker-${{ matrix.arch }}
+          path: aperture-pr-${{ github.event.pull_request.number }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14

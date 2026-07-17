@@ -23,6 +23,9 @@ jobs:
         !startsWith(github.event.head_commit.message, 'chore(master): release')
       )
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
@@ -54,10 +57,14 @@ jobs:
             pkg-config
 
       - name: Create nightly tag
+        id: version
         shell: bash
         run: |
           short_sha="${GITHUB_SHA::12}"
-          git tag "v0.0.0-nightly.${GITHUB_RUN_NUMBER}.${short_sha}"
+          version="0.0.0-nightly.${GITHUB_RUN_NUMBER}.${short_sha}"
+          git tag "v${version}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
 
       - name: Publish nightly release
         uses: goreleaser/goreleaser-action@v7.2.3
@@ -67,3 +74,17 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: nightly docker image
+    needs: nightly
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-image.yml
+    with:
+      version: ${{ needs.nightly.outputs.version }}
+      ref: ${{ github.sha }}
+      tags: |
+        nightly
+        nightly-${{ needs.nightly.outputs.short_sha }}
