@@ -7,12 +7,14 @@ type BrowserControlPaneProps = {
   control: UseBrowserControlResult;
   guestMode?: boolean;
   cdpUrl: string | null;
+  shareUrl: string | null;
 };
 
 export function BrowserControlPane({
   control,
   guestMode = false,
   cdpUrl,
+  shareUrl,
 }: BrowserControlPaneProps) {
   const [performanceOverlayEnabled, setPerformanceOverlayEnabled] = useState(false);
 
@@ -22,6 +24,7 @@ export function BrowserControlPane({
         control={control}
         guestMode={guestMode}
         cdpUrl={cdpUrl}
+        shareUrl={shareUrl}
         performanceOverlayEnabled={performanceOverlayEnabled}
         onPerformanceOverlayChange={setPerformanceOverlayEnabled}
       />

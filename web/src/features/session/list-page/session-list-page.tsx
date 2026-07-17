@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import {
   AppWindow,
+  Copy,
   MoreHorizontal,
   Pause,
   Plus,
@@ -8,7 +9,8 @@ import {
   Tags as TagsIcon,
   Trash2,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SessionCreateModal } from "#/features/session/create-modal/session-create-modal.tsx";
 import { SessionPromoteModal } from "#/features/session/promote-modal/session-promote-modal.tsx";
@@ -79,6 +81,8 @@ import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-cre
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import type { Session } from "#/lib/api/schemas.ts";
+import { apiClient } from "#/lib/api/client.ts";
+import { copyText } from "#/components/resources/copy-button.tsx";
 import { cn } from "#/lib/utils.ts";
 import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
@@ -187,6 +191,7 @@ export function SessionListPage() {
   const suspendMutation = useSuspendSessionMutation();
   const rotateMutation = useRotateCdpTokenMutation();
   const replaceTagsMutation = useReplaceSessionTagsMutation();
+  const [copyingShareSessionId, setCopyingShareSessionId] = useState<string | null>(null);
 
   const tenantReady = isTenantScopedQueryReady(credentials);
 
@@ -235,6 +240,30 @@ export function SessionListPage() {
   async function handleRotate(session: Session) {
     const result = await rotateMutation.mutateAsync(session.id);
     openConnection(result.session);
+  }
+
+  async function handleCopyShareUrl(session: Session) {
+    if (!credentials) {
+      toast.error("Session credentials unavailable");
+      return;
+    }
+
+    setCopyingShareSessionId(session.id);
+    try {
+      const detailedSession = await apiClient.getSession(credentials, session.id);
+      if (!detailedSession.cdpToken) {
+        throw new Error("Session token unavailable");
+      }
+      const shareUrl = new URL("/share/", window.location.origin);
+      shareUrl.hash = new URLSearchParams({ token: detailedSession.cdpToken }).toString();
+      await copyText(shareUrl.toString());
+      toast.success("Share URL copied");
+    } catch (error) {
+      console.warn("Copy share URL failed", error);
+      toast.error("Copy failed");
+    } finally {
+      setCopyingShareSessionId(null);
+    }
   }
 
   async function handleConfirmAction() {
@@ -526,9 +555,11 @@ export function SessionListPage() {
                           session={session}
                           canWrite={canWrite}
                           canPromote={canPromote}
+                          copySharePending={copyingShareSessionId === session.id}
                           onDetails={() => openDetail(session, "details")}
                           onConnection={() => openDetail(session, "connection")}
                           onEvents={() => openDetail(session, "events")}
+                          onCopyShareUrl={() => void handleCopyShareUrl(session)}
                           onDelete={() => setConfirmAction({ kind: "delete", session })}
                           onReopen={() => void handleReopen(session)}
                           onSuspend={() => setConfirmAction({ kind: "suspend", session })}
@@ -612,6 +643,7 @@ export function SessionListPage() {
           reopenPending: reopenMutation.isPending,
           suspendPending: suspendMutation.isPending,
           rotatePending: rotateMutation.isPending,
+          copySharePending: copyingShareSessionId === detailSession?.id,
           onDelete: (session) => setConfirmAction({ kind: "delete", session }),
           onEditTags: (session) => {
             initTagForm("edit", `session:${session.id}`, tagsToEntries(session.tags ?? {}));
@@ -624,6 +656,7 @@ export function SessionListPage() {
           onReopen: (session) => void handleReopen(session),
           onSuspend: (session) => setConfirmAction({ kind: "suspend", session }),
           onRotate: (session) => setConfirmAction({ kind: "rotate", session }),
+          onCopyShareUrl: (session) => void handleCopyShareUrl(session),
         }}
       />
 
@@ -651,9 +684,11 @@ type SessionActionsMenuProps = {
   session: Session;
   canWrite: boolean;
   canPromote: boolean;
+  copySharePending: boolean;
   onDetails: () => void;
   onConnection: () => void;
   onEvents: () => void;
+  onCopyShareUrl: () => void;
   onDelete: () => void;
   onReopen: () => void;
   onSuspend: () => void;
@@ -666,9 +701,11 @@ function SessionActionsMenu({
   session,
   canWrite,
   canPromote,
+  copySharePending,
   onDetails,
   onConnection,
   onEvents,
+  onCopyShareUrl,
   onDelete,
   onReopen,
   onSuspend,
@@ -691,6 +728,12 @@ function SessionActionsMenu({
         <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
         <DropdownMenuItem onClick={onConnection}>Connection</DropdownMenuItem>
         <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
+        {canWrite ? (
+          <DropdownMenuItem disabled={copySharePending} onClick={onCopyShareUrl}>
+            <Copy />
+            Copy share URL
+          </DropdownMenuItem>
+        ) : null}
         {canWrite ? (
           <>
             <DropdownMenuSeparator />

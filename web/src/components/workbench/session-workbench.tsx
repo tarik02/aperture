@@ -62,6 +62,14 @@ export function SessionWorkbench({
     url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.cdpToken)}`;
     return url.toString();
   }, [publicOrigin, selectedSession?.cdpToken, selectedSession?.cdpUrl]);
+  const shareUrl = useMemo(() => {
+    if (!publicOrigin || !selectedSession?.cdpToken) {
+      return null;
+    }
+    const url = new URL("/share/", publicOrigin);
+    url.hash = new URLSearchParams({ token: selectedSession.cdpToken }).toString();
+    return url.toString();
+  }, [publicOrigin, selectedSession?.cdpToken]);
 
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
@@ -123,7 +131,12 @@ export function SessionWorkbench({
           </EmptyHeader>
         </Empty>
       ) : selectedSession ? (
-        <BrowserControlPane control={control} guestMode={guestMode} cdpUrl={cdpUrl} />
+        <BrowserControlPane
+          control={control}
+          guestMode={guestMode}
+          cdpUrl={cdpUrl}
+          shareUrl={shareUrl}
+        />
       ) : (
         <Empty className="h-full border-none">
           <EmptyHeader>

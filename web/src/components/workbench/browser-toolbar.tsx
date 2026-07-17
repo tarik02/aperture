@@ -15,6 +15,7 @@ import {
   MousePointer2,
   RefreshCw,
   RotateCcw,
+  Share2,
   Square,
 } from "lucide-react";
 import { Button } from "#/components/ui/button.tsx";
@@ -51,6 +52,7 @@ type BrowserToolbarProps = {
   control: UseBrowserControlResult;
   guestMode: boolean;
   cdpUrl: string | null;
+  shareUrl: string | null;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
 };
@@ -97,6 +99,7 @@ export function BrowserToolbar({
   control,
   guestMode,
   cdpUrl,
+  shareUrl,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
 }: BrowserToolbarProps) {
@@ -196,6 +199,7 @@ export function BrowserToolbar({
         <BrowserMenu
           control={control}
           cdpUrl={cdpUrl}
+          shareUrl={shareUrl}
           busy={busy}
           connected={connected}
           performanceOverlayEnabled={performanceOverlayEnabled}
@@ -241,6 +245,7 @@ function ToolbarButton({
 function BrowserMenu({
   control,
   cdpUrl,
+  shareUrl,
   busy,
   connected,
   performanceOverlayEnabled,
@@ -249,6 +254,7 @@ function BrowserMenu({
 }: {
   control: UseBrowserControlResult;
   cdpUrl: string | null;
+  shareUrl: string | null;
   busy: boolean;
   connected: boolean;
   performanceOverlayEnabled: boolean;
@@ -280,6 +286,21 @@ function BrowserMenu({
           >
             <Copy />
             Copy CDP URL
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!shareUrl}
+            onClick={() => {
+              if (!shareUrl) {
+                return;
+              }
+              void copyText(shareUrl).then(
+                () => toast.success("Share URL copied"),
+                () => toast.error("Copy failed"),
+              );
+            }}
+          >
+            <Share2 />
+            Copy share URL
           </DropdownMenuItem>
           <DropdownMenuItem disabled={busy} onClick={onReconnect}>
             <RotateCcw />
