@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/aperture/aperture/internal/browser"
@@ -58,12 +59,25 @@ func (b *Browser) PrepareRuntime(values browser.RuntimeEnvValues) error {
 	if err := browser.WriteProfilePreferences(values.MergedUserDataDir, values.DownloadsDir); err != nil {
 		return fmt.Errorf("write chromium preferences: %w", err)
 	}
+	if values.CDPTokenPath != "" {
+		if err := browser.WriteCDPToken(values.CDPTokenPath, values.CDPToken); err != nil {
+			return err
+		}
+	}
 
 	if err := browser.WriteRuntimeEnv(layout.RuntimeEnv, values); err != nil {
 		return fmt.Errorf("write runtime env: %w", err)
 	}
 
 	return nil
+}
+
+func (b *Browser) UpdateCDPToken(sessionID, token string) error {
+	layout, err := paths.Session(b.cfg, sessionID)
+	if err != nil {
+		return err
+	}
+	return browser.WriteCDPToken(filepath.Join(layout.Metadata, "cdp-token"), token)
 }
 
 // Start starts the browser process for sessionID.

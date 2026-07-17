@@ -3,6 +3,7 @@ import { ApiRequestError, parseApiErrorBody } from "#/lib/api/errors.ts";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 import {
   authMeSchema,
+  browserStatusSchema,
   browserChannelsSchema,
   createSessionResponseSchema,
   createTokenResponseSchema,
@@ -316,6 +317,14 @@ export const apiClient = {
       schema: browserChannelsSchema,
       credentials,
       tenantHeader: "tenant-scoped",
+    });
+  },
+
+  getBrowserStatus(credentials: ApiCredentials, sessionId: string) {
+    return request({
+      path: `/sessions/${encodeURIComponent(sessionId)}/browser/status`,
+      schema: browserStatusSchema,
+      credentials,
     });
   },
 

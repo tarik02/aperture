@@ -64,7 +64,7 @@ export function CopyButton({ value, label = "Copy", className, disabled }: CopyB
   );
 }
 
-async function copyText(value: string) {
+export async function copyText(value: string) {
   const clipboard = navigator.clipboard;
   if (clipboard?.writeText) {
     await clipboard.writeText(value);

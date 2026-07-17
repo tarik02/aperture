@@ -1,9 +1,13 @@
 import { useEffect } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { WelcomeTokenAuthModal } from "#/features/token/auth-modal/token-auth-modal.tsx";
 import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
 export function TokenVaultProvider({ children }: { children: React.ReactNode }) {
+  const guestMode = useRouterState({
+    select: (state) => /^\/share\/?$/.test(state.location.pathname),
+  });
   const hydrated = useTokenVaultStore((state) => state.hydrated);
   const profiles = useTokenVaultStore((state) => state.profiles);
   const activeProfileId = useTokenVaultStore((state) => state.activeProfileId);
@@ -13,17 +17,17 @@ export function TokenVaultProvider({ children }: { children: React.ReactNode }) 
   const needsWelcome = hydrated && profiles.length === 0;
 
   useEffect(() => {
-    if (!hydrated || !activeProfileId) {
+    if (guestMode || !hydrated || !activeProfileId) {
       return;
     }
 
     void bootstrapProfileById(activeProfileId);
-  }, [activeProfile?.selectedTenantId, activeProfileId, bootstrapProfileById, hydrated]);
+  }, [activeProfile?.selectedTenantId, activeProfileId, bootstrapProfileById, guestMode, hydrated]);
 
   return (
     <>
       {children}
-      <WelcomeTokenAuthModal open={needsWelcome} onOpenChange={() => undefined} />
+      <WelcomeTokenAuthModal open={!guestMode && needsWelcome} onOpenChange={() => undefined} />
     </>
   );
 }

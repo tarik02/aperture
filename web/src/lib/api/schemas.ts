@@ -58,6 +58,12 @@ export const sessionMediaSchema = z.object({
   iceServers: z.array(iceServerSchema).default([]),
 });
 
+export const browserStatusSchema = z.object({
+  sessionId: z.string(),
+  cdpUrl: z.string(),
+  media: sessionMediaSchema,
+});
+
 export const screencastStatusSchema = z.object({
   active: z.boolean(),
   path: z.string().optional(),
@@ -173,6 +179,7 @@ export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;
+export type BrowserStatus = z.infer<typeof browserStatusSchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type ApiToken = z.infer<typeof tokenSchema>;

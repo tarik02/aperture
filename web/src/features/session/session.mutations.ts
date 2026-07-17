@@ -11,6 +11,7 @@ function useInvalidateSessions() {
 
   return () => {
     void queryClient.invalidateQueries({ queryKey: ["sessions", profileId] });
+    void queryClient.invalidateQueries({ queryKey: ["session", profileId] });
     void queryClient.invalidateQueries({ queryKey: ["sessions-bulk", profileId] });
     void queryClient.invalidateQueries({ queryKey: ["events", profileId] });
   };
