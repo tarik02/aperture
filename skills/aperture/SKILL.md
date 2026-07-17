@@ -34,7 +34,7 @@ Tenant tokens are already bound to their tenant. System-admin tokens must select
 X-Aperture-Tenant-Id: $TENANT_ID
 ```
 
-Do not send another tenant ID with a tenant token; a mismatched tenant selection is rejected.
+Do not send `X-Aperture-Tenant-Id` with a tenant token. In MCP tool arguments, omit `tenantId`; any explicit tenant selection is rejected.
 
 Authorities are `system_admin` and `tenant`. Current scope behavior:
 

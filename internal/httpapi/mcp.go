@@ -936,9 +936,13 @@ func (s *Server) mcpTokensCreate(ctx context.Context, _ *mcp.CallToolRequest, in
 			return nil, mcpCreateTokenOutput{}, mcpToolError("forbidden", nil)
 		}
 	} else {
-		if !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) || in.AuthorityType != auth.AuthorityTenant || a.principal.TenantID == nil || in.TenantID == nil || *in.TenantID != *a.principal.TenantID {
+		if !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) || in.AuthorityType != auth.AuthorityTenant || a.principal.TenantID == nil {
 			return nil, mcpCreateTokenOutput{}, mcpToolError("forbidden", nil)
 		}
+		if in.TenantID != nil {
+			return nil, mcpCreateTokenOutput{}, mcpToolError("tenant_selection_forbidden", auth.ErrTenantForbidden)
+		}
+		in.TenantID = a.principal.TenantID
 	}
 	var expiresAt *time.Time
 	if in.ExpiresAt != nil {
@@ -971,6 +975,9 @@ func (s *Server) mcpTokensRevoke(ctx context.Context, _ *mcp.CallToolRequest, in
 	if a.principal.AuthorityType == auth.AuthorityTenant {
 		if !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) || a.principal.TenantID == nil {
 			return nil, mcpRevokeTokenOutput{}, mcpToolError("forbidden", nil)
+		}
+		if in.TenantID != nil {
+			return nil, mcpRevokeTokenOutput{}, mcpToolError("tenant_selection_forbidden", auth.ErrTenantForbidden)
 		}
 		tenantID = a.principal.TenantID
 	} else if !auth.HasScope(a.principal.Scopes, auth.ScopeSystemAdmin) {
@@ -1006,6 +1013,9 @@ func (s *Server) mcpTokensList(ctx context.Context, _ *mcp.CallToolRequest, in m
 	}
 	tenantID := in.TenantID
 	if a.principal.AuthorityType == auth.AuthorityTenant {
+		if in.TenantID != nil {
+			return nil, mcpListTokensOutput{}, mcpToolError("tenant_selection_forbidden", auth.ErrTenantForbidden)
+		}
 		tenantID = a.principal.TenantID
 	}
 	if a.principal.AuthorityType != auth.AuthoritySystemAdmin && !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) {
