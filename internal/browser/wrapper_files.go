@@ -114,7 +114,7 @@ func (r *wrapperRuntime) handleFileDownload(w http.ResponseWriter, req *http.Req
 		writeWrapperError(w, http.StatusInternalServerError, "open file failed")
 		return
 	}
-	defer unix.Close(dirFD)
+	defer func() { _ = unix.Close(dirFD) }()
 	fileFD, err := unix.Openat2(dirFD, name, &unix.OpenHow{
 		Flags:   unix.O_RDONLY | unix.O_CLOEXEC,
 		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
@@ -128,7 +128,7 @@ func (r *wrapperRuntime) handleFileDownload(w http.ResponseWriter, req *http.Req
 		return
 	}
 	file := os.NewFile(uintptr(fileFD), name)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		writeWrapperError(w, http.StatusInternalServerError, "inspect file failed")
@@ -163,7 +163,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	uploadsDirectory := os.NewFile(uintptr(uploadsDirFD), uploadsDir)
-	defer uploadsDirectory.Close()
+	defer func() { _ = uploadsDirectory.Close() }()
 	existingUploads, err := uploadsDirectory.ReadDir(-1)
 	if err != nil {
 		writeWrapperError(w, http.StatusInternalServerError, "list uploads failed")
@@ -225,11 +225,11 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			return
 		}
 		if part.FileName() == "" {
-			part.Close()
+			_ = part.Close()
 			continue
 		}
 		if len(uploaded) >= maxUploadFilesPerRequest || existingUploadCount+len(uploaded) >= maxUploadFilesPerSession {
-			part.Close()
+			_ = part.Close()
 			removeCreated()
 			writeWrapperError(w, http.StatusInsufficientStorage, "session upload file limit exceeded")
 			return
@@ -237,7 +237,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 
 		eventID, err := ids.NewUUIDv7()
 		if err != nil {
-			part.Close()
+			_ = part.Close()
 			removeCreated()
 			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
 			return
@@ -260,7 +260,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 				continue
 			}
 			if err != nil {
-				part.Close()
+				_ = part.Close()
 				removeCreated()
 				writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
 				return
@@ -270,7 +270,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		}
 		placeholder := os.NewFile(uintptr(placeholderFD), name)
 		if _, err := io.WriteString(placeholder, "aperture-pending:"+eventID); err != nil {
-			part.Close()
+			_ = part.Close()
 			_ = placeholder.Close()
 			_ = unix.Unlinkat(uploadsDirFD, name, 0)
 			removeCreated()
@@ -278,7 +278,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			return
 		}
 		if err := placeholder.Close(); err != nil {
-			part.Close()
+			_ = part.Close()
 			_ = unix.Unlinkat(uploadsDirFD, name, 0)
 			removeCreated()
 			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
@@ -291,7 +291,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
 		})
 		if err != nil {
-			part.Close()
+			_ = part.Close()
 			removeCreated()
 			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
 			return
@@ -308,7 +308,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		written, copyErr := io.Copy(file, io.LimitReader(part, limit+1))
 		info, statErr := file.Stat()
 		syncErr := file.Sync()
-		part.Close()
+		_ = part.Close()
 		if copyErr != nil || statErr != nil || syncErr != nil {
 			_ = file.Close()
 			removeCreated()
@@ -430,14 +430,14 @@ func (r *wrapperRuntime) uploadAuditRequest(method, action string, payload any, 
 				if result != nil {
 					err = json.NewDecoder(response.Body).Decode(result)
 				}
-				response.Body.Close()
+				_ = response.Body.Close()
 				cancel()
 				if err != nil {
 					return err
 				}
 				return nil
 			}
-			response.Body.Close()
+			_ = response.Body.Close()
 			cancel()
 			if response.StatusCode < 500 && response.StatusCode != http.StatusUnauthorized {
 				return fmt.Errorf("upload audit returned %s", response.Status)
@@ -468,7 +468,7 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 	if err != nil {
 		return err
 	}
-	defer unix.Close(uploadsDirFD)
+	defer func() { _ = unix.Close(uploadsDirFD) }()
 	finalize := make([]string, 0, len(response.Files))
 	cancel := make([]string, 0, len(response.Files))
 	for _, upload := range response.Files {

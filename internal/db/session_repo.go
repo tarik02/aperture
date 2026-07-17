@@ -225,7 +225,7 @@ func (r *Repository) CreateEvents(ctx context.Context, events []Event) error {
 			expected[event.ID] = event
 		}
 		stored := make([]Event, 0, len(events))
-		if err := tx.NewSelect().Model(&stored).Where("id IN (?)", bun.In(eventIDs)).Scan(ctx); err != nil {
+		if err := tx.NewSelect().Model(&stored).Where("id IN (?)", bun.List(eventIDs)).Scan(ctx); err != nil {
 			return fmt.Errorf("read events: %w", err)
 		}
 		if len(stored) != len(events) {
@@ -261,7 +261,7 @@ func (r *Repository) FinalizeEvents(ctx context.Context, resourceType, resourceI
 			Model((*Event)(nil)).
 			Set("type = ?", finalType).
 			Set("message = ?", finalMessage).
-			Where("id IN (?)", bun.In(eventIDs)).
+			Where("id IN (?)", bun.List(eventIDs)).
 			Where("resource_type = ?", resourceType).
 			Where("resource_id = ?", resourceID).
 			Where("type = ?", pendingType).
@@ -269,7 +269,7 @@ func (r *Repository) FinalizeEvents(ctx context.Context, resourceType, resourceI
 			return fmt.Errorf("finalize events: %w", err)
 		}
 		stored := make([]Event, 0, len(eventIDs))
-		if err := tx.NewSelect().Model(&stored).Where("id IN (?)", bun.In(eventIDs)).Scan(ctx); err != nil {
+		if err := tx.NewSelect().Model(&stored).Where("id IN (?)", bun.List(eventIDs)).Scan(ctx); err != nil {
 			return fmt.Errorf("read finalized events: %w", err)
 		}
 		if len(stored) != len(eventIDs) {
@@ -287,7 +287,7 @@ func (r *Repository) FinalizeEvents(ctx context.Context, resourceType, resourceI
 func (r *Repository) DeletePendingEvents(ctx context.Context, resourceType, resourceID, pendingType string, eventIDs []string) error {
 	if _, err := r.db.bun.NewDelete().
 		Model((*Event)(nil)).
-		Where("id IN (?)", bun.In(eventIDs)).
+		Where("id IN (?)", bun.List(eventIDs)).
 		Where("resource_type = ?", resourceType).
 		Where("resource_id = ?", resourceID).
 		Where("type = ?", pendingType).

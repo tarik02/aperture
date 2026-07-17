@@ -23,12 +23,12 @@ func (r *wrapperRuntime) watchCDPToken(ctx context.Context) error {
 		return fmt.Errorf("watch cdp token: %w", err)
 	}
 	if err := watcher.Add(filepath.Dir(r.values.CDPTokenPath)); err != nil {
-		watcher.Close()
+		_ = watcher.Close()
 		return fmt.Errorf("watch cdp token directory: %w", err)
 	}
 	currentToken := strings.TrimSpace(string(current))
 	go func() {
-		defer watcher.Close()
+		defer func() { _ = watcher.Close() }()
 		for {
 			select {
 			case <-ctx.Done():
