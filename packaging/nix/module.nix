@@ -31,6 +31,7 @@ let
         lib.recursiveUpdate cfg.settings {
           store_root = cfg.storeRoot;
           runtime_root = cfg.runtimeRoot;
+          listen_address = cfg.deployment.blueAddress;
           artifact_root = "${cfg.storeRoot}/artifacts";
           traefik_dynamic_config_dir = "${cfg.runtimeRoot}/traefik/dynamic";
           external_base_url = cfg.externalBaseUrl;
