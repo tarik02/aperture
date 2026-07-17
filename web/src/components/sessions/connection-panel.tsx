@@ -43,7 +43,9 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
   );
   const tokenizedCdpUrl = useMemo(
     () =>
-      cdpUrl && currentSession.sessionToken ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken) : null,
+      cdpUrl && currentSession.sessionToken
+        ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken)
+        : null,
     [cdpUrl, currentSession.sessionToken],
   );
   const shareLink = useMemo(() => {
@@ -74,7 +76,9 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Connection</h3>
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
-      {currentSession.sessionToken ? <CopyField value={currentSession.sessionToken} label="Token" /> : null}
+      {currentSession.sessionToken ? (
+        <CopyField value={currentSession.sessionToken} label="Token" />
+      ) : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       {shareLink ? <CopyField value={shareLink} label="Share link" /> : null}
       <Separator />
