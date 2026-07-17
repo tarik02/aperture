@@ -150,3 +150,31 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number: pullNumber, body })
             }
+
+  cleanup:
+    name: remove build label
+    needs:
+      - build
+      - publish
+    if: always() && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Remove build label
+        uses: actions/github-script@v9.0.0
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const { owner, repo } = context.repo
+            await github.rest.issues.removeLabel({
+              owner,
+              repo,
+              issue_number: context.payload.pull_request.number,
+              name: 'build-docker',
+            })
