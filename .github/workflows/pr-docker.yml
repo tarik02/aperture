@@ -108,12 +108,12 @@ jobs:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: Comment build links
+      - name: Prepare build links
+        id: comment
         uses: actions/github-script@v9.0.0
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
+          result-encoding: string
           script: |
-            const marker = '<!-- aperture-pr-docker -->'
             const { owner, repo } = context.repo
             const pullNumber = context.payload.pull_request.number
             const shortSha = context.payload.pull_request.head.sha.slice(0, 12)
@@ -131,25 +131,21 @@ jobs:
                 return `- [${artifact.name}](${url})`
               })
 
-            const body = [
-              marker,
+            return [
               `Docker images for ${context.payload.pull_request.head.sha}:`,
               '',
               ...artifactLines,
               `- \`${image}:${tag}\``,
               `- \`${image}:pr-${pullNumber}\``,
             ].join('\n')
-            const comments = await github.paginate(
-              github.rest.issues.listComments,
-              { owner, repo, issue_number: pullNumber, per_page: 100 },
-            )
-            const comment = comments.find((item) => item.body?.includes(marker))
 
-            if (comment) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: comment.id, body })
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pullNumber, body })
-            }
+      - name: Comment build links
+        uses: marocchino/sticky-pull-request-comment@v3.0.5
+        with:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          header: aperture-pr-docker
+          message: ${{ steps.comment.outputs.result }}
+          skip_unchanged: true
 
   cleanup:
     name: remove build label
@@ -157,24 +153,10 @@ jobs:
       - build
       - publish
     if: always() && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Create GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v3.2.0
-        with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - name: Remove build label
-        uses: actions/github-script@v9.0.0
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          script: |
-            const { owner, repo } = context.repo
-            await github.rest.issues.removeLabel({
-              owner,
-              repo,
-              issue_number: context.payload.pull_request.number,
-              name: 'build-docker',
-            })
+    uses: ./.github/workflows/remove-build-label.yml
+    with:
+      app-id: ${{ vars.APP_ID }}
+      label: build-docker
+      pull-request-number: ${{ github.event.pull_request.number }}
+    secrets:
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
