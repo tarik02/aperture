@@ -1,0 +1,110 @@
+version: 2
+
+project_name: aperture
+
+before:
+  hooks:
+    - pnpm install --frozen-lockfile
+    - pnpm --filter @aperture/web build
+
+builds:
+  - id: aperture
+    main: ./cmd/aperture
+    binary: aperture
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    goamd64:
+      - v1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/aperture/aperture/internal/version.Version={{ .Version }}
+
+  - id: aperture-mount-session
+    main: ./cmd/aperture-mount-session
+    binary: aperture-mount-session
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    goamd64:
+      - v1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+  - id: aperture-unmount-session
+    main: ./cmd/aperture-unmount-session
+    binary: aperture-unmount-session
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    goamd64:
+      - v1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+  - id: browser-session-wrapper
+    main: ./cmd/browser-session-wrapper
+    binary: browser-session-wrapper
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    goamd64:
+      - v1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - ids:
+      - aperture
+      - aperture-mount-session
+      - aperture-unmount-session
+      - browser-session-wrapper
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    wrap_in_directory: true
+    files:
+      - LICENSE
+      - docs/**
+      - packaging/**
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore\\(deps\\):"
+
+release:
+  github:
+    owner: tarik02
+    name: aperture
+  prerelease: auto
+  mode: append

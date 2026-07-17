@@ -44,13 +44,13 @@ func (r *Repository) ListSnapshotsPage(ctx context.Context, filter SnapshotFilte
 			query = query.Where(
 				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value IN (?))",
 				tag.Key,
-				bun.In(tag.Values),
+				bun.List(tag.Values),
 			)
 		case TagOperatorNotIn:
 			query = query.Where(
 				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value NOT IN (?))",
 				tag.Key,
-				bun.In(tag.Values),
+				bun.List(tag.Values),
 			)
 		default:
 			query = query.Where(
@@ -80,7 +80,7 @@ func (r *Repository) ListSnapshotTagsForSnapshots(ctx context.Context, snapshotI
 	tags := make([]SnapshotTag, 0)
 	if err := r.db.bun.NewSelect().
 		Model(&tags).
-		Where("snapshot_id IN (?)", bun.In(snapshotIDs)).
+		Where("snapshot_id IN (?)", bun.List(snapshotIDs)).
 		OrderExpr("snapshot_id ASC, key ASC").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list snapshot tags for snapshots: %w", err)

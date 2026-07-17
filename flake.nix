@@ -29,6 +29,8 @@
           go = goLatest;
         };
 
+        version = self.shortRev or self.dirtyShortRev or "dev";
+
         isPackageSourceExcluded = path:
           let
             root = (toString ./.) + "/";
@@ -220,11 +222,11 @@
         deployVersion =
           if builtins.pathExists ./.aperture-deploy-version
           then builtins.readFile ./.aperture-deploy-version
-          else self.shortRev or self.dirtyShortRev or "0.0.1";
+          else version;
 
         aperture = (buildGoModule (finalAttrs: {
           pname = "aperture";
-          version = "0.0.1";
+          inherit version;
           inherit src;
           vendorHash = "sha256-hXAgH1j4B9G5luWf4PnU58hEqVCJOZNhdrnf/r9Yirc=";
 
@@ -262,6 +264,12 @@
 
           env.CI = "true";
           env.CGO_ENABLED = "1";
+
+          ldflags = [
+            "-s"
+            "-w"
+            "-X github.com/aperture/aperture/internal/version.Version=${version}"
+          ];
 
           preBuild = ''
             pnpm --filter @aperture/web build
@@ -534,7 +542,9 @@
         devShells.default = pkgs.mkShell {
           packages = [
             goLatest
+            pkgs.golangci-lint
             pkgs.gopls
+            pkgs.goreleaser
             pkgs.nodejs_22
             pnpmLatest
             pkgs.pkg-config

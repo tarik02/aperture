@@ -604,7 +604,7 @@ func sendCompositorControlCommand(ctx context.Context, socketPath string, comman
 	if err != nil {
 		return "", fmt.Errorf("dial compositor control socket: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
@@ -631,13 +631,4 @@ func writeWrapperJSON(w http.ResponseWriter, status int, body any) {
 
 func writeWrapperError(w http.ResponseWriter, status int, message string) {
 	writeWrapperJSON(w, status, map[string]any{"error": message})
-}
-
-func headerHasProtocol(header string, protocol string) bool {
-	for _, part := range strings.Split(header, ",") {
-		if strings.TrimSpace(part) == protocol {
-			return true
-		}
-	}
-	return false
 }

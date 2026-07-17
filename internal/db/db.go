@@ -79,7 +79,7 @@ func (d *DB) Migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
 		return fmt.Errorf("disable sqlite foreign keys for migrations: %w", err)
@@ -115,7 +115,7 @@ func checkSQLiteForeignKeys(ctx context.Context, tx bun.IDB) error {
 	if err != nil {
 		return fmt.Errorf("check sqlite foreign keys: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	if !rows.Next() {
 		return rows.Err()
