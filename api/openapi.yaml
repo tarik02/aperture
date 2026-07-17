@@ -55,6 +55,8 @@ paths:
       operationId: getHealth
       tags: [system]
       summary: Get service health
+      x-aperture-auth:
+        public: true
       description: |
         Returns the local deployment process status, build version, deployment color, role, and currently active color. This endpoint is public and always reports the local instance, including when that instance is inactive.
       security: []
@@ -65,6 +67,10 @@ paths:
       operationId: getCurrentPrincipal
       tags: [auth]
       summary: Get the authenticated principal
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: []
+        tenantResolution: optional_header
       description: |
         Returns metadata for the authenticated API token and its effective tenant selection. Tenant tokens resolve their bound tenant automatically. System administrator tokens return `selectedTenant` only when `X-Aperture-Tenant-Id` is supplied; omitting the header is valid for this operation.
       parameters:
@@ -77,8 +83,12 @@ paths:
       operationId: listBrowserChannels
       tags: [browser]
       summary: List available browser channels
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: not_applicable
       description: |
-        Lists browser channel names accepted by session creation. Requires `sessions:read`. The result reflects the channels configured on this Aperture deployment.
+        Lists browser channel names accepted by session creation. The result reflects the channels configured on this Aperture deployment.
       responses:
         '200': {description: Browser channels, content: {application/json: {schema: {$ref: '#/components/schemas/BrowserChannels'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -87,8 +97,12 @@ paths:
       operationId: createTenant
       tags: [tenants]
       summary: Create a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Creates a tenant with a generated UUIDv7 identifier. Requires a `system_admin` token with `system:admin`. `displayName` must contain non-whitespace characters.
+        Creates a tenant with a generated UUIDv7 identifier. `displayName` must contain non-whitespace characters.
       requestBody: {$ref: '#/components/requestBodies/CreateTenant'}
       responses:
         '201': {description: Created tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
@@ -97,8 +111,12 @@ paths:
       operationId: listTenants
       tags: [tenants]
       summary: List tenants
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Lists tenants newest first. Requires a `system_admin` token with `system:admin`. Use `deleted` to select active tenants, deactivated tenants, or both.
+        Lists tenants newest first. Use `deleted` to select active tenants, deactivated tenants, or both.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -114,8 +132,12 @@ paths:
       operationId: updateTenant
       tags: [tenants]
       summary: Update a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Replaces the display name of an active tenant. Requires a `system_admin` token with `system:admin`. A deactivated tenant must be restored before it can be updated.
+        Replaces the display name of an active tenant. A deactivated tenant must be restored before it can be updated.
       requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
       responses:
         '200': {description: Updated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
@@ -124,8 +146,12 @@ paths:
       operationId: deleteTenant
       tags: [tenants]
       summary: Deactivate a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Soft-deactivates a tenant and revokes its tenant-scoped API tokens. Requires a `system_admin` token with `system:admin`. Repeating the operation for an already deactivated tenant is safe.
+        Soft-deactivates a tenant and revokes its tenant-scoped API tokens. Repeating the operation for an already deactivated tenant is safe.
       responses:
         '200': {description: Deactivated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -134,8 +160,12 @@ paths:
       operationId: restoreTenant
       tags: [tenants]
       summary: Restore a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Clears a tenant's deactivation marker. Requires a `system_admin` token with `system:admin`. Previously revoked tokens remain revoked.
+        Clears a tenant's deactivation marker. Previously revoked tokens remain revoked.
       parameters:
         - {$ref: '#/components/parameters/TenantId'}
       responses:
@@ -146,8 +176,12 @@ paths:
       operationId: createAdminToken
       tags: [tokens]
       summary: Create an API token
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Creates either a system administrator token or a tenant token. Requires a `system_admin` token with `system:admin`.
+        Creates either a system administrator token or a tenant token.
 
         System administrator tokens must include `system:admin` and cannot be bound to a tenant. Tenant tokens require an active `tenantId` and cannot request `system:admin` or `tenants:write`. Scope names must be known and unique.
 
@@ -160,8 +194,12 @@ paths:
       operationId: listAdminTokens
       tags: [tokens]
       summary: List API tokens
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Lists API token metadata newest first. Requires a `system_admin` token with `system:admin`. Filters use exact authority and tenant matches, case-insensitive name substring matching, scope membership, and revocation state. Token secrets are never included.
+        Lists API token metadata newest first. Filters use exact authority and tenant matches, case-insensitive name substring matching, scope membership, and revocation state. Token secrets are never included.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -191,8 +229,12 @@ paths:
       operationId: revokeAdminToken
       tags: [tokens]
       summary: Revoke an API token
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
       description: |
-        Revokes an API token by ID. Requires a `system_admin` token with `system:admin`. Revoking an already revoked token is safe and still returns `204`.
+        Revokes an API token by ID. Revoking an already revoked token is safe and still returns `204`.
       parameters:
         - {$ref: '#/components/parameters/TokenId'}
       responses:
@@ -203,8 +245,12 @@ paths:
       operationId: getTenant
       tags: [tenants]
       summary: Get the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
       description: |
-        Returns the tenant bound to the authenticated tenant token. Requires `authorityType=tenant` and `tenant:write`. This route does not allow a system administrator to select a tenant.
+        Returns the tenant bound to the authenticated tenant token. This route does not allow a system administrator to select a tenant.
       responses:
         '200': {description: Selected tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -212,8 +258,12 @@ paths:
       operationId: updateSelectedTenant
       tags: [tenants]
       summary: Update the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
       description: |
-        Replaces the display name of the tenant bound to the authenticated token. Requires `authorityType=tenant` and `tenant:write`.
+        Replaces the display name of the tenant bound to the authenticated token.
       requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
       responses:
         '200': {description: Updated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
@@ -223,8 +273,12 @@ paths:
       operationId: createTenantToken
       tags: [tokens]
       summary: Create a token for the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
       description: |
-        Creates another API token bound to the caller's tenant. Requires a tenant token with `tenant:write`. Tenant tokens cannot request the system-only `system:admin` or `tenants:write` scopes. The raw token secret is returned once in `rawToken`.
+        Creates another API token bound to the caller's tenant. Tenant tokens cannot request the system-only `system:admin` or `tenants:write` scopes. The raw token secret is returned once in `rawToken`.
       requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -233,8 +287,12 @@ paths:
       operationId: listTenantTokens
       tags: [tokens]
       summary: List tokens for the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
       description: |
-        Lists API token metadata for the caller's tenant. Requires a tenant token with `tenant:write`. Supports name substring, scope membership, revocation-state, and cursor filters. Token secrets are never included.
+        Lists API token metadata for the caller's tenant. Supports name substring, scope membership, revocation-state, and cursor filters. Token secrets are never included.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -256,8 +314,12 @@ paths:
       operationId: revokeTenantToken
       tags: [tokens]
       summary: Revoke a selected tenant token
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
       description: |
-        Revokes a token owned by the caller's tenant. Requires a tenant token with `tenant:write`. Missing and foreign token IDs both return not found. Repeating the revocation is safe.
+        Revokes a token owned by the caller's tenant. Missing and foreign token IDs both return not found. Repeating the revocation is safe.
       parameters:
         - {$ref: '#/components/parameters/TokenId'}
       responses:
@@ -270,8 +332,12 @@ paths:
       operationId: listSessions
       tags: [sessions]
       summary: List browser sessions
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Lists sessions for the selected tenant, newest first. Requires `sessions:read`. Deleted sessions are excluded unless `includeDeleted=true`. Filter by an exact lifecycle status or by one or more tag predicates.
+        Lists sessions for the selected tenant, newest first. Deleted sessions are excluded unless `includeDeleted=true`. Filter by an exact lifecycle status or by one or more tag predicates.
 
         Session credentials are included only when they are currently available to the caller. Treat any returned `sessionToken` as a secret.
       parameters:
@@ -292,8 +358,18 @@ paths:
       operationId: createSession
       tags: [sessions]
       summary: Create a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        conditionalScopes:
+          - scope: snapshots:read
+            condition:
+              source: requestBody
+              property: baseSnapshotName
+              operator: non_empty
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Starts a browser and creates a retained session overlay for the selected tenant. Requires `sessions:write`. Supplying a non-empty `baseSnapshotName` also requires `snapshots:read`.
+        Starts a browser and creates a retained session overlay for the selected tenant.
 
         The browser channel must be one returned by `GET /api/browser/channels`. Browser arguments are checked against Aperture's policy and may be rejected when they conflict with supervisor-owned behavior. The response contains the authenticated Chrome DevTools URL and a session token. Store the token immediately.
 
@@ -309,8 +385,12 @@ paths:
       operationId: getSessionsBulk
       tags: [sessions]
       summary: Get browser sessions by ID
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Returns up to 100 tenant-owned sessions in the same order as the requested UUIDv7 IDs. Requires `sessions:read`. Missing, foreign, and deleted sessions are omitted instead of producing an error. An empty ID list is valid.
+        Returns up to 100 tenant-owned sessions in the same order as the requested UUIDv7 IDs. Missing, foreign, and deleted sessions are omitted instead of producing an error. An empty ID list is valid.
       requestBody: {$ref: '#/components/requestBodies/SessionBulk'}
       responses:
         '200': {description: Browser sessions, content: {application/json: {schema: {$ref: '#/components/schemas/SessionBulkResponse'}}}}
@@ -323,8 +403,12 @@ paths:
       operationId: getSession
       tags: [sessions]
       summary: Get a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Returns a tenant-owned session and its current routable credentials when available. Requires `sessions:read`. A missing or foreign session ID returns not found.
+        Returns a tenant-owned session and its current routable credentials when available. A missing or foreign session ID returns not found.
       responses:
         '200': {description: Browser session, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -332,8 +416,12 @@ paths:
       operationId: deleteSession
       tags: [sessions]
       summary: Delete a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Stops a running browser, retires routing and media state, unmounts its overlay, and marks the session as `deleted`. Requires `sessions:write`. The retained overlay remains eligible for reopening until `expiresAt`, which is reset from the deletion time.
+        Stops a running browser, retires routing and media state, unmounts its overlay, and marks the session as `deleted`. The retained overlay remains eligible for reopening until `expiresAt`, which is reset from the deletion time.
       responses:
         '200': {description: Deleted session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -342,8 +430,12 @@ paths:
       operationId: replaceSessionTags
       tags: [sessions]
       summary: Replace browser session tags
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Replaces the complete tag map for a tenant-owned session. Requires `sessions:write`. Send an empty object in `tags` to remove every tag. Keys and values must contain non-whitespace characters.
+        Replaces the complete tag map for a tenant-owned session. Send an empty object in `tags` to remove every tag. Keys and values must contain non-whitespace characters.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -356,8 +448,12 @@ paths:
       operationId: suspendSession
       tags: [sessions]
       summary: Suspend a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Stops a running browser while retaining its overlay for later use. Requires `sessions:write`. The operation retires routing and media state, marks the session `suspended`, and resets its retention deadline. Only a `running` session can be suspended.
+        Stops a running browser while retaining its overlay for later use. The operation retires routing and media state, marks the session `suspended`, and resets its retention deadline. Only a `running` session can be suspended.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -369,8 +465,12 @@ paths:
       operationId: reopenSession
       tags: [sessions]
       summary: Reopen a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Restarts a retained `deleted` or `failed` session with its original base snapshot, browser channel, arguments, and overlay. Requires `sessions:write`. The response returns fresh current credentials. Expired sessions, missing overlays, and other lifecycle states cannot be reopened.
+        Restarts a retained `deleted` or `failed` session with its original base snapshot, browser channel, arguments, and overlay. The response returns fresh current credentials. Expired sessions, missing overlays, and other lifecycle states cannot be reopened.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -382,8 +482,12 @@ paths:
       operationId: rotateSessionToken
       tags: [sessions]
       summary: Rotate a browser session token
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Revokes the previous session access token and creates a replacement. Requires `sessions:write` and a `running` session. Existing consumers using the old token lose access immediately. The response returns the new raw token and current CDP URL.
+        Revokes the previous session access token and creates a replacement. The session must be `running`. Existing consumers using the old token lose access immediately. The response returns the new raw token and current CDP URL.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -395,8 +499,12 @@ paths:
       operationId: promoteSession
       tags: [snapshots]
       summary: Promote a browser session to a snapshot
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write, snapshots:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Materializes a stopped, retained session overlay as a reusable snapshot. Requires both `sessions:write` and `snapshots:write`. Promotable sessions are `deleted`, `failed`, or `suspended`; the browser must be stopped and the overlay must still exist.
+        Materializes a stopped, retained session overlay as a reusable snapshot. Promotable sessions are `deleted`, `failed`, or `suspended`; the browser must be stopped and the overlay must still exist.
 
         Active snapshot names cannot be replaced. If a deleted snapshot already uses the requested name, set `force=true` to preserve that tombstone under an internal name and create the new snapshot. Promotion extends the source session's retention deadline.
       parameters:
@@ -413,8 +521,12 @@ paths:
       operationId: listSnapshots
       tags: [snapshots]
       summary: List snapshots
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:read]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Lists snapshots for the selected tenant, newest first. Requires `snapshots:read`. Use `deleted` to select active snapshots, deleted snapshots, or both. Tag predicates are combined with logical AND.
+        Lists snapshots for the selected tenant, newest first. Use `deleted` to select active snapshots, deleted snapshots, or both. Tag predicates are combined with logical AND.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -434,8 +546,12 @@ paths:
       operationId: updateSnapshot
       tags: [snapshots]
       summary: Update snapshot description
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Replaces a snapshot's optional description. Requires `snapshots:write`. Send `null` to clear the description. The operation can also update a soft-deleted snapshot while it remains retained.
+        Replaces a snapshot's optional description. Send `null` to clear the description. The operation can also update a soft-deleted snapshot while it remains retained.
       requestBody: {$ref: '#/components/requestBodies/UpdateSnapshot'}
       responses:
         '200': {description: Updated snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
@@ -444,8 +560,12 @@ paths:
       operationId: deleteSnapshot
       tags: [snapshots]
       summary: Delete a snapshot
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Soft-deletes a snapshot and sets its purge eligibility from the deployment's snapshot retention policy. Requires `snapshots:write`. Existing sessions based on the snapshot are unaffected, but new sessions cannot use a deleted base snapshot. Repeating the deletion is safe.
+        Soft-deletes a snapshot and sets its purge eligibility from the deployment's snapshot retention policy. Existing sessions based on the snapshot are unaffected, but new sessions cannot use a deleted base snapshot. Repeating the deletion is safe.
       responses:
         '200': {description: Deleted snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -454,8 +574,12 @@ paths:
       operationId: replaceSnapshotTags
       tags: [snapshots]
       summary: Replace snapshot tags
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Replaces the complete tag map for a snapshot. Requires `snapshots:write`. Send an empty object in `tags` to remove every tag. Keys and values must contain non-whitespace characters. The operation can update a retained soft-deleted snapshot.
+        Replaces the complete tag map for a snapshot. Send an empty object in `tags` to remove every tag. Keys and values must contain non-whitespace characters. The operation can update a retained soft-deleted snapshot.
       parameters:
         - {$ref: '#/components/parameters/SnapshotName'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -468,8 +592,12 @@ paths:
       operationId: restoreSnapshot
       tags: [snapshots]
       summary: Restore a snapshot
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Clears a snapshot's deletion and expiry markers. Requires `snapshots:write`. Restoring an already active snapshot returns a state conflict.
+        Clears a snapshot's deletion and expiry markers. Restoring an already active snapshot returns a state conflict.
       parameters:
         - {$ref: '#/components/parameters/SnapshotName'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -481,8 +609,12 @@ paths:
       operationId: listEvents
       tags: [events]
       summary: List tenant events
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
       description: |
-        Lists tenant audit and lifecycle events newest first. Requires `sessions:read`. `resourceType` and `resourceId` are exact-match filters. Event `data` is operation-specific JSON.
+        Lists tenant audit and lifecycle events newest first. `resourceType` and `resourceId` are exact-match filters. Event `data` is operation-specific JSON.
       parameters:
         - {$ref: '#/components/parameters/SelectedTenantId'}
         - {$ref: '#/components/parameters/Limit'}
@@ -1030,7 +1162,7 @@ components:
         baseSnapshotName:
           type: string
           nullable: true
-          description: Active snapshot used as the browser filesystem base. Omit, send `null`, or send an empty value for a blank session. A non-empty value also requires `snapshots:read`.
+          description: Active snapshot used as the browser filesystem base. Omit, send `null`, or send an empty value for a blank session.
           example: signed-in-base
         label:
           type: string
