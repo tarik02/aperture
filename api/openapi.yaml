@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: Aperture API
   version: 0.0.0
@@ -1028,9 +1028,8 @@ components:
           description: Time the tenant was created.
           example: '2026-07-17T12:00:00Z'
         deletedAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Soft-deactivation time, or `null` for an active tenant.
           example: null
     TenantPage:
@@ -1052,8 +1051,7 @@ components:
           example: deployment automation
         authorityType: {$ref: '#/components/schemas/AuthorityType'}
         tenantId:
-          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
-          nullable: true
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: Bound tenant for a tenant token, or `null` for a system administrator token.
         scopes:
           type: array
@@ -1067,8 +1065,7 @@ components:
       properties:
         principal: {$ref: '#/components/schemas/Principal'}
         selectedTenant:
-          allOf: [{$ref: '#/components/schemas/Tenant'}]
-          nullable: true
+          oneOf: [{$ref: '#/components/schemas/Tenant'}, {type: 'null'}]
           description: Effective tenant, or `null` when a system administrator did not select one.
     BrowserChannel:
       type: object
@@ -1098,8 +1095,7 @@ components:
           description: Token identifier. This is not the bearer secret.
         authorityType: {$ref: '#/components/schemas/AuthorityType'}
         tenantId:
-          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
-          nullable: true
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: Bound tenant for a tenant token, or `null` for a system administrator token.
         name:
           type: string
@@ -1117,15 +1113,13 @@ components:
           description: Time the token was created.
           example: '2026-07-17T12:00:00Z'
         expiresAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Authentication expiry time, or `null` when the token does not expire automatically.
           example: '2026-08-17T12:00:00Z'
         revokedAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Revocation time, or `null` while the token is active.
           example: null
     CreateAdminTokenInput:
@@ -1149,9 +1143,8 @@ components:
               items: {$ref: '#/components/schemas/Scope'}
               example: ['system:admin']
             expiresAt:
-              type: string
+              type: [string, 'null']
               format: date-time
-              nullable: true
               description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
               example: '2026-08-17T12:00:00Z'
         - type: object
@@ -1175,9 +1168,8 @@ components:
               items: {$ref: '#/components/schemas/TenantScope'}
               example: ['sessions:read', 'sessions:write']
             expiresAt:
-              type: string
+              type: [string, 'null']
               format: date-time
-              nullable: true
               description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
               example: '2026-08-17T12:00:00Z'
     CreateTenantTokenInput:
@@ -1199,9 +1191,8 @@ components:
           items: {$ref: '#/components/schemas/TenantScope'}
           example: ['sessions:read', 'sessions:write']
         expiresAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
           example: '2026-08-17T12:00:00Z'
     CreateTokenResponse:
@@ -1242,13 +1233,11 @@ components:
       required: [browser]
       properties:
         baseSnapshotName:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: Active snapshot used as the browser filesystem base. Omit, send `null`, or send an empty value for a blank session.
           example: signed-in-base
         label:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: Optional operator-facing label for the session.
           example: checkout smoke test
         browser: {$ref: '#/components/schemas/BrowserConfig'}
@@ -1338,9 +1327,8 @@ components:
           description: Most recent browser stop time. Omitted while no stop has occurred.
           example: '2026-07-17T13:00:00Z'
         deletedAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Soft-deletion time, or `null` for a session that has not been deleted.
           example: null
         expiresAt:
@@ -1438,8 +1426,7 @@ components:
           description: Tenant-unique snapshot name. Leading and trailing whitespace is removed.
           example: signed-in-base
         description:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: Optional snapshot description. `null` creates the snapshot without a description.
           example: Signed-in storefront state for checkout tests
         force:
@@ -1470,8 +1457,7 @@ components:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
           description: Tenant that owns the snapshot.
         description:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: Operator-provided description, or `null` when none is set.
           example: Signed-in storefront state for checkout tests
         parentSnapshotId:
@@ -1486,9 +1472,8 @@ components:
           description: Time the snapshot was created.
           example: '2026-07-17T12:45:00Z'
         deletedAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Soft-deletion time, or `null` for an active snapshot.
           example: null
         expiresAt:
@@ -1514,8 +1499,7 @@ components:
       description: Replacement snapshot description.
       properties:
         description:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: New description. Send `null` to clear it; an empty string is stored as an empty description.
           example: Updated signed-in state
     ReplaceTagsInput:
