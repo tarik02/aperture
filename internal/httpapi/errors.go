@@ -109,6 +109,24 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadRequest, "passkey_flow_invalid", "passkey flow is invalid or expired"
 	case errors.Is(err, auth.ErrPasskeyAuthentication):
 		return http.StatusUnauthorized, "passkey_authentication_failed", "passkey authentication failed"
+	case errors.Is(err, auth.ErrPasswordAuthentication):
+		return http.StatusUnauthorized, "password_authentication_failed", "email or password is invalid"
+	case errors.Is(err, auth.ErrPasswordInvalid):
+		return http.StatusBadRequest, "password_invalid", err.Error()
+	case errors.Is(err, auth.ErrPasswordEmailRequired):
+		return http.StatusConflict, "password_email_required", "an email address is required for password login"
+	case errors.Is(err, auth.ErrCurrentPasswordMissing):
+		return http.StatusBadRequest, "current_password_required", "current password is required"
+	case errors.Is(err, auth.ErrCurrentPasswordInvalid):
+		return http.StatusUnauthorized, "current_password_invalid", "current password is invalid"
+	case errors.Is(err, auth.ErrMFAFlowInvalid):
+		return http.StatusBadRequest, "mfa_flow_invalid", "multi-factor authentication flow is invalid or expired"
+	case errors.Is(err, auth.ErrMFACodeInvalid):
+		return http.StatusUnauthorized, "mfa_code_invalid", "authentication code is invalid"
+	case errors.Is(err, auth.ErrTOTPAlreadyEnabled):
+		return http.StatusConflict, "totp_already_enabled", "authenticator is already enabled"
+	case errors.Is(err, auth.ErrTOTPNotEnabled):
+		return http.StatusConflict, "totp_not_enabled", "authenticator is not enabled"
 	case errors.Is(err, auth.ErrBootstrapNotEmpty):
 		return http.StatusConflict, "bootstrap_refused", "bootstrap refused: api tokens already exist"
 	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope), errors.Is(err, auth.ErrInvalidResourceScope):

@@ -15,8 +15,11 @@ import {
   passkeyMutationSchema,
   passkeyRegistrationOptionsSchema,
   passkeysSchema,
+  passwordLoginResponseSchema,
   promoteSessionResponseSchema,
   screencastStatusSchema,
+  recoveryCodesSchema,
+  securityStatusSchema,
   sessionSchema,
   sessionsBulkResponseSchema,
   sessionMutationResponseSchema,
@@ -24,6 +27,7 @@ import {
   snapshotMutationResponseSchema,
   snapshotsPageSchema,
   tenantSchema,
+  totpEnrollmentSchema,
   tenantsPageSchema,
   tokensPageSchema,
 } from "#/lib/api/schemas.ts";
@@ -395,6 +399,72 @@ export const apiClient = {
     return requestVoid({
       method: "DELETE",
       path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
+    });
+  },
+
+  loginWithPassword(email: string, password: string) {
+    return request({
+      method: "POST",
+      path: "/auth/password/login",
+      schema: passwordLoginResponseSchema,
+      body: { email, password },
+    });
+  },
+
+  completePasswordMFA(code: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/password/login/mfa",
+      body: { code },
+    });
+  },
+
+  getSecurityStatus() {
+    return request({
+      path: "/auth/security",
+      schema: securityStatusSchema,
+    });
+  },
+
+  setPassword(currentPassword: string, newPassword: string) {
+    return requestVoid({
+      method: "PUT",
+      path: "/auth/password",
+      body: { currentPassword, newPassword },
+    });
+  },
+
+  beginTOTPEnrollment() {
+    return request({
+      method: "POST",
+      path: "/auth/totp/enrollment/options",
+      schema: totpEnrollmentSchema,
+    });
+  },
+
+  completeTOTPEnrollment(code: string) {
+    return request({
+      method: "POST",
+      path: "/auth/totp/enrollment/finish",
+      schema: recoveryCodesSchema,
+      body: { code },
+    });
+  },
+
+  regenerateRecoveryCodes(code: string) {
+    return request({
+      method: "POST",
+      path: "/auth/totp/recovery-codes",
+      schema: recoveryCodesSchema,
+      body: { code },
+    });
+  },
+
+  disableTOTP(code: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/totp/disable",
+      body: { code },
     });
   },
 

@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	AuthMethodOIDC    = "oidc"
-	AuthMethodPasskey = "passkey"
+	AuthMethodOIDC     = "oidc"
+	AuthMethodPasskey  = "passkey"
+	AuthMethodPassword = "password"
 )
 
 // AuthenticateUser resolves an active user's authority for an optional tenant selection.
