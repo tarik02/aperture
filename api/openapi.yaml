@@ -338,8 +338,8 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict]
-      description: Creates an administrator or tenant token. The raw token is returned once.
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
+      description: Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateAdminToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -431,8 +431,8 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
-      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict]
-      description: Creates a token bound to the caller's tenant. The raw token is returned once.
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
+      description: Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -1088,6 +1088,7 @@ components:
         - token_not_found
         - tenant_deactivated
         - token_name_conflict
+        - token_delegation_exceeded
         - user_not_found
         - user_disabled
         - user_email_conflict
@@ -1133,6 +1134,7 @@ components:
         token_not_found: 404
         tenant_deactivated: 409
         token_name_conflict: 409
+        token_delegation_exceeded: 403
         user_not_found: 404
         user_disabled: 409
         user_email_conflict: 409
@@ -1384,7 +1386,7 @@ components:
     Token:
       type: object
       description: API token metadata. The raw bearer secret is never included in this schema.
-      required: [id, authorityType, name, scopes, createdAt]
+      required: [id, authorityType, name, scopes, createdAt, createdByType, createdById, parentTokenId]
       properties:
         id:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
@@ -1408,6 +1410,15 @@ components:
           format: date-time
           description: Time the token was created.
           example: '2026-07-17T12:00:00Z'
+        createdByType:
+          allOf: [{$ref: '#/components/schemas/PrincipalType'}]
+          description: Principal category that created the token.
+        createdById:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: User or API token identifier that created the token, or `null` for trusted local system actions.
+        parentTokenId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: API token used to delegate this token, or `null` when a user or trusted local system created it.
         expiresAt:
           type: [string, 'null']
           format: date-time

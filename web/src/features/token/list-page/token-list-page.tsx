@@ -528,6 +528,14 @@ function TokenViewModal({
                   { label: "Tenant", value: token.tenantId ?? "—" },
                   { label: "Scopes", value: <ScopeList scopes={token.scopes} /> },
                   { label: "Created", value: metadataTimestamp(token.createdAt) },
+                  {
+                    label: "Created by",
+                    value:
+                      token.createdByType === "system"
+                        ? "System"
+                        : `${token.createdByType === "user" ? "User" : "API token"} · ${token.createdById ?? "—"}`,
+                  },
+                  { label: "Parent token", value: token.parentTokenId ?? "—" },
                   { label: "Expires", value: metadataTimestamp(token.expiresAt) },
                   { label: "Revoked", value: metadataTimestamp(token.revokedAt) },
                 ]}

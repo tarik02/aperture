@@ -56,7 +56,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		AuthorityType: auth.AuthorityTenant,
 		TenantID:      &tenantRow.ID,
 		Name:          "tenant-admin",
-		Scopes:        []string{auth.ScopeTenantWrite},
+		Scopes:        []string{auth.ScopeTenantWrite, auth.ScopeSessionsRead},
 	})
 	if err != nil {
 		t.Fatalf("create tenant token: %v", err)

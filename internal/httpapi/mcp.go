@@ -426,6 +426,9 @@ type mcpToken struct {
 	Name          string   `json:"name"`
 	Scopes        []string `json:"scopes"`
 	CreatedAt     string   `json:"createdAt"`
+	CreatedByType string   `json:"createdByType"`
+	CreatedByID   *string  `json:"createdById"`
+	ParentTokenID *string  `json:"parentTokenId"`
 	ExpiresAt     *string  `json:"expiresAt,omitempty"`
 	RevokedAt     *string  `json:"revokedAt,omitempty"`
 }
@@ -952,15 +955,18 @@ func (s *Server) mcpTokensCreate(ctx context.Context, _ *mcp.CallToolRequest, in
 		}
 		expiresAt = &parsed
 	}
-	created, err := s.Auth.CreateToken(ctx, auth.CreateTokenInput{AuthorityType: in.AuthorityType, TenantID: in.TenantID, Name: in.Name, Scopes: in.Scopes, ExpiresAt: expiresAt})
+	created, err := s.Auth.DelegateToken(ctx, *a.principal, auth.CreateTokenInput{AuthorityType: in.AuthorityType, TenantID: in.TenantID, Name: in.Name, Scopes: in.Scopes, ExpiresAt: expiresAt})
 	if err != nil {
+		if errors.Is(err, auth.ErrTokenDelegation) || errors.Is(err, auth.ErrScopeDenied) {
+			return nil, mcpCreateTokenOutput{}, mcpToolError("forbidden", err)
+		}
 		return nil, mcpCreateTokenOutput{}, mcpToolError("invalid_arguments", err)
 	}
 	scopes, err := auth.ParseScopesJSON(created.Token.ScopesJSON)
 	if err != nil {
 		return nil, mcpCreateTokenOutput{}, mcpToolError("internal", err)
 	}
-	return nil, mcpCreateTokenOutput{Token: mcpToken{ID: created.Token.ID, AuthorityType: created.Token.AuthorityType, TenantID: created.Token.TenantID, Name: created.Token.Name, Scopes: scopes, CreatedAt: created.Token.CreatedAt, ExpiresAt: created.Token.ExpiresAt}, RawToken: created.Raw}, nil
+	return nil, mcpCreateTokenOutput{Token: mcpToken{ID: created.Token.ID, AuthorityType: created.Token.AuthorityType, TenantID: created.Token.TenantID, Name: created.Token.Name, Scopes: scopes, CreatedAt: created.Token.CreatedAt, CreatedByType: created.Token.CreatedByType, CreatedByID: created.Token.CreatedByID, ParentTokenID: created.Token.ParentTokenID, ExpiresAt: created.Token.ExpiresAt}, RawToken: created.Raw}, nil
 }
 
 func (s *Server) mcpTokensRevoke(ctx context.Context, _ *mcp.CallToolRequest, in mcpRevokeTokenInput) (*mcp.CallToolResult, mcpRevokeTokenOutput, error) {
@@ -983,7 +989,7 @@ func (s *Server) mcpTokensRevoke(ctx context.Context, _ *mcp.CallToolRequest, in
 	} else if !auth.HasScope(a.principal.Scopes, auth.ScopeSystemAdmin) {
 		return nil, mcpRevokeTokenOutput{}, mcpToolError("forbidden", nil)
 	}
-	if err := s.Auth.RevokeToken(ctx, in.TokenID, tenantID); err != nil {
+	if err := s.Auth.RevokeTokenAs(ctx, *a.principal, in.TokenID, tenantID); err != nil {
 		return nil, mcpRevokeTokenOutput{}, mcpToolError("internal", err)
 	}
 	return nil, mcpRevokeTokenOutput{Revoked: true}, nil
@@ -1031,7 +1037,7 @@ func (s *Server) mcpTokensList(ctx context.Context, _ *mcp.CallToolRequest, in m
 		if err != nil {
 			return nil, mcpListTokensOutput{}, mcpToolError("internal", err)
 		}
-		out.Data = append(out.Data, mcpToken{ID: item.ID, AuthorityType: item.AuthorityType, TenantID: item.TenantID, Name: item.Name, Scopes: scopes, CreatedAt: item.CreatedAt, ExpiresAt: item.ExpiresAt, RevokedAt: item.RevokedAt})
+		out.Data = append(out.Data, mcpToken{ID: item.ID, AuthorityType: item.AuthorityType, TenantID: item.TenantID, Name: item.Name, Scopes: scopes, CreatedAt: item.CreatedAt, CreatedByType: item.CreatedByType, CreatedByID: item.CreatedByID, ParentTokenID: item.ParentTokenID, ExpiresAt: item.ExpiresAt, RevokedAt: item.RevokedAt})
 	}
 	return nil, out, nil
 }

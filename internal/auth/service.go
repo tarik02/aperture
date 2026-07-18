@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -140,10 +141,20 @@ func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) (CreatedT
 		TokenHash:     hash,
 		ScopesJSON:    scopesJSON,
 		CreatedAt:     db.NowUTC(),
+		CreatedByType: PrincipalTypeSystem,
 		ExpiresAt:     FormatExpiresAt(input.ExpiresAt),
 	}
 
-	if err := s.repo.CreateBootstrapAPIToken(ctx, row); err != nil {
+	audit, err := s.newAuditEvent(Principal{Type: PrincipalTypeSystem}, AuditInput{
+		Action:       "token.created",
+		ResourceType: "api_token",
+		ResourceID:   &row.ID,
+		Data:         map[string]any{"authorityType": row.AuthorityType, "parentTokenId": nil},
+	})
+	if err != nil {
+		return CreatedToken{}, err
+	}
+	if err := s.repo.CreateBootstrapAPIToken(ctx, row, audit); err != nil {
 		if errors.Is(err, db.ErrBootstrapNotEmpty) {
 			return CreatedToken{}, ErrBootstrapNotEmpty
 		}
@@ -257,38 +268,69 @@ func (s *Service) RestoreTenant(ctx context.Context, tenantID string) (*db.Tenan
 	return tenant, nil
 }
 
-// CreateToken creates an API token and returns the raw value once.
+// CreateToken creates a token as the trusted local system actor.
 func (s *Service) CreateToken(ctx context.Context, input CreateTokenInput) (CreatedToken, error) {
-	if err := ValidateScopes(input.AuthorityType, input.Scopes); err != nil {
+	validated, err := s.validateCreateTokenInput(ctx, input)
+	if err != nil {
 		return CreatedToken{}, err
 	}
+	return s.createToken(ctx, Principal{Type: PrincipalTypeSystem}, validated)
+}
 
-	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		return CreatedToken{}, fmt.Errorf("token name is required")
+// DelegateToken creates a token within the authenticated principal's authority.
+func (s *Service) DelegateToken(ctx context.Context, principal Principal, input CreateTokenInput) (CreatedToken, error) {
+	validated, err := s.validateCreateTokenInput(ctx, input)
+	if err != nil {
+		return CreatedToken{}, err
+	}
+	if err := validateTokenDelegation(principal, validated); err != nil {
+		return CreatedToken{}, err
+	}
+	return s.createToken(ctx, principal, validated)
+}
+
+func (s *Service) validateCreateTokenInput(ctx context.Context, input CreateTokenInput) (CreateTokenInput, error) {
+	if err := ValidateScopes(input.AuthorityType, input.Scopes); err != nil {
+		return CreateTokenInput{}, err
+	}
+
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return CreateTokenInput{}, fmt.Errorf("token name is required")
 	}
 
 	switch input.AuthorityType {
 	case AuthoritySystemAdmin:
 		if input.TenantID != nil {
-			return CreatedToken{}, ErrInvalidAuthority
+			return CreateTokenInput{}, ErrInvalidAuthority
 		}
 	case AuthorityTenant:
 		if input.TenantID == nil || strings.TrimSpace(*input.TenantID) == "" {
-			return CreatedToken{}, ErrTenantRequired
+			return CreateTokenInput{}, ErrTenantRequired
 		}
-		if _, err := s.requireActiveTenant(ctx, *input.TenantID); err != nil {
-			return CreatedToken{}, err
+		tenantID := strings.TrimSpace(*input.TenantID)
+		if _, err := s.requireActiveTenant(ctx, tenantID); err != nil {
+			return CreateTokenInput{}, err
 		}
+		input.TenantID = &tenantID
 	default:
-		return CreatedToken{}, ErrInvalidAuthority
+		return CreateTokenInput{}, ErrInvalidAuthority
 	}
 
-	return s.createToken(ctx, input)
+	return input, nil
 }
 
-// RevokeToken revokes an API token, optionally enforcing tenant ownership.
+// RevokeToken revokes a token as the trusted local system actor.
 func (s *Service) RevokeToken(ctx context.Context, tokenID string, tenantID *string) error {
+	return s.revokeToken(ctx, Principal{Type: PrincipalTypeSystem}, tokenID, tenantID)
+}
+
+// RevokeTokenAs revokes a token and records the authenticated actor.
+func (s *Service) RevokeTokenAs(ctx context.Context, principal Principal, tokenID string, tenantID *string) error {
+	return s.revokeToken(ctx, principal, tokenID, tenantID)
+}
+
+func (s *Service) revokeToken(ctx context.Context, principal Principal, tokenID string, tenantID *string) error {
 	row, err := s.repo.GetAPITokenByID(ctx, tokenID)
 	if err != nil {
 		return err
@@ -307,7 +349,16 @@ func (s *Service) RevokeToken(ctx context.Context, tokenID string, tenantID *str
 		return nil
 	}
 
-	if err := s.repo.RevokeAPIToken(ctx, tokenID, db.NowUTC()); err != nil {
+	audit, err := s.newAuditEvent(principal, AuditInput{
+		TenantID:     row.TenantID,
+		Action:       "token.revoked",
+		ResourceType: "api_token",
+		ResourceID:   &row.ID,
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.repo.RevokeAPIToken(ctx, tokenID, db.NowUTC(), audit); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrTokenNotFound
 		}
@@ -357,7 +408,7 @@ func (s *Service) requireActiveTenant(ctx context.Context, tenantID string) (*db
 	return tenant, nil
 }
 
-func (s *Service) createToken(ctx context.Context, input CreateTokenInput) (CreatedToken, error) {
+func (s *Service) createToken(ctx context.Context, principal Principal, input CreateTokenInput) (CreatedToken, error) {
 	tokenID, err := ids.NewUUIDv7()
 	if err != nil {
 		return CreatedToken{}, err
@@ -373,18 +424,41 @@ func (s *Service) createToken(ctx context.Context, input CreateTokenInput) (Crea
 		return CreatedToken{}, err
 	}
 
+	var createdByID *string
+	if principal.ID != "" {
+		value := principal.ID
+		createdByID = &value
+	}
+	var parentTokenID *string
+	if principal.TokenID != "" {
+		value := principal.TokenID
+		parentTokenID = &value
+	}
 	row := &db.APIToken{
 		ID:            tokenID,
 		AuthorityType: input.AuthorityType,
 		TenantID:      input.TenantID,
-		Name:          strings.TrimSpace(input.Name),
+		Name:          input.Name,
 		TokenHash:     hash,
 		ScopesJSON:    scopesJSON,
 		CreatedAt:     db.NowUTC(),
+		CreatedByType: principal.Type,
+		CreatedByID:   createdByID,
+		ParentTokenID: parentTokenID,
 		ExpiresAt:     FormatExpiresAt(input.ExpiresAt),
 	}
 
-	if err := s.repo.CreateAPIToken(ctx, row); err != nil {
+	audit, err := s.newAuditEvent(principal, AuditInput{
+		TenantID:     row.TenantID,
+		Action:       "token.created",
+		ResourceType: "api_token",
+		ResourceID:   &row.ID,
+		Data:         map[string]any{"authorityType": row.AuthorityType, "parentTokenId": row.ParentTokenID},
+	})
+	if err != nil {
+		return CreatedToken{}, err
+	}
+	if err := s.repo.CreateAPIToken(ctx, row, audit); err != nil {
 		if isUniqueViolation(err) {
 			return CreatedToken{}, ErrTokenNameConflict
 		}
@@ -392,6 +466,39 @@ func (s *Service) createToken(ctx context.Context, input CreateTokenInput) (Crea
 	}
 
 	return CreatedToken{Raw: raw, Token: *row}, nil
+}
+
+func validateTokenDelegation(principal Principal, input CreateTokenInput) error {
+	switch principal.AuthorityType {
+	case AuthoritySystemAdmin:
+		if !HasScope(principal.Scopes, ScopeSystemAdmin) {
+			return ErrTokenDelegation
+		}
+	case AuthorityTenant:
+		if input.AuthorityType != AuthorityTenant || principal.TenantID == nil || input.TenantID == nil || *principal.TenantID != *input.TenantID {
+			return ErrTokenDelegation
+		}
+		if !HasScope(principal.Scopes, ScopeTenantWrite) {
+			return ErrScopeDenied
+		}
+	default:
+		return ErrTokenDelegation
+	}
+
+	if !HasScope(principal.Scopes, ScopeSystemAdmin) {
+		for _, scope := range input.Scopes {
+			if !slices.Contains(principal.Scopes, scope) {
+				return ErrTokenDelegation
+			}
+		}
+	}
+	if principal.Type == PrincipalTypeAPIToken && principal.ExpiresAt != nil {
+		parentExpiry, err := time.Parse(time.RFC3339Nano, *principal.ExpiresAt)
+		if err != nil || input.ExpiresAt == nil || input.ExpiresAt.UTC().After(parentExpiry) {
+			return ErrTokenDelegation
+		}
+	}
+	return nil
 }
 
 func isUniqueViolation(err error) bool {

@@ -129,6 +129,9 @@ export const tokenSchema = z.object({
   name: z.string(),
   scopes: z.array(z.string()),
   createdAt: z.string(),
+  createdByType: z.enum(["api_token", "user", "system"]),
+  createdById: z.string().nullable(),
+  parentTokenId: z.string().nullable(),
   expiresAt: z.string().nullable(),
   revokedAt: z.string().nullable(),
 });

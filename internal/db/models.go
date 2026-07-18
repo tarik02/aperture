@@ -33,6 +33,9 @@ type APIToken struct {
 	TokenHash     string  `bun:"token_hash,notnull"`
 	ScopesJSON    string  `bun:"scopes_json,notnull"`
 	CreatedAt     string  `bun:"created_at,notnull"`
+	CreatedByType string  `bun:"created_by_type,notnull"`
+	CreatedByID   *string `bun:"created_by_id"`
+	ParentTokenID *string `bun:"parent_token_id"`
 	ExpiresAt     *string `bun:"expires_at"`
 	RevokedAt     *string `bun:"revoked_at"`
 }

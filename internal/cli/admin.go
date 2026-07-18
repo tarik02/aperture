@@ -415,14 +415,25 @@ func printToken(out io.Writer, token *db.APIToken) error {
 	if token.TenantID != nil {
 		tenant = *token.TenantID
 	}
+	createdByID := ""
+	if token.CreatedByID != nil {
+		createdByID = *token.CreatedByID
+	}
+	parentTokenID := ""
+	if token.ParentTokenID != nil {
+		parentTokenID = *token.ParentTokenID
+	}
 	_, err := fmt.Fprintf(
 		out,
-		"token id=%s authority_type=%s tenant_id=%s name=%q scopes=%s\n",
+		"token id=%s authority_type=%s tenant_id=%s name=%q scopes=%s created_by_type=%s created_by_id=%s parent_token_id=%s\n",
 		token.ID,
 		token.AuthorityType,
 		tenant,
 		token.Name,
 		token.ScopesJSON,
+		token.CreatedByType,
+		createdByID,
+		parentTokenID,
 	)
 	return err
 }
