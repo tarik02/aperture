@@ -228,7 +228,7 @@
           pname = "aperture";
           inherit version;
           inherit src;
-          vendorHash = "sha256-E71aUOs3JNhrGDnN4C9fXU+wmze5r0ikDuzDIpbepg8=";
+          vendorHash = "sha256-1HErubUo533gYFPuQ1TNdYwsPipNIABtDb6QNlr5OFo=";
 
           subPackages = [
             "cmd/aperture"

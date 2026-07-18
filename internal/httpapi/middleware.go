@@ -205,63 +205,6 @@ func tenantIDFromWebSocketProtocol(header string) string {
 	return ""
 }
 
-func (s *Server) requireAuth(c *gin.Context) {
-	principal, err := s.authenticate(c)
-	if err != nil {
-		WriteError(c, err)
-		c.Abort()
-		return
-	}
-	c.Set("principal", principal)
-	c.Next()
-}
-
-func (s *Server) requireSystemAdmin(c *gin.Context) {
-	principal, ok := c.Get("principal")
-	if !ok {
-		WriteError(c, auth.ErrTokenMissing)
-		c.Abort()
-		return
-	}
-
-	p := principal.(auth.Principal)
-	if p.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(p.Scopes, auth.ScopeSystemAdmin) {
-		WriteError(c, auth.ErrScopeDenied)
-		c.Abort()
-		return
-	}
-	c.Next()
-}
-
-func (s *Server) requireTenantWrite(c *gin.Context) {
-	principal, ok := c.Get("principal")
-	if !ok {
-		WriteError(c, auth.ErrTokenMissing)
-		c.Abort()
-		return
-	}
-
-	p := principal.(auth.Principal)
-	if p.AuthorityType != auth.AuthorityTenant {
-		WriteError(c, auth.ErrScopeDenied)
-		c.Abort()
-		return
-	}
-	if !auth.HasScope(p.Scopes, auth.ScopeTenantWrite) {
-		WriteError(c, auth.ErrScopeDenied)
-		c.Abort()
-		return
-	}
-
-	if p.TenantID == nil {
-		WriteError(c, auth.ErrTenantNotFound)
-		c.Abort()
-		return
-	}
-
-	c.Next()
-}
-
 type validatableRequest interface {
 	Validate() error
 }
@@ -281,34 +224,6 @@ func selectedTenantID(c *gin.Context) string {
 		return header
 	}
 	return tenantIDFromWebSocketProtocol(c.GetHeader("Sec-WebSocket-Protocol"))
-}
-
-func (s *Server) requireSnapshotsRead(c *gin.Context) {
-	if !s.requireSnapshotScope(c, auth.ScopeSnapshotsRead) {
-		return
-	}
-	c.Next()
-}
-
-func (s *Server) requireSessionsRead(c *gin.Context) {
-	if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
-		return
-	}
-	c.Next()
-}
-
-func (s *Server) requireSessionsReadScope(c *gin.Context) {
-	if !s.requireScope(c, auth.ScopeSessionsRead) {
-		return
-	}
-	c.Next()
-}
-
-func (s *Server) requireSessionsWrite(c *gin.Context) {
-	if !s.requireSessionScope(c, auth.ScopeSessionsWrite) {
-		return
-	}
-	c.Next()
 }
 
 func (s *Server) requireScope(c *gin.Context, scope string) bool {

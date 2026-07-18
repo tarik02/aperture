@@ -124,38 +124,6 @@ func (s *Server) restoreSnapshot(c *gin.Context) {
 	c.JSON(http.StatusOK, snapshotMutationResponse{Snapshot: toSnapshotResponse(view)})
 }
 
-func (s *Server) requireSnapshotsWrite(c *gin.Context) {
-	if !s.requireSnapshotScope(c, auth.ScopeSnapshotsWrite) {
-		return
-	}
-	c.Next()
-}
-
-func (s *Server) requirePromotionScopes(c *gin.Context) {
-	principal, ok := c.Get("principal")
-	if !ok {
-		WriteError(c, auth.ErrTokenMissing)
-		c.Abort()
-		return
-	}
-
-	p := principal.(auth.Principal)
-	if !auth.HasScope(p.Scopes, auth.ScopeSessionsWrite) || !auth.HasScope(p.Scopes, auth.ScopeSnapshotsWrite) {
-		WriteError(c, auth.ErrScopeDenied)
-		c.Abort()
-		return
-	}
-
-	tenantID, err := auth.ResolveTenantID(p, selectedTenantID(c))
-	if err != nil {
-		WriteError(c, err)
-		c.Abort()
-		return
-	}
-	c.Set("tenantId", tenantID)
-	c.Next()
-}
-
 func (s *Server) requireSnapshotScope(c *gin.Context, scope string) bool {
 	principal, ok := c.Get("principal")
 	if !ok {

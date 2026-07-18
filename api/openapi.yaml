@@ -1,0 +1,1571 @@
+openapi: 3.0.3
+info:
+  title: Aperture API
+  version: 0.0.0
+  description: |
+    REST API for managing Aperture tenants, browser sessions, snapshots, API tokens, and tenant events.
+
+    ## Authentication
+
+    Send `Authorization: Bearer <token>`. The health check is public. `system:admin` grants every scope, but admin routes still require a `system_admin` token. Raw tokens are returned only on creation or rotation.
+
+    ## Tenant selection
+
+    Tenant tokens use their bound tenant. System administrators select a tenant with `X-Aperture-Tenant-Id` for tenant-scoped operations.
+
+    ## Pagination
+
+    Lists are newest-first. Pass `meta.nextCursor` as `cursor` while `meta.hasMore` is `true`. Page size defaults to 50 and is capped at 100.
+
+    ## Errors
+
+    Errors use `{ "error": { "code": "...", "message": "..." } }`. Each operation enumerates its possible stable codes; `ErrorCode` is the complete catalog. Request bodies are limited to 1 MiB.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+    description: Deployment health and runtime identity.
+  - name: auth
+    description: Information about the API token used for the current request.
+  - name: browser
+    description: Browser runtime capabilities available for new sessions.
+  - name: tenants
+    description: Tenant administration and tenant self-service operations.
+  - name: tokens
+    description: Create, inspect, and revoke system administrator or tenant API tokens.
+  - name: sessions
+    description: Create and manage isolated Chromium sessions and their retained state.
+  - name: snapshots
+    description: Reusable browser filesystem snapshots created from retained sessions.
+  - name: events
+    description: Tenant-scoped audit and lifecycle events.
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      tags: [system]
+      summary: Get service health
+      x-aperture-auth:
+        public: true
+      description: Local process health and blue-green deployment state, including inactive colors.
+      security: []
+      responses:
+        '200': {description: Service health, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+  /api/auth/me:
+    get:
+      operationId: getCurrentPrincipal
+      tags: [auth]
+      summary: Get the authenticated principal
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: []
+        tenantResolution: optional_header
+      x-aperture-errors: [validation_failed, tenant_not_found]
+      description: Token metadata and optional effective tenant selection.
+      parameters:
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Current principal, content: {application/json: {schema: {$ref: '#/components/schemas/AuthMe'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/browser/channels:
+    get:
+      operationId: listBrowserChannels
+      tags: [browser]
+      summary: List available browser channels
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: not_applicable
+      x-aperture-errors: [browser_channels_unavailable]
+      description: Browser channels accepted by session creation.
+      responses:
+        '200': {description: Browser channels, content: {application/json: {schema: {$ref: '#/components/schemas/BrowserChannels'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants:
+    post:
+      operationId: createTenant
+      tags: [tenants]
+      summary: Create a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed]
+      description: Creates a tenant with a generated UUIDv7 identifier.
+      requestBody: {$ref: '#/components/requestBodies/CreateTenant'}
+      responses:
+        '201': {description: Created tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      operationId: listTenants
+      tags: [tenants]
+      summary: List tenants
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
+      description: Newest-first tenant list.
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Deleted'}
+        - {$ref: '#/components/parameters/LegacyIncludeDeleted'}
+      responses:
+        '200': {description: Tenant page, content: {application/json: {schema: {$ref: '#/components/schemas/TenantPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}:
+    parameters:
+      - {$ref: '#/components/parameters/TenantId'}
+    patch:
+      operationId: updateTenant
+      tags: [tenants]
+      summary: Update a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated]
+      description: Replaces the display name of an active tenant.
+      requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
+      responses:
+        '200': {description: Updated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteTenant
+      tags: [tenants]
+      summary: Deactivate a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed, tenant_not_found]
+      description: Deactivates a tenant and revokes its tenant tokens. Idempotent.
+      responses:
+        '200': {description: Deactivated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}/restore:
+    post:
+      operationId: restoreTenant
+      tags: [tenants]
+      summary: Restore a tenant
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed, tenant_not_found]
+      description: Restores a tenant. Revoked tokens remain revoked.
+      parameters:
+        - {$ref: '#/components/parameters/TenantId'}
+      responses:
+        '200': {description: Restored tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tokens:
+    post:
+      operationId: createAdminToken
+      tags: [tokens]
+      summary: Create an API token
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict]
+      description: Creates an administrator or tenant token. The raw token is returned once.
+      requestBody: {$ref: '#/components/requestBodies/CreateAdminToken'}
+      responses:
+        '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      operationId: listAdminTokens
+      tags: [tokens]
+      summary: List API tokens
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
+      description: Newest-first token metadata. Raw tokens are never included.
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: authorityType
+          in: query
+          description: Exact token authority type.
+          schema: {$ref: '#/components/schemas/AuthorityType'}
+        - name: tenantId
+          in: query
+          description: Exact bound tenant ID. System administrator tokens have no tenant ID.
+          schema: {$ref: '#/components/schemas/UUIDv7'}
+        - name: name
+          in: query
+          description: Case-insensitive substring matched against the token name.
+          schema: {type: string}
+          example: automation
+        - name: scope
+          in: query
+          description: Return tokens containing this exact scope.
+          schema: {$ref: '#/components/schemas/Scope'}
+        - {$ref: '#/components/parameters/RevokedFilter'}
+      responses:
+        '200': {description: Token page, content: {application/json: {schema: {$ref: '#/components/schemas/TokenPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tokens/{tokenId}/revoke:
+    post:
+      operationId: revokeAdminToken
+      tags: [tokens]
+      summary: Revoke an API token
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed, token_not_found]
+      description: Revokes an API token. Idempotent.
+      parameters:
+        - {$ref: '#/components/parameters/TokenId'}
+      responses:
+        '204': {description: Token revoked}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tenant:
+    get:
+      operationId: getTenant
+      tags: [tenants]
+      summary: Get the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
+      x-aperture-errors: [tenant_not_found, tenant_deactivated]
+      description: Tenant bound to the authenticated tenant token.
+      responses:
+        '200': {description: Selected tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: updateSelectedTenant
+      tags: [tenants]
+      summary: Update the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated]
+      description: Replaces the bound tenant's display name.
+      requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
+      responses:
+        '200': {description: Updated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tenant/tokens:
+    post:
+      operationId: createTenantToken
+      tags: [tokens]
+      summary: Create a token for the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict]
+      description: Creates a token bound to the caller's tenant. The raw token is returned once.
+      requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
+      responses:
+        '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      operationId: listTenantTokens
+      tags: [tokens]
+      summary: List tokens for the selected tenant
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
+      x-aperture-errors: [validation_failed, tenant_not_found]
+      description: Token metadata for the caller's tenant. Raw tokens are never included.
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: name
+          in: query
+          description: Case-insensitive substring matched against the token name.
+          schema: {type: string}
+          example: worker
+        - name: scope
+          in: query
+          description: Return tokens containing this exact scope.
+          schema: {$ref: '#/components/schemas/Scope'}
+        - {$ref: '#/components/parameters/RevokedFilter'}
+      responses:
+        '200': {description: Token page, content: {application/json: {schema: {$ref: '#/components/schemas/TokenPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tenant/tokens/{tokenId}/revoke:
+    post:
+      operationId: revokeTenantToken
+      tags: [tokens]
+      summary: Revoke a selected tenant token
+      x-aperture-auth:
+        authorityTypes: [tenant]
+        requiredScopes: [tenant:write]
+        tenantResolution: token_tenant
+      x-aperture-errors: [validation_failed, tenant_not_found, token_not_found]
+      description: Revokes a tenant-owned token. Missing and foreign IDs both return not found. Idempotent.
+      parameters:
+        - {$ref: '#/components/parameters/TokenId'}
+      responses:
+        '204': {description: Token revoked}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions:
+    parameters:
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      summary: List browser sessions
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_service_unavailable]
+      description: Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/IncludeDeleted'}
+        - name: status
+          in: query
+          description: Exact session lifecycle status.
+          schema: {$ref: '#/components/schemas/SessionStatus'}
+        - {$ref: '#/components/parameters/TagKey'}
+        - {$ref: '#/components/parameters/TagValue'}
+        - {$ref: '#/components/parameters/TagOperator'}
+      responses:
+        '200': {description: Session page, content: {application/json: {schema: {$ref: '#/components/schemas/SessionPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createSession
+      tags: [sessions]
+      summary: Create a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        conditionalScopes:
+          - scope: snapshots:read
+            condition:
+              source: requestBody
+              property: baseSnapshotName
+              operator: non_empty
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed]
+      description: Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+      requestBody: {$ref: '#/components/requestBodies/CreateSession'}
+      responses:
+        '201': {description: Created session, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/bulk:
+    parameters:
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    post:
+      operationId: getSessionsBulk
+      tags: [sessions]
+      summary: Get browser sessions by ID
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_service_unavailable]
+      description: Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+      requestBody: {$ref: '#/components/requestBodies/SessionBulk'}
+      responses:
+        '200': {description: Browser sessions, content: {application/json: {schema: {$ref: '#/components/schemas/SessionBulkResponse'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}:
+    parameters:
+      - {$ref: '#/components/parameters/SessionId'}
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: getSession
+      tags: [sessions]
+      summary: Get a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_service_unavailable]
+      description: Session metadata and current credentials when available.
+      responses:
+        '200': {description: Browser session, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteSession
+      tags: [sessions]
+      summary: Delete a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
+      description: Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
+      responses:
+        '200': {description: Deleted session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/tags:
+    put:
+      operationId: replaceSessionTags
+      tags: [sessions]
+      summary: Replace browser session tags
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_service_unavailable]
+      description: Replaces all session tags. Send an empty map to clear them.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/ReplaceTags'}
+      responses:
+        '200': {description: Updated session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/suspend:
+    post:
+      operationId: suspendSession
+      tags: [sessions]
+      summary: Suspend a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_invalid_state, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
+      description: Stops a `running` session, retains its overlay, and resets retention.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Suspended session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/reopen:
+    post:
+      operationId: reopenSession
+      tags: [sessions]
+      summary: Reopen a browser session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_not_reopenable, session_overlay_missing, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed, browser_start_failed]
+      description: Restarts a retained `deleted` or `failed` session and returns fresh credentials.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Reopened session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/session-token/rotate:
+    post:
+      operationId: rotateSessionToken
+      tags: [sessions]
+      summary: Rotate a browser session token
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
+      description: Replaces the access token of a `running` session and invalidates the old token.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Session and new token, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/promote:
+    post:
+      operationId: promoteSession
+      tags: [snapshots]
+      summary: Promote a browser session to a snapshot
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write, snapshots:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_promotable, promotion_conflict, snapshot_name_conflict, snapshot_deleted, promotion_service_unavailable]
+      description: Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/PromoteSession'}
+      responses:
+        '200': {description: Created snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots:
+    parameters:
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: listSnapshots
+      tags: [snapshots]
+      summary: List snapshots
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, snapshot_service_unavailable]
+      description: Newest-first snapshots. Tag predicates use logical AND.
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Deleted'}
+        - {$ref: '#/components/parameters/LegacyIncludeDeleted'}
+        - {$ref: '#/components/parameters/TagKey'}
+        - {$ref: '#/components/parameters/TagValue'}
+        - {$ref: '#/components/parameters/TagOperator'}
+      responses:
+        '200': {description: Snapshot page, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots/{name}:
+    parameters:
+      - {$ref: '#/components/parameters/SnapshotName'}
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    patch:
+      operationId: updateSnapshot
+      tags: [snapshots]
+      summary: Update snapshot description
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, snapshot_not_found, snapshot_service_unavailable]
+      description: Replaces or clears a retained snapshot description.
+      requestBody: {$ref: '#/components/requestBodies/UpdateSnapshot'}
+      responses:
+        '200': {description: Updated snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteSnapshot
+      tags: [snapshots]
+      summary: Delete a snapshot
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, snapshot_not_found, snapshot_service_unavailable]
+      description: Soft-deletes a snapshot. Existing sessions are unaffected; new sessions cannot use it. Idempotent.
+      responses:
+        '200': {description: Deleted snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots/{name}/tags:
+    put:
+      operationId: replaceSnapshotTags
+      tags: [snapshots]
+      summary: Replace snapshot tags
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, snapshot_not_found, snapshot_service_unavailable]
+      description: Replaces all tags on a retained snapshot. Send an empty map to clear them.
+      parameters:
+        - {$ref: '#/components/parameters/SnapshotName'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/ReplaceTags'}
+      responses:
+        '200': {description: Updated snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/snapshots/{name}/restore:
+    post:
+      operationId: restoreSnapshot
+      tags: [snapshots]
+      summary: Restore a snapshot
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [snapshots:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, snapshot_not_found, snapshot_not_deleted, snapshot_service_unavailable]
+      description: Clears snapshot deletion and expiry markers.
+      parameters:
+        - {$ref: '#/components/parameters/SnapshotName'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Restored snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List tenant events
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, event_service_unavailable]
+      description: Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+      parameters:
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: resourceType
+          in: query
+          description: Exact resource category, such as `session`.
+          schema: {type: string}
+          example: session
+        - name: resourceId
+          in: query
+          description: Exact resource identifier within the selected tenant.
+          schema: {type: string}
+          example: 019f6cf0-0000-7000-8000-000000000010
+      responses:
+        '200': {description: Event page, content: {application/json: {schema: {$ref: '#/components/schemas/EventPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Aperture API token
+      description: |
+        Aperture API token sent as `Authorization: Bearer <token>`. API tokens normally start with `apt_`. Session access tokens use a separate `aps_` format and are not accepted as API authentication.
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+      schema:
+        type: integer
+        minimum: 0
+        default: 50
+      example: 50
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+      schema: {type: string}
+      example: eyJjcmVhdGVkQXQiOiIyMDI2LTA3LTE3VDEyOjAwOjAwWiIsImlkIjoiMDE5ZjZjZjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAwIn0
+    IncludeDeleted:
+      name: includeDeleted
+      in: query
+      description: Include soft-deleted sessions when `true`. The default is `false`.
+      schema: {type: boolean, default: false}
+    LegacyIncludeDeleted:
+      name: includeDeleted
+      in: query
+      deprecated: true
+      description: Legacy switch that includes active and deleted resources when `true`. Ignored when `deleted` is supplied; prefer `deleted=all`.
+      schema: {type: boolean, default: false}
+    Deleted:
+      name: deleted
+      in: query
+      description: Select active resources, deleted resources only, or both. The default is `active`.
+      schema:
+        type: string
+        enum: [active, deleted, all]
+        default: active
+    RevokedFilter:
+      name: revoked
+      in: query
+      description: Select active tokens, revoked tokens only, or both. Omitting the parameter is equivalent to `all`.
+      schema:
+        type: string
+        enum: [active, revoked, all]
+        default: all
+    SelectedTenantId:
+      name: X-Aperture-Tenant-Id
+      in: header
+      description: |
+        Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+      schema: {$ref: '#/components/schemas/UUIDv7'}
+      example: 019f6cf0-0000-7000-8000-000000000001
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      description: UUIDv7 identifier of the tenant.
+      schema: {$ref: '#/components/schemas/UUIDv7'}
+    TokenId:
+      name: tokenId
+      in: path
+      required: true
+      description: UUIDv7 identifier of the API token. This is not the raw token secret.
+      schema: {$ref: '#/components/schemas/UUIDv7'}
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      description: UUIDv7 identifier of the browser session.
+      schema: {$ref: '#/components/schemas/UUIDv7'}
+    SnapshotName:
+      name: name
+      in: path
+      required: true
+      description: Human-selected snapshot name within the tenant.
+      schema: {type: string, minLength: 1, pattern: '.*\S.*'}
+      example: signed-in-base
+    TagKey:
+      name: tagKey
+      in: query
+      description: |
+        Repeatable tag key. Each entry pairs by position with `tagValue` and, when supplied, `tagOperator`. Multiple predicates are combined with logical AND.
+      schema: {type: array, items: {type: string, minLength: 1}}
+      style: form
+      explode: true
+      example: [environment, region]
+    TagValue:
+      name: tagValue
+      in: query
+      description: |
+        Repeatable tag value paired with `tagKey`. `eq` and `neq` accept one value. `in` and `not_in` accept comma-separated values in the matching entry.
+      schema: {type: array, items: {type: string, minLength: 1}}
+      style: form
+      explode: true
+      example: [production, 'eu-west-1,eu-central-1']
+    TagOperator:
+      name: tagOperator
+      in: query
+      description: |
+        Optional operator paired by position with each tag predicate. Omit the entire parameter to use `eq` for every predicate. If supplied, its entry count must match `tagKey`.
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [eq, neq, in, not_in]
+      style: form
+      explode: true
+      example: [eq, in]
+  requestBodies:
+    CreateTenant:
+      required: true
+      description: Tenant display name. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/TenantInput'}}}
+    UpdateTenant:
+      required: true
+      description: Replacement tenant display name. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/TenantInput'}}}
+    CreateAdminToken:
+      required: true
+      description: System administrator or tenant token definition. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CreateAdminTokenInput'}}}
+    CreateTenantToken:
+      required: true
+      description: Token definition bound to the authenticated tenant. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CreateTenantTokenInput'}}}
+    CreateSession:
+      required: true
+      description: Browser session configuration. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionInput'}}}
+    SessionBulk:
+      required: true
+      description: Ordered UUIDv7 session IDs to resolve. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/SessionBulkInput'}}}
+    ReplaceTags:
+      required: true
+      description: Complete replacement tag map. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/ReplaceTagsInput'}}}
+    PromoteSession:
+      required: true
+      description: Snapshot metadata created from a retained session. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/PromoteSessionInput'}}}
+    UpdateSnapshot:
+      required: true
+      description: Replacement snapshot description. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/UpdateSnapshotInput'}}}
+  responses:
+    Error:
+      description: API error. Branch on the HTTP status and stable `error.code`.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            invalidRequestBody:
+              summary: 400 · invalid JSON body
+              value: {error: {code: invalid_request_body, message: invalid request body}}
+            validationFailed:
+              summary: 400 · invalid field or parameter
+              value: {error: {code: validation_failed, message: 'validation error\nname is required'}}
+            tenantSelectionRequired:
+              summary: 400 · tenant header required
+              value: {error: {code: tenant_selection_required, message: tenant selection required}}
+            authenticationRequired:
+              summary: 401 · bearer token missing
+              value: {error: {code: authentication_required, message: authentication required}}
+            authenticationTokenExpired:
+              summary: 401 · bearer token expired
+              value: {error: {code: authentication_token_expired, message: authentication token expired}}
+            insufficientScope:
+              summary: 403 · required scope missing
+              value: {error: {code: insufficient_scope, message: insufficient scope}}
+            tenantSelectionNotPermitted:
+              summary: 403 · tenant token selected another tenant
+              value: {error: {code: tenant_selection_not_permitted, message: tenant selection not permitted}}
+            sessionNotFound:
+              summary: 404 · session missing or foreign
+              value: {error: {code: session_not_found, message: session not found}}
+            sessionInvalidState:
+              summary: 409 · operation invalid for current state
+              value: {error: {code: session_invalid_state, message: session is in an invalid state for this operation}}
+            sessionExpired:
+              summary: 410 · retained session expired
+              value: {error: {code: session_expired, message: session expired}}
+            internalError:
+              summary: 500 · unexpected server failure
+              value: {error: {code: internal_error, message: internal server error}}
+            browserStartFailed:
+              summary: 502 · browser failed to start
+              value: {error: {code: browser_start_failed, message: browser failed to start}}
+  schemas:
+    UUIDv7:
+      type: string
+      format: uuid
+      x-uuid-version: 7
+      description: Time-ordered UUID version 7 generated by Aperture.
+      example: 019f6cf0-0000-7000-8000-000000000001
+    AuthorityType:
+      type: string
+      description: |
+        Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
+      enum: [system_admin, tenant]
+      example: tenant
+    Scope:
+      type: string
+      description: |
+        Permission granted to an API token. `system:admin` implies every scope. Tenant tokens cannot receive `system:admin` or `tenants:write`.
+      enum:
+        - system:admin
+        - sessions:read
+        - sessions:write
+        - snapshots:read
+        - snapshots:write
+        - tenant:write
+        - tenants:write
+      example: sessions:write
+    TenantScope:
+      type: string
+      description: Scope allowed on a tenant-bound API token.
+      enum:
+        - sessions:read
+        - sessions:write
+        - snapshots:read
+        - snapshots:write
+        - tenant:write
+      example: sessions:write
+    SessionStatus:
+      type: string
+      description: |
+        Session lifecycle state:
+
+        - `creating`: browser startup is in progress.
+        - `running`: browser and routing are available.
+        - `suspended`: browser is intentionally stopped while retained state remains available.
+        - `deleted`: session is soft-deleted and may be reopened while retained.
+        - `expired`: retention elapsed and the session can no longer be used.
+        - `failed`: startup or reopen failed; retained state may still be reopenable.
+      enum: [creating, running, suspended, deleted, expired, failed]
+      example: running
+    StringMap:
+      type: object
+      description: Arbitrary string key-value metadata. Tag-writing operations additionally reject blank keys and blank values.
+      additionalProperties: {type: string}
+      example: {environment: production, region: eu-west-1}
+    PageMeta:
+      type: object
+      description: Cursor pagination metadata for a newest-first result page.
+      required: [limit, hasMore]
+      properties:
+        limit:
+          type: integer
+          description: Effective page size after applying the default and maximum.
+          minimum: 1
+          maximum: 100
+          example: 50
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page. Omitted when there is no next page.
+          example: eyJjcmVhdGVkQXQiOiIyMDI2LTA3LTE3VDEyOjAwOjAwWiIsImlkIjoiMDE5ZjZjZjAtMDAwMC03MDAwLTgwMDAtMDAwMDAwMDAwMDAwIn0
+        hasMore:
+          type: boolean
+          description: Whether another page is available.
+          example: true
+    ErrorCode:
+      type: string
+      description: Stable machine-readable error code.
+      enum:
+        - authentication_required
+        - invalid_authentication_token
+        - authentication_token_expired
+        - authentication_token_revoked
+        - insufficient_scope
+        - tenant_selection_not_permitted
+        - tenant_selection_required
+        - tenant_not_found
+        - token_not_found
+        - tenant_deactivated
+        - token_name_conflict
+        - validation_failed
+        - invalid_request_body
+        - session_not_found
+        - session_expired
+        - base_snapshot_not_found
+        - base_snapshot_deleted
+        - session_not_reopenable
+        - session_overlay_missing
+        - session_invalid_state
+        - session_not_running
+        - browser_start_failed
+        - snapshot_not_found
+        - snapshot_name_conflict
+        - snapshot_deleted
+        - snapshot_not_deleted
+        - session_not_promotable
+        - promotion_conflict
+        - browser_channels_unavailable
+        - event_service_unavailable
+        - session_service_unavailable
+        - promotion_service_unavailable
+        - snapshot_service_unavailable
+        - overlay_mount_failed
+        - browser_control_failed
+        - internal_error
+      x-aperture-http-status:
+        authentication_required: 401
+        invalid_authentication_token: 401
+        authentication_token_expired: 401
+        authentication_token_revoked: 401
+        insufficient_scope: 403
+        tenant_selection_not_permitted: 403
+        tenant_selection_required: 400
+        tenant_not_found: 404
+        token_not_found: 404
+        tenant_deactivated: 409
+        token_name_conflict: 409
+        validation_failed: 400
+        invalid_request_body: 400
+        session_not_found: 404
+        session_expired: 410
+        base_snapshot_not_found: 404
+        base_snapshot_deleted: 409
+        session_not_reopenable: 409
+        session_overlay_missing: 409
+        session_invalid_state: 409
+        session_not_running: 409
+        browser_start_failed: 502
+        snapshot_not_found: 404
+        snapshot_name_conflict: 409
+        snapshot_deleted: 409
+        snapshot_not_deleted: 409
+        session_not_promotable: 409
+        promotion_conflict: 409
+        browser_channels_unavailable: 500
+        event_service_unavailable: 500
+        session_service_unavailable: 500
+        promotion_service_unavailable: 500
+        snapshot_service_unavailable: 500
+        overlay_mount_failed: 500
+        browser_control_failed: 502
+        internal_error: 500
+    ErrorDetail:
+      type: object
+      description: Stable machine-readable error code with a human-readable explanation.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable code enumerated by each operation response.
+          example: insufficient_scope
+        message:
+          type: string
+          description: Human-readable explanation. It may include resource or validation context.
+          example: insufficient scope
+    Error:
+      type: object
+      description: Standard error envelope returned by REST API operations.
+      required: [error]
+      properties: {error: {$ref: '#/components/schemas/ErrorDetail'}}
+    Health:
+      type: object
+      description: Local deployment health and blue-green role information.
+      required: [status, color, role, version, activeColor]
+      properties:
+        status:
+          type: string
+          description: Process health. A successful response currently reports `ok`.
+          enum: [ok]
+        color:
+          type: string
+          description: Deployment color of the process that handled the request.
+          enum: [blue, green]
+        role:
+          type: string
+          description: Whether this deployment color currently serves active traffic.
+          enum: [active, inactive]
+        version:
+          type: string
+          description: Build or release version embedded in the running binary.
+          example: 1.4.0
+        activeColor:
+          type: string
+          description: Deployment color currently selected as active.
+          enum: [blue, green]
+      example: {status: ok, color: blue, role: active, version: 1.4.0, activeColor: blue}
+    TenantInput:
+      type: object
+      description: Tenant fields accepted by create and update operations.
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+          description: Human-readable tenant name. Leading and trailing whitespace is removed and whitespace-only values are rejected.
+          example: Example engineering
+    Tenant:
+      type: object
+      description: Tenant account. Deletion is a reversible soft deactivation.
+      required: [id, displayName, createdAt]
+      properties:
+        id:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Tenant identifier.
+        displayName:
+          type: string
+          description: Human-readable tenant name.
+          example: Example engineering
+        createdAt:
+          type: string
+          format: date-time
+          description: Time the tenant was created.
+          example: '2026-07-17T12:00:00Z'
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Soft-deactivation time, or `null` for an active tenant.
+          example: null
+    TenantPage:
+      type: object
+      description: Cursor-paginated tenants.
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Tenant'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    Principal:
+      type: object
+      description: Authenticated API token identity and authorization context.
+      required: [tokenId, name, authorityType, scopes]
+      properties:
+        tokenId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Identifier of the API token used for authentication.
+        name:
+          type: string
+          description: Operator-assigned token name.
+          example: deployment automation
+        authorityType: {$ref: '#/components/schemas/AuthorityType'}
+        tenantId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          nullable: true
+          description: Bound tenant for a tenant token, or `null` for a system administrator token.
+        scopes:
+          type: array
+          description: Scopes granted to the token.
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/Scope'}
+    AuthMe:
+      type: object
+      description: Current principal and its effective tenant selection.
+      required: [principal]
+      properties:
+        principal: {$ref: '#/components/schemas/Principal'}
+        selectedTenant:
+          allOf: [{$ref: '#/components/schemas/Tenant'}]
+          nullable: true
+          description: Effective tenant, or `null` when a system administrator did not select one.
+    BrowserChannel:
+      type: object
+      description: Browser runtime selectable when creating a session.
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Configured browser channel name.
+          example: chromium
+    BrowserChannels:
+      type: object
+      description: Browser channels enabled on this deployment.
+      required: [channels]
+      properties:
+        channels:
+          type: array
+          items: {$ref: '#/components/schemas/BrowserChannel'}
+      example: {channels: [{name: chromium}]}
+    Token:
+      type: object
+      description: API token metadata. The raw bearer secret is never included in this schema.
+      required: [id, authorityType, name, scopes, createdAt]
+      properties:
+        id:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Token identifier. This is not the bearer secret.
+        authorityType: {$ref: '#/components/schemas/AuthorityType'}
+        tenantId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          nullable: true
+          description: Bound tenant for a tenant token, or `null` for a system administrator token.
+        name:
+          type: string
+          description: Operator-assigned token name, unique within its authority and tenant context.
+          example: ci automation
+        scopes:
+          type: array
+          description: Unique scopes granted to the token.
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/Scope'}
+        createdAt:
+          type: string
+          format: date-time
+          description: Time the token was created.
+          example: '2026-07-17T12:00:00Z'
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Authentication expiry time, or `null` when the token does not expire automatically.
+          example: '2026-08-17T12:00:00Z'
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Revocation time, or `null` while the token is active.
+          example: null
+    CreateAdminTokenInput:
+      description: Token definition accepted by the system administrator token endpoint.
+      oneOf:
+        - type: object
+          required: [name, authorityType, scopes]
+          properties:
+            name:
+              type: string
+              minLength: 1
+              pattern: '.*\S.*'
+              description: Operator-assigned name. Leading and trailing whitespace is removed.
+              example: platform admin
+            authorityType: {type: string, enum: [system_admin]}
+            scopes:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              description: Must include `system:admin`.
+              items: {$ref: '#/components/schemas/Scope'}
+              example: ['system:admin']
+            expiresAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
+              example: '2026-08-17T12:00:00Z'
+        - type: object
+          required: [name, authorityType, tenantId, scopes]
+          properties:
+            name:
+              type: string
+              minLength: 1
+              pattern: '.*\S.*'
+              description: Operator-assigned name. Leading and trailing whitespace is removed.
+              example: tenant automation
+            authorityType: {type: string, enum: [tenant]}
+            tenantId:
+              allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+              description: Active tenant to bind permanently to the token.
+            scopes:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              description: Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
+              items: {$ref: '#/components/schemas/TenantScope'}
+              example: ['sessions:read', 'sessions:write']
+            expiresAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
+              example: '2026-08-17T12:00:00Z'
+    CreateTenantTokenInput:
+      type: object
+      description: Token definition automatically bound to the authenticated tenant.
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+          description: Operator-assigned name. Leading and trailing whitespace is removed.
+          example: browser worker
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
+          items: {$ref: '#/components/schemas/TenantScope'}
+          example: ['sessions:read', 'sessions:write']
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
+          example: '2026-08-17T12:00:00Z'
+    CreateTokenResponse:
+      type: object
+      description: Created token metadata and its one-time bearer secret.
+      required: [token, rawToken]
+      properties:
+        token: {$ref: '#/components/schemas/Token'}
+        rawToken:
+          type: string
+          x-sensitive: true
+          description: One-time Aperture API bearer token. Store it immediately; later reads return only token metadata.
+          example: apt_019f6cf0000070008000000000000002_REDACTED
+    TokenPage:
+      type: object
+      description: Cursor-paginated API token metadata without bearer secrets.
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Token'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    BrowserConfig:
+      type: object
+      description: Browser runtime configuration used to create or reopen the session.
+      required: [channel]
+      properties:
+        channel:
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+          description: Channel returned by `GET /api/browser/channels`.
+          example: chromium
+        args:
+          type: array
+          description: Additional Chromium command-line arguments. Aperture rejects arguments that conflict with supervisor-owned behavior or deployment policy.
+          items: {type: string}
+          example: ['--lang=en-US']
+    CreateSessionInput:
+      type: object
+      description: Configuration for a new retained browser session.
+      required: [browser]
+      properties:
+        baseSnapshotName:
+          type: string
+          nullable: true
+          description: Active snapshot used as the browser filesystem base. Omit, send `null`, or send an empty value for a blank session.
+          example: signed-in-base
+        label:
+          type: string
+          nullable: true
+          description: Optional operator-facing label for the session.
+          example: checkout smoke test
+        browser: {$ref: '#/components/schemas/BrowserConfig'}
+        tags:
+          allOf: [{$ref: '#/components/schemas/StringMap'}]
+          description: Initial session tags.
+      example:
+        baseSnapshotName: signed-in-base
+        label: checkout smoke test
+        browser: {channel: chromium, args: ['--lang=en-US']}
+        tags: {environment: staging, suite: checkout}
+    IceServer:
+      type: object
+      description: ICE server configuration supplied to WebRTC consumers.
+      required: [urls]
+      properties:
+        urls:
+          type: array
+          description: STUN or TURN server URLs.
+          items: {type: string}
+          example: ['turn:turn.example.com:3478?transport=udp']
+        username:
+          type: string
+          description: TURN username. Omitted when the server does not require authentication.
+          example: aperture-session
+        credential:
+          type: string
+          x-sensitive: true
+          description: TURN credential. Treat it as a secret and do not persist it in logs.
+          example: REDACTED
+    SessionMedia:
+      type: object
+      description: Media capabilities currently available for the session.
+      required: [mode, webrtcProducer]
+      properties:
+        mode:
+          type: string
+          description: Configured media mode. `auto` enables deployment-selected media support; `cdp` exposes Chrome DevTools access only.
+          enum: [auto, cdp]
+          example: auto
+        webrtcProducer:
+          type: boolean
+          description: Whether the compositor WebRTC producer is available for this session.
+          example: true
+        iceServers:
+          type: array
+          description: ICE configuration for WebRTC setup. Omitted when WebRTC is unavailable or does not need configured ICE servers.
+          items: {$ref: '#/components/schemas/IceServer'}
+    Session:
+      type: object
+      description: Browser session state, retention metadata, tags, and currently available access credentials.
+      required: [id, tenantId, status, media, createdAt, expiresAt]
+      properties:
+        id:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Session identifier.
+        tenantId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Tenant that owns the session.
+        baseSnapshotName:
+          type: string
+          description: Snapshot name used as the session base. Omitted for a blank session.
+          example: signed-in-base
+        label:
+          type: string
+          description: Optional operator-facing session label.
+          example: checkout smoke test
+        status: {$ref: '#/components/schemas/SessionStatus'}
+        browserChannel:
+          type: string
+          description: Browser channel used to create and reopen the session.
+          example: chromium
+        media: {$ref: '#/components/schemas/SessionMedia'}
+        createdAt:
+          type: string
+          format: date-time
+          description: Time the session record was created.
+          example: '2026-07-17T12:00:00Z'
+        startedAt:
+          type: string
+          format: date-time
+          description: Most recent successful browser start time. Omitted before startup succeeds.
+          example: '2026-07-17T12:00:03Z'
+        stoppedAt:
+          type: string
+          format: date-time
+          description: Most recent browser stop time. Omitted while no stop has occurred.
+          example: '2026-07-17T13:00:00Z'
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Soft-deletion time, or `null` for a session that has not been deleted.
+          example: null
+        expiresAt:
+          type: string
+          format: date-time
+          description: Retention deadline after which the session and its overlay may be purged. This is not token expiry.
+          example: '2026-07-24T12:00:00Z'
+        lastConnectedAt:
+          type: string
+          format: date-time
+          description: Most recent routed client activity time. Omitted until a client connects.
+          example: '2026-07-17T12:30:00Z'
+        suspendedAt:
+          type: string
+          format: date-time
+          description: Most recent suspension time. Omitted unless the session is suspended.
+          example: '2026-07-17T13:00:00Z'
+        tags:
+          allOf: [{$ref: '#/components/schemas/StringMap'}]
+          description: Session metadata tags. Omitted when no tags are set.
+        cdpUrl:
+          type: string
+          format: uri
+          description: Authenticated Chrome DevTools endpoint. Omitted when the session is not currently routable. Use it with `sessionToken`.
+          example: https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010
+        sessionToken:
+          type: string
+          x-sensitive: true
+          description: Session access secret returned when live access credentials are available. Rotation invalidates the previous token immediately.
+          example: aps_019f6cf0000070008000000000000010_REDACTED
+    SessionPage:
+      type: object
+      description: Cursor-paginated browser sessions.
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Session'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    SessionBulkInput:
+      type: object
+      description: Ordered session IDs for a tenant-scoped bulk lookup. Missing, foreign, and deleted IDs are omitted from the result.
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          description: Up to 100 unique UUIDv7 values. An empty array is valid.
+          maxItems: 100
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/UUIDv7'}
+          example: ['019f6cf0-0000-7000-8000-000000000010', '019f6cf0-0000-7000-8000-000000000011']
+    SessionBulkResponse:
+      type: object
+      description: Sessions found for the requested IDs, preserving request order.
+      required: [sessions]
+      properties:
+        sessions: {type: array, items: {$ref: '#/components/schemas/Session'}}
+    CreateSessionResult:
+      type: object
+      description: Newly created session and its one-time initial access credentials.
+      required: [session, cdpUrl, sessionToken]
+      properties:
+        session: {$ref: '#/components/schemas/Session'}
+        cdpUrl:
+          type: string
+          format: uri
+          description: Authenticated Chrome DevTools endpoint for the new session.
+          example: https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010
+        sessionToken:
+          type: string
+          x-sensitive: true
+          description: Initial session access secret. Store it immediately.
+          example: aps_019f6cf0000070008000000000000010_REDACTED
+    SessionMutation:
+      type: object
+      description: Updated session and operation-specific live access credentials when available.
+      required: [session]
+      properties:
+        session: {$ref: '#/components/schemas/Session'}
+        cdpUrl:
+          type: string
+          format: uri
+          description: Current Chrome DevTools endpoint. Omitted by operations that do not expose live access.
+          example: https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010
+        sessionToken:
+          type: string
+          x-sensitive: true
+          description: Current raw session access secret. Omitted by operations that do not expose or replace credentials.
+          example: aps_019f6cf0000070008000000000000010_REDACTED
+    PromoteSessionInput:
+      type: object
+      description: Snapshot metadata created from a stopped, retained session.
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+          description: Tenant-unique snapshot name. Leading and trailing whitespace is removed.
+          example: signed-in-base
+        description:
+          type: string
+          nullable: true
+          description: Optional snapshot description. `null` creates the snapshot without a description.
+          example: Signed-in storefront state for checkout tests
+        force:
+          type: boolean
+          default: false
+          description: Allow reuse of a name owned by a deleted snapshot. This never overwrites an active snapshot.
+        tags:
+          allOf: [{$ref: '#/components/schemas/StringMap'}]
+          description: Initial complete tag map for the new snapshot.
+      example:
+        name: signed-in-base
+        description: Signed-in storefront state for checkout tests
+        force: false
+        tags: {application: storefront, environment: staging}
+    Snapshot:
+      type: object
+      description: Reusable retained browser filesystem state. Deletion is soft until the retention deadline.
+      required: [id, name, tenantId, createdAt]
+      properties:
+        id:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Snapshot identifier.
+        name:
+          type: string
+          description: Human-selected tenant-unique snapshot name.
+          example: signed-in-base
+        tenantId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Tenant that owns the snapshot.
+        description:
+          type: string
+          nullable: true
+          description: Operator-provided description, or `null` when none is set.
+          example: Signed-in storefront state for checkout tests
+        parentSnapshotId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Base snapshot from which the source session was created. Omitted for snapshots without a parent.
+        promotedFromSessionId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Session whose retained overlay produced this snapshot. Omitted when lineage is unavailable.
+        createdAt:
+          type: string
+          format: date-time
+          description: Time the snapshot was created.
+          example: '2026-07-17T12:45:00Z'
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Soft-deletion time, or `null` for an active snapshot.
+          example: null
+        expiresAt:
+          type: string
+          format: date-time
+          description: Purge eligibility time for a deleted snapshot. Omitted for active snapshots.
+          example: '2026-08-16T12:45:00Z'
+        tags:
+          allOf: [{$ref: '#/components/schemas/StringMap'}]
+          description: Snapshot metadata tags. Omitted when no tags are set.
+    SnapshotPage:
+      type: object
+      description: Cursor-paginated snapshots.
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Snapshot'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    SnapshotMutation:
+      type: object
+      description: Snapshot returned after a mutation.
+      required: [snapshot]
+      properties: {snapshot: {$ref: '#/components/schemas/Snapshot'}}
+    UpdateSnapshotInput:
+      type: object
+      description: Replacement snapshot description.
+      properties:
+        description:
+          type: string
+          nullable: true
+          description: New description. Send `null` to clear it; an empty string is stored as an empty description.
+          example: Updated signed-in state
+    ReplaceTagsInput:
+      type: object
+      description: Complete replacement tag set. The map may be empty to clear all tags.
+      required: [tags]
+      properties:
+        tags:
+          allOf: [{$ref: '#/components/schemas/StringMap'}]
+          description: Complete tag map. Keys and values must contain non-whitespace characters.
+      example: {tags: {environment: production, region: eu-west-1}}
+    Event:
+      type: object
+      description: Immutable tenant-scoped audit or lifecycle event.
+      required: [id, tenantId, resourceType, resourceId, type, message, data, createdAt]
+      properties:
+        id:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Event identifier.
+        tenantId:
+          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
+          description: Tenant that owns the event.
+        resourceType:
+          type: string
+          description: Resource category associated with the event. Currently session events are the primary source; new categories may be added.
+          example: session
+        resourceId:
+          type: string
+          description: Identifier of the associated resource. Its format depends on `resourceType`.
+          example: 019f6cf0-0000-7000-8000-000000000010
+        type:
+          type: string
+          description: Extensible event type used for programmatic handling.
+          example: session.token_rotated
+        message:
+          type: string
+          description: Human-readable event summary.
+          example: session token rotated
+        data:
+          type: object
+          description: Event-specific JSON payload, such as error details or upload metadata.
+          additionalProperties: true
+          example: {reason: manual rotation}
+        createdAt:
+          type: string
+          format: date-time
+          description: Time the event was recorded.
+          example: '2026-07-17T12:30:00Z'
+    EventPage:
+      type: object
+      description: Cursor-paginated tenant events.
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/Event'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
