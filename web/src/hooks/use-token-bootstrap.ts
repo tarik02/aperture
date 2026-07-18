@@ -32,8 +32,13 @@ export function useTokenBootstrap() {
 
       try {
         const selectedTenantId =
-          profile.authorityType === "system_admin" ? profile.selectedTenantId : null;
-        const response = await fetchAuthMe(profile.rawToken, selectedTenantId);
+          profile.credentialType === "web_session" || profile.authorityType === "system_admin"
+            ? profile.selectedTenantId
+            : null;
+        const response = await fetchAuthMe(
+          profile.credentialType === "api_token" ? profile.rawToken : null,
+          selectedTenantId,
+        );
         applyBootstrap(profile.id, response);
         touchProfile(profile.id);
         return true;

@@ -7,11 +7,11 @@ info:
 
     ## Authentication
 
-    Send `Authorization: Bearer <token>`. The health check is public. `system:admin` grants every scope, but admin routes still require a `system_admin` token. Raw tokens are returned only on creation or rotation.
+    Send `Authorization: Bearer <token>` or authenticate through a configured OIDC provider and browser session cookie. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Raw tokens are returned only on creation or rotation.
 
     ## Tenant selection
 
-    Tenant tokens use their bound tenant. System administrators select a tenant with `X-Aperture-Tenant-Id` for tenant-scoped operations.
+    Tenant API tokens use their bound tenant. System administrators and account sessions with multiple memberships select a tenant with `X-Aperture-Tenant-Id` for tenant-scoped operations. Aperture selects the only membership automatically when an account has one.
 
     ## Pagination
 
@@ -24,11 +24,12 @@ servers:
   - url: /
 security:
   - bearerAuth: []
+  - webSession: []
 tags:
   - name: system
     description: Deployment health and runtime identity.
   - name: auth
-    description: Information about the API token used for the current request.
+    description: Information about the credential and principal used for the current request.
   - name: browser
     description: Browser runtime capabilities available for new sessions.
   - name: tenants
@@ -785,6 +786,11 @@ components:
       bearerFormat: Aperture API token
       description: |
         Aperture API token sent as `Authorization: Bearer <token>`. API tokens normally start with `apt_`. Session access tokens use a separate `aps_` format and are not accepted as API authentication.
+    webSession:
+      type: apiKey
+      in: cookie
+      name: aperture_session
+      description: Server-side browser session established by a configured OIDC provider.
   parameters:
     Limit:
       name: limit
@@ -832,7 +838,7 @@ components:
       name: X-Aperture-Tenant-Id
       in: header
       description: |
-        Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+        Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
       schema: {$ref: '#/components/schemas/UUIDv7'}
       example: 019f6cf0-0000-7000-8000-000000000001
     TenantId:
@@ -999,7 +1005,7 @@ components:
     AuthorityType:
       type: string
       description: |
-        Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
+        Authorization boundary. `system_admin` principals may administer the deployment and select tenants. `tenant` principals act within one effective tenant.
       enum: [system_admin, tenant]
       example: tenant
     PrincipalType:
@@ -1010,7 +1016,7 @@ components:
     Scope:
       type: string
       description: |
-        Permission granted to an API token. `system:admin` implies every scope. Tenant tokens cannot receive `system:admin` or `tenants:write`.
+        Permission granted to a principal. `system:admin` implies every scope. Tenant credentials and memberships cannot receive `system:admin` or `tenants:write`.
       enum:
         - system:admin
         - sessions:read
@@ -1086,6 +1092,10 @@ components:
         - user_disabled
         - user_email_conflict
         - membership_not_found
+        - oidc_provider_not_found
+        - oidc_flow_invalid
+        - oidc_authentication_failed
+        - identity_not_provisioned
         - validation_failed
         - invalid_request_body
         - session_not_found
@@ -1127,6 +1137,10 @@ components:
         user_disabled: 409
         user_email_conflict: 409
         membership_not_found: 404
+        oidc_provider_not_found: 404
+        oidc_flow_invalid: 400
+        oidc_authentication_failed: 401
+        identity_not_provisioned: 403
         validation_failed: 400
         invalid_request_body: 400
         session_not_found: 404
@@ -1316,35 +1330,39 @@ components:
         authMethod:
           type: string
           description: Authentication mechanism used for this request.
-          enum: [api_token]
+          enum: [api_token, oidc]
         tokenId:
-          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
-          description: Identifier of the API token used for authentication.
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: Identifier of the API token used for authentication, or `null` for account-backed sessions.
         userId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: User identifier for account-backed authentication, or `null` for API tokens.
         name:
           type: string
-          description: Operator-assigned token name.
+          description: Display name of the authenticated credential or user.
           example: deployment automation
         authorityType: {$ref: '#/components/schemas/AuthorityType'}
         tenantId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
-          description: Bound tenant for a tenant token, or `null` for a system administrator token.
+          description: Effective tenant for tenant authority, or `null` when no tenant is selected.
         scopes:
           type: array
-          description: Scopes granted to the token.
+          description: Scopes granted to the authenticated principal.
           uniqueItems: true
           items: {$ref: '#/components/schemas/Scope'}
     AuthMe:
       type: object
       description: Current principal and its effective tenant selection.
-      required: [principal]
+      required: [principal, selectedTenant, availableTenants]
       properties:
         principal: {$ref: '#/components/schemas/Principal'}
         selectedTenant:
           oneOf: [{$ref: '#/components/schemas/Tenant'}, {type: 'null'}]
-          description: Effective tenant, or `null` when a system administrator did not select one.
+          description: Effective tenant, or `null` when the principal has not selected one.
+        availableTenants:
+          type: array
+          description: Active tenant memberships available to an account-backed principal. API-token principals return an empty array.
+          items: {$ref: '#/components/schemas/Tenant'}
     BrowserChannel:
       type: object
       description: Browser runtime selectable when creating a session.

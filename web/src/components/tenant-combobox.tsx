@@ -17,6 +17,7 @@ type TenantComboboxProps = {
   placeholder?: string;
   triggerClassName?: string;
   align?: "start" | "center" | "end";
+  options?: Tenant[];
 };
 
 export function TenantCombobox({
@@ -27,12 +28,16 @@ export function TenantCombobox({
   placeholder = "Select tenant",
   triggerClassName,
   align = "end",
+  options,
 }: TenantComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const query = useTenantsInfiniteQuery({ limit: 100 });
 
-  const tenants = useMemo(() => flattenInfinitePages(query.data?.pages), [query.data?.pages]);
+  const tenants = useMemo(
+    () => options ?? flattenInfinitePages(query.data?.pages),
+    [options, query.data?.pages],
+  );
   const selectedTenant = useMemo(
     () => tenants.find((tenant) => tenant.id === value) ?? null,
     [tenants, value],
@@ -84,7 +89,7 @@ export function TenantCombobox({
         </InputGroup>
         <ScrollArea className="max-h-64">
           <div className="flex flex-col gap-1 pr-2">
-            {query.isLoading ? (
+            {!options && query.isLoading ? (
               <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground [&_svg:not([class*='size-'])]:size-4">
                 <Loader2 className="animate-spin" />
                 Loading tenants
@@ -118,7 +123,7 @@ export function TenantCombobox({
             )}
           </div>
         </ScrollArea>
-        {query.hasNextPage ? (
+        {!options && query.hasNextPage ? (
           <Button
             type="button"
             variant="outline"

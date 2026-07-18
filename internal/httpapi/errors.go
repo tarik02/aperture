@@ -87,6 +87,14 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "user_email_conflict", "user email already exists"
 	case errors.Is(err, auth.ErrMembershipNotFound):
 		return http.StatusNotFound, "membership_not_found", "tenant membership not found"
+	case errors.Is(err, auth.ErrOIDCProviderNotFound):
+		return http.StatusNotFound, "oidc_provider_not_found", "oidc provider not found"
+	case errors.Is(err, auth.ErrIdentityNotProvisioned):
+		return http.StatusForbidden, "identity_not_provisioned", "user is not provisioned"
+	case errors.Is(err, auth.ErrOIDCFlowInvalid):
+		return http.StatusBadRequest, "oidc_flow_invalid", "oidc flow is invalid or expired"
+	case errors.Is(err, auth.ErrOIDCAuthentication):
+		return http.StatusUnauthorized, "oidc_authentication_failed", "oidc authentication failed"
 	case errors.Is(err, auth.ErrBootstrapNotEmpty):
 		return http.StatusConflict, "bootstrap_refused", "bootstrap refused: api tokens already exist"
 	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope):

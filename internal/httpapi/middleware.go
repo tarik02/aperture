@@ -31,6 +31,7 @@ type Server struct {
 	Config        config.Config
 	Repository    *db.Repository
 	Auth          *auth.Service
+	WebAuth       *auth.WebService
 	Sessions      *session.Service
 	Snapshots     *snapshot.Service
 	Promotion     *snapshot.PromotionService
@@ -134,11 +135,16 @@ func (s *Server) deployRole() (deploystate.State, string, string, error) {
 
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 	rawToken, err := rawTokenFromRequest(c)
-	if err != nil {
+	if err != nil && !errors.Is(err, auth.ErrTokenMissing) {
 		return auth.Principal{}, err
 	}
 
-	principal, err := s.Auth.Authenticate(c.Request.Context(), rawToken)
+	var principal auth.Principal
+	if err == nil {
+		principal, err = s.Auth.Authenticate(c.Request.Context(), rawToken)
+	} else if s.WebAuth != nil {
+		principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenantID(c))
+	}
 	if err != nil {
 		return auth.Principal{}, err
 	}
