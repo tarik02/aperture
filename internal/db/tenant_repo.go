@@ -173,13 +173,14 @@ func (r *Repository) CountAPITokens(ctx context.Context) (int, error) {
 var ErrBootstrapNotEmpty = errors.New("bootstrap refused: api tokens already exist")
 
 // CreateBootstrapAPIToken inserts the first API token atomically.
-func (r *Repository) CreateBootstrapAPIToken(ctx context.Context, token *APIToken) error {
+func (r *Repository) CreateBootstrapAPIToken(ctx context.Context, token *APIToken, audit *AuditEvent) error {
 	return r.WithImmediateTx(ctx, func(ctx context.Context, tx bun.IDB) error {
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO api_tokens (
-				id, authority_type, tenant_id, name, token_hash, scopes_json, created_at, expires_at
+				id, authority_type, tenant_id, name, token_hash, scopes_json, created_at,
+				created_by_type, created_by_id, parent_token_id, expires_at
 			)
-			SELECT ?, ?, NULL, ?, ?, ?, ?, ?
+			SELECT ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?
 			WHERE NOT EXISTS (SELECT 1 FROM api_tokens)
 		`,
 			token.ID,
@@ -188,6 +189,9 @@ func (r *Repository) CreateBootstrapAPIToken(ctx context.Context, token *APIToke
 			token.TokenHash,
 			token.ScopesJSON,
 			token.CreatedAt,
+			token.CreatedByType,
+			token.CreatedByID,
+			token.ParentTokenID,
 			token.ExpiresAt,
 		)
 		if err != nil {
@@ -201,17 +205,24 @@ func (r *Repository) CreateBootstrapAPIToken(ctx context.Context, token *APIToke
 		if rows == 0 {
 			return ErrBootstrapNotEmpty
 		}
+		if _, err := tx.NewInsert().Model(audit).Exec(ctx); err != nil {
+			return fmt.Errorf("insert bootstrap token audit event: %w", err)
+		}
 		return nil
 	})
 }
 
-// CreateAPIToken inserts a new API token row.
-func (r *Repository) CreateAPIToken(ctx context.Context, token *APIToken) error {
-	_, err := r.db.bun.NewInsert().Model(token).Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("insert api token: %w", err)
-	}
-	return nil
+// CreateAPIToken inserts a token and its audit event atomically.
+func (r *Repository) CreateAPIToken(ctx context.Context, token *APIToken, audit *AuditEvent) error {
+	return r.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewInsert().Model(token).Exec(ctx); err != nil {
+			return fmt.Errorf("insert api token: %w", err)
+		}
+		if _, err := tx.NewInsert().Model(audit).Exec(ctx); err != nil {
+			return fmt.Errorf("insert token audit event: %w", err)
+		}
+		return nil
+	})
 }
 
 // GetAPITokenByID returns an API token by id.
@@ -300,24 +311,29 @@ func applyAPITokenFilters(query *bun.SelectQuery, filter APITokenFilter) *bun.Se
 	return query
 }
 
-// RevokeAPIToken marks a token revoked at the given timestamp.
-func (r *Repository) RevokeAPIToken(ctx context.Context, tokenID string, revokedAt string) error {
-	result, err := r.db.bun.NewUpdate().
-		Model((*APIToken)(nil)).
-		Set("revoked_at = ?", revokedAt).
-		Where("id = ?", tokenID).
-		Where("revoked_at IS NULL").
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("revoke api token: %w", err)
-	}
+// RevokeAPIToken marks a token revoked and records its audit event atomically.
+func (r *Repository) RevokeAPIToken(ctx context.Context, tokenID string, revokedAt string, audit *AuditEvent) error {
+	return r.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		result, err := tx.NewUpdate().
+			Model((*APIToken)(nil)).
+			Set("revoked_at = ?", revokedAt).
+			Where("id = ?", tokenID).
+			Where("revoked_at IS NULL").
+			Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("revoke api token: %w", err)
+		}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("revoke api token rows affected: %w", err)
-	}
-	if rows == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("revoke api token rows affected: %w", err)
+		}
+		if rows == 0 {
+			return sql.ErrNoRows
+		}
+		if _, err := tx.NewInsert().Model(audit).Exec(ctx); err != nil {
+			return fmt.Errorf("insert token revocation audit event: %w", err)
+		}
+		return nil
+	})
 }
