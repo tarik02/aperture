@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { ApiRequestError, parseApiErrorBody } from "#/lib/api/errors.ts";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 import {
@@ -10,6 +11,10 @@ import {
   eventsPageSchema,
   healthSchema,
   oidcProvidersSchema,
+  passkeyLoginOptionsSchema,
+  passkeyMutationSchema,
+  passkeyRegistrationOptionsSchema,
+  passkeysSchema,
   promoteSessionResponseSchema,
   screencastStatusSchema,
   sessionSchema,
@@ -333,6 +338,63 @@ export const apiClient = {
     return request({
       path: "/auth/providers",
       schema: oidcProvidersSchema,
+    });
+  },
+
+  beginPasskeyLogin() {
+    return request({
+      method: "POST",
+      path: "/auth/passkeys/login/options",
+      schema: passkeyLoginOptionsSchema,
+    });
+  },
+
+  finishPasskeyLogin(credential: AuthenticationResponseJSON) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/passkeys/login/finish",
+      body: credential,
+    });
+  },
+
+  listPasskeys() {
+    return request({
+      path: "/auth/passkeys",
+      schema: passkeysSchema,
+    });
+  },
+
+  beginPasskeyRegistration(name: string) {
+    return request({
+      method: "POST",
+      path: "/auth/passkeys/registration/options",
+      schema: passkeyRegistrationOptionsSchema,
+      body: { name },
+    });
+  },
+
+  finishPasskeyRegistration(credential: RegistrationResponseJSON) {
+    return request({
+      method: "POST",
+      path: "/auth/passkeys/registration/finish",
+      schema: passkeyMutationSchema,
+      body: credential,
+    });
+  },
+
+  renamePasskey(passkeyId: string, name: string) {
+    return request({
+      method: "PATCH",
+      path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
+      schema: passkeyMutationSchema,
+      body: { name },
+    });
+  },
+
+  deletePasskey(passkeyId: string) {
+    return requestVoid({
+      method: "DELETE",
+      path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
     });
   },
 

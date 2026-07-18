@@ -6,7 +6,10 @@ import (
 	"github.com/aperture/aperture/internal/db"
 )
 
-const AuthMethodOIDC = "oidc"
+const (
+	AuthMethodOIDC    = "oidc"
+	AuthMethodPasskey = "passkey"
+)
 
 // AuthenticateUser resolves an active user's authority for an optional tenant selection.
 func (s *Service) AuthenticateUser(ctx context.Context, userID, selectedTenantID, authMethod string) (Principal, error) {

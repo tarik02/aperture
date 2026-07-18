@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Check, ChevronsUpDown, KeyRound, LogOut, Plus, Trash2, UserRound } from "lucide-react";
+import {
+  Check,
+  ChevronsUpDown,
+  Fingerprint,
+  KeyRound,
+  LogOut,
+  Plus,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { TokenAuthModal } from "#/features/token/auth-modal/token-auth-modal.tsx";
@@ -21,6 +30,7 @@ import { useTokenAuthModalStore } from "#/features/token/auth-modal/token-auth-m
 import { useTokenFormStore } from "#/features/token/form/token-form.store.ts";
 import { cn } from "#/lib/utils.ts";
 import { apiClient } from "#/lib/api/client.ts";
+import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
 
 type TokenSwitcherProps = {
   className?: string;
@@ -38,6 +48,7 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
   const [removeProfileId, setRemoveProfileId] = useState<string | null>(null);
   const [removeProfileOpen, setRemoveProfileOpen] = useState(false);
   const [removingProfile, setRemovingProfile] = useState(false);
+  const [passkeysOpen, setPasskeysOpen] = useState(false);
   const removeProfileTarget = profiles.find((profile) => profile.id === removeProfileId) ?? null;
 
   function handleSwitch(profileId: string) {
@@ -130,6 +141,12 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
             <Plus />
             Add token
           </DropdownMenuItem>
+          {activeProfile?.credentialType === "web_session" ? (
+            <DropdownMenuItem onClick={() => setPasskeysOpen(true)}>
+              <Fingerprint />
+              Passkeys
+            </DropdownMenuItem>
+          ) : null}
           {activeProfile ? (
             <DropdownMenuItem
               variant={activeProfile.credentialType === "api_token" ? "destructive" : undefined}
@@ -143,6 +160,7 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
       </DropdownMenu>
 
       <TokenAuthModal />
+      <PasskeyModal open={passkeysOpen} onOpenChange={setPasskeysOpen} />
       {removeProfileTarget ? (
         <ConfirmDialog
           open={removeProfileOpen}

@@ -3,6 +3,7 @@ package config
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func validTestConfig(t *testing.T) Config {
@@ -33,8 +34,10 @@ func validTestConfig(t *testing.T) Config {
 		ChannelRegistry: map[string]ChannelConfig{
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
-		ExternalBaseURL:  "https://browser.example.test",
-		CdpRouteBasePath: "/cdp",
-		LogLevel:         "info",
+		ExternalBaseURL:       "https://browser.example.test",
+		CdpRouteBasePath:      "/cdp",
+		WebSessionLifetime:    30 * 24 * time.Hour,
+		WebSessionIdleTimeout: 24 * time.Hour,
+		LogLevel:              "info",
 	}
 }

@@ -1,10 +1,14 @@
-import { LogIn } from "lucide-react";
+import { useState } from "react";
+import { startAuthentication } from "@simplewebauthn/browser";
+import { Fingerprint, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
 import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
 import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
+import { fetchAuthMe } from "#/lib/auth-me.ts";
+import { apiClient } from "#/lib/api/client.ts";
 import { parseTokenId } from "#/lib/token-id.ts";
 import { useTokenVaultStore } from "#/stores/token-vault.ts";
 import { useTokenFormStore, type TokenFormMode } from "#/features/token/form/token-form.store.ts";
@@ -24,11 +28,13 @@ export function TokenForm({
   onDone,
 }: TokenFormProps) {
   const addProfile = useTokenVaultStore((state) => state.addProfile);
+  const upsertWebSession = useTokenVaultStore((state) => state.upsertWebSession);
   const removeProfile = useTokenVaultStore((state) => state.removeProfile);
   const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
   const { bootstrapProfileById } = useTokenBootstrap();
   const { rawToken, tokenError, submitting } = useTokenFormStore((state) => state.formData);
   const setFormData = useTokenFormStore((state) => state.setFormData);
+  const [passkeySubmitting, setPasskeySubmitting] = useState(false);
 
   const title = mode === "welcome" ? "Login" : "Add token";
   const submitLabel = mode === "welcome" ? "Login" : "Add";
@@ -71,19 +77,46 @@ export function TokenForm({
     onDone();
   }
 
+  async function handlePasskeyLogin() {
+    setPasskeySubmitting(true);
+    try {
+      const options = await apiClient.beginPasskeyLogin();
+      const credential = await startAuthentication({ optionsJSON: options.publicKey });
+      await apiClient.finishPasskeyLogin(credential);
+      upsertWebSession(await fetchAuthMe(null));
+      toast.success("Logged in");
+      onDone();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Passkey login failed");
+    } finally {
+      setPasskeySubmitting(false);
+    }
+  }
+
   return (
     <form onSubmit={(event) => void handleSubmit(event)}>
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
       </DialogHeader>
-      {mode === "welcome" && oidcProviders.length > 0 ? (
+      {mode === "welcome" ? (
         <div className="flex flex-col gap-2 py-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={passkeySubmitting || submitting || bootstrapping}
+            onClick={() => void handlePasskeyLogin()}
+          >
+            <Fingerprint data-icon="inline-start" />
+            Continue with a passkey
+          </Button>
           {oidcProviders.map((provider) => (
             <Button
               key={provider.id}
               type="button"
               variant="outline"
               className="w-full"
+              disabled={passkeySubmitting || submitting || bootstrapping}
               onClick={() => {
                 const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
                 const query = new URLSearchParams({ returnTo });
@@ -107,7 +140,7 @@ export function TokenForm({
             value={rawToken}
             onChange={(event) => setFormData({ rawToken: event.target.value })}
             aria-invalid={tokenError ? true : undefined}
-            disabled={submitting || bootstrapping}
+            disabled={passkeySubmitting || submitting || bootstrapping}
           />
           <FieldError>{tokenError}</FieldError>
         </Field>
@@ -118,12 +151,12 @@ export function TokenForm({
             type="button"
             variant="outline"
             onClick={onDone}
-            disabled={submitting || bootstrapping}
+            disabled={passkeySubmitting || submitting || bootstrapping}
           >
             Cancel
           </Button>
         ) : null}
-        <Button type="submit" disabled={submitting || bootstrapping}>
+        <Button type="submit" disabled={passkeySubmitting || submitting || bootstrapping}>
           {submitLabel}
         </Button>
       </DialogFooter>

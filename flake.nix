@@ -228,7 +228,7 @@
           pname = "aperture";
           inherit version;
           inherit src;
-          vendorHash = "sha256-WTIfszHZz8d5oKf31TtoFnzCPCaLjMGJ/FDiDiaxiUM=";
+          vendorHash = "sha256-78dUl1PZdMZ2zoCP4fcsfUa0Z0brGX/ncgNlLhHykU8=";
 
           subPackages = [
             "cmd/aperture"
@@ -242,7 +242,7 @@
             pnpm = pnpmLatest;
             fetcherVersion = 4;
             pnpmWorkspaces = [ "@aperture/web" ];
-            hash = "sha256-qvsj4YLNMwY84NJ7hRCjonf4GEeB6xXwqsGWvIEMmTw=";
+            hash = "sha256-yShV8HD3slablReSJTZOvcv7sOQKET4n1U4UWG+P5t0=";
           };
 
           nativeBuildInputs = [

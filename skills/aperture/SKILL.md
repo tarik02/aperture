@@ -28,6 +28,8 @@ Send API tokens on HTTP requests:
 Authorization: Bearer $APERTURE_TOKEN
 ```
 
+The web UI can use server-side account sessions established through OIDC or a registered passkey. Passkey registration requires an existing account session and never provisions a user. These cookie sessions authorize same-origin UI, API, and live-session requests, but not MCP clients.
+
 Tenant tokens are already bound to their tenant. System-admin tokens must select a tenant for tenant-scoped operations:
 
 ```http
