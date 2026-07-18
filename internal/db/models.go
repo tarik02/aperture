@@ -138,6 +138,37 @@ type Passkey struct {
 	LastUsedAt     *string `bun:"last_used_at"`
 }
 
+// UserPassword stores one user's Argon2id password hash.
+type UserPassword struct {
+	bun.BaseModel `bun:"table:user_passwords"`
+
+	UserID       string `bun:"user_id,pk"`
+	PasswordHash string `bun:"password_hash,notnull"`
+	CreatedAt    string `bun:"created_at,notnull"`
+	UpdatedAt    string `bun:"updated_at,notnull"`
+}
+
+// TOTPCredential stores one user's active authenticator secret.
+type TOTPCredential struct {
+	bun.BaseModel `bun:"table:totp_credentials"`
+
+	UserID    string `bun:"user_id,pk"`
+	Secret    string `bun:"secret,notnull"`
+	CreatedAt string `bun:"created_at,notnull"`
+	UpdatedAt string `bun:"updated_at,notnull"`
+}
+
+// RecoveryCode stores a hashed one-time MFA recovery code.
+type RecoveryCode struct {
+	bun.BaseModel `bun:"table:recovery_codes"`
+
+	ID        string  `bun:"id,pk"`
+	UserID    string  `bun:"user_id,notnull"`
+	CodeHash  []byte  `bun:"code_hash,notnull"`
+	CreatedAt string  `bun:"created_at,notnull"`
+	UsedAt    *string `bun:"used_at"`
+}
+
 // Snapshot maps the snapshots table.
 type Snapshot struct {
 	bun.BaseModel `bun:"table:snapshots"`
@@ -241,6 +272,9 @@ func RegisterModels(db *bun.DB) {
 		(*OIDCIdentity)(nil),
 		(*WebAuthnUserHandle)(nil),
 		(*Passkey)(nil),
+		(*UserPassword)(nil),
+		(*TOTPCredential)(nil),
+		(*RecoveryCode)(nil),
 		(*Snapshot)(nil),
 		(*Session)(nil),
 		(*SessionToken)(nil),

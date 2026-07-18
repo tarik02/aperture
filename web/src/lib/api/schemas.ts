@@ -58,7 +58,7 @@ export const resourceGrantSchema = z.object({
 export const principalSchema = z.object({
   type: z.enum(["api_token", "user", "system"]),
   id: z.string(),
-  authMethod: z.enum(["api_token", "oidc", "passkey"]),
+  authMethod: z.enum(["api_token", "oidc", "passkey", "password"]),
   tokenId: z.string().nullable(),
   userId: z.string().nullable().optional(),
   name: z.string(),
@@ -160,6 +160,26 @@ export const passkeysSchema = z.object({
 
 export const passkeyMutationSchema = z.object({
   passkey: passkeySchema,
+});
+
+export const passwordLoginResponseSchema = z.object({
+  mfaRequired: z.boolean(),
+});
+
+export const securityStatusSchema = z.object({
+  hasPassword: z.boolean(),
+  totpEnabled: z.boolean(),
+  recoveryCodesRemaining: z.number().int().nonnegative(),
+});
+
+export const totpEnrollmentSchema = z.object({
+  secret: z.string(),
+  otpauthUrl: z.string(),
+  qrCodeDataUrl: z.string(),
+});
+
+export const recoveryCodesSchema = z.object({
+  recoveryCodes: z.array(z.string()),
 });
 
 export const healthSchema = z.object({
@@ -317,6 +337,8 @@ export type OIDCProviders = z.infer<typeof oidcProvidersSchema>;
 export type PasskeyLoginOptions = z.infer<typeof passkeyLoginOptionsSchema>;
 export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
 export type Passkey = z.infer<typeof passkeySchema>;
+export type SecurityStatus = z.infer<typeof securityStatusSchema>;
+export type TOTPEnrollment = z.infer<typeof totpEnrollmentSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;

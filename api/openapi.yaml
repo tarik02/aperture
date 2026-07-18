@@ -7,7 +7,7 @@ info:
 
     ## Authentication
 
-    Send `Authorization: Bearer <token>` or authenticate through a configured OIDC provider and browser session cookie. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Tenant API tokens may additionally restrict access to explicit session and snapshot IDs. Raw tokens are returned only on creation or rotation.
+    Send `Authorization: Bearer <token>` or authenticate through an account browser session established by OIDC, passkey, or password. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Tenant API tokens may additionally restrict access to explicit session and snapshot IDs. Raw tokens are returned only on creation or rotation.
 
     ## Tenant selection
 
@@ -790,7 +790,7 @@ components:
       type: apiKey
       in: cookie
       name: aperture_session
-      description: Server-side browser session established by a configured OIDC provider.
+      description: Server-side browser session established by OIDC, passkey, or password login.
   parameters:
     Limit:
       name: limit
@@ -1355,7 +1355,7 @@ components:
         authMethod:
           type: string
           description: Authentication mechanism used for this request.
-          enum: [api_token, oidc, passkey]
+          enum: [api_token, oidc, passkey, password]
         tokenId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: Identifier of the API token used for authentication, or `null` for account-backed sessions.
