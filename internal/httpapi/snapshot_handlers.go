@@ -35,6 +35,13 @@ func (s *Server) promoteSession(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	if req.Force {
+		principal := c.MustGet("principal").(auth.Principal)
+		if err := s.Auth.AuthorizeSnapshotNameIfExists(c.Request.Context(), principal, tenantIDFromContext(c), req.Name); err != nil {
+			WriteError(c, err)
+			return
+		}
+	}
 
 	view, err := s.Promotion.Promote(c.Request.Context(), snapshot.PromoteInput{
 		TenantID:    tenantIDFromContext(c),
@@ -63,6 +70,9 @@ func (s *Server) updateSnapshot(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	if !s.requireSnapshotResource(c, c.Param("name")) {
+		return
+	}
 
 	view, err := s.Snapshots.UpdateDescription(c.Request.Context(), tenantIDFromContext(c), c.Param("name"), req.Description)
 	if err != nil {
@@ -84,6 +94,9 @@ func (s *Server) replaceSnapshotTags(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	if !s.requireSnapshotResource(c, c.Param("name")) {
+		return
+	}
 
 	view, err := s.Snapshots.ReplaceTags(c.Request.Context(), tenantIDFromContext(c), c.Param("name"), req.Tags)
 	if err != nil {
@@ -99,6 +112,9 @@ func (s *Server) deleteSnapshot(c *gin.Context) {
 		WriteError(c, errSnapshotServiceUnavailable)
 		return
 	}
+	if !s.requireSnapshotResource(c, c.Param("name")) {
+		return
+	}
 
 	view, err := s.Snapshots.Delete(c.Request.Context(), tenantIDFromContext(c), c.Param("name"))
 	if err != nil {
@@ -112,6 +128,9 @@ func (s *Server) deleteSnapshot(c *gin.Context) {
 func (s *Server) restoreSnapshot(c *gin.Context) {
 	if s.Snapshots == nil {
 		WriteError(c, errSnapshotServiceUnavailable)
+		return
+	}
+	if !s.requireSnapshotResource(c, c.Param("name")) {
 		return
 	}
 
@@ -146,6 +165,15 @@ func (s *Server) requireSnapshotScope(c *gin.Context, scope string) bool {
 		return false
 	}
 	c.Set("tenantId", tenantID)
+	return true
+}
+
+func (s *Server) requireSnapshotResource(c *gin.Context, name string) bool {
+	principal := c.MustGet("principal").(auth.Principal)
+	if err := s.Auth.AuthorizeSnapshotName(c.Request.Context(), principal, tenantIDFromContext(c), name); err != nil {
+		WriteError(c, err)
+		return false
+	}
 	return true
 }
 

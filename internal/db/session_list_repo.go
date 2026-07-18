@@ -13,6 +13,7 @@ type SessionFilter struct {
 	IncludeDeleted bool
 	Status         *string
 	Tags           []TagFilter
+	Resources      ResourceIDFilter
 }
 
 // ListSessionsPage returns tenant sessions with cursor pagination.
@@ -24,6 +25,13 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 	}
 
 	query := r.db.bun.NewSelect().Model((*Session)(nil)).Where("tenant_id = ?", filter.TenantID)
+	if filter.Resources.Restricted {
+		if len(filter.Resources.IDs) == 0 {
+			query = query.Where("1 = 0")
+		} else {
+			query = query.Where("id IN (?)", bun.List(filter.Resources.IDs))
+		}
+	}
 	if !filter.IncludeDeleted {
 		query = query.Where("deleted_at IS NULL")
 	}
@@ -72,17 +80,20 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 }
 
 // ListSessionsByTenantAndIDs returns non-deleted tenant sessions matching ids.
-func (r *Repository) ListSessionsByTenantAndIDs(ctx context.Context, tenantID string, sessionIDs []string) ([]Session, error) {
+func (r *Repository) ListSessionsByTenantAndIDs(ctx context.Context, tenantID string, sessionIDs []string, resources ResourceIDFilter) ([]Session, error) {
 	sessions := make([]Session, 0)
-	if len(sessionIDs) == 0 {
+	if len(sessionIDs) == 0 || resources.Restricted && len(resources.IDs) == 0 {
 		return sessions, nil
 	}
-	if err := r.db.bun.NewSelect().
+	query := r.db.bun.NewSelect().
 		Model(&sessions).
 		Where("tenant_id = ?", tenantID).
 		Where("id IN (?)", bun.List(sessionIDs)).
-		Where("deleted_at IS NULL").
-		Scan(ctx); err != nil {
+		Where("deleted_at IS NULL")
+	if resources.Restricted {
+		query = query.Where("id IN (?)", bun.List(resources.IDs))
+	}
+	if err := query.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list sessions by tenant and ids: %w", err)
 	}
 	return sessions, nil

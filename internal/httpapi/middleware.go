@@ -262,7 +262,28 @@ func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
 		return false
 	}
 	c.Set("tenantId", tenantID)
+	if sessionID := c.Param("sessionId"); sessionID != "" && !auth.HasResourceAccess(p, auth.ResourceTypeSession, sessionID) {
+		WriteError(c, auth.ErrResourceAccessDenied)
+		c.Abort()
+		return false
+	}
 	return true
+}
+
+func resourceIDFilter(principal auth.Principal, resourceType string) db.ResourceIDFilter {
+	ids, restricted := auth.ResourceIDs(principal, resourceType)
+	return db.ResourceIDFilter{Restricted: restricted, IDs: ids}
+}
+
+func eventResourceFilter(principal auth.Principal) ([]db.ResourceReference, bool) {
+	if !auth.IsResourceRestricted(principal) {
+		return nil, false
+	}
+	resources := make([]db.ResourceReference, 0, len(principal.ResourceGrants))
+	for _, grant := range principal.ResourceGrants {
+		resources = append(resources, db.ResourceReference{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
+	return resources, true
 }
 
 func tenantIDFromContext(c *gin.Context) string {

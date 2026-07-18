@@ -285,6 +285,9 @@ func newAdminTokensCreateCmd() *cobra.Command {
 	var authorityType string
 	var tenantID string
 	var scopes []string
+	var resourceMode string
+	var sessionGrants []string
+	var snapshotGrants []string
 	var expiresAt string
 
 	cmd := &cobra.Command{
@@ -315,7 +318,14 @@ func newAdminTokensCreateCmd() *cobra.Command {
 				AuthorityType: authorityType,
 				Name:          name,
 				Scopes:        scopes,
+				ResourceMode:  resourceMode,
 				ExpiresAt:     expires,
+			}
+			for _, resourceID := range sessionGrants {
+				input.ResourceGrants = append(input.ResourceGrants, auth.ResourceGrant{ResourceType: auth.ResourceTypeSession, ResourceID: resourceID})
+			}
+			for _, resourceID := range snapshotGrants {
+				input.ResourceGrants = append(input.ResourceGrants, auth.ResourceGrant{ResourceType: auth.ResourceTypeSnapshot, ResourceID: resourceID})
 			}
 			if strings.TrimSpace(tenantID) != "" {
 				copyID := tenantID
@@ -341,6 +351,9 @@ func newAdminTokensCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&authorityType, "authority-type", "", "system_admin or tenant")
 	cmd.Flags().StringVar(&tenantID, "tenant-id", "", "tenant id for tenant-scoped tokens")
 	cmd.Flags().StringSliceVar(&scopes, "scopes", nil, "token scopes")
+	cmd.Flags().StringVar(&resourceMode, "resource-mode", auth.ResourceModeAll, "all or allowlist")
+	cmd.Flags().StringSliceVar(&sessionGrants, "session-grant", nil, "allowed session id")
+	cmd.Flags().StringSliceVar(&snapshotGrants, "snapshot-grant", nil, "allowed snapshot id")
 	cmd.Flags().StringVar(&expiresAt, "expires-at", "", "optional RFC3339Nano expiration")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("authority-type")
@@ -423,9 +436,13 @@ func printToken(out io.Writer, token *db.APIToken) error {
 	if token.ParentTokenID != nil {
 		parentTokenID = *token.ParentTokenID
 	}
+	resourceGrants := make([]string, 0, len(token.ResourceGrants))
+	for _, grant := range token.ResourceGrants {
+		resourceGrants = append(resourceGrants, grant.ResourceType+":"+grant.ResourceID)
+	}
 	_, err := fmt.Fprintf(
 		out,
-		"token id=%s authority_type=%s tenant_id=%s name=%q scopes=%s created_by_type=%s created_by_id=%s parent_token_id=%s\n",
+		"token id=%s authority_type=%s tenant_id=%s name=%q scopes=%s created_by_type=%s created_by_id=%s parent_token_id=%s resource_mode=%s resource_grants=%s\n",
 		token.ID,
 		token.AuthorityType,
 		tenant,
@@ -434,6 +451,8 @@ func printToken(out io.Writer, token *db.APIToken) error {
 		token.CreatedByType,
 		createdByID,
 		parentTokenID,
+		token.ResourceMode,
+		strings.Join(resourceGrants, ","),
 	)
 	return err
 }

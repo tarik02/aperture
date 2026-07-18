@@ -26,18 +26,41 @@ type Tenant struct {
 type APIToken struct {
 	bun.BaseModel `bun:"table:api_tokens"`
 
-	ID            string  `bun:"id,pk"`
-	AuthorityType string  `bun:"authority_type,notnull"`
-	TenantID      *string `bun:"tenant_id"`
-	Name          string  `bun:"name,notnull"`
-	TokenHash     string  `bun:"token_hash,notnull"`
-	ScopesJSON    string  `bun:"scopes_json,notnull"`
-	CreatedAt     string  `bun:"created_at,notnull"`
-	CreatedByType string  `bun:"created_by_type,notnull"`
-	CreatedByID   *string `bun:"created_by_id"`
-	ParentTokenID *string `bun:"parent_token_id"`
-	ExpiresAt     *string `bun:"expires_at"`
-	RevokedAt     *string `bun:"revoked_at"`
+	ID             string                  `bun:"id,pk"`
+	AuthorityType  string                  `bun:"authority_type,notnull"`
+	TenantID       *string                 `bun:"tenant_id"`
+	Name           string                  `bun:"name,notnull"`
+	TokenHash      string                  `bun:"token_hash,notnull"`
+	ScopesJSON     string                  `bun:"scopes_json,notnull"`
+	CreatedAt      string                  `bun:"created_at,notnull"`
+	CreatedByType  string                  `bun:"created_by_type,notnull"`
+	CreatedByID    *string                 `bun:"created_by_id"`
+	ParentTokenID  *string                 `bun:"parent_token_id"`
+	ResourceMode   string                  `bun:"resource_mode,notnull"`
+	ExpiresAt      *string                 `bun:"expires_at"`
+	RevokedAt      *string                 `bun:"revoked_at"`
+	ResourceGrants []APITokenResourceGrant `bun:"-"`
+}
+
+// APITokenResourceGrant restricts a token to one session or snapshot.
+type APITokenResourceGrant struct {
+	bun.BaseModel `bun:"table:api_token_resource_grants"`
+
+	TokenID      string `bun:"token_id,pk"`
+	ResourceType string `bun:"resource_type,pk"`
+	ResourceID   string `bun:"resource_id,pk"`
+}
+
+// ResourceIDFilter limits a query to an explicit set of resource ids.
+type ResourceIDFilter struct {
+	Restricted bool
+	IDs        []string
+}
+
+// ResourceReference identifies a resource for polymorphic event filtering.
+type ResourceReference struct {
+	ResourceType string
+	ResourceID   string
 }
 
 // User maps the users table.

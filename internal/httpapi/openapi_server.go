@@ -74,7 +74,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 			return
 		}
 	case strings.HasPrefix(path, "/api/admin/"):
-		if principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(principal.Scopes, auth.ScopeSystemAdmin) {
+		if principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(principal.Scopes, auth.ScopeSystemAdmin) || auth.IsResourceRestricted(principal) {
 			WriteError(c, auth.ErrScopeDenied)
 			c.Abort()
 			return
@@ -87,6 +87,11 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		}
 		if principal.TenantID == nil {
 			WriteError(c, auth.ErrTenantNotFound)
+			c.Abort()
+			return
+		}
+		if path == "/api/tenant" && c.Request.Method != http.MethodGet && auth.IsResourceRestricted(principal) {
+			WriteError(c, auth.ErrResourceAccessDenied)
 			c.Abort()
 			return
 		}
@@ -110,6 +115,11 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 			return
 		}
 		c.Set("tenantId", tenantID)
+		if !auth.HasResourceAccess(principal, auth.ResourceTypeSession, c.Param("sessionId")) {
+			WriteError(c, auth.ErrResourceAccessDenied)
+			c.Abort()
+			return
+		}
 	case strings.HasPrefix(path, "/api/sessions"):
 		if !s.requireSessionScope(c, auth.ScopeSessionsWrite) {
 			return

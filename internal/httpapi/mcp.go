@@ -170,6 +170,9 @@ func (s *Server) authenticateMCP(r *http.Request) (mcpAuth, error) {
 		if err != nil {
 			return mcpAuth{}, errors.New("forbidden")
 		}
+		if !auth.HasResourceAccess(principal, auth.ResourceTypeSession, pathSessionID) {
+			return mcpAuth{}, errors.New("forbidden")
+		}
 		return mcpAuth{principal: &principal, sessionID: pathSessionID, tenantID: tenantID, expiration: mcpCredentialExpiration(principal.ExpiresAt), pathBound: true}, nil
 	}
 
@@ -396,11 +399,13 @@ type mcpCreateTenantOutput struct {
 	Tenant db.Tenant `json:"tenant"`
 }
 type mcpCreateTokenInput struct {
-	AuthorityType string   `json:"authorityType"`
-	TenantID      *string  `json:"tenantId,omitempty"`
-	Name          string   `json:"name"`
-	Scopes        []string `json:"scopes"`
-	ExpiresAt     *string  `json:"expiresAt,omitempty"`
+	AuthorityType  string             `json:"authorityType"`
+	TenantID       *string            `json:"tenantId,omitempty"`
+	Name           string             `json:"name"`
+	Scopes         []string           `json:"scopes"`
+	ResourceMode   string             `json:"resourceMode,omitempty"`
+	ResourceGrants []mcpResourceGrant `json:"resourceGrants,omitempty"`
+	ExpiresAt      *string            `json:"expiresAt,omitempty"`
 }
 type mcpCreateTokenOutput struct {
 	Token    mcpToken `json:"token"`
@@ -420,21 +425,53 @@ type mcpListTokensInput struct {
 	Limit    int     `json:"limit,omitempty"`
 }
 type mcpToken struct {
-	ID            string   `json:"id"`
-	AuthorityType string   `json:"authorityType"`
-	TenantID      *string  `json:"tenantId,omitempty"`
-	Name          string   `json:"name"`
-	Scopes        []string `json:"scopes"`
-	CreatedAt     string   `json:"createdAt"`
-	CreatedByType string   `json:"createdByType"`
-	CreatedByID   *string  `json:"createdById"`
-	ParentTokenID *string  `json:"parentTokenId"`
-	ExpiresAt     *string  `json:"expiresAt,omitempty"`
-	RevokedAt     *string  `json:"revokedAt,omitempty"`
+	ID             string             `json:"id"`
+	AuthorityType  string             `json:"authorityType"`
+	TenantID       *string            `json:"tenantId,omitempty"`
+	Name           string             `json:"name"`
+	Scopes         []string           `json:"scopes"`
+	CreatedAt      string             `json:"createdAt"`
+	CreatedByType  string             `json:"createdByType"`
+	CreatedByID    *string            `json:"createdById"`
+	ParentTokenID  *string            `json:"parentTokenId"`
+	ResourceMode   string             `json:"resourceMode"`
+	ResourceGrants []mcpResourceGrant `json:"resourceGrants"`
+	ExpiresAt      *string            `json:"expiresAt,omitempty"`
+	RevokedAt      *string            `json:"revokedAt,omitempty"`
+}
+type mcpResourceGrant struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
 }
 type mcpListTokensOutput struct {
 	Data []mcpToken  `json:"data"`
 	Meta db.PageMeta `json:"meta"`
+}
+
+func mcpTokenView(token db.APIToken) (mcpToken, error) {
+	scopes, err := auth.ParseScopesJSON(token.ScopesJSON)
+	if err != nil {
+		return mcpToken{}, err
+	}
+	grants := make([]mcpResourceGrant, 0, len(token.ResourceGrants))
+	for _, grant := range token.ResourceGrants {
+		grants = append(grants, mcpResourceGrant{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
+	return mcpToken{
+		ID:             token.ID,
+		AuthorityType:  token.AuthorityType,
+		TenantID:       token.TenantID,
+		Name:           token.Name,
+		Scopes:         scopes,
+		CreatedAt:      token.CreatedAt,
+		CreatedByType:  token.CreatedByType,
+		CreatedByID:    token.CreatedByID,
+		ParentTokenID:  token.ParentTokenID,
+		ResourceMode:   token.ResourceMode,
+		ResourceGrants: grants,
+		ExpiresAt:      token.ExpiresAt,
+		RevokedAt:      token.RevokedAt,
+	}, nil
 }
 
 type mcpSessionFilesInput struct {
@@ -639,6 +676,9 @@ func (s *Server) resolveProxySession(ctx context.Context, a mcpAuth, sessionID s
 	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) {
 		return nil, mcpToolError("forbidden", nil)
 	}
+	if !auth.HasResourceAccess(*a.principal, auth.ResourceTypeSession, sessionID) {
+		return nil, mcpToolError("forbidden", auth.ErrResourceAccessDenied)
+	}
 	if _, err := auth.ResolveTenantID(*a.principal, row.TenantID); err != nil {
 		return nil, mcpToolError("forbidden", nil)
 	}
@@ -671,7 +711,10 @@ func (s *Server) mcpSnapshotsList(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpListSnapshotsOutput{}, err
 	}
-	page, err := s.Snapshots.List(ctx, tenantID, snapshot.ListFilter{IncludeDeleted: in.IncludeDeleted}, mcpPageParams(in.Cursor, in.Limit))
+	page, err := s.Snapshots.List(ctx, tenantID, snapshot.ListFilter{
+		IncludeDeleted: in.IncludeDeleted,
+		Resources:      resourceIDFilter(*a.principal, auth.ResourceTypeSnapshot),
+	}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
 		return nil, mcpListSnapshotsOutput{}, mcpToolError("internal", err)
 	}
@@ -691,6 +734,9 @@ func (s *Server) mcpSnapshotsGet(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpSnapshot{}, err
 	}
+	if err := s.Auth.AuthorizeSnapshotName(ctx, *a.principal, tenantID, in.Name); err != nil {
+		return nil, mcpSnapshot{}, mcpToolError("forbidden", err)
+	}
 	view, err := s.Snapshots.Get(ctx, tenantID, in.Name)
 	if err != nil {
 		return nil, mcpSnapshot{}, mcpToolError("snapshot_not_found", err)
@@ -709,6 +755,11 @@ func (s *Server) mcpSessionsCreate(ctx context.Context, _ *mcp.CallToolRequest, 
 	}
 	if in.BaseSnapshotName != nil && !auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsRead) {
 		return nil, mcpCreateSessionOutput{}, mcpToolError("forbidden", nil)
+	}
+	if in.BaseSnapshotName != nil && strings.TrimSpace(*in.BaseSnapshotName) != "" {
+		if err := s.Auth.AuthorizeSnapshotName(ctx, *a.principal, tenantID, *in.BaseSnapshotName); err != nil {
+			return nil, mcpCreateSessionOutput{}, mcpToolError("forbidden", err)
+		}
 	}
 	view, err := s.Sessions.Create(ctx, session.CreateInput{TenantID: tenantID, BaseSnapshotName: in.BaseSnapshotName, Label: in.Label, BrowserChannel: in.BrowserChannel, BrowserArgs: in.BrowserArgs, Tags: in.Tags})
 	if err != nil {
@@ -735,7 +786,10 @@ func (s *Server) mcpSessionsList(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpListSessionsOutput{}, err
 	}
-	page, err := s.Sessions.List(ctx, tenantID, session.ListFilter{IncludeDeleted: in.IncludeDeleted}, mcpPageParams(in.Cursor, in.Limit))
+	page, err := s.Sessions.List(ctx, tenantID, session.ListFilter{
+		IncludeDeleted: in.IncludeDeleted,
+		Resources:      resourceIDFilter(*a.principal, auth.ResourceTypeSession),
+	}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
 		return nil, mcpListSessionsOutput{}, mcpToolError("internal", err)
 	}
@@ -750,11 +804,7 @@ func (s *Server) mcpSessionsGet(ctx context.Context, _ *mcp.CallToolRequest, in 
 	if err != nil {
 		return nil, mcpSession{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSessionsRead)
-	if err != nil {
-		return nil, mcpSession{}, err
-	}
-	view, err := s.Sessions.Get(ctx, tenantID, in.SessionID)
+	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, mcpSession{}, mcpToolError("session_not_found", err)
 	}
@@ -769,7 +819,7 @@ func (s *Server) mcpSessionsBulkGet(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpBulkSessionsOutput{}, err
 	}
-	views, err := s.Sessions.GetByIDs(ctx, tenantID, in.SessionIDs)
+	views, err := s.Sessions.GetByIDs(ctx, tenantID, in.SessionIDs, resourceIDFilter(*a.principal, auth.ResourceTypeSession))
 	if err != nil {
 		return nil, mcpBulkSessionsOutput{}, mcpToolError("session_not_found", err)
 	}
@@ -790,6 +840,9 @@ func (s *Server) sessionForMCP(ctx context.Context, a mcpAuth, requested, reques
 	}
 	if id == "" {
 		return nil, mcpToolError("invalid_arguments", nil)
+	}
+	if a.principal != nil && !a.sessionOnly && !auth.HasResourceAccess(*a.principal, auth.ResourceTypeSession, id) {
+		return nil, mcpToolError("forbidden", auth.ErrResourceAccessDenied)
 	}
 	scope := auth.ScopeSessionsRead
 	if write {
@@ -883,18 +936,23 @@ func (s *Server) mcpSessionsPromote(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSessionsWrite)
+	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	if !auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
+	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", nil)
 	}
-	view, err := s.Promotion.Promote(ctx, snapshot.PromoteInput{TenantID: tenantID, SessionID: in.SessionID, Name: in.Name, Description: in.Description, Force: in.Force, Tags: in.Tags})
+	if in.Force {
+		if err := s.Auth.AuthorizeSnapshotNameIfExists(ctx, *a.principal, view.Session.TenantID, in.Name); err != nil {
+			return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", err)
+		}
+	}
+	promoted, err := s.Promotion.Promote(ctx, snapshot.PromoteInput{TenantID: view.Session.TenantID, SessionID: view.Session.ID, Name: in.Name, Description: in.Description, Force: in.Force, Tags: in.Tags})
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, mcpToolError("session_unavailable", err)
 	}
-	return nil, mcpSnapshotOutput{Snapshot: mcpSnapshotView(view)}, nil
+	return nil, mcpSnapshotOutput{Snapshot: mcpSnapshotView(promoted)}, nil
 }
 func (s *Server) mcpEventsList(ctx context.Context, _ *mcp.CallToolRequest, in mcpListEventsInput) (*mcp.CallToolResult, mcpListEventsOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
@@ -905,7 +963,8 @@ func (s *Server) mcpEventsList(ctx context.Context, _ *mcp.CallToolRequest, in m
 	if err != nil {
 		return nil, mcpListEventsOutput{}, err
 	}
-	page, err := s.Events.List(ctx, tenantID, event.ListFilter{ResourceType: in.ResourceType, ResourceID: in.ResourceID}, mcpPageParams(in.Cursor, in.Limit))
+	resources, restricted := eventResourceFilter(*a.principal)
+	page, err := s.Events.List(ctx, tenantID, event.ListFilter{ResourceType: in.ResourceType, ResourceID: in.ResourceID, Resources: resources, Restricted: restricted}, mcpPageParams(in.Cursor, in.Limit))
 	if err != nil {
 		return nil, mcpListEventsOutput{}, mcpToolError("internal", err)
 	}
@@ -955,18 +1014,22 @@ func (s *Server) mcpTokensCreate(ctx context.Context, _ *mcp.CallToolRequest, in
 		}
 		expiresAt = &parsed
 	}
-	created, err := s.Auth.DelegateToken(ctx, *a.principal, auth.CreateTokenInput{AuthorityType: in.AuthorityType, TenantID: in.TenantID, Name: in.Name, Scopes: in.Scopes, ExpiresAt: expiresAt})
+	resourceGrants := make([]auth.ResourceGrant, 0, len(in.ResourceGrants))
+	for _, grant := range in.ResourceGrants {
+		resourceGrants = append(resourceGrants, auth.ResourceGrant{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
+	created, err := s.Auth.DelegateToken(ctx, *a.principal, auth.CreateTokenInput{AuthorityType: in.AuthorityType, TenantID: in.TenantID, Name: in.Name, Scopes: in.Scopes, ResourceMode: in.ResourceMode, ResourceGrants: resourceGrants, ExpiresAt: expiresAt})
 	if err != nil {
 		if errors.Is(err, auth.ErrTokenDelegation) || errors.Is(err, auth.ErrScopeDenied) {
 			return nil, mcpCreateTokenOutput{}, mcpToolError("forbidden", err)
 		}
 		return nil, mcpCreateTokenOutput{}, mcpToolError("invalid_arguments", err)
 	}
-	scopes, err := auth.ParseScopesJSON(created.Token.ScopesJSON)
+	view, err := mcpTokenView(created.Token)
 	if err != nil {
 		return nil, mcpCreateTokenOutput{}, mcpToolError("internal", err)
 	}
-	return nil, mcpCreateTokenOutput{Token: mcpToken{ID: created.Token.ID, AuthorityType: created.Token.AuthorityType, TenantID: created.Token.TenantID, Name: created.Token.Name, Scopes: scopes, CreatedAt: created.Token.CreatedAt, CreatedByType: created.Token.CreatedByType, CreatedByID: created.Token.CreatedByID, ParentTokenID: created.Token.ParentTokenID, ExpiresAt: created.Token.ExpiresAt}, RawToken: created.Raw}, nil
+	return nil, mcpCreateTokenOutput{Token: view, RawToken: created.Raw}, nil
 }
 
 func (s *Server) mcpTokensRevoke(ctx context.Context, _ *mcp.CallToolRequest, in mcpRevokeTokenInput) (*mcp.CallToolResult, mcpRevokeTokenOutput, error) {
@@ -1033,11 +1096,11 @@ func (s *Server) mcpTokensList(ctx context.Context, _ *mcp.CallToolRequest, in m
 	}
 	out := mcpListTokensOutput{Meta: page.Meta}
 	for _, item := range page.Items {
-		scopes, err := auth.ParseScopesJSON(item.ScopesJSON)
+		view, err := mcpTokenView(item)
 		if err != nil {
 			return nil, mcpListTokensOutput{}, mcpToolError("internal", err)
 		}
-		out.Data = append(out.Data, mcpToken{ID: item.ID, AuthorityType: item.AuthorityType, TenantID: item.TenantID, Name: item.Name, Scopes: scopes, CreatedAt: item.CreatedAt, CreatedByType: item.CreatedByType, CreatedByID: item.CreatedByID, ParentTokenID: item.ParentTokenID, ExpiresAt: item.ExpiresAt, RevokedAt: item.RevokedAt})
+		out.Data = append(out.Data, view)
 	}
 	return nil, out, nil
 }

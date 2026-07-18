@@ -70,13 +70,13 @@ func (s *Server) createSession(c *gin.Context) {
 	}
 
 	if req.BaseSnapshotName != nil && strings.TrimSpace(*req.BaseSnapshotName) != "" {
-		principal, ok := c.Get("principal")
-		if !ok {
-			WriteError(c, auth.ErrTokenMissing)
+		principal := c.MustGet("principal").(auth.Principal)
+		if !auth.HasScope(principal.Scopes, auth.ScopeSnapshotsRead) {
+			WriteError(c, auth.ErrScopeDenied)
 			return
 		}
-		if !auth.HasScope(principal.(auth.Principal).Scopes, auth.ScopeSnapshotsRead) {
-			WriteError(c, auth.ErrScopeDenied)
+		if err := s.Auth.AuthorizeSnapshotName(c.Request.Context(), principal, tenantIDFromContext(c), *req.BaseSnapshotName); err != nil {
+			WriteError(c, err)
 			return
 		}
 	}

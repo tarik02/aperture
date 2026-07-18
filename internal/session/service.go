@@ -352,8 +352,8 @@ func (s *Service) Get(ctx context.Context, tenantID, sessionID string) (*Session
 }
 
 // GetByIDs returns non-deleted tenant sessions in requested id order.
-func (s *Service) GetByIDs(ctx context.Context, tenantID string, sessionIDs []string) ([]SessionView, error) {
-	sessionRows, err := s.repo.ListSessionsByTenantAndIDs(ctx, tenantID, sessionIDs)
+func (s *Service) GetByIDs(ctx context.Context, tenantID string, sessionIDs []string, resources db.ResourceIDFilter) ([]SessionView, error) {
+	sessionRows, err := s.repo.ListSessionsByTenantAndIDs(ctx, tenantID, sessionIDs, resources)
 	if err != nil {
 		return nil, err
 	}
@@ -844,6 +844,7 @@ type ListFilter struct {
 	IncludeDeleted bool
 	Status         *string
 	Tags           []db.TagFilter
+	Resources      db.ResourceIDFilter
 }
 
 // List returns tenant sessions with cursor pagination.
@@ -853,6 +854,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		IncludeDeleted: filter.IncludeDeleted,
 		Status:         filter.Status,
 		Tags:           filter.Tags,
+		Resources:      filter.Resources,
 	}, params)
 	if err != nil {
 		return db.PageResult[SessionView]{}, err

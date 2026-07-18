@@ -81,6 +81,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "token_name_conflict", "api token name already exists"
 	case errors.Is(err, auth.ErrTokenDelegation):
 		return http.StatusForbidden, "token_delegation_exceeded", "token delegation exceeds caller authority"
+	case errors.Is(err, auth.ErrResourceAccessDenied):
+		return http.StatusForbidden, "resource_access_denied", "resource access denied"
 	case errors.Is(err, auth.ErrUserNotFound):
 		return http.StatusNotFound, "user_not_found", "user not found"
 	case errors.Is(err, auth.ErrUserDisabled):
@@ -99,7 +101,7 @@ func mapError(err error) (int, string, string) {
 		return http.StatusUnauthorized, "oidc_authentication_failed", "oidc authentication failed"
 	case errors.Is(err, auth.ErrBootstrapNotEmpty):
 		return http.StatusConflict, "bootstrap_refused", "bootstrap refused: api tokens already exist"
-	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope):
+	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope), errors.Is(err, auth.ErrInvalidResourceScope):
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, errRequestDecode):
 		return http.StatusBadRequest, "invalid_request_body", "invalid request body"

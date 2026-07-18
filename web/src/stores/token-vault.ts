@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { AuthMeResponse } from "#/lib/api/schemas.ts";
+import type { AuthMeResponse, ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
 import { maskTokenId, parseTokenId } from "#/lib/token-id.ts";
 
 export type AuthorityType = "system_admin" | "tenant";
@@ -11,6 +11,8 @@ type ProfileMetadata = {
   tokenName: string | null;
   tenantId: string | null;
   scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
   selectedTenantId: string | null;
   selectedTenantDisplayName: string | null;
   availableTenants: AuthMeResponse["availableTenants"];
@@ -64,6 +66,8 @@ function createProfile(rawToken: string): TokenProfile | null {
     tokenName: null,
     tenantId: null,
     scopes: [],
+    resourceMode: "all",
+    resourceGrants: [],
     selectedTenantId: null,
     selectedTenantDisplayName: null,
     availableTenants: [],
@@ -119,6 +123,8 @@ export const useTokenVaultStore = create<TokenVaultState>()(
             tokenName: response.principal.name,
             tenantId: response.principal.tenantId,
             scopes: response.principal.scopes,
+            resourceMode: response.principal.resourceMode,
+            resourceGrants: response.principal.resourceGrants,
             selectedTenantId: selectedTenant?.id ?? null,
             selectedTenantDisplayName: selectedTenant?.displayName ?? null,
             availableTenants: response.availableTenants,
@@ -187,6 +193,8 @@ export const useTokenVaultStore = create<TokenVaultState>()(
               tokenName: principal.name,
               tenantId: principal.tenantId,
               scopes: principal.scopes,
+              resourceMode: principal.resourceMode,
+              resourceGrants: principal.resourceGrants,
               selectedTenantId: isTenantToken
                 ? principal.tenantId
                 : (selectedTenant?.id ?? profile.selectedTenantId),
@@ -217,6 +225,8 @@ export const useTokenVaultStore = create<TokenVaultState>()(
                 tokenName: null,
                 tenantId: null,
                 scopes: [],
+                resourceMode: "all",
+                resourceGrants: [],
                 selectedTenantId: null,
                 selectedTenantDisplayName: null,
                 availableTenants: [],

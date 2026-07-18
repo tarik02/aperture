@@ -178,9 +178,9 @@ func (r *Repository) CreateBootstrapAPIToken(ctx context.Context, token *APIToke
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO api_tokens (
 				id, authority_type, tenant_id, name, token_hash, scopes_json, created_at,
-				created_by_type, created_by_id, parent_token_id, expires_at
+				created_by_type, created_by_id, parent_token_id, resource_mode, expires_at
 			)
-			SELECT ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?
+			SELECT ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?
 			WHERE NOT EXISTS (SELECT 1 FROM api_tokens)
 		`,
 			token.ID,
@@ -192,6 +192,7 @@ func (r *Repository) CreateBootstrapAPIToken(ctx context.Context, token *APIToke
 			token.CreatedByType,
 			token.CreatedByID,
 			token.ParentTokenID,
+			token.ResourceMode,
 			token.ExpiresAt,
 		)
 		if err != nil {
@@ -218,11 +219,37 @@ func (r *Repository) CreateAPIToken(ctx context.Context, token *APIToken, audit 
 		if _, err := tx.NewInsert().Model(token).Exec(ctx); err != nil {
 			return fmt.Errorf("insert api token: %w", err)
 		}
+		if len(token.ResourceGrants) > 0 {
+			if _, err := tx.NewInsert().Model(&token.ResourceGrants).Exec(ctx); err != nil {
+				return fmt.Errorf("insert api token resource grants: %w", err)
+			}
+		}
 		if _, err := tx.NewInsert().Model(audit).Exec(ctx); err != nil {
 			return fmt.Errorf("insert token audit event: %w", err)
 		}
 		return nil
 	})
+}
+
+// ListAPITokenResourceGrants returns grants grouped by token id.
+func (r *Repository) ListAPITokenResourceGrants(ctx context.Context, tokenIDs []string) (map[string][]APITokenResourceGrant, error) {
+	result := make(map[string][]APITokenResourceGrant, len(tokenIDs))
+	if len(tokenIDs) == 0 {
+		return result, nil
+	}
+
+	grants := make([]APITokenResourceGrant, 0)
+	if err := r.db.bun.NewSelect().
+		Model(&grants).
+		Where("token_id IN (?)", bun.List(tokenIDs)).
+		OrderExpr("token_id ASC, resource_type ASC, resource_id ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list api token resource grants: %w", err)
+	}
+	for _, grant := range grants {
+		result[grant.TokenID] = append(result[grant.TokenID], grant)
+	}
+	return result, nil
 }
 
 // GetAPITokenByID returns an API token by id.

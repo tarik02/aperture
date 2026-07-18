@@ -20,6 +20,8 @@ func NewService(repo *db.Repository) *Service {
 type ListFilter struct {
 	ResourceType *string
 	ResourceID   *string
+	Resources    []db.ResourceReference
+	Restricted   bool
 }
 
 // List returns tenant events with cursor pagination.
@@ -28,5 +30,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		TenantID:     tenantID,
 		ResourceType: filter.ResourceType,
 		ResourceID:   filter.ResourceID,
+		Resources:    filter.Resources,
+		Restricted:   filter.Restricted,
 	}, params)
 }

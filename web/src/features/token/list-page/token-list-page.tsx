@@ -56,7 +56,7 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import { adminScopeOptions, scopeLabel, scopePriority, tenantScopeOptions } from "#/lib/scopes.ts";
 import type { TokenRevokedFilterValue, TokensFilters } from "#/lib/api/query-keys.ts";
-import type { ApiToken } from "#/lib/api/schemas.ts";
+import type { ApiToken, ResourceGrant } from "#/lib/api/schemas.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
 import {
@@ -87,6 +87,7 @@ const TOKEN_SKELETON_COLUMNS = [
   { skeletonClassName: "h-4 w-40" },
   { skeletonClassName: "h-4 w-72" },
   { skeletonClassName: "h-4 w-24" },
+  { skeletonClassName: "h-5 w-24 rounded-full" },
   { skeletonClassName: "h-5 w-24 rounded-full" },
   { skeletonClassName: "h-4 w-36" },
   { skeletonClassName: "h-4 w-36" },
@@ -208,7 +209,10 @@ export function TokenListPage() {
           <Button
             size="sm"
             onClick={() => {
-              initCreateTokenForm(credentials?.selectedTenantId ?? "");
+              initCreateTokenForm(
+                credentials?.selectedTenantId ?? "",
+                credentials?.resourceMode ?? "all",
+              );
               openCreateTokenModal();
             }}
           >
@@ -342,6 +346,7 @@ export function TokenListPage() {
                 <TableHead>ID</TableHead>
                 <TableHead>Authority</TableHead>
                 <TableHead>Scopes</TableHead>
+                <TableHead>Resources</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Expires</TableHead>
                 <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
@@ -362,6 +367,7 @@ export function TokenListPage() {
                 <TableHead>ID</TableHead>
                 <TableHead>Authority</TableHead>
                 <TableHead>Scopes</TableHead>
+                <TableHead>Resources</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Expires</TableHead>
                 <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
@@ -462,6 +468,9 @@ function TokenRow({
       <TableCell>
         <ScopeSummary scopes={token.scopes} />
       </TableCell>
+      <TableCell>
+        <ResourceSummary token={token} />
+      </TableCell>
       <TableCell className="text-muted-foreground">{formatTimestamp(token.createdAt)}</TableCell>
       <TableCell className="text-muted-foreground">{formatTimestamp(token.expiresAt)}</TableCell>
       <TableCell
@@ -527,6 +536,15 @@ function TokenViewModal({
                   },
                   { label: "Tenant", value: token.tenantId ?? "—" },
                   { label: "Scopes", value: <ScopeList scopes={token.scopes} /> },
+                  {
+                    label: "Resource access",
+                    value:
+                      token.resourceMode === "all" ? (
+                        "All resources"
+                      ) : (
+                        <ResourceGrantList grants={token.resourceGrants} />
+                      ),
+                  },
                   { label: "Created", value: metadataTimestamp(token.createdAt) },
                   {
                     label: "Created by",
@@ -591,6 +609,41 @@ function ScopeSummary({ scopes }: { scopes: string[] }) {
           +{hiddenCount}
         </Badge>
       ) : null}
+    </div>
+  );
+}
+
+function ResourceSummary({ token }: { token: ApiToken }) {
+  if (token.resourceMode === "all") {
+    return (
+      <Badge variant="secondary" className="font-normal">
+        All resources
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="outline" className="font-normal">
+      {token.resourceGrants.length} grant{token.resourceGrants.length === 1 ? "" : "s"}
+    </Badge>
+  );
+}
+
+function ResourceGrantList({ grants }: { grants: ResourceGrant[] }) {
+  if (grants.length === 0) {
+    return "No resources";
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {grants.map((grant) => (
+        <div key={`${grant.resourceType}:${grant.resourceId}`} className="flex min-w-0 gap-2">
+          <Badge variant="secondary" className="shrink-0 font-normal capitalize">
+            {grant.resourceType}
+          </Badge>
+          <span className="min-w-0 break-all font-mono text-xs">{grant.resourceId}</span>
+        </div>
+      ))}
     </div>
   );
 }
