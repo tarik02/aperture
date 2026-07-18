@@ -19,7 +19,7 @@ info:
 
     ## Errors
 
-    Errors use `{ "error": { "code": "...", "message": "..." } }`. `error.code` is stable and enumerated by `ErrorCode`. Request bodies are limited to 1 MiB.
+    Errors use `{ "error": { "code": "...", "message": "..." } }`. Each operation enumerates its possible stable codes; `ErrorCode` is the complete catalog. Request bodies are limited to 1 MiB.
 servers:
   - url: /
 security:
@@ -62,6 +62,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: []
         tenantResolution: optional_header
+      x-aperture-errors: [validation_failed, tenant_not_found]
       description: Token metadata and optional effective tenant selection.
       parameters:
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -77,6 +78,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: not_applicable
+      x-aperture-errors: [browser_channels_unavailable]
       description: Browser channels accepted by session creation.
       responses:
         '200': {description: Browser channels, content: {application/json: {schema: {$ref: '#/components/schemas/BrowserChannels'}}}}
@@ -90,6 +92,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed]
       description: Creates a tenant with a generated UUIDv7 identifier.
       requestBody: {$ref: '#/components/requestBodies/CreateTenant'}
       responses:
@@ -103,6 +106,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
       description: Newest-first tenant list.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
@@ -123,6 +127,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated]
       description: Replaces the display name of an active tenant.
       requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
       responses:
@@ -136,6 +141,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed, tenant_not_found]
       description: Deactivates a tenant and revokes its tenant tokens. Idempotent.
       responses:
         '200': {description: Deactivated tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
@@ -149,6 +155,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed, tenant_not_found]
       description: Restores a tenant. Revoked tokens remain revoked.
       parameters:
         - {$ref: '#/components/parameters/TenantId'}
@@ -164,6 +171,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict]
       description: Creates an administrator or tenant token. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateAdminToken'}
       responses:
@@ -177,6 +185,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
       description: Newest-first token metadata. Raw tokens are never included.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
@@ -211,6 +220,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed, token_not_found]
       description: Revokes an API token. Idempotent.
       parameters:
         - {$ref: '#/components/parameters/TokenId'}
@@ -226,6 +236,7 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
+      x-aperture-errors: [tenant_not_found, tenant_deactivated]
       description: Tenant bound to the authenticated tenant token.
       responses:
         '200': {description: Selected tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
@@ -238,6 +249,7 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated]
       description: Replaces the bound tenant's display name.
       requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
       responses:
@@ -252,6 +264,7 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict]
       description: Creates a token bound to the caller's tenant. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
       responses:
@@ -265,6 +278,7 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
+      x-aperture-errors: [validation_failed, tenant_not_found]
       description: Token metadata for the caller's tenant. Raw tokens are never included.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
@@ -291,6 +305,7 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
+      x-aperture-errors: [validation_failed, tenant_not_found, token_not_found]
       description: Revokes a tenant-owned token. Missing and foreign IDs both return not found. Idempotent.
       parameters:
         - {$ref: '#/components/parameters/TokenId'}
@@ -308,6 +323,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_service_unavailable]
       description: Newest-first sessions. Credentials are included only while available and must be treated as secrets.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
@@ -337,6 +353,7 @@ paths:
               property: baseSnapshotName
               operator: non_empty
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed]
       description: Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
       requestBody: {$ref: '#/components/requestBodies/CreateSession'}
       responses:
@@ -353,6 +370,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_service_unavailable]
       description: Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
       requestBody: {$ref: '#/components/requestBodies/SessionBulk'}
       responses:
@@ -370,6 +388,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_service_unavailable]
       description: Session metadata and current credentials when available.
       responses:
         '200': {description: Browser session, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
@@ -382,6 +401,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
       description: Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
       responses:
         '200': {description: Deleted session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
@@ -395,6 +415,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_service_unavailable]
       description: Replaces all session tags. Send an empty map to clear them.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -412,6 +433,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_invalid_state, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
       description: Stops a `running` session, retains its overlay, and resets retention.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -428,6 +450,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_not_reopenable, session_overlay_missing, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed, browser_start_failed]
       description: Restarts a retained `deleted` or `failed` session and returns fresh credentials.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -444,6 +467,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
       description: Replaces the access token of a `running` session and invalidates the old token.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -460,6 +484,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write, snapshots:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_promotable, promotion_conflict, snapshot_name_conflict, snapshot_deleted, promotion_service_unavailable]
       description: Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -479,6 +504,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:read]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, snapshot_service_unavailable]
       description: Newest-first snapshots. Tag predicates use logical AND.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
@@ -503,6 +529,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, snapshot_not_found, snapshot_service_unavailable]
       description: Replaces or clears a retained snapshot description.
       requestBody: {$ref: '#/components/requestBodies/UpdateSnapshot'}
       responses:
@@ -516,6 +543,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, snapshot_not_found, snapshot_service_unavailable]
       description: Soft-deletes a snapshot. Existing sessions are unaffected; new sessions cannot use it. Idempotent.
       responses:
         '200': {description: Deleted snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
@@ -529,6 +557,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, snapshot_not_found, snapshot_service_unavailable]
       description: Replaces all tags on a retained snapshot. Send an empty map to clear them.
       parameters:
         - {$ref: '#/components/parameters/SnapshotName'}
@@ -546,6 +575,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, snapshot_not_found, snapshot_not_deleted, snapshot_service_unavailable]
       description: Clears snapshot deletion and expiry markers.
       parameters:
         - {$ref: '#/components/parameters/SnapshotName'}
@@ -562,6 +592,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, event_service_unavailable]
       description: Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
       parameters:
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -930,7 +961,9 @@ components:
       required: [code, message]
       properties:
         code:
-          $ref: '#/components/schemas/ErrorCode'
+          type: string
+          description: Stable code enumerated by each operation response.
+          example: insufficient_scope
         message:
           type: string
           description: Human-readable explanation. It may include resource or validation context.
