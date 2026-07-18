@@ -16,6 +16,8 @@ import (
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/go-webauthn/webauthn/protocol"
+	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/oauth2"
 )
 
@@ -42,21 +44,38 @@ type OIDCProvider struct {
 	DisplayName string
 }
 
-// WebService owns browser sessions and OIDC providers.
+// WebService owns browser sessions, OIDC providers, and passkeys.
 type WebService struct {
-	auth      *Service
-	sessions  *scs.SessionManager
-	providers map[string]*oidcProvider
-	public    []OIDCProvider
+	auth        *Service
+	sessions    *scs.SessionManager
+	providers   map[string]*oidcProvider
+	public      []OIDCProvider
+	passkeys    *webauthnlib.WebAuthn
+	passkeyRPID string
 }
 
-// NewWebService initializes configured OIDC providers and durable browser sessions.
+// NewWebService initializes durable browser sessions, passkeys, and configured OIDC providers.
 func NewWebService(ctx context.Context, cfg config.Config, authService *Service, database *sql.DB) (*WebService, error) {
-	if len(cfg.OIDCProviders) == 0 {
-		return nil, nil
+	baseURL := strings.TrimRight(cfg.ExternalBaseURL, "/")
+	base, err := url.Parse(cfg.ExternalBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse external base url: %w", err)
+	}
+	requireResidentKey := true
+	passkeys, err := webauthnlib.New(&webauthnlib.Config{
+		RPID:          base.Hostname(),
+		RPDisplayName: "Aperture",
+		RPOrigins:     []string{(&url.URL{Scheme: base.Scheme, Host: base.Host}).String()},
+		AuthenticatorSelection: protocol.AuthenticatorSelection{
+			RequireResidentKey: &requireResidentKey,
+			ResidentKey:        protocol.ResidentKeyRequirementRequired,
+			UserVerification:   protocol.VerificationRequired,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize webauthn: %w", err)
 	}
 
-	baseURL := strings.TrimRight(cfg.ExternalBaseURL, "/")
 	providers := make(map[string]*oidcProvider, len(cfg.OIDCProviders))
 	public := make([]OIDCProvider, 0, len(cfg.OIDCProviders))
 	for _, providerConfig := range cfg.OIDCProviders {
@@ -86,10 +105,6 @@ func NewWebService(ctx context.Context, cfg config.Config, authService *Service,
 		public = append(public, OIDCProvider{ID: providerConfig.ID, DisplayName: providerConfig.DisplayName})
 	}
 
-	base, err := url.Parse(cfg.ExternalBaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse external base url: %w", err)
-	}
 	sessions := scs.New()
 	sessions.Store = &webSessionStore{db: database}
 	sessions.Lifetime = cfg.WebSessionLifetime
@@ -102,7 +117,14 @@ func NewWebService(ctx context.Context, cfg config.Config, authService *Service,
 	sessions.Cookie.Secure = base.Scheme == "https"
 	sessions.Cookie.Persist = true
 
-	return &WebService{auth: authService, sessions: sessions, providers: providers, public: public}, nil
+	return &WebService{
+		auth:        authService,
+		sessions:    sessions,
+		providers:   providers,
+		public:      public,
+		passkeys:    passkeys,
+		passkeyRPID: base.Hostname(),
+	}, nil
 }
 
 // LoadAndSave loads browser session state around next.
@@ -195,18 +217,9 @@ func (s *WebService) CompleteOIDC(ctx context.Context, providerID, state, code s
 		return nil, "", err
 	}
 	returnTo := safeReturnTo(s.sessions.GetString(ctx, webSessionReturnToKey))
-	principal := Principal{Type: PrincipalTypeUser, ID: user.ID, UserID: &user.ID, AuthMethod: AuthMethodOIDC, Name: user.DisplayName}
-	if err := s.auth.RecordAudit(ctx, principal, AuditInput{Action: "user.logged_in", ResourceType: "user", ResourceID: &user.ID}); err != nil {
+	if err := s.establishAuthenticatedSession(ctx, user, AuthMethodOIDC); err != nil {
 		return nil, "", err
 	}
-	if err := s.sessions.RenewToken(ctx); err != nil {
-		return nil, "", fmt.Errorf("renew authenticated web session: %w", err)
-	}
-	if err := s.sessions.Clear(ctx); err != nil {
-		return nil, "", fmt.Errorf("clear oidc flow session: %w", err)
-	}
-	s.sessions.Put(ctx, webSessionUserIDKey, user.ID)
-	s.sessions.Put(ctx, webSessionAuthMethodKey, AuthMethodOIDC)
 	return user, returnTo, nil
 }
 
@@ -220,13 +233,41 @@ func (s *WebService) Authenticate(ctx context.Context, selectedTenantID string) 
 	return s.auth.AuthenticateUser(ctx, userID, selectedTenantID, authMethod)
 }
 
-// Logout destroys the current browser session and returns its user id.
-func (s *WebService) Logout(ctx context.Context) (string, error) {
+// Logout destroys the current browser session and returns its user id and authentication method.
+func (s *WebService) Logout(ctx context.Context) (string, string, error) {
 	userID := s.sessions.GetString(ctx, webSessionUserIDKey)
+	authMethod := s.sessions.GetString(ctx, webSessionAuthMethodKey)
 	if err := s.sessions.Destroy(ctx); err != nil {
-		return "", fmt.Errorf("destroy web session: %w", err)
+		return "", "", fmt.Errorf("destroy web session: %w", err)
 	}
-	return userID, nil
+	return userID, authMethod, nil
+}
+
+func (s *WebService) establishAuthenticatedSession(ctx context.Context, user *db.User, authMethod string) error {
+	principal := Principal{
+		Type:       PrincipalTypeUser,
+		ID:         user.ID,
+		UserID:     &user.ID,
+		AuthMethod: authMethod,
+		Name:       user.DisplayName,
+	}
+	if err := s.auth.RecordAudit(ctx, principal, AuditInput{
+		Action:       "user.logged_in",
+		ResourceType: "user",
+		ResourceID:   &user.ID,
+		Data:         map[string]any{"authMethod": authMethod},
+	}); err != nil {
+		return err
+	}
+	if err := s.sessions.RenewToken(ctx); err != nil {
+		return fmt.Errorf("renew authenticated web session: %w", err)
+	}
+	if err := s.sessions.Clear(ctx); err != nil {
+		return fmt.Errorf("clear authentication flow session: %w", err)
+	}
+	s.sessions.Put(ctx, webSessionUserIDKey, user.ID)
+	s.sessions.Put(ctx, webSessionAuthMethodKey, authMethod)
+	return nil
 }
 
 func randomWebValue() (string, error) {

@@ -99,6 +99,16 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadRequest, "oidc_flow_invalid", "oidc flow is invalid or expired"
 	case errors.Is(err, auth.ErrOIDCAuthentication):
 		return http.StatusUnauthorized, "oidc_authentication_failed", "oidc authentication failed"
+	case errors.Is(err, auth.ErrPasskeyNotFound):
+		return http.StatusNotFound, "passkey_not_found", "passkey not found"
+	case errors.Is(err, auth.ErrPasskeyExists):
+		return http.StatusConflict, "passkey_already_registered", "passkey is already registered"
+	case errors.Is(err, auth.ErrPasskeyNameInvalid):
+		return http.StatusBadRequest, "validation_failed", "passkey name is required"
+	case errors.Is(err, auth.ErrPasskeyFlowInvalid):
+		return http.StatusBadRequest, "passkey_flow_invalid", "passkey flow is invalid or expired"
+	case errors.Is(err, auth.ErrPasskeyAuthentication):
+		return http.StatusUnauthorized, "passkey_authentication_failed", "passkey authentication failed"
 	case errors.Is(err, auth.ErrBootstrapNotEmpty):
 		return http.StatusConflict, "bootstrap_refused", "bootstrap refused: api tokens already exist"
 	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope), errors.Is(err, auth.ErrInvalidResourceScope):

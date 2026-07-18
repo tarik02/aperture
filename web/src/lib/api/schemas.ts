@@ -1,5 +1,33 @@
 import { z } from "zod";
 
+const passkeyAuthenticatorTransportSchema = z.enum([
+  "ble",
+  "cable",
+  "hybrid",
+  "internal",
+  "nfc",
+  "smart-card",
+  "usb",
+]);
+
+const passkeyCredentialDescriptorSchema = z.object({
+  id: z.string(),
+  type: z.literal("public-key"),
+  transports: z.array(passkeyAuthenticatorTransportSchema).optional(),
+});
+
+const passkeyExtensionsSchema = z
+  .object({
+    appid: z.string().optional(),
+    credProps: z.boolean().optional(),
+    hmacCreateSecret: z.boolean().optional(),
+    minPinLength: z.boolean().optional(),
+  })
+  .optional();
+
+const passkeyHintSchema = z.enum(["hybrid", "security-key", "client-device"]);
+const passkeyUserVerificationSchema = z.enum(["discouraged", "preferred", "required"]);
+
 export const pageMetaSchema = z.object({
   limit: z.number(),
   nextCursor: z.string().optional(),
@@ -30,7 +58,7 @@ export const resourceGrantSchema = z.object({
 export const principalSchema = z.object({
   type: z.enum(["api_token", "user", "system"]),
   id: z.string(),
-  authMethod: z.enum(["api_token", "oidc"]),
+  authMethod: z.enum(["api_token", "oidc", "passkey"]),
   tokenId: z.string().nullable(),
   userId: z.string().nullable().optional(),
   name: z.string(),
@@ -55,6 +83,83 @@ export const oidcProvidersSchema = z.object({
       loginUrl: z.string(),
     }),
   ),
+});
+
+export const passkeyLoginOptionsSchema = z.object({
+  publicKey: z.object({
+    challenge: z.string(),
+    timeout: z.number().optional(),
+    rpId: z.string().optional(),
+    allowCredentials: z.array(passkeyCredentialDescriptorSchema).optional(),
+    userVerification: passkeyUserVerificationSchema.optional(),
+    hints: z.array(passkeyHintSchema).optional(),
+    extensions: passkeyExtensionsSchema,
+  }),
+});
+
+export const passkeyRegistrationOptionsSchema = z.object({
+  publicKey: z.object({
+    rp: z.object({
+      id: z.string().optional(),
+      name: z.string(),
+    }),
+    user: z.object({
+      id: z.string(),
+      name: z.string(),
+      displayName: z.string(),
+    }),
+    challenge: z.string(),
+    pubKeyCredParams: z.array(
+      z.object({
+        alg: z.union([
+          z.literal(-7),
+          z.literal(-8),
+          z.literal(-35),
+          z.literal(-36),
+          z.literal(-37),
+          z.literal(-38),
+          z.literal(-39),
+          z.literal(-257),
+          z.literal(-258),
+          z.literal(-259),
+        ]),
+        type: z.literal("public-key"),
+      }),
+    ),
+    timeout: z.number().optional(),
+    excludeCredentials: z.array(passkeyCredentialDescriptorSchema).optional(),
+    authenticatorSelection: z
+      .object({
+        authenticatorAttachment: z.enum(["platform", "cross-platform"]).optional(),
+        requireResidentKey: z.boolean().optional(),
+        residentKey: z.enum(["discouraged", "preferred", "required"]).optional(),
+        userVerification: passkeyUserVerificationSchema.optional(),
+      })
+      .optional(),
+    hints: z.array(passkeyHintSchema).optional(),
+    attestation: z.enum(["direct", "enterprise", "indirect", "none"]).optional(),
+    attestationFormats: z
+      .array(
+        z.enum(["fido-u2f", "packed", "android-safetynet", "android-key", "tpm", "apple", "none"]),
+      )
+      .optional(),
+    extensions: passkeyExtensionsSchema,
+  }),
+});
+
+export const passkeySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+});
+
+export const passkeysSchema = z.object({
+  passkeys: z.array(passkeySchema),
+});
+
+export const passkeyMutationSchema = z.object({
+  passkey: passkeySchema,
 });
 
 export const healthSchema = z.object({
@@ -209,6 +314,9 @@ export type AuthMeTenant = z.infer<typeof tenantSchema>;
 export type ResourceMode = z.infer<typeof resourceModeSchema>;
 export type ResourceGrant = z.infer<typeof resourceGrantSchema>;
 export type OIDCProviders = z.infer<typeof oidcProvidersSchema>;
+export type PasskeyLoginOptions = z.infer<typeof passkeyLoginOptionsSchema>;
+export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
+export type Passkey = z.infer<typeof passkeySchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;

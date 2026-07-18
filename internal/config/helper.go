@@ -48,6 +48,8 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("webrtc_media_producer_bitrate_kbps", defaults.WebRTCMediaProducerBitrateKbps)
 	v.SetDefault("webrtc_media_producer_keyframe_interval", defaults.WebRTCMediaProducerKeyframe)
 	v.SetDefault("webrtc_ice_servers", defaults.WebRTCICEServers)
+	v.SetDefault("web_session_lifetime", defaults.WebSessionLifetime)
+	v.SetDefault("web_session_idle_timeout", defaults.WebSessionIdleTimeout)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if err := v.ReadInConfig(); err != nil {

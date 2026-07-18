@@ -13,11 +13,11 @@ import (
 func Validate(cfg Config) error {
 	var errs []error
 	errs = append(errs, validateMCP(cfg)...)
-	if len(cfg.OIDCProviders) > 0 && cfg.WebSessionLifetime <= 0 {
-		errs = append(errs, errors.New("web_session_lifetime must be positive when oidc_providers are configured"))
+	if cfg.WebSessionLifetime <= 0 {
+		errs = append(errs, errors.New("web_session_lifetime must be positive"))
 	}
-	if len(cfg.OIDCProviders) > 0 && cfg.WebSessionIdleTimeout <= 0 {
-		errs = append(errs, errors.New("web_session_idle_timeout must be positive when oidc_providers are configured"))
+	if cfg.WebSessionIdleTimeout <= 0 {
+		errs = append(errs, errors.New("web_session_idle_timeout must be positive"))
 	}
 	providerIDs := make(map[string]struct{}, len(cfg.OIDCProviders))
 	for index, provider := range cfg.OIDCProviders {
