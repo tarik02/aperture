@@ -42,6 +42,17 @@ type WebRTCICEServer struct {
 	Credential string   `mapstructure:"credential" json:"credential,omitempty"`
 }
 
+// OIDCProviderConfig describes one configured OpenID Connect provider.
+type OIDCProviderConfig struct {
+	ID            string   `mapstructure:"id"`
+	DisplayName   string   `mapstructure:"display_name"`
+	IssuerURL     string   `mapstructure:"issuer_url"`
+	ClientID      string   `mapstructure:"client_id"`
+	ClientSecret  string   `mapstructure:"client_secret"`
+	Scopes        []string `mapstructure:"scopes"`
+	AutoProvision bool     `mapstructure:"auto_provision"`
+}
+
 // Config holds resolved runtime configuration decoded from Viper.
 type Config struct {
 	StoreRoot                        string                   `mapstructure:"store_root"`
@@ -89,6 +100,9 @@ type Config struct {
 	ToolOutputMaxBytes               int64                    `mapstructure:"tool_output_max_bytes"`
 	SignedFileURLTTL                 time.Duration            `mapstructure:"signed_file_url_ttl"`
 	SignedFileURLMaxTTL              time.Duration            `mapstructure:"signed_file_url_max_ttl"`
+	OIDCProviders                    []OIDCProviderConfig     `mapstructure:"oidc_providers"`
+	WebSessionLifetime               time.Duration            `mapstructure:"web_session_lifetime"`
+	WebSessionIdleTimeout            time.Duration            `mapstructure:"web_session_idle_timeout"`
 	LogLevel                         string                   `mapstructure:"log_level"`
 	ConfigFile                       string                   `mapstructure:"-"`
 }
@@ -144,6 +158,9 @@ func Defaults() Config {
 		ToolOutputMaxBytes:               16 * 1024 * 1024,
 		SignedFileURLTTL:                 15 * time.Minute,
 		SignedFileURLMaxTTL:              24 * time.Hour,
+		OIDCProviders:                    nil,
+		WebSessionLifetime:               30 * 24 * time.Hour,
+		WebSessionIdleTimeout:            24 * time.Hour,
 		LogLevel:                         "info",
 	}
 }
@@ -211,6 +228,9 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("tool_output_max_bytes", defaults.ToolOutputMaxBytes)
 	v.SetDefault("signed_file_url_ttl", defaults.SignedFileURLTTL)
 	v.SetDefault("signed_file_url_max_ttl", defaults.SignedFileURLMaxTTL)
+	v.SetDefault("oidc_providers", defaults.OIDCProviders)
+	v.SetDefault("web_session_lifetime", defaults.WebSessionLifetime)
+	v.SetDefault("web_session_idle_timeout", defaults.WebSessionIdleTimeout)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if configFile := flags.GetString("config"); configFile != "" {
@@ -266,6 +286,9 @@ func Load(flags *viper.Viper) (Config, error) {
 		"tool_output_max_bytes",
 		"signed_file_url_ttl",
 		"signed_file_url_max_ttl",
+		"oidc_providers",
+		"web_session_lifetime",
+		"web_session_idle_timeout",
 		"log_level",
 	} {
 		if err := v.BindEnv(key); err != nil {

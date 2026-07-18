@@ -5,18 +5,27 @@ import { maskTokenId, parseTokenId } from "#/lib/token-id.ts";
 
 export type AuthorityType = "system_admin" | "tenant";
 
-export type TokenProfile = {
+type ProfileMetadata = {
   id: string;
-  rawToken: string;
-  maskedTokenId: string;
   authorityType: AuthorityType | null;
   tokenName: string | null;
   tenantId: string | null;
   scopes: string[];
   selectedTenantId: string | null;
   selectedTenantDisplayName: string | null;
+  availableTenants: AuthMeResponse["availableTenants"];
   lastUsedAt: number | null;
 };
+
+export type TokenProfile =
+  | (ProfileMetadata & {
+      credentialType: "api_token";
+      rawToken: string;
+      maskedTokenId: string;
+    })
+  | (ProfileMetadata & {
+      credentialType: "web_session";
+    });
 
 type TokenVaultState = {
   profiles: TokenProfile[];
@@ -24,6 +33,7 @@ type TokenVaultState = {
   hydrated: boolean;
   bootstrapping: boolean;
   addProfile: (input: { rawToken: string }) => string | null;
+  upsertWebSession: (response: AuthMeResponse) => string;
   removeProfile: (profileId: string) => void;
   setActiveProfile: (profileId: string | null) => void;
   applyBootstrap: (profileId: string, response: AuthMeResponse) => void;
@@ -47,6 +57,7 @@ function createProfile(rawToken: string): TokenProfile | null {
 
   return {
     id: tokenId,
+    credentialType: "api_token",
     rawToken: trimmedToken,
     maskedTokenId: maskTokenId(tokenId),
     authorityType: null,
@@ -55,6 +66,7 @@ function createProfile(rawToken: string): TokenProfile | null {
     scopes: [],
     selectedTenantId: null,
     selectedTenantDisplayName: null,
+    availableTenants: [],
     lastUsedAt: null,
   };
 }
@@ -92,6 +104,42 @@ export const useTokenVaultStore = create<TokenVaultState>()(
         return profile.id;
       },
 
+      upsertWebSession: (response) => {
+        const id = `web:${response.principal.id}`;
+        set((state) => {
+          const existing = state.profiles.find((profile) => profile.id === id);
+          const existingTenant = response.availableTenants.find(
+            (tenant) => tenant.id === existing?.selectedTenantId,
+          );
+          const selectedTenant = response.selectedTenant ?? existingTenant ?? null;
+          const profile: TokenProfile = {
+            id,
+            credentialType: "web_session",
+            authorityType: response.principal.authorityType,
+            tokenName: response.principal.name,
+            tenantId: response.principal.tenantId,
+            scopes: response.principal.scopes,
+            selectedTenantId: selectedTenant?.id ?? null,
+            selectedTenantDisplayName: selectedTenant?.displayName ?? null,
+            availableTenants: response.availableTenants,
+            lastUsedAt: Date.now(),
+          };
+          const activeProfile = state.profiles.find((entry) => entry.id === state.activeProfileId);
+          const tokenProfiles = state.profiles.filter(
+            (entry) => entry.credentialType === "api_token",
+          );
+
+          return {
+            profiles: [...tokenProfiles, profile],
+            activeProfileId:
+              !activeProfile || activeProfile.credentialType === "web_session"
+                ? id
+                : state.activeProfileId,
+          };
+        });
+        return id;
+      },
+
       removeProfile: (profileId) => {
         set((state) => {
           const profiles = state.profiles.filter((profile) => profile.id !== profileId);
@@ -127,11 +175,14 @@ export const useTokenVaultStore = create<TokenVaultState>()(
             }
 
             const { principal, selectedTenant } = response;
-            const isTenantToken = principal.authorityType === "tenant";
+            const isTenantToken =
+              principal.authorityType === "tenant" && profile.credentialType === "api_token";
 
             return {
               ...profile,
-              maskedTokenId: maskTokenId(principal.tokenId),
+              ...(profile.credentialType === "api_token" && principal.tokenId
+                ? { maskedTokenId: maskTokenId(principal.tokenId) }
+                : {}),
               authorityType: principal.authorityType,
               tokenName: principal.name,
               tenantId: principal.tenantId,
@@ -142,6 +193,7 @@ export const useTokenVaultStore = create<TokenVaultState>()(
               selectedTenantDisplayName: isTenantToken
                 ? null
                 : (selectedTenant?.displayName ?? profile.selectedTenantDisplayName),
+              availableTenants: response.availableTenants,
               lastUsedAt: now,
             };
           }),
@@ -150,29 +202,41 @@ export const useTokenVaultStore = create<TokenVaultState>()(
 
       clearBootstrapMetadata: (profileId) => {
         set((state) => ({
-          profiles: state.profiles.map((profile) => {
+          profiles: state.profiles.flatMap((profile) => {
             if (profile.id !== profileId) {
-              return profile;
+              return [profile];
+            }
+            if (profile.credentialType === "web_session") {
+              return [];
             }
 
-            return {
-              ...profile,
-              authorityType: null,
-              tokenName: null,
-              tenantId: null,
-              scopes: [],
-              selectedTenantId: null,
-              selectedTenantDisplayName: null,
-            };
+            return [
+              {
+                ...profile,
+                authorityType: null,
+                tokenName: null,
+                tenantId: null,
+                scopes: [],
+                selectedTenantId: null,
+                selectedTenantDisplayName: null,
+                availableTenants: [],
+              },
+            ];
           }),
-          activeProfileId: state.activeProfileId === profileId ? null : state.activeProfileId,
+          activeProfileId:
+            state.activeProfileId === profileId
+              ? pickNextActiveProfile(state.profiles, profileId)
+              : state.activeProfileId,
         }));
       },
 
       setSelectedTenant: (profileId, tenantId, displayName = null) => {
         set((state) => ({
           profiles: state.profiles.map((profile) => {
-            if (profile.id !== profileId || profile.authorityType !== "system_admin") {
+            if (
+              profile.id !== profileId ||
+              (profile.authorityType !== "system_admin" && profile.credentialType !== "web_session")
+            ) {
               return profile;
             }
 
@@ -224,6 +288,9 @@ export function isSystemAdminProfile(profile: TokenProfile | null): boolean {
 }
 
 export function profileDisplayName(profile: TokenProfile): string {
+  if (profile.credentialType === "web_session") {
+    return profile.tokenName ?? "Account session";
+  }
   return profile.tokenName
     ? `${profile.tokenName} · ${profile.maskedTokenId}`
     : profile.maskedTokenId;

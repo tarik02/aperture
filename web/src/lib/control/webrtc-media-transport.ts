@@ -891,9 +891,11 @@ async function updateViewport(
   viewport: WebRTCViewportRequest,
 ): Promise<WebRTCMediaSize> {
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${options.credentials.token.trim()}`,
     "Content-Type": "application/json",
   };
+  if (options.credentials.credentialType === "api_token") {
+    headers.Authorization = `Bearer ${options.credentials.token.trim()}`;
+  }
   const tenantId = resolveTenantHeader(options.credentials, "tenant-scoped");
   if (tenantId) {
     headers[TENANT_HEADER] = tenantId;
@@ -913,9 +915,10 @@ async function updateViewport(
 }
 
 async function loadMediaStatus(options: WebRTCMediaOptions) {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${options.credentials.token.trim()}`,
-  };
+  const headers: Record<string, string> = {};
+  if (options.credentials.credentialType === "api_token") {
+    headers.Authorization = `Bearer ${options.credentials.token.trim()}`;
+  }
   const tenantId = resolveTenantHeader(options.credentials, "tenant-scoped");
   if (tenantId) {
     headers[TENANT_HEADER] = tenantId;
@@ -938,7 +941,10 @@ function buildSignalURL(sessionId: string): string {
 }
 
 function buildSignalProtocols(credentials: ApiCredentials): string[] {
-  const protocols = ["aperture-webrtc.v1", `authorization.bearer.${credentials.token}`];
+  const protocols = ["aperture-webrtc.v1"];
+  if (credentials.credentialType === "api_token") {
+    protocols.push(`authorization.bearer.${credentials.token}`);
+  }
   const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
   if (tenantId) {
     protocols.push(`x-aperture-tenant-id.${tenantId}`);

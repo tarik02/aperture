@@ -21,7 +21,11 @@ export const tenantSchema = z.object({
 });
 
 export const principalSchema = z.object({
-  tokenId: z.string(),
+  type: z.enum(["api_token", "user", "system"]),
+  id: z.string(),
+  authMethod: z.enum(["api_token", "oidc"]),
+  tokenId: z.string().nullable(),
+  userId: z.string().nullable().optional(),
   name: z.string(),
   authorityType: z.enum(["system_admin", "tenant"]),
   tenantId: z.string().nullable(),
@@ -31,6 +35,17 @@ export const principalSchema = z.object({
 export const authMeSchema = z.object({
   principal: principalSchema,
   selectedTenant: tenantSchema.nullable(),
+  availableTenants: z.array(tenantSchema),
+});
+
+export const oidcProvidersSchema = z.object({
+  providers: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      loginUrl: z.string(),
+    }),
+  ),
 });
 
 export const healthSchema = z.object({
@@ -177,6 +192,7 @@ export type Tenant = z.infer<typeof tenantSchema>;
 export type AuthMeResponse = z.infer<typeof authMeSchema>;
 export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
+export type OIDCProviders = z.infer<typeof oidcProvidersSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;

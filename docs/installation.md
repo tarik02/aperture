@@ -57,7 +57,25 @@ channels:
     default_args: []
 ```
 
-The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the session-bound `sessionToken` (`aps_<sessionId>_<secret>`). A session token authorizes that session's routed live endpoints, including CDP, WebRTC, and per-session MCP; it does not authorize `/api/*` or central MCP. Signed session-file URLs use `apf_<payload>.<signature>` query tokens.
+To enable browser login, register `${external_base_url}/auth/oidc/PROVIDER_ID/callback` with the OIDC provider and add it to the config:
+
+```yaml
+web_session_lifetime: 720h
+web_session_idle_timeout: 24h
+
+oidc_providers:
+  - id: company
+    display_name: Company account
+    issuer_url: https://accounts.example.test
+    client_id: aperture
+    client_secret: REPLACE_ME
+    scopes: [openid, profile, email]
+    auto_provision: false
+```
+
+With `auto_provision: false`, a system administrator must create the user first. Aperture links the provider identity only when the provider returns a verified email matching that user. Set `auto_provision: true` to create users on first login. Tenant access still comes from the user's tenant memberships.
+
+The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the session-bound `sessionToken` (`aps_<sessionId>_<secret>`). A session token authorizes that session's routed live endpoints, including CDP, WebRTC, and per-session MCP; it does not authorize `/api/*` or central MCP. Signed session-file URLs use `apf_<payload>.<signature>` query tokens. OIDC browser sessions authorize the web UI and same-origin API or live-session requests, but not MCP clients.
 
 On first `aperture serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
 
