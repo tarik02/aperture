@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, Check, ChevronsUpDown } from "lucide-react";
+import { CalendarClock, Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
+import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
@@ -23,10 +24,21 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { adminScopeOptions, tenantScopeOptions, type ScopeOption } from "#/lib/scopes.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
+import type { ResourceGrant } from "#/lib/api/schemas.ts";
 
 const AUTHORITY_OPTIONS = [
   { value: "tenant", label: "Tenant" },
   { value: "system_admin", label: "System admin" },
+];
+
+const RESOURCE_MODE_OPTIONS = [
+  { value: "all", label: "All resources" },
+  { value: "allowlist", label: "Allowlist" },
+];
+
+const RESOURCE_TYPE_OPTIONS = [
+  { value: "session", label: "Session" },
+  { value: "snapshot", label: "Snapshot" },
 ];
 
 export function TokenCreateForm() {
@@ -38,10 +50,23 @@ export function TokenCreateForm() {
   const setFormData = useTokenCreateFormStore((state) => state.setFormData);
   const toggleScope = useTokenCreateFormStore((state) => state.toggleScope);
   const closeModal = useTokenCreateModalStore((state) => state.closeModal);
-  const { name, authorityType, tenantId, scopes, expiresAt, nameError, scopeError, createdToken } =
-    draft;
+  const {
+    name,
+    authorityType,
+    tenantId,
+    scopes,
+    resourceMode,
+    resourceGrants,
+    expiresAt,
+    nameError,
+    scopeError,
+    resourceGrantError,
+    createdToken,
+  } = draft;
 
   const availableScopes = isAdmin ? adminScopeOptions : tenantScopeOptions;
+  const resourceRestrictedByParent = credentials?.resourceMode === "allowlist";
+  const effectiveResourceMode = isAdmin && authorityType === "system_admin" ? "all" : resourceMode;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -57,23 +82,50 @@ export function TokenCreateForm() {
       return;
     }
 
-    setFormData({ nameError: null, scopeError: null });
+    const submittedResourceGrants =
+      effectiveResourceMode === "allowlist"
+        ? resourceGrants.map((grant) => ({ ...grant, resourceId: grant.resourceId.trim() }))
+        : [];
+    if (submittedResourceGrants.some((grant) => !grant.resourceId)) {
+      setFormData({ resourceGrantError: "Complete or remove every resource grant" });
+      return;
+    }
+    if (
+      new Set(
+        submittedResourceGrants.map((grant) => `${grant.resourceType}\u0000${grant.resourceId}`),
+      ).size !== submittedResourceGrants.length
+    ) {
+      setFormData({ resourceGrantError: "Resource grants must be unique" });
+      return;
+    }
+
+    setFormData({ nameError: null, scopeError: null, resourceGrantError: null });
 
     const expiresAtValue = expiresAt ? new Date(expiresAt).toISOString() : null;
 
     const result = await mutation.mutateAsync(
       isAdmin
         ? {
-            name: trimmedName,
-            authorityType,
-            tenantId: authorityType === "tenant" ? tenantId.trim() || null : null,
-            scopes,
-            expiresAt: expiresAtValue,
+            kind: "admin",
+            input: {
+              name: trimmedName,
+              authorityType,
+              tenantId: authorityType === "tenant" ? tenantId.trim() || null : null,
+              scopes,
+              resourceMode: effectiveResourceMode,
+              resourceGrants: submittedResourceGrants,
+              expiresAt: expiresAtValue,
+            },
           }
         : {
-            name: trimmedName,
-            scopes,
-            expiresAt: expiresAtValue,
+            kind: "tenant",
+            input: {
+              name: trimmedName,
+              scopes,
+              resourceMode: effectiveResourceMode,
+              resourceGrants: submittedResourceGrants,
+              expiresAt: expiresAtValue,
+            },
           },
     );
 
@@ -119,7 +171,12 @@ export function TokenCreateForm() {
                 value={authorityType}
                 onValueChange={(value) => {
                   if (value === "system_admin" || value === "tenant") {
-                    setFormData({ authorityType: value });
+                    setFormData({
+                      authorityType: value,
+                      ...(value === "system_admin"
+                        ? { resourceMode: "all", resourceGrantError: null }
+                        : {}),
+                    });
                   }
                 }}
                 disabled={mutation.isPending}
@@ -169,6 +226,55 @@ export function TokenCreateForm() {
           <FieldError>{scopeError}</FieldError>
         </Field>
         <Field>
+          <FieldLabel>Resource access</FieldLabel>
+          <Select
+            items={RESOURCE_MODE_OPTIONS.filter(
+              (option) => !resourceRestrictedByParent || option.value === "allowlist",
+            )}
+            value={effectiveResourceMode}
+            onValueChange={(value) => {
+              if (value === "all" || value === "allowlist") {
+                setFormData({ resourceMode: value, resourceGrantError: null });
+              }
+            }}
+            disabled={
+              mutation.isPending ||
+              resourceRestrictedByParent ||
+              (isAdmin && authorityType === "system_admin")
+            }
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue>
+                {(selectedValue: unknown) =>
+                  RESOURCE_MODE_OPTIONS.find((option) => option.value === selectedValue)?.label ??
+                  "All resources"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {RESOURCE_MODE_OPTIONS.filter(
+                  (option) => !resourceRestrictedByParent || option.value === "allowlist",
+                ).map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        {effectiveResourceMode === "allowlist" ? (
+          <ResourceGrantEditor
+            grants={resourceGrants}
+            error={resourceGrantError}
+            disabled={mutation.isPending}
+            onChange={(nextGrants) =>
+              setFormData({ resourceGrants: nextGrants, resourceGrantError: null })
+            }
+          />
+        ) : null}
+        <Field>
           <FieldLabel htmlFor="token-expires">Expires at</FieldLabel>
           <ExpiresAtControl
             id="token-expires"
@@ -187,6 +293,107 @@ export function TokenCreateForm() {
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+type ResourceGrantEditorProps = {
+  grants: ResourceGrant[];
+  error: string | null;
+  disabled?: boolean;
+  onChange: (grants: ResourceGrant[]) => void;
+};
+
+function ResourceGrantEditor({ grants, error, disabled, onChange }: ResourceGrantEditorProps) {
+  return (
+    <Field data-invalid={error ? true : undefined}>
+      <div className="flex items-center justify-between gap-2">
+        <FieldLabel>Resource grants</FieldLabel>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={() => onChange([...grants, { resourceType: "session", resourceId: "" }])}
+        >
+          <Plus data-icon="inline-start" />
+          Add
+        </Button>
+      </div>
+      {grants.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          {grants.map((grant, index) => (
+            <div
+              key={`${grant.resourceType}:${index}`}
+              className="grid grid-cols-[7rem_minmax(0,1fr)_2rem] items-center gap-2"
+            >
+              <Select
+                items={RESOURCE_TYPE_OPTIONS}
+                value={grant.resourceType}
+                onValueChange={(value) => {
+                  if (value === "session" || value === "snapshot") {
+                    onChange(
+                      grants.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, resourceType: value } : item,
+                      ),
+                    );
+                  }
+                }}
+                disabled={disabled}
+              >
+                <SelectTrigger size="sm" aria-label={`Resource type ${index + 1}`}>
+                  <SelectValue>
+                    {(selectedValue: unknown) =>
+                      RESOURCE_TYPE_OPTIONS.find((option) => option.value === selectedValue)
+                        ?.label ?? "Session"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {RESOURCE_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Input
+                value={grant.resourceId}
+                placeholder={`${grant.resourceType} ID`}
+                aria-label={`${grant.resourceType} ID ${index + 1}`}
+                disabled={disabled}
+                onChange={(event) =>
+                  onChange(
+                    grants.map((item, itemIndex) =>
+                      itemIndex === index ? { ...item, resourceId: event.target.value } : item,
+                    ),
+                  )
+                }
+              />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove resource grant ${index + 1}`}
+                      disabled={disabled}
+                      onClick={() => onChange(grants.filter((_, itemIndex) => itemIndex !== index))}
+                    />
+                  }
+                >
+                  <Trash2 />
+                </TooltipTrigger>
+                <TooltipContent>Remove grant</TooltipContent>
+              </Tooltip>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <FieldError>{error}</FieldError>
+    </Field>
   );
 }
 

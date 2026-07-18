@@ -20,6 +20,13 @@ export const tenantSchema = z.object({
   deletedAt: z.string().nullable(),
 });
 
+export const resourceModeSchema = z.enum(["all", "allowlist"]);
+
+export const resourceGrantSchema = z.object({
+  resourceType: z.enum(["session", "snapshot"]),
+  resourceId: z.string(),
+});
+
 export const principalSchema = z.object({
   type: z.enum(["api_token", "user", "system"]),
   id: z.string(),
@@ -30,6 +37,8 @@ export const principalSchema = z.object({
   authorityType: z.enum(["system_admin", "tenant"]),
   tenantId: z.string().nullable(),
   scopes: z.array(z.string()),
+  resourceMode: resourceModeSchema,
+  resourceGrants: z.array(resourceGrantSchema),
 });
 
 export const authMeSchema = z.object({
@@ -132,6 +141,8 @@ export const tokenSchema = z.object({
   createdByType: z.enum(["api_token", "user", "system"]),
   createdById: z.string().nullable(),
   parentTokenId: z.string().nullable(),
+  resourceMode: resourceModeSchema,
+  resourceGrants: z.array(resourceGrantSchema),
   expiresAt: z.string().nullable(),
   revokedAt: z.string().nullable(),
 });
@@ -195,6 +206,8 @@ export type Tenant = z.infer<typeof tenantSchema>;
 export type AuthMeResponse = z.infer<typeof authMeSchema>;
 export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
+export type ResourceMode = z.infer<typeof resourceModeSchema>;
+export type ResourceGrant = z.infer<typeof resourceGrantSchema>;
 export type OIDCProviders = z.infer<typeof oidcProvidersSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;

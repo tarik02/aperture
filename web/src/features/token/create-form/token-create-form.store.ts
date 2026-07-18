@@ -1,40 +1,46 @@
 import { create } from "zustand";
-import type { CreateTokenResponse } from "#/lib/api/schemas.ts";
+import type { CreateTokenResponse, ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
 
 type TokenCreateFormData = {
   name: string;
   authorityType: "system_admin" | "tenant";
   tenantId: string;
   scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
   expiresAt: string;
   nameError: string | null;
   scopeError: string | null;
+  resourceGrantError: string | null;
   createdToken: CreateTokenResponse | null;
 };
 
 type TokenCreateFormState = {
   mode: "create";
   formData: TokenCreateFormData;
-  initForm: (tenantId: string) => void;
+  initForm: (tenantId: string, resourceMode: ResourceMode) => void;
   setFormData: (patch: Partial<TokenCreateFormData>) => void;
   toggleScope: (scope: string) => void;
 };
 
-const defaultFormData = (tenantId: string): TokenCreateFormData => ({
+const defaultFormData = (tenantId: string, resourceMode: ResourceMode): TokenCreateFormData => ({
   name: "",
   authorityType: "tenant",
   tenantId,
   scopes: ["sessions:read", "sessions:write"],
+  resourceMode,
+  resourceGrants: [],
   expiresAt: "",
   nameError: null,
   scopeError: null,
+  resourceGrantError: null,
   createdToken: null,
 });
 
 export const useTokenCreateFormStore = create<TokenCreateFormState>()((set) => ({
   mode: "create",
-  formData: defaultFormData(""),
-  initForm: (tenantId) => set({ formData: defaultFormData(tenantId) }),
+  formData: defaultFormData("", "all"),
+  initForm: (tenantId, resourceMode) => set({ formData: defaultFormData(tenantId, resourceMode) }),
   setFormData: (patch) => set((state) => ({ formData: { ...state.formData, ...patch } })),
   toggleScope: (scope) =>
     set((state) => ({

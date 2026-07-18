@@ -56,6 +56,21 @@ func (e CreateAdminTokenInput0AuthorityType) Valid() bool {
 	}
 }
 
+// Defines values for CreateAdminTokenInput0ResourceMode.
+const (
+	CreateAdminTokenInput0ResourceModeAll CreateAdminTokenInput0ResourceMode = "all"
+)
+
+// Valid indicates whether the value is a known member of the CreateAdminTokenInput0ResourceMode enum.
+func (e CreateAdminTokenInput0ResourceMode) Valid() bool {
+	switch e {
+	case CreateAdminTokenInput0ResourceModeAll:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAdminTokenInput1AuthorityType.
 const (
 	CreateAdminTokenInput1AuthorityTypeTenant CreateAdminTokenInput1AuthorityType = "tenant"
@@ -94,6 +109,7 @@ const (
 	OverlayMountFailed          ErrorCode = "overlay_mount_failed"
 	PromotionConflict           ErrorCode = "promotion_conflict"
 	PromotionServiceUnavailable ErrorCode = "promotion_service_unavailable"
+	ResourceAccessDenied        ErrorCode = "resource_access_denied"
 	SessionExpired              ErrorCode = "session_expired"
 	SessionInvalidState         ErrorCode = "session_invalid_state"
 	SessionNotFound             ErrorCode = "session_not_found"
@@ -164,6 +180,8 @@ func (e ErrorCode) Valid() bool {
 	case PromotionConflict:
 		return true
 	case PromotionServiceUnavailable:
+		return true
+	case ResourceAccessDenied:
 		return true
 	case SessionExpired:
 		return true
@@ -320,6 +338,42 @@ func (e PrincipalType) Valid() bool {
 	case PrincipalTypeSystem:
 		return true
 	case PrincipalTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResourceMode.
+const (
+	ResourceModeAll       ResourceMode = "all"
+	ResourceModeAllowlist ResourceMode = "allowlist"
+)
+
+// Valid indicates whether the value is a known member of the ResourceMode enum.
+func (e ResourceMode) Valid() bool {
+	switch e {
+	case ResourceModeAll:
+		return true
+	case ResourceModeAllowlist:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResourceType.
+const (
+	ResourceTypeSession  ResourceType = "session"
+	ResourceTypeSnapshot ResourceType = "snapshot"
+)
+
+// Valid indicates whether the value is a known member of the ResourceType enum.
+func (e ResourceType) Valid() bool {
+	switch e {
+	case ResourceTypeSession:
+		return true
+	case ResourceTypeSnapshot:
 		return true
 	default:
 		return false
@@ -704,12 +758,21 @@ type CreateAdminTokenInput0 struct {
 	// Name Operator-assigned name. Leading and trailing whitespace is removed.
 	Name string `json:"name"`
 
+	// ResourceGrants Must be empty for a system administrator token.
+	ResourceGrants *[]ResourceGrant `json:"resourceGrants,omitempty"`
+
+	// ResourceMode System administrator tokens cannot use resource allowlists.
+	ResourceMode *CreateAdminTokenInput0ResourceMode `json:"resourceMode,omitempty"`
+
 	// Scopes Must include `system:admin`.
 	Scopes []Scope `json:"scopes"`
 }
 
 // CreateAdminTokenInput0AuthorityType defines model for CreateAdminTokenInput.0.AuthorityType.
 type CreateAdminTokenInput0AuthorityType string
+
+// CreateAdminTokenInput0ResourceMode System administrator tokens cannot use resource allowlists.
+type CreateAdminTokenInput0ResourceMode string
 
 // CreateAdminTokenInput1 defines model for CreateAdminTokenInput.1.
 type CreateAdminTokenInput1 struct {
@@ -720,6 +783,12 @@ type CreateAdminTokenInput1 struct {
 
 	// Name Operator-assigned name. Leading and trailing whitespace is removed.
 	Name string `json:"name"`
+
+	// ResourceGrants Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`.
+	ResourceGrants *[]ResourceGrant `json:"resourceGrants,omitempty"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode *ResourceMode `json:"resourceMode,omitempty"`
 
 	// Scopes Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
 	Scopes []TenantScope `json:"scopes"`
@@ -765,6 +834,12 @@ type CreateTenantTokenInput struct {
 
 	// Name Operator-assigned name. Leading and trailing whitespace is removed.
 	Name string `json:"name"`
+
+	// ResourceGrants Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`.
+	ResourceGrants *[]ResourceGrant `json:"resourceGrants,omitempty"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode *ResourceMode `json:"resourceMode,omitempty"`
 
 	// Scopes Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
 	Scopes []TenantScope `json:"scopes"`
@@ -900,6 +975,12 @@ type Principal struct {
 	// Name Display name of the authenticated credential or user.
 	Name string `json:"name"`
 
+	// ResourceGrants Explicit grants when `resourceMode` is `allowlist`; empty when it is `all`.
+	ResourceGrants []ResourceGrant `json:"resourceGrants"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode ResourceMode `json:"resourceMode"`
+
 	// Scopes Scopes granted to the authenticated principal.
 	Scopes []Scope `json:"scopes"`
 
@@ -942,6 +1023,21 @@ type ReplaceTagsInput struct {
 	// Tags Complete tag map. Keys and values must contain non-whitespace characters.
 	Tags StringMap `json:"tags"`
 }
+
+// ResourceGrant Access to one existing tenant session or snapshot by its stable UUIDv7 identifier.
+type ResourceGrant struct {
+	// ResourceId Time-ordered UUID version 7 generated by Aperture.
+	ResourceId UUIDv7 `json:"resourceId"`
+
+	// ResourceType Tenant resource category accepted by API token allowlists.
+	ResourceType ResourceType `json:"resourceType"`
+}
+
+// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+type ResourceMode string
+
+// ResourceType Tenant resource category accepted by API token allowlists.
+type ResourceType string
 
 // Scope Permission granted to a principal. `system:admin` implies every scope. Tenant credentials and memberships cannot receive `system:admin` or `tenants:write`.
 type Scope string
@@ -1188,6 +1284,12 @@ type Token struct {
 
 	// ParentTokenId API token used to delegate this token, or `null` when a user or trusted local system created it.
 	ParentTokenId *UUIDv7 `json:"parentTokenId"`
+
+	// ResourceGrants Explicit session and snapshot grants when `resourceMode` is `allowlist`.
+	ResourceGrants []ResourceGrant `json:"resourceGrants"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode ResourceMode `json:"resourceMode"`
 
 	// RevokedAt Revocation time, or `null` while the token is active.
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
@@ -1868,7 +1970,7 @@ type ClientInterface interface {
 
 	// CreateAdminTokenWithBody Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1877,7 +1979,7 @@ type ClientInterface interface {
 
 	// CreateAdminToken Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1960,7 +2062,7 @@ type ClientInterface interface {
 
 	// ListEvents List tenant events
 	//
-	// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+	// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 	//
 	// Corresponds with GET /api/events (the `ListEvents` operationId).
 	ListEvents(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1974,14 +2076,14 @@ type ClientInterface interface {
 
 	// ListSessions List browser sessions
 	//
-	// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+	// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 	//
 	// Corresponds with GET /api/sessions (the `ListSessions` operationId).
 	ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateSessionWithBody Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1990,7 +2092,7 @@ type ClientInterface interface {
 
 	// CreateSession Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1999,7 +2101,7 @@ type ClientInterface interface {
 
 	// GetSessionsBulkWithBody Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2008,7 +2110,7 @@ type ClientInterface interface {
 
 	// GetSessionsBulk Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2031,7 +2133,7 @@ type ClientInterface interface {
 
 	// PromoteSessionWithBody Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2040,7 +2142,7 @@ type ClientInterface interface {
 
 	// PromoteSession Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2088,7 +2190,7 @@ type ClientInterface interface {
 
 	// ListSnapshots List snapshots
 	//
-	// Newest-first snapshots. Tag predicates use logical AND.
+	// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 	//
 	// Corresponds with GET /api/snapshots (the `ListSnapshots` operationId).
 	ListSnapshots(ctx context.Context, params *ListSnapshotsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2177,7 +2279,7 @@ type ClientInterface interface {
 
 	// CreateTenantTokenWithBody Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2186,7 +2288,7 @@ type ClientInterface interface {
 
 	// CreateTenantToken Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2426,7 +2528,7 @@ func (c *Client) ListAdminTokens(ctx context.Context, params *ListAdminTokensPar
 
 // CreateAdminTokenWithBody Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2445,7 +2547,7 @@ func (c *Client) CreateAdminTokenWithBody(ctx context.Context, contentType strin
 
 // CreateAdminToken Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2658,7 +2760,7 @@ func (c *Client) ListBrowserChannels(ctx context.Context, reqEditors ...RequestE
 
 // ListEvents List tenant events
 //
-// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 //
 // Corresponds with GET /api/events (the `ListEvents` operationId).
 func (c *Client) ListEvents(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2692,7 +2794,7 @@ func (c *Client) GetHealth(ctx context.Context, reqEditors ...RequestEditorFn) (
 
 // ListSessions List browser sessions
 //
-// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 //
 // Corresponds with GET /api/sessions (the `ListSessions` operationId).
 func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2709,7 +2811,7 @@ func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, r
 
 // CreateSessionWithBody Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2728,7 +2830,7 @@ func (c *Client) CreateSessionWithBody(ctx context.Context, params *CreateSessio
 
 // CreateSession Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2747,7 +2849,7 @@ func (c *Client) CreateSession(ctx context.Context, params *CreateSessionParams,
 
 // GetSessionsBulkWithBody Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2766,7 +2868,7 @@ func (c *Client) GetSessionsBulkWithBody(ctx context.Context, params *GetSession
 
 // GetSessionsBulk Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2819,7 +2921,7 @@ func (c *Client) GetSession(ctx context.Context, sessionId SessionId, params *Ge
 
 // PromoteSessionWithBody Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2838,7 +2940,7 @@ func (c *Client) PromoteSessionWithBody(ctx context.Context, sessionId SessionId
 
 // PromoteSession Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2946,7 +3048,7 @@ func (c *Client) ReplaceSessionTags(ctx context.Context, sessionId SessionId, pa
 
 // ListSnapshots List snapshots
 //
-// Newest-first snapshots. Tag predicates use logical AND.
+// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 //
 // Corresponds with GET /api/snapshots (the `ListSnapshots` operationId).
 func (c *Client) ListSnapshots(ctx context.Context, params *ListSnapshotsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -3145,7 +3247,7 @@ func (c *Client) ListTenantTokens(ctx context.Context, params *ListTenantTokensP
 
 // CreateTenantTokenWithBody Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes any type of body and a specified content type.
 //
@@ -3164,7 +3266,7 @@ func (c *Client) CreateTenantTokenWithBody(ctx context.Context, contentType stri
 
 // CreateTenantToken Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5803,7 +5905,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateAdminTokenWithBodyWithResponse Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5812,7 +5914,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateAdminTokenWithResponse Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5911,7 +6013,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListEventsWithResponse List tenant events
 	//
-	// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+	// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -5929,7 +6031,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSessionsWithResponse List browser sessions
 	//
-	// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+	// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -5938,7 +6040,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionWithBodyWithResponse Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5947,7 +6049,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionWithResponse Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5956,7 +6058,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetSessionsBulkWithBodyWithResponse Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5965,7 +6067,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetSessionsBulkWithResponse Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5992,7 +6094,7 @@ type ClientWithResponsesInterface interface {
 
 	// PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -6001,7 +6103,7 @@ type ClientWithResponsesInterface interface {
 
 	// PromoteSessionWithResponse Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -6055,7 +6157,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSnapshotsWithResponse List snapshots
 	//
-	// Newest-first snapshots. Tag predicates use logical AND.
+	// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -6154,7 +6256,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateTenantTokenWithBodyWithResponse Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -6163,7 +6265,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateTenantTokenWithResponse Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -8403,7 +8505,7 @@ func (c *ClientWithResponses) ListAdminTokensWithResponse(ctx context.Context, p
 
 // CreateAdminTokenWithBodyWithResponse Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8418,7 +8520,7 @@ func (c *ClientWithResponses) CreateAdminTokenWithBodyWithResponse(ctx context.C
 
 // CreateAdminTokenWithResponse Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. A child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8595,7 +8697,7 @@ func (c *ClientWithResponses) ListBrowserChannelsWithResponse(ctx context.Contex
 
 // ListEventsWithResponse List tenant events
 //
-// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -8625,7 +8727,7 @@ func (c *ClientWithResponses) GetHealthWithResponse(ctx context.Context, reqEdit
 
 // ListSessionsWithResponse List browser sessions
 //
-// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -8640,7 +8742,7 @@ func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, para
 
 // CreateSessionWithBodyWithResponse Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8655,7 +8757,7 @@ func (c *ClientWithResponses) CreateSessionWithBodyWithResponse(ctx context.Cont
 
 // CreateSessionWithResponse Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8670,7 +8772,7 @@ func (c *ClientWithResponses) CreateSessionWithResponse(ctx context.Context, par
 
 // GetSessionsBulkWithBodyWithResponse Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8685,7 +8787,7 @@ func (c *ClientWithResponses) GetSessionsBulkWithBodyWithResponse(ctx context.Co
 
 // GetSessionsBulkWithResponse Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8730,7 +8832,7 @@ func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, sessio
 
 // PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8745,7 +8847,7 @@ func (c *ClientWithResponses) PromoteSessionWithBodyWithResponse(ctx context.Con
 
 // PromoteSessionWithResponse Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` may replace only a granted deleted snapshot tombstone. The resulting snapshot is not added to a resource-restricted token's allowlist.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8835,7 +8937,7 @@ func (c *ClientWithResponses) ReplaceSessionTagsWithResponse(ctx context.Context
 
 // ListSnapshotsWithResponse List snapshots
 //
-// Newest-first snapshots. Tag predicates use logical AND.
+// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -9000,7 +9102,7 @@ func (c *ClientWithResponses) ListTenantTokensWithResponse(ctx context.Context, 
 
 // CreateTenantTokenWithBodyWithResponse Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -9015,7 +9117,7 @@ func (c *ClientWithResponses) CreateTenantTokenWithBodyWithResponse(ctx context.
 
 // CreateTenantTokenWithResponse Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes cannot exceed the caller's scopes, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -15417,211 +15519,221 @@ func (sh *strictHandler) RevokeTenantToken(ctx *gin.Context, tokenId TokenId) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

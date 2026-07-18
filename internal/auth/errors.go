@@ -16,6 +16,8 @@ var (
 	ErrTokenNotFound          = errors.New("api token not found")
 	ErrTokenNameConflict      = errors.New("api token name conflict")
 	ErrTokenDelegation        = errors.New("api token delegation exceeds caller authority")
+	ErrInvalidResourceScope   = errors.New("invalid token resource scope")
+	ErrResourceAccessDenied   = errors.New("resource access denied")
 	ErrBootstrapNotEmpty      = errors.New("bootstrap refused: api tokens already exist")
 	ErrInvalidAuthority       = errors.New("invalid token authority")
 	ErrInvalidScopes          = errors.New("invalid scopes")
