@@ -10,9 +10,20 @@ type contextKey int
 
 const principalContextKey contextKey = iota
 
+const (
+	PrincipalTypeAPIToken = "api_token"
+	PrincipalTypeUser     = "user"
+	PrincipalTypeSystem   = "system"
+	AuthMethodAPIToken    = "api_token"
+)
+
 // Principal holds authenticated API token state for a request.
 type Principal struct {
+	Type          string
+	ID            string
+	AuthMethod    string
 	TokenID       string
+	UserID        *string
 	AuthorityType string
 	TenantID      *string
 	Name          string

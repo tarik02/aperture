@@ -35,6 +35,10 @@ tags:
     description: Tenant administration and tenant self-service operations.
   - name: tokens
     description: Create, inspect, and revoke system administrator or tenant API tokens.
+  - name: users
+    description: User accounts and tenant memberships.
+  - name: audit
+    description: Security-sensitive identity and administration activity.
   - name: sessions
     description: Create and manage isolated Chromium sessions and their retained state.
   - name: snapshots
@@ -161,6 +165,168 @@ paths:
         - {$ref: '#/components/parameters/TenantId'}
       responses:
         '200': {description: Restored tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: query
+          in: query
+          description: Case-insensitive substring matched against display name or email.
+          schema: {type: string}
+        - name: disabled
+          in: query
+          description: Select active users, disabled users only, or both.
+          schema: {type: string, enum: [active, disabled, all], default: active}
+      responses:
+        '200': {description: User page, content: {application/json: {schema: {$ref: '#/components/schemas/UserPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      requestBody: {$ref: '#/components/requestBodies/CreateUser'}
+      responses:
+        '201': {description: Created user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}:
+    parameters:
+      - {$ref: '#/components/parameters/UserId'}
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      responses:
+        '200': {description: User, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      requestBody: {$ref: '#/components/requestBodies/UpdateUser'}
+      responses:
+        '200': {description: Updated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: disableUser
+      tags: [users]
+      summary: Disable a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      responses:
+        '200': {description: Disabled user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}/restore:
+    post:
+      operationId: restoreUser
+      tags: [users]
+      summary: Restore a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      parameters:
+        - {$ref: '#/components/parameters/UserId'}
+      responses:
+        '200': {description: Restored user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}/memberships:
+    get:
+      operationId: listUserMemberships
+      tags: [users]
+      summary: List a user's tenant memberships
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      parameters:
+        - {$ref: '#/components/parameters/UserId'}
+      responses:
+        '200': {description: Tenant memberships, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/TenantMembership'}}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}/memberships:
+    get:
+      operationId: listTenantMemberships
+      tags: [users]
+      summary: List tenant memberships
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      parameters:
+        - {$ref: '#/components/parameters/TenantId'}
+      responses:
+        '200': {description: Tenant memberships, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/TenantMembership'}}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}/memberships/{userId}:
+    parameters:
+      - {$ref: '#/components/parameters/TenantId'}
+      - {$ref: '#/components/parameters/UserId'}
+    put:
+      operationId: upsertTenantMembership
+      tags: [users]
+      summary: Create or update a tenant membership
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      requestBody: {$ref: '#/components/requestBodies/UpsertTenantMembership'}
+      responses:
+        '200': {description: Tenant membership, content: {application/json: {schema: {$ref: '#/components/schemas/TenantMembership'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteTenantMembership
+      tags: [users]
+      summary: Delete a tenant membership
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      responses:
+        '204': {description: Tenant membership deleted}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/audit-events:
+    get:
+      operationId: listAuditEvents
+      tags: [audit]
+      summary: List security audit events
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: tenantId, in: query, schema: {$ref: '#/components/schemas/UUIDv7'}}
+        - {name: actorType, in: query, schema: {$ref: '#/components/schemas/PrincipalType'}}
+        - {name: actorId, in: query, schema: {type: string}}
+        - {name: action, in: query, schema: {type: string}}
+        - {name: resourceType, in: query, schema: {type: string}}
+        - {name: resourceId, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Audit event page, content: {application/json: {schema: {$ref: '#/components/schemas/AuditEventPage'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/admin/tokens:
     post:
@@ -681,6 +847,12 @@ components:
       required: true
       description: UUIDv7 identifier of the API token. This is not the raw token secret.
       schema: {$ref: '#/components/schemas/UUIDv7'}
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: UUIDv7 identifier of a user.
+      schema: {$ref: '#/components/schemas/UUIDv7'}
     SessionId:
       name: sessionId
       in: path
@@ -734,6 +906,18 @@ components:
       required: true
       description: Replacement tenant display name. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/TenantInput'}}}
+    CreateUser:
+      required: true
+      description: User profile and deployment-level authority.
+      content: {application/json: {schema: {$ref: '#/components/schemas/UserInput'}}}
+    UpdateUser:
+      required: true
+      description: Replacement user profile and deployment-level authority.
+      content: {application/json: {schema: {$ref: '#/components/schemas/UserInput'}}}
+    UpsertTenantMembership:
+      required: true
+      description: Tenant-bound action scopes granted to the user.
+      content: {application/json: {schema: {$ref: '#/components/schemas/TenantMembershipInput'}}}
     CreateAdminToken:
       required: true
       description: System administrator or tenant token definition. The JSON body must not exceed 1 MiB.
@@ -818,6 +1002,11 @@ components:
         Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
       enum: [system_admin, tenant]
       example: tenant
+    PrincipalType:
+      type: string
+      description: Stable category of the authenticated or audited actor.
+      enum: [api_token, user, system]
+      example: api_token
     Scope:
       type: string
       description: |
@@ -893,6 +1082,10 @@ components:
         - token_not_found
         - tenant_deactivated
         - token_name_conflict
+        - user_not_found
+        - user_disabled
+        - user_email_conflict
+        - membership_not_found
         - validation_failed
         - invalid_request_body
         - session_not_found
@@ -930,6 +1123,10 @@ components:
         token_not_found: 404
         tenant_deactivated: 409
         token_name_conflict: 409
+        user_not_found: 404
+        user_disabled: 409
+        user_email_conflict: 409
+        membership_not_found: 404
         validation_failed: 400
         invalid_request_body: 400
         session_not_found: 404
@@ -1037,14 +1234,95 @@ components:
       description: Cursor-paginated tenants.
       required: [data, meta]
       properties: {data: {type: array, items: {$ref: '#/components/schemas/Tenant'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    UserInput:
+      type: object
+      required: [displayName, isSystemAdmin]
+      properties:
+        email:
+          type: [string, 'null']
+          format: email
+          description: Optional normalized login and contact email.
+        displayName:
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+        isSystemAdmin:
+          type: boolean
+          description: Grants deployment-wide administration independently of tenant memberships.
+    User:
+      type: object
+      required: [id, displayName, isSystemAdmin, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/UUIDv7'}
+        email: {type: [string, 'null'], format: email}
+        displayName: {type: string}
+        isSystemAdmin: {type: boolean}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        disabledAt: {type: [string, 'null'], format: date-time}
+    UserPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/User'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    TenantMembershipInput:
+      type: object
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TenantScope'}
+    TenantMembership:
+      type: object
+      required: [tenantId, userId, scopes, createdAt, updatedAt]
+      properties:
+        tenantId: {$ref: '#/components/schemas/UUIDv7'}
+        userId: {$ref: '#/components/schemas/UUIDv7'}
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TenantScope'}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    AuditEvent:
+      type: object
+      required: [id, actorType, action, resourceType, data, createdAt]
+      properties:
+        id: {$ref: '#/components/schemas/UUIDv7'}
+        actorType: {$ref: '#/components/schemas/PrincipalType'}
+        actorId: {type: [string, 'null']}
+        tenantId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+        action: {type: string, example: tenant_membership.upserted}
+        resourceType: {type: string, example: tenant_membership}
+        resourceId: {type: [string, 'null']}
+        data: {type: object, additionalProperties: true}
+        createdAt: {type: string, format: date-time}
+    AuditEventPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
     Principal:
       type: object
-      description: Authenticated API token identity and authorization context.
-      required: [tokenId, name, authorityType, scopes]
+      description: Authenticated subject identity and authorization context.
+      required: [type, id, authMethod, tokenId, name, authorityType, scopes]
       properties:
+        type: {$ref: '#/components/schemas/PrincipalType'}
+        id:
+          type: string
+          description: Stable identifier of the authenticated subject.
+        authMethod:
+          type: string
+          description: Authentication mechanism used for this request.
+          enum: [api_token]
         tokenId:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
           description: Identifier of the API token used for authentication.
+        userId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: User identifier for account-backed authentication, or `null` for API tokens.
         name:
           type: string
           description: Operator-assigned token name.

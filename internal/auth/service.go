@@ -95,6 +95,9 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	}
 
 	return Principal{
+		Type:          PrincipalTypeAPIToken,
+		ID:            row.ID,
+		AuthMethod:    AuthMethodAPIToken,
 		TokenID:       row.ID,
 		AuthorityType: row.AuthorityType,
 		TenantID:      row.TenantID,

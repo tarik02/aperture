@@ -37,6 +37,45 @@ type APIToken struct {
 	RevokedAt     *string `bun:"revoked_at"`
 }
 
+// User maps the users table.
+type User struct {
+	bun.BaseModel `bun:"table:users"`
+
+	ID            string  `bun:"id,pk"`
+	Email         *string `bun:"email"`
+	DisplayName   string  `bun:"display_name,notnull"`
+	IsSystemAdmin bool    `bun:"is_system_admin,notnull"`
+	CreatedAt     string  `bun:"created_at,notnull"`
+	UpdatedAt     string  `bun:"updated_at,notnull"`
+	DisabledAt    *string `bun:"disabled_at"`
+}
+
+// TenantMembership maps a user's tenant scopes.
+type TenantMembership struct {
+	bun.BaseModel `bun:"table:tenant_memberships"`
+
+	TenantID   string `bun:"tenant_id,pk"`
+	UserID     string `bun:"user_id,pk"`
+	ScopesJSON string `bun:"scopes_json,notnull"`
+	CreatedAt  string `bun:"created_at,notnull"`
+	UpdatedAt  string `bun:"updated_at,notnull"`
+}
+
+// AuditEvent maps security and administration audit entries.
+type AuditEvent struct {
+	bun.BaseModel `bun:"table:audit_events"`
+
+	ID           string  `bun:"id,pk"`
+	ActorType    string  `bun:"actor_type,notnull"`
+	ActorID      *string `bun:"actor_id"`
+	TenantID     *string `bun:"tenant_id"`
+	Action       string  `bun:"action,notnull"`
+	ResourceType string  `bun:"resource_type,notnull"`
+	ResourceID   *string `bun:"resource_id"`
+	DataJSON     string  `bun:"data_json,notnull"`
+	CreatedAt    string  `bun:"created_at,notnull"`
+}
+
 // Snapshot maps the snapshots table.
 type Snapshot struct {
 	bun.BaseModel `bun:"table:snapshots"`
@@ -134,6 +173,9 @@ func RegisterModels(db *bun.DB) {
 		(*SchemaMigration)(nil),
 		(*Tenant)(nil),
 		(*APIToken)(nil),
+		(*User)(nil),
+		(*TenantMembership)(nil),
+		(*AuditEvent)(nil),
 		(*Snapshot)(nil),
 		(*Session)(nil),
 		(*SessionToken)(nil),
