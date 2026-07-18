@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -98,7 +99,11 @@ type tenantResponse struct {
 }
 
 type principalResponse struct {
+	Type          string   `json:"type"`
+	ID            string   `json:"id"`
+	AuthMethod    string   `json:"authMethod"`
 	TokenID       string   `json:"tokenId"`
+	UserID        *string  `json:"userId,omitempty"`
 	Name          string   `json:"name"`
 	AuthorityType string   `json:"authorityType"`
 	TenantID      *string  `json:"tenantId"`
@@ -108,6 +113,71 @@ type principalResponse struct {
 type authMeResponse struct {
 	Principal      principalResponse `json:"principal"`
 	SelectedTenant *tenantResponse   `json:"selectedTenant"`
+}
+
+type createUserRequest struct {
+	Email         *string `json:"email"`
+	DisplayName   string  `json:"displayName"`
+	IsSystemAdmin *bool   `json:"isSystemAdmin"`
+}
+
+func (r createUserRequest) Validate() error {
+	if strings.TrimSpace(r.DisplayName) == "" {
+		return validationError("displayName is required")
+	}
+	if r.Email != nil && strings.TrimSpace(*r.Email) != "" {
+		parsed, err := mail.ParseAddress(strings.TrimSpace(*r.Email))
+		if err != nil || parsed.Address != strings.TrimSpace(*r.Email) {
+			return validationError("email is invalid")
+		}
+	}
+	if r.IsSystemAdmin == nil {
+		return validationError("isSystemAdmin is required")
+	}
+	return nil
+}
+
+type updateUserRequest = createUserRequest
+
+type userResponse struct {
+	ID            string  `json:"id"`
+	Email         *string `json:"email"`
+	DisplayName   string  `json:"displayName"`
+	IsSystemAdmin bool    `json:"isSystemAdmin"`
+	CreatedAt     string  `json:"createdAt"`
+	UpdatedAt     string  `json:"updatedAt"`
+	DisabledAt    *string `json:"disabledAt"`
+}
+
+type upsertTenantMembershipRequest struct {
+	Scopes []string `json:"scopes"`
+}
+
+func (r upsertTenantMembershipRequest) Validate() error {
+	if len(r.Scopes) == 0 {
+		return validationError("scopes is required")
+	}
+	return nil
+}
+
+type tenantMembershipResponse struct {
+	TenantID  string   `json:"tenantId"`
+	UserID    string   `json:"userId"`
+	Scopes    []string `json:"scopes"`
+	CreatedAt string   `json:"createdAt"`
+	UpdatedAt string   `json:"updatedAt"`
+}
+
+type auditEventResponse struct {
+	ID           string          `json:"id"`
+	ActorType    string          `json:"actorType"`
+	ActorID      *string         `json:"actorId"`
+	TenantID     *string         `json:"tenantId"`
+	Action       string          `json:"action"`
+	ResourceType string          `json:"resourceType"`
+	ResourceID   *string         `json:"resourceId"`
+	Data         json.RawMessage `json:"data"`
+	CreatedAt    string          `json:"createdAt"`
 }
 
 type healthResponse struct {

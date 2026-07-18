@@ -19,4 +19,8 @@ var (
 	ErrInvalidAuthority      = errors.New("invalid token authority")
 	ErrInvalidScopes         = errors.New("invalid scopes")
 	ErrTenantTokenCrossScope = errors.New("tenant tokens cannot be system admin")
+	ErrUserNotFound          = errors.New("user not found")
+	ErrUserDisabled          = errors.New("user disabled")
+	ErrUserEmailConflict     = errors.New("user email conflict")
+	ErrMembershipNotFound    = errors.New("tenant membership not found")
 )

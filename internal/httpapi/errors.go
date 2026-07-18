@@ -79,6 +79,14 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "tenant_deactivated", "tenant is deactivated"
 	case errors.Is(err, auth.ErrTokenNameConflict):
 		return http.StatusConflict, "token_name_conflict", "api token name already exists"
+	case errors.Is(err, auth.ErrUserNotFound):
+		return http.StatusNotFound, "user_not_found", "user not found"
+	case errors.Is(err, auth.ErrUserDisabled):
+		return http.StatusConflict, "user_disabled", "user is disabled"
+	case errors.Is(err, auth.ErrUserEmailConflict):
+		return http.StatusConflict, "user_email_conflict", "user email already exists"
+	case errors.Is(err, auth.ErrMembershipNotFound):
+		return http.StatusNotFound, "membership_not_found", "tenant membership not found"
 	case errors.Is(err, auth.ErrBootstrapNotEmpty):
 		return http.StatusConflict, "bootstrap_refused", "bootstrap refused: api tokens already exist"
 	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope):
