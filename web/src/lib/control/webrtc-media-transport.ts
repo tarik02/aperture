@@ -440,9 +440,11 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     let mediaStatusLoaded = false;
     let pendingStreamSettings: WebRTCStreamSettings | null = null;
     let reconnectAfterProfileChange = false;
+    let reconnectingAfterInputLoss = false;
     let viewportRequest = 0;
     let viewportSettled = 0;
     const qualityRequests = new Map<string, WebRTCStreamSettings>();
+    let inputReconnectTimer: number | null = null;
     let statsSample: StatsSample | null = null;
     let statsTimer: number | null = null;
     let mediaTimeout: number | null = window.setTimeout(() => {
@@ -462,6 +464,29 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     const emit = (patch: Partial<WebRTCMediaState>) => {
       state = { ...state, ...patch };
       subscriber.next(state);
+    };
+    const maybeReconnectInput = () => {
+      if (
+        closed ||
+        !reconnectingAfterInputLoss ||
+        inputReconnectTimer !== null ||
+        socket.readyState !== WebSocket.OPEN ||
+        connection.connectionState !== "connected"
+      ) {
+        return;
+      }
+      options.reconnect();
+    };
+    const reconnectInput = () => {
+      if (closed || reconnectingAfterInputLoss) {
+        return;
+      }
+      reconnectingAfterInputLoss = true;
+      emit({ inputReady: false });
+      inputReconnectTimer = window.setTimeout(() => {
+        inputReconnectTimer = null;
+        maybeReconnectInput();
+      }, 250);
     };
     const fail = (error: WebRTCMediaFailure) => {
       if (closed) {
@@ -563,6 +588,9 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       if (statsTimer !== null) {
         window.clearInterval(statsTimer);
       }
+      if (inputReconnectTimer !== null) {
+        window.clearTimeout(inputReconnectTimer);
+      }
       if (state.inputReady && control.readyState === "open") {
         controlRequest += 1;
         control.send(
@@ -656,6 +684,10 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
     });
     connection.addEventListener("connectionstatechange", () => {
+      if (connection.connectionState === "connected") {
+        maybeReconnectInput();
+        return;
+      }
       if (connection.connectionState === "failed" || connection.connectionState === "closed") {
         if (reconnectAfterProfileChange) {
           return;
@@ -760,8 +792,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
       emit({ inputReady: parsed.data.input.pointer || parsed.data.input.keyboard });
     });
-    input.addEventListener("close", () => emit({ inputReady: false }));
-    input.addEventListener("error", () => emit({ inputReady: false }));
+    input.addEventListener("close", reconnectInput);
+    input.addEventListener("error", reconnectInput);
 
     const motion$ = options.input$.pipe(
       filter((message) => message.type === "input.mouse" && message.action === "move"),
