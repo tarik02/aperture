@@ -81,7 +81,8 @@ export type BrowserControlOutput =
 
 type WebRTCInputMessage =
   | Extract<ClientMessage, { type: "input.mouse" }>
-  | Extract<ClientMessage, { type: "input.wheel" }>;
+  | Extract<ClientMessage, { type: "input.wheel" }>
+  | Extract<ClientMessage, { type: "input.key" }>;
 
 type ViewportCommand = Extract<ClientMessage, { type: "viewport.set" }>;
 
@@ -194,7 +195,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
     const routedInput$ = options.input$.pipe(
       withLatestFrom(media$),
       tap(([message, media]) => {
-        if (isWebRTCInputMessage(message) && shouldUseWebRTCInput(media)) {
+        if (isInputMessage(message) && shouldUseWebRTCInput(media)) {
           webRTCInput$.next(scaleWebRTCInput(message));
           return;
         }
@@ -350,8 +351,10 @@ function shouldStartFallbackScreencast(
   return state.mediaPhase === "live" && !state.mediaStream;
 }
 
-function isWebRTCInputMessage(message: ClientMessage): message is WebRTCInputMessage {
-  return message.type === "input.mouse" || message.type === "input.wheel";
+function isInputMessage(message: ClientMessage): message is WebRTCInputMessage {
+  return (
+    message.type === "input.mouse" || message.type === "input.wheel" || message.type === "input.key"
+  );
 }
 
 function resolveMediaPath(

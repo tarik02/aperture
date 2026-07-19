@@ -12,7 +12,7 @@ require (
 	github.com/oapi-codegen/runtime v1.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/tarik02/webdesktop v0.0.0-nightly.1.b5e76891d1d3.0.20260716204725-7de839c81a04
+	github.com/tarik02/webdesktop v0.0.0-nightly.2.7de839c81a04.0.20260719153804-ecc5d28a18cd
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
 	github.com/uptrace/bun/driver/sqliteshim v1.2.18

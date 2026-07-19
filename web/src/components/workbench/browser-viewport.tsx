@@ -782,12 +782,12 @@ function resolveClipboardShortcut(event: KeyboardEvent): "copy" | "cut" | "paste
     return null;
   }
 
-  switch (event.key.toLowerCase()) {
-    case "c":
+  switch (event.code) {
+    case "KeyC":
       return "copy";
-    case "x":
+    case "KeyX":
       return "cut";
-    case "v":
+    case "KeyV":
       return "paste";
     default:
       return null;
