@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -114,6 +115,15 @@ func (s *compositorInputSender) KeyboardKey(keycode uint32, pressed bool) error 
 	return err
 }
 
+func (s *compositorInputSender) KeyboardText(text string) error {
+	_, err := sendCompositorControlCommand(
+		context.Background(),
+		s.controlSocket,
+		fmt.Sprintf("text %s\n", hex.EncodeToString([]byte(text))),
+	)
+	return err
+}
+
 func (s *compositorInputSender) Close() error {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
@@ -125,3 +135,4 @@ func (s *compositorInputSender) Close() error {
 }
 
 var _ remoteinput.Sender = (*compositorInputSender)(nil)
+var _ remoteinput.KeyboardTextSender = (*compositorInputSender)(nil)

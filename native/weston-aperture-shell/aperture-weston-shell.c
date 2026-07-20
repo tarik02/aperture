@@ -20,6 +20,7 @@
 
 #include "cursor-shape-v1-server-protocol.h"
 #include "fractional-scale-v1-server-protocol.h"
+#include "text-input-unstable-v3-server-protocol.h"
 #include "viewporter-server-protocol.h"
 
 struct xkb_keymap;
@@ -44,6 +45,11 @@ void notify_pointer_frame(struct weston_seat *seat);
 void notify_key(struct weston_seat *seat, const struct timespec *time, uint32_t key,
 		enum wl_keyboard_key_state state, enum weston_key_state_update update_state);
 
+enum {
+	aperture_max_text_bytes = 4096,
+	aperture_control_buffer_size = aperture_max_text_bytes * 2 + 7,
+};
+
 struct aperture_shell {
 	struct weston_compositor *compositor;
 	struct weston_desktop *desktop;
@@ -54,12 +60,16 @@ struct aperture_shell {
 	struct wl_list surfaces;
 	struct wl_list control_clients;
 	struct wl_list fractional_scales;
+	struct wl_list text_inputs;
 	struct wl_event_source *control_source;
 	struct wl_event_source *resize_timer;
 	struct wl_listener destroy_listener;
+	struct wl_listener text_input_focus_listener;
 	struct wl_global *cursor_shape_global;
 	struct wl_global *fractional_scale_global;
+	struct wl_global *text_input_global;
 	struct wl_global *viewporter_global;
+	struct aperture_text_input *active_text_input;
 	char *control_socket_path;
 	int control_fd;
 	uint32_t width;
@@ -102,8 +112,19 @@ struct aperture_control_client {
 	struct aperture_shell *shell;
 	struct wl_event_source *source;
 	int fd;
-	char buffer[128];
+	char buffer[aperture_control_buffer_size];
 	size_t length;
+};
+
+struct aperture_text_input {
+	struct wl_list link;
+	struct aperture_shell *shell;
+	struct wl_resource *resource;
+	struct weston_surface *entered_surface;
+	uint32_t commit_count;
+	bool enabled;
+	bool pending_enabled_valid;
+	bool pending_enabled;
 };
 
 static const uint32_t aperture_min_dimension = 1;
@@ -590,6 +611,253 @@ inject_key(struct aperture_shell *shell, uint32_t key, bool press)
 		   press ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED,
 		   STATE_UPDATE_AUTOMATIC);
 	return NULL;
+}
+
+static const char *
+inject_text(struct aperture_shell *shell, const char *encoded)
+{
+	struct aperture_text_input *input = shell->active_text_input;
+	struct weston_keyboard *keyboard = weston_seat_get_keyboard(&shell->input_seat);
+	size_t encoded_length = strlen(encoded);
+	size_t text_length;
+	char text[aperture_max_text_bytes + 1];
+	size_t i;
+
+	if (!input || !input->enabled || !input->entered_surface || !keyboard ||
+	    keyboard->focus != input->entered_surface)
+		return NULL;
+	if (!encoded_length || encoded_length % 2 != 0 ||
+	    encoded_length > aperture_max_text_bytes * 2)
+		return "invalid text";
+
+	text_length = encoded_length / 2;
+	for (i = 0; i < text_length; i++) {
+		int high;
+		int low;
+		char high_char = encoded[i * 2];
+		char low_char = encoded[i * 2 + 1];
+
+		if (high_char >= '0' && high_char <= '9')
+			high = high_char - '0';
+		else if (high_char >= 'a' && high_char <= 'f')
+			high = high_char - 'a' + 10;
+		else
+			return "invalid text";
+
+		if (low_char >= '0' && low_char <= '9')
+			low = low_char - '0';
+		else if (low_char >= 'a' && low_char <= 'f')
+			low = low_char - 'a' + 10;
+		else
+			return "invalid text";
+
+		text[i] = (char)((high << 4) | low);
+		if (!text[i])
+			return "invalid text";
+	}
+	text[text_length] = '\0';
+
+	zwp_text_input_v3_send_commit_string(input->resource, text);
+	zwp_text_input_v3_send_done(input->resource, input->commit_count);
+	return NULL;
+}
+
+static void
+destroy_text_input_resource(struct wl_resource *resource)
+{
+	struct aperture_text_input *input = wl_resource_get_user_data(resource);
+
+	if (input->shell->active_text_input == input)
+		input->shell->active_text_input = NULL;
+	wl_list_remove(&input->link);
+	free(input);
+}
+
+static void
+text_input_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+text_input_enable(struct wl_client *client, struct wl_resource *resource)
+{
+	struct aperture_text_input *input = wl_resource_get_user_data(resource);
+
+	if (!input->entered_surface)
+		return;
+	input->pending_enabled_valid = true;
+	input->pending_enabled = true;
+}
+
+static void
+text_input_disable(struct wl_client *client, struct wl_resource *resource)
+{
+	struct aperture_text_input *input = wl_resource_get_user_data(resource);
+
+	if (!input->entered_surface)
+		return;
+	input->pending_enabled_valid = true;
+	input->pending_enabled = false;
+}
+
+static void
+text_input_set_surrounding_text(struct wl_client *client, struct wl_resource *resource,
+				const char *text, int32_t cursor, int32_t anchor)
+{
+}
+
+static void
+text_input_set_text_change_cause(struct wl_client *client, struct wl_resource *resource,
+				 uint32_t cause)
+{
+}
+
+static void
+text_input_set_content_type(struct wl_client *client, struct wl_resource *resource,
+			    uint32_t hint, uint32_t purpose)
+{
+}
+
+static void
+text_input_set_cursor_rectangle(struct wl_client *client, struct wl_resource *resource,
+				int32_t x, int32_t y, int32_t width, int32_t height)
+{
+}
+
+static void
+text_input_commit(struct wl_client *client, struct wl_resource *resource)
+{
+	struct aperture_text_input *input = wl_resource_get_user_data(resource);
+
+	input->commit_count++;
+	if (!input->entered_surface || !input->pending_enabled_valid)
+		return;
+
+	if (!input->pending_enabled) {
+		input->enabled = false;
+		if (input->shell->active_text_input == input)
+			input->shell->active_text_input = NULL;
+	} else if (!input->shell->active_text_input ||
+		   input->shell->active_text_input == input) {
+		input->enabled = true;
+		input->shell->active_text_input = input;
+	}
+	input->pending_enabled_valid = false;
+}
+
+static const struct zwp_text_input_v3_interface text_input_interface = {
+	.destroy = text_input_destroy,
+	.enable = text_input_enable,
+	.disable = text_input_disable,
+	.set_surrounding_text = text_input_set_surrounding_text,
+	.set_text_change_cause = text_input_set_text_change_cause,
+	.set_content_type = text_input_set_content_type,
+	.set_cursor_rectangle = text_input_set_cursor_rectangle,
+	.commit = text_input_commit,
+};
+
+static void
+text_input_manager_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+text_input_manager_get_text_input(struct wl_client *client, struct wl_resource *resource,
+				  uint32_t id, struct wl_resource *seat_resource)
+{
+	struct aperture_shell *shell = wl_resource_get_user_data(resource);
+	struct aperture_text_input *input;
+	struct weston_keyboard *keyboard;
+
+	if (wl_resource_get_user_data(seat_resource) != &shell->input_seat) {
+		wl_resource_post_error(resource, 0, "unsupported seat");
+		return;
+	}
+
+	input = calloc(1, sizeof *input);
+	if (!input) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	input->resource = wl_resource_create(client, &zwp_text_input_v3_interface,
+					     wl_resource_get_version(resource), id);
+	if (!input->resource) {
+		free(input);
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	input->shell = shell;
+	wl_list_insert(&shell->text_inputs, &input->link);
+	wl_resource_set_implementation(input->resource, &text_input_interface, input,
+				       destroy_text_input_resource);
+
+	keyboard = weston_seat_get_keyboard(&shell->input_seat);
+	if (keyboard && keyboard->focus && keyboard->focus->resource &&
+	    wl_resource_get_client(keyboard->focus->resource) == client) {
+		input->entered_surface = keyboard->focus;
+		zwp_text_input_v3_send_enter(input->resource, keyboard->focus->resource);
+	}
+}
+
+static const struct zwp_text_input_manager_v3_interface text_input_manager_interface = {
+	.destroy = text_input_manager_destroy,
+	.get_text_input = text_input_manager_get_text_input,
+};
+
+static void
+handle_text_input_focus(struct wl_listener *listener, void *data)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, text_input_focus_listener);
+	struct weston_keyboard *keyboard = weston_seat_get_keyboard(&shell->input_seat);
+	struct weston_surface *focus = keyboard ? keyboard->focus : NULL;
+	struct aperture_text_input *input;
+
+	wl_list_for_each(input, &shell->text_inputs, link) {
+		if (input->entered_surface == focus)
+			continue;
+		if (input->entered_surface)
+			zwp_text_input_v3_send_leave(input->resource,
+						     input->entered_surface->resource);
+		if (shell->active_text_input == input)
+			shell->active_text_input = NULL;
+		input->entered_surface = NULL;
+		input->enabled = false;
+		input->pending_enabled_valid = false;
+
+		if (focus && focus->resource &&
+		    wl_resource_get_client(input->resource) ==
+			    wl_resource_get_client(focus->resource)) {
+			input->entered_surface = focus;
+			zwp_text_input_v3_send_enter(input->resource, focus->resource);
+		}
+	}
+}
+
+static void
+bind_text_input_manager(struct wl_client *client, void *data, uint32_t version,
+			uint32_t id)
+{
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client, &zwp_text_input_manager_v3_interface, version, id);
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &text_input_manager_interface, data, NULL);
+}
+
+static int
+create_text_input_manager(struct aperture_shell *shell)
+{
+	shell->text_input_global = wl_global_create(
+		shell->compositor->wl_display, &zwp_text_input_manager_v3_interface, 1, shell,
+		bind_text_input_manager);
+	return shell->text_input_global ? 0 : -1;
 }
 
 static void
@@ -1252,6 +1520,17 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
+	if (strncmp(client->buffer, "text ", 5) == 0) {
+		error = inject_text(client->shell, client->buffer + 5);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
+
 	write_control_response(client, "error invalid command\n");
 }
 
@@ -1397,8 +1676,11 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_control_client *next_control_client;
 	struct aperture_fractional_scale *fractional_scale;
 	struct aperture_fractional_scale *next_fractional_scale;
+	struct aperture_text_input *text_input;
+	struct aperture_text_input *next_text_input;
 
 	wl_list_remove(&shell->destroy_listener.link);
+	wl_list_remove(&shell->text_input_focus_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
 	if (shell->resize_timer)
@@ -1407,11 +1689,15 @@ destroy_shell(struct wl_listener *listener, void *data)
 		wl_global_destroy(shell->cursor_shape_global);
 	if (shell->fractional_scale_global)
 		wl_global_destroy(shell->fractional_scale_global);
+	if (shell->text_input_global)
+		wl_global_destroy(shell->text_input_global);
 	if (shell->viewporter_global)
 		wl_global_destroy(shell->viewporter_global);
 	wl_list_for_each_safe(fractional_scale, next_fractional_scale,
 			      &shell->fractional_scales, link)
 		wl_resource_destroy(fractional_scale->resource);
+	wl_list_for_each_safe(text_input, next_text_input, &shell->text_inputs, link)
+		wl_resource_destroy(text_input->resource);
 	wl_list_for_each_safe(control_client, next_control_client,
 			      &shell->control_clients, link)
 		destroy_control_client(control_client);
@@ -1457,6 +1743,8 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	wl_list_init(&shell->surfaces);
 	wl_list_init(&shell->control_clients);
 	wl_list_init(&shell->fractional_scales);
+	wl_list_init(&shell->text_inputs);
+	wl_list_init(&shell->text_input_focus_listener.link);
 	weston_layer_init(&shell->background_layer, compositor);
 	weston_layer_init(&shell->normal_layer, compositor);
 	weston_layer_set_position(&shell->background_layer, WESTON_LAYER_POSITION_BACKGROUND);
@@ -1473,6 +1761,9 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (weston_seat_init_keyboard(&shell->input_seat, NULL) < 0)
 		goto err;
 	shell->input_keyboard_initialized = true;
+	shell->text_input_focus_listener.notify = handle_text_input_focus;
+	wl_signal_add(&weston_seat_get_keyboard(&shell->input_seat)->focus_signal,
+		      &shell->text_input_focus_listener);
 
 	if (create_background(shell) < 0)
 		goto err;
@@ -1481,6 +1772,8 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (create_viewporter(shell) < 0)
 		goto err;
 	if (create_cursor_shape_manager(shell) < 0)
+		goto err;
+	if (create_text_input_manager(shell) < 0)
 		goto err;
 	if (setup_control_socket(shell) < 0)
 		goto err;

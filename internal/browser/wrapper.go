@@ -738,6 +738,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	extraArgs := append([]string(nil), values.BrowserExtraArgs...)
 	extraArgs = append(extraArgs,
 		"--ozone-platform=wayland",
+		"--enable-wayland-ime=true",
+		"--wayland-text-input-version=3",
 		"--class="+compositorBrowserAppID,
 		"--kiosk",
 		fmt.Sprintf("--window-size=%d,%d", values.CompositorWidth, values.CompositorHeight),
