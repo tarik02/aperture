@@ -228,7 +228,7 @@
           pname = "aperture";
           inherit version;
           inherit src;
-          vendorHash = "sha256-1HErubUo533gYFPuQ1TNdYwsPipNIABtDb6QNlr5OFo=";
+          vendorHash = "sha256-wy3ssLiowf1xkVb4LuKqxWAWwoT93XPFKVRUOX6wvLE=";
 
           subPackages = [
             "cmd/aperture"
@@ -313,6 +313,12 @@
             ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
               ${pkgs.wayland-protocols}/share/wayland-protocols/stable/tablet/tablet-v2.xml \
               $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/unstable/text-input/text-input-unstable-v3.xml \
+              $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c
+            ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
+              ${pkgs.wayland-protocols}/share/wayland-protocols/unstable/text-input/text-input-unstable-v3.xml \
+              $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-server-protocol.h
             $CC -shared -fPIC \
               -I$TMPDIR/aperture-wayland-protocols \
               native/weston-aperture-shell/aperture-weston-shell.c \
@@ -320,6 +326,7 @@
               $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c \
               $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c \
               $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c \
+              $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c \
               -o $out/lib/weston/aperture-weston-shell.so \
               $(pkg-config --cflags --libs weston libweston-15 wayland-server pixman-1 xkbcommon)
 

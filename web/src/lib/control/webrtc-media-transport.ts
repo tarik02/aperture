@@ -450,6 +450,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     }, 20_000);
     const pendingSignals: string[] = [];
     const pendingCandidates: RTCIceCandidateInit[] = [];
+    const textKeyCodes = new Set<string>();
     const subscriptions = new Subscription();
     const control = connection.createDataChannel("control", { ordered: true });
     const input = connection.createDataChannel("input", { ordered: true });
@@ -791,35 +792,53 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           }
           return;
         }
-        if (message.type === "input.wheel") {
-          sendPointerMotion(message.x, message.y);
-          sendInput({
-            type: "input.pointer.scroll",
-            horizontal: message.deltaX,
-            vertical: message.deltaY,
-            stop_horizontal: false,
-            stop_vertical: false,
-          });
-          sendInput({
-            type: "input.pointer.scroll",
-            horizontal: 0,
-            vertical: 0,
-            stop_horizontal: message.deltaX !== 0,
-            stop_vertical: message.deltaY !== 0,
-          });
+        if (message.type === "input.key") {
+          if (message.action === "char") {
+            if (message.text) {
+              sendInput({ type: "input.keyboard.text", text: message.text });
+            }
+            return;
+          }
+          if (message.action === "down") {
+            if (message.code) {
+              textKeyCodes.delete(message.code);
+            }
+            if (message.text) {
+              sendInput({ type: "input.keyboard.text", text: message.text });
+              if (message.code) {
+                textKeyCodes.add(message.code);
+              }
+              return;
+            }
+          }
+          if (message.action === "up" && message.code && textKeyCodes.delete(message.code)) {
+            return;
+          }
+          const keycode = evdevByCode[message.code ?? ""];
+          if (keycode) {
+            sendInput({
+              type: "input.keyboard.key",
+              keycode,
+              pressed: message.action === "down",
+            });
+          }
           return;
         }
-        if (message.action === "char") {
-          return;
-        }
-        const keycode = evdevByCode[message.code ?? ""];
-        if (keycode) {
-          sendInput({
-            type: "input.keyboard.key",
-            keycode,
-            pressed: message.action === "down",
-          });
-        }
+        sendPointerMotion(message.x, message.y);
+        sendInput({
+          type: "input.pointer.scroll",
+          horizontal: message.deltaX,
+          vertical: message.deltaY,
+          stop_horizontal: false,
+          stop_vertical: false,
+        });
+        sendInput({
+          type: "input.pointer.scroll",
+          horizontal: 0,
+          vertical: 0,
+          stop_horizontal: message.deltaX !== 0,
+          stop_vertical: message.deltaY !== 0,
+        });
       }),
     );
     subscriptions.add(
