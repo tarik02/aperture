@@ -41,6 +41,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -564,7 +565,7 @@ export function SessionListPage() {
                           onReopen={() => void handleReopen(session)}
                           onSuspend={() => setConfirmAction({ kind: "suspend", session })}
                           onPromote={() => {
-                            initPromoteSessionForm(session.id);
+                            initPromoteSessionForm(session.id, session.status === "running");
                             openPromoteSessionModal();
                           }}
                           onRotate={() => setConfirmAction({ kind: "rotate", session })}
@@ -650,7 +651,8 @@ export function SessionListPage() {
             openTagModal();
           },
           onPromote: (session) => {
-            initPromoteSessionForm(session.id);
+            setDetailSection(null);
+            initPromoteSessionForm(session.id, session.status === "running");
             openPromoteSessionModal();
           },
           onReopen: (session) => void handleReopen(session),
@@ -714,75 +716,94 @@ function SessionActionsMenu({
   onEditTags,
 }: SessionActionsMenuProps) {
   const sessionPromotable =
-    session.status === "suspended" || session.status === "deleted" || session.status === "failed";
+    session.status === "running" ||
+    session.status === "suspended" ||
+    session.status === "deleted" ||
+    session.status === "failed";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" />}
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Actions for ${session.label ?? session.id}`}
+          />
+        }
         onClick={(event) => event.stopPropagation()}
       >
         <MoreHorizontal />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-40">
-        <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
-        <DropdownMenuItem onClick={onConnection}>Connection</DropdownMenuItem>
-        <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
-        {canWrite ? (
-          <DropdownMenuItem disabled={copySharePending} onClick={onCopyShareUrl}>
-            <Copy />
-            Copy share URL
-          </DropdownMenuItem>
-        ) : null}
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
+          <DropdownMenuItem onClick={onConnection}>Connection</DropdownMenuItem>
+          <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
+          {canWrite ? (
+            <DropdownMenuItem disabled={copySharePending} onClick={onCopyShareUrl}>
+              <Copy />
+              Copy share URL
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuGroup>
         {canWrite ? (
           <>
             <DropdownMenuSeparator />
-            {session.status === "running" || session.status === "suspended" ? (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <AppWindow />
-                  Open
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem
-                    render={<Link to="/-/sessions/$sessionId" params={{ sessionId: session.id }} />}
-                  >
-                    Default
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    render={
-                      <Link
-                        to="/-/sessions/$sessionId"
-                        params={{ sessionId: session.id }}
-                        search={{ media: "cdp" }}
-                      />
-                    }
-                  >
-                    CDP fallback
-                  </DropdownMenuItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            ) : null}
-            <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
-            <DropdownMenuItem className="whitespace-nowrap" onClick={onRotate}>
-              Rotate session token
-            </DropdownMenuItem>
-            {session.status === "deleted" || session.status === "failed" ? (
-              <DropdownMenuItem onClick={onReopen}>Reopen</DropdownMenuItem>
-            ) : null}
-            {session.status === "running" ? (
-              <DropdownMenuItem onClick={onSuspend}>
-                <Pause />
-                Suspend
+            <DropdownMenuGroup>
+              {session.status === "running" || session.status === "suspended" ? (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <AppWindow />
+                    Open
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        render={
+                          <Link to="/-/sessions/$sessionId" params={{ sessionId: session.id }} />
+                        }
+                      >
+                        Default
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        render={
+                          <Link
+                            to="/-/sessions/$sessionId"
+                            params={{ sessionId: session.id }}
+                            search={{ media: "cdp" }}
+                          />
+                        }
+                      >
+                        CDP fallback
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : null}
+              <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
+              <DropdownMenuItem className="whitespace-nowrap" onClick={onRotate}>
+                Rotate session token
               </DropdownMenuItem>
-            ) : null}
-            {canPromote && sessionPromotable ? (
-              <DropdownMenuItem onClick={onPromote}>Promote</DropdownMenuItem>
-            ) : null}
+              {session.status === "deleted" || session.status === "failed" ? (
+                <DropdownMenuItem onClick={onReopen}>Reopen</DropdownMenuItem>
+              ) : null}
+              {session.status === "running" ? (
+                <DropdownMenuItem onClick={onSuspend}>
+                  <Pause />
+                  Suspend
+                </DropdownMenuItem>
+              ) : null}
+              {canPromote && sessionPromotable ? (
+                <DropdownMenuItem onClick={onPromote}>Promote</DropdownMenuItem>
+              ) : null}
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              Delete
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </>
         ) : null}
       </DropdownMenuContent>

@@ -28,6 +28,7 @@ import { Button } from "#/components/ui/button.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
@@ -207,7 +208,10 @@ function SessionDetailActionBar({
     actions.canWrite && (session.status === "deleted" || session.status === "failed");
   const canPromote =
     actions.canPromote &&
-    (session.status === "suspended" || session.status === "deleted" || session.status === "failed");
+    (session.status === "running" ||
+      session.status === "suspended" ||
+      session.status === "deleted" ||
+      session.status === "failed");
   const canSuspend = actions.canWrite && session.status === "running";
   const canRotate =
     actions.canWrite && (session.status === "running" || session.status === "suspended");
@@ -333,6 +337,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
               type="button"
               size="icon-sm"
               className="-ml-px rounded-l-none border-l-primary-foreground/30"
+              aria-label="Open session options"
               disabled={disabled}
             />
           }
@@ -340,13 +345,19 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
           <ChevronDown />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-40">
-          <DropdownMenuItem
-            render={
-              <Link to="/-/sessions/$sessionId" params={{ sessionId }} search={{ media: "cdp" }} />
-            }
-          >
-            CDP fallback
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              render={
+                <Link
+                  to="/-/sessions/$sessionId"
+                  params={{ sessionId }}
+                  search={{ media: "cdp" }}
+                />
+              }
+            >
+              CDP fallback
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

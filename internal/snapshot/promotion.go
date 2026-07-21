@@ -2,10 +2,10 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/config"
@@ -37,7 +37,6 @@ type PromotionService struct {
 	browser     BrowserSupervisor
 	snapshots   *Service
 	now         func() time.Time
-	locks       sync.Map
 	materialize func(ctx context.Context, input overlay.MaterializeInput) error
 }
 
@@ -55,9 +54,8 @@ func NewPromotionService(cfg config.Config, repo *db.Repository, browser Browser
 
 // Promote materializes a stopped retained session into a new snapshot.
 func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*SnapshotView, error) {
-	lock := p.sessionLock(input.SessionID)
-	lock.Lock()
-	defer lock.Unlock()
+	unlock := p.repo.LockSession(input.SessionID)
+	defer unlock()
 
 	sessionRow, err := p.repo.GetSessionByTenantAndID(ctx, input.TenantID, input.SessionID)
 	if err != nil {
@@ -118,8 +116,7 @@ func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*Sn
 
 	now := p.now().UTC()
 	createdAt := now.Format(time.RFC3339Nano)
-	sessionCopy := *sessionRow
-	sessionCopy.ExpiresAt = now.Add(time.Duration(p.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+	leaseExpiresAt := now.Add(time.Duration(p.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 
 	snapshotRow := &db.Snapshot{
 		ID:                    finalSnapshotID,
@@ -128,27 +125,33 @@ func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*Sn
 		Description:           input.Description,
 		Path:                  finalLayout.Root,
 		ParentSnapshotID:      parentSnapshotID,
-		PromotedFromSessionID: &sessionCopy.ID,
+		PromotedFromSessionID: &sessionRow.ID,
 		CreatedAt:             createdAt,
 	}
 
-	var view *SnapshotView
-	var renameTombstone *db.Snapshot
-	if input.Force {
-		existing, err := p.repo.GetSnapshotByTenantAndName(ctx, input.TenantID, input.Name)
-		if err != nil {
-			_ = os.RemoveAll(finalLayout.Root)
-			return nil, err
-		}
-		if existing != nil && existing.DeletedAt != nil {
-			renameCopy := *existing
-			renameCopy.Name = fmt.Sprintf("%s.tombstone.%s", renameCopy.Name, renameCopy.ID)
-			renameTombstone = &renameCopy
-		}
-	}
-
-	if err := p.repo.CommitPromotion(ctx, snapshotRow, tagsToRows(snapshotRow.ID, input.Tags), &sessionCopy, renameTombstone); err != nil {
+	replacementDeletedAt := now.Format(time.RFC3339Nano)
+	replacementExpiresAt := now.Add(time.Duration(p.cfg.SnapshotRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+	if err := p.repo.CommitPromotion(
+		ctx,
+		snapshotRow,
+		tagsToRows(snapshotRow.ID, input.Tags),
+		sessionRow.ID,
+		sessionRow.Status,
+		leaseExpiresAt,
+		input.Force,
+		replacementDeletedAt,
+		replacementExpiresAt,
+	); err != nil {
 		_ = os.RemoveAll(finalLayout.Root)
+		if errors.Is(err, db.ErrSnapshotNameConflict) {
+			return nil, &NameConflictError{Name: input.Name}
+		}
+		if errors.Is(err, db.ErrSessionStateConflict) {
+			return nil, &PromotionConflictError{
+				SessionID: input.SessionID,
+				Reason:    "session state changed during promotion",
+			}
+		}
 		return nil, err
 	}
 
@@ -156,9 +159,7 @@ func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*Sn
 	if err != nil {
 		return nil, err
 	}
-	view = &SnapshotView{Snapshot: *snapshotRow, Tags: tags}
-
-	return view, nil
+	return &SnapshotView{Snapshot: *snapshotRow, Tags: tags}, nil
 }
 
 func (p *PromotionService) validatePromotable(ctx context.Context, sessionRow *db.Session) error {
@@ -196,14 +197,8 @@ func (p *PromotionService) validateSnapshotName(ctx context.Context, tenantID, n
 	if existing == nil {
 		return nil
 	}
-	if existing.DeletedAt == nil {
-		if force {
-			return &NameConflictError{Name: name}
-		}
+	if existing.DeletedAt == nil && !force {
 		return &NameConflictError{Name: name}
-	}
-	if !force {
-		return &DeletedError{Name: name}
 	}
 	return nil
 }
@@ -230,11 +225,6 @@ func (p *PromotionService) resolveLowerDir(ctx context.Context, sessionRow *db.S
 	}
 	parentID := parent.ID
 	return layout.Profile, &parentID, nil
-}
-
-func (p *PromotionService) sessionLock(sessionID string) *sync.Mutex {
-	value, _ := p.locks.LoadOrStore(sessionID, &sync.Mutex{})
-	return value.(*sync.Mutex)
 }
 
 func (p *PromotionService) SetMaterializeHook(fn func(ctx context.Context, input overlay.MaterializeInput) error) {

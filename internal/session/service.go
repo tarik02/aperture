@@ -452,6 +452,9 @@ func waitForCDPEndpoint(ctx context.Context, port int) error {
 
 // Delete tombstones a session and stops its browser.
 func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
+
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {
 		return nil, err
@@ -516,6 +519,9 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 
 // Reopen restores a retained deleted or failed session.
 func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
+
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {
 		return nil, err

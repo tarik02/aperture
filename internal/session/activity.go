@@ -227,6 +227,9 @@ func (s *Service) ensureSessionRunning(ctx context.Context, sessionRow *db.Sessi
 	}
 
 	if err := s.runWake(ctx, sessionRow.ID, func() error {
+		unlock := s.repo.LockSession(sessionRow.ID)
+		defer unlock()
+
 		latest, err := s.repo.GetSessionByID(ctx, sessionRow.ID)
 		if err != nil {
 			return err
@@ -342,6 +345,9 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 }
 
 func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, eventMessage string) (bool, error) {
+	unlock := s.repo.LockSession(sessionRow.ID)
+	defer unlock()
+
 	latest, err := s.repo.GetSessionByID(ctx, sessionRow.ID)
 	if err != nil {
 		return false, err
