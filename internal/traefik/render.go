@@ -91,7 +91,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 
 		sessionBase := "/sessions/" + session.ID
 		cdpBase := sessionBase + "/cdp"
-		if session.CDPPort > 0 {
+		if session.CDPPort > 0 && session.WrapperPort > 0 {
 			cdpService := cdpServiceName(session.ID)
 			doc.HTTP.Routers[cdpWebSocketRouterName(session.ID)] = routerConfig{
 				Rule:    cdpWebSocketRouterRule(cdpBase),
@@ -133,7 +133,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			doc.HTTP.Services[cdpService] = serviceConfig{
 				LoadBalancer: loadBalancerConfig{
 					PassHostHeader: &passHostHeader,
-					Servers:        []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.CDPPort)}},
+					Servers:        []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.WrapperPort)}},
 				},
 			}
 		}
@@ -180,7 +180,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			ReplacePath: &replacePathConfig{Path: "/status"},
 		}
 
-		if session.CDPPort > 0 {
+		if session.CDPPort > 0 && session.WrapperPort > 0 {
 			doc.HTTP.Routers[cdpDiscoveryRouterName(session.ID)] = routerConfig{
 				Rule:    cdpDiscoveryRouterRule(cdpBase),
 				Service: wrapperService,

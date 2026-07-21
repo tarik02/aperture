@@ -43,6 +43,8 @@ type wrapperRuntime struct {
 	lastScreencast *wrapperScreencastFile
 	mediaProducer  *producer
 	viewer         *wrapperViewer
+	activeRequests int
+	cdpConnections int
 }
 
 type wrapperScreencast struct {
@@ -69,6 +71,15 @@ type wrapperScreencastRequest struct {
 
 type wrapperViewer struct {
 	cancel context.CancelFunc
+}
+
+// WrapperActivityStatus reports live work that must inhibit idle suspension.
+type WrapperActivityStatus struct {
+	Active            bool `json:"active"`
+	ActiveRequests    int  `json:"activeRequests"`
+	ViewerConnected   bool `json:"viewerConnected"`
+	CDPConnections    int  `json:"cdpConnections"`
+	ScreencastRunning bool `json:"screencastRunning"`
 }
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
@@ -141,9 +152,11 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)
 	mux.HandleFunc("/status", r.handleStatus)
+	mux.HandleFunc("/activity", r.handleActivity)
 	mux.HandleFunc("/sessions/", r.handleCDPDiscovery)
 	mux.HandleFunc("/json", r.handleCDPDiscovery)
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
+	mux.HandleFunc("/devtools/", r.handleCDPProxy)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/screencast/start", r.handleScreencastStart)
@@ -153,7 +166,23 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/files/", r.handleFileDownload)
 	mux.HandleFunc("/uploads", r.handleUploads)
 
-	server := &http.Server{Handler: mux}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/health", "/status", "/activity":
+			mux.ServeHTTP(w, req)
+			return
+		}
+
+		r.mu.Lock()
+		r.activeRequests++
+		r.mu.Unlock()
+		defer func() {
+			r.mu.Lock()
+			r.activeRequests--
+			r.mu.Unlock()
+		}()
+		mux.ServeHTTP(w, req)
+	})}
 	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.WrapperPort)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen wrapper api: %w", err)
@@ -184,14 +213,18 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := map[string]any{
-		"sessionId":      r.values.SessionID,
-		"compositor":     r.values.CompositorEnabled,
-		"compositorPid":  r.compositorPID,
-		"pipewireTarget": r.pipewireTarget,
-		"browserCDPPort": r.values.CDPPort,
-		"gpuMode":        r.values.GPUMode,
-		"mediaCodec":     r.values.MediaProducerCodec,
-		"screencast":     r.screencastStatusLocked(),
+		"sessionId":         r.values.SessionID,
+		"compositor":        r.values.CompositorEnabled,
+		"compositorPid":     r.compositorPID,
+		"pipewireTarget":    r.pipewireTarget,
+		"browserCDPPort":    r.values.CDPPort,
+		"gpuMode":           r.values.GPUMode,
+		"mediaCodec":        r.values.MediaProducerCodec,
+		"activeRequests":    r.activeRequests,
+		"viewerConnected":   r.viewer != nil,
+		"cdpConnections":    r.cdpConnections,
+		"screencastRunning": r.screencast != nil,
+		"screencast":        r.screencastStatusLocked(),
 	}
 	if r.mediaProducer != nil {
 		quality := r.mediaProducer.media.Quality()
@@ -248,6 +281,18 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		status["sessionToken"] = r.values.SessionToken
 	}
 	writeWrapperJSON(w, http.StatusOK, status)
+}
+
+func (r *wrapperRuntime) handleActivity(w http.ResponseWriter, _ *http.Request) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	writeWrapperJSON(w, http.StatusOK, WrapperActivityStatus{
+		Active:            r.activeRequests > 0 || r.screencast != nil,
+		ActiveRequests:    r.activeRequests,
+		ViewerConnected:   r.viewer != nil,
+		CDPConnections:    r.cdpConnections,
+		ScreencastRunning: r.screencast != nil,
+	})
 }
 
 func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request) {

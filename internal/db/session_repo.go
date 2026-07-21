@@ -72,6 +72,39 @@ func (r *Repository) UpdateSession(ctx context.Context, session *Session) error 
 	return nil
 }
 
+// TouchRunningSession refreshes connection and retention timestamps without replacing lifecycle state.
+func (r *Repository) TouchRunningSession(ctx context.Context, sessionID, connectedAt, expiresAt string) (bool, error) {
+	result, err := r.db.bun.NewUpdate().
+		Model((*Session)(nil)).
+		Set("last_connected_at = ?", connectedAt).
+		Set("expires_at = ?", expiresAt).
+		Where("id = ?", sessionID).
+		Where("status = ?", SessionStatusRunning).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("touch running session: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("touch running session rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// RefreshRunningSessionExpiry extends retention without replacing lifecycle state.
+func (r *Repository) RefreshRunningSessionExpiry(ctx context.Context, sessionID, expiresAt string) error {
+	_, err := r.db.bun.NewUpdate().
+		Model((*Session)(nil)).
+		Set("expires_at = ?", expiresAt).
+		Where("id = ?", sessionID).
+		Where("status = ?", SessionStatusRunning).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh running session expiry: %w", err)
+	}
+	return nil
+}
+
 // ListSessionsByStatus returns sessions with the given status.
 func (r *Repository) ListSessionsByStatus(ctx context.Context, status string) ([]Session, error) {
 	sessions := make([]Session, 0)

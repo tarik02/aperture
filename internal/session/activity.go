@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,12 +26,15 @@ type wakeCall struct {
 
 // AcquireCDPPort wakes a tenant-owned session if needed and holds an activity inhibitor.
 func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string) (int, func(), error) {
+	unlock := s.repo.LockSession(sessionID)
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {
+		unlock()
 		return 0, nil, err
 	}
-
 	release := s.acquireInhibitor(sessionID)
+	unlock()
+
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
 		release()
@@ -49,12 +53,16 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 
 // AcquireAuthorizedCDPPort wakes a session-token-authorized session if needed and holds an activity inhibitor.
 func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, authorization string) (int, func(), error) {
+	routeSessionID = strings.TrimSpace(routeSessionID)
+	unlock := s.repo.LockSession(routeSessionID)
 	sessionRow, err := s.authorizedSession(ctx, routeSessionID, authorization)
 	if err != nil {
+		unlock()
 		return 0, nil, err
 	}
-
 	release := s.acquireInhibitor(sessionRow.ID)
+	unlock()
+
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
 		release()
@@ -83,12 +91,15 @@ func (s *Service) WakeAuthorizedSession(ctx context.Context, routeSessionID, aut
 
 // AcquireWrapperPort wakes a tenant-owned session if needed and holds an activity inhibitor.
 func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID string) (int, func(), error) {
+	unlock := s.repo.LockSession(sessionID)
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {
+		unlock()
 		return 0, nil, err
 	}
-
 	release := s.acquireInhibitor(sessionID)
+	unlock()
+
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
 		release()
@@ -108,26 +119,28 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 
 // SuspendIdleSessions stops running sessions that have no recent connection activity.
 func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
-	cutoff := s.now().UTC().Add(-defaultSuspendAfter).Format(time.RFC3339Nano)
-	sessions, err := s.repo.ListRunningSessionsIdleBefore(ctx, cutoff)
+	cutoff := s.now().UTC().Add(-defaultSuspendAfter)
+	sessions, err := s.repo.ListRunningSessionsIdleBefore(ctx, cutoff.Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, err
 	}
 
 	suspended := 0
+	var suspendErrors []error
 	for _, sessionRow := range sessions {
 		if s.activeInhibitors(sessionRow.ID) > 0 {
 			continue
 		}
-		didSuspend, err := s.suspendSession(ctx, &sessionRow, "session suspended after idle timeout")
+		didSuspend, err := s.suspendSession(ctx, &sessionRow, "session suspended after idle timeout", &cutoff)
 		if err != nil {
-			return suspended, err
+			suspendErrors = append(suspendErrors, fmt.Errorf("suspend idle session %s: %w", sessionRow.ID, err))
+			continue
 		}
 		if didSuspend {
 			suspended++
 		}
 	}
-	return suspended, nil
+	return suspended, errors.Join(suspendErrors...)
 }
 
 // Suspend stops a running tenant-owned session while retaining it for later wake.
@@ -140,7 +153,7 @@ func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*Ses
 		return nil, ErrInvalidState
 	}
 
-	didSuspend, err := s.suspendSession(ctx, sessionRow, "session manually suspended")
+	didSuspend, err := s.suspendSession(ctx, sessionRow, "session manually suspended", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +357,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 	return s.appendEvent(ctx, sessionRow, "session.woke", "session woke from suspension", nil)
 }
 
-func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, eventMessage string) (bool, error) {
+func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, eventMessage string, idleBefore *time.Time) (bool, error) {
 	unlock := s.repo.LockSession(sessionRow.ID)
 	defer unlock()
 
@@ -360,6 +373,30 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	}
 	if isExpired(latest.ExpiresAt, s.now().UTC()) {
 		return false, nil
+	}
+	if idleBefore != nil {
+		lastActivityText := latest.CreatedAt
+		if latest.StartedAt != nil {
+			lastActivityText = *latest.StartedAt
+		}
+		if latest.LastConnectedAt != nil {
+			lastActivityText = *latest.LastConnectedAt
+		}
+		lastActivity, err := time.Parse(time.RFC3339Nano, lastActivityText)
+		if err != nil {
+			return false, fmt.Errorf("parse session activity time: %w", err)
+		}
+		if lastActivity.After(*idleBefore) {
+			return false, nil
+		}
+
+		activity, err := s.wrapperActivity(ctx, latest)
+		if err != nil {
+			return false, err
+		}
+		if activity.Active {
+			return false, s.touchConnected(ctx, latest)
+		}
 	}
 
 	_ = s.retireMediaSession(latest.ID)
@@ -518,12 +555,45 @@ func wrapperPort(sessionRow *db.Session) (int, error) {
 	return values.WrapperPort, nil
 }
 
+func (s *Service) wrapperActivity(ctx context.Context, sessionRow *db.Session) (browser.WrapperActivityStatus, error) {
+	port, err := wrapperPort(sessionRow)
+	if err != nil {
+		return browser.WrapperActivityStatus{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/activity", port), nil)
+	if err != nil {
+		return browser.WrapperActivityStatus{}, err
+	}
+	response, err := (&http.Client{Timeout: time.Second}).Do(request)
+	if err != nil {
+		return browser.WrapperActivityStatus{}, fmt.Errorf("read wrapper activity: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return browser.WrapperActivityStatus{}, fmt.Errorf("read wrapper activity: unexpected status %s", response.Status)
+	}
+
+	var activity browser.WrapperActivityStatus
+	if err := json.NewDecoder(response.Body).Decode(&activity); err != nil {
+		return browser.WrapperActivityStatus{}, fmt.Errorf("decode wrapper activity: %w", err)
+	}
+	return activity, nil
+}
+
 func (s *Service) touchConnected(ctx context.Context, sessionRow *db.Session) error {
 	now := s.now().UTC()
 	nowText := now.Format(time.RFC3339Nano)
+	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+	touched, err := s.repo.TouchRunningSession(ctx, sessionRow.ID, nowText, expiresAt)
+	if err != nil {
+		return err
+	}
+	if !touched {
+		return ErrNotRunning
+	}
 	sessionRow.LastConnectedAt = &nowText
-	sessionRow.ExpiresAt = now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
-	return s.repo.UpdateSession(ctx, sessionRow)
+	sessionRow.ExpiresAt = expiresAt
+	return nil
 }
 
 func (s *Service) touchConnectedByID(ctx context.Context, sessionID string) error {

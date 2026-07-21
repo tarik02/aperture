@@ -84,8 +84,7 @@ func (m *Monitor) tick(ctx context.Context) {
 			continue
 		}
 		expiresAt := now.Add(time.Duration(m.service.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
-		sessionRow.ExpiresAt = expiresAt
-		if err := m.service.repo.UpdateSession(ctx, &sessionRow); err != nil {
+		if err := m.service.repo.RefreshRunningSessionExpiry(ctx, sessionRow.ID, expiresAt); err != nil {
 			m.logger.Error("refresh session lease", zap.String("sessionId", sessionRow.ID), zap.Error(err))
 		}
 	}
