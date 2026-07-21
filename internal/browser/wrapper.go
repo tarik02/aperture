@@ -772,7 +772,6 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		"--class="+compositorBrowserAppID,
 		"--kiosk",
 		fmt.Sprintf("--window-size=%d,%d", values.CompositorWidth, values.CompositorHeight),
-		"about:blank",
 	)
 	if hardwareAcceleration {
 		extraArgs = append(extraArgs, "--ignore-gpu-blocklist", "--enable-gpu-rasterization")

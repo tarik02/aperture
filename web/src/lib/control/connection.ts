@@ -140,6 +140,15 @@ const attachTargetResultSchema: z.ZodType<Protocol.Target.AttachToTargetResponse
   sessionId: z.string(),
 });
 
+const targetVisibilityResultSchema = z.object({
+  result: z.object({
+    value: z.object({
+      focused: z.boolean(),
+      visible: z.boolean(),
+    }),
+  }),
+});
+
 const screencastFrameParamsSchema: z.ZodType<Protocol.Page.ScreencastFrameEvent> = z.object({
   data: z.string(),
   sessionId: z.number(),
@@ -408,6 +417,7 @@ class BrowserControlConnectionRuntime {
   private pageTargetId: Protocol.Target.TargetID | null = null;
   private pageSessionId: Protocol.Target.SessionID | null = null;
   private activeTargetId: Protocol.Target.TargetID | null = null;
+  private activeTargetResolved = false;
   private targets: ControlTarget[] = [];
   private loadingTargetIds = new Set<string>();
   private screencastStarting = false;
@@ -457,6 +467,7 @@ class BrowserControlConnectionRuntime {
     this.pageTargetId = null;
     this.pageSessionId = null;
     this.activeTargetId = null;
+    this.activeTargetResolved = false;
     this.targets = [];
     this.loadingTargetIds.clear();
     this.screencastStarting = false;
@@ -533,8 +544,8 @@ class BrowserControlConnectionRuntime {
       }
 
       await browser.call("Target.setDiscoverTargets", { discover: true });
-      this.callbacks.onPhaseChange?.("connected");
       await this.refreshTargets();
+      this.callbacks.onPhaseChange?.("connected");
     } catch (error) {
       if (browser && this.browser === browser) {
         this.browser = null;
@@ -710,7 +721,34 @@ class BrowserControlConnectionRuntime {
       (target) => target.type === "page" || target.type === "webview",
     );
 
-    if (
+    if (!this.activeTargetResolved && pageTargets.length > 0) {
+      const targetStates = await Promise.all(
+        pageTargets.map(async (target) => {
+          try {
+            const result = await this.withTarget(target.targetId, (socket, sessionId) =>
+              socket.call(
+                "Runtime.evaluate",
+                {
+                  expression:
+                    "({ focused: document.hasFocus(), visible: document.visibilityState === 'visible' })",
+                  returnByValue: true,
+                },
+                sessionId,
+              ),
+            );
+            const state = targetVisibilityResultSchema.parse(result).result.value;
+            return { targetId: target.targetId, ...state };
+          } catch {
+            return { targetId: target.targetId, focused: false, visible: false };
+          }
+        }),
+      );
+      const activeTarget =
+        targetStates.find((target) => target.focused) ??
+        targetStates.find((target) => target.visible);
+      this.activeTargetId = activeTarget?.targetId ?? pageTargets[0]?.targetId ?? null;
+      this.activeTargetResolved = true;
+    } else if (
       !this.activeTargetId ||
       !pageTargets.some((target) => target.targetId === this.activeTargetId)
     ) {
@@ -757,7 +795,11 @@ class BrowserControlConnectionRuntime {
 
     if (index === -1) {
       this.targets = [...this.targets, target];
-      this.activeTargetId = this.activeTargetId ?? target.id;
+      if (this.activeTargetResolved) {
+        this.activeTargetId = this.activeTargetId ?? target.id;
+      } else {
+        this.scheduleTargetsRefresh();
+      }
       this.emitTargetsSnapshot();
       return;
     }
