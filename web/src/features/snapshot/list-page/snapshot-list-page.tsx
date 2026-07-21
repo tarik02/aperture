@@ -1,4 +1,5 @@
-import { MoreHorizontal, RotateCcw, Tags as TagsIcon, Trash2 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { AppWindow, MoreHorizontal, RotateCcw, Tags as TagsIcon, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { SnapshotDetailModals } from "#/components/snapshots/snapshot-detail-modals.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
@@ -27,6 +28,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -56,9 +58,10 @@ import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import { formatTimestamp } from "#/lib/format.ts";
-import type { Snapshot } from "#/lib/api/schemas.ts";
+import type { CreateSessionResponse, Snapshot } from "#/lib/api/schemas.ts";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
 import { useSessionFormStore } from "#/features/session/form/session-form.store.ts";
+import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";
 import { useSnapshotListPageStore } from "#/features/snapshot/list-page/snapshot-list-page.store.ts";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
@@ -82,6 +85,7 @@ const SNAPSHOT_SKELETON_COLUMNS = [
 ] as const;
 
 export function SnapshotListPage() {
+  const navigate = useNavigate();
   const credentials = useApiCredentials();
   const scopes = useActiveScopes();
   const canWrite = hasScope(scopes, "snapshots:write");
@@ -110,6 +114,7 @@ export function SnapshotListPage() {
   const setDetailSection = useSnapshotListPageStore((state) => state.setDetailSection);
   const initCreateSessionForm = useSessionFormStore((state) => state.initForm);
   const openCreateSessionModal = useSessionCreateModalStore((state) => state.openModal);
+  const openCreatedSession = useSessionListPageStore((state) => state.openCreatedSession);
   const initTagForm = useTagFormStore((state) => state.initForm);
   const tagResourceKey = useTagFormStore((state) => state.formData.resourceKey);
   const tagModalOpen = useTagEditModalStore((state) => state.open);
@@ -143,8 +148,14 @@ export function SnapshotListPage() {
   const [descriptionDraft, setDescriptionDraft] = useState("");
 
   function handleCreateSession(snapshot: Snapshot) {
+    setDetailSection(null);
     initCreateSessionForm({ baseSnapshot: snapshot.name });
     openCreateSessionModal();
+  }
+
+  function handleCreatedSession(result: CreateSessionResponse) {
+    openCreatedSession(result);
+    void navigate({ to: "/-/sessions" });
   }
 
   async function handleBatchDelete() {
@@ -316,10 +327,12 @@ export function SnapshotListPage() {
                       key={snapshot.id}
                       snapshot={snapshot}
                       canWrite={canWrite}
+                      canCreateSession={canCreateSession}
                       selected={Boolean(selectedSnapshots[snapshot.id])}
                       onSelectedChange={(selected) => toggleSnapshotSelection(snapshot, selected)}
                       onDetails={() => showSnapshot(snapshot, "details")}
                       onEvents={() => showSnapshot(snapshot, "events")}
+                      onCreateSession={() => handleCreateSession(snapshot)}
                       onEditTags={() => {
                         initTagForm(
                           "edit",
@@ -375,7 +388,7 @@ export function SnapshotListPage() {
         canCreateSession={canCreateSession}
         onCreateSession={handleCreateSession}
       />
-      <SessionCreateModal />
+      <SessionCreateModal onCreated={handleCreatedSession} />
       <SnapshotDescriptionModal
         snapshot={descriptionSnapshot}
         value={descriptionDraft}
@@ -426,10 +439,12 @@ function SnapshotTableHeader() {
 type SnapshotRowProps = {
   snapshot: Snapshot;
   canWrite: boolean;
+  canCreateSession: boolean;
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
   onDetails: () => void;
   onEvents: () => void;
+  onCreateSession: () => void;
   onEditDescription: () => void;
   onEditTags: () => void;
   onRestore: () => void;
@@ -439,10 +454,12 @@ type SnapshotRowProps = {
 function SnapshotRow({
   snapshot,
   canWrite,
+  canCreateSession,
   selected,
   onSelectedChange,
   onDetails,
   onEvents,
+  onCreateSession,
   onEditDescription,
   onEditTags,
   onRestore,
@@ -494,8 +511,10 @@ function SnapshotRow({
         <SnapshotActionsMenu
           snapshot={snapshot}
           canWrite={canWrite}
+          canCreateSession={canCreateSession}
           onDetails={onDetails}
           onEvents={onEvents}
+          onCreateSession={onCreateSession}
           onEditDescription={onEditDescription}
           onEditTags={onEditTags}
           onRestore={onRestore}
@@ -509,8 +528,10 @@ function SnapshotRow({
 type SnapshotActionsMenuProps = {
   snapshot: Snapshot;
   canWrite: boolean;
+  canCreateSession: boolean;
   onDetails: () => void;
   onEvents: () => void;
+  onCreateSession: () => void;
   onEditDescription: () => void;
   onEditTags: () => void;
   onRestore: () => void;
@@ -520,38 +541,52 @@ type SnapshotActionsMenuProps = {
 function SnapshotActionsMenu({
   snapshot,
   canWrite,
+  canCreateSession,
   onDetails,
   onEvents,
+  onCreateSession,
   onEditDescription,
   onEditTags,
   onRestore,
   onDelete,
 }: SnapshotActionsMenuProps) {
-  if (!canWrite) {
-    return null;
-  }
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" />}
+        render={
+          <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${snapshot.name}`} />
+        }
         onClick={(event) => event.stopPropagation()}
       >
         <MoreHorizontal />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
-        <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onEditDescription}>Edit description</DropdownMenuItem>
-        <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
-        {snapshot.deletedAt ? (
-          <DropdownMenuItem onClick={onRestore}>Restore</DropdownMenuItem>
-        ) : (
-          <DropdownMenuItem variant="destructive" onClick={onDelete}>
-            Delete
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
+          <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
+          {canCreateSession && !snapshot.deletedAt ? (
+            <DropdownMenuItem onClick={onCreateSession}>
+              <AppWindow />
+              Create session
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuGroup>
+        {canWrite ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={onEditDescription}>Edit description</DropdownMenuItem>
+              <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
+              {snapshot.deletedAt ? (
+                <DropdownMenuItem onClick={onRestore}>Restore</DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                  Delete
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuGroup>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

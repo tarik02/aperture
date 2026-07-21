@@ -484,8 +484,8 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write, snapshots:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_promotable, promotion_conflict, snapshot_name_conflict, snapshot_deleted, promotion_service_unavailable]
-      description: Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_promotable, promotion_conflict, snapshot_name_conflict, promotion_service_unavailable]
+      description: Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -1432,7 +1432,7 @@ components:
         force:
           type: boolean
           default: false
-          description: Allow reuse of a name owned by a deleted snapshot. This never overwrites an active snapshot.
+          description: Deleted snapshot names are reused automatically. Set `true` to replace an active snapshot, which is renamed to its tombstone name and retained for the configured snapshot retention period.
         tags:
           allOf: [{$ref: '#/components/schemas/StringMap'}]
           description: Initial complete tag map for the new snapshot.

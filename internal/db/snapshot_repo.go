@@ -9,6 +9,11 @@ import (
 	"github.com/uptrace/bun"
 )
 
+var (
+	ErrSnapshotNameConflict = errors.New("snapshot name already exists")
+	ErrSessionStateConflict = errors.New("session state changed")
+)
+
 // CreateSnapshot inserts a snapshot row.
 func (r *Repository) CreateSnapshot(ctx context.Context, snapshot *Snapshot) error {
 	_, err := r.db.bun.NewInsert().Model(snapshot).Exec(ctx)
@@ -82,18 +87,60 @@ func (r *Repository) ReplaceSnapshotTags(ctx context.Context, snapshotID string,
 	})
 }
 
-// CommitPromotion inserts a snapshot, replaces tags, and refreshes the session lease in one transaction.
+// CommitPromotion resolves name replacement, inserts a snapshot, replaces tags, and refreshes the session lease in one transaction.
 func (r *Repository) CommitPromotion(
 	ctx context.Context,
 	snapshot *Snapshot,
 	tags []SnapshotTag,
-	session *Session,
-	renameTombstone *Snapshot,
+	sessionID string,
+	expectedSessionStatus string,
+	sessionExpiresAt string,
+	replaceExisting bool,
+	deletedAt string,
+	expiresAt string,
 ) error {
-	return r.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		if renameTombstone != nil {
-			if _, err := tx.NewUpdate().Model(renameTombstone).WherePK().Exec(ctx); err != nil {
-				return fmt.Errorf("rename tombstoned snapshot: %w", err)
+	return r.WithImmediateTx(ctx, func(ctx context.Context, tx bun.IDB) error {
+		existing := new(Snapshot)
+		err := tx.NewSelect().
+			Model(existing).
+			Where("tenant_id = ?", snapshot.TenantID).
+			Where("name = ?", snapshot.Name).
+			Scan(ctx)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("select snapshot by name: %w", err)
+		}
+		if err == nil {
+			if existing.DeletedAt == nil && !replaceExisting {
+				return ErrSnapshotNameConflict
+			}
+
+			tombstoneName := fmt.Sprintf("%s.tombstone.%s", existing.Name, existing.ID)
+			for suffix := 2; ; suffix++ {
+				count, err := tx.NewSelect().
+					Model((*Snapshot)(nil)).
+					Where("tenant_id = ?", existing.TenantID).
+					Where("name = ?", tombstoneName).
+					Count(ctx)
+				if err != nil {
+					return fmt.Errorf("check tombstone snapshot name: %w", err)
+				}
+				if count == 0 {
+					break
+				}
+				tombstoneName = fmt.Sprintf("%s.tombstone.%s.%d", existing.Name, existing.ID, suffix)
+			}
+
+			update := tx.NewUpdate().
+				Model((*Snapshot)(nil)).
+				Set("name = ?", tombstoneName).
+				Where("id = ?", existing.ID)
+			if existing.DeletedAt == nil {
+				update = update.
+					Set("deleted_at = ?", deletedAt).
+					Set("expires_at = ?", expiresAt)
+			}
+			if _, err := update.Exec(ctx); err != nil {
+				return fmt.Errorf("supersede snapshot: %w", err)
 			}
 		}
 		if _, err := tx.NewInsert().Model(snapshot).Exec(ctx); err != nil {
@@ -110,8 +157,21 @@ func (r *Repository) CommitPromotion(
 				return fmt.Errorf("insert snapshot tags: %w", err)
 			}
 		}
-		if _, err := tx.NewUpdate().Model(session).WherePK().Exec(ctx); err != nil {
+		result, err := tx.NewUpdate().
+			Model((*Session)(nil)).
+			Set("expires_at = ?", sessionExpiresAt).
+			Where("id = ?", sessionID).
+			Where("status = ?", expectedSessionStatus).
+			Exec(ctx)
+		if err != nil {
 			return fmt.Errorf("update session lease: %w", err)
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("read updated session lease count: %w", err)
+		}
+		if updated != 1 {
+			return ErrSessionStateConflict
 		}
 		return nil
 	})

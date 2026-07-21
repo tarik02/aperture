@@ -5,7 +5,8 @@ type SessionPromoteFormData = {
   sessionId: string | null;
   name: string;
   description: string;
-  force: boolean;
+  replaceExisting: boolean;
+  suspendBeforePromote: boolean;
   tagEntries: DraftTagEntry[];
   nameError: string | null;
 };
@@ -13,7 +14,7 @@ type SessionPromoteFormData = {
 type SessionPromoteFormState = {
   mode: "promote";
   formData: SessionPromoteFormData;
-  initForm: (sessionId: string) => void;
+  initForm: (sessionId: string, suspendBeforePromote: boolean) => void;
   setFormData: (patch: Partial<SessionPromoteFormData>) => void;
 };
 
@@ -21,7 +22,8 @@ const defaultFormData: SessionPromoteFormData = {
   sessionId: null,
   name: "",
   description: "",
-  force: false,
+  replaceExisting: false,
+  suspendBeforePromote: false,
   tagEntries: [],
   nameError: null,
 };
@@ -29,6 +31,7 @@ const defaultFormData: SessionPromoteFormData = {
 export const useSessionPromoteFormStore = create<SessionPromoteFormState>()((set) => ({
   mode: "promote",
   formData: defaultFormData,
-  initForm: (sessionId) => set({ formData: { ...defaultFormData, sessionId } }),
+  initForm: (sessionId, suspendBeforePromote) =>
+    set({ formData: { ...defaultFormData, sessionId, suspendBeforePromote } }),
   setFormData: (patch) => set((state) => ({ formData: { ...state.formData, ...patch } })),
 }));

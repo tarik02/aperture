@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -136,12 +137,46 @@ func checkSQLiteForeignKeys(ctx context.Context, tx bun.IDB) error {
 
 // Repository provides transactional helpers for orchestration metadata access.
 type Repository struct {
-	db *DB
+	db                    *DB
+	sessionLifecycleMu    sync.Mutex
+	sessionLifecycleLocks map[string]*sessionLifecycleLock
+}
+
+type sessionLifecycleLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 // NewRepository constructs a repository backed by db.
 func NewRepository(db *DB) *Repository {
-	return &Repository{db: db}
+	return &Repository{
+		db:                    db,
+		sessionLifecycleLocks: make(map[string]*sessionLifecycleLock),
+	}
+}
+
+// LockSession serializes browser, overlay, and promotion work for one session.
+func (r *Repository) LockSession(sessionID string) func() {
+	r.sessionLifecycleMu.Lock()
+	lock := r.sessionLifecycleLocks[sessionID]
+	if lock == nil {
+		lock = &sessionLifecycleLock{}
+		r.sessionLifecycleLocks[sessionID] = lock
+	}
+	lock.refs++
+	r.sessionLifecycleMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+
+		r.sessionLifecycleMu.Lock()
+		defer r.sessionLifecycleMu.Unlock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(r.sessionLifecycleLocks, sessionID)
+		}
+	}
 }
 
 // WithTx runs fn inside a standard Bun transaction.
