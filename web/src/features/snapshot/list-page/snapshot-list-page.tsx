@@ -560,7 +560,7 @@ function SnapshotActionsMenu({
       >
         <MoreHorizontal />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="min-w-40">
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
           <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
