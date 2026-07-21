@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 const compositorBrowserAppID = "aperture-browser"
@@ -525,10 +528,13 @@ func LaunchFromRuntimeEnv() error {
 		return err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, cancelWrapper := context.WithCancel(context.Background())
+	defer cancelWrapper()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
 	wrapper := newWrapperRuntime(values, "")
-	wrapperServer, _, err := wrapper.serve(ctx)
+	wrapperServer, wrapperDone, err := wrapper.serve(ctx)
 	if err != nil {
 		return err
 	}
@@ -537,7 +543,27 @@ func LaunchFromRuntimeEnv() error {
 		defer shutdownCancel()
 		_ = wrapperServer.Shutdown(shutdownCtx)
 	}()
-	return cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start browser: %w", err)
+	}
+	browserDone := make(chan error, 1)
+	go func() {
+		browserDone <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-browserDone:
+		return err
+	case err := <-wrapperDone:
+		stopProcess(cmd, browserDone)
+		if err != nil {
+			return fmt.Errorf("wrapper api exited: %w", err)
+		}
+		return fmt.Errorf("wrapper api exited")
+	case <-signals:
+		stopBrowserProcess(values.CDPPort, cmd, browserDone)
+		return nil
+	}
 }
 
 func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
@@ -610,8 +636,11 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	if err := os.Remove(controlSocket); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale compositor control socket: %w", err)
 	}
-	ctx, stopWrapper := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stopWrapper := context.WithCancel(context.Background())
 	defer stopWrapper()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
 	wrapper := newWrapperRuntime(values, controlSocket)
 	wrapperServer, wrapperDone, err := wrapper.serve(ctx)
 	if err != nil {
@@ -820,10 +849,6 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		wrapper.setMediaProducer(mediaProducer)
 	}
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(signals)
-
 	for {
 		select {
 		case err := <-browserDone:
@@ -871,7 +896,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			return fmt.Errorf("wrapper api exited")
 		case <-signals:
 			stopMediaProducer(mediaProducer)
-			stopProcess(browserCmd, browserDone)
+			stopBrowserProcess(values.CDPPort, browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
 			stopProcess(wirePlumber, wirePlumberDone)
 			stopProcess(pipeWire, pipeWireDone)
@@ -1227,6 +1252,62 @@ func stopMediaProducer(mediaProducer *producer) {
 	if mediaProducer != nil {
 		_ = mediaProducer.Close()
 	}
+}
+
+func stopBrowserProcess(cdpPort int, cmd *exec.Cmd, done <-chan error) {
+	if cmd == nil || cmd.Process == nil || cmd.ProcessState != nil {
+		return
+	}
+	if err := closeBrowser(cdpPort); err != nil {
+		fmt.Fprintf(os.Stderr, "browser-session-wrapper: graceful browser close failed: %v\n", err)
+		stopProcess(cmd, done)
+		return
+	}
+
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return
+	case <-timer.C:
+		fmt.Fprintln(os.Stderr, "browser-session-wrapper: browser did not exit after Browser.close")
+		stopProcess(cmd, done)
+	}
+}
+
+func closeBrowser(cdpPort int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/json/version", cdpPort), nil)
+	if err != nil {
+		return err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("cdp version returned %s", response.Status)
+	}
+
+	var version struct {
+		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&version); err != nil {
+		return err
+	}
+	if strings.TrimSpace(version.WebSocketDebuggerURL) == "" {
+		return fmt.Errorf("cdp version omitted webSocketDebuggerUrl")
+	}
+
+	connection, _, err := websocket.Dial(ctx, version.WebSocketDebuggerURL, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = connection.CloseNow() }()
+	return connection.Write(ctx, websocket.MessageText, []byte(`{"id":1,"method":"Browser.close"}`))
 }
 
 func stopProcess(cmd *exec.Cmd, done <-chan error) {

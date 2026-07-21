@@ -93,7 +93,7 @@ func (b *directBackend) Stop(ctx context.Context, sessionID string) error {
 		return nil
 	}
 
-	if err := signalDirectProcess(process, unix.SIGTERM); err != nil {
+	if err := unix.Kill(process.cmd.Process.Pid, unix.SIGTERM); err != nil && !errors.Is(err, unix.ESRCH) {
 		return err
 	}
 	timer := time.NewTimer(directStopTimeout)

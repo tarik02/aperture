@@ -138,7 +138,7 @@ http:
     aperture-cdp-018f1234000070008000000000000001:
       loadBalancer:
         servers:
-          - url: "http://127.0.0.1:9222"
+          - url: "http://127.0.0.1:9333"
         passHostHeader: false
     aperture-wrapper-018f1234000070008000000000000001:
       loadBalancer:
