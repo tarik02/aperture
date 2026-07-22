@@ -716,6 +716,9 @@ func RunningSessionsFromDB(sessions []db.Session) []RunningSession {
 				}
 			}
 		}
+		if view.WrapperPort <= 0 {
+			continue
+		}
 		running = append(running, view)
 	}
 	sort.Slice(running, func(i, j int) bool {
