@@ -394,6 +394,13 @@ func runtimeBindMounts(nestedWaylandSocket string) ([][]string, error) {
 	}
 
 	mounts := [][]string{{"--dir", "/run"}}
+	if _, err := os.Stat("/run/systemd/resolve"); err == nil {
+		mounts = append(
+			mounts,
+			[]string{"--dir", "/run/systemd"},
+			[]string{"--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"},
+		)
+	}
 	if strings.HasPrefix(runtimeDir, "/run/") {
 		mounts = append(mounts, []string{"--dir", "/run/user"})
 	}
