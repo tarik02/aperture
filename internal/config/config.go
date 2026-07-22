@@ -90,6 +90,7 @@ type Config struct {
 	SignedFileURLTTL                 time.Duration            `mapstructure:"signed_file_url_ttl"`
 	SignedFileURLMaxTTL              time.Duration            `mapstructure:"signed_file_url_max_ttl"`
 	LogLevel                         string                   `mapstructure:"log_level"`
+	OverlayHelperConfigFile          string                   `mapstructure:"overlay_helper_config_file"`
 	ConfigFile                       string                   `mapstructure:"-"`
 }
 
@@ -145,6 +146,7 @@ func Defaults() Config {
 		SignedFileURLTTL:                 15 * time.Minute,
 		SignedFileURLMaxTTL:              24 * time.Hour,
 		LogLevel:                         "info",
+		OverlayHelperConfigFile:          "/etc/aperture/aperture.toml",
 	}
 }
 
@@ -212,6 +214,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("signed_file_url_ttl", defaults.SignedFileURLTTL)
 	v.SetDefault("signed_file_url_max_ttl", defaults.SignedFileURLMaxTTL)
 	v.SetDefault("log_level", defaults.LogLevel)
+	v.SetDefault("overlay_helper_config_file", defaults.OverlayHelperConfigFile)
 
 	if configFile := flags.GetString("config"); configFile != "" {
 		v.SetConfigFile(configFile)
@@ -267,6 +270,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"signed_file_url_ttl",
 		"signed_file_url_max_ttl",
 		"log_level",
+		"overlay_helper_config_file",
 	} {
 		if err := v.BindEnv(key); err != nil {
 			return Config{}, fmt.Errorf("bind env %s: %w", key, err)

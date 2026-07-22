@@ -20,6 +20,9 @@ func Validate(cfg Config) error {
 	errs = append(errs, validateRequiredAbsolutePath("database_path", cfg.DatabasePath)...)
 	errs = append(errs, validateRequiredAbsolutePath("traefik_dynamic_config_dir", cfg.TraefikDynamicConfigDir)...)
 	errs = append(errs, validateRequiredAbsolutePath("deploy_state_path", cfg.DeployStatePath)...)
+	if helperConfig := strings.TrimSpace(cfg.OverlayHelperConfigFile); helperConfig != "" && !filepath.IsAbs(helperConfig) {
+		errs = append(errs, errors.New("overlay_helper_config_file must be an absolute path"))
+	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.DeployColor)) {
 	case DeployColorBlue, DeployColorGreen:

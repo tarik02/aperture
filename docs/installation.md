@@ -33,6 +33,7 @@ The package provides:
 Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment variables). Required values include:
 
 - `store_root`, `runtime_root` — persistent and runtime state directories
+- `overlay_helper_config_file` — root-owned config used by the privileged overlay helpers; defaults to `/etc/aperture/aperture.toml`
 - `external_base_url` — public URL Traefik serves (for generated connection and signed-file links)
 - MCP settings — enabled by default; see the example below
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
