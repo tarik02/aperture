@@ -35,9 +35,11 @@ type producer struct {
 }
 
 type mediaProfile struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Codec string `json:"codec"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Codec       string `json:"codec"`
+	MimeType    string `json:"mimeType"`
+	SDPFmtpLine string `json:"sdpFmtpLine"`
 }
 
 type mediaSourceAdapter struct {
@@ -72,6 +74,7 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string, target str
 	}{
 		{name: webdesktopconfig.VideoProfileVP8, codec: mediaCodecVP8},
 		{name: webdesktopconfig.VideoProfileH264VAAPI, codec: mediaCodecH264},
+		{name: webdesktopconfig.VideoProfileH264VAAPIHigh, codec: mediaCodecH264},
 		{name: webdesktopconfig.VideoProfileH264Software, codec: mediaCodecX264},
 	} {
 		if candidate.codec == mediaCodecH264 && values.RenderNode == "" {
@@ -93,7 +96,13 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string, target str
 			},
 		}
 		profiles[candidate.name] = profile
-		availableProfiles = append(availableProfiles, mediaProfile{ID: candidate.name, Label: profile.Label, Codec: profile.Codec.ID})
+		availableProfiles = append(availableProfiles, mediaProfile{
+			ID:          candidate.name,
+			Label:       profile.Label,
+			Codec:       profile.Codec.ID,
+			MimeType:    profile.Codec.MimeType,
+			SDPFmtpLine: profile.Codec.SDPFmtpLine,
+		})
 	}
 	profile, exists := profiles[profileName]
 	if !exists {
@@ -315,6 +324,10 @@ func (adapter *mediaSourceAdapter) Profile(name string) (rtc.EncoderProfile, boo
 
 func (adapter *mediaSourceAdapter) UpdateQuality(quality rtc.Quality) error {
 	return adapter.source.UpdateQuality(media.Quality(quality))
+}
+
+func (adapter *mediaSourceAdapter) SetBitrate(bitrateKbps int) error {
+	return adapter.source.SetBitrate(bitrateKbps)
 }
 
 func (adapter *mediaSourceAdapter) RequestKeyframe() error {
