@@ -105,15 +105,17 @@ func accessibleRenderNode() (string, error) {
 	if len(renderNodes) == 0 {
 		return "", fmt.Errorf("no /dev/dri/renderD* device is available")
 	}
+	var lastErr error
 	for _, renderNode := range renderNodes {
 		device, err := os.OpenFile(renderNode, os.O_RDWR, 0)
 		if err != nil {
+			lastErr = fmt.Errorf("open %s: %w", renderNode, err)
 			continue
 		}
 		_ = device.Close()
 		return renderNode, nil
 	}
-	return "", fmt.Errorf("none of the render nodes are accessible")
+	return "", fmt.Errorf("none of the render nodes are accessible: %w", lastErr)
 }
 
 func probeMediaCodec(values RuntimeEnvValues, codec string) error {

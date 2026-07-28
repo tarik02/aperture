@@ -1,12 +1,4 @@
-import {
-  Observable,
-  Subscription,
-  animationFrameScheduler,
-  auditTime,
-  distinctUntilChanged,
-  filter,
-  merge,
-} from "rxjs";
+import { Observable, Subscription, auditTime, distinctUntilChanged } from "rxjs";
 import { z } from "zod";
 import { TENANT_HEADER, resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import type { ClientMessage } from "#/lib/control/messages.ts";
@@ -38,6 +30,8 @@ export type WebRTCVideoProfile = {
   id: string;
   label: string;
   codec: string;
+  mimeType: string;
+  sdpFmtpLine: string;
 };
 
 export type WebRTCMediaMetrics = {
@@ -151,6 +145,9 @@ type StatsAccumulator = {
   sample: StatsSample | null;
   metrics: WebRTCMediaMetrics;
 };
+
+const MAX_POINTER_BUFFERED_AMOUNT = 16 * 1024;
+const JITTER_BUFFER_TARGET_MS = 10;
 
 const evdevByCode: Readonly<Record<string, number>> = {
   Escape: 1,
@@ -322,6 +319,15 @@ const controlResponseSchema = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
+const inputResponseSchema = z
+  .object({
+    version: z.literal(1),
+    sequence: z.number().int().positive().optional(),
+    type: z.literal("error"),
+    ok: z.literal(false),
+    error: z.object({ code: z.string(), message: z.string() }).strict(),
+  })
+  .strict();
 const mediaStatusSchema = z
   .object({
     mediaQuality: z
@@ -340,6 +346,8 @@ const mediaStatusSchema = z
           id: z.string(),
           label: z.string(),
           codec: z.string(),
+          mimeType: z.string(),
+          sdpFmtpLine: z.string(),
         })
         .strict(),
     ),
@@ -435,6 +443,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     };
     let closed = false;
     let inputSequence = 0;
+    let inputMotionSequence = 0;
     let controlRequest = 0;
     let keyframeInterval = 60;
     let mediaStatusLoaded = false;
@@ -452,9 +461,15 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     const pendingCandidates: RTCIceCandidateInit[] = [];
     const textKeyCodes = new Set<string>();
     const subscriptions = new Subscription();
+    const mediaStatus = loadMediaStatus(options);
     const control = connection.createDataChannel("control", { ordered: true });
     const input = connection.createDataChannel("input", { ordered: true });
-    connection.addTransceiver("video", { direction: "recvonly" });
+    const inputMotion = connection.createDataChannel("input-motion", {
+      ordered: false,
+      maxRetransmits: 0,
+    });
+    const videoTransceiver = connection.addTransceiver("video", { direction: "recvonly" });
+    videoTransceiver.receiver.jitterBufferTarget = JITTER_BUFFER_TARGET_MS;
     const socket = new WebSocket(
       buildSignalURL(options.sessionId),
       buildSignalProtocols(options.credentials),
@@ -522,7 +537,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       );
     };
 
-    void loadMediaStatus(options)
+    void mediaStatus
       .then((status) => {
         keyframeInterval = status.mediaKeyframeInterval;
         mediaStatusLoaded = true;
@@ -539,17 +554,34 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       })
       .catch(() => undefined);
 
-    const sendPointerMotion = (x: number, y: number) => {
+    const sendPointerMotion = (x: number, y: number, reliable: boolean) => {
       const width = state.size?.width;
       const height = state.size?.height;
       if (!width || !height) {
         return;
       }
-      sendInput({
-        type: "input.pointer.motion.absolute",
-        x: Math.min(1, Math.max(0, x / width)),
-        y: Math.min(1, Math.max(0, y / height)),
-      });
+      const channel = reliable ? input : inputMotion;
+      if (
+        !state.inputReady ||
+        channel.readyState !== "open" ||
+        channel.bufferedAmount > MAX_POINTER_BUFFERED_AMOUNT
+      ) {
+        return;
+      }
+      if (reliable) {
+        inputSequence += 1;
+      } else {
+        inputMotionSequence += 1;
+      }
+      channel.send(
+        JSON.stringify({
+          version: 1,
+          sequence: reliable ? inputSequence : inputMotionSequence,
+          type: "input.pointer.motion.absolute",
+          x: Math.min(1, Math.max(0, x / width)),
+          y: Math.min(1, Math.max(0, y / height)),
+        }),
+      );
     };
     const cleanup = () => {
       if (closed) {
@@ -575,6 +607,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         );
       }
       input.close();
+      inputMotion.close();
       control.close();
       connection.close();
       socket.close();
@@ -586,8 +619,40 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       for (const body of pendingSignals.splice(0)) {
         socket.send(body);
       }
-      void connection
-        .createOffer()
+      void mediaStatus
+        .then((status) => {
+          const profile = status.mediaProfiles.find(
+            (candidate) => candidate.id === status.mediaQuality.profile,
+          );
+          if (!profile) {
+            throw new Error(`video profile ${status.mediaQuality.profile} is unavailable`);
+          }
+          const capabilities = RTCRtpReceiver.getCapabilities("video");
+          if (!capabilities) {
+            throw new Error("browser did not report video codec capabilities");
+          }
+          const configuredH264Profile = profile.sdpFmtpLine
+            .match(/(?:^|;)profile-level-id=([0-9a-f]{2})/i)?.[1]
+            ?.toLowerCase();
+          const preferredCodecs = capabilities.codecs.filter((codec) => {
+            if (codec.mimeType.toLowerCase() !== profile.mimeType.toLowerCase()) {
+              return false;
+            }
+            if (!configuredH264Profile) {
+              return true;
+            }
+            return (
+              codec.sdpFmtpLine
+                ?.match(/(?:^|;)profile-level-id=([0-9a-f]{2})/i)?.[1]
+                ?.toLowerCase() === configuredH264Profile
+            );
+          });
+          if (preferredCodecs.length === 0) {
+            throw new Error(`browser does not support ${profile.label}`);
+          }
+          videoTransceiver.setCodecPreferences(preferredCodecs);
+          return connection.createOffer();
+        })
         .then((offer) => connection.setLocalDescription(offer))
         .then(() => {
           const description = connection.localDescription;
@@ -699,7 +764,12 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     });
 
     const acquireInput = () => {
-      if (control.readyState !== "open" || input.readyState !== "open" || state.inputReady) {
+      if (
+        control.readyState !== "open" ||
+        input.readyState !== "open" ||
+        inputMotion.readyState !== "open" ||
+        state.inputReady
+      ) {
         return;
       }
       controlRequest += 1;
@@ -716,6 +786,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       sendStreamSettings();
     });
     input.addEventListener("open", acquireInput);
+    inputMotion.addEventListener("open", acquireInput);
     control.addEventListener("message", (event) => {
       const parsed = z
         .string()
@@ -763,18 +834,33 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     });
     input.addEventListener("close", () => emit({ inputReady: false }));
     input.addEventListener("error", () => emit({ inputReady: false }));
+    inputMotion.addEventListener("close", () => emit({ inputReady: false }));
+    inputMotion.addEventListener("error", () => emit({ inputReady: false }));
+    const handleInputResponse = (event: MessageEvent<unknown>) => {
+      const parsed = z
+        .string()
+        .transform((body) => JSON.parse(body))
+        .pipe(inputResponseSchema)
+        .safeParse(event.data);
+      if (!parsed.success) {
+        fail({ kind: "unexpected", cause: new Error("invalid WebRTC input response") });
+        return;
+      }
+      console.warn("WebRTC input failed", parsed.data.error);
+      if (
+        parsed.data.error.code === "input_overloaded" ||
+        parsed.data.error.code === "input_unavailable"
+      ) {
+        emit({ inputReady: false });
+      }
+    };
+    input.addEventListener("message", handleInputResponse);
+    inputMotion.addEventListener("message", handleInputResponse);
 
-    const motion$ = options.input$.pipe(
-      filter((message) => message.type === "input.mouse" && message.action === "move"),
-      auditTime(0, animationFrameScheduler),
-    );
-    const transitions$ = options.input$.pipe(
-      filter((message) => message.type !== "input.mouse" || message.action !== "move"),
-    );
     subscriptions.add(
-      merge(motion$, transitions$).subscribe((message) => {
+      options.input$.subscribe((message) => {
         if (message.type === "input.mouse") {
-          sendPointerMotion(message.x, message.y);
+          sendPointerMotion(message.x, message.y, message.action !== "move");
           const button = pointerButton(message.button);
           if (!button || message.action === "move") {
             return;
@@ -824,7 +910,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           }
           return;
         }
-        sendPointerMotion(message.x, message.y);
+        sendPointerMotion(message.x, message.y, true);
         sendInput({
           type: "input.pointer.scroll",
           horizontal: message.deltaX,
