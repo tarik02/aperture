@@ -1,3 +1,11 @@
 #!/command/with-contenv sh
 exec 2>&1
+# Standard Docker loads device groups from /etc/group. Rootless Podman needs the
+# inherited keep-groups vector because its device GIDs are unmapped.
+for render_node in /dev/dri/renderD*; do
+  [ -e "$render_node" ] || break
+  if sudo -E -u aperture -g aperture env "PATH=$PATH" sh -c 'exec 3<>"$1"' sh "$render_node" 2>/dev/null; then
+    exec sudo -E -u aperture -g aperture env "PATH=$PATH" aperture serve --config /etc/aperture/aperture.toml
+  fi
+done
 exec sudo -E -P -u aperture -g aperture env "PATH=$PATH" aperture serve --config /etc/aperture/aperture.toml

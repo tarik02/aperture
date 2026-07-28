@@ -564,7 +564,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       if (
         !state.inputReady ||
         channel.readyState !== "open" ||
-        channel.bufferedAmount > MAX_POINTER_BUFFERED_AMOUNT
+        (!reliable && channel.bufferedAmount > MAX_POINTER_BUFFERED_AMOUNT)
       ) {
         return;
       }
@@ -781,6 +781,14 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         }),
       );
     };
+    const reconnectInput = () => {
+      if (closed) {
+        return;
+      }
+      emit({ inputReady: false });
+      cleanup();
+      queueMicrotask(options.reconnect);
+    };
     control.addEventListener("open", () => {
       acquireInput();
       sendStreamSettings();
@@ -832,10 +840,10 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
       emit({ inputReady: parsed.data.input.pointer || parsed.data.input.keyboard });
     });
-    input.addEventListener("close", () => emit({ inputReady: false }));
-    input.addEventListener("error", () => emit({ inputReady: false }));
-    inputMotion.addEventListener("close", () => emit({ inputReady: false }));
-    inputMotion.addEventListener("error", () => emit({ inputReady: false }));
+    input.addEventListener("close", reconnectInput);
+    input.addEventListener("error", reconnectInput);
+    inputMotion.addEventListener("close", reconnectInput);
+    inputMotion.addEventListener("error", reconnectInput);
     const handleInputResponse = (event: MessageEvent<unknown>) => {
       const parsed = z
         .string()
@@ -851,7 +859,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         parsed.data.error.code === "input_overloaded" ||
         parsed.data.error.code === "input_unavailable"
       ) {
-        emit({ inputReady: false });
+        reconnectInput();
       }
     };
     input.addEventListener("message", handleInputResponse);
