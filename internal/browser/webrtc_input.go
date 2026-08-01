@@ -23,9 +23,17 @@ type compositorInputSender struct {
 }
 
 type targetInputController struct {
+	controlSocket string
+	targets       *targetMediaSource
+	mu            sync.Mutex
+	inputs        map[string]*targetInput
+	owners        map[uint64]string
+	closed        bool
+}
+
+type targetInput struct {
 	controller *remoteinput.Controller
 	sender     *compositorInputSender
-	targets    *targetMediaSource
 }
 
 func newCompositorInputSender(controlSocket string, width int, height int) *compositorInputSender {
@@ -181,16 +189,80 @@ func (controller *targetInputController) Acquire(owner uint64, revoke func(uint6
 	if !exists {
 		return remoteinput.Capabilities{}, remoteinput.ErrNotReady
 	}
-	controller.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
-	return controller.controller.Acquire(owner, revoke)
+
+	controller.mu.Lock()
+	if controller.closed {
+		controller.mu.Unlock()
+		return remoteinput.Capabilities{}, remoteinput.ErrClosed
+	}
+	if previousTargetID, owned := controller.owners[owner]; owned {
+		delete(controller.owners, owner)
+		_ = controller.inputs[previousTargetID].controller.Release(owner)
+	}
+
+	input := controller.inputs[target.TargetID]
+	if input == nil {
+		inputController, err := remoteinput.New(remoteinput.Config{
+			Enabled:   true,
+			Locking:   false,
+			Pointer:   true,
+			Keyboard:  true,
+			QueueSize: 256,
+		})
+		if err != nil {
+			controller.mu.Unlock()
+			return remoteinput.Capabilities{}, err
+		}
+		sender := newCompositorInputSender(
+			controller.controlSocket,
+			target.Viewport.Width,
+			target.Viewport.Height,
+		)
+		if err := inputController.Attach(remoteinput.Authorization{Pointer: true, Keyboard: true}, sender); err != nil {
+			controller.mu.Unlock()
+			_ = inputController.Close()
+			return remoteinput.Capabilities{}, err
+		}
+		input = &targetInput{controller: inputController, sender: sender}
+		controller.inputs[target.TargetID] = input
+	}
+	input.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
+	capabilities, err := input.controller.Acquire(owner, func(sequence uint64, cause error) {
+		controller.mu.Lock()
+		if controller.owners[owner] == target.TargetID {
+			delete(controller.owners, owner)
+		}
+		controller.mu.Unlock()
+		revoke(sequence, cause)
+	})
+	if err != nil {
+		controller.mu.Unlock()
+		return remoteinput.Capabilities{}, err
+	}
+	controller.owners[owner] = target.TargetID
+	controller.mu.Unlock()
+	return capabilities, nil
 }
 
 func (controller *targetInputController) Release(owner uint64) error {
-	return controller.controller.Release(owner)
+	controller.mu.Lock()
+	targetID, owned := controller.owners[owner]
+	if !owned {
+		controller.mu.Unlock()
+		return remoteinput.ErrNotOwner
+	}
+	delete(controller.owners, owner)
+	input := controller.inputs[targetID]
+	controller.mu.Unlock()
+	return input.controller.Release(owner)
 }
 
 func (controller *targetInputController) Owns(owner uint64) bool {
-	return controller.controller.Owns(owner)
+	controller.mu.Lock()
+	targetID, owned := controller.owners[owner]
+	input := controller.inputs[targetID]
+	controller.mu.Unlock()
+	return owned && input.controller.Owns(owner)
 }
 
 func (controller *targetInputController) Submit(owner uint64, event remoteinput.Event) error {
@@ -198,8 +270,34 @@ func (controller *targetInputController) Submit(owner uint64, event remoteinput.
 	if !exists {
 		return remoteinput.ErrNotReady
 	}
-	controller.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
-	return controller.controller.Submit(owner, event)
+	controller.mu.Lock()
+	targetID, owned := controller.owners[owner]
+	input := controller.inputs[targetID]
+	controller.mu.Unlock()
+	if !owned || targetID != target.TargetID {
+		return remoteinput.ErrNotReady
+	}
+	input.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
+	return input.controller.Submit(owner, event)
+}
+
+func (controller *targetInputController) Close() error {
+	controller.mu.Lock()
+	if controller.closed {
+		controller.mu.Unlock()
+		return nil
+	}
+	controller.closed = true
+	inputs := controller.inputs
+	controller.inputs = make(map[string]*targetInput)
+	controller.owners = make(map[uint64]string)
+	controller.mu.Unlock()
+
+	var closeErr error
+	for _, input := range inputs {
+		closeErr = errors.Join(closeErr, input.controller.Close())
+	}
+	return closeErr
 }
 
 func (s *compositorInputSender) Close() error {

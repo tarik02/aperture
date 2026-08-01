@@ -178,10 +178,10 @@ Rapid selections use request IDs and generations. The latest accepted selection 
 
 Media selection and input ownership are separate:
 
-- Selecting a target for viewing does not steal the compositor input seat from another consumer.
-- A peer must hold the existing input lease before it can send input.
-- Acquiring input focuses that peer's selected target.
-- Switching or losing the selected target releases pressed keys, pointer buttons, and text input state before focus changes.
+- Selecting a target for viewing does not change another consumer's media or input target.
+- Each target has its own ordered input controller. Peers hold independent leases on their confirmed targets, so different peers can interact with different targets concurrently without sharing mutable sender state.
+- Every compositor input command carries the selected target's surface ID instead of relying on session-global focus.
+- Switching or losing the selected target closes that peer's old lease and releases its pressed keys, pointer buttons, and text input state before accepting input for the new target.
 - Input is rejected while selection is pending or the selected target is unavailable.
 
 ### Frontend behavior

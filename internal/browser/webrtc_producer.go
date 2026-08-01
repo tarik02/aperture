@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	webdesktopconfig "github.com/tarik02/webdesktop/config"
-	remoteinput "github.com/tarik02/webdesktop/input"
 	"github.com/tarik02/webdesktop/media"
 	rtc "github.com/tarik02/webdesktop/webrtc"
 	"go.uber.org/zap"
@@ -30,8 +29,7 @@ type producer struct {
 	media    *targetMediaSource
 	profiles []mediaProfile
 	webrtc   *rtc.Service
-	input    *remoteinput.Controller
-	sender   *compositorInputSender
+	input    *targetInputController
 }
 
 type mediaProfile struct {
@@ -124,21 +122,11 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 	}
 	mediaSource := newTargetMediaSource(mediaConfig, logger.Named("media"))
 
-	inputController, err := remoteinput.New(remoteinput.Config{
-		Enabled:   true,
-		Locking:   true,
-		Pointer:   true,
-		Keyboard:  true,
-		QueueSize: 256,
-	})
-	if err != nil {
-		mediaSource.Close()
-		return nil, fmt.Errorf("create webdesktop input controller: %w", err)
-	}
-	sender := newCompositorInputSender(controlSocket, values.CompositorWidth, values.CompositorHeight)
-	if err := inputController.Attach(remoteinput.Authorization{Pointer: true, Keyboard: true}, sender); err != nil {
-		_ = inputController.Close()
-		return nil, fmt.Errorf("attach compositor input sender: %w", err)
+	inputController := &targetInputController{
+		controlSocket: controlSocket,
+		targets:       mediaSource,
+		inputs:        make(map[string]*targetInput),
+		owners:        make(map[uint64]string),
 	}
 
 	iceServers, iceUsername, iceCredential, err := parseICEServers(values.MediaProducerICEServers)
@@ -147,7 +135,6 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		mediaSource.Close()
 		return nil, err
 	}
-	routedInput := &targetInputController{controller: inputController, sender: sender, targets: mediaSource}
 	webrtcService, err := rtc.New(rtc.Config{
 		ICEServers:          iceServers,
 		ICEUsername:         iceUsername,
@@ -158,7 +145,7 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		MaxPeers:            8,
 		ReplaceExistingPeer: false,
 		AllowedOrigins:      []string{"*"},
-	}, mediaSource, nil, routedInput, nil, logger.Named("webrtc"))
+	}, mediaSource, nil, inputController, nil, logger.Named("webrtc"))
 	if err != nil {
 		_ = inputController.Close()
 		mediaSource.Close()
@@ -173,7 +160,6 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		profiles: availableProfiles,
 		webrtc:   webrtcService,
 		input:    inputController,
-		sender:   sender,
 	}
 	go result.run(ctx)
 	return result, nil

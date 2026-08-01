@@ -283,18 +283,35 @@ function BrowserMenus({
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
+  const recordingActive = runningRecordings.length > 0;
 
   return (
     <>
       <div className="shrink-0 sm:hidden">
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button type="button" variant="ghost" size="icon-sm" aria-label="Browser menu" />
-            }
-          >
-            <MoreVertical />
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant={recordingActive ? "destructive" : "ghost"}
+                      size="icon-sm"
+                      aria-label={
+                        recordingActive ? "Browser menu, recording active" : "Browser menu"
+                      }
+                    />
+                  }
+                />
+              }
+            >
+              {recordingActive ? <Circle fill="currentColor" /> : <MoreVertical />}
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {recordingActive ? "Browser menu, recording active" : "Browser menu"}
+            </TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
             <RestMenuItems
               control={control}
@@ -302,9 +319,6 @@ function BrowserMenus({
               shareUrl={shareUrl}
               busy={busy}
               connected={connected}
-              showStreamMenu={showStreamMenu}
-              performanceOverlayEnabled={performanceOverlayEnabled}
-              onPerformanceOverlayChange={onPerformanceOverlayChange}
               onReconnect={onReconnect}
             />
             <DropdownMenuSeparator />
@@ -319,17 +333,35 @@ function BrowserMenus({
               control={control}
               connected={connected}
               showStreamMenu={showStreamMenu}
+              performanceOverlayEnabled={performanceOverlayEnabled}
+              onPerformanceOverlayChange={onPerformanceOverlayChange}
             />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
       <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button type="button" variant="ghost" size="icon-sm" aria-label="Recording" />}
-          >
-            <Circle />
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant={recordingActive ? "destructive" : "ghost"}
+                      size="icon-sm"
+                      aria-label={recordingActive ? "Recording in progress" : "Recording"}
+                    />
+                  }
+                />
+              }
+            >
+              <Circle fill={recordingActive ? "currentColor" : "none"} />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {recordingActive ? "Recording in progress" : "Recording"}
+            </TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
             <RecordingMenuItems
               control={control}
@@ -340,34 +372,55 @@ function BrowserMenus({
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Viewport and stream"
-              />
-            }
-          >
-            <Monitor />
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Viewport and stream"
+                    />
+                  }
+                />
+              }
+            >
+              <Monitor />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Viewport and stream</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" className="w-56">
             <ViewportStreamMenuItems
               control={control}
               connected={connected}
               showStreamMenu={showStreamMenu}
+              performanceOverlayEnabled={performanceOverlayEnabled}
+              onPerformanceOverlayChange={onPerformanceOverlayChange}
             />
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button type="button" variant="ghost" size="icon-sm" aria-label="Browser menu" />
-            }
-          >
-            <MoreVertical />
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="More browser actions"
+                    />
+                  }
+                />
+              }
+            >
+              <MoreVertical />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">More browser actions</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" className="w-48">
             <RestMenuItems
               control={control}
@@ -375,9 +428,6 @@ function BrowserMenus({
               shareUrl={shareUrl}
               busy={busy}
               connected={connected}
-              showStreamMenu={showStreamMenu}
-              performanceOverlayEnabled={performanceOverlayEnabled}
-              onPerformanceOverlayChange={onPerformanceOverlayChange}
               onReconnect={onReconnect}
             />
           </DropdownMenuContent>
@@ -393,9 +443,6 @@ function RestMenuItems({
   shareUrl,
   busy,
   connected,
-  showStreamMenu,
-  performanceOverlayEnabled,
-  onPerformanceOverlayChange,
   onReconnect,
 }: {
   control: UseBrowserControlResult;
@@ -403,9 +450,6 @@ function RestMenuItems({
   shareUrl: string | null;
   busy: boolean;
   connected: boolean;
-  showStreamMenu: boolean;
-  performanceOverlayEnabled: boolean;
-  onPerformanceOverlayChange: (enabled: boolean) => void;
   onReconnect: () => void;
 }) {
   return (
@@ -451,14 +495,6 @@ function RestMenuItems({
         <MousePointer2 />
         {control.captured ? "Release input" : "Capture input"}
       </DropdownMenuItem>
-      <DropdownMenuCheckboxItem
-        disabled={!showStreamMenu}
-        checked={performanceOverlayEnabled}
-        onCheckedChange={onPerformanceOverlayChange}
-      >
-        <Activity />
-        Performance overlay
-      </DropdownMenuCheckboxItem>
     </DropdownMenuGroup>
   );
 }
@@ -548,20 +584,38 @@ function ViewportStreamMenuItems({
   control,
   connected,
   showStreamMenu,
+  performanceOverlayEnabled,
+  onPerformanceOverlayChange,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
   showStreamMenu: boolean;
+  performanceOverlayEnabled: boolean;
+  onPerformanceOverlayChange: (enabled: boolean) => void;
 }) {
   return (
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
-      {showStreamMenu ? <StreamMenu control={control} /> : null}
+      {showStreamMenu ? (
+        <StreamMenu
+          control={control}
+          performanceOverlayEnabled={performanceOverlayEnabled}
+          onPerformanceOverlayChange={onPerformanceOverlayChange}
+        />
+      ) : null}
     </DropdownMenuGroup>
   );
 }
 
-function StreamMenu({ control }: { control: UseBrowserControlResult }) {
+function StreamMenu({
+  control,
+  performanceOverlayEnabled,
+  onPerformanceOverlayChange,
+}: {
+  control: UseBrowserControlResult;
+  performanceOverlayEnabled: boolean;
+  onPerformanceOverlayChange: (enabled: boolean) => void;
+}) {
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -618,6 +672,14 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
           settings={control.mediaStreamSettings}
           onApply={control.setWebRTCStreamSettings}
         />
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem
+          checked={performanceOverlayEnabled}
+          onCheckedChange={onPerformanceOverlayChange}
+        >
+          <Activity />
+          Performance overlay
+        </DropdownMenuCheckboxItem>
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
