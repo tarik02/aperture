@@ -285,6 +285,8 @@ func (registry *wrapperTargetRegistry) settleWindow(ctx context.Context, message
 }
 
 func (registry *wrapperTargetRegistry) closeWindow(_ context.Context, windowID int64) error {
+	registry.reconcile.Lock()
+	defer registry.reconcile.Unlock()
 	registry.mu.Lock()
 	delete(registry.windows, windowID)
 	var unavailable []wrapperTargetSnapshot
@@ -320,8 +322,12 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 		return err
 	}
 	liveTargets := make(map[string]struct{}, len(targets))
+	unresolvedWindow := false
 	for _, target := range targets {
 		liveTargets[target.Target.TargetID] = struct{}{}
+		if target.Window == 0 {
+			unresolvedWindow = true
+		}
 	}
 	for _, binding := range bindings {
 		var matching []cdpTargetWindow
@@ -330,7 +336,24 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 				matching = append(matching, target)
 			}
 		}
-		if len(matching) != 1 {
+		if unresolvedWindow || len(matching) != 1 {
+			registry.mu.Lock()
+			var unavailable []wrapperTargetSnapshot
+			for targetID, target := range registry.targets {
+				if target.WindowID != binding.WindowID || target.State == wrapperTargetUnavailable || target.State == wrapperTargetClosed {
+					continue
+				}
+				target.State = wrapperTargetUnavailable
+				registry.targets[targetID] = target
+				unavailable = append(unavailable, target)
+			}
+			registry.mu.Unlock()
+			if len(unavailable) > 0 {
+				_, _ = sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", binding.SurfaceID))
+				for _, target := range unavailable {
+					registry.runtime.targetUnavailable(target)
+				}
+			}
 			continue
 		}
 		if err := registry.ensureTarget(ctx, binding, matching[0]); err != nil {
@@ -384,27 +407,44 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 	}
 	cleanup := true
 	transitioning := false
+	replacementBound := false
+	completed := false
 	defer func() {
+		if replacementBound && !completed {
+			if !exists || binding.SurfaceID != existing.SurfaceID {
+				_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", binding.SurfaceID))
+			}
+			if exists {
+				_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
+			}
+		}
 		if cleanup {
 			registry.retireOutput(context.Background(), captureID)
 		}
 		if transitioning {
+			registry.mu.Lock()
+			current, currentExists := registry.targets[existing.TargetID]
+			if currentExists && current.Generation == existing.Generation && current.State == wrapperTargetPending {
+				registry.targets[existing.TargetID] = existing
+			}
+			registry.mu.Unlock()
 			registry.runtime.targetRestored(existing.TargetID)
 		}
 	}()
 	if exists {
+		pending := existing
+		pending.State = wrapperTargetPending
+		registry.mu.Lock()
+		registry.targets[existing.TargetID] = pending
+		registry.mu.Unlock()
 		registry.runtime.targetTransitioning(existing.TargetID)
 		transitioning = true
 	}
 	if err := registry.bindSurface(ctx, binding.SurfaceID, captureID, created.Viewport); err != nil {
 		return err
 	}
+	replacementBound = true
 	if err := registry.waitForSurface(ctx, binding.SurfaceID, captureID, created.Viewport); err != nil {
-		if exists {
-			_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
-		} else {
-			_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", binding.SurfaceID))
-		}
 		return err
 	}
 	next := wrapperTargetSnapshot{
@@ -420,11 +460,6 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 		Viewport:       created.Viewport,
 	}
 	if err := registry.runtime.targetReady(ctx, next, existing, exists); err != nil {
-		if exists {
-			_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
-		} else {
-			_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", binding.SurfaceID))
-		}
 		return err
 	}
 	transitioning = false
@@ -433,7 +468,11 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 	registry.targets[next.TargetID] = next
 	registry.mu.Unlock()
 	cleanup = false
+	completed = true
 	if exists {
+		if existing.SurfaceID != binding.SurfaceID {
+			_, _ = sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", existing.SurfaceID))
+		}
 		registry.retireOutput(ctx, existing.CaptureID)
 	}
 	return nil
@@ -518,6 +557,25 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 		return wrapperTargetSnapshot{}, errors.New("target window binding is unavailable")
 	}
 	if viewport.CanvasWidth == existing.Viewport.CanvasWidth && viewport.CanvasHeight == existing.Viewport.CanvasHeight {
+		pending := existing
+		pending.State = wrapperTargetPending
+		registry.mu.Lock()
+		registry.targets[targetID] = pending
+		registry.mu.Unlock()
+		transitioning := true
+		defer func() {
+			if !transitioning {
+				return
+			}
+			registry.mu.Lock()
+			current, currentExists := registry.targets[targetID]
+			if currentExists && current.Generation == existing.Generation && current.State == wrapperTargetPending {
+				registry.targets[targetID] = existing
+			}
+			registry.mu.Unlock()
+			registry.runtime.targetRestored(targetID)
+		}()
+		registry.runtime.targetTransitioning(targetID)
 		if err := registry.bindSurface(ctx, existing.SurfaceID, existing.CaptureID, viewport); err != nil {
 			return wrapperTargetSnapshot{}, err
 		}
@@ -536,10 +594,13 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 		registry.mu.Lock()
 		registry.targets[targetID] = next
 		registry.mu.Unlock()
+		transitioning = false
 		return next, nil
 	}
+	pending := existing
+	pending.State = wrapperTargetPending
 	registry.mu.Lock()
-	registry.targets[targetID] = existing
+	registry.targets[targetID] = pending
 	registry.mu.Unlock()
 	captureID := registryCaptureID(targetID, existing.Generation+1)
 	created, err := registry.createOutput(ctx, captureID, viewport)
@@ -553,6 +614,12 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 			registry.retireOutput(context.Background(), captureID)
 		}
 		if transitioning {
+			registry.mu.Lock()
+			current, currentExists := registry.targets[targetID]
+			if currentExists && current.Generation == existing.Generation && current.State == wrapperTargetPending {
+				registry.targets[targetID] = existing
+			}
+			registry.mu.Unlock()
 			registry.runtime.targetRestored(existing.TargetID)
 		}
 	}()
@@ -789,13 +856,14 @@ func discoverCDPTargetWindows(ctx context.Context, port int) ([]cdpTargetWindow,
 		if !isUserCDPTarget(target) {
 			continue
 		}
+		targetWindow := cdpTargetWindow{Target: target}
 		var window struct {
 			WindowID int64 `json:"windowId"`
 		}
-		if err := call("Browser.getWindowForTarget", map[string]any{"targetId": target.TargetID}, &window); err != nil {
-			continue
+		if err := call("Browser.getWindowForTarget", map[string]any{"targetId": target.TargetID}, &window); err == nil {
+			targetWindow.Window = window.WindowID
 		}
-		targets = append(targets, cdpTargetWindow{Target: target, Window: window.WindowID})
+		targets = append(targets, targetWindow)
 	}
 	return targets, nil
 }

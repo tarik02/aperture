@@ -201,7 +201,11 @@ export function useBrowserControl({
   browserViewportSizeRef.current = browserViewportSize;
   viewportAutoSyncRef.current = viewportAutoSync;
   controlEnabledRef.current = Boolean(enabled && sessionId && credentials);
-  recordingTargetIdRef.current = controlState.mediaTargetId ?? activeTargetId;
+  if (controlState.mediaTargetId) {
+    recordingTargetIdRef.current = controlState.mediaTargetId;
+  } else if (!controlState.mediaSwitching) {
+    recordingTargetIdRef.current = activeTargetId;
+  }
 
   const activeTarget = useMemo(
     () => targets.find((target) => target.id === activeTargetId) ?? null,

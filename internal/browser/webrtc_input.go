@@ -19,6 +19,9 @@ type compositorInputSender struct {
 	width         int
 	height        int
 	surfaceID     uint64
+	pointerX      float64
+	pointerY      float64
+	pointerSet    bool
 	closed        bool
 }
 
@@ -78,6 +81,9 @@ func (s *compositorInputSender) PointerAbsolute(x float64, y float64) error {
 	height := s.height
 	surfaceID := s.surfaceID
 	closed := s.closed
+	s.pointerX = x
+	s.pointerY = y
+	s.pointerSet = true
 	s.mu.Unlock()
 	if closed {
 		return errors.New("compositor input sender is closed")
@@ -99,7 +105,12 @@ func (*compositorInputSender) PointerRelative(float64, float64) error {
 
 func (s *compositorInputSender) Button(code uint32, pressed bool) error {
 	s.mu.Lock()
+	width := s.width
+	height := s.height
 	surfaceID := s.surfaceID
+	pointerX := s.pointerX
+	pointerY := s.pointerY
+	pointerSet := s.pointerSet
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
@@ -112,10 +123,14 @@ func (s *compositorInputSender) Button(code uint32, pressed bool) error {
 	if pressed {
 		pressedValue = 1
 	}
+	command := fmt.Sprintf("button %d %d %d\n", surfaceID, code, pressedValue)
+	if pointerSet {
+		command = fmt.Sprintf("button-at %d %.3f %.3f %d %d\n", surfaceID, pointerX*float64(width), pointerY*float64(height), code, pressedValue)
+	}
 	_, err := sendCompositorControlCommand(
 		context.Background(),
 		s.controlSocket,
-		fmt.Sprintf("button %d %d %d\n", surfaceID, code, pressedValue),
+		command,
 	)
 	return err
 }
@@ -125,7 +140,12 @@ func (s *compositorInputSender) Scroll(horizontal float64, vertical float64, _ b
 		return nil
 	}
 	s.mu.Lock()
+	width := s.width
+	height := s.height
 	surfaceID := s.surfaceID
+	pointerX := s.pointerX
+	pointerY := s.pointerY
+	pointerSet := s.pointerSet
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
@@ -134,10 +154,14 @@ func (s *compositorInputSender) Scroll(horizontal float64, vertical float64, _ b
 	if surfaceID == 0 {
 		return errors.New("compositor input target is unavailable")
 	}
+	command := fmt.Sprintf("axis %d %.3f %.3f\n", surfaceID, horizontal, vertical)
+	if pointerSet {
+		command = fmt.Sprintf("axis-at %d %.3f %.3f %.3f %.3f\n", surfaceID, pointerX*float64(width), pointerY*float64(height), horizontal, vertical)
+	}
 	_, err := sendCompositorControlCommand(
 		context.Background(),
 		s.controlSocket,
-		fmt.Sprintf("axis %d %.3f %.3f\n", surfaceID, horizontal, vertical),
+		command,
 	)
 	return err
 }

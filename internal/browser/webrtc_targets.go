@@ -40,6 +40,7 @@ type targetMediaSource struct {
 	close         sync.Once
 	wait          sync.WaitGroup
 	mu            sync.Mutex
+	activityMu    sync.Mutex
 	active        bool
 	closed        bool
 	quality       media.Quality
@@ -79,6 +80,10 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 	quality := source.quality
 	active := source.active
 	previous := source.targets[target.TargetID]
+	previousTarget := wrapperTargetSnapshot{}
+	if previous != nil {
+		previousTarget = previous.target
+	}
 	selected := false
 	for _, selection := range source.selected {
 		if selection.targetID == target.TargetID {
@@ -87,9 +92,9 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 		}
 	}
 	source.mu.Unlock()
-	if previous != nil && previous.target.PipeWireTarget == target.PipeWireTarget &&
-		previous.target.Viewport.CanvasWidth == target.Viewport.CanvasWidth &&
-		previous.target.Viewport.CanvasHeight == target.Viewport.CanvasHeight {
+	if previous != nil && previousTarget.PipeWireTarget == target.PipeWireTarget &&
+		previousTarget.Viewport.CanvasWidth == target.Viewport.CanvasWidth &&
+		previousTarget.Viewport.CanvasHeight == target.Viewport.CanvasHeight {
 		source.mu.Lock()
 		if source.closed || source.targets[target.TargetID] != previous {
 			source.mu.Unlock()
@@ -116,6 +121,7 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 			}
 		}
 		source.mu.Unlock()
+		source.syncEncoderActivity()
 		_ = previous.service.RequestKeyframe()
 		for _, update := range updates {
 			select {
@@ -146,7 +152,7 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 		cancel:        cancel,
 		firstKeyframe: make(chan rtc.VideoSample, 1),
 	}
-	service.SetActive(active)
+	service.SetActive(active && selected)
 	source.wait.Add(2)
 	go func() {
 		defer source.wait.Done()
@@ -158,10 +164,12 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 
 	var firstKeyframe rtc.VideoSample
 	if previous != nil && active && selected {
+		keyframeCtx, cancelKeyframe := context.WithTimeout(ctx, 5*time.Second)
+		defer cancelKeyframe()
 		select {
-		case <-ctx.Done():
+		case <-keyframeCtx.Done():
 			cancel()
-			return fmt.Errorf("wait for replacement keyframe for %s: %w", target.TargetID, ctx.Err())
+			return fmt.Errorf("wait for replacement keyframe for %s: %w", target.TargetID, keyframeCtx.Err())
 		case firstKeyframe = <-encoder.firstKeyframe:
 		}
 	}
@@ -195,6 +203,7 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 		}
 	}
 	source.mu.Unlock()
+	source.syncEncoderActivity()
 	if firstKeyframe.Data != nil {
 		if !source.publish(encoder, firstKeyframe) {
 			cancel()
@@ -304,6 +313,9 @@ func (source *targetMediaSource) SelectedTarget(peerID uint64) (wrapperTargetSna
 	if !exists {
 		return wrapperTargetSnapshot{}, false
 	}
+	if selected, selectedExists := source.selected[peerID]; !selectedExists || selected != selection {
+		return wrapperTargetSnapshot{}, false
+	}
 	if _, transitioning := source.transitioning[selection.targetID]; transitioning {
 		return wrapperTargetSnapshot{}, false
 	}
@@ -315,7 +327,9 @@ func (source *targetMediaSource) SelectedTarget(peerID uint64) (wrapperTargetSna
 }
 
 func (source *targetMediaSource) SelectTarget(ctx context.Context, peerID uint64, generation uint64, targetID string) (rtc.TargetSelection, error) {
-	if err := ctx.Err(); err != nil {
+	selectionCtx, cancelSelection := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelSelection()
+	if err := selectionCtx.Err(); err != nil {
 		return rtc.TargetSelection{}, err
 	}
 	source.mu.Lock()
@@ -325,7 +339,8 @@ func (source *targetMediaSource) SelectTarget(ctx context.Context, peerID uint64
 	}
 	source.generations[peerID] = generation
 	encoder := source.targets[targetID]
-	if encoder == nil {
+	_, transitioning := source.transitioning[targetID]
+	if encoder == nil || transitioning {
 		source.mu.Unlock()
 		return rtc.TargetSelection{}, errors.New("target is unavailable")
 	}
@@ -336,23 +351,24 @@ func (source *targetMediaSource) SelectTarget(ctx context.Context, peerID uint64
 	}
 	source.waiters[peerID] = waiter
 	source.mu.Unlock()
+	source.syncEncoderActivity()
 	for {
 		if err := encoder.service.RequestKeyframe(); err == nil {
 			break
 		}
 		timer := time.NewTimer(25 * time.Millisecond)
 		select {
-		case <-ctx.Done():
+		case <-selectionCtx.Done():
 			timer.Stop()
 			source.rollbackSelection(peerID, generation)
-			return rtc.TargetSelection{}, ctx.Err()
+			return rtc.TargetSelection{}, selectionCtx.Err()
 		case <-timer.C:
 		}
 	}
 	select {
-	case <-ctx.Done():
+	case <-selectionCtx.Done():
 		source.rollbackSelection(peerID, generation)
-		return rtc.TargetSelection{}, ctx.Err()
+		return rtc.TargetSelection{}, selectionCtx.Err()
 	case <-waiter.ready:
 	}
 	source.mu.Lock()
@@ -363,15 +379,16 @@ func (source *targetMediaSource) SelectTarget(ctx context.Context, peerID uint64
 		return rtc.TargetSelection{}, errors.New("target selection was superseded")
 	}
 	source.confirmed[peerID] = selection
+	currentTarget := current.target
 	source.mu.Unlock()
 	return rtc.TargetSelection{
 		TargetID:          targetID,
 		Generation:        generation,
-		Width:             current.target.Viewport.Width,
-		Height:            current.target.Viewport.Height,
-		PhysicalWidth:     current.target.Viewport.CanvasWidth,
-		PhysicalHeight:    current.target.Viewport.CanvasHeight,
-		DeviceScaleFactor: current.target.Viewport.DeviceScaleFactor,
+		Width:             currentTarget.Viewport.Width,
+		Height:            currentTarget.Viewport.Height,
+		PhysicalWidth:     currentTarget.Viewport.CanvasWidth,
+		PhysicalHeight:    currentTarget.Viewport.CanvasHeight,
+		DeviceScaleFactor: currentTarget.Viewport.DeviceScaleFactor,
 	}, nil
 }
 
@@ -389,6 +406,7 @@ func (source *targetMediaSource) rollbackSelection(peerID uint64, generation uin
 		delete(source.waiters, peerID)
 	}
 	source.mu.Unlock()
+	source.syncEncoderActivity()
 }
 
 func (source *targetMediaSource) ReleaseTarget(peerID uint64) {
@@ -401,6 +419,7 @@ func (source *targetMediaSource) ReleaseTarget(peerID uint64) {
 	}
 	delete(source.waiters, peerID)
 	source.mu.Unlock()
+	source.syncEncoderActivity()
 }
 
 func (source *targetMediaSource) AcceptsTarget(peerID uint64, targetID string) bool {
@@ -416,12 +435,14 @@ func (source *targetMediaSource) SuspendTarget(targetID string) {
 	source.mu.Lock()
 	source.transitioning[targetID] = struct{}{}
 	source.mu.Unlock()
+	source.syncEncoderActivity()
 }
 
 func (source *targetMediaSource) RestoreTarget(targetID string) {
 	source.mu.Lock()
 	delete(source.transitioning, targetID)
 	source.mu.Unlock()
+	source.syncEncoderActivity()
 }
 
 func (source *targetMediaSource) ConfirmTargetFrame(peerID uint64, targetID string) {
@@ -496,16 +517,22 @@ func (source *targetMediaSource) Profile(name string) (rtc.EncoderProfile, bool)
 
 func (source *targetMediaSource) UpdateQuality(quality rtc.Quality) error {
 	source.mu.Lock()
-	encoders := make([]*targetEncoder, 0, len(source.targets))
+	encoders := make([]struct {
+		encoder *targetEncoder
+		target  wrapperTargetSnapshot
+	}, 0, len(source.targets))
 	for _, encoder := range source.targets {
-		encoders = append(encoders, encoder)
+		encoders = append(encoders, struct {
+			encoder *targetEncoder
+			target  wrapperTargetSnapshot
+		}{encoder: encoder, target: encoder.target})
 	}
 	source.mu.Unlock()
-	for _, encoder := range encoders {
+	for _, snapshot := range encoders {
 		targetQuality := media.Quality(quality)
 		profile := source.config.Profiles[targetQuality.Profile]
-		targetQuality.Width, targetQuality.Height = mediaDimensions(profile, encoder.target.Viewport.CanvasWidth, encoder.target.Viewport.CanvasHeight, targetQuality.Framerate)
-		if err := encoder.service.UpdateQuality(targetQuality); err != nil {
+		targetQuality.Width, targetQuality.Height = mediaDimensions(profile, snapshot.target.Viewport.CanvasWidth, snapshot.target.Viewport.CanvasHeight, targetQuality.Framerate)
+		if err := snapshot.encoder.service.UpdateQuality(targetQuality); err != nil {
 			return err
 		}
 	}
@@ -550,12 +577,26 @@ func (source *targetMediaSource) RequestKeyframe() error {
 func (source *targetMediaSource) SetActive(active bool) {
 	source.mu.Lock()
 	source.active = active
-	encoders := make([]*targetEncoder, 0, len(source.targets))
-	for _, encoder := range source.targets {
-		encoders = append(encoders, encoder)
+	source.mu.Unlock()
+	source.syncEncoderActivity()
+}
+
+func (source *targetMediaSource) syncEncoderActivity() {
+	source.activityMu.Lock()
+	defer source.activityMu.Unlock()
+	source.mu.Lock()
+	selectedTargets := make(map[string]struct{}, len(source.selected))
+	for _, selection := range source.selected {
+		selectedTargets[selection.targetID] = struct{}{}
+	}
+	activity := make(map[*targetEncoder]bool, len(source.targets))
+	for targetID, encoder := range source.targets {
+		_, selected := selectedTargets[targetID]
+		_, transitioning := source.transitioning[targetID]
+		activity[encoder] = source.active && selected && !transitioning
 	}
 	source.mu.Unlock()
-	for _, encoder := range encoders {
+	for encoder, active := range activity {
 		encoder.service.SetActive(active)
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -22,6 +24,7 @@ type wrapperRecordingClient struct {
 	id       string
 	targetID string
 	cancel   context.CancelFunc
+	mu       sync.Mutex
 }
 
 type wrapperRecordingClientMessage struct {
@@ -143,6 +146,9 @@ func (r *wrapperRuntime) releaseRecordingClient(client *wrapperRecordingClient) 
 }
 
 func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client *wrapperRecordingClient, targetID string) error {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+
 	r.mu.Lock()
 	registry := r.targets
 	r.mu.Unlock()
@@ -158,6 +164,7 @@ func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client
 		r.mu.Unlock()
 		return errors.New("recording client is disconnected")
 	}
+	previousClientTargetID := client.targetID
 	client.targetID = targetID
 	type recordingTargetCandidate struct {
 		recording *wrapperRecording
@@ -170,10 +177,30 @@ func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client
 		}
 	}
 	r.mu.Unlock()
+	rotated := make([]recordingTargetCandidate, 0, len(recordings))
 	for _, candidate := range recordings {
 		if err := r.rotateRecordingTarget(ctx, candidate.recording, target, candidate.targetID); err != nil {
-			return err
+			r.mu.Lock()
+			if r.recordingClients[client.id] == client && client.targetID == targetID {
+				client.targetID = previousClientTargetID
+			}
+			r.mu.Unlock()
+			var rollbackErr error
+			rollbackCtx, cancelRollback := context.WithTimeout(r.ctx, 10*time.Second)
+			for index := len(rotated) - 1; index >= 0; index-- {
+				previousTarget, exists := registry.readyTarget(rotated[index].targetID)
+				if !exists {
+					rollbackErr = errors.Join(rollbackErr, fmt.Errorf("roll back viewer recording %s: target is not ready", rotated[index].recording.ID))
+					continue
+				}
+				if rotateErr := r.rotateRecordingTarget(rollbackCtx, rotated[index].recording, previousTarget, targetID); rotateErr != nil {
+					rollbackErr = errors.Join(rollbackErr, fmt.Errorf("roll back viewer recording %s: %w", rotated[index].recording.ID, rotateErr))
+				}
+			}
+			cancelRollback()
+			return errors.Join(err, rollbackErr)
 		}
+		rotated = append(rotated, candidate)
 	}
 	return nil
 }

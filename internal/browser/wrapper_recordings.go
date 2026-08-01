@@ -152,6 +152,16 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 	if registry == nil {
 		return wrapperRecording{}, errors.New("target registry is unavailable")
 	}
+	if request.Mode == wrapperRecordingModeViewer {
+		r.mu.Lock()
+		client := r.recordingClients[request.ClientID]
+		r.mu.Unlock()
+		if client == nil {
+			return wrapperRecording{}, errors.New("recording client is not connected")
+		}
+		client.mu.Lock()
+		defer client.mu.Unlock()
+	}
 	fps := request.FPS
 	if fps <= 0 {
 		fps = r.values.MediaProducerFPS
@@ -343,22 +353,24 @@ func stopRecordingSegment(recording *wrapperRecording) error {
 	if recording.cmd == nil || recording.cmd.Process == nil {
 		return nil
 	}
-	if recording.cmd.ProcessState != nil {
-		err := <-recording.done
+	select {
+	case err := <-recording.done:
 		recording.cmd = nil
 		recording.done = nil
 		if err != nil {
 			return fmt.Errorf("recording pipeline stopped: %w", err)
 		}
 		return nil
+	default:
 	}
 	_ = recording.cmd.Process.Signal(syscall.SIGINT)
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
+	var stopErr error
 	select {
 	case err := <-recording.done:
 		if err != nil {
-			return fmt.Errorf("recording pipeline stopped: %w", err)
+			stopErr = fmt.Errorf("recording pipeline stopped: %w", err)
 		}
 	case <-timer.C:
 		_ = recording.cmd.Process.Kill()
@@ -366,7 +378,7 @@ func stopRecordingSegment(recording *wrapperRecording) error {
 	}
 	recording.cmd = nil
 	recording.done = nil
-	return nil
+	return stopErr
 }
 
 func (r *wrapperRuntime) replaceRecordingTargets(ctx context.Context, target wrapperTargetSnapshot) error {
@@ -428,8 +440,18 @@ func (r *wrapperRuntime) rotateRecordingTarget(ctx context.Context, recording *w
 			if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
 				break
 			}
-			if cmd.ProcessState != nil {
-				err = errors.New("replacement recording pipeline exited before producing data")
+			select {
+			case pipelineErr := <-done:
+				cmd = nil
+				done = nil
+				if pipelineErr != nil {
+					err = fmt.Errorf("replacement recording pipeline exited before producing data: %w", pipelineErr)
+				} else {
+					err = errors.New("replacement recording pipeline exited before producing data")
+				}
+			default:
+			}
+			if err != nil {
 				break
 			}
 			timer := time.NewTimer(25 * time.Millisecond)
@@ -607,7 +629,7 @@ func (r *wrapperRuntime) activeRecordingCountLocked() int {
 }
 
 func (r *wrapperRuntime) refreshRecordingLocked(recording *wrapperRecording) {
-	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing || recording.cmd == nil || recording.cmd.ProcessState == nil {
+	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing || recording.cmd == nil {
 		return
 	}
 	select {

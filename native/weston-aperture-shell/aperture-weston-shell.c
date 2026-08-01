@@ -1869,10 +1869,42 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
+	if (sscanf(client->buffer, "button-at %llu %lf %lf %u %u %c", &surface_id, &x,
+		   &y, &code, &pressed, &trailing) == 5) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_pointer_motion(client->shell, surface, x, y);
+		if (!error)
+			error = inject_button(client->shell, surface, code, pressed != 0);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		flush_pointer_frame(client->shell);
+		write_control_response(client, "ok\n");
+		return;
+	}
+
 	if (sscanf(client->buffer, "button %llu %u %u %c", &surface_id, &code, &pressed,
 		   &trailing) == 3) {
 		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
 		error = inject_button(client->shell, surface, code, pressed != 0);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		flush_pointer_frame(client->shell);
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "axis-at %llu %lf %lf %lf %lf %c", &surface_id, &x, &y,
+		   &dx, &dy, &trailing) == 5) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_pointer_motion(client->shell, surface, x, y);
+		if (!error)
+			error = inject_axis(client->shell, surface, dx, dy);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
