@@ -111,9 +111,11 @@ export function BrowserToolbar({
   const busy = control.phase === "connecting";
   const connected = control.phase === "connected";
   const loading = control.activeTarget?.loading ?? false;
-  const hasRunningRecordings = control.recordings.some(
+  const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
+  const hasRunningRecordings = runningRecordings.length > 0;
+  const recordingTargetIds = new Set(runningRecordings.map((recording) => recording.targetId));
   const [recordingNow, setRecordingNow] = useState(Date.now());
 
   useEffect(() => {
@@ -161,6 +163,7 @@ export function BrowserToolbar({
         <BrowserTabStrip
           targets={control.targets}
           activeTargetId={control.activeTargetId}
+          recordingTargetIds={recordingTargetIds}
           disabled={!connected}
           onActivate={control.activateTarget}
           onCreate={() => control.createTarget("about:blank")}
@@ -596,26 +599,21 @@ function ViewportStreamMenuItems({
   return (
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
+      {showStreamMenu ? <StreamMenu control={control} /> : null}
       {showStreamMenu ? (
-        <StreamMenu
-          control={control}
-          performanceOverlayEnabled={performanceOverlayEnabled}
-          onPerformanceOverlayChange={onPerformanceOverlayChange}
-        />
+        <DropdownMenuCheckboxItem
+          checked={performanceOverlayEnabled}
+          onCheckedChange={onPerformanceOverlayChange}
+        >
+          <Activity />
+          Performance overlay
+        </DropdownMenuCheckboxItem>
       ) : null}
     </DropdownMenuGroup>
   );
 }
 
-function StreamMenu({
-  control,
-  performanceOverlayEnabled,
-  onPerformanceOverlayChange,
-}: {
-  control: UseBrowserControlResult;
-  performanceOverlayEnabled: boolean;
-  onPerformanceOverlayChange: (enabled: boolean) => void;
-}) {
+function StreamMenu({ control }: { control: UseBrowserControlResult }) {
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -672,14 +670,6 @@ function StreamMenu({
           settings={control.mediaStreamSettings}
           onApply={control.setWebRTCStreamSettings}
         />
-        <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem
-          checked={performanceOverlayEnabled}
-          onCheckedChange={onPerformanceOverlayChange}
-        >
-          <Activity />
-          Performance overlay
-        </DropdownMenuCheckboxItem>
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );

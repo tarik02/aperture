@@ -545,7 +545,6 @@ inject_axis(struct aperture_shell *shell, struct aperture_shell_surface *surface
 
 	if (!surface || !surface->capture_output)
 		return "surface is unavailable";
-	activate_surface_for_seat(surface, &shell->input_seat, WESTON_ACTIVATE_FLAG_NONE);
 	now(&time);
 	notify_axis_source(&shell->input_seat, WL_POINTER_AXIS_SOURCE_WHEEL);
 	if (dx != 0.0) {

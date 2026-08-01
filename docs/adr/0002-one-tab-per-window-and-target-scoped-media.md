@@ -181,6 +181,7 @@ Media selection and input ownership are separate:
 - Selecting a target for viewing does not change another consumer's media or input target.
 - Each target has its own ordered input controller. Peers hold independent leases on their confirmed targets, so different peers can interact with different targets concurrently without sharing mutable sender state.
 - Every compositor input command carries the selected target's surface ID instead of relying on session-global focus.
+- Pointer motion and wheel events target pointer focus without changing keyboard focus. Button presses and keyboard input may activate their selected surface.
 - Switching or losing the selected target closes that peer's old lease and releases its pressed keys, pointer buttons, and text input state before accepting input for the new target.
 - Input is rejected while selection is pending or the selected target is unavailable.
 
@@ -202,7 +203,7 @@ Different frontends connected to the same session may select different targets. 
 
 During a frontend target switch, the viewer keeps the previous decoded frame and its render dimensions visible with reduced opacity. It blocks pointer, keyboard, clipboard, and wheel input until the selected target is confirmed and the video element presents its first subsequent frame. The viewer then adopts the new target dimensions and restores full opacity.
 
-On wider screens the browser toolbar separates recording, viewport and stream, and remaining actions into three icon menus. Compact layouts merge the same actions into one menu. The split changes presentation only; both layouts use the same client-local consumer and recording state.
+On wider screens the browser toolbar separates recording, viewport and stream, and remaining actions into three icon menus. Compact layouts merge the same actions into one menu. Performance overlay is a direct viewport-and-stream menu item rather than part of the Stream submenu. Active recordings mark both the recording menu button and every recorded tab with a red circle. Toasts and viewport status pills stay at the bottom of the interface. The split changes presentation only; both layouts use the same client-local consumer and recording state.
 
 ### Recording
 

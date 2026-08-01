@@ -338,7 +338,6 @@ export function useBrowserControl({
             ...current.filter((candidate) => candidate.recordingId !== recording.recordingId),
             recording,
           ]);
-          toast.success("Recording started");
         })
         .catch((cause: unknown) => {
           toast.error(errorMessage(cause, "Recording failed to start"));

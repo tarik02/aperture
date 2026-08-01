@@ -696,7 +696,7 @@ export function BrowserViewport({
           switching={control.mediaSwitching}
         />
       )}
-      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1.5">
+      <div className="pointer-events-none absolute right-2 bottom-2 flex items-center gap-1.5">
         {control.captured ? (
           <Badge variant="default" className="gap-1">
             <MousePointer2 />
@@ -720,7 +720,7 @@ export function BrowserViewport({
         </div>
       ) : null}
       {control.mediaError ? (
-        <div className="pointer-events-none absolute right-2 bottom-2 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+        <div className="pointer-events-none absolute right-2 bottom-10 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
           {control.mediaError}
         </div>
       ) : null}
