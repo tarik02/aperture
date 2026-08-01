@@ -73,6 +73,7 @@ struct aperture_shell {
 	struct wl_global *viewporter_global;
 	struct aperture_text_input *active_text_input;
 	char *control_socket_path;
+	char *pending_surface_nonce;
 	int control_fd;
 	uint32_t width;
 	uint32_t height;
@@ -91,6 +92,7 @@ struct aperture_shell_surface {
 	struct weston_transform fit_transform;
 	struct aperture_shell_surface *parent;
 	struct aperture_output *capture_output;
+	char *binding_nonce;
 	uint64_t id;
 	uint32_t width;
 	uint32_t height;
@@ -1275,10 +1277,14 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface, void *data
 			surface->height = root->height;
 			surface->scale_numerator = root->scale_numerator;
 		}
+	} else if (shell->pending_surface_nonce) {
+		surface->binding_nonce = shell->pending_surface_nonce;
+		shell->pending_surface_nonce = NULL;
 	}
-	weston_log("aperture-shell: surface %llu added title=%s\n",
+	weston_log("aperture-shell: surface %llu added title=%s binding=%s\n",
 		   (unsigned long long)surface->id,
-		   weston_desktop_surface_get_title(desktop_surface) ?: "");
+		   weston_desktop_surface_get_title(desktop_surface) ?: "",
+		   surface->binding_nonce ?: "");
 }
 
 static void
@@ -1305,6 +1311,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface, void *da
 		weston_view_remove_transform(surface->view, &surface->fit_transform);
 	weston_desktop_surface_unlink_view(surface->view);
 	weston_view_destroy(surface->view);
+	free(surface->binding_nonce);
 	free(surface);
 }
 
@@ -1712,12 +1719,53 @@ handle_control_command(struct aperture_control_client *client)
 	double dy;
 	char trailing;
 	char identifier[129];
-	char expected_title[180];
 	int text_offset;
 	const char *error;
 	char response[512];
 	struct aperture_shell_surface *surface;
 	struct aperture_output *capture;
+
+	if (sscanf(client->buffer, "surface-prepare %128s %c", identifier, &trailing) == 1) {
+		if (!valid_control_id(identifier)) {
+			write_control_response(client, "error invalid binding nonce\n");
+			return;
+		}
+		if (client->shell->pending_surface_nonce) {
+			write_control_response(client, "error binding already pending\n");
+			return;
+		}
+		wl_list_for_each(surface, &client->shell->surfaces, link) {
+			if (surface->binding_nonce &&
+			    strcmp(surface->binding_nonce, identifier) == 0) {
+				write_control_response(client, "error binding nonce already used\n");
+				return;
+			}
+		}
+		client->shell->pending_surface_nonce = strdup(identifier);
+		if (!client->shell->pending_surface_nonce) {
+			write_control_response(client, "error out of memory\n");
+			return;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "surface-cancel %128s %c", identifier, &trailing) == 1) {
+		if (client->shell->pending_surface_nonce &&
+		    strcmp(client->shell->pending_surface_nonce, identifier) == 0) {
+			free(client->shell->pending_surface_nonce);
+			client->shell->pending_surface_nonce = NULL;
+		}
+		wl_list_for_each(surface, &client->shell->surfaces, link) {
+			if (!surface->binding_nonce ||
+			    strcmp(surface->binding_nonce, identifier) != 0)
+				continue;
+			free(surface->binding_nonce);
+			surface->binding_nonce = NULL;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
 
 	if (sscanf(client->buffer, "output-create %128s %u %u %u %c", identifier,
 		   &width, &height, &scale_numerator, &trailing) == 4) {
@@ -1754,11 +1802,9 @@ handle_control_command(struct aperture_control_client *client)
 	}
 
 	if (sscanf(client->buffer, "surface-find %128s %c", identifier, &trailing) == 1) {
-		snprintf(expected_title, sizeof expected_title, "Aperture Binding %s", identifier);
 		wl_list_for_each(surface, &client->shell->surfaces, link) {
-			const char *title = weston_desktop_surface_get_title(surface->desktop_surface);
-
-			if (title && strcmp(title, expected_title) == 0) {
+			if (surface->binding_nonce &&
+			    strcmp(surface->binding_nonce, identifier) == 0) {
 				snprintf(response, sizeof response, "ok %llu\n",
 					 (unsigned long long)surface->id);
 				write_control_response(client, response);
@@ -2076,6 +2122,7 @@ destroy_shell(struct wl_listener *listener, void *data)
 		unlink(shell->control_socket_path);
 		free(shell->control_socket_path);
 	}
+	free(shell->pending_surface_nonce);
 	if (shell->input_seat_initialized) {
 		if (shell->input_keyboard_initialized)
 			weston_seat_release_keyboard(&shell->input_seat);

@@ -328,7 +328,7 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		if strings.TrimSpace(cfg.ExtensionNativeHostPath) == "" || strings.TrimSpace(cfg.ExtensionSocketPath) == "" {
 			return nil, fmt.Errorf("tab window extension requires its native host and socket")
 		}
-		if err := installExtensionNativeHost(browserConfig, cfg.ExtensionNativeHostPath); err != nil {
+		if err := installExtensionNativeHost(cfg.MergedUserDataDir, cfg.ExtensionNativeHostPath); err != nil {
 			return nil, err
 		}
 	}

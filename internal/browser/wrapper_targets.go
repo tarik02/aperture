@@ -18,6 +18,8 @@ import (
 	"github.com/coder/websocket"
 )
 
+const cdpDiscoveryMessageLimit = 4 * 1024 * 1024
+
 type wrapperTargetState string
 
 const (
@@ -176,8 +178,12 @@ func (registry *wrapperTargetRegistry) handleExtensionConnection(ctx context.Con
 		return
 	}
 	switch message.Type {
+	case "binding.prepare":
+		err = registry.prepareBinding(ctx, message.Nonce)
 	case "binding.bind":
 		err = registry.bindWindow(ctx, message)
+	case "binding.cancel":
+		err = registry.cancelBinding(ctx, message.Nonce)
 	case "window.settled":
 		err = registry.settleWindow(ctx, message)
 	case "window.closed":
@@ -186,6 +192,22 @@ func (registry *wrapperTargetRegistry) handleExtensionConnection(ctx context.Con
 		err = fmt.Errorf("unsupported extension message type %q", message.Type)
 	}
 	registry.writeExtensionResponse(connection, message.ID, err)
+}
+
+func (registry *wrapperTargetRegistry) prepareBinding(ctx context.Context, nonce string) error {
+	if !validRegistryIdentifier(nonce) {
+		return errors.New("invalid binding preparation request")
+	}
+	_, err := sendCompositorControlCommand(ctx, registry.controlSocket, "surface-prepare "+nonce+"\n")
+	return err
+}
+
+func (registry *wrapperTargetRegistry) cancelBinding(ctx context.Context, nonce string) error {
+	if !validRegistryIdentifier(nonce) {
+		return errors.New("invalid binding cancellation request")
+	}
+	_, err := sendCompositorControlCommand(ctx, registry.controlSocket, "surface-cancel "+nonce+"\n")
+	return err
 }
 
 func (registry *wrapperTargetRegistry) writeExtensionResponse(connection net.Conn, id string, responseErr error) {
@@ -706,6 +728,7 @@ func discoverCDPTargetWindows(ctx context.Context, port int) ([]cdpTargetWindow,
 	if err != nil {
 		return nil, fmt.Errorf("connect browser CDP endpoint: %w", err)
 	}
+	connection.SetReadLimit(cdpDiscoveryMessageLimit)
 	defer func() { _ = connection.Close(websocket.StatusNormalClosure, "done") }()
 	callID := int64(0)
 	call := func(method string, params any, result any) error {

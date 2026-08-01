@@ -50,19 +50,20 @@ Compositor-backed sessions will load a bundled Aperture extension that uses `chr
 
 The extension will reconcile all existing windows at startup and then process `tabs.onCreated`, `tabs.onAttached`, `tabs.onDetached`, `tabs.onRemoved`, and window lifecycle events. Reconciliation will be serialized and idempotent so service worker restarts and event bursts produce the same final state.
 
-All stable managed windows will use Chromium's popup window type. Popup windows do not present a tab strip and normal new-tab navigation does not add another tab to them. Any normal Chromium window is a staging window and remains hidden from media consumers until the extension has moved its user tabs into managed popup windows.
+All stable managed windows will use Chromium's normal window type because Chromium permits tab moves only between normal windows. The extension records which normal windows it created and bound. It never tries to bind an existing unmanaged window. Instead, it moves every user tab from that window into a newly prepared managed window. Any unmanaged window remains hidden from media consumers.
 
 For each user tab that needs a managed window, the extension will:
 
 1. Generate a random binding nonce.
-2. Create a popup window containing an extension-owned marker page.
-3. Report the nonce, returned Chrome `windowId`, and pending tab through native messaging.
-4. Wait for the wrapper to acknowledge the matching Wayland top-level.
-5. Move the existing tab into the popup window, preserving its WebContents and CDP `targetId`.
-6. Close the marker tab.
-7. Report that enforcement has settled for the source and destination windows.
+2. Ask the wrapper to prepare that nonce. The wrapper arms the compositor for one new root top-level surface.
+3. Create a normal window containing an extension-owned marker page. The next root top-level surface consumes the prepared nonce.
+4. Report the nonce, returned Chrome `windowId`, and pending tab through native messaging.
+5. Wait for the wrapper to resolve the nonce to the new `surfaceId` and acknowledge the binding.
+6. Move the existing tab into the normal window, preserving its WebContents and CDP `targetId`.
+7. Close the marker tab.
+8. Report that enforcement has settled for the destination window.
 
-The marker page places the binding nonce in its title. New Chromium top-level windows start hidden in the Aperture shell. The compositor reports the marker title and its allocated `surfaceId` to the wrapper. The wrapper joins the nonce reported by the extension with the nonce observed by the compositor, then acknowledges the binding.
+New Chromium top-level windows start hidden in the Aperture shell. The marker keeps the new normal window alive until the user tab moves into it. Its title has no identity role. If window creation fails, the extension cancels the prepared nonce. The extension serializes reconciliation so only one binding preparation exists at a time.
 
 The temporary marker tab is an internal implementation detail. The target registry excludes its extension URL. A managed window becomes ready only after the marker is gone and CDP reports exactly one user page target for its `windowId`.
 
@@ -201,7 +202,7 @@ The registry will expose explicit target states:
 - `unavailable`: a previously known target cannot currently serve media.
 - `closed`: the CDP target ended and consumers have been notified.
 
-PipeWire-backed consumers can select only ready targets. A target remains ready while a replacement output is prepared because its old generation stays active. CDP fallback may attach to any live user page target because it does not consume a compositor capture output. A compositor or PipeWire restart moves affected entries to unavailable until their identities are rebuilt. The wrapper never guesses a mapping from window title, creation order, PID, geometry, or focus alone.
+PipeWire-backed consumers can select only ready targets. A target remains ready while a replacement output is prepared because its old generation stays active. CDP fallback may attach to any live user page target because it does not consume a compositor capture output. A compositor or PipeWire restart moves affected entries to unavailable until their identities are rebuilt. The wrapper never guesses a mapping from window title, PID, geometry, focus, or uncoordinated creation order.
 
 ## Consequences
 

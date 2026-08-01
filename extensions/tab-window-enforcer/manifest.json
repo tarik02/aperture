@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Aperture tab window enforcer",
   "version": "1.0.0",
-  "description": "Keeps each managed Aperture page in its own Chromium popup window.",
+  "description": "Keeps each managed Aperture page in its own Chromium window.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApL3kcSiUNNscsLc1U0jOo3blVdrnLvwBXaFIYN0YoMgdKUlGjZ2konchDhaxrBaPYpvluqaVIPusAykWXnNw1SHl6uAjrg9WZYe5aAgWhXsRmQOi5ytnBkjyKISzdoWiEDsPJ6yVym0m40rE+5e8wrOLn5654swUQCuTPL+7Z8BkgKUs7EK7mI9R39MqVGiEOe9V89PJU3E4Us1SGN22B+zTDao715MH6aPCcV2vzaUw6+CsXPpKLW61q3CuKjXO43LQfZbqFE454kDfHHBA6GFhNSZJ2qdgB66V+zSz4pf2yP0S2oKbXmvIJm8EGdRaxvCrsNiZMBijYo7SV8S6mQIDAQAB",
   "permissions": ["nativeMessaging", "storage", "tabs"],
   "background": {

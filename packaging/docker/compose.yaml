@@ -9,6 +9,7 @@ services:
     stop_grace_period: 35s
     environment:
       APERTURE_EXTERNAL_BASE_URL: ${APERTURE_EXTERNAL_BASE_URL:?APERTURE_EXTERNAL_BASE_URL is required}
+      APERTURE_GPU_MODE: ${APERTURE_GPU_MODE:-auto}
       APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC: ${APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC:-auto}
     tmpfs:
       - /run/aperture:rw,nosuid,nodev,size=512m

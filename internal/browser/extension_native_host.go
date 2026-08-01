@@ -17,7 +17,7 @@ const (
 	extensionNativeHostName     = "me.tarik02.aperture.tab_window_enforcer"
 )
 
-func installExtensionNativeHost(configDir string, executable string) error {
+func installExtensionNativeHost(userDataDir string, executable string) error {
 	manifest, err := json.MarshalIndent(map[string]any{
 		"name":            extensionNativeHostName,
 		"description":     "Aperture tab window enforcement bridge",
@@ -28,14 +28,12 @@ func installExtensionNativeHost(configDir string, executable string) error {
 	if err != nil {
 		return fmt.Errorf("encode extension native host manifest: %w", err)
 	}
-	for _, browserDir := range []string{"chromium", "google-chrome", "google-chrome-unstable"} {
-		hostDir := filepath.Join(configDir, browserDir, "NativeMessagingHosts")
-		if err := os.MkdirAll(hostDir, 0o700); err != nil {
-			return fmt.Errorf("mkdir extension native host dir: %w", err)
-		}
-		if err := os.WriteFile(filepath.Join(hostDir, extensionNativeHostName+".json"), append(manifest, '\n'), 0o600); err != nil {
-			return fmt.Errorf("write extension native host manifest: %w", err)
-		}
+	hostDir := filepath.Join(userDataDir, "NativeMessagingHosts")
+	if err := os.MkdirAll(hostDir, 0o700); err != nil {
+		return fmt.Errorf("mkdir extension native host dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(hostDir, extensionNativeHostName+".json"), append(manifest, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write extension native host manifest: %w", err)
 	}
 	return nil
 }

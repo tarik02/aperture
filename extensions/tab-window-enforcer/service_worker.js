@@ -1,5 +1,5 @@
 const nativeHost = "me.tarik02.aperture.tab_window_enforcer";
-const markerPath = "marker.html";
+const markerURL = chrome.runtime.getURL("marker.html");
 
 let nativePort = null;
 let nextRequestId = 0;
@@ -38,7 +38,7 @@ function scheduleReconcile() {
 async function reconcile() {
   const stored = await chrome.storage.session.get("managedWindows");
   const managedWindows = stored.managedWindows ?? {};
-  const windows = await chrome.windows.getAll({ populate: true, windowTypes: ["normal", "popup"] });
+  const windows = await chrome.windows.getAll({ populate: true, windowTypes: ["normal"] });
   const liveWindowIds = new Set(windows.map((window) => String(window.id)));
 
   for (const windowId of Object.keys(managedWindows)) {
@@ -48,14 +48,17 @@ async function reconcile() {
   }
 
   for (const window of windows) {
-    const userTabs = (window.tabs ?? []).filter(isUserTab);
+    const tabs = window.tabs ?? [];
+    const userTabs = tabs.filter(isUserTab);
     if (userTabs.length === 0) {
+      if (tabs.some(isMarkerTab)) {
+        await chrome.windows.remove(window.id).catch(() => {});
+      }
       continue;
     }
 
     const managedTabId = managedWindows[String(window.id)];
-    const stableManagedTab =
-      window.type === "popup" && userTabs.find((tab) => tab.id === managedTabId);
+    const stableManagedTab = userTabs.find((tab) => tab.id === managedTabId);
 
     if (stableManagedTab) {
       for (const tab of userTabs) {
@@ -63,16 +66,8 @@ async function reconcile() {
           await moveTabToManagedWindow(tab, managedWindows);
         }
       }
+      await Promise.all(tabs.filter(isMarkerTab).map((tab) => chrome.tabs.remove(tab.id).catch(() => {})));
       await reportSettled(window.id, stableManagedTab.id);
-      continue;
-    }
-
-    if (window.type === "popup") {
-      const [keptTab, ...extraTabs] = userTabs;
-      await bindExistingPopup(window.id, keptTab, managedWindows);
-      for (const tab of extraTabs) {
-        await moveTabToManagedWindow(tab, managedWindows);
-      }
       continue;
     }
 
@@ -84,38 +79,64 @@ async function reconcile() {
   await chrome.storage.session.set({ managedWindows });
 }
 
-async function bindExistingPopup(windowId, tab, managedWindows) {
-  const nonce = crypto.randomUUID();
-  const marker = await chrome.tabs.create({
-    windowId,
-    url: markerURL(nonce),
-    active: true,
-  });
-  await bindWindow(nonce, windowId, tab.id);
-  await chrome.tabs.update(tab.id, { active: true });
-  await chrome.tabs.remove(marker.id);
-  managedWindows[String(windowId)] = tab.id;
-  await reportSettled(windowId, tab.id);
-}
-
 async function moveTabToManagedWindow(tab, managedWindows) {
   const nonce = crypto.randomUUID();
-  const popup = await chrome.windows.create({
-    url: markerURL(nonce),
-    type: "popup",
-    focused: false,
-  });
-  const marker = popup.tabs?.[0];
-  if (!popup.id || !marker?.id) {
-    throw new Error("Chromium did not create the Aperture marker window");
-  }
+  let prepared = false;
+  let bound = false;
+  let moved = false;
+  let managedWindowId = null;
 
-  await bindWindow(nonce, popup.id, tab.id);
-  await chrome.tabs.move(tab.id, { windowId: popup.id, index: -1 });
-  await chrome.tabs.update(tab.id, { active: true });
-  await chrome.tabs.remove(marker.id);
-  managedWindows[String(popup.id)] = tab.id;
-  await reportSettled(popup.id, tab.id);
+  try {
+    await prepareBinding(nonce);
+    prepared = true;
+    const managedWindow = await chrome.windows.create({
+      url: markerURL,
+      type: "normal",
+      focused: false,
+    });
+    const marker = managedWindow.tabs?.[0];
+    if (!managedWindow.id || !marker?.id) {
+      throw new Error("Chromium did not create the Aperture marker window");
+    }
+    managedWindowId = managedWindow.id;
+    try {
+      await bindWindow(nonce, managedWindow.id, tab.id);
+      bound = true;
+      await chrome.tabs.move(tab.id, { windowId: managedWindow.id, index: -1 });
+      moved = true;
+      await chrome.tabs.update(tab.id, { active: true });
+    } finally {
+      await chrome.tabs.remove(marker.id).catch(() => {});
+    }
+    managedWindows[String(managedWindow.id)] = tab.id;
+    await reportSettled(managedWindow.id, tab.id);
+  } catch (error) {
+    if (bound && managedWindowId !== null && !moved) {
+      await nativeRequest({ type: "window.closed", windowId: managedWindowId }).catch(() => {});
+    }
+    if (managedWindowId !== null && !moved) {
+      await chrome.windows.remove(managedWindowId).catch(() => {});
+    }
+    throw error;
+  } finally {
+    if (prepared && !bound) {
+      await cancelBinding(nonce).catch(() => {});
+    }
+  }
+}
+
+async function prepareBinding(nonce) {
+  const response = await nativeRequest({ type: "binding.prepare", nonce });
+  if (!response.ok) {
+    throw new Error(response.error ?? "Aperture rejected the window binding preparation");
+  }
+}
+
+async function cancelBinding(nonce) {
+  const response = await nativeRequest({ type: "binding.cancel", nonce });
+  if (!response.ok) {
+    throw new Error(response.error ?? "Aperture rejected the window binding cancellation");
+  }
 }
 
 async function bindWindow(nonce, windowId, tabId) {
@@ -178,11 +199,12 @@ function connectNative() {
   return nativePort;
 }
 
-function markerURL(nonce) {
-  return chrome.runtime.getURL(`${markerPath}?nonce=${encodeURIComponent(nonce)}`);
-}
-
 function isUserTab(tab) {
   const url = tab.url ?? tab.pendingUrl ?? "";
-  return Boolean(tab.id && url && !url.startsWith(chrome.runtime.getURL(markerPath)));
+  return Boolean(tab.id && url && !url.startsWith(markerURL));
+}
+
+function isMarkerTab(tab) {
+  const url = tab.url ?? tab.pendingUrl ?? "";
+  return Boolean(tab.id && url.startsWith(markerURL));
 }
