@@ -15,6 +15,7 @@ import (
 
 type wrapperRecordingStatus struct {
 	RecordingID       string `json:"recordingId"`
+	Mode              string `json:"mode"`
 	TargetID          string `json:"targetId"`
 	CaptureGeneration uint64 `json:"captureGeneration"`
 	Status            string `json:"status"`
@@ -38,7 +39,7 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, mcpRecordingOutput{}, err
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
-		"targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
 	}, false)
 }
 
@@ -189,7 +190,7 @@ func (s *Server) mcpRecordingsRequest(ctx context.Context, tenantID, sessionID s
 
 func mcpRecordingOutputFromStatus(status wrapperRecordingStatus) mcpRecordingOutput {
 	output := mcpRecordingOutput{
-		RecordingID: status.RecordingID, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}

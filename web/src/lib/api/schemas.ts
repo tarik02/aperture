@@ -86,6 +86,7 @@ export const browserStatusSchema = z.object({
 
 export const recordingSchema = z.object({
   recordingId: z.string(),
+  mode: z.enum(["tab", "viewer"]),
   targetId: z.string(),
   captureGeneration: z.number().int().positive(),
   status: z.enum(["starting", "running", "stopped", "failed"]),

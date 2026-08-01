@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Activity,
@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Circle,
   Copy,
+  Download,
   Gauge,
   Loader2,
   Maximize2,
@@ -17,6 +18,7 @@ import {
   RotateCcw,
   Share2,
   Square,
+  X,
 } from "lucide-react";
 import { Button } from "#/components/ui/button.tsx";
 import { Input } from "#/components/ui/input.tsx";
@@ -109,6 +111,19 @@ export function BrowserToolbar({
   const busy = control.phase === "connecting";
   const connected = control.phase === "connected";
   const loading = control.activeTarget?.loading ?? false;
+  const hasRunningRecordings = control.recordings.some(
+    (recording) => recording.status === "starting" || recording.status === "running",
+  );
+  const [recordingNow, setRecordingNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!hasRunningRecordings) {
+      return;
+    }
+    setRecordingNow(Date.now());
+    const timer = window.setInterval(() => setRecordingNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [hasRunningRecordings]);
 
   function handleNavigate(value: string) {
     const nextUrl = value.trim();
@@ -196,7 +211,7 @@ export function BrowserToolbar({
           />
         </InputGroup>
         {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
-        <BrowserMenu
+        <BrowserMenus
           control={control}
           cdpUrl={cdpUrl}
           shareUrl={shareUrl}
@@ -205,6 +220,7 @@ export function BrowserToolbar({
           performanceOverlayEnabled={performanceOverlayEnabled}
           onPerformanceOverlayChange={onPerformanceOverlayChange}
           onReconnect={() => control.reconnect()}
+          now={recordingNow}
         />
       </div>
     </div>
@@ -242,7 +258,7 @@ function ToolbarButton({
   );
 }
 
-function BrowserMenu({
+function BrowserMenus({
   control,
   cdpUrl,
   shareUrl,
@@ -251,6 +267,7 @@ function BrowserMenu({
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
   onReconnect,
+  now,
 }: {
   control: UseBrowserControlResult;
   cdpUrl: string | null;
@@ -260,6 +277,7 @@ function BrowserMenu({
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
   onReconnect: () => void;
+  now: number;
 }) {
   const showStreamMenu = control.mediaPath === "webrtc-live";
   const runningRecordings = control.recordings.filter(
@@ -267,151 +285,341 @@ function BrowserMenu({
   );
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button type="button" variant="ghost" size="icon-sm" aria-label="Browser menu" />}
-      >
-        <MoreVertical />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            disabled={!cdpUrl}
-            onClick={() => {
-              if (!cdpUrl) {
-                return;
-              }
-              void copyText(cdpUrl).then(
-                () => toast.success("CDP URL copied"),
-                () => toast.error("Copy failed"),
-              );
-            }}
+    <>
+      <div className="shrink-0 sm:hidden">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Browser menu" />
+            }
           >
-            <Copy />
-            Copy CDP URL
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!shareUrl}
-            onClick={() => {
-              if (!shareUrl) {
-                return;
-              }
-              void copyText(shareUrl).then(
-                () => toast.success("Share URL copied"),
-                () => toast.error("Copy failed"),
-              );
-            }}
-          >
-            <Share2 />
-            Copy share URL
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={busy} onClick={onReconnect}>
-            <RotateCcw />
-            Reconnect
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!connected}
-            onClick={() => control.setCaptured(!control.captured)}
-          >
-            <MousePointer2 />
-            {control.captured ? "Release input" : "Capture input"}
-          </DropdownMenuItem>
-          <DropdownMenuCheckboxItem
-            disabled={!showStreamMenu}
-            checked={performanceOverlayEnabled}
-            onCheckedChange={onPerformanceOverlayChange}
-          >
-            <Activity />
-            Performance overlay
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuItem
-            disabled={!connected || !control.activeTargetId || control.recordingBusy}
-            onClick={control.startRecording}
+            <MoreVertical />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            <RestMenuItems
+              control={control}
+              cdpUrl={cdpUrl}
+              shareUrl={shareUrl}
+              busy={busy}
+              connected={connected}
+              showStreamMenu={showStreamMenu}
+              performanceOverlayEnabled={performanceOverlayEnabled}
+              onPerformanceOverlayChange={onPerformanceOverlayChange}
+              onReconnect={onReconnect}
+            />
+            <DropdownMenuSeparator />
+            <RecordingMenuItems
+              control={control}
+              connected={connected}
+              runningRecordings={runningRecordings}
+              now={now}
+            />
+            <DropdownMenuSeparator />
+            <ViewportStreamMenuItems
+              control={control}
+              connected={connected}
+              showStreamMenu={showStreamMenu}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button type="button" variant="ghost" size="icon-sm" aria-label="Recording" />}
           >
             <Circle />
-            Record active target
-          </DropdownMenuItem>
-          {runningRecordings.map((recording) => {
-            const target = control.targets.find((candidate) => candidate.id === recording.targetId);
-            return (
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            <RecordingMenuItems
+              control={control}
+              connected={connected}
+              runningRecordings={runningRecordings}
+              now={now}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Viewport and stream"
+              />
+            }
+          >
+            <Monitor />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <ViewportStreamMenuItems
+              control={control}
+              connected={connected}
+              showStreamMenu={showStreamMenu}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Browser menu" />
+            }
+          >
+            <MoreVertical />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <RestMenuItems
+              control={control}
+              cdpUrl={cdpUrl}
+              shareUrl={shareUrl}
+              busy={busy}
+              connected={connected}
+              showStreamMenu={showStreamMenu}
+              performanceOverlayEnabled={performanceOverlayEnabled}
+              onPerformanceOverlayChange={onPerformanceOverlayChange}
+              onReconnect={onReconnect}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </>
+  );
+}
+
+function RestMenuItems({
+  control,
+  cdpUrl,
+  shareUrl,
+  busy,
+  connected,
+  showStreamMenu,
+  performanceOverlayEnabled,
+  onPerformanceOverlayChange,
+  onReconnect,
+}: {
+  control: UseBrowserControlResult;
+  cdpUrl: string | null;
+  shareUrl: string | null;
+  busy: boolean;
+  connected: boolean;
+  showStreamMenu: boolean;
+  performanceOverlayEnabled: boolean;
+  onPerformanceOverlayChange: (enabled: boolean) => void;
+  onReconnect: () => void;
+}) {
+  return (
+    <DropdownMenuGroup>
+      <DropdownMenuItem
+        disabled={!cdpUrl}
+        onClick={() => {
+          if (!cdpUrl) {
+            return;
+          }
+          void copyText(cdpUrl).then(
+            () => toast.success("CDP URL copied"),
+            () => toast.error("Copy failed"),
+          );
+        }}
+      >
+        <Copy />
+        Copy CDP URL
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={!shareUrl}
+        onClick={() => {
+          if (!shareUrl) {
+            return;
+          }
+          void copyText(shareUrl).then(
+            () => toast.success("Share URL copied"),
+            () => toast.error("Copy failed"),
+          );
+        }}
+      >
+        <Share2 />
+        Copy share URL
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={busy} onClick={onReconnect}>
+        <RotateCcw />
+        Reconnect
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={!connected}
+        onClick={() => control.setCaptured(!control.captured)}
+      >
+        <MousePointer2 />
+        {control.captured ? "Release input" : "Capture input"}
+      </DropdownMenuItem>
+      <DropdownMenuCheckboxItem
+        disabled={!showStreamMenu}
+        checked={performanceOverlayEnabled}
+        onCheckedChange={onPerformanceOverlayChange}
+      >
+        <Activity />
+        Performance overlay
+      </DropdownMenuCheckboxItem>
+    </DropdownMenuGroup>
+  );
+}
+
+function RecordingMenuItems({
+  control,
+  connected,
+  runningRecordings,
+  now,
+}: {
+  control: UseBrowserControlResult;
+  connected: boolean;
+  runningRecordings: UseBrowserControlResult["recordings"];
+  now: number;
+}) {
+  const canStart =
+    connected &&
+    control.recordingClientConnected &&
+    Boolean(control.activeTargetId) &&
+    !control.recordingBusy;
+  return (
+    <>
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>Recording</DropdownMenuLabel>
+        <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("tab")}>
+          <Circle />
+          <span className="flex min-w-0 flex-col">
+            <span>Record this tab</span>
+            <span className="text-xs text-muted-foreground">Stay pinned to this target</span>
+          </span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!canStart || !control.recordingClientConnected}
+          onClick={() => control.startRecording("viewer")}
+        >
+          <Monitor />
+          <span className="flex min-w-0 flex-col">
+            <span>Record this viewer</span>
+            <span className="text-xs text-muted-foreground">
+              {control.recordingClientConnected
+                ? "Follow tab switches"
+                : "Viewer connection unavailable"}
+            </span>
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
+      {runningRecordings.map((recording) => {
+        const target = control.targets.find((candidate) => candidate.id === recording.targetId);
+        return (
+          <Fragment key={recording.recordingId}>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>
+                <span className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="truncate">
+                    {recording.mode === "viewer" ? "Viewer" : "Tab"}:{" "}
+                    {target?.title || recording.targetId.slice(0, 8)}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {formatElapsed(recording.startedAt, now)}
+                  </span>
+                </span>
+              </DropdownMenuLabel>
               <DropdownMenuItem
-                key={recording.recordingId}
-                disabled={!connected || control.recordingBusy}
+                disabled={control.recordingBusy}
                 onClick={() => control.stopRecording(recording.recordingId)}
               >
-                <Square />
-                <span className="truncate">
-                  Stop {target?.title || recording.targetId.slice(0, 8)}
-                </span>
+                <Download />
+                Stop and download
               </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuGroup>
+              <DropdownMenuItem
+                disabled={control.recordingBusy}
+                onClick={() => control.cancelRecording(recording.recordingId)}
+              >
+                <X />
+                Cancel without download
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+function ViewportStreamMenuItems({
+  control,
+  connected,
+  showStreamMenu,
+}: {
+  control: UseBrowserControlResult;
+  connected: boolean;
+  showStreamMenu: boolean;
+}) {
+  return (
+    <DropdownMenuGroup>
+      <ViewportMenu control={control} connected={connected} />
+      {showStreamMenu ? <StreamMenu control={control} /> : null}
+    </DropdownMenuGroup>
+  );
+}
+
+function StreamMenu({ control }: { control: UseBrowserControlResult }) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <Gauge />
+        Stream
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-64">
+        <DropdownMenuLabel>Stream</DropdownMenuLabel>
+        {control.mediaVideoProfiles.length > 1 && control.mediaStreamSettings ? (
+          <>
+            <DropdownMenuLabel>Codec</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={control.mediaStreamSettings.profile}
+              onValueChange={(profile) => {
+                const settings = control.mediaStreamSettings;
+                if (settings) {
+                  control.setWebRTCStreamSettings({ ...settings, profile });
+                }
+              }}
+            >
+              {control.mediaVideoProfiles.map((profile) => (
+                <DropdownMenuRadioItem key={profile.id} value={profile.id}>
+                  <span className="flex min-w-0 flex-col">
+                    <span>{profile.label}</span>
+                    <span className="text-xs text-muted-foreground">{profile.codec}</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+        <DropdownMenuRadioGroup
+          value={activeStreamPresetId(control.mediaStreamSettings)}
+          onValueChange={(value) => {
+            const preset = STREAM_PRESETS.find((item) => item.id === value);
+            const settings = control.mediaStreamSettings;
+            if (preset && settings) {
+              control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
+            }
+          }}
+        >
+          {STREAM_PRESETS.map((preset) => (
+            <DropdownMenuRadioItem key={preset.id} value={preset.id}>
+              <span className="flex min-w-0 flex-col">
+                <span>{preset.label}</span>
+                <span className="text-xs text-muted-foreground">{preset.detail}</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <ViewportMenu control={control} connected={connected} />
-          {showStreamMenu ? (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Gauge />
-                Stream
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64">
-                <DropdownMenuLabel>Stream</DropdownMenuLabel>
-                {control.mediaVideoProfiles.length > 1 && control.mediaStreamSettings ? (
-                  <>
-                    <DropdownMenuLabel>Codec</DropdownMenuLabel>
-                    <DropdownMenuRadioGroup
-                      value={control.mediaStreamSettings.profile}
-                      onValueChange={(profile) => {
-                        const settings = control.mediaStreamSettings;
-                        if (settings) {
-                          control.setWebRTCStreamSettings({ ...settings, profile });
-                        }
-                      }}
-                    >
-                      {control.mediaVideoProfiles.map((profile) => (
-                        <DropdownMenuRadioItem key={profile.id} value={profile.id}>
-                          <span className="flex min-w-0 flex-col">
-                            <span>{profile.label}</span>
-                            <span className="text-xs text-muted-foreground">{profile.codec}</span>
-                          </span>
-                        </DropdownMenuRadioItem>
-                      ))}
-                    </DropdownMenuRadioGroup>
-                    <DropdownMenuSeparator />
-                  </>
-                ) : null}
-                <DropdownMenuRadioGroup
-                  value={activeStreamPresetId(control.mediaStreamSettings)}
-                  onValueChange={(value) => {
-                    const preset = STREAM_PRESETS.find((item) => item.id === value);
-                    const settings = control.mediaStreamSettings;
-                    if (preset && settings) {
-                      control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
-                    }
-                  }}
-                >
-                  {STREAM_PRESETS.map((preset) => (
-                    <DropdownMenuRadioItem key={preset.id} value={preset.id}>
-                      <span className="flex min-w-0 flex-col">
-                        <span>{preset.label}</span>
-                        <span className="text-xs text-muted-foreground">{preset.detail}</span>
-                      </span>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <CustomStreamSettings
-                  settings={control.mediaStreamSettings}
-                  onApply={control.setWebRTCStreamSettings}
-                />
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          ) : null}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        <CustomStreamSettings
+          settings={control.mediaStreamSettings}
+          onApply={control.setWebRTCStreamSettings}
+        />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 
@@ -755,6 +963,16 @@ function activeStreamPresetId(settings: UseBrowserControlResult["mediaStreamSett
       settings.fps === item.settings.fps && settings.bitrateKbps === item.settings.bitrateKbps,
   );
   return preset?.id ?? "";
+}
+
+function formatElapsed(startedAt: string, now: number): string {
+  const elapsed = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000));
+  const hours = Math.floor(elapsed / 3600);
+  const minutes = Math.floor((elapsed % 3600) / 60);
+  const seconds = elapsed % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function normalizeUrl(value: string): string {

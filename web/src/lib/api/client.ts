@@ -79,7 +79,9 @@ type RequestOptions<T extends z.ZodType> = {
   body?: unknown;
 };
 
-type VoidRequestOptions = Omit<RequestOptions<z.ZodType>, "schema">;
+type VoidRequestOptions = Omit<RequestOptions<z.ZodType>, "schema"> & {
+  headers?: Record<string, string>;
+};
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   if (!query) {
@@ -168,12 +170,20 @@ async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise
 }
 
 async function requestVoid(options: VoidRequestOptions): Promise<void> {
-  const { method = "GET", path, credentials = null, tenantHeader = "none", query, body } = options;
+  const {
+    method = "GET",
+    path,
+    credentials = null,
+    tenantHeader = "none",
+    query,
+    body,
+    headers,
+  } = options;
 
   const hasBody = body !== undefined;
   const response = await fetch(buildUrl(path, query), {
     method,
-    headers: buildHeaders(credentials, tenantHeader, hasBody),
+    headers: { ...buildHeaders(credentials, tenantHeader, hasBody), ...headers },
     body: hasBody ? JSON.stringify(body) : undefined,
   });
 
@@ -279,6 +289,12 @@ export type PromoteSessionInput = {
 
 export type UpdateSnapshotInput = {
   description: string | null;
+};
+
+export type StartSessionRecordingInput = {
+  mode: "tab" | "viewer";
+  targetId: string;
+  clientId: string;
 };
 
 export type CreateAdminTokenInput = {
@@ -514,14 +530,18 @@ export const apiClient = {
     });
   },
 
-  startSessionRecording(credentials: ApiCredentials, sessionId: string, targetId: string) {
+  startSessionRecording(
+    credentials: ApiCredentials,
+    sessionId: string,
+    input: StartSessionRecordingInput,
+  ) {
     return request({
       method: "POST",
       path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
       schema: recordingSchema,
       credentials,
       tenantHeader: "tenant-scoped",
-      body: { targetId },
+      body: input,
     });
   },
 
@@ -540,6 +560,16 @@ export const apiClient = {
       path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
       credentials,
       tenantHeader: "tenant-scoped",
+    });
+  },
+
+  cancelSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
+    return requestVoid({
+      method: "POST",
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      headers: { Range: "bytes=0-0" },
     });
   },
 

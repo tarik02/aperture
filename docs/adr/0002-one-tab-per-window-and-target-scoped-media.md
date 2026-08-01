@@ -146,7 +146,8 @@ Chromium sees bucket replacement as display hotplug. Aperture must add and confi
 Streaming and recording will use the same target registry and capture source abstraction. Each consumer has an independent selected `targetId`.
 
 - A WebRTC peer is a switchable consumer.
-- A recording job is a pinned consumer by default.
+- A tab recording is a pinned consumer.
+- A viewer recording follows one frontend client's confirmed media target.
 - CDP screencast fallback follows the selecting frontend's target.
 - Future consumers such as snapshots can use the same registry without creating another mapping mechanism.
 
@@ -199,15 +200,33 @@ Frontend selection will not use `Target.activateTarget` as the WebRTC media swit
 
 Different frontends connected to the same session may select different targets. Closing a selected target produces a target-unavailable event. The server does not choose a replacement. Each frontend decides which remaining tab to select.
 
+On wider screens the browser toolbar separates recording, viewport and stream, and remaining actions into three icon menus. Compact layouts merge the same actions into one menu. The split changes presentation only; both layouts use the same client-local consumer and recording state.
+
 ### Recording
 
 Recording becomes a collection of jobs instead of one session-wide screencast. Starting a recording requires a ready `targetId` and returns a `recordingId`. Listing, status, and stop operations address that recording ID. Multiple recordings may run concurrently within configured resource limits.
 
-A recording remains pinned to its target when a frontend switches tabs. It follows verified window rebindings and immutable output replacements for the same `targetId`, preserves its timeline, and inserts a keyframe at each source change. If the target closes, Aperture finalizes the recording with `target_closed` as its stop reason. It never switches the recording to another target.
+The start request declares one of two modes:
+
+```json
+{ "mode": "tab", "targetId": "TARGET_ID", "clientId": "CLIENT_UUID" }
+```
+
+```json
+{ "mode": "viewer", "targetId": "TARGET_ID", "clientId": "CLIENT_UUID" }
+```
+
+A tab recording remains pinned when its owning frontend switches tabs. A viewer recording follows that frontend's confirmed media target. Both modes follow verified window rebindings and immutable output replacements, preserve their timeline, and insert a keyframe at each source change. If the selected target closes, Aperture finalizes the recording with `target_closed` as its stop reason.
+
+Each frontend opens `/sessions/{sessionId}/recordings/client?clientId={uuid}` with the `aperture-recording.v1` WebSocket subprotocol. The frontend sends its confirmed media target through this socket as `{"version":1,"type":"target.select","targetId":"TARGET_ID"}` and sends periodic heartbeats. The wrapper stores the client's current target and applies target updates only to viewer recordings owned by that client ID. Viewer recording creation rechecks that stored target while inserting the job, so a concurrent tab switch cannot be lost. A reconnect creates a new client ID. Closing the socket or missing the heartbeat deadline synchronously finalizes every recording owned by the old client with `client_disconnected`; finalized files remain in session storage.
+
+Frontend recording controls expose elapsed time, stop and download, and cancel. Cancel means stop without downloading the file. It still finalizes and saves the file. The frontend sends a one-byte range request to the live stop endpoint and ignores that response. The control-plane `POST /api/sessions/{sessionId}/recordings/{recordingId}/stop` endpoint provides the same finalize-without-transfer behavior for account-authenticated callers.
+
+MCP has no frontend connection lifecycle. MCP starts only tab recordings and omits `clientId`; those recordings run until an explicit stop, target closure, or session shutdown.
 
 Recording pipelines crop the bucket padding before encoding. H.264 and VP8 segments round the cropped width and height up to an even value, so an odd content dimension retains at most one black edge pixel instead of exposing the full canvas padding. A content resize rotates the recording segment even when it stays in the same canvas generation. The recording timeline and pinned target do not change.
 
-The HTTP API and MCP tools will expose `targetId` and `recordingId`. The existing singular start, status, and stop state will be replaced rather than overloaded with an implicit current target.
+The HTTP API exposes `mode`, `targetId`, and `recordingId`. MCP status includes the same fields, while MCP start always selects tab mode. The existing singular start, status, and stop state will be replaced rather than overloaded with an implicit current target.
 
 This ADR covers video. Target-scoped audio needs a separate decision because Chromium and desktop audio do not have the same one-window identity.
 
@@ -227,6 +246,8 @@ PipeWire-backed consumers can select only ready targets. A target remains ready 
 - Aperture gets one public identity for control, streaming, and recording.
 - Frontend tab selection no longer changes session-global media state.
 - Recordings can stay pinned while viewers switch targets.
+- Viewer recordings can follow one frontend without changing another consumer.
+- Closing a frontend finalizes its tab and viewer recordings without discarding their files.
 - Independent viewers and recordings can consume different targets concurrently.
 - Popup and transient content is captured with its parent window instead of being lost by tab-only capture.
 - Chromium remains unmodified, but the bundled extension and native messaging host become required runtime components.

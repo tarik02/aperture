@@ -355,6 +355,7 @@ type mcpBoundRecordingInput struct {
 }
 type mcpRecordingOutput struct {
 	RecordingID       string `json:"recordingId"`
+	Mode              string `json:"mode"`
 	TargetID          string `json:"targetId"`
 	CaptureGeneration uint64 `json:"captureGeneration"`
 	Status            string `json:"status"`

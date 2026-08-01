@@ -35,18 +35,19 @@ type compositorViewport struct {
 }
 
 type wrapperRuntime struct {
-	values         RuntimeEnvValues
-	controlSocket  string
-	ctx            context.Context
-	mu             sync.Mutex
-	uploadMu       sync.Mutex
-	compositorPID  int
-	recordings     map[string]*wrapperRecording
-	mediaProducer  *producer
-	targets        *wrapperTargetRegistry
-	viewers        map[*wrapperViewer]struct{}
-	activeRequests int
-	cdpConnections int
+	values           RuntimeEnvValues
+	controlSocket    string
+	ctx              context.Context
+	mu               sync.Mutex
+	uploadMu         sync.Mutex
+	compositorPID    int
+	recordings       map[string]*wrapperRecording
+	recordingClients map[string]*wrapperRecordingClient
+	mediaProducer    *producer
+	targets          *wrapperTargetRegistry
+	viewers          map[*wrapperViewer]struct{}
+	activeRequests   int
+	cdpConnections   int
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -125,11 +126,12 @@ type WrapperActivityStatus struct {
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
 	return &wrapperRuntime{
-		values:        values,
-		controlSocket: controlSocket,
-		ctx:           context.Background(),
-		viewers:       make(map[*wrapperViewer]struct{}),
-		recordings:    make(map[string]*wrapperRecording),
+		values:           values,
+		controlSocket:    controlSocket,
+		ctx:              context.Background(),
+		viewers:          make(map[*wrapperViewer]struct{}),
+		recordings:       make(map[string]*wrapperRecording),
+		recordingClients: make(map[string]*wrapperRecordingClient),
 	}
 }
 
@@ -165,16 +167,23 @@ func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
 	delete(r.viewers, viewer)
 }
 
-func (r *wrapperRuntime) disconnectViewer() {
+func (r *wrapperRuntime) disconnectConsumers() {
 	r.mu.Lock()
 	viewers := make([]*wrapperViewer, 0, len(r.viewers))
 	for viewer := range r.viewers {
 		viewers = append(viewers, viewer)
 	}
 	r.viewers = make(map[*wrapperViewer]struct{})
+	recordingClients := make([]*wrapperRecordingClient, 0, len(r.recordingClients))
+	for _, client := range r.recordingClients {
+		recordingClients = append(recordingClients, client)
+	}
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
+	}
+	for _, client := range recordingClients {
+		client.cancel()
 	}
 }
 
@@ -202,6 +211,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/recordings", r.handleRecordings)
+	mux.HandleFunc("/recordings/client", r.handleRecordingClient)
 	mux.HandleFunc("/recordings/", r.handleRecording)
 	mux.HandleFunc("/files", r.handleFiles)
 	mux.HandleFunc("/files/", r.handleFileDownload)

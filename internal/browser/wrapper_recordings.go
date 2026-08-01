@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,15 +25,21 @@ var errWrapperRecordingNotFound = errors.New("recording not found")
 
 type wrapperRecordingStatus string
 
+type wrapperRecordingMode string
+
 const (
 	wrapperRecordingStarting wrapperRecordingStatus = "starting"
 	wrapperRecordingRunning  wrapperRecordingStatus = "running"
 	wrapperRecordingStopped  wrapperRecordingStatus = "stopped"
 	wrapperRecordingFailed   wrapperRecordingStatus = "failed"
+
+	wrapperRecordingModeTab    wrapperRecordingMode = "tab"
+	wrapperRecordingModeViewer wrapperRecordingMode = "viewer"
 )
 
 type wrapperRecording struct {
 	ID                string                 `json:"recordingId"`
+	Mode              wrapperRecordingMode   `json:"mode"`
 	TargetID          string                 `json:"targetId"`
 	CaptureGeneration uint64                 `json:"captureGeneration"`
 	Status            wrapperRecordingStatus `json:"status"`
@@ -51,14 +58,18 @@ type wrapperRecording struct {
 	viewport          compositorViewport
 	finalizing        bool
 	replacing         bool
+	clientID          string
+	operationMu       *sync.Mutex
 }
 
 type wrapperRecordingRequest struct {
-	TargetID    string `json:"targetId"`
-	FPS         int    `json:"fps"`
-	BitrateKbps int    `json:"bitrateKbps"`
-	Codec       string `json:"codec"`
-	Path        string `json:"path"`
+	Mode        wrapperRecordingMode `json:"mode"`
+	TargetID    string               `json:"targetId"`
+	ClientID    string               `json:"clientId"`
+	FPS         int                  `json:"fps"`
+	BitrateKbps int                  `json:"bitrateKbps"`
+	Codec       string               `json:"codec"`
+	Path        string               `json:"path"`
 }
 
 func (r *wrapperRuntime) handleRecordings(w http.ResponseWriter, req *http.Request) {
@@ -120,15 +131,26 @@ func (r *wrapperRuntime) handleRecording(w http.ResponseWriter, req *http.Reques
 }
 
 func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
+	if request.ClientID != "" {
+		parsedClientID, err := uuid.Parse(request.ClientID)
+		if err != nil || parsedClientID.String() != request.ClientID {
+			return wrapperRecording{}, errors.New("clientId must be a UUID")
+		}
+	}
+	switch request.Mode {
+	case wrapperRecordingModeTab:
+	case wrapperRecordingModeViewer:
+		if request.ClientID == "" {
+			return wrapperRecording{}, errors.New("viewer recording requires a valid clientId")
+		}
+	default:
+		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
+	}
 	r.mu.Lock()
 	registry := r.targets
 	r.mu.Unlock()
 	if registry == nil {
 		return wrapperRecording{}, errors.New("target registry is unavailable")
-	}
-	target, exists := registry.readyTarget(request.TargetID)
-	if !exists {
-		return wrapperRecording{}, errors.New("target is not ready")
 	}
 	fps := request.FPS
 	if fps <= 0 {
@@ -166,7 +188,40 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 	}
 	segment := filepath.Join(segmentDir, "segment-0000"+filepath.Ext(path))
 
-	r.mu.Lock()
+	var target wrapperTargetSnapshot
+	for {
+		targetID := request.TargetID
+		r.mu.Lock()
+		client := r.recordingClients[request.ClientID]
+		if request.ClientID != "" && client == nil {
+			r.mu.Unlock()
+			_ = os.RemoveAll(segmentDir)
+			return wrapperRecording{}, errors.New("recording client is not connected")
+		}
+		if request.Mode == wrapperRecordingModeViewer && client.targetID != "" {
+			targetID = client.targetID
+		}
+		r.mu.Unlock()
+
+		var exists bool
+		target, exists = registry.readyTarget(targetID)
+		if !exists {
+			_ = os.RemoveAll(segmentDir)
+			return wrapperRecording{}, errors.New("target is not ready")
+		}
+
+		r.mu.Lock()
+		client = r.recordingClients[request.ClientID]
+		if request.ClientID != "" && client == nil {
+			r.mu.Unlock()
+			_ = os.RemoveAll(segmentDir)
+			return wrapperRecording{}, errors.New("recording client is not connected")
+		}
+		if request.Mode != wrapperRecordingModeViewer || client.targetID == "" || client.targetID == target.TargetID {
+			break
+		}
+		r.mu.Unlock()
+	}
 	active := 0
 	for _, recording := range r.recordings {
 		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
@@ -180,6 +235,7 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 	}
 	recording := &wrapperRecording{
 		ID:                id,
+		Mode:              request.Mode,
 		TargetID:          target.TargetID,
 		CaptureGeneration: target.Generation,
 		Status:            wrapperRecordingStarting,
@@ -191,6 +247,8 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 		segmentDir:        segmentDir,
 		segments:          []string{segment},
 		viewport:          target.Viewport,
+		clientID:          request.ClientID,
+		operationMu:       &sync.Mutex{},
 	}
 	r.recordings[id] = recording
 	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
@@ -209,13 +267,27 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 }
 
 func (r *wrapperRuntime) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
+	return r.stopRecordingForTarget(recordingID, "", reason)
+}
+
+func (r *wrapperRuntime) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
 	r.mu.Lock()
 	recording := r.recordings[recordingID]
 	if recording == nil {
 		r.mu.Unlock()
 		return wrapperRecording{}, errWrapperRecordingNotFound
 	}
+	r.mu.Unlock()
+	recording.operationMu.Lock()
+	defer recording.operationMu.Unlock()
+
+	r.mu.Lock()
 	r.refreshRecordingLocked(recording)
+	if targetID != "" && recording.TargetID != targetID {
+		status := *recording
+		r.mu.Unlock()
+		return status, nil
+	}
 	if recording.Status == wrapperRecordingStopped {
 		status := *recording
 		r.mu.Unlock()
@@ -225,10 +297,6 @@ func (r *wrapperRuntime) stopRecording(recordingID string, reason string) (wrapp
 		status := *recording
 		r.mu.Unlock()
 		return status, errors.New("recording has failed")
-	}
-	if recording.finalizing || recording.replacing {
-		r.mu.Unlock()
-		return wrapperRecording{}, errors.New("recording is changing capture source")
 	}
 	recording.finalizing = true
 	r.mu.Unlock()
@@ -305,79 +373,101 @@ func (r *wrapperRuntime) replaceRecordingTargets(ctx context.Context, target wra
 	r.mu.Lock()
 	recordings := make([]*wrapperRecording, 0)
 	for _, recording := range r.recordings {
-		if recording.TargetID != target.TargetID || recording.Status != wrapperRecordingRunning ||
-			(recording.CaptureGeneration == target.Generation && recording.viewport == target.Viewport) {
-			continue
-		}
 		r.refreshRecordingLocked(recording)
-		if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing {
-			continue
+		if recording.TargetID == target.TargetID && recording.Status == wrapperRecordingRunning {
+			recordings = append(recordings, recording)
 		}
-		recording.replacing = true
-		recordings = append(recordings, recording)
 	}
+	r.mu.Unlock()
+	for _, recording := range recordings {
+		if err := r.rotateRecordingTarget(ctx, recording, target, target.TargetID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *wrapperRuntime) rotateRecordingTarget(ctx context.Context, recording *wrapperRecording, target wrapperTargetSnapshot, expectedTargetID string) error {
+	recording.operationMu.Lock()
+	defer recording.operationMu.Unlock()
+
+	r.mu.Lock()
+	r.refreshRecordingLocked(recording)
+	if recording.Status != wrapperRecordingRunning {
+		r.mu.Unlock()
+		return nil
+	}
+	if recording.TargetID != expectedTargetID {
+		r.mu.Unlock()
+		return nil
+	}
+	if recording.TargetID == target.TargetID && recording.CaptureGeneration == target.Generation && recording.viewport == target.Viewport {
+		r.mu.Unlock()
+		return nil
+	}
+	if recording.Mode == wrapperRecordingModeTab && recording.TargetID != target.TargetID {
+		r.mu.Unlock()
+		return errors.New("tab recording cannot switch targets")
+	}
+	recording.replacing = true
+	segment := filepath.Join(recording.segmentDir, "segment-"+fmt.Sprintf("%04d", len(recording.segments))+filepath.Ext(recording.Path))
+	fps := recording.FPS
+	bitrateKbps := recording.BitrateKbps
+	codec := recording.Codec
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
-		for _, recording := range recordings {
-			recording.replacing = false
-		}
-		r.mu.Unlock()
-	}()
-	for _, recording := range recordings {
-		segment := filepath.Join(recording.segmentDir, "segment-"+fmt.Sprintf("%04d", len(recording.segments))+filepath.Ext(recording.Path))
-		cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, recording.FPS, recording.BitrateKbps, recording.Codec)
-		if err == nil {
-			waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			for waitCtx.Err() == nil {
-				if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
-					break
-				}
-				if cmd.ProcessState != nil {
-					err = errors.New("replacement recording pipeline exited before producing data")
-					break
-				}
-				timer := time.NewTimer(25 * time.Millisecond)
-				select {
-				case <-waitCtx.Done():
-					timer.Stop()
-				case <-timer.C:
-				}
-			}
-			if err == nil && waitCtx.Err() != nil {
-				err = fmt.Errorf("replacement recording pipeline did not produce data: %w", waitCtx.Err())
-			}
-			cancel()
-		}
-		if err != nil {
-			if cmd != nil {
-				replacement := &wrapperRecording{cmd: cmd, done: done}
-				_ = stopRecordingSegment(replacement)
-			}
-			r.mu.Lock()
-			recording.replacing = false
-			r.mu.Unlock()
-			return err
-		}
-		if err := stopRecordingSegment(recording); err != nil {
-			replacement := &wrapperRecording{cmd: cmd, done: done}
-			_ = stopRecordingSegment(replacement)
-			r.mu.Lock()
-			recording.replacing = false
-			recording.Status = wrapperRecordingFailed
-			recording.StopReason = "replacement_failed"
-			r.mu.Unlock()
-			return err
-		}
-		r.mu.Lock()
-		recording.segments = append(recording.segments, segment)
-		recording.cmd = cmd
-		recording.done = done
-		recording.CaptureGeneration = target.Generation
-		recording.viewport = target.Viewport
 		recording.replacing = false
 		r.mu.Unlock()
+	}()
+
+	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	if err == nil {
+		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		for waitCtx.Err() == nil {
+			if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
+				break
+			}
+			if cmd.ProcessState != nil {
+				err = errors.New("replacement recording pipeline exited before producing data")
+				break
+			}
+			timer := time.NewTimer(25 * time.Millisecond)
+			select {
+			case <-waitCtx.Done():
+				timer.Stop()
+			case <-timer.C:
+			}
+		}
+		if err == nil && waitCtx.Err() != nil {
+			err = fmt.Errorf("replacement recording pipeline did not produce data: %w", waitCtx.Err())
+		}
+		cancel()
 	}
+	if err != nil {
+		if cmd != nil {
+			replacement := &wrapperRecording{cmd: cmd, done: done}
+			_ = stopRecordingSegment(replacement)
+		}
+		return err
+	}
+	if err := stopRecordingSegment(recording); err != nil {
+		replacement := &wrapperRecording{cmd: cmd, done: done}
+		_ = stopRecordingSegment(replacement)
+		r.mu.Lock()
+		recording.Status = wrapperRecordingFailed
+		recording.StopReason = "replacement_failed"
+		r.mu.Unlock()
+		return err
+	}
+	r.mu.Lock()
+	recording.segments = append(recording.segments, segment)
+	recording.cmd = cmd
+	recording.done = done
+	recording.TargetID = target.TargetID
+	recording.CaptureGeneration = target.Generation
+	recording.viewport = target.Viewport
+	r.mu.Unlock()
 	return nil
 }
 
@@ -388,11 +478,20 @@ func (r *wrapperRuntime) failRecordingTargets(targetID string, generation uint64
 		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning {
 			continue
 		}
-		recording.replacing = true
 		recordings = append(recordings, recording)
 	}
 	r.mu.Unlock()
 	for _, recording := range recordings {
+		recording.operationMu.Lock()
+		r.mu.Lock()
+		r.refreshRecordingLocked(recording)
+		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning {
+			r.mu.Unlock()
+			recording.operationMu.Unlock()
+			continue
+		}
+		recording.replacing = true
+		r.mu.Unlock()
 		_ = stopRecordingSegment(recording)
 		r.mu.Lock()
 		stoppedAt := time.Now().UTC()
@@ -403,6 +502,7 @@ func (r *wrapperRuntime) failRecordingTargets(targetID string, generation uint64
 		recording.StopReason = "replacement_rollback_failed"
 		recording.replacing = false
 		r.mu.Unlock()
+		recording.operationMu.Unlock()
 	}
 }
 
@@ -416,7 +516,7 @@ func (r *wrapperRuntime) stopTargetRecordings(targetID string) {
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		_, _ = r.stopRecording(id, "target_closed")
+		_, _ = r.stopRecordingForTarget(id, targetID, "target_closed")
 	}
 }
 
