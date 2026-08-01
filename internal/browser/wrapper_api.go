@@ -20,12 +20,12 @@ import (
 const viewportScaleDenominator = 120
 
 type compositorViewport struct {
-	Width             int
-	Height            int
-	ScaleNumerator    int
-	PhysicalWidth     int
-	PhysicalHeight    int
-	DeviceScaleFactor float64
+	Width             int     `json:"width"`
+	Height            int     `json:"height"`
+	ScaleNumerator    int     `json:"-"`
+	PhysicalWidth     int     `json:"physicalWidth"`
+	PhysicalHeight    int     `json:"physicalHeight"`
+	DeviceScaleFactor float64 `json:"deviceScaleFactor"`
 }
 
 type wrapperRuntime struct {
