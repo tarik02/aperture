@@ -475,6 +475,42 @@ paths:
       responses:
         '200': {description: Session and new token, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/stop:
+    post:
+      operationId: stopSessionRecording
+      tags: [sessions]
+      summary: Stop a session recording
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, session_service_unavailable, browser_control_failed]
+      description: Stops the selected recording without transferring its media data and returns the resulting session file.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/files/download-url:
+    post:
+      operationId: createSessionFileDownloadURL
+      tags: [sessions]
+      summary: Create a session file download URL
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_file_not_found, session_service_unavailable]
+      description: Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/CreateSessionFileDownloadURL'}
+      responses:
+        '200': {description: Signed session file URL, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFileDownloadURL'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/promote:
     post:
       operationId: promoteSession
@@ -687,6 +723,12 @@ components:
       required: true
       description: UUIDv7 identifier of the browser session.
       schema: {$ref: '#/components/schemas/UUIDv7'}
+    RecordingId:
+      name: recordingId
+      in: path
+      required: true
+      description: UUID identifier returned when the recording started.
+      schema: {type: string, format: uuid}
     SnapshotName:
       name: name
       in: path
@@ -758,6 +800,10 @@ components:
       required: true
       description: Snapshot metadata created from a retained session. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/PromoteSessionInput'}}}
+    CreateSessionFileDownloadURL:
+      required: true
+      description: Session file path and optional signed URL lifetime. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/SessionFileDownloadURLInput'}}}
     UpdateSnapshot:
       required: true
       description: Replacement snapshot description. The JSON body must not exceed 1 MiB.
@@ -903,6 +949,8 @@ components:
         - session_overlay_missing
         - session_invalid_state
         - session_not_running
+        - recording_not_found
+        - session_file_not_found
         - browser_start_failed
         - snapshot_not_found
         - snapshot_name_conflict
@@ -940,6 +988,8 @@ components:
         session_overlay_missing: 409
         session_invalid_state: 409
         session_not_running: 409
+        recording_not_found: 404
+        session_file_not_found: 404
         browser_start_failed: 502
         snapshot_not_found: 404
         snapshot_name_conflict: 409
@@ -1414,6 +1464,64 @@ components:
           x-sensitive: true
           description: Current raw session access secret. Omitted by operations that do not expose or replace credentials.
           example: aps_019f6cf0000070008000000000000010_REDACTED
+    SessionFile:
+      type: object
+      description: Regular file retained with a browser session.
+      required: [name, relativePath, size, modifiedAt, mimeType]
+      properties:
+        name:
+          type: string
+          description: File name without directory components.
+          example: screencast-20260801T120000Z.webm
+        relativePath:
+          type: string
+          description: Path below the session root. The first component is `downloads` or `recordings`.
+          example: recordings/screencast-20260801T120000Z.webm
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          description: File size in bytes.
+          example: 1048576
+        modifiedAt:
+          type: string
+          format: date-time
+          description: Last file modification time.
+          example: '2026-08-01T12:05:00Z'
+        mimeType:
+          type: string
+          description: Detected media type.
+          example: video/webm
+    SessionFileDownloadURLInput:
+      type: object
+      description: Session file path and requested signed URL lifetime.
+      required: [relativePath]
+      properties:
+        relativePath:
+          type: string
+          minLength: 1
+          description: Path from a `SessionFile` result.
+          example: recordings/screencast-20260801T120000Z.webm
+        ttlSeconds:
+          type: integer
+          minimum: 1
+          description: Requested lifetime in seconds. Omit it to use `signed_file_url_ttl`; values above `signed_file_url_max_ttl` are rejected.
+          example: 900
+    SessionFileDownloadURL:
+      type: object
+      description: Signed attachment URL for one session file.
+      required: [url, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL containing a path-bound `apf_` token.
+          example: https://aperture.example.com/sessions/019f6cf0-0000-7000-8000-000000000010/files/recordings/screencast-20260801T120000Z.webm?token=apf_REDACTED
+        expiresAt:
+          type: string
+          format: date-time
+          description: Time after which the URL is rejected.
+          example: '2026-08-01T12:20:00Z'
     PromoteSessionInput:
       type: object
       description: Snapshot metadata created from a stopped, retained session.

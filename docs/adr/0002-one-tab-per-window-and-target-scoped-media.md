@@ -1,4 +1,4 @@
-# ADR 0001: one tab per window and target-scoped media
+# ADR 0002: one tab per window and target-scoped media
 
 - Status: accepted
 - Date: 2026-07-31

@@ -306,6 +306,8 @@ Screencast start body:
 
 Supported codecs are `vp8` and `h264-va`. Omitted or non-positive FPS/bitrate values use instance defaults. Recordings are restricted to the session's `recordings` directory; omitting `path` generates a name there. Screencast start/status return fields such as `active`, `path`, `startedAt`, `stoppedAt`, `fps`, `codec`, and `sizeBytes` when applicable.
 
+Use `POST /api/sessions/:sessionId/screencast/stop` with `sessions:write` to stop without transferring WebM data. It returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`.
+
 ## CDP Proxy
 
 CDP uses the session-specific `sessionToken`, not the Aperture API bearer token. Append the token as the next path segment after the returned `cdpUrl`:
@@ -346,6 +348,17 @@ Through MCP:
 - session-bound versions omit tenant and session identity inputs and bind them from `/sessions/:sessionId/mcp`
 
 `session_files.list` returns `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`. MCP returns metadata and signed URLs rather than large file contents.
+
+Through HTTP, `POST /api/sessions/:sessionId/files/download-url` requires `sessions:read` and accepts:
+
+```json
+{
+  "relativePath": "recordings/screencast-20260801T120000Z.webm",
+  "ttlSeconds": 900
+}
+```
+
+The response contains `url` and `expiresAt`. Omit `ttlSeconds` to use the configured default.
 
 Signed downloads use:
 

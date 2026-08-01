@@ -224,7 +224,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			},
 			{
 				name:        filesRouterName(session.ID),
-				rule:        pathTreeRouterRule(sessionBase + "/files"),
+				rule:        fmt.Sprintf("(%s) && !QueryRegexp(`token`, `^apf_`)", pathTreeRouterRule(sessionBase+"/files")),
 				auth:        writeAuth,
 				middlewares: []string{filesStrip},
 			},

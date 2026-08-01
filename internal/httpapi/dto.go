@@ -241,6 +241,26 @@ type sessionMutationResponse struct {
 	SessionToken string          `json:"sessionToken,omitempty"`
 }
 
+type createSessionFileDownloadURLRequest struct {
+	RelativePath string `json:"relativePath"`
+	TTLSeconds   *int   `json:"ttlSeconds"`
+}
+
+func (r createSessionFileDownloadURLRequest) Validate() error {
+	if r.RelativePath == "" {
+		return validationError("relativePath is required")
+	}
+	if r.TTLSeconds != nil && *r.TTLSeconds <= 0 {
+		return validationError("ttlSeconds must be positive")
+	}
+	return nil
+}
+
+type sessionFileDownloadURLResponse struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
 type promoteSessionRequest struct {
 	Name        string            `json:"name"`
 	Description *string           `json:"description"`

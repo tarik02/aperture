@@ -20,6 +20,8 @@ import (
 
 const wrapperRecordingCapacity = 4
 
+var errWrapperRecordingNotFound = errors.New("recording not found")
+
 type wrapperRecordingStatus string
 
 const (
@@ -97,6 +99,10 @@ func (r *wrapperRuntime) handleRecording(w http.ResponseWriter, req *http.Reques
 	if len(parts) == 2 && parts[1] == "stop" && req.Method == http.MethodPost {
 		recording, err := r.stopRecording(parts[0], "requested")
 		if err != nil {
+			if errors.Is(err, errWrapperRecordingNotFound) {
+				writeWrapperError(w, http.StatusNotFound, err.Error())
+				return
+			}
 			writeWrapperError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -205,7 +211,7 @@ func (r *wrapperRuntime) stopRecording(recordingID string, reason string) (wrapp
 	recording := r.recordings[recordingID]
 	if recording == nil {
 		r.mu.Unlock()
-		return wrapperRecording{}, errors.New("recording not found")
+		return wrapperRecording{}, errWrapperRecordingNotFound
 	}
 	r.refreshRecordingLocked(recording)
 	if recording.Status == wrapperRecordingStopped {
