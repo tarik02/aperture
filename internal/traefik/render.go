@@ -155,7 +155,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		doc.HTTP.Middlewares[writeAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "write")
 
 		webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
-		screencastStrip := stripSessionPrefixMiddlewareName(session.ID, "screencast")
+		recordingsStrip := stripSessionPrefixMiddlewareName(session.ID, "recordings")
 		filesStrip := stripSessionPrefixMiddlewareName(session.ID, "files")
 		uploadsStrip := stripSessionPrefixMiddlewareName(session.ID, "uploads")
 		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
@@ -164,7 +164,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
-		doc.HTTP.Middlewares[screencastStrip] = middlewareConfig{
+		doc.HTTP.Middlewares[recordingsStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[filesStrip] = middlewareConfig{
@@ -205,10 +205,10 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				middlewares: []string{webrtcStrip},
 			},
 			{
-				name:        screencastRouterName(session.ID),
-				rule:        pathPrefixRouterRule(sessionBase + "/screencast/"),
+				name:        recordingsRouterName(session.ID),
+				rule:        pathPrefixRouterRule(sessionBase + "/recordings"),
 				auth:        writeAuth,
-				middlewares: []string{screencastStrip},
+				middlewares: []string{recordingsStrip},
 			},
 			{
 				name:        browserViewportRouterName(session.ID),
@@ -370,8 +370,8 @@ func webrtcRouterName(sessionID string) string {
 	return "aperture-webrtc-" + sanitizeName(sessionID)
 }
 
-func screencastRouterName(sessionID string) string {
-	return "aperture-screencast-" + sanitizeName(sessionID)
+func recordingsRouterName(sessionID string) string {
+	return "aperture-recordings-" + sanitizeName(sessionID)
 }
 
 func browserViewportRouterName(sessionID string) string {

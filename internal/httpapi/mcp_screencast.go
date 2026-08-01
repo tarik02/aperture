@@ -7,100 +7,130 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-type wrapperScreencastStatus struct {
-	Active    bool   `json:"active"`
-	Path      string `json:"path,omitempty"`
-	StartedAt string `json:"startedAt,omitempty"`
-	StoppedAt string `json:"stoppedAt,omitempty"`
-	SizeBytes int64  `json:"sizeBytes,omitempty"`
-	FPS       int    `json:"fps,omitempty"`
-	Codec     string `json:"codec,omitempty"`
+type wrapperRecordingStatus struct {
+	RecordingID       string `json:"recordingId"`
+	TargetID          string `json:"targetId"`
+	CaptureGeneration uint64 `json:"captureGeneration"`
+	Status            string `json:"status"`
+	StopReason        string `json:"stopReason,omitempty"`
+	Path              string `json:"path"`
+	StartedAt         string `json:"startedAt"`
+	StoppedAt         string `json:"stoppedAt,omitempty"`
+	SizeBytes         int64  `json:"sizeBytes,omitempty"`
+	FPS               int    `json:"fps"`
+	BitrateKbps       int    `json:"bitrateKbps"`
+	Codec             string `json:"codec"`
 }
 
-func (s *Server) mcpScreencastStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpScreencastInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingOutput{}, err
 	}
 	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpScreencastRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/screencast/start", map[string]any{
-		"fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
+		"targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
 	}, false)
 }
 
-func (s *Server) mcpScreencastStatus(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpRecordingsList(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingsOutput{}, err
 	}
 	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingsOutput{}, err
 	}
-	return s.mcpScreencastRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, "/screencast/status", nil, false)
+	return s.mcpRecordingsRequest(ctx, view.Session.TenantID, view.Session.ID)
 }
 
-func (s *Server) mcpScreencastStop(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpRecordingStatus(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingOutput{}, err
 	}
 	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpScreencastRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/screencast/stop", nil, true)
+	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, "/recordings/"+url.PathEscape(in.RecordingID), nil, false)
 }
 
-func (s *Server) mcpBoundScreencastStart(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundScreencastInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpScreencastStart(ctx, req, mcpScreencastInput{TenantID: a.tenantID, SessionID: a.sessionID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	if err != nil {
+		return nil, mcpRecordingOutput{}, err
+	}
+	path := "/recordings/" + url.PathEscape(in.RecordingID)
+	if _, _, err := s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path+"/stop", nil, true); err != nil {
+		return nil, mcpRecordingOutput{}, err
+	}
+	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, path, nil, false)
 }
 
-func (s *Server) mcpBoundScreencastStatus(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpScreencastStatus(ctx, req, mcpSessionIDInput{TenantID: a.tenantID, SessionID: a.sessionID})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
 }
 
-func (s *Server) mcpBoundScreencastStop(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, err
+		return nil, mcpRecordingsOutput{}, err
 	}
-	return s.mcpScreencastStop(ctx, req, mcpSessionIDInput{TenantID: a.tenantID, SessionID: a.sessionID})
+	return s.mcpRecordingsList(ctx, req, mcpSessionIDInput{TenantID: a.tenantID, SessionID: a.sessionID})
 }
 
-func (s *Server) mcpScreencastRequest(ctx context.Context, tenantID, sessionID, method, path string, body any, stop bool) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpBoundRecordingStatus(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
+	a, err := mcpAuthFromContext(ctx)
+	if err != nil {
+		return nil, mcpRecordingOutput{}, err
+	}
+	return s.mcpRecordingStatus(ctx, req, mcpRecordingInput{TenantID: a.tenantID, SessionID: a.sessionID, RecordingID: in.RecordingID})
+}
+
+func (s *Server) mcpBoundRecordingStop(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
+	a, err := mcpAuthFromContext(ctx)
+	if err != nil {
+		return nil, mcpRecordingOutput{}, err
+	}
+	return s.mcpRecordingStop(ctx, req, mcpRecordingInput{TenantID: a.tenantID, SessionID: a.sessionID, RecordingID: in.RecordingID})
+}
+
+func (s *Server) mcpRecordingRequest(ctx context.Context, tenantID, sessionID, method, path string, body any, stop bool) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	port, release, err := s.Sessions.AcquireWrapperPort(ctx, tenantID, sessionID)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, mcpToolError("session_unavailable", err)
+		return nil, mcpRecordingOutput{}, mcpToolError("session_unavailable", err)
 	}
 	defer release()
 	var requestBody io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
-			return nil, mcpScreencastOutput{}, mcpToolError("internal", err)
+			return nil, mcpRecordingOutput{}, mcpToolError("internal", err)
 		}
 		requestBody = bytes.NewReader(encoded)
 	}
 	request, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), requestBody)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, mcpToolError("internal", err)
+		return nil, mcpRecordingOutput{}, mcpToolError("internal", err)
 	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -110,23 +140,61 @@ func (s *Server) mcpScreencastRequest(ctx context.Context, tenantID, sessionID, 
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", err)
+		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
-		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", fmt.Errorf("wrapper returned %s: %s", response.Status, message))
+		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", fmt.Errorf("wrapper returned %s: %s", response.Status, message))
 	}
 	if stop {
-		return s.mcpScreencastRequest(ctx, tenantID, sessionID, http.MethodGet, "/screencast/status", nil, false)
+		return nil, mcpRecordingOutput{}, nil
 	}
-	var status wrapperScreencastStatus
+	var status wrapperRecordingStatus
 	if err := json.NewDecoder(io.LimitReader(response.Body, 64*1024)).Decode(&status); err != nil {
-		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", err)
+		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
 	}
-	output := mcpScreencastOutput{Active: status.Active, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt, SizeBytes: status.SizeBytes, FPS: status.FPS, Codec: status.Codec}
+	return nil, mcpRecordingOutputFromStatus(status), nil
+}
+
+func (s *Server) mcpRecordingsRequest(ctx context.Context, tenantID, sessionID string) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
+	port, release, err := s.Sessions.AcquireWrapperPort(ctx, tenantID, sessionID)
+	if err != nil {
+		return nil, mcpRecordingsOutput{}, mcpToolError("session_unavailable", err)
+	}
+	defer release()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/recordings", port), nil)
+	if err != nil {
+		return nil, mcpRecordingsOutput{}, mcpToolError("internal", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", fmt.Errorf("wrapper returned %s: %s", response.Status, message))
+	}
+	var statuses []wrapperRecordingStatus
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1024*1024)).Decode(&statuses); err != nil {
+		return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", err)
+	}
+	output := mcpRecordingsOutput{Recordings: make([]mcpRecordingOutput, 0, len(statuses))}
+	for _, status := range statuses {
+		output.Recordings = append(output.Recordings, mcpRecordingOutputFromStatus(status))
+	}
+	return nil, output, nil
+}
+
+func mcpRecordingOutputFromStatus(status wrapperRecordingStatus) mcpRecordingOutput {
+	output := mcpRecordingOutput{
+		RecordingID: status.RecordingID, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
+		SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+	}
 	if status.Path != "" {
 		output.RelativePath = filepath.ToSlash(filepath.Join("recordings", filepath.Base(status.Path)))
 	}
-	return nil, output, nil
+	return output
 }

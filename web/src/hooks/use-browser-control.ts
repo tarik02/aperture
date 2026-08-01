@@ -33,6 +33,7 @@ import type {
   WebRTCVideoProfile,
 } from "#/lib/control/webrtc-media-transport.ts";
 import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
+import type { Recording } from "#/lib/api/schemas.ts";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
@@ -64,12 +65,14 @@ export type UseBrowserControlResult = {
   mediaMetrics: WebRTCMediaMetrics | null;
   mediaError: string | null;
   mediaPath: BrowserMediaPath;
+  mediaTargetId: string | null;
+  mediaSwitching: boolean;
   lastError: ControlError | null;
   viewport: ViewportPreset;
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
   captured: boolean;
-  recordingActive: boolean;
+  recordings: Recording[];
   recordingBusy: boolean;
   setCaptured: (captured: boolean) => void;
   setViewport: (viewport: ViewportPreset) => void;
@@ -93,7 +96,7 @@ export type UseBrowserControlResult = {
   historyForward: () => void;
   startScreencast: () => void;
   startRecording: () => void;
-  stopRecording: () => void;
+  stopRecording: (recordingId: string) => void;
   reconnect: () => void;
 };
 
@@ -118,7 +121,7 @@ export function useBrowserControl({
   );
   const [viewportAutoSync, setViewportAutoSyncState] = useState(false);
   const [captured, setCaptured] = useState(false);
-  const [recordingActive, setRecordingActive] = useState(false);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   const [recordingBusy, setRecordingBusy] = useState(false);
 
   const activeTargetIdRef = useRef<string | null>(null);
@@ -303,14 +306,18 @@ export function useBrowserControl({
   }, [pushScreencast]);
 
   const startRecording = useCallback(() => {
-    if (!sessionId || !credentials || recordingBusy) {
+    const targetId = activeTargetIdRef.current;
+    if (!sessionId || !credentials || !targetId || recordingBusy) {
       return;
     }
     setRecordingBusy(true);
     apiClient
-      .startSessionScreencast(credentials, sessionId)
-      .then((status) => {
-        setRecordingActive(status.active);
+      .startSessionRecording(credentials, sessionId, targetId)
+      .then((recording) => {
+        setRecordings((current) => [
+          ...current.filter((candidate) => candidate.recordingId !== recording.recordingId),
+          recording,
+        ]);
         toast.success("Recording started");
       })
       .catch((cause: unknown) => {
@@ -319,23 +326,47 @@ export function useBrowserControl({
       .finally(() => setRecordingBusy(false));
   }, [sessionId, credentials, recordingBusy]);
 
-  const stopRecording = useCallback(() => {
-    if (!sessionId || !credentials || recordingBusy) {
-      return;
-    }
-    setRecordingBusy(true);
-    apiClient
-      .stopSessionScreencast(credentials, sessionId)
-      .then(({ blob, filename }) => {
-        setRecordingActive(false);
-        downloadBlob(blob, filename ?? `${sessionId}-screencast.webm`);
-        toast.success("Recording saved");
-      })
-      .catch((cause: unknown) => {
-        toast.error(errorMessage(cause, "Recording failed to stop"));
-      })
-      .finally(() => setRecordingBusy(false));
-  }, [sessionId, credentials, recordingBusy]);
+  const stopRecording = useCallback(
+    (recordingId: string) => {
+      if (!sessionId || !credentials || recordingBusy) {
+        return;
+      }
+      setRecordingBusy(true);
+      apiClient
+        .stopSessionRecording(credentials, sessionId, recordingId)
+        .then(({ blob, filename }) => {
+          const recording = recordings.find((candidate) => candidate.recordingId === recordingId);
+          downloadBlob(
+            blob,
+            filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
+          );
+          void apiClient
+            .getSessionRecording(credentials, sessionId, recordingId)
+            .then((status) => {
+              setRecordings((current) =>
+                current.map((candidate) =>
+                  candidate.recordingId === status.recordingId ? status : candidate,
+                ),
+              );
+            })
+            .catch(() => {
+              setRecordings((current) =>
+                current.map((candidate) =>
+                  candidate.recordingId === recordingId
+                    ? { ...candidate, status: "stopped", stopReason: "requested" }
+                    : candidate,
+                ),
+              );
+            });
+          toast.success("Recording saved");
+        })
+        .catch((cause: unknown) => {
+          toast.error(errorMessage(cause, "Recording failed to stop"));
+        })
+        .finally(() => setRecordingBusy(false));
+    },
+    [sessionId, credentials, recordingBusy, recordings],
+  );
 
   const commitViewport = useCallback(
     (preset: ViewportPreset) => {
@@ -450,7 +481,7 @@ export function useBrowserControl({
     if (enabled && sessionId && credentials) {
       return;
     }
-    setRecordingActive(false);
+    setRecordings([]);
     setRecordingBusy(false);
   }, [enabled, sessionId, credentials]);
 
@@ -458,12 +489,23 @@ export function useBrowserControl({
     if (!enabled || !sessionId || !credentials) {
       return;
     }
-    apiClient
-      .getSessionScreencastStatus(credentials, sessionId)
-      .then((status) => {
-        setRecordingActive(status.active);
-      })
-      .catch(() => undefined);
+    let active = true;
+    const refresh = () => {
+      void apiClient
+        .listSessionRecordings(credentials, sessionId)
+        .then((nextRecordings) => {
+          if (active) {
+            setRecordings(nextRecordings);
+          }
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [enabled, sessionId, credentials]);
 
   useEffect(() => {
@@ -523,12 +565,14 @@ export function useBrowserControl({
     mediaMetrics: controlState.mediaMetrics,
     mediaError: controlState.mediaError,
     mediaPath: controlState.mediaPath,
+    mediaTargetId: controlState.mediaTargetId,
+    mediaSwitching: controlState.mediaSwitching,
     lastError: controlState.lastError,
     viewport,
     browserViewportSize,
     viewportAutoSync,
     captured,
-    recordingActive,
+    recordings,
     recordingBusy,
     setCaptured,
     setViewport: applyViewport,

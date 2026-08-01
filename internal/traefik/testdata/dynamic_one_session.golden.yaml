@@ -45,12 +45,12 @@ http:
       priority: 100
       entryPoints:
         - web
-    aperture-screencast-018f1234000070008000000000000001:
-      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/screencast/`)"
+    aperture-recordings-018f1234000070008000000000000001:
+      rule: "PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/recordings`)"
       service: aperture-wrapper-018f1234000070008000000000000001
       middlewares:
         - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
-        - aperture-strip-session-018f1234000070008000000000000001-screencast
+        - aperture-strip-session-018f1234000070008000000000000001-recordings
       priority: 100
       entryPoints:
         - web
@@ -122,7 +122,7 @@ http:
       stripPrefix:
         prefixes:
           - /sessions/018f1234-0000-7000-8000-000000000001
-    aperture-strip-session-018f1234000070008000000000000001-screencast:
+    aperture-strip-session-018f1234000070008000000000000001-recordings:
       stripPrefix:
         prefixes:
           - /sessions/018f1234-0000-7000-8000-000000000001

@@ -52,7 +52,11 @@ export function BrowserViewport({
   } | null>(null);
   const [cursorHintPoint, setCursorHintPoint] = useState<ViewportPoint | null>(null);
 
-  const showingWebRTC = control.mediaPhase === "live" && Boolean(control.mediaStream);
+  const showingWebRTC =
+    control.mediaPhase === "live" &&
+    Boolean(control.mediaStream) &&
+    !control.mediaSwitching &&
+    control.mediaTargetId === control.activeTargetId;
   const renderWidth = showingWebRTC
     ? (control.mediaSize?.width ?? viewport.width)
     : (control.frame?.width ?? viewport.width);
@@ -143,7 +147,7 @@ export function BrowserViewport({
   }
 
   function resolveInputTarget() {
-    if (control.phase !== "connected" || !control.activeTargetId) {
+    if (control.phase !== "connected" || !control.activeTargetId || control.mediaSwitching) {
       return null;
     }
     if (!control.captured) {
@@ -601,7 +605,11 @@ export function BrowserViewport({
           />
         </div>
       ) : (
-        <ViewportPlaceholder phase={control.phase} mediaPhase={control.mediaPhase} />
+        <ViewportPlaceholder
+          phase={control.phase}
+          mediaPhase={control.mediaPhase}
+          switching={control.mediaSwitching}
+        />
       )}
       <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1.5">
         {control.captured ? (
@@ -712,9 +720,11 @@ function isDisconnectedSocketError(message: string): boolean {
 function ViewportPlaceholder({
   phase,
   mediaPhase,
+  switching,
 }: {
   phase: ControlConnectionPhase;
   mediaPhase: UseBrowserControlResult["mediaPhase"];
+  switching: boolean;
 }) {
   if (phase === "connecting") {
     return (
@@ -729,6 +739,14 @@ function ViewportPlaceholder({
       <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
         Connecting media
+      </div>
+    );
+  }
+  if (phase === "connected" && switching) {
+    return (
+      <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-5 animate-spin" />
+        Switching target
       </div>
     );
   }

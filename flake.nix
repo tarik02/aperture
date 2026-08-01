@@ -101,7 +101,7 @@
               +${"\t"}output->original_scale = 0;
 
               diff --git a/libweston/backend-pipewire/pipewire.c b/libweston/backend-pipewire/pipewire.c
-              index 0a2bb1b2d..e2d767537 100644
+              index 0a2bb1b2d..fbadb24c4 100644
               --- a/libweston/backend-pipewire/pipewire.c
               +++ b/libweston/backend-pipewire/pipewire.c
               @@ -1149,4 +1149,9 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
@@ -114,7 +114,7 @@
                ${"\t"}struct pipewire_output *output = to_pipewire_output(base);
                ${"\t"}struct weston_mode *local_mode;
                ${"\t"}struct weston_size fb_size;
-              @@ -1174,2 +1179,23 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
+              @@ -1174,4 +1179,25 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
               -${"\t"}return 0;
               +${"\t"}if (pipewire_backend_has_dmabuf_allocator(output->backend)) {
               +${"\t"}${"\t"}uint64_t modifier[] = { DRM_FORMAT_MOD_LINEAR };
@@ -141,6 +141,32 @@
                }
 
                static int
+              @@ -1249,6 +1275,7 @@ pipewire_output_set_gbm_format(struct weston_output *base, const char *gbm_forma
+
+               static const struct weston_pipewire_output_api api = {
+               ${"\t"}pipewire_head_create,
+              +${"\t"}pipewire_head_destroy,
+               ${"\t"}pipewire_output_set_size,
+               ${"\t"}pipewire_output_set_gbm_format,
+               };
+
+              diff --git a/include/libweston/backend-pipewire.h b/include/libweston/backend-pipewire.h
+              index d8a508452..85ae595e7 100644
+              --- a/include/libweston/backend-pipewire.h
+              +++ b/include/libweston/backend-pipewire.h
+              @@ -54,6 +54,12 @@ struct weston_pipewire_output_api {
+               ${"\t"}void (*head_create)(struct weston_backend *backend,
+               ${"\t"}${"\t"}${"\t"}    const char *name,
+               ${"\t"}${"\t"}${"\t"}    const struct pipewire_config *config);
+              +
+              +${"\t"}/** Destroy a PipeWire head created by head_create.
+              +${"\t"} *
+              +${"\t"} * The head must not be attached to an output.
+              +${"\t"} */
+              +${"\t"}void (*head_destroy)(struct weston_head *head);
+
+               ${"\t"}/** Set the size and frame rate of a PipeWire output to the specified value.
+               ${"\t"} *
             '')
           ];
         });
@@ -228,10 +254,11 @@
           pname = "aperture";
           inherit version;
           inherit src;
-          vendorHash = "sha256-icVamvIJNIiJHn82xpIr6YuaZGrOxzlhbSEB9i/2rAQ=";
+          vendorHash = "sha256-FvnPtjK11vSaYUt7nlccF3iFIi1lVoIV8cVJpwixtNI=";
 
           subPackages = [
             "cmd/aperture"
+            "cmd/aperture-extension-native-host"
             "cmd/aperture-mount-session"
             "cmd/aperture-unmount-session"
             "cmd/browser-session-wrapper"
@@ -290,6 +317,9 @@
           doCheck = true;
 
           postInstall = ''
+            mkdir -p $out/share/aperture/extensions/tab-window-enforcer
+            cp ${./extensions/tab-window-enforcer}/* $out/share/aperture/extensions/tab-window-enforcer/
+
             mkdir -p $out/lib/weston
             mkdir -p $TMPDIR/aperture-wayland-protocols
             ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \

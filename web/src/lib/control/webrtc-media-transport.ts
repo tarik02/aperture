@@ -1,4 +1,4 @@
-import { Observable, Subscription, auditTime, distinctUntilChanged } from "rxjs";
+import { Observable, Subscription, debounceTime, distinctUntilChanged } from "rxjs";
 import { z } from "zod";
 import { TENANT_HEADER, resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import type { ClientMessage } from "#/lib/control/messages.ts";
@@ -14,6 +14,7 @@ export type WebRTCMediaSize = {
 };
 
 export type WebRTCViewportRequest = {
+  targetId: string;
   width: number;
   height: number;
   deviceScaleFactor: number;
@@ -66,7 +67,18 @@ export type WebRTCMediaFailure =
 export type WebRTCMediaError =
   | WebRTCMediaFailure
   | { kind: "producer-resize-failed"; detail: string }
-  | { kind: "producer-quality-failed"; detail: string };
+  | { kind: "producer-quality-failed"; detail: string }
+  | { kind: "target-selection-failed"; detail: string };
+
+export type WebRTCTargetSelection = {
+  targetId: string;
+  generation: number;
+  width: number;
+  height: number;
+  physicalWidth: number;
+  physicalHeight: number;
+  deviceScaleFactor: number;
+};
 
 export function webRTCMediaErrorMessage(error: WebRTCMediaError): string {
   switch (error.kind) {
@@ -96,6 +108,8 @@ export function webRTCMediaErrorMessage(error: WebRTCMediaError): string {
       return `WebRTC resize failed: ${error.detail}`;
     case "producer-quality-failed":
       return `WebRTC stream update failed: ${error.detail}`;
+    case "target-selection-failed":
+      return `WebRTC target selection failed: ${error.detail}`;
     case "unexpected":
       return error.cause instanceof Error ? error.cause.message : "WebRTC media failed";
     default: {
@@ -114,6 +128,8 @@ export type WebRTCMediaState = {
   metrics: WebRTCMediaMetrics | null;
   error: WebRTCMediaError | null;
   inputReady: boolean;
+  selectedTarget: WebRTCTargetSelection | null;
+  targetSwitching: boolean;
 };
 
 export type WebRTCInputMessage =
@@ -126,6 +142,7 @@ export type WebRTCMediaOptions = {
   credentials: ApiCredentials;
   iceServers: RTCIceServer[];
   input$: Observable<WebRTCInputMessage>;
+  targetId$: Observable<string | null>;
   viewportSize$: Observable<WebRTCViewportRequest>;
   streamSettings$: Observable<WebRTCStreamSettings>;
   reconnect: () => void;
@@ -281,19 +298,30 @@ const signalResponseSchema = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
+const targetSelectionSchema = z
+  .object({
+    target_id: z.string(),
+    generation: z.number().int().positive(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    physical_width: z.number().int().positive(),
+    physical_height: z.number().int().positive(),
+    device_scale_factor: z.number().positive(),
+  })
+  .strict();
 const controlResponseSchema = z.discriminatedUnion("type", [
   z
     .object({
-      version: z.literal(3),
+      version: z.literal(4),
       id: z.string(),
       type: z.literal("input.acquire.result"),
       ok: z.literal(true),
-      input: z.object({ pointer: z.boolean(), keyboard: z.boolean() }).strict(),
+      input: z.object({ pointer: z.boolean(), keyboard: z.boolean(), text: z.boolean() }).strict(),
     })
     .strict(),
   z
     .object({
-      version: z.literal(3),
+      version: z.literal(4),
       id: z.string(),
       type: z.literal("video.quality.set.result"),
       ok: z.literal(true),
@@ -311,7 +339,41 @@ const controlResponseSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      version: z.literal(3),
+      version: z.literal(4),
+      id: z.string(),
+      type: z.literal("input.release.result"),
+      ok: z.literal(true),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
+      id: z.string(),
+      type: z.literal("target.select.result"),
+      ok: z.literal(true),
+      target: targetSelectionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
+      type: z.literal("target.updated"),
+      ok: z.literal(true),
+      target: targetSelectionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
+      type: z.literal("target.unavailable"),
+      ok: z.literal(false),
+      target_id: z.string(),
+      error: z.object({ code: z.string(), message: z.string() }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
       id: z.string(),
       type: z.literal("error"),
       ok: z.literal(false),
@@ -361,6 +423,13 @@ const viewportMetadataSchema = z
     deviceScaleFactor: z.number().positive(),
     physicalWidth: z.number().positive(),
     physicalHeight: z.number().positive(),
+  })
+  .strict();
+const viewportResponseSchema = z
+  .object({
+    targetId: z.string(),
+    generation: z.number().int().positive(),
+    viewport: viewportMetadataSchema,
   })
   .strict();
 const inboundVideoStatsSchema = z
@@ -426,6 +495,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         metrics: null,
         error: { kind: "setup-failed", cause },
         inputReady: false,
+        selectedTarget: null,
+        targetSwitching: false,
       });
       subscriber.complete();
       return;
@@ -440,6 +511,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       metrics: null,
       error: null,
       inputReady: false,
+      selectedTarget: null,
+      targetSwitching: false,
     };
     let closed = false;
     let inputSequence = 0;
@@ -452,6 +525,11 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     let viewportRequest = 0;
     let viewportSettled = 0;
     const qualityRequests = new Map<string, WebRTCStreamSettings>();
+    const targetRequests = new Map<string, { targetId: string; sequence: number }>();
+    let targetRequestSequence = 0;
+    let latestTargetRequestSequence = 0;
+    let requestedTargetId: string | null = null;
+    let targetRetryTimer: number | null = null;
     let statsSample: StatsSample | null = null;
     let statsTimer: number | null = null;
     let mediaTimeout: number | null = window.setTimeout(() => {
@@ -519,7 +597,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       qualityRequests.set(id, pendingStreamSettings);
       control.send(
         JSON.stringify({
-          version: 3,
+          version: 4,
           id,
           type: "video.quality.set",
           quality: {
@@ -535,6 +613,58 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           },
         }),
       );
+    };
+    const acquireInput = () => {
+      if (
+        control.readyState !== "open" ||
+        input.readyState !== "open" ||
+        inputMotion.readyState !== "open" ||
+        state.inputReady ||
+        state.targetSwitching ||
+        !state.selectedTarget ||
+        state.selectedTarget.targetId !== requestedTargetId
+      ) {
+        return;
+      }
+      controlRequest += 1;
+      control.send(
+        JSON.stringify({
+          version: 4,
+          id: `input-${controlRequest}`,
+          type: "input.acquire",
+        }),
+      );
+    };
+    const selectTarget = () => {
+      if (!requestedTargetId || control.readyState !== "open") {
+        return;
+      }
+      if (targetRetryTimer !== null) {
+        window.clearTimeout(targetRetryTimer);
+        targetRetryTimer = null;
+      }
+      targetRequestSequence += 1;
+      latestTargetRequestSequence = targetRequestSequence;
+      controlRequest += 1;
+      const id = `target-${controlRequest}`;
+      targetRequests.set(id, { targetId: requestedTargetId, sequence: targetRequestSequence });
+      control.send(
+        JSON.stringify({
+          version: 4,
+          id,
+          type: "target.select",
+          target_id: requestedTargetId,
+        }),
+      );
+    };
+    const retryTargetSelection = () => {
+      if (closed || targetRetryTimer !== null) {
+        return;
+      }
+      targetRetryTimer = window.setTimeout(() => {
+        targetRetryTimer = null;
+        selectTarget();
+      }, 250);
     };
 
     void mediaStatus
@@ -596,11 +726,15 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       if (statsTimer !== null) {
         window.clearInterval(statsTimer);
       }
+      if (targetRetryTimer !== null) {
+        window.clearTimeout(targetRetryTimer);
+        targetRetryTimer = null;
+      }
       if (state.inputReady && control.readyState === "open") {
         controlRequest += 1;
         control.send(
           JSON.stringify({
-            version: 3,
+            version: 4,
             id: `input-${controlRequest}`,
             type: "input.release",
           }),
@@ -763,24 +897,6 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
     });
 
-    const acquireInput = () => {
-      if (
-        control.readyState !== "open" ||
-        input.readyState !== "open" ||
-        inputMotion.readyState !== "open" ||
-        state.inputReady
-      ) {
-        return;
-      }
-      controlRequest += 1;
-      control.send(
-        JSON.stringify({
-          version: 3,
-          id: `input-${controlRequest}`,
-          type: "input.acquire",
-        }),
-      );
-    };
     const reconnectInput = () => {
       if (closed) {
         return;
@@ -790,7 +906,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       queueMicrotask(options.reconnect);
     };
     control.addEventListener("open", () => {
-      acquireInput();
+      selectTarget();
       sendStreamSettings();
     });
     input.addEventListener("open", acquireInput);
@@ -817,6 +933,23 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           });
           return;
         }
+        const targetRequest = targetRequests.get(parsed.data.id);
+        if (targetRequest) {
+          targetRequests.delete(parsed.data.id);
+          if (
+            targetRequest.sequence === latestTargetRequestSequence &&
+            targetRequest.targetId === requestedTargetId
+          ) {
+            emit({
+              selectedTarget: null,
+              targetSwitching: true,
+              inputReady: false,
+              error: { kind: "target-selection-failed", detail: parsed.data.error.message },
+            });
+            retryTargetSelection();
+          }
+          return;
+        }
         console.warn("WebRTC input acquisition failed", parsed.data.error);
         emit({ inputReady: false });
         return;
@@ -836,6 +969,57 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         if (previousProfile && previousProfile !== parsed.data.quality.profile) {
           reconnectAfterProfileChange = true;
         }
+        return;
+      }
+      if (parsed.data.type === "target.select.result") {
+        const request = targetRequests.get(parsed.data.id);
+        targetRequests.delete(parsed.data.id);
+        if (
+          !request ||
+          request.sequence !== latestTargetRequestSequence ||
+          request.targetId !== requestedTargetId ||
+          parsed.data.target.target_id !== requestedTargetId
+        ) {
+          return;
+        }
+        const selectedTarget = targetSelection(parsed.data.target);
+        emit({
+          selectedTarget,
+          targetSwitching: false,
+          size: selectedTarget,
+          inputReady: false,
+          error: null,
+        });
+        acquireInput();
+        return;
+      }
+      if (parsed.data.type === "target.updated") {
+        if (
+          parsed.data.target.target_id !== requestedTargetId ||
+          parsed.data.target.target_id !== state.selectedTarget?.targetId ||
+          parsed.data.target.generation < state.selectedTarget.generation
+        ) {
+          return;
+        }
+        const selectedTarget = targetSelection(parsed.data.target);
+        emit({ selectedTarget, size: selectedTarget, inputReady: false, error: null });
+        acquireInput();
+        return;
+      }
+      if (parsed.data.type === "target.unavailable") {
+        if (parsed.data.target_id !== requestedTargetId) {
+          return;
+        }
+        emit({
+          selectedTarget: null,
+          targetSwitching: true,
+          inputReady: false,
+          error: { kind: "target-selection-failed", detail: parsed.data.error.message },
+        });
+        retryTargetSelection();
+        return;
+      }
+      if (parsed.data.type === "input.release.result") {
         return;
       }
       emit({ inputReady: parsed.data.input.pointer || parsed.data.input.keyboard });
@@ -936,7 +1120,25 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }),
     );
     subscriptions.add(
-      options.viewportSize$.pipe(auditTime(32)).subscribe((viewport) => {
+      options.targetId$.pipe(distinctUntilChanged()).subscribe((targetId) => {
+        requestedTargetId = targetId;
+        latestTargetRequestSequence += 1;
+        targetRequests.clear();
+        if (targetRetryTimer !== null) {
+          window.clearTimeout(targetRetryTimer);
+          targetRetryTimer = null;
+        }
+        emit({
+          selectedTarget: null,
+          targetSwitching: targetId !== null,
+          inputReady: false,
+          error: null,
+        });
+        selectTarget();
+      }),
+    );
+    subscriptions.add(
+      options.viewportSize$.pipe(debounceTime(150)).subscribe((viewport) => {
         viewportRequest += 1;
         const request = viewportRequest;
         void updateViewport(options, viewport)
@@ -945,7 +1147,9 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
               return;
             }
             viewportSettled = request;
-            emit({ size, error: null });
+            if (size.targetId === requestedTargetId) {
+              emit({ size: size.viewport, error: null });
+            }
             sendStreamSettings();
           })
           .catch((cause: unknown) => {
@@ -1002,7 +1206,7 @@ function pointerButton(button: WebRTCPointerButton | undefined) {
 async function updateViewport(
   options: WebRTCMediaOptions,
   viewport: WebRTCViewportRequest,
-): Promise<WebRTCMediaSize> {
+): Promise<z.infer<typeof viewportResponseSchema>> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.credentials.token.trim()}`,
     "Content-Type": "application/json",
@@ -1022,7 +1226,19 @@ async function updateViewport(
   if (!response.ok) {
     throw new Error((await response.text()) || `resize failed with status ${response.status}`);
   }
-  return viewportMetadataSchema.parse(await response.json());
+  return viewportResponseSchema.parse(await response.json());
+}
+
+function targetSelection(target: z.infer<typeof targetSelectionSchema>): WebRTCTargetSelection {
+  return {
+    targetId: target.target_id,
+    generation: target.generation,
+    width: target.width,
+    height: target.height,
+    physicalWidth: target.physical_width,
+    physicalHeight: target.physical_height,
+    deviceScaleFactor: target.device_scale_factor,
+  };
 }
 
 async function loadMediaStatus(options: WebRTCMediaOptions) {

@@ -10,7 +10,8 @@ import {
   eventsPageSchema,
   healthSchema,
   promoteSessionResponseSchema,
-  screencastStatusSchema,
+  recordingSchema,
+  recordingsSchema,
   sessionSchema,
   sessionsBulkResponseSchema,
   sessionMutationResponseSchema,
@@ -504,30 +505,39 @@ export const apiClient = {
     });
   },
 
-  getSessionScreencastStatus(credentials: ApiCredentials, sessionId: string) {
+  listSessionRecordings(credentials: ApiCredentials, sessionId: string) {
     return request({
-      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/status`,
-      schema: screencastStatusSchema,
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
+      schema: recordingsSchema,
       credentials,
       tenantHeader: "tenant-scoped",
     });
   },
 
-  startSessionScreencast(credentials: ApiCredentials, sessionId: string) {
+  startSessionRecording(credentials: ApiCredentials, sessionId: string, targetId: string) {
     return request({
       method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/start`,
-      schema: screencastStatusSchema,
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
+      schema: recordingSchema,
       credentials,
       tenantHeader: "tenant-scoped",
-      body: {},
+      body: { targetId },
     });
   },
 
-  stopSessionScreencast(credentials: ApiCredentials, sessionId: string) {
+  getSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
+    return request({
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}`,
+      schema: recordingSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  stopSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
     return requestBlob({
       method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/stop`,
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
       credentials,
       tenantHeader: "tenant-scoped",
     });

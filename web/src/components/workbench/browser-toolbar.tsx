@@ -262,6 +262,9 @@ function BrowserMenu({
   onReconnect: () => void;
 }) {
   const showStreamMenu = control.mediaPath === "webrtc-live";
+  const runningRecordings = control.recordings.filter(
+    (recording) => recording.status === "starting" || recording.status === "running",
+  );
 
   return (
     <DropdownMenu>
@@ -322,19 +325,27 @@ function BrowserMenu({
             Performance overlay
           </DropdownMenuCheckboxItem>
           <DropdownMenuItem
-            disabled={!connected || control.recordingBusy || control.recordingActive}
+            disabled={!connected || !control.activeTargetId || control.recordingBusy}
             onClick={control.startRecording}
           >
             <Circle />
-            Start recording
+            Record active target
           </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!connected || control.recordingBusy || !control.recordingActive}
-            onClick={control.stopRecording}
-          >
-            <Square />
-            Stop recording
-          </DropdownMenuItem>
+          {runningRecordings.map((recording) => {
+            const target = control.targets.find((candidate) => candidate.id === recording.targetId);
+            return (
+              <DropdownMenuItem
+                key={recording.recordingId}
+                disabled={!connected || control.recordingBusy}
+                onClick={() => control.stopRecording(recording.recordingId)}
+              >
+                <Square />
+                <span className="truncate">
+                  Stop {target?.title || recording.targetId.slice(0, 8)}
+                </span>
+              </DropdownMenuItem>
+            );
+          })}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
