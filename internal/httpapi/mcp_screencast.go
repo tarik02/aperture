@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,7 +34,7 @@ func (s *Server) mcpScreencastStart(ctx context.Context, _ *mcp.CallToolRequest,
 	}
 	return s.mcpScreencastRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/screencast/start", map[string]any{
 		"fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
-	}, false)
+	})
 }
 
 func (s *Server) mcpScreencastStatus(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
@@ -45,7 +46,7 @@ func (s *Server) mcpScreencastStatus(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return nil, mcpScreencastOutput{}, err
 	}
-	return s.mcpScreencastRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, "/screencast/status", nil, false)
+	return s.mcpScreencastRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, "/screencast/status", nil)
 }
 
 func (s *Server) mcpScreencastStop(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
@@ -57,7 +58,14 @@ func (s *Server) mcpScreencastStop(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpScreencastOutput{}, err
 	}
-	return s.mcpScreencastRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/screencast/stop", nil, true)
+	file, stoppedAt, err := s.stopScreencast(ctx, view.Session.TenantID, view.Session.ID)
+	if errors.Is(err, errScreencastNotActive) {
+		return nil, mcpScreencastOutput{}, mcpToolError("screencast_not_active", err)
+	}
+	if err != nil {
+		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", err)
+	}
+	return nil, mcpScreencastOutput{Active: false, RelativePath: file.RelativePath, StoppedAt: stoppedAt, SizeBytes: file.Size}, nil
 }
 
 func (s *Server) mcpBoundScreencastStart(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundScreencastInput) (*mcp.CallToolResult, mcpScreencastOutput, error) {
@@ -84,7 +92,7 @@ func (s *Server) mcpBoundScreencastStop(ctx context.Context, req *mcp.CallToolRe
 	return s.mcpScreencastStop(ctx, req, mcpSessionIDInput{TenantID: a.tenantID, SessionID: a.sessionID})
 }
 
-func (s *Server) mcpScreencastRequest(ctx context.Context, tenantID, sessionID, method, path string, body any, stop bool) (*mcp.CallToolResult, mcpScreencastOutput, error) {
+func (s *Server) mcpScreencastRequest(ctx context.Context, tenantID, sessionID, method, path string, body any) (*mcp.CallToolResult, mcpScreencastOutput, error) {
 	port, release, err := s.Sessions.AcquireWrapperPort(ctx, tenantID, sessionID)
 	if err != nil {
 		return nil, mcpScreencastOutput{}, mcpToolError("session_unavailable", err)
@@ -105,9 +113,6 @@ func (s *Server) mcpScreencastRequest(ctx context.Context, tenantID, sessionID, 
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	if stop {
-		request.Header.Set("Range", "bytes=0-0")
-	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", err)
@@ -116,9 +121,6 @@ func (s *Server) mcpScreencastRequest(ctx context.Context, tenantID, sessionID, 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 		return nil, mcpScreencastOutput{}, mcpToolError("screencast_unavailable", fmt.Errorf("wrapper returned %s: %s", response.Status, message))
-	}
-	if stop {
-		return s.mcpScreencastRequest(ctx, tenantID, sessionID, http.MethodGet, "/screencast/status", nil, false)
 	}
 	var status wrapperScreencastStatus
 	if err := json.NewDecoder(io.LimitReader(response.Body, 64*1024)).Decode(&status); err != nil {

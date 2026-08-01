@@ -37,7 +37,7 @@ http:
       entryPoints:
         - web
     aperture-files-018f1234000070008000000000000001:
-      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/files`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/files/`)"
+      rule: "(Path(`/sessions/018f1234-0000-7000-8000-000000000001/files`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/files/`)) && !QueryRegexp(`token`, `^apf_`)"
       service: aperture-wrapper-018f1234000070008000000000000001
       middlewares:
         - aperture-live-session-forward-auth-018f1234000070008000000000000001-write

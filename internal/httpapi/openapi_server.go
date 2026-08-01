@@ -97,6 +97,10 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
 			return
 		}
+	case path == "/api/sessions/:sessionId/files/download-url":
+		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
+			return
+		}
 	case path == "/api/sessions/:sessionId/promote":
 		if !auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite) || !auth.HasScope(principal.Scopes, auth.ScopeSnapshotsWrite) {
 			WriteError(c, auth.ErrScopeDenied)
@@ -134,6 +138,7 @@ func captureOpenAPIRequestBody(c *gin.Context) {
 		path == "/api/tenant/tokens" ||
 		path == "/api/sessions" ||
 		path == "/api/sessions/bulk" ||
+		path == "/api/sessions/:sessionId/files/download-url" ||
 		path == "/api/sessions/:sessionId/promote") ||
 		c.Request.Method == http.MethodPatch && (path == "/api/admin/tenants/:tenantId" ||
 			path == "/api/tenant" ||
@@ -316,6 +321,24 @@ func (s openAPIServer) GetSession(ctx context.Context, _ generated.GetSessionReq
 		return nil, errOpenAPIContext
 	}
 	s.server.getSession(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) StopSessionScreencast(ctx context.Context, _ generated.StopSessionScreencastRequestObject) (generated.StopSessionScreencastResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.stopSessionScreencast(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) CreateSessionFileDownloadURL(ctx context.Context, _ generated.CreateSessionFileDownloadURLRequestObject) (generated.CreateSessionFileDownloadURLResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createSessionFileDownloadURL(c)
 	return openAPIPassthroughResponse{}, nil
 }
 
@@ -519,6 +542,14 @@ func (openAPIPassthroughResponse) VisitDeleteSessionResponse(http.ResponseWriter
 }
 
 func (openAPIPassthroughResponse) VisitGetSessionResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitStopSessionScreencastResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateSessionFileDownloadURLResponse(http.ResponseWriter) error {
 	return nil
 }
 
