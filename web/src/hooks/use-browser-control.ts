@@ -502,12 +502,35 @@ export function useBrowserControl({
         .catch(() => undefined);
     };
     refresh();
-    const timer = window.setInterval(refresh, 2000);
+    return () => {
+      active = false;
+    };
+  }, [enabled, sessionId, credentials]);
+
+  const recordingPollingActive = recordings.some(
+    (recording) => recording.status === "starting" || recording.status === "running",
+  );
+
+  useEffect(() => {
+    if (!enabled || !sessionId || !credentials || !recordingPollingActive) {
+      return;
+    }
+    let active = true;
+    const timer = window.setInterval(() => {
+      void apiClient
+        .listSessionRecordings(credentials, sessionId)
+        .then((nextRecordings) => {
+          if (active) {
+            setRecordings(nextRecordings);
+          }
+        })
+        .catch(() => undefined);
+    }, 2000);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [enabled, sessionId, credentials]);
+  }, [enabled, sessionId, credentials, recordingPollingActive]);
 
   useEffect(() => {
     if (
