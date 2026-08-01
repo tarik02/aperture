@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -21,6 +22,11 @@ import (
 )
 
 const viewportScaleDenominator = 120
+
+var (
+	errWrapperScreencastNotActive = errors.New("screencast is not active")
+	errWrapperScreencastEmpty     = errors.New("screencast is empty")
+)
 
 type compositorViewport struct {
 	Width             int
@@ -162,6 +168,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/screencast/start", r.handleScreencastStart)
 	mux.HandleFunc("/screencast/stop", r.handleScreencastStop)
 	mux.HandleFunc("/screencast/status", r.handleScreencastStatus)
+	mux.HandleFunc("/internal/screencast/stop", r.handleInternalScreencastStop)
 	mux.HandleFunc("/files", r.handleFiles)
 	mux.HandleFunc("/files/", r.handleFileDownload)
 	mux.HandleFunc("/uploads", r.handleUploads)
@@ -371,6 +378,27 @@ func (r *wrapperRuntime) handleScreencastStop(w http.ResponseWriter, req *http.R
 	http.ServeFile(w, req, file.path)
 }
 
+func (r *wrapperRuntime) handleInternalScreencastStop(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	file, err := r.stopScreencast()
+	if errors.Is(err, errWrapperScreencastNotActive) {
+		writeWrapperError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		writeWrapperError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeWrapperJSON(w, http.StatusOK, map[string]any{
+		"path":      file.path,
+		"stoppedAt": file.stoppedAt.Format(time.RFC3339Nano),
+		"sizeBytes": file.sizeBytes,
+	})
+}
+
 func (r *wrapperRuntime) handleScreencastStatus(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -435,7 +463,7 @@ func (r *wrapperRuntime) stopScreencast() (*wrapperScreencastFile, error) {
 	r.screencast = nil
 	r.mu.Unlock()
 	if active == nil {
-		return nil, fmt.Errorf("screencast is not active")
+		return nil, errWrapperScreencastNotActive
 	}
 	if active.cmd.Process != nil && active.cmd.ProcessState == nil {
 		_ = active.cmd.Process.Signal(syscall.SIGINT)
@@ -453,7 +481,7 @@ func (r *wrapperRuntime) stopScreencast() (*wrapperScreencastFile, error) {
 		sizeBytes = info.Size()
 	}
 	if sizeBytes <= 0 {
-		return nil, fmt.Errorf("screencast is empty")
+		return nil, errWrapperScreencastEmpty
 	}
 	stoppedAt := time.Now().UTC()
 	r.mu.Lock()

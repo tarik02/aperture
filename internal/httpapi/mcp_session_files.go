@@ -3,9 +3,6 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"net/url"
-	"strings"
-	"time"
 
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/sessionfiles"
@@ -53,40 +50,17 @@ func (s *Server) mcpSessionFileURL(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSessionFileURLOutput{}, err
 	}
-	layout, err := paths.Session(s.Config, view.Session.ID)
-	if err != nil {
-		return nil, mcpSessionFileURLOutput{}, mcpToolError("internal", err)
-	}
-	_, normalized, err := sessionfiles.Resolve(layout, in.RelativePath)
-	if err != nil {
+	result, err := s.sessionFileDownloadURL(view.Session.ID, in.RelativePath, in.TTLSeconds)
+	if errors.Is(err, errSessionFileNotFound) {
 		return nil, mcpSessionFileURLOutput{}, mcpToolError("file_not_found", err)
 	}
-	ttl := s.Config.SignedFileURLTTL
-	if in.TTLSeconds > 0 {
-		maxTTLSeconds := int64(s.Config.SignedFileURLMaxTTL / time.Second)
-		if int64(in.TTLSeconds) > maxTTLSeconds {
-			return nil, mcpSessionFileURLOutput{}, mcpToolError("invalid_arguments", errors.New("ttl exceeds configured maximum"))
-		}
-		ttl = time.Duration(in.TTLSeconds) * time.Second
+	if errors.Is(err, errValidation) {
+		return nil, mcpSessionFileURLOutput{}, mcpToolError("invalid_arguments", err)
 	}
-	if ttl <= 0 || ttl > s.Config.SignedFileURLMaxTTL {
-		return nil, mcpSessionFileURLOutput{}, mcpToolError("invalid_arguments", errors.New("ttl exceeds configured maximum"))
-	}
-	expiresAt := time.Now().UTC().Add(ttl)
-	token, err := sessionfiles.IssueToken(s.jobToken, view.Session.ID, normalized, expiresAt)
 	if err != nil {
 		return nil, mcpSessionFileURLOutput{}, mcpToolError("internal", err)
 	}
-	base := strings.TrimRight(s.Config.ExternalBaseURL, "/")
-	if base == "" {
-		return nil, mcpSessionFileURLOutput{}, mcpToolError("internal", errors.New("external base url is required"))
-	}
-	parts := strings.Split(normalized, "/")
-	escaped := make([]string, len(parts))
-	for i, part := range parts {
-		escaped[i] = url.PathEscape(part)
-	}
-	return nil, mcpSessionFileURLOutput{URL: base + "/sessions/" + url.PathEscape(view.Session.ID) + "/files/" + strings.Join(escaped, "/") + "?token=" + url.QueryEscape(token), ExpiresAt: expiresAt}, nil
+	return nil, mcpSessionFileURLOutput(result), nil
 }
 
 func (s *Server) mcpBoundSessionFileURL(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundSessionFileInput) (*mcp.CallToolResult, mcpSessionFileURLOutput, error) {
