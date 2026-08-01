@@ -65,7 +65,6 @@ struct aperture_shell {
 	struct wl_list fractional_scales;
 	struct wl_list text_inputs;
 	struct wl_event_source *control_source;
-	struct wl_event_source *resize_timer;
 	struct wl_listener destroy_listener;
 	struct wl_listener text_input_focus_listener;
 	struct wl_global *cursor_shape_global;
@@ -78,11 +77,7 @@ struct aperture_shell {
 	uint32_t width;
 	uint32_t height;
 	uint32_t scale_numerator;
-	uint32_t pending_width;
-	uint32_t pending_height;
-	uint32_t pending_scale_numerator;
 	uint64_t next_surface_id;
-	bool resize_scheduled;
 	bool input_seat_initialized;
 	bool input_pointer_initialized;
 	bool input_keyboard_initialized;
@@ -154,7 +149,6 @@ static const uint32_t aperture_max_dimension = 16384;
 static const uint32_t aperture_scale_denominator = 120;
 static const uint32_t aperture_min_scale_numerator = 30;
 static const uint32_t aperture_max_scale_numerator = 480;
-static const int aperture_resize_coalesce_ms = 16;
 
 static int
 create_background(struct aperture_shell *shell);
@@ -330,15 +324,6 @@ send_fractional_scale_surface(struct aperture_shell *shell,
 }
 
 static void
-send_fractional_scale_all(struct aperture_shell *shell)
-{
-	struct aperture_fractional_scale *scale;
-
-	wl_list_for_each(scale, &shell->fractional_scales, link)
-		send_fractional_scale(scale);
-}
-
-static void
 unset_viewport_source(struct weston_buffer_viewport *viewport)
 {
 	viewport->buffer.src_x = wl_fixed_from_int(0);
@@ -352,41 +337,6 @@ unset_viewport_destination(struct weston_buffer_viewport *viewport)
 {
 	viewport->surface.width = -1;
 	viewport->surface.height = -1;
-}
-
-static const char *
-resize_output(struct aperture_shell *shell, uint32_t width, uint32_t height,
-	      uint32_t scale_numerator)
-{
-	struct weston_output *output = default_output(shell);
-	struct weston_mode mode;
-	uint32_t physical_width = scaled_dimension(width, scale_numerator);
-	uint32_t physical_height = scaled_dimension(height, scale_numerator);
-	int32_t output_scale = 1;
-
-	if (!output || !output->current_mode)
-		return "output is unavailable";
-	if (physical_width < aperture_min_dimension || physical_height < aperture_min_dimension ||
-	    physical_width > aperture_max_dimension || physical_height > aperture_max_dimension)
-		return "invalid physical dimensions";
-	if (output->current_mode->width == (int32_t)physical_width &&
-	    output->current_mode->height == (int32_t)physical_height &&
-	    output->current_scale == output_scale)
-		return NULL;
-
-	mode = *output->current_mode;
-	mode.width = (int32_t)physical_width;
-	mode.height = (int32_t)physical_height;
-	if (weston_output_mode_set_native(output, &mode, output_scale) < 0)
-		return "output resize failed";
-
-	if (shell->background) {
-		weston_shell_utils_curtain_destroy(shell->background);
-		shell->background = NULL;
-		if (create_background(shell) < 0)
-			return "background resize failed";
-	}
-	return NULL;
 }
 
 static int
@@ -517,119 +467,6 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 									   surface->view->surface)));
 	weston_view_move_to_layer(surface->view, &shell->normal_layer.view_list);
 	weston_view_schedule_repaint(surface->view);
-}
-
-static void
-layout_all_surfaces(struct aperture_shell *shell)
-{
-	struct aperture_shell_surface *surface;
-
-	wl_list_for_each(surface, &shell->surfaces, link)
-		if (surface->capture_output)
-			layout_surface(shell, surface, surface->width, surface->height);
-}
-
-static void
-resolve_viewport_size(struct aperture_shell *shell, uint32_t *width, uint32_t *height)
-{
-	struct aperture_shell_surface *surface;
-
-	if (*width < aperture_min_configure_width)
-		*width = aperture_min_configure_width;
-
-	wl_list_for_each(surface, &shell->surfaces, link) {
-		struct weston_size min_size =
-			weston_desktop_surface_get_min_size(surface->desktop_surface);
-
-		if (min_size.width > 0 && (uint32_t)min_size.width > *width)
-			*width = (uint32_t)min_size.width;
-		if (min_size.height > 0 && (uint32_t)min_size.height > *height)
-			*height = (uint32_t)min_size.height;
-	}
-}
-
-static void
-apply_viewport_size(struct aperture_shell *shell, uint32_t width, uint32_t height,
-		    uint32_t scale_numerator)
-{
-	const char *error;
-	uint32_t physical_width = scaled_dimension(width, scale_numerator);
-	uint32_t physical_height = scaled_dimension(height, scale_numerator);
-	int32_t output_scale = 1;
-
-	if (shell->width == width && shell->height == height &&
-	    shell->scale_numerator == scale_numerator)
-		return;
-
-	error = resize_output(shell, width, height, scale_numerator);
-	if (error) {
-		weston_log("aperture-shell: resize output failed: %s\n", error);
-		return;
-	}
-
-	shell->width = width;
-	shell->height = height;
-	shell->scale_numerator = scale_numerator;
-	send_fractional_scale_all(shell);
-	layout_all_surfaces(shell);
-	weston_log("aperture-shell: resized viewport to %ux%u @ %u/120 (%ux%u physical, wl_output scale %d)\n",
-		   width, height, scale_numerator, physical_width, physical_height,
-		   output_scale);
-}
-
-static int
-dispatch_resize_timer(void *data)
-{
-	struct aperture_shell *shell = data;
-
-	shell->resize_scheduled = false;
-	apply_viewport_size(shell, shell->pending_width, shell->pending_height,
-			    shell->pending_scale_numerator);
-	return 0;
-}
-
-static const char *
-queue_viewport_resize(struct aperture_shell *shell, uint32_t width, uint32_t height,
-		      uint32_t scale_numerator)
-{
-	uint32_t physical_width;
-	uint32_t physical_height;
-
-	if (width < aperture_min_dimension || height < aperture_min_dimension ||
-	    width > aperture_max_dimension || height > aperture_max_dimension)
-		return "invalid dimensions";
-	if (scale_numerator < aperture_min_scale_numerator ||
-	    scale_numerator > aperture_max_scale_numerator)
-		return "invalid scale";
-
-	if (!shell->resize_timer)
-		return "resize timer is unavailable";
-
-	resolve_viewport_size(shell, &width, &height);
-	physical_width = scaled_dimension(width, scale_numerator);
-	physical_height = scaled_dimension(height, scale_numerator);
-	if (physical_width < aperture_min_dimension || physical_height < aperture_min_dimension ||
-	    physical_width > aperture_max_dimension || physical_height > aperture_max_dimension)
-		return "invalid physical dimensions";
-	if (!shell->resize_scheduled && shell->width == width && shell->height == height &&
-	    shell->scale_numerator == scale_numerator)
-		return NULL;
-	if (shell->resize_scheduled && shell->pending_width == width &&
-	    shell->pending_height == height && shell->pending_scale_numerator == scale_numerator)
-		return NULL;
-
-	shell->pending_width = width;
-	shell->pending_height = height;
-	shell->pending_scale_numerator = scale_numerator;
-	if (shell->resize_scheduled)
-		return NULL;
-
-	shell->resize_scheduled = true;
-	if (wl_event_source_timer_update(shell->resize_timer, aperture_resize_coalesce_ms) < 0) {
-		shell->resize_scheduled = false;
-		return "schedule resize failed";
-	}
-	return NULL;
 }
 
 static void
@@ -1873,11 +1710,6 @@ handle_control_command(struct aperture_control_client *client)
 	double y;
 	double dx;
 	double dy;
-	uint32_t applied_width;
-	uint32_t applied_height;
-	uint32_t applied_scale_numerator;
-	uint32_t physical_width;
-	uint32_t physical_height;
 	char trailing;
 	char identifier[129];
 	char expected_title[180];
@@ -1983,30 +1815,6 @@ handle_control_command(struct aperture_control_client *client)
 		snprintf(response, sizeof response, "ok %s %d %d %u\n",
 			 surface->capture_output->capture_id, weston_surface->width,
 			 weston_surface->height, weston_surface_is_mapped(weston_surface) ? 1 : 0);
-		write_control_response(client, response);
-		return;
-	}
-
-	if (sscanf(client->buffer, "resize %u %u %u %c", &width, &height,
-		   &scale_numerator, &trailing) == 3 ||
-	    sscanf(client->buffer, "resize %u %u %c", &width, &height, &trailing) == 2) {
-		applied_width = width;
-		applied_height = height;
-		applied_scale_numerator =
-			scale_numerator ? scale_numerator : client->shell->scale_numerator;
-		resolve_viewport_size(client->shell, &applied_width, &applied_height);
-		error = queue_viewport_resize(client->shell, applied_width, applied_height,
-					      applied_scale_numerator);
-		if (error) {
-			snprintf(response, sizeof response, "error %s\n", error);
-			write_control_response(client, response);
-			return;
-		}
-
-		physical_width = scaled_dimension(applied_width, applied_scale_numerator);
-		physical_height = scaled_dimension(applied_height, applied_scale_numerator);
-		snprintf(response, sizeof response, "ok %u %u %u %u %u\n", applied_width,
-			 applied_height, applied_scale_numerator, physical_width, physical_height);
 		write_control_response(client, response);
 		return;
 	}
@@ -2234,8 +2042,6 @@ destroy_shell(struct wl_listener *listener, void *data)
 	wl_list_remove(&shell->text_input_focus_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
-	if (shell->resize_timer)
-		wl_event_source_remove(shell->resize_timer);
 	if (shell->cursor_shape_global)
 		wl_global_destroy(shell->cursor_shape_global);
 	if (shell->fractional_scale_global)
@@ -2296,9 +2102,6 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	shell->width = parse_positive_env("APERTURE_VIEWPORT_WIDTH", 1280);
 	shell->height = parse_positive_env("APERTURE_VIEWPORT_HEIGHT", 720);
 	shell->scale_numerator = aperture_scale_denominator;
-	shell->pending_width = shell->width;
-	shell->pending_height = shell->height;
-	shell->pending_scale_numerator = shell->scale_numerator;
 	wl_list_init(&shell->surfaces);
 	wl_list_init(&shell->outputs);
 	wl_list_init(&shell->control_clients);
@@ -2336,11 +2139,6 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (create_text_input_manager(shell) < 0)
 		goto err;
 	if (setup_control_socket(shell) < 0)
-		goto err;
-	shell->resize_timer =
-		wl_event_loop_add_timer(wl_display_get_event_loop(compositor->wl_display),
-					dispatch_resize_timer, shell);
-	if (!shell->resize_timer)
 		goto err;
 
 	shell->desktop = weston_desktop_create(compositor, &desktop_api, shell);

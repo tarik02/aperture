@@ -349,25 +349,20 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 	r.mu.Lock()
 	registry := r.targets
 	r.mu.Unlock()
-	if registry != nil {
-		if strings.TrimSpace(body.TargetID) == "" {
-			writeWrapperError(w, http.StatusBadRequest, "targetId is required")
-			return
-		}
-		target, err := registry.resizeTarget(req.Context(), body.TargetID, body.Width, body.Height, body.DeviceScaleFactor)
-		if err != nil {
-			writeWrapperError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
+	if registry == nil {
+		writeWrapperError(w, http.StatusConflict, "target registry is unavailable")
 		return
 	}
-	viewport, err := resizeCompositor(req.Context(), r.controlSocket, body.Width, body.Height, body.DeviceScaleFactor)
+	if strings.TrimSpace(body.TargetID) == "" {
+		writeWrapperError(w, http.StatusBadRequest, "targetId is required")
+		return
+	}
+	target, err := registry.resizeTarget(req.Context(), body.TargetID, body.Width, body.Height, body.DeviceScaleFactor)
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeWrapperJSON(w, http.StatusOK, viewportMetadata(viewport))
+	writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
 }
 
 func (r *wrapperRuntime) handleTargets(w http.ResponseWriter, req *http.Request) {
@@ -500,53 +495,11 @@ func wrapperMediaProcessEnv(pluginPath string) []string {
 	return env
 }
 
-func resizeCompositor(ctx context.Context, socketPath string, width int, height int, deviceScaleFactor float64) (compositorViewport, error) {
-	scaleNumerator := viewportScaleNumerator(deviceScaleFactor)
-	if width <= 0 || height <= 0 || width > 16384 || height > 16384 {
-		return compositorViewport{}, fmt.Errorf("invalid viewport resize %dx%d", width, height)
-	}
-	response, err := sendCompositorControlCommand(
-		ctx,
-		socketPath,
-		fmt.Sprintf("resize %d %d %d\n", width, height, scaleNumerator),
-	)
-	if err != nil {
-		return compositorViewport{}, err
-	}
-	if !strings.HasPrefix(response, "ok ") {
-		return compositorViewport{}, fmt.Errorf("compositor resize rejected: %s", response)
-	}
-	viewport := compositorViewport{}
-	if _, err := fmt.Sscanf(
-		response,
-		"ok %d %d %d %d %d",
-		&viewport.Width,
-		&viewport.Height,
-		&viewport.ScaleNumerator,
-		&viewport.PhysicalWidth,
-		&viewport.PhysicalHeight,
-	); err != nil {
-		return compositorViewport{}, fmt.Errorf("parse compositor resize response %q: %w", response, err)
-	}
-	viewport.DeviceScaleFactor = float64(viewport.ScaleNumerator) / viewportScaleDenominator
-	return viewport, nil
-}
-
 func viewportScaleNumerator(deviceScaleFactor float64) int {
 	if deviceScaleFactor <= 0 || math.IsNaN(deviceScaleFactor) || math.IsInf(deviceScaleFactor, 0) {
 		return viewportScaleDenominator
 	}
 	return int(math.Round(deviceScaleFactor * viewportScaleDenominator))
-}
-
-func viewportMetadata(viewport compositorViewport) map[string]any {
-	return map[string]any{
-		"width":             viewport.Width,
-		"height":            viewport.Height,
-		"deviceScaleFactor": viewport.DeviceScaleFactor,
-		"physicalWidth":     viewport.PhysicalWidth,
-		"physicalHeight":    viewport.PhysicalHeight,
-	}
 }
 
 func sendCompositorControlCommand(ctx context.Context, socketPath string, command string) (string, error) {

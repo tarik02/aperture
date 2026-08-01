@@ -58,90 +58,11 @@
 
         patchedWeston = pkgs.weston.overrideAttrs (oldAttrs: {
           patches = (oldAttrs.patches or [ ]) ++ [
-            (builtins.toFile "weston-pipewire-renegotiate-on-mode-switch.patch" ''
-              diff --git a/libweston/compositor.c b/libweston/compositor.c
-              index c7f4c0f3d..5a6c87c1a 100644
-              --- a/libweston/compositor.c
-              +++ b/libweston/compositor.c
-              @@ -645 +645 @@ weston_output_mode_set_native(struct weston_output *output,
-              -${"\t"}int mode_changed = 0, scale_changed = 0;
-              +${"\t"}int mode_changed, scale_changed = 0;
-              @@ -651,10 +651,13 @@ weston_output_mode_set_native(struct weston_output *output,
-              -${"\t"}if (!output->original_mode) {
-              -${"\t"}${"\t"}mode_changed = 1;
-              -${"\t"}${"\t"}ret = output->switch_mode(output, mode);
-              -${"\t"}${"\t"}if (ret < 0)
-              -${"\t"}${"\t"}${"\t"}return ret;
-              -${"\t"}${"\t"}if (output->current_scale != scale) {
-              -${"\t"}${"\t"}${"\t"}scale_changed = 1;
-              -${"\t"}${"\t"}${"\t"}output->current_scale = scale;
-              -${"\t"}${"\t"}}
-              -${"\t"}}
-              +${"\t"}mode_changed = !output->current_mode ||
-              +${"\t"}${"\t"}output->current_mode->width != mode->width ||
-              +${"\t"}${"\t"}output->current_mode->height != mode->height ||
-              +${"\t"}${"\t"}output->current_mode->refresh != mode->refresh;
-              +${"\t"}if (mode_changed) {
-              +${"\t"}${"\t"}ret = output->switch_mode(output, mode);
-              +${"\t"}${"\t"}if (ret < 0)
-              +${"\t"}${"\t"}${"\t"}return ret;
-              +${"\t"}}
-              +${"\t"}if (output->current_scale != scale) {
-              +${"\t"}${"\t"}scale_changed = 1;
-              +${"\t"}${"\t"}output->current_scale = scale;
-              +${"\t"}}
-              @@ -663 +666,4 @@ weston_output_mode_set_native(struct weston_output *output,
-              -${"\t"}weston_output_copy_native_mode(output, mode);
-              +${"\t"}if (output->current_mode)
-              +${"\t"}${"\t"}weston_output_copy_native_mode(output, output->current_mode);
-              +${"\t"}else
-              +${"\t"}${"\t"}weston_output_copy_native_mode(output, mode);
-              @@ -664,0 +671,2 @@ weston_output_mode_set_native(struct weston_output *output,
-              +${"\t"}output->original_mode = NULL;
-              +${"\t"}output->original_scale = 0;
-
+            (builtins.toFile "weston-pipewire-head-destroy.patch" ''
               diff --git a/libweston/backend-pipewire/pipewire.c b/libweston/backend-pipewire/pipewire.c
-              index 0a2bb1b2d..fbadb24c4 100644
               --- a/libweston/backend-pipewire/pipewire.c
               +++ b/libweston/backend-pipewire/pipewire.c
-              @@ -1149,4 +1149,9 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
-               {
-              +${"\t"}uint8_t buffer[1024];
-              +${"\t"}struct spa_pod_builder builder =
-              +${"\t"}${"\t"}SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-              +${"\t"}const struct spa_pod *params[2];
-              +${"\t"}int i = 0;
-               ${"\t"}struct pipewire_output *output = to_pipewire_output(base);
-               ${"\t"}struct weston_mode *local_mode;
-               ${"\t"}struct weston_size fb_size;
-              @@ -1174,4 +1179,25 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
-              -${"\t"}return 0;
-              +${"\t"}if (pipewire_backend_has_dmabuf_allocator(output->backend)) {
-              +${"\t"}${"\t"}uint64_t modifier[] = { DRM_FORMAT_MOD_LINEAR };
-              +${"\t"}${"\t"}params[i++] = spa_pod_build_format(&builder,
-              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->width,
-              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->height,
-              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->refresh / 1000,
-              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   output->pixel_format->format,
-              +${"\t"}${"\t"}${"\t"}${"\t"}${"\t"}   modifier);
-              +${"\t"}}
-              +
-              +${"\t"}params[i++] = spa_pod_build_format(&builder,
-              +${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->width,
-              +${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->height,
-              +${"\t"}${"\t"}${"\t"}${"\t"}   base->current_mode->refresh / 1000,
-              +${"\t"}${"\t"}${"\t"}${"\t"}   output->pixel_format->format, NULL);
-              +
-              +${"\t"}if (pw_stream_update_params(output->stream, params, i) < 0) {
-              +${"\t"}${"\t"}weston_log("Failed to update PipeWire stream after mode switch\n");
-              +${"\t"}${"\t"}return -1;
-              +${"\t"}}
-              +
-              +${"\t"}return 0;
-               }
-
-               static int
-              @@ -1249,6 +1275,7 @@ pipewire_output_set_gbm_format(struct weston_output *base, const char *gbm_forma
+              @@ -1249,6 +1249,7 @@ pipewire_output_set_gbm_format(struct weston_output *base, const char *gbm_forma
 
                static const struct weston_pipewire_output_api api = {
                ${"\t"}pipewire_head_create,
@@ -151,7 +72,6 @@
                };
 
               diff --git a/include/libweston/backend-pipewire.h b/include/libweston/backend-pipewire.h
-              index d8a508452..85ae595e7 100644
               --- a/include/libweston/backend-pipewire.h
               +++ b/include/libweston/backend-pipewire.h
               @@ -54,6 +54,12 @@ struct weston_pipewire_output_api {
