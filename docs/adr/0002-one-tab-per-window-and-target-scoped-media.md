@@ -200,6 +200,8 @@ Frontend selection will not use `Target.activateTarget` as the WebRTC media swit
 
 Different frontends connected to the same session may select different targets. Closing a selected target produces a target-unavailable event. The server does not choose a replacement. Each frontend decides which remaining tab to select.
 
+During a frontend target switch, the viewer keeps the previous decoded frame and its render dimensions visible with reduced opacity. It blocks pointer, keyboard, clipboard, and wheel input until the selected target is confirmed and the video element presents its first subsequent frame. The viewer then adopts the new target dimensions and restores full opacity.
+
 On wider screens the browser toolbar separates recording, viewport and stream, and remaining actions into three icon menus. Compact layouts merge the same actions into one menu. The split changes presentation only; both layouts use the same client-local consumer and recording state.
 
 ### Recording
