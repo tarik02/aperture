@@ -9,8 +9,8 @@ export type WebRTCMediaSize = {
   width: number;
   height: number;
   deviceScaleFactor: number;
-  physicalWidth: number;
-  physicalHeight: number;
+  canvasWidth: number;
+  canvasHeight: number;
 };
 
 export type WebRTCViewportRequest = {
@@ -75,8 +75,8 @@ export type WebRTCTargetSelection = {
   generation: number;
   width: number;
   height: number;
-  physicalWidth: number;
-  physicalHeight: number;
+  canvasWidth: number;
+  canvasHeight: number;
   deviceScaleFactor: number;
 };
 
@@ -421,8 +421,10 @@ const viewportMetadataSchema = z
     width: z.number().positive(),
     height: z.number().positive(),
     deviceScaleFactor: z.number().positive(),
-    physicalWidth: z.number().positive(),
-    physicalHeight: z.number().positive(),
+    contentWidth: z.number().positive(),
+    contentHeight: z.number().positive(),
+    canvasWidth: z.number().positive(),
+    canvasHeight: z.number().positive(),
   })
   .strict();
 const viewportResponseSchema = z
@@ -604,8 +606,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
             ...(profileChanged ? { profile: pendingStreamSettings.profile } : {}),
             ...(state.size
               ? {
-                  width: state.size.physicalWidth,
-                  height: state.size.physicalHeight,
+                  width: state.size.canvasWidth,
+                  height: state.size.canvasHeight,
                 }
               : {}),
             framerate: pendingStreamSettings.fps,
@@ -1206,7 +1208,7 @@ function pointerButton(button: WebRTCPointerButton | undefined) {
 async function updateViewport(
   options: WebRTCMediaOptions,
   viewport: WebRTCViewportRequest,
-): Promise<z.infer<typeof viewportResponseSchema>> {
+): Promise<{ targetId: string; viewport: WebRTCMediaSize }> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.credentials.token.trim()}`,
     "Content-Type": "application/json",
@@ -1226,7 +1228,17 @@ async function updateViewport(
   if (!response.ok) {
     throw new Error((await response.text()) || `resize failed with status ${response.status}`);
   }
-  return viewportResponseSchema.parse(await response.json());
+  const result = viewportResponseSchema.parse(await response.json());
+  return {
+    targetId: result.targetId,
+    viewport: {
+      width: result.viewport.width,
+      height: result.viewport.height,
+      deviceScaleFactor: result.viewport.deviceScaleFactor,
+      canvasWidth: result.viewport.canvasWidth,
+      canvasHeight: result.viewport.canvasHeight,
+    },
+  };
 }
 
 function targetSelection(target: z.infer<typeof targetSelectionSchema>): WebRTCTargetSelection {
@@ -1235,8 +1247,8 @@ function targetSelection(target: z.infer<typeof targetSelectionSchema>): WebRTCT
     generation: target.generation,
     width: target.width,
     height: target.height,
-    physicalWidth: target.physical_width,
-    physicalHeight: target.physical_height,
+    canvasWidth: target.physical_width,
+    canvasHeight: target.physical_height,
     deviceScaleFactor: target.device_scale_factor,
   };
 }

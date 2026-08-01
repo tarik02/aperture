@@ -48,6 +48,7 @@ type wrapperRecording struct {
 	segments          []string
 	cmd               *exec.Cmd
 	done              <-chan error
+	viewport          compositorViewport
 	finalizing        bool
 	replacing         bool
 }
@@ -189,9 +190,10 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 		Codec:             codec,
 		segmentDir:        segmentDir,
 		segments:          []string{segment},
+		viewport:          target.Viewport,
 	}
 	r.recordings[id] = recording
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, target.PipeWireTarget, segment, fps, bitrateKbps, codec)
+	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err != nil {
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "start_failed"
@@ -303,7 +305,8 @@ func (r *wrapperRuntime) replaceRecordingTargets(ctx context.Context, target wra
 	r.mu.Lock()
 	recordings := make([]*wrapperRecording, 0)
 	for _, recording := range r.recordings {
-		if recording.TargetID != target.TargetID || recording.Status != wrapperRecordingRunning || recording.CaptureGeneration == target.Generation {
+		if recording.TargetID != target.TargetID || recording.Status != wrapperRecordingRunning ||
+			(recording.CaptureGeneration == target.Generation && recording.viewport == target.Viewport) {
 			continue
 		}
 		r.refreshRecordingLocked(recording)
@@ -323,7 +326,7 @@ func (r *wrapperRuntime) replaceRecordingTargets(ctx context.Context, target wra
 	}()
 	for _, recording := range recordings {
 		segment := filepath.Join(recording.segmentDir, "segment-"+fmt.Sprintf("%04d", len(recording.segments))+filepath.Ext(recording.Path))
-		cmd, done, err := startWrapperScreencast(r.ctx, r.values, target.PipeWireTarget, segment, recording.FPS, recording.BitrateKbps, recording.Codec)
+		cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, recording.FPS, recording.BitrateKbps, recording.Codec)
 		if err == nil {
 			waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			for waitCtx.Err() == nil {
@@ -371,6 +374,7 @@ func (r *wrapperRuntime) replaceRecordingTargets(ctx context.Context, target wra
 		recording.cmd = cmd
 		recording.done = done
 		recording.CaptureGeneration = target.Generation
+		recording.viewport = target.Viewport
 		recording.replacing = false
 		r.mu.Unlock()
 	}

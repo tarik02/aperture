@@ -291,7 +291,7 @@ Viewport body:
 }
 ```
 
-The viewport response reports logical and physical dimensions plus the effective scale.
+The viewport response reports the logical size, DPR-scaled content rectangle, `64x64`-bucketed media canvas, and effective scale.
 
 Screencast start body:
 

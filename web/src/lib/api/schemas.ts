@@ -74,8 +74,10 @@ export const browserStatusSchema = z.object({
           width: z.number().int().positive(),
           height: z.number().int().positive(),
           deviceScaleFactor: z.number().positive(),
-          physicalWidth: z.number().int().positive(),
-          physicalHeight: z.number().int().positive(),
+          contentWidth: z.number().int().positive(),
+          contentHeight: z.number().int().positive(),
+          canvasWidth: z.number().int().positive(),
+          canvasHeight: z.number().int().positive(),
         }),
       }),
     )

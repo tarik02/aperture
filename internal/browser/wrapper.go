@@ -1112,43 +1112,6 @@ func pipeWireClientReady(pid int) bool {
 	return false
 }
 
-func waitForPipeWireNodeTarget(
-	targetName string,
-	compositorPID int,
-	compositorDone <-chan error,
-) (string, error) {
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	var lastErr error
-	for {
-		select {
-		case err := <-compositorDone:
-			if err != nil {
-				return "", fmt.Errorf("compositor exited before PipeWire node was ready: %w", err)
-			}
-			return "", fmt.Errorf("compositor exited before PipeWire node was ready")
-		case <-timer.C:
-			if lastErr != nil {
-				return "", fmt.Errorf("timed out waiting for PipeWire node %q owned by pid %d: %w", targetName, compositorPID, lastErr)
-			}
-			return "", fmt.Errorf("timed out waiting for PipeWire node %q owned by pid %d", targetName, compositorPID)
-		case <-ticker.C:
-			target, err := ResolvePipeWireNodeTarget(targetName, compositorPID)
-			if err == nil {
-				return target, nil
-			}
-			if !errors.Is(err, errPipeWireNodeNotFound) {
-				return "", err
-			}
-			lastErr = err
-		}
-	}
-}
-
 func ResolvePipeWireNodeTarget(targetName string, compositorPID int) (string, error) {
 	targetName = strings.TrimSpace(targetName)
 	if targetName == "" {

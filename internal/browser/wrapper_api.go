@@ -17,14 +17,20 @@ import (
 	"time"
 )
 
-const viewportScaleDenominator = 120
+const (
+	viewportScaleDenominator = 120
+	viewportMinimumWidth     = 500
+	mediaCanvasBucketSize    = 64
+)
 
 type compositorViewport struct {
 	Width             int     `json:"width"`
 	Height            int     `json:"height"`
 	ScaleNumerator    int     `json:"-"`
-	PhysicalWidth     int     `json:"physicalWidth"`
-	PhysicalHeight    int     `json:"physicalHeight"`
+	ContentWidth      int     `json:"contentWidth"`
+	ContentHeight     int     `json:"contentHeight"`
+	CanvasWidth       int     `json:"canvasWidth"`
+	CanvasHeight      int     `json:"canvasHeight"`
 	DeviceScaleFactor float64 `json:"deviceScaleFactor"`
 }
 
@@ -394,8 +400,10 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	mediaProducer.Handler().ServeHTTP(w, req.WithContext(ctx))
 }
 
-func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, target string, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {
+func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {
 	keepaliveMS := 1000 / fps
+	recordingWidth := min(viewport.CanvasWidth, (viewport.ContentWidth+1)/2*2)
+	recordingHeight := min(viewport.CanvasHeight, (viewport.ContentHeight+1)/2*2)
 	args := []string{
 		"-e",
 		"pipewiresrc",
@@ -416,6 +424,10 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, target
 		"max-size-buffers=1",
 		"leaky=downstream",
 		"!",
+		"videocrop",
+		"right=" + strconv.Itoa(viewport.CanvasWidth-recordingWidth),
+		"bottom=" + strconv.Itoa(viewport.CanvasHeight-recordingHeight),
+		"!",
 	}
 	args = append(args, wrapperRecordingPipeline(codec, bitrateKbps, values.MediaProducerKeyframe)...)
 	args = append(args, "!", "filesink", "location="+path, "sync=false")
@@ -429,6 +441,18 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, target
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
+	}()
+	go func() {
+		for _, delay := range []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 250 * time.Millisecond} {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			_, _ = sendCompositorControlCommand(ctx, controlSocket, "output-repaint "+captureID+"\n")
+		}
 	}()
 	return cmd, done, nil
 }

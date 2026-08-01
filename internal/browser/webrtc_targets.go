@@ -87,9 +87,48 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 		}
 	}
 	source.mu.Unlock()
+	if previous != nil && previous.target.PipeWireTarget == target.PipeWireTarget &&
+		previous.target.Viewport.CanvasWidth == target.Viewport.CanvasWidth &&
+		previous.target.Viewport.CanvasHeight == target.Viewport.CanvasHeight {
+		source.mu.Lock()
+		if source.closed || source.targets[target.TargetID] != previous {
+			source.mu.Unlock()
+			return errors.New("target media generation was superseded")
+		}
+		previous.target = target
+		delete(source.transitioning, target.TargetID)
+		updates := make([]rtc.TargetEvent, 0)
+		for peerID, selection := range source.selected {
+			if selection.targetID == target.TargetID {
+				updates = append(updates, rtc.TargetEvent{
+					Kind:   rtc.TargetEventUpdated,
+					PeerID: peerID,
+					Target: rtc.TargetSelection{
+						TargetID:          target.TargetID,
+						Generation:        selection.generation,
+						Width:             target.Viewport.Width,
+						Height:            target.Viewport.Height,
+						PhysicalWidth:     target.Viewport.CanvasWidth,
+						PhysicalHeight:    target.Viewport.CanvasHeight,
+						DeviceScaleFactor: target.Viewport.DeviceScaleFactor,
+					},
+				})
+			}
+		}
+		source.mu.Unlock()
+		_ = previous.service.RequestKeyframe()
+		for _, update := range updates {
+			select {
+			case <-source.ctx.Done():
+				return errors.New("target media source closed during update")
+			case source.events <- update:
+			}
+		}
+		return nil
+	}
 
 	profile := source.config.Profiles[quality.Profile]
-	quality.Width, quality.Height = mediaDimensions(profile, target.Viewport.PhysicalWidth, target.Viewport.PhysicalHeight, quality.Framerate)
+	quality.Width, quality.Height = mediaDimensions(profile, target.Viewport.CanvasWidth, target.Viewport.CanvasHeight, quality.Framerate)
 	config := source.config
 	config.Quality = quality
 	service, err := media.New(config, source.logger.Named(target.TargetID))
@@ -147,8 +186,8 @@ func (source *targetMediaSource) SetTarget(ctx context.Context, target wrapperTa
 						Generation:        selection.generation,
 						Width:             target.Viewport.Width,
 						Height:            target.Viewport.Height,
-						PhysicalWidth:     target.Viewport.PhysicalWidth,
-						PhysicalHeight:    target.Viewport.PhysicalHeight,
+						PhysicalWidth:     target.Viewport.CanvasWidth,
+						PhysicalHeight:    target.Viewport.CanvasHeight,
 						DeviceScaleFactor: target.Viewport.DeviceScaleFactor,
 					},
 				})
@@ -330,8 +369,8 @@ func (source *targetMediaSource) SelectTarget(ctx context.Context, peerID uint64
 		Generation:        generation,
 		Width:             current.target.Viewport.Width,
 		Height:            current.target.Viewport.Height,
-		PhysicalWidth:     current.target.Viewport.PhysicalWidth,
-		PhysicalHeight:    current.target.Viewport.PhysicalHeight,
+		PhysicalWidth:     current.target.Viewport.CanvasWidth,
+		PhysicalHeight:    current.target.Viewport.CanvasHeight,
 		DeviceScaleFactor: current.target.Viewport.DeviceScaleFactor,
 	}, nil
 }
@@ -465,7 +504,7 @@ func (source *targetMediaSource) UpdateQuality(quality rtc.Quality) error {
 	for _, encoder := range encoders {
 		targetQuality := media.Quality(quality)
 		profile := source.config.Profiles[targetQuality.Profile]
-		targetQuality.Width, targetQuality.Height = mediaDimensions(profile, encoder.target.Viewport.PhysicalWidth, encoder.target.Viewport.PhysicalHeight, targetQuality.Framerate)
+		targetQuality.Width, targetQuality.Height = mediaDimensions(profile, encoder.target.Viewport.CanvasWidth, encoder.target.Viewport.CanvasHeight, targetQuality.Framerate)
 		if err := encoder.service.UpdateQuality(targetQuality); err != nil {
 			return err
 		}

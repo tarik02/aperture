@@ -65,6 +65,18 @@ export function BrowserViewport({
     : (control.frame?.height ?? viewport.height);
   const inputWidth = showingWebRTC ? renderWidth : viewport.width;
   const inputHeight = showingWebRTC ? renderHeight : viewport.height;
+  const contentWidth = showingWebRTC
+    ? Math.min(
+        control.mediaSize?.canvasWidth ?? renderWidth,
+        Math.round(renderWidth * (control.mediaSize?.deviceScaleFactor ?? 1)),
+      )
+    : renderWidth;
+  const contentHeight = showingWebRTC
+    ? Math.min(
+        control.mediaSize?.canvasHeight ?? renderHeight,
+        Math.round(renderHeight * (control.mediaSize?.deviceScaleFactor ?? 1)),
+      )
+    : renderHeight;
   const displayMetrics = computeRenderMetrics(
     control.browserViewportSize?.width ?? renderWidth,
     control.browserViewportSize?.height ?? renderHeight,
@@ -586,7 +598,15 @@ export function BrowserViewport({
             playsInline
             data-viewport-width={renderWidth}
             data-viewport-height={renderHeight}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute top-0 left-0 max-w-none object-fill"
+            style={{
+              width:
+                displayMetrics.renderedWidth *
+                ((control.mediaSize?.canvasWidth ?? contentWidth) / contentWidth),
+              height:
+                displayMetrics.renderedHeight *
+                ((control.mediaSize?.canvasHeight ?? contentHeight) / contentHeight),
+            }}
           />
         </div>
       ) : control.frame ? (

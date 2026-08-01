@@ -108,7 +108,6 @@ struct aperture_output {
 	char *name;
 	uint32_t width;
 	uint32_t height;
-	uint32_t scale_numerator;
 };
 
 struct aperture_fractional_scale {
@@ -151,13 +150,15 @@ static const uint32_t aperture_max_dimension = 16384;
 static const uint32_t aperture_scale_denominator = 120;
 static const uint32_t aperture_min_scale_numerator = 30;
 static const uint32_t aperture_max_scale_numerator = 480;
+static const uint32_t aperture_media_canvas_bucket = 64;
 
 static int
 create_background(struct aperture_shell *shell);
 
 static void
 bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root,
-		  struct aperture_output *capture);
+		  struct aperture_output *capture, uint32_t width, uint32_t height,
+		  uint32_t scale_numerator);
 
 static void
 unbind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root);
@@ -400,8 +401,6 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 	uint32_t configure_width = width;
 	uint32_t configure_height = height;
 	float scale;
-	float x = 0.0f;
-	float y = 0.0f;
 	struct weston_coord_global origin = {
 		.c = weston_coord(0, 0),
 	};
@@ -438,17 +437,7 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 	weston_desktop_surface_set_resizing(surface->desktop_surface, false);
 	weston_desktop_surface_set_activated(surface->desktop_surface, true);
 
-	scale = 1.0f;
-	if (width > 0 && height > 0) {
-		float scale_x = (float)output->width / (float)width;
-		float scale_y = (float)output->height / (float)height;
-
-		scale = scale_x < scale_y ? scale_x : scale_y;
-		x = output->pos.c.x +
-		    ((float)output->width - (float)width * scale) / 2.0f;
-		y = output->pos.c.y +
-		    ((float)output->height - (float)height * scale) / 2.0f;
-	}
+	scale = (float)surface->scale_numerator / (float)aperture_scale_denominator;
 	weston_matrix_init(&surface->fit_transform.matrix);
 	weston_matrix_scale(&surface->fit_transform.matrix, scale, scale, 1.0f);
 	if (!surface->fit_transform_added) {
@@ -462,7 +451,7 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 
 	weston_view_set_output(surface->view, output);
 	weston_view_set_mask_infinite(surface->view);
-	origin.c = weston_coord(x, y);
+	origin.c = output->pos.c;
 	weston_view_set_position_with_offset(surface->view, origin,
 					     weston_coord_surface_invert(
 						     weston_coord_surface(geometry.x, geometry.y,
@@ -482,22 +471,11 @@ viewport_to_global(struct aperture_shell_surface *surface, double x, double y,
 		   struct weston_coord_global *pos)
 {
 	struct weston_output *output = surface->capture_output->output;
-	float scale = 1.0f;
-	float offset_x = 0.0f;
-	float offset_y = 0.0f;
+	float scale = (float)surface->scale_numerator /
+		      (float)aperture_scale_denominator;
 
-	if (surface->width > 0 && surface->height > 0) {
-		float scale_x = (float)output->width / (float)surface->width;
-		float scale_y = (float)output->height / (float)surface->height;
-
-		scale = scale_x < scale_y ? scale_x : scale_y;
-		offset_x = output->pos.c.x +
-			   ((float)output->width - (float)surface->width * scale) / 2.0f;
-		offset_y = output->pos.c.y +
-			   ((float)output->height - (float)surface->height * scale) / 2.0f;
-	}
-
-	pos->c = weston_coord(offset_x + x * scale, offset_y + y * scale);
+	pos->c = weston_coord(output->pos.c.x + x * scale,
+			      output->pos.c.y + y * scale);
 }
 
 static const char *
@@ -1370,7 +1348,8 @@ desktop_surface_set_parent(struct weston_desktop_surface *desktop_surface,
 	surface->parent = next_parent;
 	root = root_shell_surface(shell, surface);
 	if (root && root != surface && root->capture_output) {
-		bind_surface_tree(shell, root, root->capture_output);
+		bind_surface_tree(shell, root, root->capture_output, root->width,
+				  root->height, root->scale_numerator);
 		return;
 	}
 	if (surface->capture_output)
@@ -1498,7 +1477,7 @@ create_capture_background(struct aperture_shell *shell, struct aperture_output *
 
 static const char *
 create_capture_output(struct aperture_shell *shell, const char *capture_id,
-		      uint32_t width, uint32_t height, uint32_t scale_numerator,
+		      uint32_t width, uint32_t height,
 		      struct aperture_output **created)
 {
 	const struct weston_pipewire_output_api *api =
@@ -1509,8 +1488,6 @@ create_capture_output(struct aperture_shell *shell, const char *capture_id,
 	struct aperture_output *capture;
 	struct pipewire_config config;
 	struct weston_coord_global position;
-	uint32_t physical_width;
-	uint32_t physical_height;
 	int64_t output_x;
 	char name[160];
 
@@ -1520,29 +1497,22 @@ create_capture_output(struct aperture_shell *shell, const char *capture_id,
 		return "invalid or duplicate capture id";
 	if (width < aperture_min_dimension || height < aperture_min_dimension ||
 	    width > aperture_max_dimension || height > aperture_max_dimension ||
-	    scale_numerator < aperture_min_scale_numerator ||
-	    scale_numerator > aperture_max_scale_numerator)
+	    width % aperture_media_canvas_bucket != 0 ||
+	    height % aperture_media_canvas_bucket != 0)
 		return "invalid output specification";
-	if (width < aperture_min_configure_width)
-		width = aperture_min_configure_width;
-	physical_width = scaled_dimension(width, scale_numerator);
-	physical_height = scaled_dimension(height, scale_numerator);
-	if (physical_width < aperture_min_dimension || physical_height < aperture_min_dimension ||
-	    physical_width > aperture_max_dimension || physical_height > aperture_max_dimension)
-		return "invalid physical dimensions";
 	output_x = (int64_t)staging->pos.c.x + staging->width;
 	for (;;) {
 		bool overlaps = false;
 		struct aperture_output *existing;
 
-		if (output_x > INT32_MAX - (int64_t)physical_width)
+		if (output_x > INT32_MAX - (int64_t)width)
 			return "output coordinate space is exhausted";
 		wl_list_for_each(existing, &shell->outputs, link) {
 			int64_t existing_x = (int64_t)existing->output->pos.c.x;
 			int64_t existing_end = existing_x + existing->output->width;
 
 			if (output_x >= existing_end ||
-			    output_x + physical_width <= existing_x)
+			    output_x + width <= existing_x)
 				continue;
 			output_x = existing_end;
 			overlaps = true;
@@ -1554,8 +1524,8 @@ create_capture_output(struct aperture_shell *shell, const char *capture_id,
 
 	snprintf(name, sizeof name, "aperture-%s", capture_id);
 	config = (struct pipewire_config) {
-		.width = (int32_t)physical_width,
-		.height = (int32_t)physical_height,
+		.width = (int32_t)width,
+		.height = (int32_t)height,
 		.framerate = 60,
 	};
 	api->head_create(staging->backend, name, &config);
@@ -1574,7 +1544,7 @@ create_capture_output(struct aperture_shell *shell, const char *capture_id,
 	weston_output_set_scale(output, 1);
 	weston_output_set_transform(output, WL_OUTPUT_TRANSFORM_NORMAL);
 	api->set_gbm_format(output, "xrgb8888");
-	if (api->output_set_size(output, (int)physical_width, (int)physical_height, 60) < 0 ||
+	if (api->output_set_size(output, (int)width, (int)height, 60) < 0 ||
 	    weston_output_enable(output) < 0) {
 		weston_output_destroy(output);
 		api->head_destroy(head);
@@ -1603,7 +1573,6 @@ create_capture_output(struct aperture_shell *shell, const char *capture_id,
 	capture->output = output;
 	capture->width = width;
 	capture->height = height;
-	capture->scale_numerator = scale_numerator;
 	if (create_capture_background(shell, capture) < 0) {
 		free(capture->capture_id);
 		free(capture->name);
@@ -1643,7 +1612,8 @@ destroy_capture_output(struct aperture_shell *shell, struct aperture_output *cap
 
 static void
 bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root,
-		  struct aperture_output *capture)
+		  struct aperture_output *capture, uint32_t width, uint32_t height,
+		  uint32_t scale_numerator)
 {
 	struct aperture_shell_surface *surface;
 
@@ -1651,9 +1621,9 @@ bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *r
 		if (root_shell_surface(shell, surface) != root)
 			continue;
 		surface->capture_output = capture;
-		surface->width = capture->width;
-		surface->height = capture->height;
-		surface->scale_numerator = capture->scale_numerator;
+		surface->width = width;
+		surface->height = height;
+		surface->scale_numerator = scale_numerator;
 		if (surface == root)
 			send_fractional_scale_surface(shell, surface);
 		if (!weston_surface_is_mapped(
@@ -1662,7 +1632,7 @@ bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *r
 			    weston_desktop_surface_get_surface(surface->desktop_surface)))
 			weston_surface_map(
 				weston_desktop_surface_get_surface(surface->desktop_surface));
-		layout_surface(shell, surface, capture->width, capture->height);
+		layout_surface(shell, surface, width, height);
 	}
 	weston_desktop_surface_propagate_layer(root->desktop_surface);
 }
@@ -1767,21 +1737,31 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	if (sscanf(client->buffer, "output-create %128s %u %u %u %c", identifier,
-		   &width, &height, &scale_numerator, &trailing) == 4) {
+	if (sscanf(client->buffer, "output-create %128s %u %u %c", identifier,
+		   &width, &height, &trailing) == 3) {
 		error = create_capture_output(client->shell, identifier, width, height,
-					      scale_numerator, &capture);
+					      &capture);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
 			return;
 		}
-		snprintf(response, sizeof response, "ok %s %s %u %u %u %u %u\n",
-			 capture->capture_id, capture->name, capture->width, capture->height,
-			 capture->scale_numerator, scaled_dimension(capture->width,
-			 capture->scale_numerator), scaled_dimension(capture->height,
-			 capture->scale_numerator));
+		snprintf(response, sizeof response, "ok %s %s %u %u\n",
+			 capture->capture_id, capture->name, capture->width,
+			 capture->height);
 		write_control_response(client, response);
+		return;
+	}
+
+	if (sscanf(client->buffer, "output-repaint %128s %c", identifier, &trailing) == 1) {
+		capture = find_capture_output(client->shell, identifier);
+		if (!capture) {
+			write_control_response(client, "error output not found\n");
+			return;
+		}
+		capture->output->full_repaint_needed = true;
+		weston_output_schedule_repaint(capture->output);
+		write_control_response(client, "ok\n");
 		return;
 	}
 
@@ -1815,12 +1795,22 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	if (sscanf(client->buffer, "surface-bind %llu %128s %c", &surface_id,
-		   identifier, &trailing) == 2) {
+	if (sscanf(client->buffer, "surface-bind %llu %128s %u %u %u %c", &surface_id,
+		   identifier, &width, &height, &scale_numerator, &trailing) == 5) {
 		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
 		capture = find_capture_output(client->shell, identifier);
 		if (!surface || !capture) {
 			write_control_response(client, "error surface or output not found\n");
+			return;
+		}
+		if (width < aperture_min_configure_width ||
+		    height < aperture_min_dimension || width > aperture_max_dimension ||
+		    height > aperture_max_dimension ||
+		    scale_numerator < aperture_min_scale_numerator ||
+		    scale_numerator > aperture_max_scale_numerator ||
+		    scaled_dimension(width, scale_numerator) > capture->width ||
+		    scaled_dimension(height, scale_numerator) > capture->height) {
+			write_control_response(client, "error invalid surface specification\n");
 			return;
 		}
 		surface = root_shell_surface(client->shell, surface);
@@ -1828,7 +1818,8 @@ handle_control_command(struct aperture_control_client *client)
 			write_control_response(client, "error root surface not found\n");
 			return;
 		}
-		bind_surface_tree(client->shell, surface, capture);
+		bind_surface_tree(client->shell, surface, capture, width, height,
+				  scale_numerator);
 		write_control_response(client, "ok\n");
 		return;
 	}

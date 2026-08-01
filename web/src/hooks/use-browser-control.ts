@@ -29,6 +29,7 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import type {
   WebRTCMediaMetrics,
   WebRTCMediaPhase,
+  WebRTCMediaSize,
   WebRTCStreamSettings,
   WebRTCVideoProfile,
 } from "#/lib/control/webrtc-media-transport.ts";
@@ -59,7 +60,7 @@ export type UseBrowserControlResult = {
   frameStale: boolean;
   mediaPhase: WebRTCMediaPhase;
   mediaStream: MediaStream | null;
-  mediaSize: BrowserViewportSize | null;
+  mediaSize: WebRTCMediaSize | null;
   mediaStreamSettings: WebRTCStreamSettings | null;
   mediaVideoProfiles: WebRTCVideoProfile[];
   mediaMetrics: WebRTCMediaMetrics | null;

@@ -19,7 +19,7 @@ Aperture will enforce one user page target per managed Chromium window with a re
 
 Media selection belongs to each consumer. The server will not maintain one session-wide current target. A frontend tab click will select a target for that frontend's media consumer without retargeting recordings or other viewers.
 
-Weston outputs will be immutable after they become active. A viewport size, DPR, pixel format, refresh rate, or other output property change will create a replacement output and move the target to it. Consumers will follow the target to the replacement before Aperture retires the old output.
+Weston outputs will be immutable after they become active. Each output is a media canvas whose physical dimensions are rounded up to a `64x64` bucket. The Chromium content viewport is configured independently inside that canvas. A viewport or DPR change within the current bucket reconfigures only the surface and crop metadata. A change that crosses a bucket, or changes another output property, creates a replacement output. Consumers follow the target to the replacement before Aperture retires the old output.
 
 ### Identities and invariants
 
@@ -38,7 +38,7 @@ The following invariants apply after a target becomes ready:
 - Each managed Chromium top-level window contains exactly one user page target.
 - Each ready user page target maps to exactly one `windowId`, `surfaceId`, and `captureId`.
 - A `windowId` maps to at most one ready user page target.
-- An active capture output never changes its size, scale, format, or refresh rate.
+- An active capture output never changes its canvas size, format, transform, or refresh rate.
 - Extension marker pages, DevTools windows, and internal Chromium targets never become public media targets.
 - Aperture does not expose a new top-level window to media consumers until the complete mapping is ready.
 
@@ -100,20 +100,36 @@ Each managed window will receive an isolated virtual Weston output before it bec
 
 The compositor will place the target's top-level view and its related surface tree on the same output. This includes subsurfaces, `xdg_popup` menus, and transient dialogs associated with the top-level. Other Chromium windows, the compositor background, and unbound staging windows must not appear in that output.
 
-The requested viewport size and DPR are target properties. The active output generation is an immutable realization of those properties. Stream encoding quality remains a consumer property and does not change the target's browser viewport.
+The requested viewport size and DPR are target properties. The media canvas is an immutable physical output that can contain several nearby viewport specifications. Stream encoding quality remains a consumer property and does not change the target's browser viewport.
 
 The compositor control protocol will become target-aware. Surface lifecycle events, focus, viewport changes, and input routing will carry `surfaceId` internally. The wrapper translates public `targetId` commands through the registry.
 
+### Bucketed media canvases
+
+A target has separate content and media dimensions:
+
+- `width` and `height` are the logical Chromium viewport.
+- `contentWidth` and `contentHeight` are the logical viewport scaled by DPR and rounded to physical pixels.
+- `canvasWidth` and `canvasHeight` are each content dimension rounded up to the next multiple of 64.
+
+For example, a `1414x965` viewport at DPR 1 uses a `1472x1024` media canvas. The compositor configures Chromium at exactly `1414x965`, renders it at the requested DPR in the canvas's top-left corner, and leaves the right and bottom padding black. It does not fit, center, or stretch the content to the canvas.
+
+PipeWire and the WebRTC encoder consume the complete canvas. Target metadata carries the logical viewport, DPR, and canvas size. The frontend clips the video to the scaled content rectangle before fitting it into the workbench. Pointer input remains normalized to the logical content viewport, so padding never becomes interactive.
+
+When a requested viewport remains in the current bucket, Aperture keeps the Weston output, PipeWire node, encoder, and capture generation. It sends the new content size and DPR to the existing surface, waits for Chromium to commit the matching buffer, updates consumer crop metadata, and requests a keyframe. This path does not renegotiate PipeWire caps or replace the encoder.
+
+The 64-pixel grid bounds padding to 63 pixels per axis while keeping output modes, raw-video strides, and VA-API input dimensions on predictable alignments. It also coalesces nearby interactive resize requests into the same media generation.
+
 ### Immutable output replacement
 
-An output specification contains its logical size, scale, physical size, pixel format, transform, and refresh rate. Aperture fixes this specification before enabling the output. It never changes the specification of an active output.
+An output specification contains its canvas size, pixel format, transform, and refresh rate. Aperture fixes this specification before enabling the output. It never changes the specification of an active output.
 
-A viewport or DPR change uses a replacement transaction:
+A viewport or DPR change that crosses a canvas bucket uses a replacement transaction:
 
 1. Coalesce the requested target specification and allocate output generation N+1 with its final properties.
 2. Enable the new Weston output and wait for its PipeWire node.
 3. Freeze each consumer on generation N's last valid frame and suspend input for the target.
-4. Move the target's top-level view and related surface tree to generation N+1, then send Chromium the new output and window configuration.
+4. Move the target's top-level view and related surface tree to generation N+1, then send Chromium the new content size and DPR.
 5. Wait for Chromium to acknowledge the configure, commit a matching buffer, and produce the first PipeWire frame from generation N+1.
 6. Update the target registry's active `captureId` and switch every consumer of that target to generation N+1.
 7. Preserve RTP and recording timestamp continuity, force an encoder keyframe, and resume input with the new coordinate space.
@@ -123,7 +139,7 @@ If the successor fails before cutover, Aperture destroys it and keeps generation
 
 Only one successor transaction may exist for a target. Aperture coalesces rapid changes before creating an output. If a newer specification supersedes a successor under construction, Aperture discards that successor and builds the latest requested specification while the old active generation remains available.
 
-Chromium sees replacement as display hotplug. Aperture must add and configure the new output before removing the old one so Chromium always has a valid destination for the window. During continuously dragged frontend resizing, the frontend scales the current video locally and requests one replacement after resizing settles. Explicit viewport and DPR selections request a replacement immediately.
+Chromium sees bucket replacement as display hotplug. Aperture must add and configure the new output before removing the old one so Chromium always has a valid destination for the window. Resizes within a bucket do not hotplug a display. During continuously dragged frontend resizing, the frontend scales the current video locally and the wrapper coalesces surface configurations. Explicit viewport and DPR selections use the same bucket rule.
 
 ### Universal media consumers
 
@@ -151,9 +167,9 @@ The WebRTC control channel will add a request and result pair for target selecti
 }
 ```
 
-A successful result identifies the selected `targetId`, current viewport metadata, and a monotonically increasing selection generation. Selection is scoped to that peer. The server validates that the target is ready, switches the existing video sender to the target's capture source, and forces a keyframe. The switch uses the existing video transceiver and does not renegotiate SDP.
+A successful result identifies the selected `targetId`, current viewport and canvas metadata, and a monotonically increasing selection generation. Selection is scoped to that peer. The server validates that the target is ready, switches the existing video sender to the target's capture source, and forces a keyframe. The switch uses the existing video transceiver and does not renegotiate SDP.
 
-Replacing the selected target's output generation uses the same source-switch path. It does not change the peer's selected `targetId` or selection generation. The peer receives updated viewport metadata when the new output becomes active.
+Replacing the selected target's output generation uses the same source-switch path. It does not change the peer's selected `targetId` or selection generation. A resize within the current canvas updates crop metadata without switching sources. The peer receives updated viewport metadata after either operation becomes active.
 
 The client hides or curtains the previous video after sending `target.select`. The server acknowledges success only when it has accepted a frame from the new capture source and queued the new keyframe. This prevents an old target frame from being displayed under the newly selected frontend tab.
 
@@ -189,6 +205,8 @@ Recording becomes a collection of jobs instead of one session-wide screencast. S
 
 A recording remains pinned to its target when a frontend switches tabs. It follows verified window rebindings and immutable output replacements for the same `targetId`, preserves its timeline, and inserts a keyframe at each source change. If the target closes, Aperture finalizes the recording with `target_closed` as its stop reason. It never switches the recording to another target.
 
+Recording pipelines crop the bucket padding before encoding. H.264 and VP8 segments round the cropped width and height up to an even value, so an odd content dimension retains at most one black edge pixel instead of exposing the full canvas padding. A content resize rotates the recording segment even when it stays in the same canvas generation. The recording timeline and pinned target do not change.
+
 The HTTP API and MCP tools will expose `targetId` and `recordingId`. The existing singular start, status, and stop state will be replaced rather than overloaded with an implicit current target.
 
 This ADR covers video. Target-scoped audio needs a separate decision because Chromium and desktop audio do not have the same one-window identity.
@@ -213,10 +231,11 @@ PipeWire-backed consumers can select only ready targets. A target remains ready 
 - Popup and transient content is captured with its parent window instead of being lost by tab-only capture.
 - Chromium remains unmodified, but the bundled extension and native messaging host become required runtime components.
 - The design depends on the packaged Chromium implementation sharing window `SessionID` between extension and CDP APIs.
-- Resize and DPR changes no longer mutate active Weston or PipeWire objects.
+- Resize and DPR changes within a bucket keep Weston, PipeWire, and encoder dimensions stable.
+- Bucket crossings replace the complete output generation instead of renegotiating a live media path.
 - Per-target outputs and concurrent encoders increase GPU, PipeWire, and memory use.
 - Output replacement temporarily doubles the render and PipeWire resources for one target.
-- Chromium observes replacement outputs as display hotplug, so interactive resizing must be coalesced.
+- Chromium observes only bucket crossings as display hotplug.
 - The compositor, wrapper API, WebRTC protocol, recording API, MCP tools, and frontend all require coordinated changes.
 
 ## Rejected alternatives
@@ -253,7 +272,7 @@ A Chromium patch could provide an atomic internal invariant, but it creates a lo
 
 1. Add the extension, native host, window reconciliation, and binding protocol.
 2. Add target registry state and default-hidden top-level handling to the wrapper and compositor.
-3. Add isolated per-target outputs, immutable output generations, and transactional replacement.
+3. Add isolated per-target bucketed canvases, immutable output generations, and transactional replacement.
 4. Replace session-wide recording with target-scoped recording jobs.
 5. Add per-peer WebRTC target selection and target-aware input routing.
 6. Connect frontend tab selection and CDP fallback to consumer-local target state.

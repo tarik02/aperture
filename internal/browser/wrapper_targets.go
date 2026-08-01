@@ -104,18 +104,11 @@ func newWrapperTargetRegistry(runtime *wrapperRuntime, controlSocket string, ext
 		extensionSocket: extensionSocket,
 		cdpPort:         runtime.values.CDPPort,
 		compositorPID:   compositorPID,
-		viewport: compositorViewport{
-			Width:             runtime.values.CompositorWidth,
-			Height:            runtime.values.CompositorHeight,
-			ScaleNumerator:    viewportScaleDenominator,
-			PhysicalWidth:     runtime.values.CompositorWidth,
-			PhysicalHeight:    runtime.values.CompositorHeight,
-			DeviceScaleFactor: 1,
-		},
-		windows:        make(map[int64]wrapperWindowBinding),
-		targets:        make(map[string]wrapperTargetSnapshot),
-		retiredOutputs: make(map[string]struct{}),
-		resizes:        make(map[string]*wrapperTargetResizeQueue),
+		viewport:        newCompositorViewport(runtime.values.CompositorWidth, runtime.values.CompositorHeight, viewportScaleDenominator),
+		windows:         make(map[int64]wrapperWindowBinding),
+		targets:         make(map[string]wrapperTargetSnapshot),
+		retiredOutputs:  make(map[string]struct{}),
+		resizes:         make(map[string]*wrapperTargetResizeQueue),
 	}
 }
 
@@ -403,12 +396,12 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 		registry.runtime.targetTransitioning(existing.TargetID)
 		transitioning = true
 	}
-	if _, err := sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-bind %d %s\n", binding.SurfaceID, captureID)); err != nil {
+	if err := registry.bindSurface(ctx, binding.SurfaceID, captureID, created.Viewport); err != nil {
 		return err
 	}
 	if err := registry.waitForSurface(ctx, binding.SurfaceID, captureID, created.Viewport); err != nil {
 		if exists {
-			_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-bind %d %s\n", existing.SurfaceID, existing.CaptureID))
+			_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
 		} else {
 			_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", binding.SurfaceID))
 		}
@@ -428,7 +421,7 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 	}
 	if err := registry.runtime.targetReady(ctx, next, existing, exists); err != nil {
 		if exists {
-			_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-bind %d %s\n", existing.SurfaceID, existing.CaptureID))
+			_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
 		} else {
 			_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", binding.SurfaceID))
 		}
@@ -448,15 +441,8 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 
 func (registry *wrapperTargetRegistry) resizeTarget(ctx context.Context, targetID string, width int, height int, deviceScaleFactor float64) (wrapperTargetSnapshot, error) {
 	scaleNumerator := viewportScaleNumerator(deviceScaleFactor)
-	viewport := compositorViewport{
-		Width:             width,
-		Height:            height,
-		ScaleNumerator:    scaleNumerator,
-		PhysicalWidth:     scaledViewportDimension(width, scaleNumerator),
-		PhysicalHeight:    scaledViewportDimension(height, scaleNumerator),
-		DeviceScaleFactor: float64(scaleNumerator) / viewportScaleDenominator,
-	}
-	if width <= 0 || height <= 0 || width > 16384 || height > 16384 || viewport.PhysicalWidth <= 0 || viewport.PhysicalHeight <= 0 || viewport.PhysicalWidth > 16384 || viewport.PhysicalHeight > 16384 {
+	viewport := newCompositorViewport(width, height, scaleNumerator)
+	if width <= 0 || height <= 0 || width > 16384 || height > 16384 || viewport.ContentWidth <= 0 || viewport.ContentHeight <= 0 || viewport.ContentWidth > 16384 || viewport.ContentHeight > 16384 {
 		return wrapperTargetSnapshot{}, fmt.Errorf("invalid target viewport %dx%d at DPR %.3f", width, height, deviceScaleFactor)
 	}
 	waiter := make(chan wrapperTargetResizeResult, 1)
@@ -531,6 +517,27 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 	if !bound || binding.SurfaceID != existing.SurfaceID {
 		return wrapperTargetSnapshot{}, errors.New("target window binding is unavailable")
 	}
+	if viewport.CanvasWidth == existing.Viewport.CanvasWidth && viewport.CanvasHeight == existing.Viewport.CanvasHeight {
+		if err := registry.bindSurface(ctx, existing.SurfaceID, existing.CaptureID, viewport); err != nil {
+			return wrapperTargetSnapshot{}, err
+		}
+		if err := registry.waitForSurface(ctx, existing.SurfaceID, existing.CaptureID, viewport); err != nil {
+			_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
+			return wrapperTargetSnapshot{}, err
+		}
+		next := existing
+		next.Viewport = viewport
+		next.State = wrapperTargetPending
+		if err := registry.runtime.targetReady(ctx, next, existing, true); err != nil {
+			_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
+			return wrapperTargetSnapshot{}, err
+		}
+		next.State = wrapperTargetReady
+		registry.mu.Lock()
+		registry.targets[targetID] = next
+		registry.mu.Unlock()
+		return next, nil
+	}
 	registry.mu.Lock()
 	registry.targets[targetID] = existing
 	registry.mu.Unlock()
@@ -550,11 +557,11 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 		}
 	}()
 	registry.runtime.targetTransitioning(existing.TargetID)
-	if _, err := sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-bind %d %s\n", existing.SurfaceID, captureID)); err != nil {
+	if err := registry.bindSurface(ctx, existing.SurfaceID, captureID, created.Viewport); err != nil {
 		return wrapperTargetSnapshot{}, err
 	}
 	if err := registry.waitForSurface(ctx, existing.SurfaceID, captureID, created.Viewport); err != nil {
-		_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-bind %d %s\n", existing.SurfaceID, existing.CaptureID))
+		_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
 		return wrapperTargetSnapshot{}, err
 	}
 	next := existing
@@ -564,7 +571,7 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 	next.Viewport = created.Viewport
 	next.State = wrapperTargetPending
 	if err := registry.runtime.targetReady(ctx, next, existing, true); err != nil {
-		_, _ = sendCompositorControlCommand(context.Background(), registry.controlSocket, fmt.Sprintf("surface-bind %d %s\n", existing.SurfaceID, existing.CaptureID))
+		_ = registry.bindSurface(context.Background(), existing.SurfaceID, existing.CaptureID, existing.Viewport)
 		return wrapperTargetSnapshot{}, err
 	}
 	transitioning = false
@@ -583,7 +590,7 @@ type createdWrapperOutput struct {
 }
 
 func (registry *wrapperTargetRegistry) createOutput(ctx context.Context, captureID string, viewport compositorViewport) (createdWrapperOutput, error) {
-	response, err := sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("output-create %s %d %d %d\n", captureID, viewport.Width, viewport.Height, viewport.ScaleNumerator))
+	response, err := sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("output-create %s %d %d\n", captureID, viewport.CanvasWidth, viewport.CanvasHeight))
 	if err != nil {
 		return createdWrapperOutput{}, err
 	}
@@ -595,13 +602,17 @@ func (registry *wrapperTargetRegistry) createOutput(ctx context.Context, capture
 	}()
 	var returnedID string
 	var outputName string
-	if _, err := fmt.Sscanf(response, "ok %s %s %d %d %d %d %d", &returnedID, &outputName, &viewport.Width, &viewport.Height, &viewport.ScaleNumerator, &viewport.PhysicalWidth, &viewport.PhysicalHeight); err != nil {
+	var canvasWidth int
+	var canvasHeight int
+	if _, err := fmt.Sscanf(response, "ok %s %s %d %d", &returnedID, &outputName, &canvasWidth, &canvasHeight); err != nil {
 		return createdWrapperOutput{}, fmt.Errorf("parse compositor output response %q: %w", response, err)
 	}
 	if returnedID != captureID {
 		return createdWrapperOutput{}, fmt.Errorf("compositor returned unexpected capture id %q", returnedID)
 	}
-	viewport.DeviceScaleFactor = float64(viewport.ScaleNumerator) / viewportScaleDenominator
+	if canvasWidth != viewport.CanvasWidth || canvasHeight != viewport.CanvasHeight {
+		return createdWrapperOutput{}, fmt.Errorf("compositor returned unexpected canvas %dx%d", canvasWidth, canvasHeight)
+	}
 	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var target string
@@ -622,6 +633,11 @@ func (registry *wrapperTargetRegistry) createOutput(ctx context.Context, capture
 		}
 	}
 	return createdWrapperOutput{}, fmt.Errorf("PipeWire node for capture %q did not become ready: %w", captureID, waitCtx.Err())
+}
+
+func (registry *wrapperTargetRegistry) bindSurface(ctx context.Context, surfaceID uint64, captureID string, viewport compositorViewport) error {
+	_, err := sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-bind %d %s %d %d %d\n", surfaceID, captureID, viewport.Width, viewport.Height, viewport.ScaleNumerator))
+	return err
 }
 
 func (registry *wrapperTargetRegistry) destroyOutput(ctx context.Context, captureID string) error {
@@ -813,4 +829,20 @@ func validRegistryIdentifier(value string) bool {
 
 func scaledViewportDimension(value int, scaleNumerator int) int {
 	return (value*scaleNumerator + viewportScaleDenominator/2) / viewportScaleDenominator
+}
+
+func newCompositorViewport(width int, height int, scaleNumerator int) compositorViewport {
+	width = max(width, viewportMinimumWidth)
+	contentWidth := scaledViewportDimension(width, scaleNumerator)
+	contentHeight := scaledViewportDimension(height, scaleNumerator)
+	return compositorViewport{
+		Width:             width,
+		Height:            height,
+		ScaleNumerator:    scaleNumerator,
+		ContentWidth:      contentWidth,
+		ContentHeight:     contentHeight,
+		CanvasWidth:       (contentWidth + mediaCanvasBucketSize - 1) / mediaCanvasBucketSize * mediaCanvasBucketSize,
+		CanvasHeight:      (contentHeight + mediaCanvasBucketSize - 1) / mediaCanvasBucketSize * mediaCanvasBucketSize,
+		DeviceScaleFactor: float64(scaleNumerator) / viewportScaleDenominator,
+	}
 }
