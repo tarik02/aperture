@@ -8,7 +8,7 @@ Aperture publishes three variants:
 | --- | --- | --- |
 | `<tag>` | amd64, arm64 | Weston pixman, Chromium SwiftShader, VP8 |
 | `<tag>-gpu` | amd64, arm64 | Broad Mesa hardware drivers, H.264 VA or VP8 |
-| `<tag>-intel` | amd64 | Intel `crocus` and `iris` drivers without Vulkan, H.264 VA or VP8 |
+| `<tag>-intel` | amd64 | Intel OpenGL and VA-API drivers, no Vulkan; hardware H.264 with software VP8 fallback |
 
 The base image has no Mesa software rasterizers. Chromium uses its bundled SwiftShader while Weston uses pixman. Hardware images omit llvmpipe, softpipe, and Lavapipe and require a working DRM render node.
 

@@ -133,6 +133,7 @@
                 "-Dmatroska=enabled"
                 "-Drtp=enabled"
                 "-Dudp=enabled"
+                "-Dvideocrop=enabled"
                 "-Dvpx=enabled"
               ];
             });
