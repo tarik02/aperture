@@ -4,6 +4,8 @@ status: accepted
 
 # Separate screencast stop from signed file URLs
 
+ADR 0002 replaces singular screencast control with target-scoped recording IDs. The signed session file URL decision remains in effect.
+
 Aperture will expose `POST /api/sessions/{sessionId}/screencast/stop` for stopping a running screencast and returning its session file metadata, and `POST /api/sessions/{sessionId}/files/download-url` for creating a signed URL from a session-relative path. Keeping these operations separate matches the existing MCP model, lets callers choose whether and when to share a file, and makes signed URL creation useful for session files other than screencasts.
 
 ## Considered options

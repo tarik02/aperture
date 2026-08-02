@@ -1,4 +1,4 @@
 services:
   aperture:
     devices:
-      - /dev/dri:/dev/dri
+      - "${APERTURE_RENDER_NODE:-/dev/dri/renderD128}:${APERTURE_RENDER_NODE:-/dev/dri/renderD128}"

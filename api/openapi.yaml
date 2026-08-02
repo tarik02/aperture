@@ -475,22 +475,23 @@ paths:
       responses:
         '200': {description: Session and new token, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
-  /api/sessions/{sessionId}/screencast/stop:
+  /api/sessions/{sessionId}/recordings/{recordingId}/stop:
     post:
-      operationId: stopSessionScreencast
+      operationId: stopSessionRecording
       tags: [sessions]
-      summary: Stop a screencast
+      summary: Stop a session recording
       x-aperture-auth:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, screencast_not_active, session_service_unavailable, browser_control_failed]
-      description: Stops the active screencast without transferring its WebM data and returns the resulting session file.
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, session_service_unavailable, browser_control_failed]
+      description: Stops the selected recording without transferring its media data and returns the resulting session file.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
-        '200': {description: Completed screencast file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
+        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files/download-url:
     post:
@@ -722,6 +723,12 @@ components:
       required: true
       description: UUIDv7 identifier of the browser session.
       schema: {$ref: '#/components/schemas/UUIDv7'}
+    RecordingId:
+      name: recordingId
+      in: path
+      required: true
+      description: UUID identifier returned when the recording started.
+      schema: {type: string, format: uuid}
     SnapshotName:
       name: name
       in: path
@@ -942,7 +949,7 @@ components:
         - session_overlay_missing
         - session_invalid_state
         - session_not_running
-        - screencast_not_active
+        - recording_not_found
         - session_file_not_found
         - browser_start_failed
         - snapshot_not_found
@@ -981,7 +988,7 @@ components:
         session_overlay_missing: 409
         session_invalid_state: 409
         session_not_running: 409
-        screencast_not_active: 409
+        recording_not_found: 404
         session_file_not_found: 404
         browser_start_failed: 502
         snapshot_not_found: 404

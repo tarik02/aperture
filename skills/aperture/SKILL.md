@@ -1,6 +1,6 @@
 ---
 name: aperture
-description: Operate an Aperture instance through its public HTTP, WebSocket, and MCP APIs. Use for authentication, tenant and token administration, browser channels, session lifecycle, snapshots, events, MCP tools, CDP discovery/proxying, WebRTC signaling, viewport control, screencast recording, and session files.
+description: Operate an Aperture instance through its public HTTP, WebSocket, and MCP APIs. Use for authentication, tenant and token administration, browser channels, session lifecycle, snapshots, events, MCP tools, CDP discovery/proxying, WebRTC signaling, viewport control, target-scoped recording, and session files.
 ---
 
 # Aperture API
@@ -162,7 +162,7 @@ Agent-browser tools are selected when the MCP connection is established with the
 The default is `core,tabs,mobile,network`. Profiles are validated at connection time and remain fixed for that connection. Open a new connection to change profiles. Browser calls wake the target session for the call duration; connecting and listing tools do not wake it.
 `agent_browser_close` is excluded because Aperture owns the browser session lifecycle. Use `sessions.suspend` or `sessions.delete` instead.
 
-Native tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.reopen`, `sessions.replace_tags`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `snapshots.update`, `snapshots.delete`, `snapshots.replace_tags`, `snapshots.restore`, `events.list`, `session_files.list`, `session_files.create_download_url`, `screencast.start`, `screencast.status`, `screencast.stop`, `browser.channels`, `tenant.get`, `tenant.update`, `tenants.list`, `tenants.create`, `tenants.update`, `tenants.delete`, `tenants.restore`, `tokens.list`, `tokens.create`, and `tokens.revoke`.
+Native tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.reopen`, `sessions.replace_tags`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `snapshots.update`, `snapshots.delete`, `snapshots.replace_tags`, `snapshots.restore`, `events.list`, `session_files.list`, `session_files.create_download_url`, `recording.start`, `recording.list`, `recording.status`, `recording.stop`, `browser.channels`, `tenant.get`, `tenant.update`, `tenants.list`, `tenants.create`, `tenants.update`, `tenants.delete`, `tenants.restore`, `tokens.list`, `tokens.create`, and `tokens.revoke`.
 
 MCP tool output is capped at `tool_output_max_bytes` (16 MiB by default). Set `mcp_enabled = false` to make both MCP routes return `404`.
 
@@ -268,16 +268,18 @@ Snapshot list filters:
 - `deleted=active|deleted|all` or `includeDeleted=true`
 - repeated `tagKey`, `tagValue`, and optional `tagOperator`
 
-## Live Session Data Plane
+## Live session data plane
 
 These public routes are forwarded to the running session wrapper:
 
 - `GET /sessions/:sessionId/browser/status` — `sessions:read`
 - `POST /sessions/:sessionId/browser/viewport` — `sessions:write`
 - `GET /sessions/:sessionId/webrtc/signal?role=viewer` — WebSocket, `sessions:write`
-- `POST /sessions/:sessionId/screencast/start` — `sessions:write`
-- `POST /sessions/:sessionId/screencast/stop` — `sessions:write`, returns a WebM attachment
-- `GET /sessions/:sessionId/screencast/status` — `sessions:write`
+- `GET /sessions/:sessionId/recordings` — list recordings, `sessions:write`
+- `POST /sessions/:sessionId/recordings` — start a recording, `sessions:write`
+- `GET /sessions/:sessionId/recordings/:recordingId` — recording status, `sessions:write`
+- `POST /sessions/:sessionId/recordings/:recordingId/stop` — stop and download, `sessions:write`
+- `GET /sessions/:sessionId/recordings/client?clientId=:uuid` — recording client WebSocket, `sessions:write`
 
 Use an authorized API bearer token and tenant header, or the bound `sessionToken`, for routed live-session requests.
 
@@ -291,22 +293,65 @@ Viewport body:
 }
 ```
 
-The viewport response reports logical and physical dimensions plus the effective scale.
+The viewport response reports the logical size, DPR-scaled content rectangle, `64x64`-bucketed media canvas, and effective scale.
 
-Screencast start body:
+Tab recording body:
 
 ```json
 {
+  "mode": "tab",
+  "targetId": "TARGET_ID",
   "fps": 60,
   "bitrateKbps": 6000,
-  "codec": "vp8",
-  "path": "optional-relative-output.webm"
+  "codec": "vp8"
 }
 ```
 
-Supported codecs are `vp8` and `h264-va`. Omitted or non-positive FPS/bitrate values use instance defaults. Recordings are restricted to the session's `recordings` directory; omitting `path` generates a name there. Screencast start/status return fields such as `active`, `path`, `startedAt`, `stoppedAt`, `fps`, `codec`, and `sizeBytes` when applicable.
+Viewer recording body:
 
-Use `POST /api/sessions/:sessionId/screencast/stop` with `sessions:write` to stop without transferring WebM data. It returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`.
+```json
+{
+  "mode": "viewer",
+  "targetId": "TARGET_ID",
+  "clientId": "CLIENT_UUID"
+}
+```
+
+`targetId` must identify a ready browser target. A tab recording stays pinned to it. A viewer recording follows the selected target of the connected `clientId`; `clientId` is required for viewer mode. Pass `clientId` with a tab recording when it should also stop if that client disconnects. Multiple recordings may run concurrently.
+
+Supported codecs are `vp8` and `h264-va`. Omitted or non-positive FPS and bitrate values use instance defaults. Omit `path` to generate a file in the session's `recordings` directory. A supplied path must be absolute and inside that directory; session tokens cannot override the generated path.
+
+Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `path`, `startedAt`, `fps`, `bitrateKbps`, and `codec`. Completed jobs may also include `stopReason`, `stoppedAt`, and `sizeBytes`. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
+
+The normal stop request finalizes the recording and serves the completed media attachment. Send `Range: bytes=0-0` to finalize it while transferring only one byte. Use `POST /api/sessions/:sessionId/recordings/:recordingId/stop` with `sessions:write` to finalize without media transfer and return the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`.
+
+Recording clients connect to:
+
+```text
+wss://aperture.example.com/sessions/:sessionId/recordings/client?clientId=:uuid
+```
+
+Send these WebSocket subprotocols:
+
+- `aperture-recording.v1`
+- `authorization.bearer.$SESSION_TOKEN` or an authorized API token
+- `x-aperture-tenant-id.$TENANT_ID` when using a system-admin token
+
+The selected protocol is `aperture-recording.v1`. Select the client's confirmed media target with:
+
+```json
+{"version":1,"type":"target.select","targetId":"TARGET_ID"}
+```
+
+Keep the client alive with periodic heartbeats:
+
+```json
+{"version":1,"type":"heartbeat"}
+```
+
+The server acknowledges target changes with `target.select.result`. Closing the socket or missing the two-minute heartbeat deadline finalizes every recording owned by that client and leaves the files in session storage.
+
+MCP exposes `recording.start`, `recording.list`, `recording.status`, and `recording.stop`. MCP starts tab recordings only. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`.
 
 ## CDP Proxy
 
@@ -339,7 +384,7 @@ The selected WebSocket protocol is `aperture-webrtc.v1`. Only the `viewer` role 
 
 ## Session Files
 
-Session files are limited to regular files below the session's `downloads` and `recordings` directories. Browser downloads and screencasts created by the wrapper are included.
+Session files are limited to regular files below the session's `downloads` and `recordings` directories. Browser downloads and recordings created by the wrapper are included.
 
 Through MCP:
 
@@ -353,7 +398,7 @@ Through HTTP, `POST /api/sessions/:sessionId/files/download-url` requires `sessi
 
 ```json
 {
-  "relativePath": "recordings/screencast-20260801T120000Z.webm",
+  "relativePath": "recordings/recording-019f6cf0-0000-7000-8000-000000000010.webm",
   "ttlSeconds": 900
 }
 ```
@@ -403,13 +448,13 @@ curl -fsS -X POST \
   "$APERTURE_BASE_URL/sessions/$SESSION_ID/browser/viewport"
 ```
 
-Stop and download a screencast:
+Stop and download a recording:
 
 ```bash
 curl -fsS -X POST \
   -H "Authorization: Bearer $APERTURE_TOKEN" \
-  -o "screencast-$SESSION_ID.webm" \
-  "$APERTURE_BASE_URL/sessions/$SESSION_ID/screencast/stop"
+  -o "recording-$RECORDING_ID.webm" \
+  "$APERTURE_BASE_URL/sessions/$SESSION_ID/recordings/$RECORDING_ID/stop"
 ```
 
 Add `X-Aperture-Tenant-Id` to tenant-scoped examples when using a system-admin token.
