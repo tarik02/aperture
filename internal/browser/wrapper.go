@@ -1491,6 +1491,20 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		}
 		values.MediaProducerKeyframe = parsed
 	}
+	if port := strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN")); port != "" {
+		parsed, err := strconv.Atoi(port)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse media producer UDP port minimum: %w", err)
+		}
+		values.MediaProducerUDPPortMin = parsed
+	}
+	if port := strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX")); port != "" {
+		parsed, err := strconv.Atoi(port)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse media producer UDP port maximum: %w", err)
+		}
+		values.MediaProducerUDPPortMax = parsed
+	}
 
 	if err := ensureSessionPaths(values); err != nil {
 		return RuntimeEnvValues{}, err

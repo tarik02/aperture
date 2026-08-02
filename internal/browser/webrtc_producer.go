@@ -19,8 +19,6 @@ import (
 const (
 	mediaQualityOption = "aperture"
 	signalingProtocol  = "aperture-webrtc.v1"
-	iceUDPPortMin      = 50000
-	iceUDPPortMax      = 50010
 )
 
 type producer struct {
@@ -41,6 +39,9 @@ type mediaProfile struct {
 }
 
 func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer, error) {
+	if values.MediaProducerUDPPortMin <= 0 || values.MediaProducerUDPPortMax < values.MediaProducerUDPPortMin || values.MediaProducerUDPPortMax > 65535 {
+		return nil, errors.New("media producer ICE UDP port range is invalid")
+	}
 	if pluginPath := strings.TrimSpace(values.MediaProducerPluginPath); pluginPath != "" {
 		if err := os.Setenv("GST_PLUGIN_SYSTEM_PATH_1_0", pluginPath); err != nil {
 			return nil, fmt.Errorf("set GStreamer plugin path: %w", err)
@@ -139,8 +140,8 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		ICEServers:          iceServers,
 		ICEUsername:         iceUsername,
 		ICECredential:       iceCredential,
-		UDPPortMin:          iceUDPPortMin,
-		UDPPortMax:          iceUDPPortMax,
+		UDPPortMin:          uint16(values.MediaProducerUDPPortMin),
+		UDPPortMax:          uint16(values.MediaProducerUDPPortMax),
 		Subprotocols:        []string{signalingProtocol},
 		MaxPeers:            8,
 		ReplaceExistingPeer: false,

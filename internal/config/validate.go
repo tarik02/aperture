@@ -134,6 +134,14 @@ func Validate(cfg Config) error {
 		if cfg.WebRTCMediaProducerKeyframe <= 0 {
 			errs = append(errs, errors.New("webrtc_media_producer_keyframe_interval must be positive"))
 		}
+		if cfg.WebRTCMediaProducerUDPPortMin <= 0 || cfg.WebRTCMediaProducerUDPPortMin > 65535 {
+			errs = append(errs, errors.New("webrtc_media_producer_udp_port_min must be between 1 and 65535"))
+		}
+		if cfg.WebRTCMediaProducerUDPPortMax <= 0 || cfg.WebRTCMediaProducerUDPPortMax > 65535 {
+			errs = append(errs, errors.New("webrtc_media_producer_udp_port_max must be between 1 and 65535"))
+		} else if cfg.WebRTCMediaProducerUDPPortMax < cfg.WebRTCMediaProducerUDPPortMin {
+			errs = append(errs, errors.New("webrtc_media_producer_udp_port_max must be greater than or equal to webrtc_media_producer_udp_port_min"))
+		}
 	}
 	for index, server := range cfg.WebRTCICEServers {
 		if len(server.URLs) == 0 {

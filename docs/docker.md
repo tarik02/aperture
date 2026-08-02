@@ -34,7 +34,7 @@ export APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC=vp8
 docker compose -f packaging/docker/compose.yaml up -d
 ```
 
-The base Compose definition uses Linux host networking so WebRTC advertises the Docker host's reachable LAN addresses instead of container bridge addresses. Traefik listens on TCP port `8080` and WebRTC ICE uses UDP ports `50000-50010`. Put TLS or an external ingress in front of port `8080` when the public URL uses HTTPS, and allow or forward the UDP range to the host for direct WebRTC connectivity.
+The base Compose definition uses Linux host networking so WebRTC advertises the Docker host's reachable LAN addresses instead of container bridge addresses. Traefik listens on TCP port `8080` and WebRTC ICE uses UDP ports `50000-50010` by default. Set `APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN` and `APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX` to use a different range. Put TLS or an external ingress in front of port `8080` when the public URL uses HTTPS, and allow or forward the configured UDP range to the host for direct WebRTC connectivity.
 
 On NixOS, allow that range with:
 
