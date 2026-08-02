@@ -700,7 +700,7 @@
           pkgs.intel-vaapi-driver
         ];
 
-        intelDriverPackages = [
+        defaultDriverPackages = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
           intelMesa
           pkgs.intel-media-driver
           pkgs.intel-vaapi-driver
@@ -720,6 +720,12 @@
           runtimeGstPluginsBad
           runtimePipewire
         ];
+
+        defaultGstreamerPluginPath =
+          if pkgs.stdenv.hostPlatform.isx86_64 then
+            gpuGstreamerPluginPath
+          else
+            softwareGstreamerPluginPath;
 
         mkDockerRootfs =
           {
@@ -928,13 +934,14 @@
           else
             null;
 
-        softwareDockerImage = mkDockerImage {
-          variant = "software";
+        defaultDockerImage = mkDockerImage {
+          variant = "default";
           tagSuffix = "";
           gpuMode = "software";
           compositorRenderer = "pixman";
-          gstreamerPluginPath = softwareGstreamerPluginPath;
-          hardware = false;
+          gstreamerPluginPath = defaultGstreamerPluginPath;
+          hardware = pkgs.stdenv.hostPlatform.isx86_64;
+          driverPackages = defaultDriverPackages;
         };
 
         gpuDockerImage = mkDockerImage {
@@ -947,15 +954,6 @@
           driverPackages = gpuDriverPackages;
         };
 
-        intelDockerImage = mkDockerImage {
-          variant = "intel";
-          tagSuffix = "-intel";
-          gpuMode = "hardware";
-          compositorRenderer = "gl";
-          gstreamerPluginPath = gpuGstreamerPluginPath;
-          hardware = true;
-          driverPackages = intelDriverPackages;
-        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -989,11 +987,8 @@
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
-          aperture-docker = softwareDockerImage;
+          aperture-docker = defaultDockerImage;
           aperture-docker-gpu = gpuDockerImage;
-        }
-        // lib.optionalAttrs (pkgs.stdenv.isLinux && pkgs.stdenv.hostPlatform.isx86_64) {
-          aperture-docker-intel = intelDockerImage;
         };
 
         checks.default = aperture;

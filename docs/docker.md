@@ -2,31 +2,26 @@
 
 The Docker images contain Chromium, the WebRTC media stack, the patched Weston compositor, GStreamer, PipeWire/WirePlumber, bubblewrap, agent-browser, Traefik, and s6-overlay.
 
-Aperture publishes three variants:
+Aperture publishes two variants:
 
 | Tag | Architectures | Rendering and media |
 | --- | --- | --- |
-| `<tag>` | amd64, arm64 | Weston pixman, Chromium SwiftShader, VP8 |
+| `<tag>` | amd64, arm64 | Weston pixman, Chromium SwiftShader, and VP8 by default; Intel OpenGL and VA-API H.264 on amd64 when the GPU override is active |
 | `<tag>-gpu` | amd64, arm64 | Broad Mesa hardware drivers, H.264 VA or VP8 |
-| `<tag>-intel` | amd64 | Intel OpenGL and VA-API drivers, no Vulkan; hardware H.264 with software VP8 fallback |
 
-The base image has no Mesa software rasterizers. Chromium uses its bundled SwiftShader while Weston uses pixman. Hardware images omit llvmpipe, softpipe, and Lavapipe and require a working DRM render node.
+The base image has no Mesa software rasterizers. Chromium uses its bundled SwiftShader while Weston uses pixman. On amd64, the base image also contains Intel OpenGL and VA-API drivers without Vulkan. The GPU override activates them. The `-gpu` image has broader hardware support. Both images omit llvmpipe, softpipe, and Lavapipe.
 
-Stable and nightly tags are published to GitHub Container Registry. Append `-gpu` or `-intel` to any tag to select a hardware image:
+Stable and nightly tags are published to GitHub Container Registry. Append `-gpu` to select the image with broader Mesa hardware support:
 
 ```text
 ghcr.io/tarik02/aperture:<version>
 ghcr.io/tarik02/aperture:<version>-gpu
-ghcr.io/tarik02/aperture:<version>-intel
 ghcr.io/tarik02/aperture:latest
 ghcr.io/tarik02/aperture:latest-gpu
-ghcr.io/tarik02/aperture:latest-intel
 ghcr.io/tarik02/aperture:nightly
 ghcr.io/tarik02/aperture:nightly-gpu
-ghcr.io/tarik02/aperture:nightly-intel
 ghcr.io/tarik02/aperture:nightly-<commit>
 ghcr.io/tarik02/aperture:nightly-<commit>-gpu
-ghcr.io/tarik02/aperture:nightly-<commit>-intel
 ```
 
 Published images include Aperture's MIT license and OCI source, revision, version, and variant metadata. Each architecture image has an SPDX SBOM and build provenance attestation. Architecture images and published manifests are signed with keyless cosign signatures.
@@ -41,13 +36,9 @@ docker load < result
 
 nix build .#aperture-docker-gpu
 docker load < result
-
-# amd64 only
-nix build .#aperture-docker-intel
-docker load < result
 ```
 
-The images are tagged with the deploy version or source revision. Hardware image tags include `-gpu` or `-intel`.
+The images are tagged with the deploy version or source revision. The broad hardware image tag includes `-gpu`.
 
 ## Run
 
@@ -73,7 +64,7 @@ networking.firewall.allowedUDPPortRanges = [
 ];
 ```
 
-The base Compose definition uses the software image and runs without a GPU. It grants `CAP_SYS_ADMIN` for overlay mounts, allocates 2 GiB of shared memory, persists all state in the `aperture-data` volume, and keeps `/run/aperture` ephemeral. Replacing the container may terminate active browser sessions; the Docker deployment does not provide blue/green rollout semantics.
+The base Compose definition runs in software mode without a GPU. On amd64, the image still contains the Intel drivers so the same tag can use hardware acceleration when started with the GPU override. The container grants `CAP_SYS_ADMIN` for overlay mounts, allocates 2 GiB of shared memory, persists all state in the `aperture-data` volume, and keeps `/run/aperture` ephemeral. Replacing the container may terminate active browser sessions; the Docker deployment does not provide blue/green rollout semantics.
 
 ### GPU rendering and encoding
 
@@ -91,9 +82,9 @@ docker compose \
   up -d
 ```
 
-The override maps one render node instead of the `/dev/dri` directory. Docker Engine and Podman both accept this form. Set `APERTURE_RENDER_NODE` when the host uses another node. The container adds the `aperture` user to the group owning the supplied device.
+The override selects hardware GPU mode, uses Weston's GL renderer, and maps one render node instead of the `/dev/dri` directory. Docker Engine and Podman both accept this form. Set `APERTURE_RENDER_NODE` when the host uses another node. The container adds the `aperture` user to the group owning the supplied device.
 
-Use an `-intel` tag instead when the host is amd64 with an Intel GPU and does not need broader Mesa support. The `-gpu` image contains broad Mesa drivers and, on amd64, Intel media drivers. The `-intel` image keeps only the Intel GL and VA drivers needed by Aperture.
+On amd64 Intel hosts, set `APERTURE_GPU_IMAGE` to the base tag without a suffix. Use the `-gpu` image for broader Mesa support. The `-gpu` image also contains Intel media drivers on amd64.
 
 Rootless Podman must also preserve the host user's supplementary device groups. The host user must belong to the group that owns the render node.
 
@@ -105,12 +96,12 @@ podman compose \
   up -d
 ```
 
-Do not run an `-gpu` or `-intel` image without the GPU override. The control-plane health check can pass while every session fails with a missing or inaccessible `/dev/dri/renderD*` device.
+Do not run the `-gpu` image without the GPU override. The control-plane health check can pass while every session fails with a missing or inaccessible `/dev/dri/renderD*` device.
 
-The image variant selects the GPU mode:
+The Compose files select the GPU mode:
 
-- The base image pins software mode and does not need `/dev/dri`.
-- `-gpu` and `-intel` pin hardware mode. A missing render node or codec element fails session startup; use the base image when hardware is unavailable.
+- The base definition uses software mode and does not need `/dev/dri`.
+- The GPU override selects hardware mode for either image. A missing render node or codec element fails session startup.
 
 `APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC` accepts `auto`, `vp8`, or `h264-va`. The default `auto` selects H.264 VA in resolved hardware mode and VP8 in resolved software mode. Explicit `h264-va` requires hardware, while explicit `vp8` permits GPU rendering with software media encoding.
 

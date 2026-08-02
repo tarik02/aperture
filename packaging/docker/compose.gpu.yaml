@@ -1,5 +1,8 @@
 services:
   aperture:
     image: ${APERTURE_GPU_IMAGE:?APERTURE_GPU_IMAGE is required}
+    environment:
+      APERTURE_GPU_MODE: hardware
+      APERTURE_WEBRTC_COMPOSITOR_RENDERER: gl
     devices:
       - "${APERTURE_RENDER_NODE:-/dev/dri/renderD128}:${APERTURE_RENDER_NODE:-/dev/dri/renderD128}"

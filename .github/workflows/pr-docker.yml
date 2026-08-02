@@ -25,12 +25,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: software
+          - variant: default
             nix_attribute: aperture-docker
             suffix: ""
             arch: amd64
             runner: ubuntu-24.04
-          - variant: software
+          - variant: default
             nix_attribute: aperture-docker
             suffix: ""
             arch: arm64
@@ -45,16 +45,16 @@ jobs:
             suffix: -gpu
             arch: arm64
             runner: ubuntu-24.04-arm
-          - variant: intel
-            nix_attribute: aperture-docker-intel
-            suffix: -intel
-            arch: amd64
-            runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7.0.0
 
       - uses: cachix/install-nix-action@v31.10.7
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
 
       - uses: docker/login-action@v4.1.0
         if: github.event.pull_request.head.repo.full_name == github.repository
@@ -150,15 +150,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: software
+          - variant: default
             suffix: ""
             multiarch: true
           - variant: gpu
             suffix: -gpu
             multiarch: true
-          - variant: intel
-            suffix: -intel
-            multiarch: false
     runs-on: ubuntu-24.04
     steps:
       - uses: docker/login-action@v4.1.0
@@ -252,8 +249,6 @@ jobs:
               `- \`${image}:pr-${pullNumber}\``,
               `- \`${image}:${tag}-gpu\``,
               `- \`${image}:pr-${pullNumber}-gpu\``,
-              `- \`${image}:${tag}-intel\` (amd64 only)`,
-              `- \`${image}:pr-${pullNumber}-intel\` (amd64 only)`,
             ].join('\n')
 
       - name: Comment build links
