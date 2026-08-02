@@ -79,8 +79,14 @@ func Validate(cfg Config) error {
 		default:
 			errs = append(errs, errors.New("webrtc_compositor_backend must be headless or pipewire"))
 		}
-		if strings.TrimSpace(cfg.WebRTCCompositorRenderer) != "gl" {
-			errs = append(errs, errors.New("webrtc_compositor_renderer must be gl when webrtc_compositor_enabled is true"))
+		compositorRenderer := strings.ToLower(strings.TrimSpace(cfg.WebRTCCompositorRenderer))
+		switch compositorRenderer {
+		case "gl", "pixman":
+		default:
+			errs = append(errs, errors.New("webrtc_compositor_renderer must be gl or pixman when webrtc_compositor_enabled is true"))
+		}
+		if compositorRenderer == "pixman" && gpuMode != GPUModeSoftware {
+			errs = append(errs, errors.New("webrtc_compositor_renderer pixman requires gpu_mode software"))
 		}
 		switch strings.TrimSpace(cfg.WebRTCCompositorShell) {
 		case "kiosk", "desktop", "lua-shell", "lua-shell.so", "aperture", "aperture-weston-shell.so":

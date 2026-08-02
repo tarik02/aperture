@@ -1,4 +1,5 @@
 services:
   aperture:
+    image: ${APERTURE_GPU_IMAGE:?APERTURE_GPU_IMAGE is required}
     devices:
       - "${APERTURE_RENDER_NODE:-/dev/dri/renderD128}:${APERTURE_RENDER_NODE:-/dev/dri/renderD128}"
