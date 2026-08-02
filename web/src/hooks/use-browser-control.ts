@@ -5,7 +5,7 @@ import {
   useObservableState,
   useSubscription,
 } from "observable-hooks";
-import { filter, map, of, share, switchMap } from "rxjs";
+import { filter, interval, map, of, share, switchMap, timer, type Subscription } from "rxjs";
 import { toast } from "sonner";
 import {
   browserControl$,
@@ -544,8 +544,8 @@ export function useBrowserControl({
     }
 
     let active = true;
-    let retryTimer: number | null = null;
-    let heartbeatTimer: number | null = null;
+    let retrySubscription: Subscription | null = null;
+    let heartbeatSubscription: Subscription | null = null;
 
     const connect = () => {
       const clientId = crypto.randomUUID();
@@ -571,11 +571,11 @@ export function useBrowserControl({
         if (targetId) {
           socket.send(JSON.stringify({ version: 1, type: "target.select", targetId }));
         }
-        heartbeatTimer = window.setInterval(() => {
+        heartbeatSubscription = interval(30_000).subscribe(() => {
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ version: 1, type: "heartbeat" }));
           }
-        }, 30_000);
+        });
       });
       socket.addEventListener("error", () => socket.close());
       socket.addEventListener("close", () => {
@@ -585,12 +585,10 @@ export function useBrowserControl({
         recordingClientSocketRef.current = null;
         recordingClientIdRef.current = null;
         setRecordingClientConnected(false);
-        if (heartbeatTimer !== null) {
-          window.clearInterval(heartbeatTimer);
-          heartbeatTimer = null;
-        }
+        heartbeatSubscription?.unsubscribe();
+        heartbeatSubscription = null;
         if (active) {
-          retryTimer = window.setTimeout(connect, 1000);
+          retrySubscription = timer(1000).subscribe(connect);
         }
       });
     };
@@ -598,12 +596,8 @@ export function useBrowserControl({
     connect();
     return () => {
       active = false;
-      if (retryTimer !== null) {
-        window.clearTimeout(retryTimer);
-      }
-      if (heartbeatTimer !== null) {
-        window.clearInterval(heartbeatTimer);
-      }
+      retrySubscription?.unsubscribe();
+      heartbeatSubscription?.unsubscribe();
       const socket = recordingClientSocketRef.current;
       recordingClientSocketRef.current = null;
       recordingClientIdRef.current = null;
@@ -650,7 +644,7 @@ export function useBrowserControl({
       return;
     }
     let active = true;
-    const timer = window.setInterval(() => {
+    const subscription = interval(2000).subscribe(() => {
       void apiClient
         .listSessionRecordings(credentials, sessionId)
         .then((nextRecordings) => {
@@ -659,10 +653,10 @@ export function useBrowserControl({
           }
         })
         .catch(() => undefined);
-    }, 2000);
+    });
     return () => {
       active = false;
-      window.clearInterval(timer);
+      subscription.unsubscribe();
     };
   }, [enabled, sessionId, credentials, recordingPollingActive]);
 
@@ -701,11 +695,11 @@ export function useBrowserControl({
       return;
     }
 
-    const timer = window.setInterval(() => {
+    const subscription = interval(500).subscribe(() => {
       setFrameStale(Date.now() - frame.receivedAt > 3000);
-    }, 500);
+    });
 
-    return () => window.clearInterval(timer);
+    return () => subscription.unsubscribe();
   }, [frame]);
 
   return {
@@ -763,7 +757,7 @@ function downloadBlob(blob: Blob, filename: string) {
   link.href = url;
   link.download = filename;
   link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  timer(0).subscribe(() => URL.revokeObjectURL(url));
 }
 
 function errorMessage(cause: unknown, fallback: string): string {

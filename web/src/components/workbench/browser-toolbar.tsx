@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, Loader2, PanelLeftIcon, RefreshCw, Square } from "lucide-react";
+import { interval } from "rxjs";
 import { Button } from "#/components/ui/button.tsx";
 import { InputGroup, InputGroupInput } from "#/components/ui/input-group.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
@@ -43,8 +44,8 @@ export function BrowserToolbar({
       return;
     }
     setRecordingNow(Date.now());
-    const timer = window.setInterval(() => setRecordingNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    const subscription = interval(1000).subscribe(() => setRecordingNow(Date.now()));
+    return () => subscription.unsubscribe();
   }, [hasRunningRecordings]);
 
   function handleNavigate(value: string) {

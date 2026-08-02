@@ -1,4 +1,18 @@
-import { Observable, Subscription, debounceTime, distinctUntilChanged } from "rxjs";
+import {
+  EMPTY,
+  Observable,
+  Subject,
+  Subscription,
+  debounceTime,
+  distinctUntilChanged,
+  filter,
+  interval,
+  map,
+  switchMap,
+  take,
+  takeUntil,
+  timer,
+} from "rxjs";
 import { z } from "zod";
 import { TENANT_HEADER, resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import type { ClientMessage } from "#/lib/control/messages.ts";
@@ -165,6 +179,9 @@ type StatsAccumulator = {
 
 const MAX_POINTER_BUFFERED_AMOUNT = 16 * 1024;
 const JITTER_BUFFER_TARGET_MS = 10;
+const TARGET_RETRY_DELAY_MS = 250;
+const TARGET_SELECTION_ERROR_DELAY_MS = 3000;
+const MEDIA_TIMEOUT_MS = 20_000;
 
 const evdevByCode: Readonly<Record<string, number>> = {
   Escape: 1,
@@ -531,16 +548,16 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     let targetRequestSequence = 0;
     let latestTargetRequestSequence = 0;
     let requestedTargetId: string | null = null;
-    let targetRetryTimer: number | null = null;
     let statsSample: StatsSample | null = null;
-    let statsTimer: number | null = null;
-    let mediaTimeout: number | null = window.setTimeout(() => {
-      fail({ kind: "media-timeout", progress: "waiting for video" });
-    }, 20_000);
+    let statsSubscription: Subscription | null = null;
     const pendingSignals: string[] = [];
     const pendingCandidates: RTCIceCandidateInit[] = [];
     const textKeyCodes = new Set<string>();
     const subscriptions = new Subscription();
+    const targetRetry$ = new Subject<string | null>();
+    const targetSelectionStarted$ = new Subject<string | null>();
+    const targetSelectionFailed$ = new Subject<{ targetId: string; detail: string }>();
+    const targetSelectionSettled$ = new Subject<string>();
     const mediaStatus = loadMediaStatus(options);
     const control = connection.createDataChannel("control", { ordered: true });
     const input = connection.createDataChannel("input", { ordered: true });
@@ -566,6 +583,10 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       emit({ phase: "failed", error, inputReady: false });
       cleanup();
     };
+    const mediaTimeoutSubscription = timer(MEDIA_TIMEOUT_MS).subscribe(() => {
+      fail({ kind: "media-timeout", progress: "waiting for video" });
+    });
+    subscriptions.add(mediaTimeoutSubscription);
     const sendSignal = (message: unknown) => {
       const body = JSON.stringify(message);
       if (socket.readyState === WebSocket.OPEN) {
@@ -641,10 +662,6 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       if (!requestedTargetId || control.readyState !== "open") {
         return;
       }
-      if (targetRetryTimer !== null) {
-        window.clearTimeout(targetRetryTimer);
-        targetRetryTimer = null;
-      }
       targetRequestSequence += 1;
       latestTargetRequestSequence = targetRequestSequence;
       controlRequest += 1;
@@ -659,15 +676,45 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         }),
       );
     };
-    const retryTargetSelection = () => {
-      if (closed || targetRetryTimer !== null) {
-        return;
-      }
-      targetRetryTimer = window.setTimeout(() => {
-        targetRetryTimer = null;
-        selectTarget();
-      }, 250);
-    };
+    subscriptions.add(
+      targetRetry$
+        .pipe(
+          switchMap((targetId) =>
+            targetId === null ? EMPTY : timer(TARGET_RETRY_DELAY_MS).pipe(map(() => targetId)),
+          ),
+        )
+        .subscribe((targetId) => {
+          if (!closed && requestedTargetId === targetId) {
+            selectTarget();
+          }
+        }),
+    );
+    subscriptions.add(
+      targetSelectionStarted$
+        .pipe(
+          switchMap((targetId) =>
+            targetId === null
+              ? EMPTY
+              : targetSelectionFailed$.pipe(
+                  filter((failure) => failure.targetId === targetId),
+                  take(1),
+                  switchMap((failure) =>
+                    timer(TARGET_SELECTION_ERROR_DELAY_MS).pipe(map(() => failure)),
+                  ),
+                  takeUntil(
+                    targetSelectionSettled$.pipe(
+                      filter((settledTargetId) => settledTargetId === targetId),
+                    ),
+                  ),
+                ),
+          ),
+        )
+        .subscribe((failure) => {
+          if (!closed && requestedTargetId === failure.targetId && state.targetSwitching) {
+            emit({ error: { kind: "target-selection-failed", detail: failure.detail } });
+          }
+        }),
+    );
 
     void mediaStatus
       .then((status) => {
@@ -721,17 +768,6 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
       closed = true;
       subscriptions.unsubscribe();
-      if (mediaTimeout !== null) {
-        window.clearTimeout(mediaTimeout);
-        mediaTimeout = null;
-      }
-      if (statsTimer !== null) {
-        window.clearInterval(statsTimer);
-      }
-      if (targetRetryTimer !== null) {
-        window.clearTimeout(targetRetryTimer);
-        targetRetryTimer = null;
-      }
       if (state.inputReady && control.readyState === "open") {
         controlRequest += 1;
         control.send(
@@ -877,19 +913,17 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       const stream = event.streams[0] ?? new MediaStream([event.track]);
       emit({ stream });
       const live = () => {
-        if (mediaTimeout !== null) {
-          window.clearTimeout(mediaTimeout);
-          mediaTimeout = null;
-        }
+        mediaTimeoutSubscription.unsubscribe();
         emit({ phase: "live", stream, error: null });
-        if (statsTimer === null) {
-          statsTimer = window.setInterval(() => {
+        if (statsSubscription === null) {
+          statsSubscription = interval(1000).subscribe(() => {
             void connection.getStats().then((report) => {
               const result = deriveMetrics(report, statsSample, null);
               statsSample = result.sample;
               emit({ metrics: result.metrics });
             });
-          }, 1000);
+          });
+          subscriptions.add(statsSubscription);
         }
       };
       if (event.track.muted) {
@@ -942,13 +976,20 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
             targetRequest.sequence === latestTargetRequestSequence &&
             targetRequest.targetId === requestedTargetId
           ) {
+            if (!state.targetSwitching) {
+              targetSelectionStarted$.next(targetRequest.targetId);
+            }
             emit({
               selectedTarget: null,
               targetSwitching: true,
               inputReady: false,
-              error: { kind: "target-selection-failed", detail: parsed.data.error.message },
+              ...(!state.targetSwitching ? { error: null } : {}),
             });
-            retryTargetSelection();
+            targetSelectionFailed$.next({
+              targetId: targetRequest.targetId,
+              detail: parsed.data.error.message,
+            });
+            targetRetry$.next(targetRequest.targetId);
           }
           return;
         }
@@ -985,6 +1026,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           return;
         }
         const selectedTarget = targetSelection(parsed.data.target);
+        targetRetry$.next(null);
+        targetSelectionSettled$.next(selectedTarget.targetId);
         emit({
           selectedTarget,
           targetSwitching: false,
@@ -1012,13 +1055,20 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         if (parsed.data.target_id !== requestedTargetId) {
           return;
         }
+        if (!state.targetSwitching) {
+          targetSelectionStarted$.next(parsed.data.target_id);
+        }
         emit({
           selectedTarget: null,
           targetSwitching: true,
           inputReady: false,
-          error: { kind: "target-selection-failed", detail: parsed.data.error.message },
+          ...(!state.targetSwitching ? { error: null } : {}),
         });
-        retryTargetSelection();
+        targetSelectionFailed$.next({
+          targetId: parsed.data.target_id,
+          detail: parsed.data.error.message,
+        });
+        targetRetry$.next(parsed.data.target_id);
         return;
       }
       if (parsed.data.type === "input.release.result") {
@@ -1126,10 +1176,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         requestedTargetId = targetId;
         latestTargetRequestSequence += 1;
         targetRequests.clear();
-        if (targetRetryTimer !== null) {
-          window.clearTimeout(targetRetryTimer);
-          targetRetryTimer = null;
-        }
+        targetRetry$.next(null);
+        targetSelectionStarted$.next(targetId);
         emit({
           selectedTarget: null,
           targetSwitching: targetId !== null,
