@@ -56,7 +56,6 @@ The images are tagged with the deploy version or source revision. Hardware image
 ```bash
 export APERTURE_EXTERNAL_BASE_URL=https://aperture.example.com
 export APERTURE_IMAGE=aperture:SOURCE_REVISION
-export APERTURE_GPU_MODE=software
 export APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC=vp8
 docker compose -f packaging/docker/compose.yaml up -d
 ```
@@ -84,7 +83,6 @@ Select a DRM render node and add the GPU override:
 export APERTURE_EXTERNAL_BASE_URL=https://aperture.example.com
 export APERTURE_GPU_IMAGE=ghcr.io/tarik02/aperture:nightly-gpu
 export APERTURE_RENDER_NODE=/dev/dri/renderD128
-export APERTURE_GPU_MODE=hardware
 export APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC=h264-va
 test -c "$APERTURE_RENDER_NODE"
 docker compose \
@@ -107,7 +105,7 @@ podman compose \
   up -d
 ```
 
-Do not set `APERTURE_GPU_MODE=hardware` without the required GPU overrides. The control-plane health check can pass while every session fails with a missing or inaccessible `/dev/dri/renderD*` device.
+Do not run an `-gpu` or `-intel` image without the GPU override. The control-plane health check can pass while every session fails with a missing or inaccessible `/dev/dri/renderD*` device.
 
 The image variant selects the GPU mode:
 
