@@ -324,12 +324,12 @@ func (s openAPIServer) GetSession(ctx context.Context, _ generated.GetSessionReq
 	return openAPIPassthroughResponse{}, nil
 }
 
-func (s openAPIServer) StopSessionScreencast(ctx context.Context, _ generated.StopSessionScreencastRequestObject) (generated.StopSessionScreencastResponseObject, error) {
+func (s openAPIServer) StopSessionRecording(ctx context.Context, _ generated.StopSessionRecordingRequestObject) (generated.StopSessionRecordingResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
 		return nil, errOpenAPIContext
 	}
-	s.server.stopSessionScreencast(c)
+	s.server.stopSessionRecording(c)
 	return openAPIPassthroughResponse{}, nil
 }
 
@@ -545,7 +545,7 @@ func (openAPIPassthroughResponse) VisitGetSessionResponse(http.ResponseWriter) e
 	return nil
 }
 
-func (openAPIPassthroughResponse) VisitStopSessionScreencastResponse(http.ResponseWriter) error {
+func (openAPIPassthroughResponse) VisitStopSessionRecordingResponse(http.ResponseWriter) error {
 	return nil
 }
 

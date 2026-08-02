@@ -52,6 +52,8 @@ type RuntimeEnvValues struct {
 	MediaProducerFPS           int
 	MediaProducerBitrateKbps   int
 	MediaProducerKeyframe      int
+	MediaProducerUDPPortMin    int
+	MediaProducerUDPPortMax    int
 }
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
@@ -153,6 +155,12 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		if values.MediaProducerKeyframe <= 0 {
 			return nil, fmt.Errorf("media producer keyframe interval must be positive")
 		}
+		if values.MediaProducerUDPPortMin <= 0 || values.MediaProducerUDPPortMin > 65535 {
+			return nil, fmt.Errorf("media producer UDP port minimum must be between 1 and 65535")
+		}
+		if values.MediaProducerUDPPortMax < values.MediaProducerUDPPortMin || values.MediaProducerUDPPortMax > 65535 {
+			return nil, fmt.Errorf("media producer UDP port maximum must be between the minimum and 65535")
+		}
 	}
 
 	defaultArgs, err := encodeArgVector(values.BrowserDefaultArgs)
@@ -220,6 +228,8 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			"WEBRTC_MEDIA_PRODUCER_FPS="+strconv.Itoa(values.MediaProducerFPS),
 			"WEBRTC_MEDIA_PRODUCER_BITRATE_KBPS="+strconv.Itoa(values.MediaProducerBitrateKbps),
 			"WEBRTC_MEDIA_PRODUCER_KEYFRAME_INTERVAL="+strconv.Itoa(values.MediaProducerKeyframe),
+			"WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN="+strconv.Itoa(values.MediaProducerUDPPortMin),
+			"WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX="+strconv.Itoa(values.MediaProducerUDPPortMax),
 		)
 	}
 
@@ -332,6 +342,18 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 				return RuntimeEnvValues{}, fmt.Errorf("parse media producer keyframe interval: %w", err)
 			}
 			values.MediaProducerKeyframe = keyframe
+		case "WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN":
+			port, err := strconv.Atoi(val)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse media producer UDP port minimum: %w", err)
+			}
+			values.MediaProducerUDPPortMin = port
+		case "WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX":
+			port, err := strconv.Atoi(val)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse media producer UDP port maximum: %w", err)
+			}
+			values.MediaProducerUDPPortMax = port
 		case "BROWSER_DEFAULT_ARGS":
 			args, err := decodeArgVector(val)
 			if err != nil {

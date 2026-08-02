@@ -20,6 +20,8 @@ import (
 
 const compositorBrowserAppID = "aperture-browser"
 
+const tabWindowEnforcerExtensionID = "imdifnnggmlpoochobfcpghdppldpmjl"
+
 var errPipeWireNodeNotFound = errors.New("pipewire node not found")
 
 func apertureWestonShellPath() (string, error) {
@@ -28,6 +30,22 @@ func apertureWestonShellPath() (string, error) {
 		return "", fmt.Errorf("resolve wrapper executable: %w", err)
 	}
 	return filepath.Join(filepath.Dir(filepath.Dir(executable)), "lib", "weston", "aperture-weston-shell.so"), nil
+}
+
+func apertureTabWindowExtensionPath() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve wrapper executable: %w", err)
+	}
+	return filepath.Join(filepath.Dir(filepath.Dir(executable)), "share", "aperture", "extensions", "tab-window-enforcer"), nil
+}
+
+func apertureExtensionNativeHostPath() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve wrapper executable: %w", err)
+	}
+	return filepath.Join(filepath.Dir(executable), "aperture-extension-native-host"), nil
 }
 
 const compositorLuaShellScript = `
@@ -236,6 +254,9 @@ type LaunchConfig struct {
 	DefaultArgs              []string
 	ExtraArgs                []string
 	CaptureProofExtensionDir string
+	TabWindowExtensionDir    string
+	ExtensionNativeHostPath  string
+	ExtensionSocketPath      string
 	HardwareAcceleration     bool
 	RenderNode               string
 	NestedWaylandSocket      string
@@ -258,16 +279,33 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" && !filepath.IsAbs(cfg.CaptureProofExtensionDir) {
 		return nil, fmt.Errorf("capture proof extension dir must be absolute")
 	}
+	if strings.TrimSpace(cfg.TabWindowExtensionDir) != "" && !filepath.IsAbs(cfg.TabWindowExtensionDir) {
+		return nil, fmt.Errorf("tab window extension dir must be absolute")
+	}
+	if strings.TrimSpace(cfg.ExtensionNativeHostPath) != "" && !filepath.IsAbs(cfg.ExtensionNativeHostPath) {
+		return nil, fmt.Errorf("extension native host path must be absolute")
+	}
+	if strings.TrimSpace(cfg.ExtensionSocketPath) != "" && !filepath.IsAbs(cfg.ExtensionSocketPath) {
+		return nil, fmt.Errorf("extension socket path must be absolute")
+	}
 
 	browserArgs, err := BuildLaunchArgs(cfg.MergedUserDataDir, cfg.CacheDir, cfg.CDPPort, cfg.DefaultArgs, cfg.ExtraArgs)
 	if err != nil {
 		return nil, err
 	}
+	extensionDirs := make([]string, 0, 2)
 	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" {
+		extensionDirs = append(extensionDirs, cfg.CaptureProofExtensionDir)
+	}
+	if strings.TrimSpace(cfg.TabWindowExtensionDir) != "" {
+		extensionDirs = append(extensionDirs, cfg.TabWindowExtensionDir)
+	}
+	if len(extensionDirs) > 0 {
+		extensions := strings.Join(extensionDirs, ",")
 		browserArgs = append(
 			browserArgs,
-			"--disable-extensions-except="+cfg.CaptureProofExtensionDir,
-			"--load-extension="+cfg.CaptureProofExtensionDir,
+			"--disable-extensions-except="+extensions,
+			"--load-extension="+extensions,
 		)
 	}
 
@@ -284,6 +322,14 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	} {
 		if err := os.MkdirAll(dir.path, 0o700); err != nil {
 			return nil, fmt.Errorf("mkdir browser %s dir: %w", dir.name, err)
+		}
+	}
+	if strings.TrimSpace(cfg.TabWindowExtensionDir) != "" {
+		if strings.TrimSpace(cfg.ExtensionNativeHostPath) == "" || strings.TrimSpace(cfg.ExtensionSocketPath) == "" {
+			return nil, fmt.Errorf("tab window extension requires its native host and socket")
+		}
+		if err := installExtensionNativeHost(cfg.MergedUserDataDir, cfg.ExtensionNativeHostPath); err != nil {
+			return nil, err
 		}
 	}
 
@@ -323,8 +369,8 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	for _, bind := range sessionBindMounts(cfg) {
 		args = append(args, bind...)
 	}
-	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" {
-		args = append(args, "--ro-bind", cfg.CaptureProofExtensionDir, cfg.CaptureProofExtensionDir)
+	for _, extensionDir := range extensionDirs {
+		args = append(args, "--ro-bind", extensionDir, extensionDir)
 	}
 
 	args = append(
@@ -334,6 +380,9 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		"--setenv", "XDG_CACHE_HOME", browserCache,
 		"--setenv", "XDG_CONFIG_HOME", browserConfig,
 	)
+	if strings.TrimSpace(cfg.ExtensionSocketPath) != "" {
+		args = append(args, "--setenv", "APERTURE_EXTENSION_SOCKET", cfg.ExtensionSocketPath)
+	}
 
 	for _, key := range passthroughEnvKeys(isolatedRuntime) {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
@@ -754,6 +803,41 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		stopProcess(pipeWire, pipeWireDone)
 		return err
 	}
+	multiTargetEnabled := compositorShell == apertureShellPath && values.CompositorBackend == "pipewire"
+	if values.MediaProducerEnabled && !multiTargetEnabled {
+		stopProcess(compositor, compositorDone)
+		stopProcess(wirePlumber, wirePlumberDone)
+		stopProcess(pipeWire, pipeWireDone)
+		return errors.New("multi-target media requires the Aperture shell and PipeWire backend")
+	}
+	var tabWindowExtensionDir string
+	var extensionNativeHostPath string
+	var extensionSocketPath string
+	if multiTargetEnabled {
+		tabWindowExtensionDir, err = apertureTabWindowExtensionPath()
+		if err != nil {
+			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
+			return err
+		}
+		extensionNativeHostPath, err = apertureExtensionNativeHostPath()
+		if err != nil {
+			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
+			return err
+		}
+		extensionSocketPath = filepath.Join(values.CacheDir, "extension.sock")
+		targetRegistry := newWrapperTargetRegistry(wrapper, controlSocket, extensionSocketPath, compositor.Process.Pid)
+		if err := targetRegistry.Serve(ctx); err != nil {
+			stopProcess(compositor, compositorDone)
+			stopProcess(wirePlumber, wirePlumberDone)
+			stopProcess(pipeWire, pipeWireDone)
+			return err
+		}
+		wrapper.setTargetRegistry(targetRegistry)
+	}
 
 	oldWayland, hadWayland := os.LookupEnv("WAYLAND_DISPLAY")
 	if err := os.Setenv("WAYLAND_DISPLAY", socketName); err != nil {
@@ -794,6 +878,9 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                extraArgs,
 		CaptureProofExtensionDir: values.CaptureProofExtensionDir,
+		TabWindowExtensionDir:    tabWindowExtensionDir,
+		ExtensionNativeHostPath:  extensionNativeHostPath,
+		ExtensionSocketPath:      extensionSocketPath,
 		HardwareAcceleration:     hardwareAcceleration,
 		RenderNode:               values.RenderNode,
 		NestedWaylandSocket:      socketName,
@@ -816,35 +903,9 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	}()
 
 	var mediaProducer *producer
-	mediaProducerTargetName := values.MediaProducerTarget
 	if values.MediaProducerEnabled {
-		if values.CompositorBackend == "pipewire" {
-			target, err := waitForPipeWireNodeTarget(
-				mediaProducerTargetName,
-				compositor.Process.Pid,
-				compositorDone,
-			)
-			if err != nil {
-				stopProcess(browserCmd, browserDone)
-				stopProcess(compositor, compositorDone)
-				stopProcess(wirePlumber, wirePlumberDone)
-				stopProcess(pipeWire, pipeWireDone)
-				return err
-			}
-			values.MediaProducerTarget = target
-			wrapper.setCaptureTarget(target, compositor.Process.Pid)
-			fmt.Fprintf(
-				os.Stderr,
-				"browser-session-wrapper: resolved PipeWire target %s for compositor pid %d\n",
-				target,
-				compositor.Process.Pid,
-			)
-		} else {
-			wrapper.setCaptureTarget(values.MediaProducerTarget, compositor.Process.Pid)
-		}
-
 		var err error
-		mediaProducer, err = newWebRTCProducer(values, controlSocket, mediaProducerTargetName)
+		mediaProducer, err = newWebRTCProducer(values, controlSocket)
 		if err != nil {
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -858,12 +919,14 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	for {
 		select {
 		case err := <-browserDone:
+			wrapper.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(compositor, compositorDone)
 			stopProcess(wirePlumber, wirePlumberDone)
 			stopProcess(pipeWire, pipeWireDone)
 			return err
 		case err := <-compositorDone:
+			wrapper.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(wirePlumber, wirePlumberDone)
@@ -873,6 +936,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("compositor exited before browser")
 		case err := <-wirePlumberDone:
+			wrapper.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -882,6 +946,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("session WirePlumber exited before browser")
 		case err := <-pipeWireDone:
+			wrapper.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -891,6 +956,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("session PipeWire exited before browser")
 		case err := <-wrapperDone:
+			wrapper.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -901,6 +967,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("wrapper api exited")
 		case <-signals:
+			wrapper.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopBrowserProcess(values.CDPPort, browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -1043,43 +1110,6 @@ func pipeWireClientReady(pid int) bool {
 		}
 	}
 	return false
-}
-
-func waitForPipeWireNodeTarget(
-	targetName string,
-	compositorPID int,
-	compositorDone <-chan error,
-) (string, error) {
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	var lastErr error
-	for {
-		select {
-		case err := <-compositorDone:
-			if err != nil {
-				return "", fmt.Errorf("compositor exited before PipeWire node was ready: %w", err)
-			}
-			return "", fmt.Errorf("compositor exited before PipeWire node was ready")
-		case <-timer.C:
-			if lastErr != nil {
-				return "", fmt.Errorf("timed out waiting for PipeWire node %q owned by pid %d: %w", targetName, compositorPID, lastErr)
-			}
-			return "", fmt.Errorf("timed out waiting for PipeWire node %q owned by pid %d", targetName, compositorPID)
-		case <-ticker.C:
-			target, err := ResolvePipeWireNodeTarget(targetName, compositorPID)
-			if err == nil {
-				return target, nil
-			}
-			if !errors.Is(err, errPipeWireNodeNotFound) {
-				return "", err
-			}
-			lastErr = err
-		}
-	}
 }
 
 func ResolvePipeWireNodeTarget(targetName string, compositorPID int) (string, error) {
@@ -1460,6 +1490,20 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 			return RuntimeEnvValues{}, fmt.Errorf("parse media producer keyframe interval: %w", err)
 		}
 		values.MediaProducerKeyframe = parsed
+	}
+	if port := strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN")); port != "" {
+		parsed, err := strconv.Atoi(port)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse media producer UDP port minimum: %w", err)
+		}
+		values.MediaProducerUDPPortMin = parsed
+	}
+	if port := strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX")); port != "" {
+		parsed, err := strconv.Atoi(port)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse media producer UDP port maximum: %w", err)
+		}
+		values.MediaProducerUDPPortMax = parsed
 	}
 
 	if err := ensureSessionPaths(values); err != nil {

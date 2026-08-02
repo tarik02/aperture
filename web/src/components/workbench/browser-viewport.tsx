@@ -14,6 +14,7 @@ import type {
   ScreencastFrame,
 } from "#/lib/control/messages.ts";
 import type { ViewportPreset } from "#/lib/control/viewport.ts";
+import { cn } from "#/lib/utils.ts";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 
 type BrowserViewportProps = {
@@ -51,16 +52,45 @@ export function BrowserViewport({
     clickCount: number;
   } | null>(null);
   const [cursorHintPoint, setCursorHintPoint] = useState<ViewportPoint | null>(null);
+  const [presentedMedia, setPresentedMedia] = useState<{
+    stream: MediaStream;
+    targetId: string;
+    size: NonNullable<UseBrowserControlResult["mediaSize"]>;
+  } | null>(null);
 
-  const showingWebRTC = control.mediaPhase === "live" && Boolean(control.mediaStream);
+  const showingWebRTC =
+    control.mediaPhase === "live" &&
+    Boolean(control.mediaStream) &&
+    Boolean(control.activeTargetId);
+  const mediaTransitioning =
+    showingWebRTC &&
+    (control.mediaSwitching ||
+      control.mediaTargetId !== control.activeTargetId ||
+      presentedMedia?.stream !== control.mediaStream ||
+      presentedMedia?.targetId !== control.activeTargetId);
+  const inputDisabled = control.mediaSwitching || mediaTransitioning;
+  const displayedMediaSize =
+    mediaTransitioning && presentedMedia ? presentedMedia.size : control.mediaSize;
   const renderWidth = showingWebRTC
-    ? (control.mediaSize?.width ?? viewport.width)
+    ? (displayedMediaSize?.width ?? viewport.width)
     : (control.frame?.width ?? viewport.width);
   const renderHeight = showingWebRTC
-    ? (control.mediaSize?.height ?? viewport.height)
+    ? (displayedMediaSize?.height ?? viewport.height)
     : (control.frame?.height ?? viewport.height);
   const inputWidth = showingWebRTC ? renderWidth : viewport.width;
   const inputHeight = showingWebRTC ? renderHeight : viewport.height;
+  const contentWidth = showingWebRTC
+    ? Math.min(
+        displayedMediaSize?.canvasWidth ?? renderWidth,
+        Math.round(renderWidth * (displayedMediaSize?.deviceScaleFactor ?? 1)),
+      )
+    : renderWidth;
+  const contentHeight = showingWebRTC
+    ? Math.min(
+        displayedMediaSize?.canvasHeight ?? renderHeight,
+        Math.round(renderHeight * (displayedMediaSize?.deviceScaleFactor ?? 1)),
+      )
+    : renderHeight;
   const displayMetrics = computeRenderMetrics(
     control.browserViewportSize?.width ?? renderWidth,
     control.browserViewportSize?.height ?? renderHeight,
@@ -83,6 +113,37 @@ export function BrowserViewport({
     }
     videoRef.current.srcObject = showingWebRTC ? control.mediaStream : null;
   }, [control.mediaStream, showingWebRTC]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const stream = control.mediaStream;
+    const targetId = control.activeTargetId;
+    const size = control.mediaSize;
+    if (
+      !showingWebRTC ||
+      !video ||
+      !stream ||
+      !targetId ||
+      !size ||
+      control.mediaSwitching ||
+      control.mediaTargetId !== targetId ||
+      (presentedMedia?.stream === stream && presentedMedia.targetId === targetId)
+    ) {
+      return;
+    }
+    const callback = video.requestVideoFrameCallback(() => {
+      setPresentedMedia({ stream, targetId, size });
+    });
+    return () => video.cancelVideoFrameCallback(callback);
+  }, [
+    control.activeTargetId,
+    control.mediaSize,
+    control.mediaStream,
+    control.mediaSwitching,
+    control.mediaTargetId,
+    presentedMedia,
+    showingWebRTC,
+  ]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -114,6 +175,12 @@ export function BrowserViewport({
     };
   }, []);
 
+  useEffect(() => {
+    if (inputDisabled) {
+      dragCleanupRef.current?.();
+    }
+  }, [inputDisabled]);
+
   function mapPointer(event: { clientX: number; clientY: number }, clamp: boolean) {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -143,7 +210,7 @@ export function BrowserViewport({
   }
 
   function resolveInputTarget() {
-    if (control.phase !== "connected" || !control.activeTargetId) {
+    if (control.phase !== "connected" || !control.activeTargetId || inputDisabled) {
       return null;
     }
     if (!control.captured) {
@@ -166,7 +233,7 @@ export function BrowserViewport({
   }
 
   function handleCaptureClick() {
-    if (control.phase !== "connected") {
+    if (control.phase !== "connected" || inputDisabled) {
       return;
     }
     control.setCaptured(true);
@@ -181,6 +248,10 @@ export function BrowserViewport({
 
   function handlePointerMove(event: React.PointerEvent) {
     updateCursorHint(event);
+
+    if (inputDisabled) {
+      return;
+    }
 
     const capturedPointer = pointerCaptureRef.current;
     if (capturedPointer?.pointerId === event.pointerId) {
@@ -262,6 +333,9 @@ export function BrowserViewport({
   }
 
   function handlePointerUp(event: React.PointerEvent) {
+    if (inputDisabled) {
+      return;
+    }
     const capturedPointer = pointerCaptureRef.current;
     const targetId =
       capturedPointer?.pointerId === event.pointerId
@@ -304,7 +378,7 @@ export function BrowserViewport({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    if (!point) {
+    if (!point || inputDisabled) {
       return;
     }
     preventViewportDefault(event);
@@ -437,21 +511,22 @@ export function BrowserViewport({
   }
 
   function handleKeyDown(event: React.KeyboardEvent) {
-    const targetId = control.activeTargetId;
-    if (
-      !targetId ||
-      (!control.captured &&
-        document.activeElement !== containerRef.current &&
-        !containerRef.current?.contains(event.target as Node))
-    ) {
-      return;
-    }
     if (event.key === "Escape") {
       if (control.captured) {
         event.preventDefault();
         event.stopPropagation();
         control.setCaptured(false);
       }
+      return;
+    }
+    const targetId = control.activeTargetId;
+    if (
+      inputDisabled ||
+      !targetId ||
+      (!control.captured &&
+        document.activeElement !== containerRef.current &&
+        !containerRef.current?.contains(event.target as Node))
+    ) {
       return;
     }
 
@@ -487,6 +562,7 @@ export function BrowserViewport({
   function handleKeyUp(event: React.KeyboardEvent) {
     const targetId = control.activeTargetId;
     if (
+      inputDisabled ||
       !targetId ||
       (!control.captured &&
         document.activeElement !== containerRef.current &&
@@ -565,11 +641,16 @@ export function BrowserViewport({
           event.preventDefault();
         }
       }}
+      aria-busy={mediaTransitioning}
+      aria-disabled={inputDisabled}
       className="relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden bg-background outline-none"
     >
       {showingWebRTC ? (
         <div
-          className="relative overflow-hidden bg-black"
+          className={cn(
+            "relative overflow-hidden bg-black transition-opacity duration-150",
+            mediaTransitioning && "opacity-75",
+          )}
           style={{
             width: displayMetrics.renderedWidth,
             height: displayMetrics.renderedHeight,
@@ -582,7 +663,15 @@ export function BrowserViewport({
             playsInline
             data-viewport-width={renderWidth}
             data-viewport-height={renderHeight}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute top-0 left-0 max-w-none object-fill"
+            style={{
+              width:
+                displayMetrics.renderedWidth *
+                ((displayedMediaSize?.canvasWidth ?? contentWidth) / contentWidth),
+              height:
+                displayMetrics.renderedHeight *
+                ((displayedMediaSize?.canvasHeight ?? contentHeight) / contentHeight),
+            }}
           />
         </div>
       ) : control.frame ? (
@@ -601,9 +690,13 @@ export function BrowserViewport({
           />
         </div>
       ) : (
-        <ViewportPlaceholder phase={control.phase} mediaPhase={control.mediaPhase} />
+        <ViewportPlaceholder
+          phase={control.phase}
+          mediaPhase={control.mediaPhase}
+          switching={control.mediaSwitching}
+        />
       )}
-      <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1.5">
+      <div className="pointer-events-none absolute right-2 bottom-2 flex items-center gap-1.5">
         {control.captured ? (
           <Badge variant="default" className="gap-1">
             <MousePointer2 />
@@ -627,7 +720,7 @@ export function BrowserViewport({
         </div>
       ) : null}
       {control.mediaError ? (
-        <div className="pointer-events-none absolute right-2 bottom-2 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+        <div className="pointer-events-none absolute right-2 bottom-10 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
           {control.mediaError}
         </div>
       ) : null}
@@ -712,9 +805,11 @@ function isDisconnectedSocketError(message: string): boolean {
 function ViewportPlaceholder({
   phase,
   mediaPhase,
+  switching,
 }: {
   phase: ControlConnectionPhase;
   mediaPhase: UseBrowserControlResult["mediaPhase"];
+  switching: boolean;
 }) {
   if (phase === "connecting") {
     return (
@@ -729,6 +824,14 @@ function ViewportPlaceholder({
       <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
         Connecting media
+      </div>
+    );
+  }
+  if (phase === "connected" && switching) {
+    return (
+      <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-5 animate-spin" />
+        Switching target
       </div>
     );
   }

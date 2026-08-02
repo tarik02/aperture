@@ -166,6 +166,7 @@ const screencastFrameParamsSchema: z.ZodType<Protocol.Page.ScreencastFrameEvent>
 const CDP_CALL_TIMEOUT_MS = 5000;
 const CDP_CONNECT_RETRY_MS = 500;
 const CDP_CONNECT_TIMEOUT_MS = 30_000;
+const TAB_WINDOW_MARKER_URL = "chrome-extension://imdifnnggmlpoochobfcpghdppldpmjl/marker.html";
 
 function buildCdpWebSocket(rawWebSocketUrl: string): { url: string; protocols: string[] } {
   const source = new URL(rawWebSocketUrl, window.location.origin);
@@ -587,8 +588,11 @@ class BrowserControlConnectionRuntime {
         await this.refreshTargets();
         break;
       case "targets.activate":
-        await this.browserSocket().call("Target.activateTarget", { targetId: message.targetId });
+        if (this.pageTargetId && this.pageTargetId !== message.targetId) {
+          await this.stopScreencast();
+        }
         this.activeTargetId = message.targetId;
+        this.emitTargetsSnapshot();
         await this.refreshTargets();
         break;
       case "targets.create": {
@@ -718,7 +722,9 @@ class BrowserControlConnectionRuntime {
     }
 
     const pageTargets = result.targetInfos.filter(
-      (target) => target.type === "page" || target.type === "webview",
+      (target) =>
+        (target.type === "page" || target.type === "webview") &&
+        !target.url.startsWith(TAB_WINDOW_MARKER_URL),
     );
 
     if (!this.activeTargetResolved && pageTargets.length > 0) {
@@ -853,6 +859,9 @@ class BrowserControlConnectionRuntime {
 
   private controlTargetFromInfo(targetInfo: CdpTargetInfo): ControlTarget | null {
     if (targetInfo.type !== "page" && targetInfo.type !== "webview") {
+      return null;
+    }
+    if (targetInfo.url.startsWith(TAB_WINDOW_MARKER_URL)) {
       return null;
     }
 

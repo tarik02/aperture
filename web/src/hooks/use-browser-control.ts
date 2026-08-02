@@ -5,7 +5,7 @@ import {
   useObservableState,
   useSubscription,
 } from "observable-hooks";
-import { filter, map, of, share, switchMap } from "rxjs";
+import { filter, interval, map, of, share, switchMap, timer, type Subscription } from "rxjs";
 import { toast } from "sonner";
 import {
   browserControl$,
@@ -29,10 +29,12 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import type {
   WebRTCMediaMetrics,
   WebRTCMediaPhase,
+  WebRTCMediaSize,
   WebRTCStreamSettings,
   WebRTCVideoProfile,
 } from "#/lib/control/webrtc-media-transport.ts";
-import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
+import { apiClient, resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
+import type { Recording } from "#/lib/api/schemas.ts";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
@@ -58,19 +60,22 @@ export type UseBrowserControlResult = {
   frameStale: boolean;
   mediaPhase: WebRTCMediaPhase;
   mediaStream: MediaStream | null;
-  mediaSize: BrowserViewportSize | null;
+  mediaSize: WebRTCMediaSize | null;
   mediaStreamSettings: WebRTCStreamSettings | null;
   mediaVideoProfiles: WebRTCVideoProfile[];
   mediaMetrics: WebRTCMediaMetrics | null;
   mediaError: string | null;
   mediaPath: BrowserMediaPath;
+  mediaTargetId: string | null;
+  mediaSwitching: boolean;
   lastError: ControlError | null;
   viewport: ViewportPreset;
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
   captured: boolean;
-  recordingActive: boolean;
+  recordings: Recording[];
   recordingBusy: boolean;
+  recordingClientConnected: boolean;
   setCaptured: (captured: boolean) => void;
   setViewport: (viewport: ViewportPreset) => void;
   setBrowserViewportSize: (size: BrowserViewportSize) => void;
@@ -92,8 +97,9 @@ export type UseBrowserControlResult = {
   historyBack: () => void;
   historyForward: () => void;
   startScreencast: () => void;
-  startRecording: () => void;
-  stopRecording: () => void;
+  startRecording: (mode: "tab" | "viewer") => void;
+  stopRecording: (recordingId: string) => void;
+  cancelRecording: (recordingId: string) => void;
   reconnect: () => void;
 };
 
@@ -118,17 +124,24 @@ export function useBrowserControl({
   );
   const [viewportAutoSync, setViewportAutoSyncState] = useState(false);
   const [captured, setCaptured] = useState(false);
-  const [recordingActive, setRecordingActive] = useState(false);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   const [recordingBusy, setRecordingBusy] = useState(false);
+  const [recordingClientConnected, setRecordingClientConnected] = useState(false);
 
   const activeTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
   const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
   const viewportAutoSyncRef = useRef(false);
   const controlEnabledRef = useRef(false);
+  const recordingClientSocketRef = useRef<WebSocket | null>(null);
+  const recordingClientIdRef = useRef<string | null>(null);
+  const recordingTargetIdRef = useRef<string | null>(null);
   const webrtcPreferred = Boolean(
     enabled && sessionId && credentials && webrtcProducerSupported && !forceCDPMedia,
   );
+  const recordingTenantId = credentials
+    ? resolveTenantHeader(credentials, "tenant-scoped")
+    : undefined;
   const [pushMessage, message$] = useObservableCallback<ClientMessage>();
   const [pushViewport, viewport$] = useObservableCallback<ViewportPreset>();
   const [pushStreamSettings, streamSettings$] = useObservableCallback<WebRTCStreamSettings>();
@@ -188,6 +201,11 @@ export function useBrowserControl({
   browserViewportSizeRef.current = browserViewportSize;
   viewportAutoSyncRef.current = viewportAutoSync;
   controlEnabledRef.current = Boolean(enabled && sessionId && credentials);
+  if (controlState.mediaTargetId) {
+    recordingTargetIdRef.current = controlState.mediaTargetId;
+  } else if (!controlState.mediaSwitching) {
+    recordingTargetIdRef.current = activeTargetId;
+  }
 
   const activeTarget = useMemo(
     () => targets.find((target) => target.id === activeTargetId) ?? null,
@@ -302,40 +320,103 @@ export function useBrowserControl({
     pushScreencast();
   }, [pushScreencast]);
 
-  const startRecording = useCallback(() => {
-    if (!sessionId || !credentials || recordingBusy) {
-      return;
-    }
-    setRecordingBusy(true);
-    apiClient
-      .startSessionScreencast(credentials, sessionId)
-      .then((status) => {
-        setRecordingActive(status.active);
-        toast.success("Recording started");
-      })
-      .catch((cause: unknown) => {
-        toast.error(errorMessage(cause, "Recording failed to start"));
-      })
-      .finally(() => setRecordingBusy(false));
-  }, [sessionId, credentials, recordingBusy]);
+  const startRecording = useCallback(
+    (mode: "tab" | "viewer") => {
+      const targetId = mode === "viewer" ? recordingTargetIdRef.current : activeTargetIdRef.current;
+      const clientId = recordingClientIdRef.current;
+      if (
+        !sessionId ||
+        !credentials ||
+        !targetId ||
+        !recordingClientConnected ||
+        !clientId ||
+        recordingBusy
+      ) {
+        return;
+      }
+      setRecordingBusy(true);
+      apiClient
+        .startSessionRecording(credentials, sessionId, { mode, targetId, clientId })
+        .then((recording) => {
+          setRecordings((current) => [
+            ...current.filter((candidate) => candidate.recordingId !== recording.recordingId),
+            recording,
+          ]);
+        })
+        .catch((cause: unknown) => {
+          toast.error(errorMessage(cause, "Recording failed to start"));
+        })
+        .finally(() => setRecordingBusy(false));
+    },
+    [sessionId, credentials, recordingBusy, recordingClientConnected],
+  );
 
-  const stopRecording = useCallback(() => {
-    if (!sessionId || !credentials || recordingBusy) {
-      return;
-    }
-    setRecordingBusy(true);
-    apiClient
-      .stopSessionScreencast(credentials, sessionId)
-      .then(({ blob, filename }) => {
-        setRecordingActive(false);
-        downloadBlob(blob, filename ?? `${sessionId}-screencast.webm`);
-        toast.success("Recording saved");
-      })
-      .catch((cause: unknown) => {
-        toast.error(errorMessage(cause, "Recording failed to stop"));
-      })
-      .finally(() => setRecordingBusy(false));
-  }, [sessionId, credentials, recordingBusy]);
+  const stopRecording = useCallback(
+    (recordingId: string) => {
+      if (!sessionId || !credentials || recordingBusy) {
+        return;
+      }
+      setRecordingBusy(true);
+      apiClient
+        .stopSessionRecording(credentials, sessionId, recordingId)
+        .then(({ blob, filename }) => {
+          const recording = recordings.find((candidate) => candidate.recordingId === recordingId);
+          downloadBlob(
+            blob,
+            filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
+          );
+          void apiClient
+            .getSessionRecording(credentials, sessionId, recordingId)
+            .then((status) => {
+              setRecordings((current) =>
+                current.map((candidate) =>
+                  candidate.recordingId === status.recordingId ? status : candidate,
+                ),
+              );
+            })
+            .catch(() => {
+              setRecordings((current) =>
+                current.map((candidate) =>
+                  candidate.recordingId === recordingId
+                    ? { ...candidate, status: "stopped", stopReason: "requested" }
+                    : candidate,
+                ),
+              );
+            });
+          toast.success("Recording saved");
+        })
+        .catch((cause: unknown) => {
+          toast.error(errorMessage(cause, "Recording failed to stop"));
+        })
+        .finally(() => setRecordingBusy(false));
+    },
+    [sessionId, credentials, recordingBusy, recordings],
+  );
+
+  const cancelRecording = useCallback(
+    (recordingId: string) => {
+      if (!sessionId || !credentials || recordingBusy) {
+        return;
+      }
+      setRecordingBusy(true);
+      apiClient
+        .cancelSessionRecording(credentials, sessionId, recordingId)
+        .then(() => apiClient.getSessionRecording(credentials, sessionId, recordingId))
+        .then((status) => {
+          setRecordings((current) =>
+            current.map((candidate) =>
+              candidate.recordingId === status.recordingId ? status : candidate,
+            ),
+          );
+          toast.success("Recording stopped");
+        })
+        .catch((cause: unknown) => {
+          toast.error(errorMessage(cause, "Recording failed to stop"));
+        })
+        .finally(() => setRecordingBusy(false));
+    },
+    [sessionId, credentials, recordingBusy],
+  );
 
   const commitViewport = useCallback(
     (preset: ViewportPreset) => {
@@ -450,21 +531,134 @@ export function useBrowserControl({
     if (enabled && sessionId && credentials) {
       return;
     }
-    setRecordingActive(false);
+    setRecordings([]);
     setRecordingBusy(false);
   }, [enabled, sessionId, credentials]);
+
+  useEffect(() => {
+    const token = credentials?.token;
+    if (!enabled || !sessionId || !token) {
+      setRecordingClientConnected(false);
+      recordingClientIdRef.current = null;
+      return;
+    }
+
+    let active = true;
+    let retrySubscription: Subscription | null = null;
+    let heartbeatSubscription: Subscription | null = null;
+
+    const connect = () => {
+      const clientId = crypto.randomUUID();
+      const protocols = ["aperture-recording.v1", `authorization.bearer.${token}`];
+      if (recordingTenantId) {
+        protocols.push(`x-aperture-tenant-id.${recordingTenantId}`);
+      }
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(
+        `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/recordings/client?clientId=${encodeURIComponent(clientId)}`,
+        protocols,
+      );
+      recordingClientSocketRef.current = socket;
+      recordingClientIdRef.current = clientId;
+
+      socket.addEventListener("open", () => {
+        if (!active || recordingClientSocketRef.current !== socket) {
+          socket.close();
+          return;
+        }
+        setRecordingClientConnected(true);
+        const targetId = recordingTargetIdRef.current;
+        if (targetId) {
+          socket.send(JSON.stringify({ version: 1, type: "target.select", targetId }));
+        }
+        heartbeatSubscription = interval(30_000).subscribe(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ version: 1, type: "heartbeat" }));
+          }
+        });
+      });
+      socket.addEventListener("error", () => socket.close());
+      socket.addEventListener("close", () => {
+        if (recordingClientSocketRef.current !== socket) {
+          return;
+        }
+        recordingClientSocketRef.current = null;
+        recordingClientIdRef.current = null;
+        setRecordingClientConnected(false);
+        heartbeatSubscription?.unsubscribe();
+        heartbeatSubscription = null;
+        if (active) {
+          retrySubscription = timer(1000).subscribe(connect);
+        }
+      });
+    };
+
+    connect();
+    return () => {
+      active = false;
+      retrySubscription?.unsubscribe();
+      heartbeatSubscription?.unsubscribe();
+      const socket = recordingClientSocketRef.current;
+      recordingClientSocketRef.current = null;
+      recordingClientIdRef.current = null;
+      setRecordingClientConnected(false);
+      socket?.close();
+    };
+  }, [enabled, sessionId, credentials?.token, recordingTenantId]);
+
+  useEffect(() => {
+    const socket = recordingClientSocketRef.current;
+    const targetId = recordingTargetIdRef.current;
+    if (socket?.readyState === WebSocket.OPEN && targetId) {
+      socket.send(JSON.stringify({ version: 1, type: "target.select", targetId }));
+    }
+  }, [activeTargetId, controlState.mediaTargetId]);
 
   useEffect(() => {
     if (!enabled || !sessionId || !credentials) {
       return;
     }
-    apiClient
-      .getSessionScreencastStatus(credentials, sessionId)
-      .then((status) => {
-        setRecordingActive(status.active);
-      })
-      .catch(() => undefined);
+    let active = true;
+    const refresh = () => {
+      void apiClient
+        .listSessionRecordings(credentials, sessionId)
+        .then((nextRecordings) => {
+          if (active) {
+            setRecordings(nextRecordings);
+          }
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    return () => {
+      active = false;
+    };
   }, [enabled, sessionId, credentials]);
+
+  const recordingPollingActive = recordings.some(
+    (recording) => recording.status === "starting" || recording.status === "running",
+  );
+
+  useEffect(() => {
+    if (!enabled || !sessionId || !credentials || !recordingPollingActive) {
+      return;
+    }
+    let active = true;
+    const subscription = interval(2000).subscribe(() => {
+      void apiClient
+        .listSessionRecordings(credentials, sessionId)
+        .then((nextRecordings) => {
+          if (active) {
+            setRecordings(nextRecordings);
+          }
+        })
+        .catch(() => undefined);
+    });
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [enabled, sessionId, credentials, recordingPollingActive]);
 
   useEffect(() => {
     if (
@@ -501,11 +695,11 @@ export function useBrowserControl({
       return;
     }
 
-    const timer = window.setInterval(() => {
+    const subscription = interval(500).subscribe(() => {
       setFrameStale(Date.now() - frame.receivedAt > 3000);
-    }, 500);
+    });
 
-    return () => window.clearInterval(timer);
+    return () => subscription.unsubscribe();
   }, [frame]);
 
   return {
@@ -523,13 +717,16 @@ export function useBrowserControl({
     mediaMetrics: controlState.mediaMetrics,
     mediaError: controlState.mediaError,
     mediaPath: controlState.mediaPath,
+    mediaTargetId: controlState.mediaTargetId,
+    mediaSwitching: controlState.mediaSwitching,
     lastError: controlState.lastError,
     viewport,
     browserViewportSize,
     viewportAutoSync,
     captured,
-    recordingActive,
+    recordings,
     recordingBusy,
+    recordingClientConnected,
     setCaptured,
     setViewport: applyViewport,
     setBrowserViewportSize,
@@ -549,6 +746,7 @@ export function useBrowserControl({
     startScreencast,
     startRecording,
     stopRecording,
+    cancelRecording,
     reconnect,
   };
 }
@@ -559,7 +757,7 @@ function downloadBlob(blob: Blob, filename: string) {
   link.href = url;
   link.download = filename;
   link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  timer(0).subscribe(() => URL.revokeObjectURL(url));
 }
 
 function errorMessage(cause: unknown, fallback: string): string {

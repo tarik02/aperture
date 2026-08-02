@@ -21,7 +21,7 @@ var (
 	errPromotionServiceUnavailable = errors.New("promotion service unavailable")
 	errSnapshotServiceUnavailable  = errors.New("snapshot service unavailable")
 	errBrowserControlFailed        = errors.New("browser control failed")
-	errScreencastNotActive         = errors.New("screencast is not active")
+	errRecordingNotFound           = errors.New("recording not found")
 	errSessionFileNotFound         = errors.New("session file not found")
 )
 
@@ -108,8 +108,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_invalid_state", err.Error()
 	case errors.Is(err, session.ErrNotRunning):
 		return http.StatusConflict, "session_not_running", err.Error()
-	case errors.Is(err, errScreencastNotActive):
-		return http.StatusConflict, "screencast_not_active", err.Error()
+	case errors.Is(err, errRecordingNotFound):
+		return http.StatusNotFound, "recording_not_found", err.Error()
 	case errors.Is(err, errSessionFileNotFound):
 		return http.StatusNotFound, "session_file_not_found", err.Error()
 	case errors.Is(err, errBrowserControlFailed):

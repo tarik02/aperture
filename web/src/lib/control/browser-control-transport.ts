@@ -55,6 +55,8 @@ export type BrowserControlState = {
   mediaMetrics: WebRTCMediaMetrics | null;
   mediaError: string | null;
   mediaPath: BrowserMediaPath;
+  mediaTargetId: string | null;
+  mediaSwitching: boolean;
   lastError: ControlError | null;
 };
 
@@ -95,6 +97,8 @@ const initialMediaState: WebRTCMediaState = {
   metrics: null,
   error: null,
   inputReady: false,
+  selectedTarget: null,
+  targetSwitching: false,
 };
 const initialCdpState: CdpControlState = {
   phase: "idle",
@@ -152,6 +156,10 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
               credentials: options.credentials,
               iceServers: options.iceServers,
               input$: webRTCInput$,
+              targetId$: cdpState$.pipe(
+                map((state) => state.activeTargetId),
+                distinctUntilChanged(),
+              ),
               viewportSize$: webRTCViewport$,
               streamSettings$: webRTCStreamSettings$,
               reconnect: () => webRTCReconnect$.next(),
@@ -165,15 +173,21 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       map(([cdp, media]) => browserState(options.webrtcPreferred, cdp, media)),
       shareReplay({ bufferSize: 1, refCount: true }),
     );
-    const webRTCViewportSync$ = combineLatest([viewport$, media$]).pipe(
-      filter(([, media]) => options.webrtcPreferred && media.phase !== "failed"),
-      map(([viewport]) => ({
-        width: viewport.width,
-        height: viewport.height,
-        deviceScaleFactor: viewport.deviceScaleFactor,
-      })),
+    const webRTCViewportSync$ = combineLatest([viewport$, cdpState$, media$]).pipe(
+      map(([viewport, cdp, media]): WebRTCViewportRequest | null =>
+        options.webrtcPreferred && media.phase !== "failed" && cdp.activeTargetId
+          ? {
+              targetId: cdp.activeTargetId,
+              width: viewport.width,
+              height: viewport.height,
+              deviceScaleFactor: viewport.deviceScaleFactor,
+            }
+          : null,
+      ),
+      filter((request): request is WebRTCViewportRequest => request !== null),
       distinctUntilChanged(
         (a, b) =>
+          a.targetId === b.targetId &&
           a.width === b.width &&
           a.height === b.height &&
           a.deviceScaleFactor === b.deviceScaleFactor,
@@ -195,8 +209,15 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
     const routedInput$ = options.input$.pipe(
       withLatestFrom(media$),
       tap(([message, media]) => {
-        if (isInputMessage(message) && shouldUseWebRTCInput(media)) {
-          webRTCInput$.next(scaleWebRTCInput(message));
+        if (isInputMessage(message)) {
+          if (shouldUseWebRTCInput(media, message.targetId)) {
+            webRTCInput$.next(scaleWebRTCInput(message));
+            return;
+          }
+          if (options.webrtcPreferred && media.phase !== "failed") {
+            return;
+          }
+          cdpInput$.next(message);
           return;
         }
         cdpInput$.next(message);
@@ -204,7 +225,13 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       ignoreElements(),
     );
     const stopCdpScreencastOnLive$ = media$.pipe(
-      map((media) => media.phase === "live" && Boolean(media.stream)),
+      map(
+        (media) =>
+          media.phase === "live" &&
+          Boolean(media.stream) &&
+          Boolean(media.selectedTarget) &&
+          !media.targetSwitching,
+      ),
       distinctUntilChanged(),
       filter(Boolean),
       tap(() => cdpInput$.next({ type: "screencast.stop" })),
@@ -259,7 +286,11 @@ function browserState(
   cdp: CdpControlState,
   media: WebRTCMediaState,
 ): BrowserControlState {
-  const mediaLive = media.phase === "live" && Boolean(media.stream);
+  const mediaLive =
+    media.phase === "live" &&
+    Boolean(media.stream) &&
+    media.selectedTarget?.targetId === cdp.activeTargetId &&
+    !media.targetSwitching;
   return {
     phase: cdp.phase,
     targets: cdp.targets,
@@ -273,6 +304,8 @@ function browserState(
     mediaMetrics: media.metrics,
     mediaError: media.error ? webRTCMediaErrorMessage(media.error) : null,
     mediaPath: resolveMediaPath(webrtcPreferred, media.phase, media.stream),
+    mediaTargetId: media.selectedTarget?.targetId ?? null,
+    mediaSwitching: media.targetSwitching,
     lastError: cdp.lastError,
   };
 }
@@ -310,8 +343,14 @@ function isViewportCommand(command: ViewportCommand | null): command is Viewport
   return command !== null;
 }
 
-function shouldUseWebRTCInput(media: WebRTCMediaState): boolean {
-  return media.phase === "live" && Boolean(media.stream) && media.inputReady;
+function shouldUseWebRTCInput(media: WebRTCMediaState, targetId: string): boolean {
+  return (
+    media.phase === "live" &&
+    Boolean(media.stream) &&
+    media.inputReady &&
+    !media.targetSwitching &&
+    media.selectedTarget?.targetId === targetId
+  );
 }
 
 function scaleWebRTCInput(message: WebRTCInputMessage): WebRTCInputMessage {

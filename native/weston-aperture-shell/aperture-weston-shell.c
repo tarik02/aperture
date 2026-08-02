@@ -1,6 +1,7 @@
 #include <linux/input-event-codes.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,6 +13,7 @@
 #include <unistd.h>
 
 #include <libweston/desktop.h>
+#include <libweston/backend-pipewire.h>
 #include <libweston/libweston.h>
 #include <libweston/shell-utils.h>
 #include <wayland-server-core.h>
@@ -58,11 +60,11 @@ struct aperture_shell {
 	struct weston_seat input_seat;
 	struct weston_curtain *background;
 	struct wl_list surfaces;
+	struct wl_list outputs;
 	struct wl_list control_clients;
 	struct wl_list fractional_scales;
 	struct wl_list text_inputs;
 	struct wl_event_source *control_source;
-	struct wl_event_source *resize_timer;
 	struct wl_listener destroy_listener;
 	struct wl_listener text_input_focus_listener;
 	struct wl_global *cursor_shape_global;
@@ -71,14 +73,12 @@ struct aperture_shell {
 	struct wl_global *viewporter_global;
 	struct aperture_text_input *active_text_input;
 	char *control_socket_path;
+	char *pending_surface_nonce;
 	int control_fd;
 	uint32_t width;
 	uint32_t height;
 	uint32_t scale_numerator;
-	uint32_t pending_width;
-	uint32_t pending_height;
-	uint32_t pending_scale_numerator;
-	bool resize_scheduled;
+	uint64_t next_surface_id;
 	bool input_seat_initialized;
 	bool input_pointer_initialized;
 	bool input_keyboard_initialized;
@@ -90,7 +90,24 @@ struct aperture_shell_surface {
 	struct weston_desktop_surface *desktop_surface;
 	struct weston_view *view;
 	struct weston_transform fit_transform;
+	struct aperture_shell_surface *parent;
+	struct aperture_output *capture_output;
+	char *binding_nonce;
+	uint64_t id;
+	uint32_t width;
+	uint32_t height;
+	uint32_t scale_numerator;
 	bool fit_transform_added;
+};
+
+struct aperture_output {
+	struct wl_list link;
+	struct weston_output *output;
+	struct weston_curtain *background;
+	char *capture_id;
+	char *name;
+	uint32_t width;
+	uint32_t height;
 };
 
 struct aperture_fractional_scale {
@@ -133,10 +150,18 @@ static const uint32_t aperture_max_dimension = 16384;
 static const uint32_t aperture_scale_denominator = 120;
 static const uint32_t aperture_min_scale_numerator = 30;
 static const uint32_t aperture_max_scale_numerator = 480;
-static const int aperture_resize_coalesce_ms = 16;
+static const uint32_t aperture_media_canvas_bucket = 64;
 
 static int
 create_background(struct aperture_shell *shell);
+
+static void
+bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root,
+		  struct aperture_output *capture, uint32_t width, uint32_t height,
+		  uint32_t scale_numerator);
+
+static void
+unbind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root);
 
 static int
 background_get_label(struct weston_surface *surface, char *buf, size_t len)
@@ -155,6 +180,96 @@ default_output(struct aperture_shell *shell)
 	}
 
 	return NULL;
+}
+
+static struct aperture_shell_surface *
+find_shell_surface(struct aperture_shell *shell, uint64_t id)
+{
+	struct aperture_shell_surface *surface;
+
+	wl_list_for_each(surface, &shell->surfaces, link) {
+		if (surface->id == id)
+			return surface;
+	}
+
+	return NULL;
+}
+
+static struct aperture_shell_surface *
+find_exact_shell_surface(struct aperture_shell *shell,
+			 struct weston_surface *weston_surface)
+{
+	struct aperture_shell_surface *surface;
+
+	wl_list_for_each(surface, &shell->surfaces, link) {
+		if (weston_desktop_surface_get_surface(surface->desktop_surface) == weston_surface)
+			return surface;
+	}
+
+	return NULL;
+}
+
+static struct aperture_shell_surface *
+find_shell_surface_for_weston_surface(struct aperture_shell *shell,
+				      struct weston_surface *weston_surface)
+{
+	struct weston_surface *main_surface = weston_surface_get_main_surface(weston_surface);
+
+	while (main_surface) {
+		struct aperture_shell_surface *surface =
+			find_exact_shell_surface(shell, main_surface);
+		struct weston_desktop_surface *desktop_surface;
+		struct weston_desktop_surface *parent;
+
+		if (surface)
+			return surface;
+		if (!weston_surface_is_desktop_surface(main_surface))
+			return NULL;
+		desktop_surface = weston_surface_get_desktop_surface(main_surface);
+		parent = weston_desktop_surface_get_parent(desktop_surface);
+		main_surface = parent ? weston_desktop_surface_get_surface(parent) : NULL;
+	}
+
+	return NULL;
+}
+
+static struct aperture_shell_surface *
+root_shell_surface(struct aperture_shell *shell, struct aperture_shell_surface *surface)
+{
+	while (surface && surface->parent)
+		surface = surface->parent;
+
+	return surface;
+}
+
+static struct aperture_output *
+find_capture_output(struct aperture_shell *shell, const char *capture_id)
+{
+	struct aperture_output *output;
+
+	wl_list_for_each(output, &shell->outputs, link) {
+		if (strcmp(output->capture_id, capture_id) == 0)
+			return output;
+	}
+
+	return NULL;
+}
+
+static bool
+valid_control_id(const char *value)
+{
+	const unsigned char *cursor = (const unsigned char *)value;
+
+	if (!cursor[0] || strlen(value) > 128)
+		return false;
+	for (; *cursor; cursor++) {
+		if ((*cursor >= 'a' && *cursor <= 'z') ||
+		    (*cursor >= 'A' && *cursor <= 'Z') ||
+		    (*cursor >= '0' && *cursor <= '9') || *cursor == '-' || *cursor == '_')
+			continue;
+		return false;
+	}
+	return true;
 }
 
 static uint32_t
@@ -186,17 +301,29 @@ scaled_dimension(uint32_t value, uint32_t scale_numerator)
 static void
 send_fractional_scale(struct aperture_fractional_scale *scale)
 {
-	wp_fractional_scale_v1_send_preferred_scale(scale->resource,
-						    scale->shell->scale_numerator);
+	struct aperture_shell_surface *surface =
+		find_shell_surface_for_weston_surface(scale->shell, scale->surface);
+	uint32_t scale_numerator = scale->shell->scale_numerator;
+
+	if (surface && surface->scale_numerator)
+		scale_numerator = surface->scale_numerator;
+	wp_fractional_scale_v1_send_preferred_scale(scale->resource, scale_numerator);
 }
 
 static void
-send_fractional_scale_all(struct aperture_shell *shell)
+send_fractional_scale_surface(struct aperture_shell *shell,
+			      struct aperture_shell_surface *surface)
 {
 	struct aperture_fractional_scale *scale;
+	struct aperture_shell_surface *root = root_shell_surface(shell, surface);
 
-	wl_list_for_each(scale, &shell->fractional_scales, link)
-		send_fractional_scale(scale);
+	wl_list_for_each(scale, &shell->fractional_scales, link) {
+		struct aperture_shell_surface *owner =
+			find_shell_surface_for_weston_surface(shell, scale->surface);
+
+		if (owner && root_shell_surface(shell, owner) == root)
+			send_fractional_scale(scale);
+	}
 }
 
 static void
@@ -213,41 +340,6 @@ unset_viewport_destination(struct weston_buffer_viewport *viewport)
 {
 	viewport->surface.width = -1;
 	viewport->surface.height = -1;
-}
-
-static const char *
-resize_output(struct aperture_shell *shell, uint32_t width, uint32_t height,
-	      uint32_t scale_numerator)
-{
-	struct weston_output *output = default_output(shell);
-	struct weston_mode mode;
-	uint32_t physical_width = scaled_dimension(width, scale_numerator);
-	uint32_t physical_height = scaled_dimension(height, scale_numerator);
-	int32_t output_scale = 1;
-
-	if (!output || !output->current_mode)
-		return "output is unavailable";
-	if (physical_width < aperture_min_dimension || physical_height < aperture_min_dimension ||
-	    physical_width > aperture_max_dimension || physical_height > aperture_max_dimension)
-		return "invalid physical dimensions";
-	if (output->current_mode->width == (int32_t)physical_width &&
-	    output->current_mode->height == (int32_t)physical_height &&
-	    output->current_scale == output_scale)
-		return NULL;
-
-	mode = *output->current_mode;
-	mode.width = (int32_t)physical_width;
-	mode.height = (int32_t)physical_height;
-	if (weston_output_mode_set_native(output, &mode, output_scale) < 0)
-		return "output resize failed";
-
-	if (shell->background) {
-		weston_shell_utils_curtain_destroy(shell->background);
-		shell->background = NULL;
-		if (create_background(shell) < 0)
-			return "background resize failed";
-	}
-	return NULL;
 }
 
 static int
@@ -302,20 +394,30 @@ static void
 layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surface,
 	       uint32_t width, uint32_t height)
 {
-	struct weston_output *output = default_output(shell);
+	struct aperture_shell_surface *root;
+	struct weston_output *output;
 	struct weston_geometry geometry;
 	struct weston_size min_size;
 	uint32_t configure_width = width;
 	uint32_t configure_height = height;
 	float scale;
-	float x = 0.0f;
-	float y = 0.0f;
 	struct weston_coord_global origin = {
 		.c = weston_coord(0, 0),
 	};
 
-	if (!output || !surface || !surface->view)
+	if (!surface || !surface->capture_output || !surface->view)
 		return;
+	output = surface->capture_output->output;
+	root = root_shell_surface(shell, surface);
+	if (root != surface) {
+		weston_view_set_output(surface->view, output);
+		weston_view_schedule_repaint(surface->view);
+		return;
+	}
+	if (surface->width)
+		width = surface->width;
+	if (surface->height)
+		height = surface->height;
 
 	geometry = weston_desktop_surface_get_geometry(surface->desktop_surface);
 	min_size = weston_desktop_surface_get_min_size(surface->desktop_surface);
@@ -335,15 +437,7 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 	weston_desktop_surface_set_resizing(surface->desktop_surface, false);
 	weston_desktop_surface_set_activated(surface->desktop_surface, true);
 
-	scale = 1.0f;
-	if (width > 0 && height > 0) {
-		float scale_x = (float)output->width / (float)width;
-		float scale_y = (float)output->height / (float)height;
-
-		scale = scale_x < scale_y ? scale_x : scale_y;
-		x = ((float)output->width - (float)width * scale) / 2.0f;
-		y = ((float)output->height - (float)height * scale) / 2.0f;
-	}
+	scale = (float)surface->scale_numerator / (float)aperture_scale_denominator;
 	weston_matrix_init(&surface->fit_transform.matrix);
 	weston_matrix_scale(&surface->fit_transform.matrix, scale, scale, 1.0f);
 	if (!surface->fit_transform_added) {
@@ -357,7 +451,7 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 
 	weston_view_set_output(surface->view, output);
 	weston_view_set_mask_infinite(surface->view);
-	origin.c = weston_coord(x, y);
+	origin.c = output->pos.c;
 	weston_view_set_position_with_offset(surface->view, origin,
 					     weston_coord_surface_invert(
 						     weston_coord_surface(geometry.x, geometry.y,
@@ -367,165 +461,36 @@ layout_surface(struct aperture_shell *shell, struct aperture_shell_surface *surf
 }
 
 static void
-layout_all_surfaces(struct aperture_shell *shell)
-{
-	struct aperture_shell_surface *surface;
-
-	wl_list_for_each(surface, &shell->surfaces, link)
-		layout_surface(shell, surface, shell->width, shell->height);
-}
-
-static void
-resolve_viewport_size(struct aperture_shell *shell, uint32_t *width, uint32_t *height)
-{
-	struct aperture_shell_surface *surface;
-
-	if (*width < aperture_min_configure_width)
-		*width = aperture_min_configure_width;
-
-	wl_list_for_each(surface, &shell->surfaces, link) {
-		struct weston_size min_size =
-			weston_desktop_surface_get_min_size(surface->desktop_surface);
-
-		if (min_size.width > 0 && (uint32_t)min_size.width > *width)
-			*width = (uint32_t)min_size.width;
-		if (min_size.height > 0 && (uint32_t)min_size.height > *height)
-			*height = (uint32_t)min_size.height;
-	}
-}
-
-static void
-apply_viewport_size(struct aperture_shell *shell, uint32_t width, uint32_t height,
-		    uint32_t scale_numerator)
-{
-	const char *error;
-	uint32_t physical_width = scaled_dimension(width, scale_numerator);
-	uint32_t physical_height = scaled_dimension(height, scale_numerator);
-	int32_t output_scale = 1;
-
-	if (shell->width == width && shell->height == height &&
-	    shell->scale_numerator == scale_numerator)
-		return;
-
-	error = resize_output(shell, width, height, scale_numerator);
-	if (error) {
-		weston_log("aperture-shell: resize output failed: %s\n", error);
-		return;
-	}
-
-	shell->width = width;
-	shell->height = height;
-	shell->scale_numerator = scale_numerator;
-	send_fractional_scale_all(shell);
-	layout_all_surfaces(shell);
-	weston_log("aperture-shell: resized viewport to %ux%u @ %u/120 (%ux%u physical, wl_output scale %d)\n",
-		   width, height, scale_numerator, physical_width, physical_height,
-		   output_scale);
-}
-
-static int
-dispatch_resize_timer(void *data)
-{
-	struct aperture_shell *shell = data;
-
-	shell->resize_scheduled = false;
-	apply_viewport_size(shell, shell->pending_width, shell->pending_height,
-			    shell->pending_scale_numerator);
-	return 0;
-}
-
-static const char *
-queue_viewport_resize(struct aperture_shell *shell, uint32_t width, uint32_t height,
-		      uint32_t scale_numerator)
-{
-	uint32_t physical_width;
-	uint32_t physical_height;
-
-	if (width < aperture_min_dimension || height < aperture_min_dimension ||
-	    width > aperture_max_dimension || height > aperture_max_dimension)
-		return "invalid dimensions";
-	if (scale_numerator < aperture_min_scale_numerator ||
-	    scale_numerator > aperture_max_scale_numerator)
-		return "invalid scale";
-
-	if (!shell->resize_timer)
-		return "resize timer is unavailable";
-
-	resolve_viewport_size(shell, &width, &height);
-	physical_width = scaled_dimension(width, scale_numerator);
-	physical_height = scaled_dimension(height, scale_numerator);
-	if (physical_width < aperture_min_dimension || physical_height < aperture_min_dimension ||
-	    physical_width > aperture_max_dimension || physical_height > aperture_max_dimension)
-		return "invalid physical dimensions";
-	if (!shell->resize_scheduled && shell->width == width && shell->height == height &&
-	    shell->scale_numerator == scale_numerator)
-		return NULL;
-	if (shell->resize_scheduled && shell->pending_width == width &&
-	    shell->pending_height == height && shell->pending_scale_numerator == scale_numerator)
-		return NULL;
-
-	shell->pending_width = width;
-	shell->pending_height = height;
-	shell->pending_scale_numerator = scale_numerator;
-	if (shell->resize_scheduled)
-		return NULL;
-
-	shell->resize_scheduled = true;
-	if (wl_event_source_timer_update(shell->resize_timer, aperture_resize_coalesce_ms) < 0) {
-		shell->resize_scheduled = false;
-		return "schedule resize failed";
-	}
-	return NULL;
-}
-
-static struct aperture_shell_surface *
-first_shell_surface(struct aperture_shell *shell)
-{
-	struct aperture_shell_surface *surface;
-
-	wl_list_for_each(surface, &shell->surfaces, link)
-		return surface;
-
-	return NULL;
-}
-
-static void
 now(struct timespec *time)
 {
 	clock_gettime(CLOCK_MONOTONIC, time);
 }
 
 static void
-viewport_to_global(struct aperture_shell *shell, double x, double y,
+viewport_to_global(struct aperture_shell_surface *surface, double x, double y,
 		   struct weston_coord_global *pos)
 {
-	struct weston_output *output = default_output(shell);
-	float scale = 1.0f;
-	float offset_x = 0.0f;
-	float offset_y = 0.0f;
+	struct weston_output *output = surface->capture_output->output;
+	float scale = (float)surface->scale_numerator /
+		      (float)aperture_scale_denominator;
 
-	if (output && shell->width > 0 && shell->height > 0) {
-		float scale_x = (float)output->width / (float)shell->width;
-		float scale_y = (float)output->height / (float)shell->height;
-
-		scale = scale_x < scale_y ? scale_x : scale_y;
-		offset_x = ((float)output->width - (float)shell->width * scale) / 2.0f;
-		offset_y = ((float)output->height - (float)shell->height * scale) / 2.0f;
-	}
-
-	pos->c = weston_coord(offset_x + x * scale, offset_y + y * scale);
+	pos->c = weston_coord(output->pos.c.x + x * scale,
+			      output->pos.c.y + y * scale);
 }
 
 static const char *
-inject_pointer_motion(struct aperture_shell *shell, double x, double y)
+inject_pointer_motion(struct aperture_shell *shell, struct aperture_shell_surface *surface,
+		      double x, double y)
 {
 	struct weston_coord_global pos;
 	struct timespec time;
 
-	if (x < 0.0 || y < 0.0 || x > shell->width || y > shell->height)
+	if (!surface || !surface->capture_output)
+		return "surface is unavailable";
+	if (x < 0.0 || y < 0.0 || x > surface->width || y > surface->height)
 		return "invalid motion coordinates";
 
-	viewport_to_global(shell, x, y, &pos);
+	viewport_to_global(surface, x, y, &pos);
 	now(&time);
 	notify_motion_absolute(&shell->input_seat, &time, pos);
 	weston_seat_repick(&shell->input_seat);
@@ -534,7 +499,8 @@ inject_pointer_motion(struct aperture_shell *shell, double x, double y)
 }
 
 static const char *
-inject_button(struct aperture_shell *shell, uint32_t button, bool press)
+inject_button(struct aperture_shell *shell, struct aperture_shell_surface *surface,
+	      uint32_t button, bool press)
 {
 	struct weston_pointer *pointer = weston_seat_get_pointer(&shell->input_seat);
 	struct timespec time;
@@ -543,6 +509,8 @@ inject_button(struct aperture_shell *shell, uint32_t button, bool press)
 
 	if (!button)
 		return "invalid button";
+	if (!surface || !surface->capture_output)
+		return "surface is unavailable";
 	if (!pointer || !pointer->grab || !pointer->grab->interface)
 		return "pointer is not ready";
 	if (!press && pointer->button_count == 0)
@@ -551,11 +519,8 @@ inject_button(struct aperture_shell *shell, uint32_t button, bool press)
 	now(&time);
 	weston_seat_repick(&shell->input_seat);
 	if (press) {
-		struct aperture_shell_surface *surface = first_shell_surface(shell);
-
-		if (surface)
-			activate_surface_for_seat(surface, &shell->input_seat,
-						  WESTON_ACTIVATE_FLAG_CLICKED);
+		activate_surface_for_seat(surface, &shell->input_seat,
+					  WESTON_ACTIVATE_FLAG_CLICKED);
 		if (pointer->button_count == 0) {
 			pointer->grab_button = button;
 			pointer->grab_time = time;
@@ -573,10 +538,13 @@ inject_button(struct aperture_shell *shell, uint32_t button, bool press)
 }
 
 static const char *
-inject_axis(struct aperture_shell *shell, double dx, double dy)
+inject_axis(struct aperture_shell *shell, struct aperture_shell_surface *surface,
+	    double dx, double dy)
 {
 	struct timespec time;
 
+	if (!surface || !surface->capture_output)
+		return "surface is unavailable";
 	now(&time);
 	notify_axis_source(&shell->input_seat, WL_POINTER_AXIS_SOURCE_WHEEL);
 	if (dx != 0.0) {
@@ -599,13 +567,17 @@ inject_axis(struct aperture_shell *shell, double dx, double dy)
 }
 
 static const char *
-inject_key(struct aperture_shell *shell, uint32_t key, bool press)
+inject_key(struct aperture_shell *shell, struct aperture_shell_surface *surface,
+	   uint32_t key, bool press)
 {
 	struct timespec time;
 
 	if (!key)
 		return "invalid key";
+	if (!surface || !surface->capture_output)
+		return "surface is unavailable";
 
+	activate_surface_for_seat(surface, &shell->input_seat, WESTON_ACTIVATE_FLAG_NONE);
 	now(&time);
 	notify_key(&shell->input_seat, &time, key,
 		   press ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED,
@@ -614,15 +586,21 @@ inject_key(struct aperture_shell *shell, uint32_t key, bool press)
 }
 
 static const char *
-inject_text(struct aperture_shell *shell, const char *encoded)
+inject_text(struct aperture_shell *shell, struct aperture_shell_surface *surface,
+	    const char *encoded)
 {
-	struct aperture_text_input *input = shell->active_text_input;
-	struct weston_keyboard *keyboard = weston_seat_get_keyboard(&shell->input_seat);
+	struct aperture_text_input *input;
+	struct weston_keyboard *keyboard;
 	size_t encoded_length = strlen(encoded);
 	size_t text_length;
 	char text[aperture_max_text_bytes + 1];
 	size_t i;
 
+	if (!surface || !surface->capture_output)
+		return "surface is unavailable";
+	activate_surface_for_seat(surface, &shell->input_seat, WESTON_ACTIVATE_FLAG_NONE);
+	input = shell->active_text_input;
+	keyboard = weston_seat_get_keyboard(&shell->input_seat);
 	if (!input || !input->enabled || !input->entered_surface || !keyboard ||
 	    keyboard->focus != input->entered_surface)
 		return NULL;
@@ -1245,12 +1223,15 @@ create_cursor_shape_manager(struct aperture_shell *shell)
 static void
 desktop_surface_added(struct weston_desktop_surface *desktop_surface, void *data)
 {
+	struct aperture_shell *shell = data;
 	struct aperture_shell_surface *surface = calloc(1, sizeof *surface);
+	struct weston_desktop_surface *parent;
 
 	if (!surface)
 		return;
 
 	surface->desktop_surface = desktop_surface;
+	surface->id = ++shell->next_surface_id;
 	surface->view = weston_desktop_surface_create_view(desktop_surface);
 	if (!surface->view) {
 		free(surface);
@@ -1258,18 +1239,48 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface, void *data
 	}
 	wl_list_init(&surface->fit_transform.link);
 
-	wl_list_insert(&((struct aperture_shell *)data)->surfaces, &surface->link);
+	wl_list_insert(&shell->surfaces, &surface->link);
 	weston_desktop_surface_set_user_data(desktop_surface, surface);
+	parent = weston_desktop_surface_get_parent(desktop_surface);
+	if (parent) {
+		struct aperture_shell_surface *root;
+
+		surface->parent = find_shell_surface_for_weston_surface(
+			shell, weston_desktop_surface_get_surface(parent));
+		root = root_shell_surface(shell, surface);
+		if (root && root != surface) {
+			surface->capture_output = root->capture_output;
+			surface->width = root->width;
+			surface->height = root->height;
+			surface->scale_numerator = root->scale_numerator;
+		}
+	} else if (shell->pending_surface_nonce) {
+		surface->binding_nonce = shell->pending_surface_nonce;
+		shell->pending_surface_nonce = NULL;
+	}
+	weston_log("aperture-shell: surface %llu added title=%s binding=%s\n",
+		   (unsigned long long)surface->id,
+		   weston_desktop_surface_get_title(desktop_surface) ?: "",
+		   surface->binding_nonce ?: "");
 }
 
 static void
 desktop_surface_removed(struct weston_desktop_surface *desktop_surface, void *data)
 {
+	struct aperture_shell *shell = data;
 	struct aperture_shell_surface *surface =
 		weston_desktop_surface_get_user_data(desktop_surface);
+	struct aperture_shell_surface *child;
 
 	if (!surface)
 		return;
+	wl_list_for_each(child, &shell->surfaces, link) {
+		if (child->parent != surface)
+			continue;
+		child->parent = NULL;
+		if (child->capture_output)
+			unbind_surface_tree(shell, child);
+	}
 
 	weston_desktop_surface_set_user_data(desktop_surface, NULL);
 	wl_list_remove(&surface->link);
@@ -1277,6 +1288,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface, void *da
 		weston_view_remove_transform(surface->view, &surface->fit_transform);
 	weston_desktop_surface_unlink_view(surface->view);
 	weston_view_destroy(surface->view);
+	free(surface->binding_nonce);
 	free(surface);
 }
 
@@ -1292,14 +1304,16 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 
 	if (!surface || !surface->view)
 		return;
+	if (!surface->capture_output)
+		return;
 
 	if (weston_surface_is_mapped(weston_surface)) {
-		layout_surface(shell, surface, shell->width, shell->height);
+		layout_surface(shell, surface, surface->width, surface->height);
 		return;
 	}
 
 	weston_surface_map(weston_surface);
-	layout_surface(shell, surface, shell->width, shell->height);
+	layout_surface(shell, surface, surface->width, surface->height);
 	activate_surface(shell, surface, WESTON_ACTIVATE_FLAG_NONE);
 }
 
@@ -1317,6 +1331,31 @@ desktop_surface_resize(struct weston_desktop_surface *desktop_surface,
 }
 
 static void
+desktop_surface_set_parent(struct weston_desktop_surface *desktop_surface,
+			   struct weston_desktop_surface *parent, void *data)
+{
+	struct aperture_shell *shell = data;
+	struct aperture_shell_surface *surface =
+		weston_desktop_surface_get_user_data(desktop_surface);
+	struct aperture_shell_surface *next_parent = parent ?
+		find_shell_surface_for_weston_surface(
+			shell, weston_desktop_surface_get_surface(parent)) : NULL;
+	struct aperture_shell_surface *root;
+
+	if (!surface || surface->parent == next_parent)
+		return;
+	surface->parent = next_parent;
+	root = root_shell_surface(shell, surface);
+	if (root && root != surface && root->capture_output) {
+		bind_surface_tree(shell, root, root->capture_output, root->width,
+				  root->height, root->scale_numerator);
+		return;
+	}
+	if (surface->capture_output)
+		unbind_surface_tree(shell, surface);
+}
+
+static void
 desktop_surface_fullscreen_requested(struct weston_desktop_surface *desktop_surface,
 				     bool fullscreen, struct weston_output *output, void *data)
 {
@@ -1324,8 +1363,7 @@ desktop_surface_fullscreen_requested(struct weston_desktop_surface *desktop_surf
 		weston_desktop_surface_get_user_data(desktop_surface);
 
 	if (surface)
-		layout_surface(data, surface, ((struct aperture_shell *)data)->width,
-			       ((struct aperture_shell *)data)->height);
+		layout_surface(data, surface, surface->width, surface->height);
 }
 
 static void
@@ -1336,8 +1374,7 @@ desktop_surface_maximized_requested(struct weston_desktop_surface *desktop_surfa
 		weston_desktop_surface_get_user_data(desktop_surface);
 
 	if (surface)
-		layout_surface(data, surface, ((struct aperture_shell *)data)->width,
-			       ((struct aperture_shell *)data)->height);
+		layout_surface(data, surface, surface->width, surface->height);
 }
 
 static void
@@ -1360,6 +1397,7 @@ static const struct weston_desktop_api desktop_api = {
 	.surface_added = desktop_surface_added,
 	.surface_removed = desktop_surface_removed,
 	.committed = desktop_surface_committed,
+	.set_parent = desktop_surface_set_parent,
 	.move = desktop_surface_move,
 	.resize = desktop_surface_resize,
 	.fullscreen_requested = desktop_surface_fullscreen_requested,
@@ -1410,6 +1448,213 @@ create_background(struct aperture_shell *shell)
 	return 0;
 }
 
+static int
+create_capture_background(struct aperture_shell *shell, struct aperture_output *capture)
+{
+	struct weston_curtain_params params = {
+		.r = 0.0,
+		.g = 0.0,
+		.b = 0.0,
+		.a = 1.0,
+		.pos = capture->output->pos,
+		.width = capture->output->width,
+		.height = capture->output->height,
+		.capture_input = false,
+		.surface_committed = NULL,
+		.get_label = background_get_label,
+		.surface_private = NULL,
+	};
+
+	capture->background = weston_shell_utils_curtain_create(shell->compositor, &params);
+	if (!capture->background)
+		return -1;
+	weston_view_set_output(capture->background->view, capture->output);
+	weston_view_move_to_layer(capture->background->view,
+				  &shell->background_layer.view_list);
+	return 0;
+}
+
+static const char *
+create_capture_output(struct aperture_shell *shell, const char *capture_id,
+		      uint32_t width, uint32_t height,
+		      struct aperture_output **created)
+{
+	const struct weston_pipewire_output_api *api =
+		weston_pipewire_output_get_api(shell->compositor);
+	struct weston_output *staging = default_output(shell);
+	struct weston_head *head = NULL;
+	struct weston_output *output;
+	struct aperture_output *capture;
+	struct pipewire_config config;
+	struct weston_coord_global position;
+	int64_t output_x;
+	char name[160];
+
+	if (!api || !staging || weston_get_backend_type(staging->backend) != WESTON_BACKEND_PIPEWIRE)
+		return "PipeWire output API is unavailable";
+	if (!valid_control_id(capture_id) || find_capture_output(shell, capture_id))
+		return "invalid or duplicate capture id";
+	if (width < aperture_min_dimension || height < aperture_min_dimension ||
+	    width > aperture_max_dimension || height > aperture_max_dimension ||
+	    width % aperture_media_canvas_bucket != 0 ||
+	    height % aperture_media_canvas_bucket != 0)
+		return "invalid output specification";
+	output_x = (int64_t)staging->pos.c.x + staging->width;
+	for (;;) {
+		bool overlaps = false;
+		struct aperture_output *existing;
+
+		if (output_x > INT32_MAX - (int64_t)width)
+			return "output coordinate space is exhausted";
+		wl_list_for_each(existing, &shell->outputs, link) {
+			int64_t existing_x = (int64_t)existing->output->pos.c.x;
+			int64_t existing_end = existing_x + existing->output->width;
+
+			if (output_x >= existing_end ||
+			    output_x + width <= existing_x)
+				continue;
+			output_x = existing_end;
+			overlaps = true;
+			break;
+		}
+		if (!overlaps)
+			break;
+	}
+
+	snprintf(name, sizeof name, "aperture-%s", capture_id);
+	config = (struct pipewire_config) {
+		.width = (int32_t)width,
+		.height = (int32_t)height,
+		.framerate = 60,
+	};
+	api->head_create(staging->backend, name, &config);
+	while ((head = weston_compositor_iterate_heads(shell->compositor, head))) {
+		if (strcmp(weston_head_get_name(head), name) == 0)
+			break;
+	}
+	if (!head)
+		return "output head creation failed";
+	output = weston_compositor_create_output(shell->compositor, head, name);
+	if (!output) {
+		api->head_destroy(head);
+		return "output creation failed";
+	}
+
+	weston_output_set_scale(output, 1);
+	weston_output_set_transform(output, WL_OUTPUT_TRANSFORM_NORMAL);
+	api->set_gbm_format(output, "xrgb8888");
+	if (api->output_set_size(output, (int)width, (int)height, 60) < 0 ||
+	    weston_output_enable(output) < 0) {
+		weston_output_destroy(output);
+		api->head_destroy(head);
+		return "output enable failed";
+	}
+	position.c = weston_coord((float)output_x, 0);
+	weston_output_move(output, position);
+	weston_output_set_ready(output);
+
+	capture = calloc(1, sizeof *capture);
+	if (!capture) {
+		weston_output_destroy(output);
+		api->head_destroy(head);
+		return "out of memory";
+	}
+	capture->capture_id = strdup(capture_id);
+	capture->name = strdup(name);
+	if (!capture->capture_id || !capture->name) {
+		free(capture->capture_id);
+		free(capture->name);
+		free(capture);
+		weston_output_destroy(output);
+		api->head_destroy(head);
+		return "out of memory";
+	}
+	capture->output = output;
+	capture->width = width;
+	capture->height = height;
+	if (create_capture_background(shell, capture) < 0) {
+		free(capture->capture_id);
+		free(capture->name);
+		free(capture);
+		weston_output_destroy(output);
+		api->head_destroy(head);
+		return "output background creation failed";
+	}
+	wl_list_insert(&shell->outputs, &capture->link);
+	*created = capture;
+	return NULL;
+}
+
+static const char *
+destroy_capture_output(struct aperture_shell *shell, struct aperture_output *capture)
+{
+	const struct weston_pipewire_output_api *api =
+		weston_pipewire_output_get_api(shell->compositor);
+	struct aperture_shell_surface *surface;
+	struct weston_head *head = weston_output_iterate_heads(capture->output, NULL);
+
+	wl_list_for_each(surface, &shell->surfaces, link) {
+		if (surface->capture_output == capture)
+			return "output still has bound surfaces";
+	}
+	wl_list_remove(&capture->link);
+	if (capture->background)
+		weston_shell_utils_curtain_destroy(capture->background);
+	weston_output_destroy(capture->output);
+	if (head)
+		api->head_destroy(head);
+	free(capture->capture_id);
+	free(capture->name);
+	free(capture);
+	return NULL;
+}
+
+static void
+bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root,
+		  struct aperture_output *capture, uint32_t width, uint32_t height,
+		  uint32_t scale_numerator)
+{
+	struct aperture_shell_surface *surface;
+
+	wl_list_for_each(surface, &shell->surfaces, link) {
+		if (root_shell_surface(shell, surface) != root)
+			continue;
+		surface->capture_output = capture;
+		surface->width = width;
+		surface->height = height;
+		surface->scale_numerator = scale_numerator;
+		if (surface == root)
+			send_fractional_scale_surface(shell, surface);
+		if (!weston_surface_is_mapped(
+			    weston_desktop_surface_get_surface(surface->desktop_surface)) &&
+		    weston_surface_has_content(
+			    weston_desktop_surface_get_surface(surface->desktop_surface)))
+			weston_surface_map(
+				weston_desktop_surface_get_surface(surface->desktop_surface));
+		layout_surface(shell, surface, width, height);
+	}
+	weston_desktop_surface_propagate_layer(root->desktop_surface);
+}
+
+static void
+unbind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root)
+{
+	struct aperture_shell_surface *surface;
+
+	wl_list_for_each(surface, &shell->surfaces, link) {
+		if (root_shell_surface(shell, surface) != root)
+			continue;
+		surface->capture_output = NULL;
+		surface->width = 0;
+		surface->height = 0;
+		surface->scale_numerator = 0;
+		if (surface == root)
+			send_fractional_scale_surface(shell, surface);
+		weston_surface_unmap(
+			weston_desktop_surface_get_surface(surface->desktop_surface));
+	}
+}
+
 static void
 destroy_control_client(struct aperture_control_client *client)
 {
@@ -1436,45 +1681,184 @@ handle_control_command(struct aperture_control_client *client)
 	unsigned int scale_numerator = 0;
 	unsigned int code;
 	unsigned int pressed;
+	unsigned long long surface_id;
 	double x;
 	double y;
 	double dx;
 	double dy;
-	uint32_t applied_width;
-	uint32_t applied_height;
-	uint32_t applied_scale_numerator;
-	uint32_t physical_width;
-	uint32_t physical_height;
 	char trailing;
+	char identifier[129];
+	int text_offset;
 	const char *error;
-	char response[128];
+	char response[512];
+	struct aperture_shell_surface *surface;
+	struct aperture_output *capture;
 
-	if (sscanf(client->buffer, "resize %u %u %u %c", &width, &height,
-		   &scale_numerator, &trailing) == 3 ||
-	    sscanf(client->buffer, "resize %u %u %c", &width, &height, &trailing) == 2) {
-		applied_width = width;
-		applied_height = height;
-		applied_scale_numerator =
-			scale_numerator ? scale_numerator : client->shell->scale_numerator;
-		resolve_viewport_size(client->shell, &applied_width, &applied_height);
-		error = queue_viewport_resize(client->shell, applied_width, applied_height,
-					      applied_scale_numerator);
+	if (sscanf(client->buffer, "surface-prepare %128s %c", identifier, &trailing) == 1) {
+		if (!valid_control_id(identifier)) {
+			write_control_response(client, "error invalid binding nonce\n");
+			return;
+		}
+		if (client->shell->pending_surface_nonce) {
+			write_control_response(client, "error binding already pending\n");
+			return;
+		}
+		wl_list_for_each(surface, &client->shell->surfaces, link) {
+			if (surface->binding_nonce &&
+			    strcmp(surface->binding_nonce, identifier) == 0) {
+				write_control_response(client, "error binding nonce already used\n");
+				return;
+			}
+		}
+		client->shell->pending_surface_nonce = strdup(identifier);
+		if (!client->shell->pending_surface_nonce) {
+			write_control_response(client, "error out of memory\n");
+			return;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "surface-cancel %128s %c", identifier, &trailing) == 1) {
+		if (client->shell->pending_surface_nonce &&
+		    strcmp(client->shell->pending_surface_nonce, identifier) == 0) {
+			free(client->shell->pending_surface_nonce);
+			client->shell->pending_surface_nonce = NULL;
+		}
+		wl_list_for_each(surface, &client->shell->surfaces, link) {
+			if (!surface->binding_nonce ||
+			    strcmp(surface->binding_nonce, identifier) != 0)
+				continue;
+			free(surface->binding_nonce);
+			surface->binding_nonce = NULL;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "output-create %128s %u %u %c", identifier,
+		   &width, &height, &trailing) == 3) {
+		error = create_capture_output(client->shell, identifier, width, height,
+					      &capture);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
 			return;
 		}
-
-		physical_width = scaled_dimension(applied_width, applied_scale_numerator);
-		physical_height = scaled_dimension(applied_height, applied_scale_numerator);
-		snprintf(response, sizeof response, "ok %u %u %u %u %u\n", applied_width,
-			 applied_height, applied_scale_numerator, physical_width, physical_height);
+		snprintf(response, sizeof response, "ok %s %s %u %u\n",
+			 capture->capture_id, capture->name, capture->width,
+			 capture->height);
 		write_control_response(client, response);
 		return;
 	}
 
-	if (sscanf(client->buffer, "motion %lf %lf %c", &x, &y, &trailing) == 2) {
-		error = inject_pointer_motion(client->shell, x, y);
+	if (sscanf(client->buffer, "output-repaint %128s %c", identifier, &trailing) == 1) {
+		capture = find_capture_output(client->shell, identifier);
+		if (!capture) {
+			write_control_response(client, "error output not found\n");
+			return;
+		}
+		capture->output->full_repaint_needed = true;
+		weston_output_schedule_repaint(capture->output);
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "output-destroy %128s %c", identifier, &trailing) == 1) {
+		capture = find_capture_output(client->shell, identifier);
+		if (!capture) {
+			write_control_response(client, "error output not found\n");
+			return;
+		}
+		error = destroy_capture_output(client->shell, capture);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "surface-find %128s %c", identifier, &trailing) == 1) {
+		wl_list_for_each(surface, &client->shell->surfaces, link) {
+			if (surface->binding_nonce &&
+			    strcmp(surface->binding_nonce, identifier) == 0) {
+				snprintf(response, sizeof response, "ok %llu\n",
+					 (unsigned long long)surface->id);
+				write_control_response(client, response);
+				return;
+			}
+		}
+		write_control_response(client, "error surface not found\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "surface-bind %llu %128s %u %u %u %c", &surface_id,
+		   identifier, &width, &height, &scale_numerator, &trailing) == 5) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		capture = find_capture_output(client->shell, identifier);
+		if (!surface || !capture) {
+			write_control_response(client, "error surface or output not found\n");
+			return;
+		}
+		if (width < aperture_min_configure_width ||
+		    height < aperture_min_dimension || width > aperture_max_dimension ||
+		    height > aperture_max_dimension ||
+		    scale_numerator < aperture_min_scale_numerator ||
+		    scale_numerator > aperture_max_scale_numerator ||
+		    scaled_dimension(width, scale_numerator) > capture->width ||
+		    scaled_dimension(height, scale_numerator) > capture->height) {
+			write_control_response(client, "error invalid surface specification\n");
+			return;
+		}
+		surface = root_shell_surface(client->shell, surface);
+		if (!surface) {
+			write_control_response(client, "error root surface not found\n");
+			return;
+		}
+		bind_surface_tree(client->shell, surface, capture, width, height,
+				  scale_numerator);
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "surface-unbind %llu %c", &surface_id, &trailing) == 1) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		if (!surface) {
+			write_control_response(client, "error surface not found\n");
+			return;
+		}
+		surface = root_shell_surface(client->shell, surface);
+		if (!surface) {
+			write_control_response(client, "error root surface not found\n");
+			return;
+		}
+		unbind_surface_tree(client->shell, surface);
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "surface-status %llu %c", &surface_id, &trailing) == 1) {
+		struct weston_surface *weston_surface;
+
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		if (!surface || !surface->capture_output) {
+			write_control_response(client, "error surface is unavailable\n");
+			return;
+		}
+		weston_surface = weston_desktop_surface_get_surface(surface->desktop_surface);
+		snprintf(response, sizeof response, "ok %s %d %d %u\n",
+			 surface->capture_output->capture_id, weston_surface->width,
+			 weston_surface->height, weston_surface_is_mapped(weston_surface) ? 1 : 0);
+		write_control_response(client, response);
+		return;
+	}
+
+	if (sscanf(client->buffer, "motion %llu %lf %lf %c", &surface_id, &x, &y,
+		   &trailing) == 3) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_pointer_motion(client->shell, surface, x, y);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
@@ -1485,8 +1869,12 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	if (sscanf(client->buffer, "button %u %u %c", &code, &pressed, &trailing) == 2) {
-		error = inject_button(client->shell, code, pressed != 0);
+	if (sscanf(client->buffer, "button-at %llu %lf %lf %u %u %c", &surface_id, &x,
+		   &y, &code, &pressed, &trailing) == 5) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_pointer_motion(client->shell, surface, x, y);
+		if (!error)
+			error = inject_button(client->shell, surface, code, pressed != 0);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
@@ -1497,8 +1885,10 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	if (sscanf(client->buffer, "axis %lf %lf %c", &dx, &dy, &trailing) == 2) {
-		error = inject_axis(client->shell, dx, dy);
+	if (sscanf(client->buffer, "button %llu %u %u %c", &surface_id, &code, &pressed,
+		   &trailing) == 3) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_button(client->shell, surface, code, pressed != 0);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
@@ -1509,8 +1899,40 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	if (sscanf(client->buffer, "key %u %u %c", &code, &pressed, &trailing) == 2) {
-		error = inject_key(client->shell, code, pressed != 0);
+	if (sscanf(client->buffer, "axis-at %llu %lf %lf %lf %lf %c", &surface_id, &x, &y,
+		   &dx, &dy, &trailing) == 5) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_pointer_motion(client->shell, surface, x, y);
+		if (!error)
+			error = inject_axis(client->shell, surface, dx, dy);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		flush_pointer_frame(client->shell);
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "axis %llu %lf %lf %c", &surface_id, &dx, &dy,
+		   &trailing) == 3) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_axis(client->shell, surface, dx, dy);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		flush_pointer_frame(client->shell);
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (sscanf(client->buffer, "key %llu %u %u %c", &surface_id, &code, &pressed,
+		   &trailing) == 3) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_key(client->shell, surface, code, pressed != 0);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
@@ -1520,8 +1942,11 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	if (strncmp(client->buffer, "text ", 5) == 0) {
-		error = inject_text(client->shell, client->buffer + 5);
+	text_offset = 0;
+	if (sscanf(client->buffer, "text %llu %n", &surface_id, &text_offset) == 1 &&
+	    text_offset > 0) {
+		surface = find_shell_surface(client->shell, (uint64_t)surface_id);
+		error = inject_text(client->shell, surface, client->buffer + text_offset);
 		if (error) {
 			snprintf(response, sizeof response, "error %s\n", error);
 			write_control_response(client, response);
@@ -1678,13 +2103,13 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_fractional_scale *next_fractional_scale;
 	struct aperture_text_input *text_input;
 	struct aperture_text_input *next_text_input;
+	struct aperture_output *capture;
+	struct aperture_output *next_capture;
 
 	wl_list_remove(&shell->destroy_listener.link);
 	wl_list_remove(&shell->text_input_focus_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
-	if (shell->resize_timer)
-		wl_event_source_remove(shell->resize_timer);
 	if (shell->cursor_shape_global)
 		wl_global_destroy(shell->cursor_shape_global);
 	if (shell->fractional_scale_global)
@@ -1703,6 +2128,14 @@ destroy_shell(struct wl_listener *listener, void *data)
 		destroy_control_client(control_client);
 	if (shell->desktop)
 		weston_desktop_destroy(shell->desktop);
+	wl_list_for_each_safe(capture, next_capture, &shell->outputs, link) {
+		wl_list_remove(&capture->link);
+		if (capture->background)
+			weston_shell_utils_curtain_destroy(capture->background);
+		free(capture->capture_id);
+		free(capture->name);
+		free(capture);
+	}
 	if (shell->background)
 		weston_shell_utils_curtain_destroy(shell->background);
 	if (shell->control_fd >= 0)
@@ -1711,6 +2144,7 @@ destroy_shell(struct wl_listener *listener, void *data)
 		unlink(shell->control_socket_path);
 		free(shell->control_socket_path);
 	}
+	free(shell->pending_surface_nonce);
 	if (shell->input_seat_initialized) {
 		if (shell->input_keyboard_initialized)
 			weston_seat_release_keyboard(&shell->input_seat);
@@ -1737,10 +2171,8 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	shell->width = parse_positive_env("APERTURE_VIEWPORT_WIDTH", 1280);
 	shell->height = parse_positive_env("APERTURE_VIEWPORT_HEIGHT", 720);
 	shell->scale_numerator = aperture_scale_denominator;
-	shell->pending_width = shell->width;
-	shell->pending_height = shell->height;
-	shell->pending_scale_numerator = shell->scale_numerator;
 	wl_list_init(&shell->surfaces);
+	wl_list_init(&shell->outputs);
 	wl_list_init(&shell->control_clients);
 	wl_list_init(&shell->fractional_scales);
 	wl_list_init(&shell->text_inputs);
@@ -1776,11 +2208,6 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (create_text_input_manager(shell) < 0)
 		goto err;
 	if (setup_control_socket(shell) < 0)
-		goto err;
-	shell->resize_timer =
-		wl_event_loop_add_timer(wl_display_get_event_loop(compositor->wl_display),
-					dispatch_resize_timer, shell);
-	if (!shell->resize_timer)
 		goto err;
 
 	shell->desktop = weston_desktop_create(compositor, &desktop_api, shell);

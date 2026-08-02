@@ -266,6 +266,8 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
 		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
 		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
+		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
+		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
@@ -630,6 +632,8 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
 		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
 		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
+		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
+		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)

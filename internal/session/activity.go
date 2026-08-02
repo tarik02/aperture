@@ -521,6 +521,8 @@ func (s *Service) runtimeEnvValues(
 		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
 		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
 		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
+		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
+		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
 	}
 }
 
