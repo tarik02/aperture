@@ -634,8 +634,14 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	default:
 		return fmt.Errorf("compositor backend must be headless or pipewire")
 	}
-	if strings.TrimSpace(values.CompositorRenderer) != "gl" {
-		return fmt.Errorf("compositor renderer must be gl")
+	compositorRenderer := strings.ToLower(strings.TrimSpace(values.CompositorRenderer))
+	switch compositorRenderer {
+	case "gl", "pixman":
+	default:
+		return fmt.Errorf("compositor renderer must be gl or pixman")
+	}
+	if compositorRenderer == "pixman" && values.GPUMode != gpuModeSoftware {
+		return fmt.Errorf("compositor renderer pixman requires gpu mode software")
 	}
 	compositorShell := strings.TrimSpace(values.CompositorShell)
 	switch compositorShell {
@@ -766,7 +772,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	}
 	compositorArgs := []string{
 		"--backend=" + values.CompositorBackend,
-		"--renderer=" + values.CompositorRenderer,
+		"--renderer=" + compositorRenderer,
 		"--shell=" + compositorShell,
 		"--socket=" + socketName,
 		fmt.Sprintf("--width=%d", compositorWidth),
@@ -866,6 +872,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	)
 	if hardwareAcceleration {
 		extraArgs = append(extraArgs, "--ignore-gpu-blocklist", "--enable-gpu-rasterization")
+	} else {
+		extraArgs = append(extraArgs, "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader")
 	}
 	browserCmd, err := BuildBwrapCommand(LaunchConfig{
 		BwrapPath:                bwrapPath,
