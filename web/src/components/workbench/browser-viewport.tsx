@@ -59,6 +59,7 @@ export function BrowserViewport({
   } | null>(null);
 
   const showingWebRTC =
+    control.mediaPath === "webrtc-live" &&
     control.mediaPhase === "live" &&
     Boolean(control.mediaStream) &&
     Boolean(control.activeTargetId);

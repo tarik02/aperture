@@ -101,7 +101,6 @@ export function BrowserMenus({
   onReconnect: () => void;
   now: number;
 }) {
-  const showStreamMenu = control.mediaPath === "webrtc-live";
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
@@ -154,7 +153,6 @@ export function BrowserMenus({
             <ViewportStreamMenuItems
               control={control}
               connected={connected}
-              showStreamMenu={showStreamMenu}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
             />
@@ -217,7 +215,6 @@ export function BrowserMenus({
             <ViewportStreamMenuItems
               control={control}
               connected={connected}
-              showStreamMenu={showStreamMenu}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
             />
@@ -405,21 +402,21 @@ function RecordingMenuItems({
 function ViewportStreamMenuItems({
   control,
   connected,
-  showStreamMenu,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
-  showStreamMenu: boolean;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
 }) {
+  const showStreamMenu =
+    control.mediaPath === "webrtc-live" || control.mediaPath === "fallback-cdp";
   return (
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
       {showStreamMenu ? <StreamMenu control={control} /> : null}
-      {showStreamMenu ? (
+      {control.mediaPath === "webrtc-live" ? (
         <DropdownMenuCheckboxItem
           checked={performanceOverlayEnabled}
           onCheckedChange={onPerformanceOverlayChange}
@@ -433,6 +430,8 @@ function ViewportStreamMenuItems({
 }
 
 function StreamMenu({ control }: { control: UseBrowserControlResult }) {
+  const settings = control.mediaStreamSettings;
+  const source = control.mediaPath === "fallback-cdp" ? "fallback-cdp" : settings?.profile;
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -441,54 +440,76 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-64">
         <DropdownMenuLabel>Stream</DropdownMenuLabel>
-        {control.mediaVideoProfiles.length > 1 && control.mediaStreamSettings ? (
+        <DropdownMenuLabel>Source</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={source}
+          onValueChange={(value) => {
+            if (value === "fallback-cdp") {
+              control.selectMediaStream({ kind: "fallback-cdp" });
+              return;
+            }
+            if (value === "webrtc-retry") {
+              control.selectMediaStream({ kind: "webrtc-retry" });
+              return;
+            }
+            const profile = control.mediaVideoProfiles.find((candidate) => candidate.id === value);
+            if (profile && settings) {
+              control.selectMediaStream({
+                kind: "webrtc",
+                settings: { ...settings, profile: profile.id },
+              });
+            }
+          }}
+        >
+          {control.mediaVideoProfiles.length === 0 ? (
+            <DropdownMenuRadioItem value="webrtc-retry">
+              <span className="flex min-w-0 flex-col">
+                <span>WebRTC</span>
+                <span className="text-xs text-muted-foreground">Retry connection</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ) : null}
+          {control.mediaVideoProfiles.map((profile) => (
+            <DropdownMenuRadioItem key={profile.id} value={profile.id} disabled={!settings}>
+              <span className="flex min-w-0 flex-col">
+                <span>{profile.label}</span>
+                <span className="text-xs text-muted-foreground">{profile.codec} · WebRTC</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+          <DropdownMenuRadioItem value="fallback-cdp">
+            <span className="flex min-w-0 flex-col">
+              <span>CDP</span>
+              <span className="text-xs text-muted-foreground">JPEG screencast</span>
+            </span>
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+        {control.mediaPath === "webrtc-live" && settings ? (
           <>
-            <DropdownMenuLabel>Codec</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Quality</DropdownMenuLabel>
             <DropdownMenuRadioGroup
-              value={control.mediaStreamSettings.profile}
-              onValueChange={(profile) => {
-                const settings = control.mediaStreamSettings;
-                if (settings) {
-                  control.setWebRTCStreamSettings({ ...settings, profile });
+              value={activeStreamPresetId(settings)}
+              onValueChange={(value) => {
+                const preset = STREAM_PRESETS.find((item) => item.id === value);
+                if (preset) {
+                  control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
                 }
               }}
             >
-              {control.mediaVideoProfiles.map((profile) => (
-                <DropdownMenuRadioItem key={profile.id} value={profile.id}>
+              {STREAM_PRESETS.map((preset) => (
+                <DropdownMenuRadioItem key={preset.id} value={preset.id}>
                   <span className="flex min-w-0 flex-col">
-                    <span>{profile.label}</span>
-                    <span className="text-xs text-muted-foreground">{profile.codec}</span>
+                    <span>{preset.label}</span>
+                    <span className="text-xs text-muted-foreground">{preset.detail}</span>
                   </span>
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
+            <CustomStreamSettings settings={settings} onApply={control.setWebRTCStreamSettings} />
           </>
         ) : null}
-        <DropdownMenuRadioGroup
-          value={activeStreamPresetId(control.mediaStreamSettings)}
-          onValueChange={(value) => {
-            const preset = STREAM_PRESETS.find((item) => item.id === value);
-            const settings = control.mediaStreamSettings;
-            if (preset && settings) {
-              control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
-            }
-          }}
-        >
-          {STREAM_PRESETS.map((preset) => (
-            <DropdownMenuRadioItem key={preset.id} value={preset.id}>
-              <span className="flex min-w-0 flex-col">
-                <span>{preset.label}</span>
-                <span className="text-xs text-muted-foreground">{preset.detail}</span>
-              </span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <CustomStreamSettings
-          settings={control.mediaStreamSettings}
-          onApply={control.setWebRTCStreamSettings}
-        />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );

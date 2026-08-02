@@ -40,6 +40,7 @@ type targetMediaSource struct {
 	close         sync.Once
 	wait          sync.WaitGroup
 	mu            sync.Mutex
+	qualityMu     sync.Mutex
 	activityMu    sync.Mutex
 	active        bool
 	closed        bool
@@ -516,6 +517,8 @@ func (source *targetMediaSource) Profile(name string) (rtc.EncoderProfile, bool)
 }
 
 func (source *targetMediaSource) UpdateQuality(quality rtc.Quality) error {
+	source.qualityMu.Lock()
+	defer source.qualityMu.Unlock()
 	source.mu.Lock()
 	encoders := make([]struct {
 		encoder *targetEncoder
@@ -543,6 +546,8 @@ func (source *targetMediaSource) UpdateQuality(quality rtc.Quality) error {
 }
 
 func (source *targetMediaSource) SetBitrate(bitrateKbps int) error {
+	source.qualityMu.Lock()
+	defer source.qualityMu.Unlock()
 	source.mu.Lock()
 	encoders := make([]*targetEncoder, 0, len(source.targets))
 	for _, encoder := range source.targets {

@@ -11,6 +11,7 @@ import {
   browserControl$,
   initialBrowserControlState,
   type BrowserControlOutput,
+  type BrowserMediaSelection,
   type BrowserMediaPath,
 } from "#/lib/control/browser-control-transport.ts";
 import type {
@@ -82,6 +83,7 @@ export type UseBrowserControlResult = {
   setViewportAutoSync: (enabled: boolean) => void;
   setViewportToBrowserSize: () => void;
   setWebRTCStreamSettings: (settings: WebRTCStreamSettings) => boolean;
+  selectMediaStream: (selection: BrowserMediaSelection) => boolean;
   send: (message: ClientMessage) => boolean;
   activateTarget: (targetId: string) => void;
   reorderTargets: (
@@ -145,6 +147,7 @@ export function useBrowserControl({
   const [pushMessage, message$] = useObservableCallback<ClientMessage>();
   const [pushViewport, viewport$] = useObservableCallback<ViewportPreset>();
   const [pushStreamSettings, streamSettings$] = useObservableCallback<WebRTCStreamSettings>();
+  const [pushMediaSelection, mediaSelection$] = useObservableCallback<BrowserMediaSelection>();
   const [pushReconnect, reconnect$] = useObservableCallback<void>();
   const [pushScreencast, screencast$] = useObservableCallback<void>();
   const controlOutput$ = useObservable(
@@ -175,6 +178,7 @@ export function useBrowserControl({
               input$: message$,
               viewport$,
               streamSettings$,
+              mediaSelection$,
               reconnect$,
               startScreencast$: screencast$,
             });
@@ -464,6 +468,17 @@ export function useBrowserControl({
     [pushStreamSettings],
   );
 
+  const selectMediaStream = useCallback(
+    (selection: BrowserMediaSelection) => {
+      if (!controlEnabledRef.current) {
+        return false;
+      }
+      pushMediaSelection(selection);
+      return true;
+    },
+    [pushMediaSelection],
+  );
+
   const setBrowserViewportSize = useCallback(
     (size: BrowserViewportSize) => {
       const next = {
@@ -733,6 +748,7 @@ export function useBrowserControl({
     setViewportAutoSync,
     setViewportToBrowserSize,
     setWebRTCStreamSettings,
+    selectMediaStream,
     send,
     activateTarget,
     reorderTargets,
