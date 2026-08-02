@@ -114,6 +114,7 @@
             (oldAttrs: {
               mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
                 "-Dauto_features=disabled"
+                "-Dapp=enabled"
                 "-Dvideoconvertscale=enabled"
                 "-Dvideorate=enabled"
               ];
