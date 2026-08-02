@@ -345,6 +345,16 @@ export const apiClient = {
     });
   },
 
+  setBrowserMediaProfile(credentials: ApiCredentials, sessionId: string, profile: string) {
+    return requestVoid({
+      method: "POST",
+      path: `/sessions/${encodeURIComponent(sessionId)}/browser/quality`,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: { profile },
+    });
+  },
+
   listTenants(credentials: ApiCredentials, params: TenantsListParams = {}) {
     return request({
       path: "/api/admin/tenants",

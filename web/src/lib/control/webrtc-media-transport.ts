@@ -156,6 +156,7 @@ export type WebRTCMediaOptions = {
   credentials: ApiCredentials;
   iceServers: RTCIceServer[];
   input$: Observable<WebRTCInputMessage>;
+  inputEnabled$: Observable<boolean>;
   targetId$: Observable<string | null>;
   viewportSize$: Observable<WebRTCViewportRequest>;
   streamSettings$: Observable<WebRTCStreamSettings>;
@@ -536,6 +537,9 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     let closed = false;
     let inputSequence = 0;
     let inputMotionSequence = 0;
+    let inputEnabled = true;
+    let inputReleasePending = false;
+    let inputReleaseRequestId: string | null = null;
     let controlRequest = 0;
     let keyframeInterval = 60;
     let mediaStatusLoaded = false;
@@ -639,6 +643,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     };
     const acquireInput = () => {
       if (
+        !inputEnabled ||
+        inputReleasePending ||
         control.readyState !== "open" ||
         input.readyState !== "open" ||
         inputMotion.readyState !== "open" ||
@@ -655,6 +661,22 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           version: 4,
           id: `input-${controlRequest}`,
           type: "input.acquire",
+        }),
+      );
+    };
+    const releaseInput = () => {
+      if (inputReleasePending || control.readyState !== "open" || !state.inputReady) {
+        return;
+      }
+      controlRequest += 1;
+      inputReleasePending = true;
+      inputReleaseRequestId = `input-${controlRequest}`;
+      emit({ inputReady: false });
+      control.send(
+        JSON.stringify({
+          version: 4,
+          id: inputReleaseRequestId,
+          type: "input.release",
         }),
       );
     };
@@ -993,6 +1015,12 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           }
           return;
         }
+        if (parsed.data.id === inputReleaseRequestId) {
+          inputReleasePending = false;
+          inputReleaseRequestId = null;
+          reconnectInput();
+          return;
+        }
         console.warn("WebRTC input acquisition failed", parsed.data.error);
         emit({ inputReady: false });
         return;
@@ -1072,9 +1100,18 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         return;
       }
       if (parsed.data.type === "input.release.result") {
+        if (parsed.data.id === inputReleaseRequestId) {
+          inputReleasePending = false;
+          inputReleaseRequestId = null;
+          emit({ inputReady: false });
+          acquireInput();
+        }
         return;
       }
       emit({ inputReady: parsed.data.input.pointer || parsed.data.input.keyboard });
+      if (!inputEnabled) {
+        releaseInput();
+      }
     });
     input.addEventListener("close", reconnectInput);
     input.addEventListener("error", reconnectInput);
@@ -1169,6 +1206,16 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           stop_horizontal: message.deltaX !== 0,
           stop_vertical: message.deltaY !== 0,
         });
+      }),
+    );
+    subscriptions.add(
+      options.inputEnabled$.pipe(distinctUntilChanged()).subscribe((enabled) => {
+        inputEnabled = enabled;
+        if (enabled) {
+          acquireInput();
+        } else {
+          releaseInput();
+        }
       }),
     );
     subscriptions.add(

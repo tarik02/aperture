@@ -210,6 +210,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
+	mux.HandleFunc("/quality", r.handleQuality)
 	mux.HandleFunc("/recordings", r.handleRecordings)
 	mux.HandleFunc("/recordings/client", r.handleRecordingClient)
 	mux.HandleFunc("/recordings/", r.handleRecording)
@@ -379,6 +380,48 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 		return
 	}
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
+}
+
+func (r *wrapperRuntime) handleQuality(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Profile string `json:"profile"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		writeWrapperError(w, http.StatusBadRequest, "invalid media quality request")
+		return
+	}
+	mediaProducer := r.currentMediaProducer()
+	if mediaProducer == nil {
+		writeWrapperError(w, http.StatusConflict, "media producer is not enabled")
+		return
+	}
+	profile, exists := mediaProducer.media.Profile(body.Profile)
+	if !exists {
+		writeWrapperError(w, http.StatusBadRequest, fmt.Sprintf("video profile %q is not configured", body.Profile))
+		return
+	}
+	option, exists := profile.Options[profile.DefaultOption]
+	if !exists {
+		writeWrapperError(w, http.StatusInternalServerError, fmt.Sprintf("default video option for profile %q is not configured", body.Profile))
+		return
+	}
+	if err := mediaProducer.media.UpdateQuality(option.Quality(body.Profile, profile.DefaultOption)); err != nil {
+		writeWrapperError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	quality := mediaProducer.media.Quality()
+	writeWrapperJSON(w, http.StatusOK, map[string]any{
+		"profile":     quality.Profile,
+		"option":      quality.Option,
+		"width":       quality.Width,
+		"height":      quality.Height,
+		"framerate":   quality.Framerate,
+		"bitrateKbps": quality.BitrateKbps,
+	})
 }
 
 func (r *wrapperRuntime) handleTargets(w http.ResponseWriter, req *http.Request) {

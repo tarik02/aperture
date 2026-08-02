@@ -1,5 +1,14 @@
 http:
   routers:
+    aperture-browser-quality-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/browser/quality`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-write
+        - aperture-replace-path-018f1234000070008000000000000001-browserquality
+      priority: 100
+      entryPoints:
+        - web
     aperture-browser-status-018f1234000070008000000000000001:
       rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/browser/status`)"
       service: aperture-wrapper-018f1234000070008000000000000001
@@ -112,6 +121,9 @@ http:
           - Sec-WebSocket-Protocol
           - X-Aperture-Actor-Kind
           - X-Aperture-Client-IP
+    aperture-replace-path-018f1234000070008000000000000001-browserquality:
+      replacePath:
+        path: "/quality"
     aperture-replace-path-018f1234000070008000000000000001-browserstatus:
       replacePath:
         path: "/status"
