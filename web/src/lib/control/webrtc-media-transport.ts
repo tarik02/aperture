@@ -544,7 +544,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     let keyframeInterval = 60;
     let mediaStatusLoaded = false;
     let pendingStreamSettings: WebRTCStreamSettings | null = null;
-    let reconnectAfterProfileChange = false;
+    let reconnectAfterQualityChange = false;
     let viewportRequest = 0;
     let viewportSettled = 0;
     const qualityRequests = new Map<string, WebRTCStreamSettings>();
@@ -620,7 +620,10 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       const profileChanged =
         state.streamSettings !== null &&
         pendingStreamSettings.profile !== state.streamSettings.profile;
-      reconnectAfterProfileChange = profileChanged;
+      const bitrateIncreased =
+        state.streamSettings !== null &&
+        pendingStreamSettings.bitrateKbps > state.streamSettings.bitrateKbps;
+      reconnectAfterQualityChange = profileChanged || bitrateIncreased;
       qualityRequests.set(id, pendingStreamSettings);
       control.send(
         JSON.stringify({
@@ -895,7 +898,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         .catch(() => fail({ kind: "invalid-ice-candidate" }));
     });
     socket.addEventListener("close", () => {
-      if (!closed && reconnectAfterProfileChange) {
+      if (!closed && reconnectAfterQualityChange) {
         queueMicrotask(options.reconnect);
         return;
       }
@@ -904,7 +907,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
     });
     socket.addEventListener("error", () => {
-      if (reconnectAfterProfileChange) {
+      if (reconnectAfterQualityChange) {
         return;
       }
       fail({ kind: "unexpected", cause: new Error("WebRTC signaling failed") });
@@ -917,7 +920,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     });
     connection.addEventListener("connectionstatechange", () => {
       if (connection.connectionState === "failed" || connection.connectionState === "closed") {
-        if (reconnectAfterProfileChange) {
+        if (reconnectAfterQualityChange) {
           return;
         }
         fail({ kind: "peer-connection-lost", state: connection.connectionState });
@@ -925,7 +928,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     });
     connection.addEventListener("iceconnectionstatechange", () => {
       if (connection.iceConnectionState === "failed") {
-        if (reconnectAfterProfileChange) {
+        if (reconnectAfterQualityChange) {
           return;
         }
         fail({ kind: "ice-failed" });
@@ -955,7 +958,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
     });
 
-    const reconnectInput = () => {
+    const reconnectMedia = () => {
       if (closed) {
         return;
       }
@@ -982,7 +985,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         const qualityRequest = qualityRequests.get(parsed.data.id);
         if (qualityRequest) {
           qualityRequests.delete(parsed.data.id);
-          reconnectAfterProfileChange = false;
+          reconnectAfterQualityChange = false;
           emit({
             error: {
               kind: "producer-quality-failed",
@@ -1018,7 +1021,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         if (parsed.data.id === inputReleaseRequestId) {
           inputReleasePending = false;
           inputReleaseRequestId = null;
-          reconnectInput();
+          reconnectMedia();
           return;
         }
         console.warn("WebRTC input acquisition failed", parsed.data.error);
@@ -1027,7 +1030,12 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
       if (parsed.data.type === "video.quality.set.result") {
         qualityRequests.delete(parsed.data.id);
-        const previousProfile = state.streamSettings?.profile;
+        const previousSettings = state.streamSettings;
+        const shouldReconnect =
+          previousSettings !== null &&
+          (previousSettings.profile !== parsed.data.quality.profile ||
+            parsed.data.quality.bitrate_kbps > previousSettings.bitrateKbps);
+        reconnectAfterQualityChange = shouldReconnect;
         emit({
           streamSettings: {
             profile: parsed.data.quality.profile,
@@ -1037,8 +1045,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           },
           error: null,
         });
-        if (previousProfile && previousProfile !== parsed.data.quality.profile) {
-          reconnectAfterProfileChange = true;
+        if (shouldReconnect) {
+          reconnectMedia();
         }
         return;
       }
@@ -1113,10 +1121,10 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         releaseInput();
       }
     });
-    input.addEventListener("close", reconnectInput);
-    input.addEventListener("error", reconnectInput);
-    inputMotion.addEventListener("close", reconnectInput);
-    inputMotion.addEventListener("error", reconnectInput);
+    input.addEventListener("close", reconnectMedia);
+    input.addEventListener("error", reconnectMedia);
+    inputMotion.addEventListener("close", reconnectMedia);
+    inputMotion.addEventListener("error", reconnectMedia);
     const handleInputResponse = (event: MessageEvent<unknown>) => {
       const parsed = z
         .string()
@@ -1132,7 +1140,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         parsed.data.error.code === "input_overloaded" ||
         parsed.data.error.code === "input_unavailable"
       ) {
-        reconnectInput();
+        reconnectMedia();
       }
     };
     input.addEventListener("message", handleInputResponse);

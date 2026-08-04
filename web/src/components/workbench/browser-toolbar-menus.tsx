@@ -44,28 +44,22 @@ import { toast } from "sonner";
 
 const STREAM_PRESETS = [
   {
-    id: "low-data",
-    label: "Low data",
-    detail: "15 fps · max 800 kbps",
-    settings: { fps: 15, bitrateKbps: 800 },
+    id: "low",
+    label: "Low",
+    detail: "20 fps · max 800 kbps",
+    settings: { fps: 20, bitrateKbps: 800 },
   },
   {
     id: "balanced",
     label: "Balanced",
-    detail: "30 fps · max 2500 kbps",
-    settings: { fps: 30, bitrateKbps: 2500 },
+    detail: "30 fps · max 3000 kbps",
+    settings: { fps: 30, bitrateKbps: 3000 },
   },
   {
-    id: "sharp",
-    label: "Sharp",
-    detail: "30 fps · max 6000 kbps",
-    settings: { fps: 30, bitrateKbps: 6000 },
-  },
-  {
-    id: "realtime",
-    label: "Realtime",
-    detail: "60 fps · max 3500 kbps",
-    settings: { fps: 60, bitrateKbps: 3500 },
+    id: "high",
+    label: "High",
+    detail: "60 fps · max 20000 kbps",
+    settings: { fps: 60, bitrateKbps: 20_000 },
   },
 ] as const;
 
