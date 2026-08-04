@@ -78,6 +78,7 @@ type Config struct {
 	WebRTCMediaProducerGSTExecutable string                   `mapstructure:"webrtc_media_producer_gst_executable"`
 	WebRTCMediaProducerPluginPath    string                   `mapstructure:"webrtc_media_producer_plugin_path"`
 	WebRTCMediaProducerTarget        string                   `mapstructure:"webrtc_media_producer_target"`
+	WebRTCMediaProducerAdvertisedIP  string                   `mapstructure:"webrtc_media_producer_advertised_ip"`
 	WebRTCMediaProducerCodec         string                   `mapstructure:"webrtc_media_producer_codec"`
 	WebRTCMediaProducerFPS           int                      `mapstructure:"webrtc_media_producer_fps"`
 	WebRTCMediaProducerBitrateKbps   int                      `mapstructure:"webrtc_media_producer_bitrate_kbps"`
@@ -135,6 +136,7 @@ func Defaults() Config {
 		WebRTCMediaProducerGSTExecutable: "",
 		WebRTCMediaProducerPluginPath:    "",
 		WebRTCMediaProducerTarget:        "weston.pipewire",
+		WebRTCMediaProducerAdvertisedIP:  "",
 		WebRTCMediaProducerCodec:         WebRTCMediaProducerCodecAuto,
 		WebRTCMediaProducerFPS:           60,
 		WebRTCMediaProducerBitrateKbps:   6000,
@@ -204,6 +206,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("webrtc_compositor_height", defaults.WebRTCCompositorHeight)
 	v.SetDefault("webrtc_media_producer_enabled", defaults.WebRTCMediaProducerEnabled)
 	v.SetDefault("webrtc_media_producer_target", defaults.WebRTCMediaProducerTarget)
+	v.SetDefault("webrtc_media_producer_advertised_ip", defaults.WebRTCMediaProducerAdvertisedIP)
 	v.SetDefault("webrtc_media_producer_codec", defaults.WebRTCMediaProducerCodec)
 	v.SetDefault("webrtc_media_producer_fps", defaults.WebRTCMediaProducerFPS)
 	v.SetDefault("webrtc_media_producer_bitrate_kbps", defaults.WebRTCMediaProducerBitrateKbps)

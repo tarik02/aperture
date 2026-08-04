@@ -1463,6 +1463,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.MediaProducerPluginPath = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH"))
 	values.MediaProducerTarget = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TARGET"))
 	values.MediaProducerICEServers = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ICE_SERVERS"))
+	values.MediaProducerAdvertisedIP = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP"))
 	values.MediaProducerCodec = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_CODEC"))
 	if width := strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_WIDTH")); width != "" {
 		parsed, err := strconv.Atoi(width)

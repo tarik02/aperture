@@ -517,6 +517,7 @@ func (s *Service) runtimeEnvValues(
 		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
 		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
 		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
+		MediaProducerAdvertisedIP:  s.cfg.WebRTCMediaProducerAdvertisedIP,
 		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
 		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
 		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
