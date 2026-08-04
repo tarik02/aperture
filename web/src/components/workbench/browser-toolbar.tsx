@@ -1,13 +1,33 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, Loader2, PanelLeftIcon, RefreshCw, Square } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Loader2,
+  PanelBottom,
+  PanelLeftIcon,
+  PanelRight,
+  RefreshCw,
+  Square,
+  Wrench,
+} from "lucide-react";
 import { interval } from "rxjs";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuTrigger,
+} from "#/components/ui/context-menu.tsx";
 import { InputGroup, InputGroupInput } from "#/components/ui/input-group.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
+import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
 
 type BrowserToolbarProps = {
   control: UseBrowserControlResult;
@@ -16,6 +36,10 @@ type BrowserToolbarProps = {
   shareUrl: string | null;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
+  devToolsOpen: boolean;
+  devToolsDock: DevToolsDock;
+  onDevToolsOpenChange: (open: boolean) => void;
+  onDevToolsDockChange: (dock: DevToolsDock) => void;
 };
 
 export function BrowserToolbar({
@@ -25,6 +49,10 @@ export function BrowserToolbar({
   shareUrl,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
+  devToolsOpen,
+  devToolsDock,
+  onDevToolsOpenChange,
+  onDevToolsDockChange,
 }: BrowserToolbarProps) {
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
 
@@ -135,6 +163,13 @@ export function BrowserToolbar({
           />
         </InputGroup>
         {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+        <DevToolsButton
+          open={devToolsOpen}
+          dock={devToolsDock}
+          available={connected && Boolean(cdpUrl && control.activeTargetId)}
+          onOpenChange={onDevToolsOpenChange}
+          onDockChange={onDevToolsDockChange}
+        />
         <BrowserMenus
           control={control}
           cdpUrl={cdpUrl}
@@ -148,6 +183,76 @@ export function BrowserToolbar({
         />
       </div>
     </div>
+  );
+}
+
+function DevToolsButton({
+  open,
+  dock,
+  available,
+  onOpenChange,
+  onDockChange,
+}: {
+  open: boolean;
+  dock: DevToolsDock;
+  available: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDockChange: (dock: DevToolsDock) => void;
+}) {
+  const label = open ? "Close DevTools" : "Open DevTools";
+
+  return (
+    <ContextMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <ContextMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant={open ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  disabled={!open && !available}
+                  aria-label={label}
+                  aria-pressed={open}
+                  onClick={() => onOpenChange(!open)}
+                />
+              }
+            />
+          }
+        >
+          <Wrench />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{label}. Right-click to choose dock side.</TooltipContent>
+      </Tooltip>
+      <ContextMenuContent>
+        <ContextMenuGroup>
+          <ContextMenuLabel>Dock side</ContextMenuLabel>
+          <ContextMenuRadioGroup
+            value={dock}
+            onValueChange={(value) => {
+              switch (value) {
+                case "bottom":
+                  onDockChange("bottom");
+                  break;
+                case "right":
+                  onDockChange("right");
+                  break;
+              }
+            }}
+          >
+            <ContextMenuRadioItem value="bottom">
+              <PanelBottom />
+              Bottom
+            </ContextMenuRadioItem>
+            <ContextMenuRadioItem value="right">
+              <PanelRight />
+              Right
+            </ContextMenuRadioItem>
+          </ContextMenuRadioGroup>
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
