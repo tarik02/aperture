@@ -46,32 +46,32 @@ const STREAM_PRESETS = [
   {
     id: "low-data",
     label: "Low data",
-    detail: "15 fps · 800 kbps",
+    detail: "15 fps · max 800 kbps",
     settings: { fps: 15, bitrateKbps: 800 },
   },
   {
     id: "balanced",
     label: "Balanced",
-    detail: "30 fps · 2500 kbps",
+    detail: "30 fps · max 2500 kbps",
     settings: { fps: 30, bitrateKbps: 2500 },
   },
   {
     id: "sharp",
     label: "Sharp",
-    detail: "30 fps · 6000 kbps",
+    detail: "30 fps · max 6000 kbps",
     settings: { fps: 30, bitrateKbps: 6000 },
   },
   {
     id: "realtime",
     label: "Realtime",
-    detail: "60 fps · 3500 kbps",
+    detail: "60 fps · max 3500 kbps",
     settings: { fps: 60, bitrateKbps: 3500 },
   },
 ] as const;
 
 const STREAM_LIMITS = {
   fps: { min: 1, max: 120 },
-  bitrateKbps: { min: 1, max: 50_000 },
+  bitrateKbps: { min: 100, max: 50_000 },
 } as const;
 
 const VIEWPORT_LIMITS = {
@@ -697,7 +697,7 @@ function CustomStreamSettings({
       <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
       <div className="grid grid-cols-2 gap-2">
         <StreamNumberField label="FPS" value={fps} onChange={setFps} />
-        <StreamNumberField label="Kbps" value={bitrateKbps} onChange={setBitrateKbps} />
+        <StreamNumberField label="Max Kbps" value={bitrateKbps} onChange={setBitrateKbps} />
       </div>
       <Button
         type="button"
