@@ -559,9 +559,6 @@ func (source *targetMediaSource) SetBitrate(bitrateKbps int) error {
 			return err
 		}
 	}
-	source.mu.Lock()
-	source.quality.BitrateKbps = bitrateKbps
-	source.mu.Unlock()
 	return nil
 }
 
