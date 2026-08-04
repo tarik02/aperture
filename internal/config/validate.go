@@ -123,6 +123,9 @@ func Validate(cfg Config) error {
 		if strings.TrimSpace(cfg.WebRTCMediaProducerTarget) == "" {
 			errs = append(errs, errors.New("webrtc_media_producer_target is required when webrtc_media_producer_enabled is true"))
 		}
+		if advertisedIP := strings.TrimSpace(cfg.WebRTCMediaProducerAdvertisedIP); advertisedIP != "" && net.ParseIP(advertisedIP) == nil {
+			errs = append(errs, errors.New("webrtc_media_producer_advertised_ip must be an IP address"))
+		}
 		switch strings.ToLower(strings.TrimSpace(cfg.WebRTCMediaProducerCodec)) {
 		case WebRTCMediaProducerCodecAuto, WebRTCMediaProducerCodecVP8, WebRTCMediaProducerCodecH264:
 		default:

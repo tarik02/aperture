@@ -48,6 +48,7 @@ type RuntimeEnvValues struct {
 	MediaProducerPluginPath    string
 	MediaProducerTarget        string
 	MediaProducerICEServers    string
+	MediaProducerAdvertisedIP  string
 	MediaProducerCodec         string
 	MediaProducerFPS           int
 	MediaProducerBitrateKbps   int
@@ -224,6 +225,7 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			"WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH="+shellQuote(values.MediaProducerPluginPath),
 			"WEBRTC_MEDIA_PRODUCER_TARGET="+shellQuote(values.MediaProducerTarget),
 			"WEBRTC_MEDIA_PRODUCER_ICE_SERVERS="+shellQuote(values.MediaProducerICEServers),
+			"WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+shellQuote(values.MediaProducerAdvertisedIP),
 			"WEBRTC_MEDIA_PRODUCER_CODEC="+shellQuote(values.MediaProducerCodec),
 			"WEBRTC_MEDIA_PRODUCER_FPS="+strconv.Itoa(values.MediaProducerFPS),
 			"WEBRTC_MEDIA_PRODUCER_BITRATE_KBPS="+strconv.Itoa(values.MediaProducerBitrateKbps),
@@ -278,7 +280,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -420,6 +422,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.MediaProducerTarget = value
 	case "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS":
 		values.MediaProducerICEServers = value
+	case "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP":
+		values.MediaProducerAdvertisedIP = value
 	case "WEBRTC_MEDIA_PRODUCER_CODEC":
 		values.MediaProducerCodec = value
 	}

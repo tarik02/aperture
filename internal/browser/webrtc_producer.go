@@ -136,10 +136,15 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		mediaSource.Close()
 		return nil, err
 	}
+	var advertisedIPs []string
+	if advertisedIP := strings.TrimSpace(values.MediaProducerAdvertisedIP); advertisedIP != "" {
+		advertisedIPs = []string{advertisedIP}
+	}
 	webrtcService, err := rtc.New(rtc.Config{
 		ICEServers:          iceServers,
 		ICEUsername:         iceUsername,
 		ICECredential:       iceCredential,
+		ICEAdvertisedIPs:    advertisedIPs,
 		UDPPortMin:          uint16(values.MediaProducerUDPPortMin),
 		UDPPortMax:          uint16(values.MediaProducerUDPPortMax),
 		Subprotocols:        []string{signalingProtocol},
