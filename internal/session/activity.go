@@ -32,7 +32,10 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 		unlock()
 		return 0, nil, err
 	}
-	release := s.acquireInhibitor(sessionID)
+	// A suspended wake persists fresh activity and retention timestamps with its lifecycle update.
+	wasSuspended := sessionRow.Status == db.SessionStatusSuspended
+	inhibitorRelease, first := s.acquireInhibitor(sessionID)
+	release := s.releaseInhibitor(sessionID, inhibitorRelease)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
@@ -44,11 +47,13 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 		release()
 		return 0, nil, ErrNotRunning
 	}
-	if err := s.touchConnected(ctx, sessionRow); err != nil {
-		release()
-		return 0, nil, err
+	if first && !wasSuspended {
+		if err := s.touchConnected(ctx, sessionRow); err != nil {
+			release()
+			return 0, nil, err
+		}
 	}
-	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, release), nil
+	return *sessionRow.CurrentCDPPort, release, nil
 }
 
 // AcquireAuthorizedCDPPort wakes a session-token-authorized session if needed and holds an activity inhibitor.
@@ -60,7 +65,9 @@ func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, 
 		unlock()
 		return 0, nil, err
 	}
-	release := s.acquireInhibitor(sessionRow.ID)
+	wasSuspended := sessionRow.Status == db.SessionStatusSuspended
+	inhibitorRelease, first := s.acquireInhibitor(sessionRow.ID)
+	release := s.releaseInhibitor(sessionRow.ID, inhibitorRelease)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
@@ -72,11 +79,13 @@ func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, 
 		release()
 		return 0, nil, ErrNotRunning
 	}
-	if err := s.touchConnected(ctx, sessionRow); err != nil {
-		release()
-		return 0, nil, err
+	if first && !wasSuspended {
+		if err := s.touchConnected(ctx, sessionRow); err != nil {
+			release()
+			return 0, nil, err
+		}
 	}
-	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, release), nil
+	return *sessionRow.CurrentCDPPort, release, nil
 }
 
 // WakeAuthorizedSession validates a public session token and waits until a suspended session is ready.
@@ -97,7 +106,9 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 		unlock()
 		return 0, nil, err
 	}
-	release := s.acquireInhibitor(sessionID)
+	wasSuspended := sessionRow.Status == db.SessionStatusSuspended
+	inhibitorRelease, first := s.acquireInhibitor(sessionID)
+	release := s.releaseInhibitor(sessionID, inhibitorRelease)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
@@ -110,11 +121,13 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 		release()
 		return 0, nil, err
 	}
-	if err := s.touchConnected(ctx, sessionRow); err != nil {
-		release()
-		return 0, nil, err
+	if first && !wasSuspended {
+		if err := s.touchConnected(ctx, sessionRow); err != nil {
+			release()
+			return 0, nil, err
+		}
 	}
-	return port, s.releaseInhibitor(sessionRow.ID, release), nil
+	return port, release, nil
 }
 
 // SuspendIdleSessions stops running sessions that have no recent connection activity.
@@ -198,30 +211,38 @@ func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*Ses
 	return &view, nil
 }
 
-func (s *Service) acquireInhibitor(sessionID string) func() {
+func (s *Service) acquireInhibitor(sessionID string) (func() bool, bool) {
 	s.mu.Lock()
 	if s.inhibitors == nil {
 		s.inhibitors = make(map[string]int)
 	}
+	first := s.inhibitors[sessionID] == 0
 	s.inhibitors[sessionID]++
 	s.mu.Unlock()
 
-	return func() {
+	return func() bool {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		next := s.inhibitors[sessionID] - 1
 		if next <= 0 {
 			delete(s.inhibitors, sessionID)
-			return
+			return true
 		}
 		s.inhibitors[sessionID] = next
-	}
+		return false
+	}, first
 }
 
-func (s *Service) releaseInhibitor(sessionID string, release func()) func() {
+// releaseInhibitor records activity only when the final holder leaves.
+func (s *Service) releaseInhibitor(sessionID string, release func() bool) func() {
 	return func() {
-		_ = s.touchConnectedByID(context.Background(), sessionID)
-		release()
+		unlock := s.repo.LockSession(sessionID)
+		defer unlock()
+
+		final := release()
+		if final {
+			_ = s.touchConnectedByID(context.Background(), sessionID)
+		}
 	}
 }
 
