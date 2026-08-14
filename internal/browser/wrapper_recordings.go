@@ -277,10 +277,10 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 }
 
 func (r *wrapperRuntime) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
-	return r.stopRecordingForTarget(recordingID, "", reason)
+	return r.stopRecordingForTarget(recordingID, "", 0, reason)
 }
 
-func (r *wrapperRuntime) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
+func (r *wrapperRuntime) stopRecordingForTarget(recordingID string, targetID string, generation uint64, reason string) (wrapperRecording, error) {
 	r.mu.Lock()
 	recording := r.recordings[recordingID]
 	if recording == nil {
@@ -293,7 +293,7 @@ func (r *wrapperRuntime) stopRecordingForTarget(recordingID string, targetID str
 
 	r.mu.Lock()
 	r.refreshRecordingLocked(recording)
-	if targetID != "" && recording.TargetID != targetID {
+	if targetID != "" && (recording.TargetID != targetID || (generation != 0 && recording.CaptureGeneration != generation)) {
 		status := *recording
 		r.mu.Unlock()
 		return status, nil
@@ -528,17 +528,17 @@ func (r *wrapperRuntime) failRecordingTargets(targetID string, generation uint64
 	}
 }
 
-func (r *wrapperRuntime) stopTargetRecordings(targetID string) {
+func (r *wrapperRuntime) stopTargetRecordingsGeneration(targetID string, generation uint64) {
 	r.mu.Lock()
 	ids := make([]string, 0)
 	for _, recording := range r.recordings {
-		if recording.TargetID == targetID && recording.Status == wrapperRecordingRunning {
+		if recording.TargetID == targetID && (generation == 0 || recording.CaptureGeneration == generation) && recording.Status == wrapperRecordingRunning {
 			ids = append(ids, recording.ID)
 		}
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		_, _ = r.stopRecordingForTarget(id, targetID, "target_closed")
+		_, _ = r.stopRecordingForTarget(id, targetID, generation, "target_closed")
 	}
 }
 

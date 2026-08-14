@@ -97,7 +97,7 @@ func (r *wrapperRuntime) targetRestored(targetID string) {
 }
 
 func (r *wrapperRuntime) targetClosed(target wrapperTargetSnapshot) {
-	r.stopTargetRecordings(target.TargetID)
+	r.stopTargetRecordingsGeneration(target.TargetID, target.Generation)
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer != nil {
 		mediaProducer.media.RemoveTarget(target.TargetID)
