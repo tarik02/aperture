@@ -128,9 +128,17 @@ struct aperture_control_client {
 	struct wl_list link;
 	struct aperture_shell *shell;
 	struct wl_event_source *source;
+	struct wl_event_source *timeout_source;
 	int fd;
 	char buffer[aperture_control_buffer_size];
 	size_t length;
+	char *output_buffer;
+	size_t output_length;
+	size_t output_offset;
+	size_t output_capacity;
+	bool output_failed;
+	bool output_stalled;
+	bool close_after_output;
 };
 
 struct aperture_text_input {
@@ -151,6 +159,9 @@ static const uint32_t aperture_scale_denominator = 120;
 static const uint32_t aperture_min_scale_numerator = 30;
 static const uint32_t aperture_max_scale_numerator = 480;
 static const uint32_t aperture_media_canvas_bucket = 64;
+/* Keep a stalled control client from retaining unbounded compositor memory. */
+static const size_t aperture_control_output_limit = 64 * 1024;
+static const uint32_t aperture_control_output_timeout_ms = 1000;
 
 static int
 create_background(struct aperture_shell *shell);
@@ -1660,17 +1671,135 @@ destroy_control_client(struct aperture_control_client *client)
 {
 	if (client->source)
 		wl_event_source_remove(client->source);
+	if (client->timeout_source)
+		wl_event_source_remove(client->timeout_source);
 	if (client->fd >= 0)
 		close(client->fd);
+	free(client->output_buffer);
 	wl_list_remove(&client->link);
 	free(client);
+}
+
+static int
+control_client_output_timeout(void *data)
+{
+	struct aperture_control_client *client = data;
+
+	client->timeout_source = NULL;
+	destroy_control_client(client);
+	return 0;
+}
+
+static void
+arm_control_client_output_timeout(struct aperture_control_client *client)
+{
+	if (client->timeout_source)
+		wl_event_source_timer_update(client->timeout_source,
+					     aperture_control_output_timeout_ms);
+}
+
+static void
+clear_control_client_output_timeout(struct aperture_control_client *client)
+{
+	if (client->output_stalled) {
+		wl_event_source_timer_update(client->timeout_source, 0);
+		client->output_stalled = false;
+	}
 }
 
 static void
 write_control_response(struct aperture_control_client *client, const char *response)
 {
-	ssize_t n = write(client->fd, response, strlen(response));
-	(void)n;
+	size_t response_length;
+	size_t pending;
+	size_t required;
+	size_t capacity;
+	char *buffer;
+
+	if (client->output_failed)
+		return;
+
+	response_length = strlen(response);
+	pending = client->output_length - client->output_offset;
+	if (client->output_offset) {
+		memmove(client->output_buffer,
+			client->output_buffer + client->output_offset, pending);
+		client->output_length = pending;
+		client->output_offset = 0;
+	}
+
+	if (response_length > SIZE_MAX - pending) {
+		client->output_failed = true;
+		return;
+	}
+	required = pending + response_length;
+	if (required > aperture_control_output_limit) {
+		client->close_after_output = true;
+		arm_control_client_output_timeout(client);
+		return;
+	}
+	if (required > client->output_capacity) {
+		capacity = client->output_capacity ? client->output_capacity : 512;
+		while (capacity < required) {
+			if (capacity > aperture_control_output_limit / 2) {
+				capacity = required;
+				break;
+			}
+			capacity *= 2;
+		}
+		buffer = realloc(client->output_buffer, capacity);
+		if (!buffer) {
+			client->output_failed = true;
+			return;
+		}
+		client->output_buffer = buffer;
+		client->output_capacity = capacity;
+	}
+
+	memcpy(client->output_buffer + client->output_length, response,
+	       response_length);
+	client->output_length += response_length;
+}
+
+static int
+flush_control_responses(struct aperture_control_client *client)
+{
+	ssize_t n;
+
+	while (client->output_offset < client->output_length) {
+		n = write(client->fd, client->output_buffer + client->output_offset,
+			   client->output_length - client->output_offset);
+		if (n > 0) {
+			clear_control_client_output_timeout(client);
+			client->output_offset += (size_t)n;
+			continue;
+		}
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			if (!client->output_stalled) {
+				client->output_stalled = true;
+				arm_control_client_output_timeout(client);
+			}
+			return 0;
+		}
+		return -1;
+	}
+
+	client->output_offset = 0;
+	client->output_length = 0;
+	clear_control_client_output_timeout(client);
+	return 0;
+}
+
+static int
+update_control_client_events(struct aperture_control_client *client)
+{
+	uint32_t mask = client->close_after_output ? 0 : WL_EVENT_READABLE;
+
+	if (client->output_offset < client->output_length)
+		mask |= WL_EVENT_WRITABLE;
+	return wl_event_source_fd_update(client->source, mask);
 }
 
 static void
@@ -1965,33 +2094,77 @@ dispatch_control_client(int fd, uint32_t mask, void *data)
 	struct aperture_control_client *client = data;
 	ssize_t n;
 	char *newline;
+	size_t consumed;
+	size_t remaining;
 
 	if (mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR)) {
 		destroy_control_client(client);
 		return 0;
 	}
+	if ((mask & WL_EVENT_WRITABLE) && flush_control_responses(client) < 0) {
+		destroy_control_client(client);
+		return 0;
+	}
+	if (client->close_after_output &&
+	    client->output_offset == client->output_length) {
+		destroy_control_client(client);
+		return 0;
+	}
+	if (client->close_after_output)
+		return 0;
+	if (!(mask & WL_EVENT_READABLE)) {
+		if (update_control_client_events(client) < 0)
+			destroy_control_client(client);
+		return 0;
+	}
 
 	n = read(fd, client->buffer + client->length,
 		 sizeof client->buffer - client->length - 1);
-	if (n <= 0) {
+	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+		return 0;
+	if (n == 0 || n < 0) {
 		destroy_control_client(client);
 		return 0;
 	}
 
 	client->length += (size_t)n;
 	client->buffer[client->length] = '\0';
-	newline = strchr(client->buffer, '\n');
-	if (!newline) {
-		if (client->length == sizeof client->buffer - 1) {
-			write_control_response(client, "error command too long\n");
-			destroy_control_client(client);
+
+	for (;;) {
+		newline = memchr(client->buffer, '\n', client->length);
+		if (!newline) {
+			if (client->length == sizeof client->buffer - 1) {
+				write_control_response(client, "error command too long\n");
+				client->close_after_output = true;
+				arm_control_client_output_timeout(client);
+			}
+			break;
 		}
-		return 0;
+
+		*newline = '\0';
+		handle_control_command(client);
+		consumed = (size_t)(newline - client->buffer) + 1;
+		remaining = client->length - consumed;
+		memmove(client->buffer, client->buffer + consumed, remaining);
+		client->length = remaining;
+		client->buffer[client->length] = '\0';
+		if (client->close_after_output)
+			break;
 	}
 
-	*newline = '\0';
-	handle_control_command(client);
-	destroy_control_client(client);
+	if (client->output_failed || flush_control_responses(client) < 0) {
+		destroy_control_client(client);
+		return 0;
+	}
+	if (client->close_after_output) {
+		if (client->output_offset == client->output_length)
+			destroy_control_client(client);
+		else if (update_control_client_events(client) < 0)
+			destroy_control_client(client);
+		return 0;
+	}
+	if (update_control_client_events(client) < 0)
+		destroy_control_client(client);
 	return 0;
 }
 
@@ -2032,6 +2205,14 @@ dispatch_control_listener(int fd, uint32_t mask, void *data)
 		client->source = wl_event_loop_add_fd(loop, client_fd, WL_EVENT_READABLE,
 						     dispatch_control_client, client);
 		if (!client->source) {
+			close(client_fd);
+			free(client);
+			continue;
+		}
+		client->timeout_source = wl_event_loop_add_timer(loop,
+							 control_client_output_timeout, client);
+		if (!client->timeout_source) {
+			wl_event_source_remove(client->source);
 			close(client_fd);
 			free(client);
 			continue;

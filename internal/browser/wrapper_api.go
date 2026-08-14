@@ -78,6 +78,7 @@ func (r *wrapperRuntime) targetReady(ctx context.Context, target wrapperTargetSn
 			}
 			return err
 		}
+		mediaProducer.input.RestoreTarget(target.TargetID)
 	}
 	return nil
 }
@@ -100,6 +101,7 @@ func (r *wrapperRuntime) targetClosed(target wrapperTargetSnapshot) {
 	r.stopTargetRecordings(target.TargetID)
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer != nil {
+		_ = mediaProducer.input.RemoveTarget(target.TargetID)
 		mediaProducer.media.RemoveTarget(target.TargetID)
 	}
 }
@@ -107,6 +109,7 @@ func (r *wrapperRuntime) targetClosed(target wrapperTargetSnapshot) {
 func (r *wrapperRuntime) targetUnavailable(target wrapperTargetSnapshot) {
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer != nil {
+		_ = mediaProducer.input.RemoveTarget(target.TargetID)
 		mediaProducer.media.RemoveTarget(target.TargetID)
 	}
 }
