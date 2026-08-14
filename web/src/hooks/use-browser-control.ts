@@ -5,7 +5,18 @@ import {
   useObservableState,
   useSubscription,
 } from "observable-hooks";
-import { filter, interval, map, of, share, switchMap, timer, type Subscription } from "rxjs";
+import {
+  filter,
+  interval,
+  map,
+  of,
+  share,
+  shareReplay,
+  switchMap,
+  timer,
+  type Observable,
+  type Subscription,
+} from "rxjs";
 import { toast } from "sonner";
 import {
   browserControl$,
@@ -57,8 +68,7 @@ export type UseBrowserControlResult = {
   targets: ControlTarget[];
   activeTargetId: string | null;
   activeTarget: ControlTarget | null;
-  frame: ScreencastFrame | null;
-  frameStale: boolean;
+  frame$: Observable<ScreencastFrame | null>;
   mediaPhase: WebRTCMediaPhase;
   mediaStream: MediaStream | null;
   mediaSize: WebRTCMediaSize | null;
@@ -119,7 +129,6 @@ export function useBrowserControl({
   const profileCredentials = useApiCredentials();
   const credentials = credentialsOverride ?? profileCredentials;
   const [targets, setTargets] = useState<ControlTarget[]>([]);
-  const [frameStale, setFrameStale] = useState(false);
   const [viewport, setViewport] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
@@ -163,10 +172,10 @@ export function useBrowserControl({
             nextIceServers,
           ]) => {
             if (!nextEnabled || !nextSessionId || !nextCredentials) {
-              return of<BrowserControlOutput>({
-                type: "state",
-                state: initialBrowserControlState,
-              });
+              return of(
+                { type: "state", state: initialBrowserControlState } satisfies BrowserControlOutput,
+                { type: "frame", frame: null } satisfies BrowserControlOutput,
+              );
             }
             return browserControl$({
               sessionId: nextSessionId,
@@ -197,8 +206,17 @@ export function useBrowserControl({
     [controlOutput$],
   );
   const controlState = useObservableState(controlState$, initialBrowserControlState);
+  const frame$ = useMemo(
+    () =>
+      controlOutput$.pipe(
+        filter(isBrowserControlFrameOutput),
+        map((output) => output.frame),
+        shareReplay({ bufferSize: 1, refCount: true }),
+      ),
+    [controlOutput$],
+  );
+  useSubscription(frame$);
   const activeTargetId = controlState.activeTargetId;
-  const frame = controlState.frame;
 
   activeTargetIdRef.current = activeTargetId;
   viewportRef.current = viewport;
@@ -534,9 +552,6 @@ export function useBrowserControl({
 
   useEffect(() => {
     setTargets((current) => mergeTargetsInCurrentOrder(current, controlState.targets));
-    if (controlState.frame) {
-      setFrameStale(false);
-    }
     if (controlState.phase !== "connected") {
       setCaptured(false);
     }
@@ -704,26 +719,12 @@ export function useBrowserControl({
     controlState.mediaSize,
   ]);
 
-  useEffect(() => {
-    if (!frame) {
-      setFrameStale(false);
-      return;
-    }
-
-    const subscription = interval(500).subscribe(() => {
-      setFrameStale(Date.now() - frame.receivedAt > 3000);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [frame]);
-
   return {
     phase: controlState.phase,
     targets,
     activeTargetId,
     activeTarget,
-    frame,
-    frameStale,
+    frame$,
     mediaPhase: controlState.mediaPhase,
     mediaStream: controlState.mediaStream,
     mediaSize: controlState.mediaSize,
@@ -788,6 +789,12 @@ function isBrowserControlStateOutput(
   output: BrowserControlOutput,
 ): output is Extract<BrowserControlOutput, { type: "state" }> {
   return output.type === "state";
+}
+
+function isBrowserControlFrameOutput(
+  output: BrowserControlOutput,
+): output is Extract<BrowserControlOutput, { type: "frame" }> {
+  return output.type === "frame";
 }
 
 function isBrowserControlErrorOutput(
