@@ -1,10 +1,35 @@
 import { useEffect } from "react";
 import { useRouterState } from "@tanstack/react-router";
-import { WelcomeTokenAuthModal } from "#/features/token/auth-modal/token-auth-modal.tsx";
+import { RetryableLazy } from "#/components/retryable-lazy.tsx";
 import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
-export function TokenVaultProvider({ children }: { children: React.ReactNode }) {
+let welcomeTokenAuthModalModule:
+  | Promise<typeof import("#/features/token/auth-modal/token-auth-modal.tsx")>
+  | undefined;
+
+function loadWelcomeTokenAuthModal() {
+  if (!welcomeTokenAuthModalModule) {
+    welcomeTokenAuthModalModule = import("#/features/token/auth-modal/token-auth-modal.tsx").catch(
+      (error: unknown) => {
+        welcomeTokenAuthModalModule = undefined;
+        throw error;
+      },
+    );
+  }
+
+  return welcomeTokenAuthModalModule.then(({ WelcomeTokenAuthModal }) => ({
+    default: WelcomeTokenAuthModal,
+  }));
+}
+
+export function TokenVaultProvider({
+  children,
+  suppressWelcome = false,
+}: {
+  children: React.ReactNode;
+  suppressWelcome?: boolean;
+}) {
   const guestMode = useRouterState({
     select: (state) => /^\/share\/?$/.test(state.location.pathname),
   });
@@ -27,7 +52,15 @@ export function TokenVaultProvider({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
-      <WelcomeTokenAuthModal open={!guestMode && needsWelcome} onOpenChange={() => undefined} />
+      {!suppressWelcome && !guestMode && needsWelcome ? (
+        <RetryableLazy
+          load={loadWelcomeTokenAuthModal}
+          fallback={null}
+          errorMessage="Unable to load the sign-in form."
+        >
+          {(WelcomeTokenAuthModal) => <WelcomeTokenAuthModal open onOpenChange={() => undefined} />}
+        </RetryableLazy>
+      ) : null}
     </>
   );
 }

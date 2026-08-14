@@ -1,23 +1,22 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { ApiRequestError } from "#/lib/api/errors.ts";
-import { fetchAuthMe } from "#/lib/auth-me.ts";
 import {
   selectActiveProfile,
   useTokenVaultStore,
   type TokenProfile,
 } from "#/stores/token-vault.ts";
 
-function bootstrapErrorMessage(error: unknown): string {
-  if (error instanceof ApiRequestError) {
-    return error.message;
+let tokenBootstrapModule: Promise<typeof import("#/lib/token-bootstrap.ts")> | undefined;
+
+function loadTokenBootstrap() {
+  if (!tokenBootstrapModule) {
+    tokenBootstrapModule = import("#/lib/token-bootstrap.ts").catch((error: unknown) => {
+      tokenBootstrapModule = undefined;
+      throw error;
+    });
   }
 
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Token validation failed";
+  return tokenBootstrapModule;
 }
 
 export function useTokenBootstrap() {
@@ -31,15 +30,16 @@ export function useTokenBootstrap() {
       setBootstrapping(true);
 
       try {
-        const selectedTenantId =
-          profile.authorityType === "system_admin" ? profile.selectedTenantId : null;
-        const response = await fetchAuthMe(profile.rawToken, selectedTenantId);
-        applyBootstrap(profile.id, response);
-        touchProfile(profile.id);
-        return true;
-      } catch (error) {
+        const { bootstrapTokenProfile } = await loadTokenBootstrap();
+        return await bootstrapTokenProfile({
+          profile,
+          applyBootstrap,
+          clearBootstrapMetadata,
+          touchProfile,
+        });
+      } catch {
         clearBootstrapMetadata(profile.id);
-        toast.error(bootstrapErrorMessage(error));
+        toast.error("Token validation failed");
         return false;
       } finally {
         setBootstrapping(false);
