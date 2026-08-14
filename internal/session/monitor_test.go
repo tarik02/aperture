@@ -70,6 +70,7 @@ func TestMonitorRefreshesActiveRunningSessionLease(t *testing.T) {
 	if err != nil || sessionRow == nil {
 		t.Fatalf("load session: %v", err)
 	}
+	sessionRow.ExpiresAt = service.now().UTC().Add(time.Second).Format(time.RFC3339Nano)
 	sessionRow.LastConnectedAt = &recent
 	if err := repo.UpdateSession(ctx, sessionRow); err != nil {
 		t.Fatalf("refresh activity: %v", err)

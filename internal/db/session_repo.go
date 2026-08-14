@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/uptrace/bun"
 )
@@ -16,6 +18,7 @@ const (
 	SessionStatusDeleted   = "deleted"
 	SessionStatusExpired   = "expired"
 	SessionStatusFailed    = "failed"
+	sessionClaimLease      = 5 * time.Minute
 )
 
 // CreateSession inserts a session row.
@@ -72,15 +75,313 @@ func (r *Repository) UpdateSession(ctx context.Context, session *Session) error 
 	return nil
 }
 
-// TouchRunningSession refreshes connection and retention timestamps without replacing lifecycle state.
-func (r *Repository) TouchRunningSession(ctx context.Context, sessionID, connectedAt, expiresAt string) (bool, error) {
+// ClaimSessionIncarnation marks an incarnation as being prepared or cleaned up.
+func (r *Repository) ClaimSessionIncarnation(ctx context.Context, sessionID, expectedStatus string, expectedStartedAt *string, claimToken string) (bool, error) {
+	now := time.Now().UTC()
+	query := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", SessionStatusCreating).
+		Set("claim_token = ?", claimToken).
+		Set("claim_expires_at = ?", now.Add(sessionClaimLease).Format(time.RFC3339Nano)).
+		Where("id = ?", sessionID).
+		Where("((status = ? AND (claim_token IS NULL OR claim_expires_at IS NULL OR claim_expires_at <= ?)) OR (status = ? AND claim_token IS NOT NULL AND claim_expires_at <= ?))", expectedStatus, now.Format(time.RFC3339Nano), SessionStatusCreating, now.Format(time.RFC3339Nano))
+	if expectedStartedAt == nil {
+		query = query.Where("started_at IS NULL")
+	} else {
+		query = query.Where("started_at = ?", *expectedStartedAt)
+	}
+	result, err := query.Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("claim session incarnation: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("claim session incarnation rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// ReserveSessionClaim validates and extends an exact live claim before an external side effect.
+func (r *Repository) ReserveSessionClaim(ctx context.Context, sessionID, claimToken string) (bool, error) {
+	now := time.Now().UTC()
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("claim_expires_at = ?", now.Add(sessionClaimLease).Format(time.RFC3339Nano)).
+		Where("id = ? AND status = ? AND claim_token = ? AND claim_expires_at IS NOT NULL AND claim_expires_at > ?", sessionID, SessionStatusCreating, claimToken, now.Format(time.RFC3339Nano)).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("reserve session claim: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("reserve session claim rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// RestoreSessionStatusIfClaimed releases a cleanup claim after successful external work.
+func (r *Repository) RestoreSessionStatusIfClaimed(ctx context.Context, sessionID, claimToken, status string, restoredStartedAt *string) error {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", status).
+		Set("started_at = ?", restoredStartedAt).
+		Set("claim_token = NULL").
+		Set("claim_expires_at = NULL").
+		Where("id = ?", sessionID).
+		Where("status = ?", SessionStatusCreating).
+		Where("claim_token = ?", claimToken).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("restore claimed session: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("restore claimed session rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("restore claimed session: generation conflict")
+	}
+	return nil
+}
+
+// PromoteClaimedSession atomically promotes a prepared incarnation to running.
+func (r *Repository) PromoteClaimedSession(ctx context.Context, session *Session, claimToken string) (bool, error) {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", SessionStatusRunning).
+		Set("started_at = ?", session.StartedAt).
+		Set("deleted_at = NULL").
+		Set("stopped_at = NULL").
+		Set("suspended_at = NULL").
+		Set("expires_at = ?", session.ExpiresAt).
+		Set("runtime_env_path = ?", session.RuntimeEnvPath).
+		Set("current_cdp_port = ?", session.CurrentCDPPort).
+		Set("last_connected_at = ?", session.LastConnectedAt).
+		Set("claim_token = NULL").
+		Set("claim_expires_at = NULL").
+		Where("id = ?", session.ID).
+		Where("status = ?", SessionStatusCreating).
+		Where("claim_token = ?", claimToken).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("promote claimed session: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("promote claimed session rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// FinalizeDeletedSessionIfClaimed publishes a deleted session and releases its claim atomically.
+func (r *Repository) FinalizeDeletedSessionIfClaimed(ctx context.Context, session *Session, claimToken string) (bool, error) {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", SessionStatusDeleted).
+		Set("deleted_at = ?", session.DeletedAt).
+		Set("stopped_at = ?", session.StoppedAt).
+		Set("suspended_at = NULL").
+		Set("expires_at = ?", session.ExpiresAt).
+		Set("runtime_env_path = NULL").
+		Set("current_cdp_port = NULL").
+		Set("claim_token = NULL").
+		Set("claim_expires_at = NULL").
+		Where("id = ?", session.ID).
+		Where("status = ?", SessionStatusCreating).
+		Where("claim_token = ?", claimToken).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("finalize deleted session: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("finalize deleted session rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// FinalizeSuspendedSessionIfClaimed publishes a suspended session and releases its claim atomically.
+func (r *Repository) FinalizeSuspendedSessionIfClaimed(ctx context.Context, session *Session, claimToken string) (bool, error) {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", SessionStatusSuspended).
+		Set("stopped_at = ?", session.StoppedAt).
+		Set("suspended_at = ?", session.SuspendedAt).
+		Set("expires_at = ?", session.ExpiresAt).
+		Set("claim_token = NULL").
+		Set("claim_expires_at = NULL").
+		Where("id = ?", session.ID).
+		Where("status = ?", SessionStatusCreating).
+		Where("claim_token = ?", claimToken).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("finalize suspended session: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("finalize suspended session rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// FinalizeExpiredSessionIfClaimed publishes an expired session and releases its claim atomically.
+func (r *Repository) FinalizeExpiredSessionIfClaimed(ctx context.Context, session *Session, claimToken string) (bool, error) {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", SessionStatusExpired).
+		Set("expired_at = ?", session.ExpiredAt).
+		Set("runtime_env_path = NULL").
+		Set("current_cdp_port = NULL").
+		Set("stopped_at = ?", session.StoppedAt).
+		Set("suspended_at = NULL").
+		Set("claim_token = NULL").
+		Set("claim_expires_at = NULL").
+		Where("id = ?", session.ID).
+		Where("status = ?", SessionStatusCreating).
+		Where("claim_token = ?", claimToken).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("finalize expired session: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("finalize expired session rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+func (r *Repository) ReleaseSessionClaim(ctx context.Context, sessionID, claimToken string) error {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("claim_token = NULL").Set("claim_expires_at = NULL").
+		Where("id = ? AND status = ? AND claim_token = ?", sessionID, SessionStatusRunning, claimToken).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("release session claim: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("release session claim rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("release session claim: generation conflict")
+	}
+	return nil
+}
+
+// MarkSessionFailedIfGeneration transitions a session only when its status and incarnation are unchanged.
+func (r *Repository) MarkSessionFailedIfGeneration(ctx context.Context, sessionID, expectedStatus string, expectedStartedAt *string, stoppedAt string) (bool, error) {
+	return markSessionFailed(ctx, r.db.bun, sessionID, expectedStatus, expectedStartedAt, stoppedAt)
+}
+
+func (r *Repository) MarkSessionFailedIfUnclaimedGeneration(ctx context.Context, sessionID, expectedStatus, expectedStartedAt, stoppedAt string) (bool, error) {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", SessionStatusFailed).Set("stopped_at = ?", stoppedAt).
+		Set("suspended_at = NULL").Set("runtime_env_path = NULL").Set("current_cdp_port = NULL").Set("claim_token = NULL").Set("claim_expires_at = NULL").
+		Where("id = ? AND status = ? AND started_at = ? AND claim_token IS NULL", sessionID, expectedStatus, expectedStartedAt).Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("mark unclaimed session failed: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("mark unclaimed session failed rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// MarkSessionFailedIfClaimed transitions only the exact durable claim.
+func (r *Repository) MarkSessionFailedIfClaimed(ctx context.Context, sessionID, claimToken, stoppedAt string) (bool, error) {
+	result, err := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("status = ?", SessionStatusFailed).
+		Set("stopped_at = ?", stoppedAt).
+		Set("suspended_at = NULL").
+		Set("runtime_env_path = NULL").
+		Set("current_cdp_port = NULL").
+		Set("claim_token = NULL").
+		Set("claim_expires_at = NULL").
+		Where("id = ? AND status IN (?, ?) AND claim_token = ?", sessionID, SessionStatusCreating, SessionStatusRunning, claimToken).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("mark claimed session failed: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("mark claimed session failed rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// RestoreFailedSessionStartedAt restores the last successful start only for the failed incarnation.
+func (r *Repository) RestoreFailedSessionStartedAt(ctx context.Context, sessionID, failedStartedAt string, restoredStartedAt *string) error {
 	result, err := r.db.bun.NewUpdate().
+		Model((*Session)(nil)).
+		Set("started_at = ?", restoredStartedAt).
+		Where("id = ?", sessionID).
+		Where("status = ?", SessionStatusFailed).
+		Where("started_at = ?", failedStartedAt).
+		Where("claim_token IS NULL").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("restore failed session start: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("restore failed session start rows affected: %w", err)
+	}
+	if rows > 0 {
+		return nil
+	}
+
+	current := new(Session)
+	if err := r.db.bun.NewSelect().Model(current).
+		Column("status", "started_at", "claim_token").
+		Where("id = ?", sessionID).
+		Scan(ctx); err != nil {
+		return fmt.Errorf("restore failed session start: %w", err)
+	}
+	if current.Status == SessionStatusFailed && current.ClaimToken == nil &&
+		((current.StartedAt == nil && restoredStartedAt == nil) ||
+			(current.StartedAt != nil && restoredStartedAt != nil && *current.StartedAt == *restoredStartedAt)) {
+		return nil
+	}
+	return fmt.Errorf("restore failed session start: generation conflict")
+}
+
+func markSessionFailed(ctx context.Context, db bun.IDB, sessionID, expectedStatus string, expectedStartedAt *string, stoppedAt string) (bool, error) {
+	query := db.NewUpdate().
+		Model((*Session)(nil)).
+		Set("status = ?", SessionStatusFailed).
+		Set("stopped_at = ?", stoppedAt).
+		Set("suspended_at = NULL").
+		Set("runtime_env_path = NULL").
+		Set("current_cdp_port = NULL").
+		Set("claim_token = NULL").
+		Set("claim_expires_at = NULL").
+		Where("id = ?", sessionID).
+		Where("status = ?", expectedStatus)
+	query = query.Where("claim_token IS NULL")
+	if expectedStartedAt == nil {
+		query = query.Where("started_at IS NULL")
+	} else {
+		query = query.Where("started_at = ?", *expectedStartedAt)
+	}
+	result, err := query.Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("mark session failed: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("mark session failed rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// TouchRunningSession refreshes connection and retention timestamps without replacing lifecycle state.
+func (r *Repository) TouchRunningSession(ctx context.Context, sessionID string, startedAt *string, connectedAt, expiresAt string) (bool, error) {
+	query := r.db.bun.NewUpdate().
 		Model((*Session)(nil)).
 		Set("last_connected_at = ?", connectedAt).
 		Set("expires_at = ?", expiresAt).
 		Where("id = ?", sessionID).
 		Where("status = ?", SessionStatusRunning).
-		Exec(ctx)
+		Where("claim_token IS NULL")
+	if startedAt == nil {
+		query = query.Where("started_at IS NULL")
+	} else {
+		query = query.Where("started_at = ?", *startedAt)
+	}
+	result, err := query.Exec(ctx)
 	if err != nil {
 		return false, fmt.Errorf("touch running session: %w", err)
 	}
@@ -98,11 +399,80 @@ func (r *Repository) RefreshRunningSessionExpiry(ctx context.Context, sessionID,
 		Set("expires_at = ?", expiresAt).
 		Where("id = ?", sessionID).
 		Where("status = ?", SessionStatusRunning).
+		Where("claim_token IS NULL").
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("refresh running session expiry: %w", err)
 	}
 	return nil
+}
+
+// RefreshRunningSessionExpiries advances non-expired running session deadlines in one update.
+func (r *Repository) RefreshRunningSessionExpiries(ctx context.Context, generations []SessionGeneration, expiresBefore, expiresAt string) error {
+	if len(generations) == 0 {
+		return nil
+	}
+
+	expiresSeconds := rfc3339SecondsExpr("expires_at")
+	expiresFraction := rfc3339FractionExpr("expires_at")
+	beforeSeconds := rfc3339SecondsExpr("?")
+	beforeFraction := rfc3339FractionExpr("?")
+	targetSeconds := rfc3339SecondsExpr("?")
+	targetFraction := rfc3339FractionExpr("?")
+	query := r.db.bun.NewUpdate().
+		Model((*Session)(nil)).
+		Set("expires_at = ?", expiresAt).
+		Where(fmt.Sprintf("(%s > %s OR (%s = %s AND %s > %s))", expiresSeconds, beforeSeconds, expiresSeconds, beforeSeconds, expiresFraction, beforeFraction), expiresBefore, expiresBefore, expiresBefore, expiresBefore, expiresBefore).
+		Where(fmt.Sprintf("(%s < %s OR (%s = %s AND %s < %s))", expiresSeconds, targetSeconds, expiresSeconds, targetSeconds, expiresFraction, targetFraction), expiresAt, expiresAt, expiresAt, expiresAt, expiresAt).
+		Where("status = ?", SessionStatusRunning).
+		Where("claim_token IS NULL")
+	parts := make([]string, 0, len(generations))
+	args := make([]any, 0, len(generations)*2)
+	for _, generation := range generations {
+		if generation.StartedAt == nil {
+			parts = append(parts, "(id = ? AND started_at IS NULL)")
+			args = append(args, generation.ID)
+		} else {
+			parts = append(parts, "(id = ? AND started_at = ?)")
+			args = append(args, generation.ID, *generation.StartedAt)
+		}
+	}
+	_, err := query.Where("("+strings.Join(parts, " OR ")+")", args...).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh running session expiries: %w", err)
+	}
+	return nil
+}
+
+// RefreshSessionExpiryIfGeneration updates retention only for an unclaimed, unchanged incarnation.
+func (r *Repository) RefreshSessionExpiryIfGeneration(ctx context.Context, sessionID, status string, startedAt *string, expiresAt string) (bool, error) {
+	query := r.db.bun.NewUpdate().Model((*Session)(nil)).
+		Set("expires_at = ?", expiresAt).
+		Where("id = ?", sessionID).
+		Where("status = ?", status).
+		Where("claim_token IS NULL")
+	if startedAt == nil {
+		query = query.Where("started_at IS NULL")
+	} else {
+		query = query.Where("started_at = ?", *startedAt)
+	}
+	result, err := query.Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("refresh session expiry: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("refresh session expiry rows affected: %w", err)
+	}
+	return rows > 0, nil
+}
+
+func rfc3339SecondsExpr(value string) string {
+	return fmt.Sprintf("CAST(strftime('%%s', %s) AS INTEGER)", value)
+}
+
+func rfc3339FractionExpr(value string) string {
+	return fmt.Sprintf("CASE WHEN instr(%s, '.') > 0 THEN CAST(substr(substr(%s, instr(%s, '.') + 1) || '000000000', 1, 9) AS INTEGER) ELSE 0 END", value, value, value)
 }
 
 // ListSessionsByStatus returns sessions with the given status.

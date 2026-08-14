@@ -14,6 +14,7 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/paths"
 )
 
@@ -24,6 +25,18 @@ type wakeCall struct {
 	err  error
 }
 
+type inhibitorKey struct {
+	sessionID string
+	startedAt string
+}
+
+func generationText(startedAt *string) string {
+	if startedAt == nil {
+		return ""
+	}
+	return *startedAt
+}
+
 // AcquireCDPPort wakes a tenant-owned session if needed and holds an activity inhibitor.
 func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string) (int, func(), error) {
 	unlock := s.repo.LockSession(sessionID)
@@ -32,14 +45,13 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 		unlock()
 		return 0, nil, err
 	}
-	release := s.acquireInhibitor(sessionID)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
-		release()
 		return 0, nil, err
 	}
+	release := s.acquireInhibitor(sessionRow.ID, sessionRow.StartedAt)
 	if sessionRow.CurrentCDPPort == nil || *sessionRow.CurrentCDPPort <= 0 {
 		release()
 		return 0, nil, ErrNotRunning
@@ -48,7 +60,7 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 		release()
 		return 0, nil, err
 	}
-	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, release), nil
+	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, sessionRow.StartedAt, release), nil
 }
 
 // AcquireAuthorizedCDPPort wakes a session-token-authorized session if needed and holds an activity inhibitor.
@@ -60,14 +72,13 @@ func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, 
 		unlock()
 		return 0, nil, err
 	}
-	release := s.acquireInhibitor(sessionRow.ID)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
-		release()
 		return 0, nil, err
 	}
+	release := s.acquireInhibitor(sessionRow.ID, sessionRow.StartedAt)
 	if sessionRow.CurrentCDPPort == nil || *sessionRow.CurrentCDPPort <= 0 {
 		release()
 		return 0, nil, ErrNotRunning
@@ -76,7 +87,7 @@ func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, 
 		release()
 		return 0, nil, err
 	}
-	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, release), nil
+	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, sessionRow.StartedAt, release), nil
 }
 
 // WakeAuthorizedSession validates a public session token and waits until a suspended session is ready.
@@ -97,14 +108,13 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 		unlock()
 		return 0, nil, err
 	}
-	release := s.acquireInhibitor(sessionID)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
-		release()
 		return 0, nil, err
 	}
+	release := s.acquireInhibitor(sessionRow.ID, sessionRow.StartedAt)
 	port, err := wrapperPort(sessionRow)
 	if err != nil {
 		release()
@@ -114,7 +124,7 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 		release()
 		return 0, nil, err
 	}
-	return port, s.releaseInhibitor(sessionRow.ID, release), nil
+	return port, s.releaseInhibitor(sessionRow.ID, sessionRow.StartedAt, release), nil
 }
 
 // SuspendIdleSessions stops running sessions that have no recent connection activity.
@@ -128,7 +138,7 @@ func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
 	suspended := 0
 	var suspendErrors []error
 	for _, sessionRow := range sessions {
-		if s.activeInhibitors(sessionRow.ID) > 0 {
+		if s.activeInhibitors(sessionRow.ID, sessionRow.StartedAt) > 0 {
 			continue
 		}
 		didSuspend, err := s.suspendSession(ctx, &sessionRow, "session suspended after idle timeout", &cutoff)
@@ -198,37 +208,38 @@ func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*Ses
 	return &view, nil
 }
 
-func (s *Service) acquireInhibitor(sessionID string) func() {
+func (s *Service) acquireInhibitor(sessionID string, startedAt *string) func() {
+	key := inhibitorKey{sessionID: sessionID, startedAt: generationText(startedAt)}
 	s.mu.Lock()
 	if s.inhibitors == nil {
-		s.inhibitors = make(map[string]int)
+		s.inhibitors = make(map[inhibitorKey]int)
 	}
-	s.inhibitors[sessionID]++
+	s.inhibitors[key]++
 	s.mu.Unlock()
 
 	return func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		next := s.inhibitors[sessionID] - 1
+		next := s.inhibitors[key] - 1
 		if next <= 0 {
-			delete(s.inhibitors, sessionID)
+			delete(s.inhibitors, key)
 			return
 		}
-		s.inhibitors[sessionID] = next
+		s.inhibitors[key] = next
 	}
 }
 
-func (s *Service) releaseInhibitor(sessionID string, release func()) func() {
+func (s *Service) releaseInhibitor(sessionID string, startedAt *string, release func()) func() {
 	return func() {
-		_ = s.touchConnectedByID(context.Background(), sessionID)
+		_ = s.touchConnected(context.Background(), &db.Session{ID: sessionID, StartedAt: startedAt, Status: db.SessionStatusRunning})
 		release()
 	}
 }
 
-func (s *Service) activeInhibitors(sessionID string) int {
+func (s *Service) activeInhibitors(sessionID string, startedAt *string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.inhibitors[sessionID]
+	return s.inhibitors[inhibitorKey{sessionID: sessionID, startedAt: generationText(startedAt)}]
 }
 
 func (s *Service) ensureSessionRunning(ctx context.Context, sessionRow *db.Session) (*db.Session, error) {
@@ -309,27 +320,47 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 	if !s.overlayPresent(sessionRow) {
 		return ErrOverlayMissing
 	}
+	previousStartedAt := sessionRow.StartedAt
+	claimToken, err := ids.NewUUIDv7()
+	if err != nil {
+		return err
+	}
+	claimed, err := s.repo.ClaimSessionIncarnation(ctx, sessionRow.ID, db.SessionStatusSuspended, previousStartedAt, claimToken)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return ErrNotRunning
+	}
+	sessionRow.Status = db.SessionStatusCreating
+	sessionRow.ClaimToken = &claimToken
+	sessionRow.ClaimExpiresAt = ptrString(time.Now().UTC().Add(claimLeaseDuration).Format(time.RFC3339Nano))
 
+	if err := s.reserveClaim(ctx, sessionRow.ID, claimToken, "mount overlay"); err != nil {
+		failureCtx, cancel := cleanupContext(ctx)
+		defer cancel()
+		return errors.Join(err, s.markReopenFailedRetainedLocked(failureCtx, sessionRow, err, previousStartedAt))
+	}
 	if err := s.mountOverlay(ctx, sessionRow.ID, sessionRow.BaseSnapshotID); err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return &OverlayMountError{SessionID: sessionRow.ID, Err: err}
+		mountErr := &OverlayMountError{SessionID: sessionRow.ID, Err: err}
+		return errors.Join(mountErr, s.markReopenFailedRetainedLocked(ctx, sessionRow, mountErr, previousStartedAt))
 	}
 
 	runtimeEnv, runtimePath, err := s.runtimeEnvForSession(ctx, sessionRow)
 	if err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return err
+		return errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+	}
+	if err := s.reserveClaim(ctx, sessionRow.ID, claimToken, "prepare runtime"); err != nil {
+		return errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
 	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return err
+		return errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
 	}
 
 	now := s.now().UTC()
 	startedAt := now.Format(time.RFC3339Nano)
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 
-	sessionRow.Status = db.SessionStatusRunning
 	sessionRow.StartedAt = &startedAt
 	sessionRow.StoppedAt = nil
 	sessionRow.SuspendedAt = nil
@@ -338,19 +369,34 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 	sessionRow.CurrentCDPPort = &runtimeEnv.CDPPort
 	sessionRow.LastConnectedAt = &startedAt
 
-	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		_ = s.cleanupPreparedRuntime(ctx, sessionRow.ID)
-		return err
+	if err := s.reserveClaim(ctx, sessionRow.ID, claimToken, "start browser"); err != nil {
+		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
+		return fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr))
 	}
 	if err := s.browser.Start(ctx, sessionRow.ID); err != nil {
-		sessionRow.StartedAt = nil
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
+		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
+		return fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr))
+	}
+	if err := s.reserveClaim(ctx, sessionRow.ID, claimToken, "wait for runtime readiness"); err != nil {
+		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
+		return fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr))
 	}
 	if err := s.waitForRuntimeReady(ctx, runtimeEnv.CDPPort, runtimeEnv.WrapperPort); err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
+		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
+		return fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr))
 	}
+	promoted, err := s.repo.PromoteClaimedSession(ctx, sessionRow, *sessionRow.ClaimToken)
+	if err != nil {
+		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
+		return errors.Join(err, failureErr)
+	}
+	if !promoted {
+		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, ErrNotRunning, previousStartedAt)
+		return errors.Join(ErrNotRunning, failureErr)
+	}
+	sessionRow.Status = db.SessionStatusRunning
+	sessionRow.ClaimToken = nil
+	sessionRow.ClaimExpiresAt = nil
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
 	}
@@ -368,7 +414,7 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	if latest == nil || latest.Status != db.SessionStatusRunning {
 		return false, nil
 	}
-	if s.activeInhibitors(latest.ID) > 0 {
+	if s.activeInhibitors(latest.ID, latest.StartedAt) > 0 {
 		return false, nil
 	}
 	if isExpired(latest.ExpiresAt, s.now().UTC()) {
@@ -399,9 +445,32 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 		}
 	}
 
-	_ = s.retireMediaSession(latest.ID)
-	if err := s.browser.Stop(ctx, latest.ID); err != nil {
+	previousStartedAt := latest.StartedAt
+	claimToken, err := ids.NewUUIDv7()
+	if err != nil {
 		return false, err
+	}
+	claimed, err := s.repo.ClaimSessionIncarnation(ctx, latest.ID, db.SessionStatusRunning, previousStartedAt, claimToken)
+	if err != nil {
+		return false, err
+	}
+	if !claimed {
+		return false, nil
+	}
+	latest.Status = db.SessionStatusCreating
+	latest.ClaimToken = &claimToken
+	latest.ClaimExpiresAt = ptrString(time.Now().UTC().Add(claimLeaseDuration).Format(time.RFC3339Nano))
+	cleanupCtx, cleanupCancel := cleanupContext(ctx)
+	defer cleanupCancel()
+	restoreClaim := func(cause error) error {
+		finalizeCtx, finalizeCancel := finalizationContext()
+		defer finalizeCancel()
+		restoreErr := s.repo.RestoreSessionStatusIfClaimed(finalizeCtx, latest.ID, claimToken, db.SessionStatusRunning, previousStartedAt)
+		return errors.Join(cause, restoreErr)
+	}
+
+	if cleanupErr := s.runClaimedSessionSideEffects(cleanupCtx, latest.ID, claimToken, true, true, true); cleanupErr != nil {
+		return false, restoreClaim(cleanupErr)
 	}
 
 	now := s.now().UTC()
@@ -413,18 +482,23 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	latest.SuspendedAt = &nowText
 	latest.ExpiresAt = expiresAt
 
-	if err := s.repo.UpdateSession(ctx, latest); err != nil {
-		return false, err
+	finalizeCtx, finalizeCancel := finalizationContext()
+	defer finalizeCancel()
+	suspended, err := s.repo.FinalizeSuspendedSessionIfClaimed(finalizeCtx, latest, claimToken)
+	if err != nil {
+		return false, restoreClaim(err)
 	}
+	if !suspended {
+		return false, restoreClaim(ErrNotRunning)
+	}
+	latest.ClaimToken = nil
+	latest.ClaimExpiresAt = nil
 	s.closeMediaSession(latest.ID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return false, err
 	}
 	if err := s.appendEvent(ctx, latest, "session.suspended", eventMessage, nil); err != nil {
 		return false, err
-	}
-	if err := s.unmountOverlay(ctx, latest.ID); err != nil {
-		return false, &OverlayMountError{SessionID: latest.ID, Err: err}
 	}
 	return true, nil
 }
@@ -587,7 +661,7 @@ func (s *Service) touchConnected(ctx context.Context, sessionRow *db.Session) er
 	now := s.now().UTC()
 	nowText := now.Format(time.RFC3339Nano)
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
-	touched, err := s.repo.TouchRunningSession(ctx, sessionRow.ID, nowText, expiresAt)
+	touched, err := s.repo.TouchRunningSession(ctx, sessionRow.ID, sessionRow.StartedAt, nowText, expiresAt)
 	if err != nil {
 		return err
 	}
@@ -597,17 +671,6 @@ func (s *Service) touchConnected(ctx context.Context, sessionRow *db.Session) er
 	sessionRow.LastConnectedAt = &nowText
 	sessionRow.ExpiresAt = expiresAt
 	return nil
-}
-
-func (s *Service) touchConnectedByID(ctx context.Context, sessionID string) error {
-	sessionRow, err := s.repo.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-	if sessionRow == nil || !retainedSessionAvailable(sessionRow.Status) {
-		return nil
-	}
-	return s.touchConnected(ctx, sessionRow)
 }
 
 func (s *Service) waitForRuntimeReady(ctx context.Context, cdpPort, wrapperPort int) error {
