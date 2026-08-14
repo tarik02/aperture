@@ -19,6 +19,7 @@ import (
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/supervisor"
+	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
 )
 
@@ -920,49 +921,70 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 }
 
 // ReconcileStartup aligns DB session state with systemd and runtime files after restart.
-func (s *Service) ReconcileStartup(ctx context.Context) error {
+func (s *Service) ReconcileStartup(ctx context.Context) (startupErr error) {
+	// Reconcile once at the end of every startup pass. Detach it from the
+	// caller so cleanup cannot leave stale routes when startup is canceled.
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := s.traefik.ReconcileRequired(cleanupCtx); err != nil {
+			if startupErr == nil {
+				startupErr = err
+			} else {
+				startupErr = errors.Join(startupErr, err)
+			}
+		}
+	}()
+
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
-		return err
-	}
-
-	for _, sessionRow := range sessions {
-		if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
-			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found expired lease on running session", nil); err != nil {
-				return err
+		startupErr = errors.Join(startupErr, err)
+	} else {
+		for _, sessionRow := range sessions {
+			if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
+				if err := s.markFailedRetainedWithReconcile(ctx, &sessionRow, "startup reconciliation found expired lease on running session", nil, false); err != nil {
+					startupErr = errors.Join(startupErr, err)
+				}
+				continue
 			}
-			continue
-		}
 
-		active, err := s.browser.IsActive(ctx, sessionRow.ID)
-		if err != nil {
-			return err
-		}
-		envExists, err := s.browser.RuntimeEnvExists(sessionRow.ID)
-		if err != nil {
-			return err
-		}
-
-		switch {
-		case active && !envExists:
-			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found running unit without runtime env", nil); err != nil {
-				return err
+			active, err := s.browser.IsActive(ctx, sessionRow.ID)
+			if err != nil {
+				startupErr = errors.Join(startupErr, err)
+				continue
 			}
-		case !active:
-			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil); err != nil {
-				return err
+			envExists, err := s.browser.RuntimeEnvExists(sessionRow.ID)
+			if err != nil {
+				startupErr = errors.Join(startupErr, err)
+				continue
+			}
+
+			switch {
+			case active && !envExists:
+				if err := s.markFailedRetainedWithReconcile(ctx, &sessionRow, "startup reconciliation found running unit without runtime env", nil, false); err != nil {
+					startupErr = errors.Join(startupErr, err)
+				}
+			case !active:
+				if err := s.markFailedRetainedWithReconcile(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil, false); err != nil {
+					startupErr = errors.Join(startupErr, err)
+				}
 			}
 		}
 	}
 
-	if err := s.reconcileOrphanRuntimeUnits(ctx); err != nil {
-		return err
+	_, err = s.reconcileOrphanRuntimeUnits(ctx)
+	if err != nil {
+		startupErr = errors.Join(startupErr, err)
 	}
-	if err := s.removeStaleRuntimeEnvFiles(ctx); err != nil {
-		return err
+	_, err = s.removeStaleRuntimeEnvFiles(ctx)
+	if err != nil {
+		startupErr = errors.Join(startupErr, err)
+	}
+	if startupErr != nil {
+		return startupErr
 	}
 
-	return s.traefik.Reconcile(ctx)
+	return nil
 }
 
 // ReconcileRoutes refreshes active-owned live session routes without changing session state.
@@ -970,45 +992,50 @@ func (s *Service) ReconcileRoutes(ctx context.Context) error {
 	return s.traefik.Reconcile(ctx)
 }
 
-func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
+func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) (routesDirty bool, err error) {
 	activeIDs, err := s.browser.ListActiveSessionIDs(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 
+	var cleanupErr error
 	for _, sessionID := range activeIDs {
 		sessionRow, err := s.repo.GetSessionByID(ctx, sessionID)
 		if err != nil {
-			return err
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
 		}
 		if sessionRow != nil && sessionRow.Status == db.SessionStatusRunning && isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
-			if err := s.markFailedRetained(ctx, sessionRow, "startup reconciliation stopped expired running session unit", nil); err != nil {
-				return err
+			routesDirty = true
+			if err := s.markFailedRetainedWithReconcile(ctx, sessionRow, "startup reconciliation stopped expired running session unit", nil, false); err != nil {
+				cleanupErr = errors.Join(cleanupErr, err)
 			}
 			continue
 		}
 		if sessionRow == nil || sessionRow.Status != db.SessionStatusRunning {
-			_ = s.retireMediaSession(sessionID)
-			_ = s.browser.Stop(ctx, sessionID)
-			_ = s.browser.RemoveRuntimeEnv(sessionID)
+			routesDirty = true
+			cleanupErr = errors.Join(cleanupErr, s.retireMediaSession(sessionID))
+			cleanupErr = errors.Join(cleanupErr, staleStopError(s.browser.Stop(ctx, sessionID)))
+			cleanupErr = errors.Join(cleanupErr, s.browser.RemoveRuntimeEnv(sessionID))
 		}
 	}
-	return nil
+	return routesDirty, cleanupErr
 }
 
-func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
+func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) (routesDirty bool, err error) {
 	sessionsDir, err := paths.JoinUnderRoot(s.cfg.RuntimeRoot, "sessions")
 	if err != nil {
-		return err
+		return false, err
 	}
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("read runtime sessions dir: %w", err)
+		return false, fmt.Errorf("read runtime sessions dir: %w", err)
 	}
 
+	var cleanupErr error
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".env") {
 			continue
@@ -1020,7 +1047,8 @@ func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
 
 		sessionRow, err := s.repo.GetSessionByID(ctx, sessionID)
 		if err != nil {
-			return err
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
 		}
 		keep := sessionRow != nil &&
 			(sessionRow.Status == db.SessionStatusRunning || sessionRow.Status == db.SessionStatusSuspended) &&
@@ -1029,11 +1057,20 @@ func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
 			continue
 		}
 
-		_ = s.retireMediaSession(sessionID)
-		_ = s.browser.Stop(ctx, sessionID)
-		_ = s.browser.RemoveRuntimeEnv(sessionID)
+		routesDirty = true
+		cleanupErr = errors.Join(cleanupErr, s.retireMediaSession(sessionID))
+		cleanupErr = errors.Join(cleanupErr, staleStopError(s.browser.Stop(ctx, sessionID)))
+		cleanupErr = errors.Join(cleanupErr, s.browser.RemoveRuntimeEnv(sessionID))
 	}
-	return nil
+	return routesDirty, cleanupErr
+}
+
+func staleStopError(err error) error {
+	var commandErr *systemd.CommandError
+	if errors.As(err, &commandErr) && commandErr.Operation == "stop" && commandErr.ExitCode == 5 {
+		return nil
+	}
+	return err
 }
 
 // MonitorInterval returns the running-session monitor interval.
@@ -1161,9 +1198,15 @@ func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, messag
 }
 
 func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
-	_ = s.retireMediaSession(sessionRow.ID)
-	_ = s.browser.Stop(ctx, sessionRow.ID)
-	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
+	return s.markFailedRetainedWithReconcile(ctx, sessionRow, message, cause, true)
+}
+
+func (s *Service) markFailedRetainedWithReconcile(ctx context.Context, sessionRow *db.Session, message string, cause error, reconcile bool) error {
+	cleanupErr := errors.Join(
+		s.retireMediaSession(sessionRow.ID),
+		staleStopError(s.browser.Stop(ctx, sessionRow.ID)),
+		s.browser.RemoveRuntimeEnv(sessionRow.ID),
+	)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
@@ -1171,21 +1214,25 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
+	var opErr error
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		return err
+		opErr = errors.Join(opErr, err)
+	} else {
+		s.closeMediaSession(sessionRow.ID)
 	}
-	s.closeMediaSession(sessionRow.ID)
 
-	if err := s.traefik.Reconcile(ctx); err != nil {
-		return err
+	if reconcile {
+		if err := s.traefik.Reconcile(ctx); err != nil {
+			opErr = errors.Join(opErr, err)
+		}
 	}
 
 	if err := s.appendEvent(ctx, sessionRow, "session.failed", message, cause); err != nil {
-		return err
+		opErr = errors.Join(opErr, err)
 	}
 
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
-	return nil
+	opErr = errors.Join(opErr, s.unmountOverlay(ctx, sessionRow.ID))
+	return errors.Join(cleanupErr, opErr)
 }
 
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {

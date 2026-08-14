@@ -49,6 +49,14 @@ let
   path =
     lib.makeBinPath ([ aperture ] ++ cfg.extraPath) + ":/run/wrappers/bin:/run/current-system/sw/bin";
   environmentFiles = lib.optional (cfg.environmentFile != null) cfg.environmentFile;
+  rolloutExtraEnvironmentJSON = pkgs.writeText "aperture-rollout-extra-environment.json" (
+    builtins.toJSON (map (name: {
+      inherit name;
+      value = cfg.extraEnvironment.${name};
+    }) (lib.attrNames cfg.extraEnvironment))
+  );
+  rolloutEnvironmentProperties = lib.optionalString (cfg.environmentFile != null)
+    (lib.escapeShellArg "--property=EnvironmentFile=${cfg.environmentFile}");
   rolloutEnvironmentArgs = lib.concatStringsSep " \\\n          " (
     lib.optional (cfg.environmentFile != null) (
       lib.escapeShellArg "--property=EnvironmentFile=${cfg.environmentFile}"
@@ -92,13 +100,41 @@ let
       pkgs.curl
       pkgs.jq
       pkgs.systemd
+      pkgs.util-linux
     ];
     text = ''
       aperture_cli() {
-        systemd-run --user --quiet --pipe --wait --collect --service-type=exec \
-          ${rolloutEnvironmentArgs} \
-          ${aperture}/bin/aperture "$@"
+        ${aperture}/bin/aperture "$@"
       }
+      load_rollout_environment() {
+        local env_dump
+        env_dump="$(mktemp)"
+        if ! jq -j '.[] | .name, "\u0000", .value, "\u0000"' ${lib.escapeShellArg rolloutExtraEnvironmentJSON} >"$env_dump"; then
+          rm -f "$env_dump"
+          return 1
+        fi
+        while IFS= read -r -d "" env_name && IFS= read -r -d "" env_value; do
+          printf -v "$env_name" '%s' "$env_value"
+          declare -gx "$env_name"
+        done <"$env_dump"
+        rm -f "$env_dump"
+        ${lib.optionalString (cfg.environmentFile != null) ''
+          env_dump="$(mktemp)"
+          if ! systemd-run --user --wait --pipe --quiet ${rolloutEnvironmentProperties} env -0 >"$env_dump"; then
+            rm -f "$env_dump"
+            return 1
+          fi
+          while IFS= read -r -d "" env_assignment; do
+            env_name="''${env_assignment%%=*}"
+            env_value="''${env_assignment#*=}"
+            printf -v "$env_name" '%s' "$env_value"
+            declare -gx "$env_name"
+          done <"$env_dump"
+          rm -f "$env_dump"
+        ''}
+      }
+      load_rollout_environment
+      effective_version="''${APERTURE_DEPLOY_VERSION:-${deployVersion}}"
 
       user_unit_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
       wants_dir="$user_unit_dir/default.target.wants"
@@ -117,17 +153,169 @@ let
           "$wants_dir/aperture@$color.service"
         systemctl --user daemon-reload
       }
+      stop_instance() {
+        local color="$1"
+        local stop_status=0
+        systemctl --user stop "aperture@$color.service" || stop_status=$?
+        [[ "$stop_status" == 0 || "$stop_status" == 5 ]]
+      }
+      lock_held=false
+      ensure_deploy_lock_anchor() {
+        local lock_path="$state_path.lock"
+        local anchor_path="$lock_path.anchor"
+        if [[ ! -e "$lock_path" && -e "$anchor_path" ]]; then
+          ln "$anchor_path" "$lock_path" || [[ -e "$lock_path" ]]
+        fi
+        if [[ ! -e "$lock_path" ]]; then
+          : >"$lock_path"
+        fi
+        if [[ ! -e "$anchor_path" ]]; then
+          ln "$lock_path" "$anchor_path" || [[ -e "$anchor_path" ]]
+        fi
+        [[ "$(stat -c '%d:%i' "$lock_path")" == "$(stat -c '%d:%i' "$anchor_path")" ]]
+      }
+      acquire_deploy_lock() {
+        ensure_deploy_lock_anchor
+        exec {deploy_lock_fd}<>"$state_path.lock.anchor"
+        flock "$deploy_lock_fd"
+        export APERTURE_DEPLOY_LOCK_FD="$deploy_lock_fd"
+        lock_held=true
+      }
+      release_deploy_lock() {
+        if [[ "$lock_held" == true ]]; then
+          local close_status=0
+          exec {deploy_lock_fd}>&- || close_status=$?
+          unset APERTURE_DEPLOY_LOCK_FD
+          lock_held=false
+          return "$close_status"
+        fi
+      }
 
+      state_path="$(aperture_cli deployment state path --config ${configFileArg})"
+      export APERTURE_DEPLOY_STATE_PATH="$state_path"
+      rollout_generation="$$-$(date +%s%N)"
+      ownership_marker="$state_path.rollout-owner"
+      acquire_deploy_lock
+      printf '%s\n' "$rollout_generation" >"$ownership_marker"
       state="$(aperture_cli deployment state get --config ${configFileArg})"
       active="$(jq -r .activeColor <<<"$state")"
+      active_version="$(jq -r .activeVersion <<<"$state")"
+      active_generation="$(jq -r .updatedAt <<<"$state")"
       case "$active" in
         blue) candidate=green; candidate_url=${greenURL} ;;
         green) candidate=blue; candidate_url=${blueURL} ;;
         *) echo "invalid active deployment color: $active" >&2; exit 1 ;;
       esac
+      export APERTURE_DEPLOY_COLOR="$candidate"
+      release_deploy_lock
+
+      switched=false
+      candidate_generation=""
+      candidate_version=""
+      candidate_enabled=false
+      active_disabled=false
+      rollback() {
+        status=$?
+        if [[ "$status" == 0 ]]; then
+          status=1
+        fi
+        rollback_error=0
+        restoration_failed=false
+        ownership_lost=false
+        trap - ERR INT TERM EXIT
+        if [[ "$lock_held" != true ]] && ! acquire_deploy_lock; then
+          echo "rollback: failed to reacquire deployment lock" >&2
+          rollback_error=1
+          ownership_lost=true
+        fi
+        if [[ "$ownership_lost" != true ]] && ! current_state="$(aperture_cli deployment state get --config ${configFileArg})"; then
+          echo "rollback: failed to read deployment state" >&2
+          rollback_error=1
+          ownership_lost=true
+        fi
+        if [[ "$ownership_lost" != true ]]; then
+          if [[ "$switched" == true ]]; then
+            if ! jq --exit-status --arg candidate "$candidate" --arg version "$candidate_version" --arg generation "$candidate_generation" \
+              '.activeColor == $candidate and .activeVersion == $version and .updatedAt == $generation' <<<"$current_state" >/dev/null; then
+              rollback_error=1
+              ownership_lost=true
+            fi
+          elif ! jq --exit-status --arg active "$active" --arg version "$active_version" --arg generation "$active_generation" \
+            '.activeColor == $active and .activeVersion == $version and .updatedAt == $generation' <<<"$current_state" >/dev/null; then
+            rollback_error=1
+            ownership_lost=true
+          fi
+        fi
+        if [[ "$ownership_lost" != true ]]; then
+          if ! marker_value="$(cat "$ownership_marker" 2>/dev/null)" || [[ "$marker_value" != "$rollout_generation" ]]; then
+            echo "rollback: rollout-generation ownership was lost; leaving candidate untouched" >&2
+            rollback_error=1
+            ownership_lost=true
+          fi
+        fi
+        if [[ "$ownership_lost" != true && "$switched" == true ]]; then
+            export APERTURE_DEPLOY_COLOR="$active"
+            if [[ "$active_disabled" == true ]] && ! enable_instance "$active"; then
+              echo "rollback: failed to re-enable $active instance" >&2
+              rollback_error=1
+              restoration_failed=true
+            fi
+            if [[ "$active_disabled" == true ]] && ! systemctl --user start "aperture@$active.service"; then
+              echo "rollback: failed to start $active service" >&2
+              rollback_error=1
+              restoration_failed=true
+            fi
+            if ! aperture_cli deployment state mark-active "$active" --version "$active_version" --config ${configFileArg} >/dev/null; then
+              echo "rollback: failed to restore deployment state" >&2
+              rollback_error=1
+              restoration_failed=true
+            fi
+            if ! aperture_cli deployment edge write --config ${configFileArg}; then
+              echo "rollback: failed to restore edge configuration" >&2
+              rollback_error=1
+              restoration_failed=true
+            fi
+        fi
+        if [[ "$restoration_failed" == true ]]; then
+          echo "rollback: restoration failed; leaving candidate running" >&2
+          if ! release_deploy_lock; then
+            echo "rollback: failed to release deployment lock" >&2
+            rollback_error=1
+          fi
+          exit 1
+        fi
+        if [[ "$ownership_lost" == true ]]; then
+          echo "rollback: deployment ownership was lost; leaving candidate untouched" >&2
+          if ! release_deploy_lock; then
+            echo "rollback: failed to release deployment lock" >&2
+            rollback_error=1
+          fi
+          exit 1
+        fi
+        if [[ "$candidate_enabled" == true ]]; then
+          if ! disable_instance "$candidate"; then
+            echo "rollback: failed to disable candidate instance" >&2
+            rollback_error=1
+          fi
+        fi
+        if ! stop_instance "$candidate"; then
+          echo "rollback: failed to stop candidate service" >&2
+          rollback_error=1
+        fi
+        if ! release_deploy_lock; then
+          echo "rollback: failed to release deployment lock" >&2
+          rollback_error=1
+        fi
+        if [[ "$rollback_error" != 0 ]]; then
+          status=1
+        fi
+        exit "$status"
+      }
+      trap rollback ERR INT TERM EXIT
 
       enable_instance "$active"
       disable_instance "$candidate"
+      candidate_enabled=true
       systemctl --user start "aperture@$candidate.service"
       ready=false
       for _ in $(seq 1 ${toString cfg.deployment.healthTimeoutSeconds}); do
@@ -139,43 +327,40 @@ let
         sleep 1
       done
       if [[ "$ready" != true ]]; then
-        systemctl --user stop "aperture@$candidate.service"
         echo "candidate $candidate did not become healthy" >&2
         exit 1
       fi
 
-      switched=false
-      candidate_enabled=false
-      active_disabled=false
-      rollback() {
-        status=$?
-        trap - ERR
-        if [[ "$active_disabled" == true ]]; then
-          enable_instance "$active" || true
-        fi
-        if [[ "$switched" == true ]]; then
-          systemctl --user start "aperture@$active.service" || true
-          aperture_cli deployment state mark-active "$active" --config ${configFileArg} >/dev/null || true
-          aperture_cli deployment edge write --config ${configFileArg} || true
-        fi
-        if [[ "$candidate_enabled" == true ]]; then
-          disable_instance "$candidate" || true
-        fi
-        systemctl --user stop "aperture@$candidate.service" || true
-        exit "$status"
-      }
-      trap rollback ERR
-
-      candidate_enabled=true
       enable_instance "$candidate"
-      aperture_cli deployment state mark-active "$candidate" --config ${configFileArg} >/dev/null
+      acquire_deploy_lock
+      state="$(aperture_cli deployment state get --config ${configFileArg})"
+      if [[ "$(jq -r .activeColor <<<"$state")" != "$active" ]]; then
+        echo "deployment changed while candidate was starting" >&2
+        exit 1
+      fi
+      if ! jq --exit-status --arg active "$active" --arg version "$active_version" --arg generation "$active_generation" \
+        '.activeColor == $active and .activeVersion == $version and .updatedAt == $generation' <<<"$state" >/dev/null; then
+        echo "deployment version or generation changed while candidate was starting" >&2
+        exit 1
+      fi
+      if ! marker_value="$(cat "$ownership_marker" 2>/dev/null)" || [[ "$marker_value" != "$rollout_generation" ]]; then
+        echo "rollout ownership changed while candidate was starting" >&2
+        exit 1
+      fi
+      candidate_state="$(aperture_cli deployment state mark-active "$candidate" --version "$effective_version" --config ${configFileArg})"
+      candidate_generation="$(jq -r .updatedAt <<<"$candidate_state")"
+      candidate_version="$(jq -r .activeVersion <<<"$candidate_state")"
       switched=true
       aperture_cli deployment edge write --config ${configFileArg}
       sleep ${toString cfg.deployment.drainSeconds}
       active_disabled=true
       disable_instance "$active"
-      systemctl --user stop "aperture@$active.service"
-      trap - ERR
+      stop_instance "$active"
+      if marker_value="$(cat "$ownership_marker" 2>/dev/null)" && [[ "$marker_value" == "$rollout_generation" ]]; then
+        rm -f "$ownership_marker"
+      fi
+      release_deploy_lock
+      trap - ERR INT TERM EXIT
       echo "activated $candidate"
     '';
   };

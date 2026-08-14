@@ -59,7 +59,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 
 	repo := db.NewRepository(database)
 	deployState := deploystate.New(cfg)
-	if _, err := deployState.EnsureActive(cfg.DeployColor, cfg.DeployVersion); err != nil {
+	if _, err := deployState.EnsureActiveContext(ctx, cfg.DeployColor, cfg.DeployVersion); err != nil {
 		_ = database.Close()
 		return nil, fmt.Errorf("ensure deployment state: %w", err)
 	}
@@ -75,7 +75,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 }
 
 // initSessions wires session orchestration dependencies for serve mode.
-func (a *App) initSessions() error {
+func (a *App) initSessions(lifecycleCtx context.Context) error {
 	if a.Sessions != nil {
 		return nil
 	}
@@ -96,11 +96,12 @@ func (a *App) initSessions() error {
 	}
 	a.Channels = channels
 	a.Browser = browserSupervisor
-	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
+	traefikService := traefik.NewServiceWithContext(a.Config, a.Repository, lifecycleCtx)
+	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefikService)
 	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
 	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
 	a.Events = event.NewService(a.Repository)
-	a.GC = gc.NewService(a.Config, a.Repository, browserSupervisor, overlayClient, traefik.NewService(a.Config, a.Repository))
+	a.GC = gc.NewService(a.Config, a.Repository, browserSupervisor, overlayClient, traefikService)
 	return nil
 }
 
@@ -115,28 +116,35 @@ func (a *App) Migrate(ctx context.Context) error {
 
 // Serve starts the HTTP API until the context is canceled.
 func (a *App) Serve(ctx context.Context) error {
-	if err := a.initSessions(); err != nil {
+	if err := a.initSessions(ctx); err != nil {
 		return err
 	}
 	if err := a.Migrate(ctx); err != nil {
 		return err
 	}
 
-	role, err := a.deployRole()
-	if err != nil {
+	var role string
+	if err := deploystate.WithLock(ctx, a.Config.DeployStatePath, func(startupCtx context.Context) error {
+		var err error
+		role, err = a.deployRole()
+		if err != nil {
+			return err
+		}
+		if role == deploystate.RoleActive {
+			if err := traefik.WriteEdgeConfigContext(startupCtx, a.Config, a.Deploy); err != nil {
+				return fmt.Errorf("write traefik edge config: %w", err)
+			}
+			if err := a.Sessions.ReconcileStartup(startupCtx); err != nil {
+				return fmt.Errorf("reconcile sessions: %w", err)
+			}
+		} else {
+			a.Logger.Info("skipping startup session reconciliation on inactive api",
+				zap.String("color", a.Config.DeployColor),
+			)
+		}
+		return nil
+	}); err != nil {
 		return err
-	}
-	if role == deploystate.RoleActive {
-		if err := traefik.WriteEdgeConfig(a.Config, a.Deploy); err != nil {
-			return fmt.Errorf("write traefik edge config: %w", err)
-		}
-		if err := a.Sessions.ReconcileStartup(ctx); err != nil {
-			return fmt.Errorf("reconcile sessions: %w", err)
-		}
-	} else {
-		a.Logger.Info("skipping startup session reconciliation on inactive api",
-			zap.String("color", a.Config.DeployColor),
-		)
 	}
 
 	jobToken, err := jobtoken.Ensure(a.Config)

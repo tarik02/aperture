@@ -66,6 +66,7 @@ func (m *Monitor) tick(ctx context.Context) {
 		return
 	}
 
+	routesDirty := false
 	for _, sessionRow := range sessions {
 		active, err := m.service.browser.IsActive(ctx, sessionRow.ID)
 		if err != nil {
@@ -73,7 +74,8 @@ func (m *Monitor) tick(ctx context.Context) {
 			continue
 		}
 		if !active {
-			if err := m.service.markFailedRetained(ctx, &sessionRow, "browser unit became inactive", nil); err != nil {
+			routesDirty = true
+			if err := m.service.markFailedRetainedWithReconcile(ctx, &sessionRow, "browser unit became inactive", nil, false); err != nil {
 				m.logger.Error("mark failed session", zap.String("sessionId", sessionRow.ID), zap.Error(err))
 			}
 			continue
@@ -89,12 +91,17 @@ func (m *Monitor) tick(ctx context.Context) {
 		}
 	}
 
-	suspended, err := m.service.SuspendIdleSessions(ctx)
+	suspended, err := m.service.suspendIdleSessions(ctx, false)
 	if err != nil {
 		m.logger.Error("suspend idle sessions", zap.Error(err))
-		return
 	}
 	if suspended > 0 {
 		m.logger.Info("suspended idle sessions", zap.Int("count", suspended))
+		routesDirty = true
+	}
+	if routesDirty {
+		if err := m.service.traefik.Reconcile(ctx); err != nil {
+			m.logger.Error("reconcile session routes", zap.Error(err))
+		}
 	}
 }

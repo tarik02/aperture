@@ -119,6 +119,10 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 
 // SuspendIdleSessions stops running sessions that have no recent connection activity.
 func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
+	return s.suspendIdleSessions(ctx, true)
+}
+
+func (s *Service) suspendIdleSessions(ctx context.Context, reconcile bool) (int, error) {
 	cutoff := s.now().UTC().Add(-defaultSuspendAfter)
 	sessions, err := s.repo.ListRunningSessionsIdleBefore(ctx, cutoff.Format(time.RFC3339Nano))
 	if err != nil {
@@ -131,13 +135,18 @@ func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
 		if s.activeInhibitors(sessionRow.ID) > 0 {
 			continue
 		}
-		didSuspend, err := s.suspendSession(ctx, &sessionRow, "session suspended after idle timeout", &cutoff)
+		didSuspend, err := s.suspendSessionWithReconcile(ctx, &sessionRow, "session suspended after idle timeout", &cutoff, false)
+		if didSuspend {
+			suspended++
+		}
 		if err != nil {
 			suspendErrors = append(suspendErrors, fmt.Errorf("suspend idle session %s: %w", sessionRow.ID, err))
 			continue
 		}
-		if didSuspend {
-			suspended++
+	}
+	if reconcile && suspended > 0 {
+		if err := s.traefik.Reconcile(ctx); err != nil {
+			suspendErrors = append(suspendErrors, err)
 		}
 	}
 	return suspended, errors.Join(suspendErrors...)
@@ -358,6 +367,10 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 }
 
 func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, eventMessage string, idleBefore *time.Time) (bool, error) {
+	return s.suspendSessionWithReconcile(ctx, sessionRow, eventMessage, idleBefore, true)
+}
+
+func (s *Service) suspendSessionWithReconcile(ctx context.Context, sessionRow *db.Session, eventMessage string, idleBefore *time.Time, reconcile bool) (bool, error) {
 	unlock := s.repo.LockSession(sessionRow.ID)
 	defer unlock()
 
@@ -416,17 +429,20 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	if err := s.repo.UpdateSession(ctx, latest); err != nil {
 		return false, err
 	}
+	suspended := true
 	s.closeMediaSession(latest.ID)
-	if err := s.traefik.Reconcile(ctx); err != nil {
-		return false, err
+	if reconcile {
+		if err := s.traefik.Reconcile(ctx); err != nil {
+			return suspended, err
+		}
 	}
 	if err := s.appendEvent(ctx, latest, "session.suspended", eventMessage, nil); err != nil {
-		return false, err
+		return suspended, err
 	}
 	if err := s.unmountOverlay(ctx, latest.ID); err != nil {
-		return false, &OverlayMountError{SessionID: latest.ID, Err: err}
+		return suspended, &OverlayMountError{SessionID: latest.ID, Err: err}
 	}
-	return true, nil
+	return suspended, nil
 }
 
 func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Session) (browser.RuntimeEnvValues, string, error) {
