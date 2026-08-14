@@ -1,0 +1,15 @@
+DROP INDEX IF EXISTS events_resource_type_id_type_created_id_idx;
+DROP INDEX IF EXISTS events_resource_created_id_idx;
+DROP INDEX IF EXISTS events_tenant_resource_created_id_idx;
+DROP INDEX IF EXISTS events_tenant_created_id_idx;
+DROP INDEX IF EXISTS snapshots_gc_created_id_idx;
+DROP INDEX IF EXISTS snapshots_active_tenant_created_id_idx;
+DROP INDEX IF EXISTS snapshots_tenant_created_id_idx;
+DROP INDEX IF EXISTS sessions_expired_artifacts_created_id_idx;
+DROP INDEX IF EXISTS sessions_expiry_created_id_idx;
+DROP INDEX IF EXISTS sessions_base_snapshot_status_idx;
+DROP INDEX IF EXISTS sessions_idle_status_at_idx;
+DROP INDEX IF EXISTS sessions_active_tenant_created_id_idx;
+DROP INDEX IF EXISTS sessions_status_created_id_idx;
+DROP INDEX IF EXISTS sessions_tenant_status_created_id_idx;
+DROP INDEX IF EXISTS sessions_tenant_created_id_idx;
