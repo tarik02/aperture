@@ -1,5 +1,5 @@
 import { Pause } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
@@ -37,85 +37,39 @@ import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 export function SessionPromoteForm() {
   const mutation = usePromoteSessionMutation();
   const suspendMutation = useSuspendSessionMutation();
-  const snapshotsQuery = useSnapshotsInfiniteQuery({ limit: 100 });
   const draft = useSessionPromoteFormStore((state) => state.formData);
   const setFormData = useSessionPromoteFormStore((state) => state.setFormData);
   const closeModal = useSessionPromoteModalStore((state) => state.closeModal);
   const setModalPending = useSessionPromoteModalStore((state) => state.setPending);
-  const {
-    sessionId,
-    baseSnapshotName,
-    name,
-    description,
-    suspendBeforePromote,
-    tagEntries,
-    nameError,
-  } = draft;
+  const { sessionId, name, description, suspendBeforePromote, tagEntries, nameError } = draft;
   const pending = mutation.isPending || suspendMutation.isPending;
+  const trimmedName = name.trim();
+  const snapshotsQuery = useSnapshotsInfiniteQuery({
+    limit: 100,
+    name: trimmedName || undefined,
+  });
   const snapshots = useMemo(
     () => flattenInfinitePages(snapshotsQuery.data?.pages),
     [snapshotsQuery.data?.pages],
   );
   const snapshotNames = useMemo(() => snapshots.map((snapshot) => snapshot.name), [snapshots]);
-  const trimmedName = name.trim();
   const existingSnapshot = useMemo(
     () => snapshots.find((snapshot) => snapshot.name === trimmedName),
     [snapshots, trimmedName],
   );
-  const replacingExistingSnapshot =
-    existingSnapshot !== undefined || (trimmedName !== "" && trimmedName === baseSnapshotName);
-  const loadingBaseSnapshot = Boolean(
-    trimmedName !== "" &&
-    trimmedName === baseSnapshotName &&
-    existingSnapshot === undefined &&
-    (snapshotsQuery.isLoading || snapshotsQuery.hasNextPage),
+  const replacingExistingSnapshot = existingSnapshot !== undefined;
+  const effectiveDescription = existingSnapshot
+    ? (existingSnapshot.description ?? "")
+    : description;
+  const effectiveTagEntries = useMemo(
+    () => (existingSnapshot ? tagsToEntries(existingSnapshot.tags ?? {}) : tagEntries),
+    [existingSnapshot, tagEntries],
   );
-
-  useEffect(() => {
-    if (
-      trimmedName === "" ||
-      trimmedName !== baseSnapshotName ||
-      existingSnapshot ||
-      !snapshotsQuery.hasNextPage ||
-      snapshotsQuery.isFetchingNextPage
-    ) {
-      return;
-    }
-
-    void snapshotsQuery.fetchNextPage();
-  }, [
-    baseSnapshotName,
-    existingSnapshot,
-    snapshots.length,
-    snapshotsQuery.fetchNextPage,
-    snapshotsQuery.hasNextPage,
-    snapshotsQuery.isFetchingNextPage,
-    trimmedName,
-  ]);
-
-  useEffect(() => {
-    if (!existingSnapshot) {
-      return;
-    }
-
-    setFormData({
-      description: existingSnapshot.description ?? "",
-      tagEntries: tagsToEntries(existingSnapshot.tags ?? {}),
-    });
-  }, [existingSnapshot, setFormData]);
+  const snapshotSearchPending = trimmedName !== "" && snapshotsQuery.isFetching;
+  const snapshotSearchError = snapshotsQuery.isError ? "Snapshot search failed" : null;
+  const displayedNameError = nameError ?? snapshotSearchError;
 
   function handleNameChange(nextName: string) {
-    const nextSnapshot = snapshots.find((snapshot) => snapshot.name === nextName.trim());
-    if (nextSnapshot) {
-      setFormData({
-        name: nextName,
-        description: nextSnapshot.description ?? "",
-        tagEntries: tagsToEntries(nextSnapshot.tags ?? {}),
-        nameError: null,
-      });
-      return;
-    }
-
     setFormData({
       name: nextName,
       description: replacingExistingSnapshot ? "" : description,
@@ -146,9 +100,9 @@ export function SessionPromoteForm() {
         sessionId,
         input: {
           name: trimmedName,
-          description: description === "" ? null : description,
+          description: effectiveDescription === "" ? null : effectiveDescription,
           force: replacingExistingSnapshot,
-          tags: entriesToTags(tagEntries),
+          tags: entriesToTags(effectiveTagEntries),
         },
       });
     } finally {
@@ -174,12 +128,13 @@ export function SessionPromoteForm() {
       ) : null}
       <FieldGroup className="py-2">
         <Field
-          data-invalid={nameError ? true : undefined}
+          data-invalid={displayedNameError ? true : undefined}
           data-disabled={pending ? true : undefined}
         >
           <FieldLabel htmlFor="promote-name">Snapshot name</FieldLabel>
           <Combobox
             items={snapshotNames}
+            filter={null}
             value={existingSnapshot?.name ?? null}
             inputValue={name}
             onInputValueChange={handleNameChange}
@@ -194,13 +149,19 @@ export function SessionPromoteForm() {
               id="promote-name"
               placeholder="Search or enter a new snapshot name"
               className="w-full"
-              aria-invalid={nameError ? true : undefined}
+              aria-invalid={displayedNameError ? true : undefined}
               disabled={pending}
               showClear
             />
             <ComboboxContent align="start" className="w-(--anchor-width)">
               <ComboboxEmpty>
-                {trimmedName ? `No match. "${trimmedName}" will be created.` : "No snapshots found"}
+                {snapshotsQuery.isFetching
+                  ? "Searching snapshots..."
+                  : snapshotSearchError
+                    ? snapshotSearchError
+                    : trimmedName
+                      ? `No match. "${trimmedName}" will be created.`
+                      : "No snapshots found"}
               </ComboboxEmpty>
               <ComboboxList>
                 {(snapshotName: string) => (
@@ -228,19 +189,19 @@ export function SessionPromoteForm() {
               ? "The selected snapshot will be replaced with the same description and tags."
               : "Type a new name to create a snapshot."}
           </FieldDescription>
-          <FieldError>{nameError}</FieldError>
+          <FieldError>{displayedNameError}</FieldError>
         </Field>
         <Field data-disabled={pending || replacingExistingSnapshot ? true : undefined}>
           <FieldLabel htmlFor="promote-description">Description</FieldLabel>
           <Textarea
             id="promote-description"
-            value={description}
+            value={effectiveDescription}
             onChange={(event) => setFormData({ description: event.target.value })}
             disabled={pending || replacingExistingSnapshot}
           />
         </Field>
         <TagEditor
-          entries={tagEntries}
+          entries={effectiveTagEntries}
           onChange={(entries) => setFormData({ tagEntries: entries })}
           disabled={pending || replacingExistingSnapshot}
         />
@@ -249,7 +210,10 @@ export function SessionPromoteForm() {
         <Button type="button" variant="outline" onClick={closeModal} disabled={pending}>
           Cancel
         </Button>
-        <Button type="submit" disabled={pending || loadingBaseSnapshot}>
+        <Button
+          type="submit"
+          disabled={pending || snapshotSearchPending || snapshotSearchError !== null}
+        >
           {suspendMutation.isPending
             ? "Suspending..."
             : mutation.isPending

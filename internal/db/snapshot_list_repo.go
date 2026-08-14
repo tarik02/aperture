@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/uptrace/bun"
 )
@@ -12,6 +13,7 @@ type SnapshotFilter struct {
 	TenantID       string
 	IncludeDeleted bool
 	DeletedOnly    bool
+	Name           string
 	Tags           []TagFilter
 }
 
@@ -28,6 +30,9 @@ func (r *Repository) ListSnapshotsPage(ctx context.Context, filter SnapshotFilte
 		query = query.Where("deleted_at IS NOT NULL")
 	} else if !filter.IncludeDeleted {
 		query = query.Where("deleted_at IS NULL")
+	}
+	if filter.Name != "" {
+		query = query.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(filter.Name)+"%")
 	}
 	for _, tag := range filter.Tags {
 		if tag.Key == "" || len(tag.Values) == 0 {

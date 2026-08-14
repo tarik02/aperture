@@ -545,6 +545,11 @@ paths:
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
+        - name: name
+          in: query
+          description: Case-insensitive substring matched against the snapshot name.
+          schema: {type: string}
+          example: signed-in
         - {$ref: '#/components/parameters/Deleted'}
         - {$ref: '#/components/parameters/LegacyIncludeDeleted'}
         - {$ref: '#/components/parameters/TagKey'}

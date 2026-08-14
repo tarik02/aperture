@@ -30,6 +30,7 @@ export function useSnapshotsInfiniteQuery(filters: SnapshotsFilters = {}) {
         cursor: pageParam,
         includeDeleted: filters.includeDeleted,
         deleted: filters.deleted,
+        name: filters.name,
         tags: filters.tags,
       }),
     initialPageParam: undefined as string | undefined,
