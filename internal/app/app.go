@@ -30,19 +30,21 @@ const deployRolePollInterval = time.Second
 
 // App wires shared runtime handles for CLI commands.
 type App struct {
-	Config     config.Config
-	Logger     *zap.Logger
-	Deploy     *deploystate.Service
-	DB         *db.DB
-	Repository *db.Repository
-	Auth       *auth.Service
-	Sessions   *session.Service
-	Snapshots  *snapshot.Service
-	Promotion  *snapshot.PromotionService
-	Events     *event.Service
-	GC         *gc.Service
-	Channels   *browser.Registry
-	Browser    *supervisor.Browser
+	Config         config.Config
+	Logger         *zap.Logger
+	Deploy         *deploystate.Service
+	DB             *db.DB
+	Repository     *db.Repository
+	Auth           *auth.Service
+	Sessions       *session.Service
+	Snapshots      *snapshot.Service
+	Promotion      *snapshot.PromotionService
+	Events         *event.Service
+	GC             *gc.Service
+	Channels       *browser.Registry
+	Browser        *supervisor.Browser
+	SessionTraefik *traefik.Service
+	GCTraefik      *traefik.Service
 }
 
 // New constructs an App with a production Zap logger and opens the configured database.
@@ -60,7 +62,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	repo := db.NewRepository(database)
 	deployState := deploystate.New(cfg)
 	if _, err := deployState.EnsureActive(cfg.DeployColor, cfg.DeployVersion); err != nil {
-		_ = database.Close()
+		if closeErr := errors.Join(database.Close(), deployState.Close()); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return nil, fmt.Errorf("ensure deployment state: %w", err)
 	}
 
@@ -94,13 +98,17 @@ func (a *App) initSessions() error {
 	if err != nil {
 		return fmt.Errorf("browser supervisor: %w", err)
 	}
+	sessionTraefik := traefik.NewService(a.Config, a.Repository)
+	gcTraefik := traefik.NewService(a.Config, a.Repository)
 	a.Channels = channels
 	a.Browser = browserSupervisor
-	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, traefik.NewService(a.Config, a.Repository))
+	a.SessionTraefik = sessionTraefik
+	a.GCTraefik = gcTraefik
+	a.Sessions = session.NewService(a.Config, a.Repository, overlayClient, browserSupervisor, channels, sessionTraefik)
 	a.Snapshots = snapshot.NewService(a.Config, a.Repository)
 	a.Promotion = snapshot.NewPromotionService(a.Config, a.Repository, browserSupervisor, a.Snapshots)
 	a.Events = event.NewService(a.Repository)
-	a.GC = gc.NewService(a.Config, a.Repository, browserSupervisor, overlayClient, traefik.NewService(a.Config, a.Repository))
+	a.GC = gc.NewService(a.Config, a.Repository, browserSupervisor, overlayClient, gcTraefik)
 	return nil
 }
 
@@ -252,6 +260,21 @@ func (a *App) Close() error {
 			closeErr = err
 		}
 		cancel()
+	}
+	if a.Deploy != nil {
+		if err := a.Deploy.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
+	}
+	if a.SessionTraefik != nil {
+		if err := a.SessionTraefik.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
+	}
+	if a.GCTraefik != nil {
+		if err := a.GCTraefik.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
 	}
 	if a.DB != nil {
 		if err := a.DB.Close(); err != nil {
