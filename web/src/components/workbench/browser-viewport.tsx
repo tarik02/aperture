@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Activity, AlertCircle, Loader2, MousePointer2, Unplug } from "lucide-react";
+import { Activity, AlertCircle, Loader2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
 import {
@@ -698,12 +698,6 @@ export function BrowserViewport({
         />
       )}
       <div className="pointer-events-none absolute right-2 bottom-2 flex items-center gap-1.5">
-        {control.captured ? (
-          <Badge variant="default" className="gap-1">
-            <MousePointer2 />
-            captured
-          </Badge>
-        ) : null}
         <StatusBadge status={status} />
       </div>
       {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
@@ -863,7 +857,7 @@ function StatusBadge({
         variant="secondary"
         className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
       >
-        {status}
+        {status === "webrtc-live" ? "webrtc" : status}
       </Badge>
     );
   }

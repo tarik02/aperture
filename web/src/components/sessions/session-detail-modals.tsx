@@ -1,19 +1,14 @@
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "#/components/ui/dialog.tsx";
 import { Link } from "@tanstack/react-router";
 import {
   AppWindow,
+  Cable,
   ChevronDown,
-  Clock,
+  Clock3,
   Copy,
-  ExternalLink,
+  Info,
   KeyRound,
   Pause,
+  PlugZap,
   RotateCcw,
   Tags,
   Trash2,
@@ -24,7 +19,15 @@ import { EventsPanel } from "#/components/resources/events-panel.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
+import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,8 +36,8 @@ import {
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
-import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
 
 export type SessionDetailSection = "details" | "connection" | "events";
 
@@ -42,8 +45,8 @@ type SessionDetailModalsProps = {
   session: Session | null;
   section: SessionDetailSection | null;
   onSectionChange: (section: SessionDetailSection | null) => void;
-  onSessionChange: (session: Session) => void;
-  actions: SessionDetailActions;
+  onSessionChange?: (session: Session) => void;
+  actions?: SessionDetailActions;
 };
 
 type SessionDetailActions = {
@@ -63,10 +66,6 @@ type SessionDetailActions = {
   onCopyShareUrl: (session: Session) => void;
 };
 
-type ConnectionContent = {
-  session: Session;
-};
-
 export function SessionDetailModals({
   session,
   section,
@@ -74,29 +73,13 @@ export function SessionDetailModals({
   onSessionChange,
   actions,
 }: SessionDetailModalsProps) {
-  const [detailsContent, setDetailsContent] = useState<Session | null>(null);
-  const [connectionContent, setConnectionContent] = useState<ConnectionContent | null>(null);
-  const [eventsContent, setEventsContent] = useState<Session | null>(null);
+  const [content, setContent] = useState<Session | null>(null);
 
   useEffect(() => {
-    if (!session) {
-      return;
+    if (session) {
+      setContent(session);
     }
-
-    if (section === "details") {
-      setDetailsContent(session);
-      return;
-    }
-
-    if (section === "connection") {
-      setConnectionContent({ session });
-      return;
-    }
-
-    if (section === "events") {
-      setEventsContent(session);
-    }
-  }, [section, session]);
+  }, [session]);
 
   function closeIfNeeded(open: boolean) {
     if (!open) {
@@ -104,105 +87,109 @@ export function SessionDetailModals({
     }
   }
 
-  const detailsSession = section === "details" && session ? session : detailsContent;
-  const connection = section === "connection" && session ? { session } : connectionContent;
-  const eventsSession = section === "events" && session ? session : eventsContent;
+  const displayedSession = session ?? content;
 
   return (
-    <>
-      <Dialog open={section === "details" && session !== null} onOpenChange={closeIfNeeded}>
-        <DialogContent className="flex max-h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-4xl">
-          {detailsSession ? (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  {detailsSession.label ?? "Session details"}
-                  <SessionStatusBadge status={detailsSession.status} />
-                </DialogTitle>
-                <DialogDescription className="break-all font-mono">
-                  {detailsSession.id}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid min-h-0 flex-1 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                <ScrollArea className="min-h-0">
-                  <MetadataGrid
-                    items={[
-                      { label: "Label", value: detailsSession.label ?? "—" },
-                      { label: "ID", value: detailsSession.id },
-                      { label: "Tenant", value: detailsSession.tenantId },
-                      { label: "Channel", value: detailsSession.browserChannel ?? "—" },
-                      { label: "Snapshot", value: detailsSession.baseSnapshotName ?? "—" },
-                      { label: "Created", value: metadataTimestamp(detailsSession.createdAt) },
-                      { label: "Started", value: metadataTimestamp(detailsSession.startedAt) },
-                      { label: "Stopped", value: metadataTimestamp(detailsSession.stoppedAt) },
-                      { label: "Expires", value: metadataTimestamp(detailsSession.expiresAt) },
-                      { label: "Deleted", value: metadataTimestamp(detailsSession.deletedAt) },
-                      { label: "Tags", value: <TagBadges tags={detailsSession.tags} max={10} /> },
-                    ]}
-                  />
-                </ScrollArea>
-                <SessionDetailActionBar
-                  session={detailsSession}
-                  actions={actions}
-                  onConnection={() => onSectionChange("connection")}
-                  onEvents={() => onSectionChange("events")}
-                />
+    <Dialog open={section !== null && session !== null} onOpenChange={closeIfNeeded}>
+      <DialogContent className="flex h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-4xl">
+        {displayedSession ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {displayedSession.label ?? "Session details"}
+                <SessionStatusBadge status={displayedSession.status} />
+              </DialogTitle>
+              <DialogDescription className="break-all font-mono">
+                {displayedSession.id}
+              </DialogDescription>
+            </DialogHeader>
+            <Tabs
+              value={section ?? "details"}
+              onValueChange={(value) => {
+                if (isSessionDetailSection(value)) {
+                  onSectionChange(value);
+                }
+              }}
+              className="min-h-0 flex-1"
+            >
+              <TabsList className="w-full sm:w-fit">
+                <TabsTrigger value="details">
+                  <Info data-icon="inline-start" />
+                  Details
+                </TabsTrigger>
+                <TabsTrigger value="connection">
+                  <PlugZap data-icon="inline-start" />
+                  Connection
+                </TabsTrigger>
+                <TabsTrigger value="events">
+                  <Clock3 data-icon="inline-start" />
+                  Events
+                </TabsTrigger>
+              </TabsList>
+              <div className="min-h-0 flex-1">
+                <TabsContent value="details" className="h-full min-h-0">
+                  {actions ? (
+                    <div className="grid h-full min-h-0 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                      <ScrollArea className="min-h-0">
+                        <SessionMetadata session={displayedSession} />
+                      </ScrollArea>
+                      <SessionDetailActionBar session={displayedSession} actions={actions} />
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-full">
+                      <SessionMetadata session={displayedSession} />
+                    </ScrollArea>
+                  )}
+                </TabsContent>
+                <TabsContent value="connection" className="h-full min-h-0">
+                  <ScrollArea className="h-full">
+                    <ConnectionPanel session={displayedSession} onRotate={onSessionChange} />
+                  </ScrollArea>
+                </TabsContent>
+                <TabsContent value="events" className="h-full min-h-0">
+                  <ScrollArea className="h-full">
+                    <EventsPanel resourceType="session" resourceId={displayedSession.id} />
+                  </ScrollArea>
+                </TabsContent>
               </div>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+            </Tabs>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-      <Dialog open={section === "connection" && session !== null} onOpenChange={closeIfNeeded}>
-        <DialogContent className="sm:max-w-lg">
-          {connection ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>{connection.session.label ?? "Connection"}</DialogTitle>
-                <DialogDescription className="break-all font-mono">
-                  {connection.session.id}
-                </DialogDescription>
-              </DialogHeader>
-              <ConnectionPanel session={connection.session} onRotate={onSessionChange} />
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+function isSessionDetailSection(value: string): value is SessionDetailSection {
+  return value === "details" || value === "connection" || value === "events";
+}
 
-      <Dialog open={section === "events" && session !== null} onOpenChange={closeIfNeeded}>
-        <DialogContent className="flex max-h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-3xl">
-          {eventsSession ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>{eventsSession.label ?? "Session events"}</DialogTitle>
-                <DialogDescription className="break-all font-mono">
-                  {eventsSession.id}
-                </DialogDescription>
-              </DialogHeader>
-              <ScrollArea className="min-h-0 flex-1">
-                <EventsPanel resourceType="session" resourceId={eventsSession.id} />
-              </ScrollArea>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-    </>
+function SessionMetadata({ session }: { session: Session }) {
+  return (
+    <MetadataGrid
+      items={[
+        { label: "Label", value: session.label ?? "—" },
+        { label: "ID", value: session.id },
+        { label: "Tenant", value: session.tenantId },
+        { label: "Channel", value: session.browserChannel ?? "—" },
+        { label: "Snapshot", value: session.baseSnapshotName ?? "—" },
+        { label: "Created", value: metadataTimestamp(session.createdAt) },
+        { label: "Started", value: metadataTimestamp(session.startedAt) },
+        { label: "Stopped", value: metadataTimestamp(session.stoppedAt) },
+        { label: "Expires", value: metadataTimestamp(session.expiresAt) },
+        { label: "Deleted", value: metadataTimestamp(session.deletedAt) },
+        { label: "Tags", value: <TagBadges tags={session.tags} max={10} /> },
+      ]}
+    />
   );
 }
 
 type SessionDetailActionBarProps = {
   session: Session;
   actions: SessionDetailActions;
-  onConnection: () => void;
-  onEvents: () => void;
 };
 
-function SessionDetailActionBar({
-  session,
-  actions,
-  onConnection,
-  onEvents,
-}: SessionDetailActionBarProps) {
+function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProps) {
   const canOpen = session.status === "running" || session.status === "suspended";
   const canReopen =
     actions.canWrite && (session.status === "deleted" || session.status === "failed");
@@ -219,10 +206,6 @@ function SessionDetailActionBar({
   return (
     <div className="flex flex-col justify-end gap-2 sm:border-l sm:border-border sm:pl-4">
       <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
-      <Button type="button" variant="outline" size="sm" onClick={onConnection}>
-        <ExternalLink data-icon="inline-start" />
-        Connection
-      </Button>
       {actions.canWrite ? (
         <Button
           type="button"
@@ -235,10 +218,6 @@ function SessionDetailActionBar({
           Copy share URL
         </Button>
       ) : null}
-      <Button type="button" variant="outline" size="sm" onClick={onEvents}>
-        <Clock data-icon="inline-start" />
-        Events
-      </Button>
       {actions.canWrite ? (
         <>
           <Button
@@ -258,7 +237,7 @@ function SessionDetailActionBar({
             disabled={!canRotate || actions.rotatePending}
           >
             <KeyRound data-icon="inline-start" />
-            Rotate CDP
+            Rotate token
           </Button>
           {canSuspend ? (
             <Button
@@ -326,6 +305,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
         className="flex-1 rounded-r-none"
         disabled={disabled}
         render={disabled ? undefined : <Link to="/-/sessions/$sessionId" params={{ sessionId }} />}
+        nativeButton={disabled}
       >
         <AppWindow data-icon="inline-start" />
         Open
@@ -355,6 +335,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
                 />
               }
             >
+              <Cable />
               CDP fallback
             </DropdownMenuItem>
           </DropdownMenuGroup>

@@ -1,12 +1,25 @@
 import { useNavigate } from "@tanstack/react-router";
-import { AppWindow, MoreHorizontal, RotateCcw, Tags as TagsIcon, Trash2 } from "lucide-react";
+import {
+  AppWindow,
+  Info,
+  MoreHorizontal,
+  Pencil,
+  RotateCcw,
+  Tags as TagsIcon,
+  Trash2,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { SnapshotDetailModals } from "#/components/snapshots/snapshot-detail-modals.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { SessionCreateModal } from "#/features/session/create-modal/session-create-modal.tsx";
 import { TagEditModal } from "#/features/tag/edit-modal/tag-edit-modal.tsx";
-import { tagsToEntries } from "#/components/resources/tag-editor.tsx";
+import {
+  TagEditor,
+  entriesToTags,
+  tagsToEntries,
+  type TagEntry,
+} from "#/components/resources/tag-editor.tsx";
 import { DeletedStatusSelect } from "#/components/resources/deleted-status-select.tsx";
 import {
   InfiniteTableShell,
@@ -84,6 +97,12 @@ const SNAPSHOT_SKELETON_COLUMNS = [
   },
 ] as const;
 
+type SnapshotEditDraft = {
+  snapshot: Snapshot;
+  description: string;
+  tagEntries: TagEntry[];
+};
+
 export function SnapshotListPage() {
   const navigate = useNavigate();
   const credentials = useApiCredentials();
@@ -117,7 +136,6 @@ export function SnapshotListPage() {
   const openCreatedSession = useSessionListPageStore((state) => state.openCreatedSession);
   const initTagForm = useTagFormStore((state) => state.initForm);
   const tagResourceKey = useTagFormStore((state) => state.formData.resourceKey);
-  const tagModalOpen = useTagEditModalStore((state) => state.open);
   const openTagModal = useTagEditModalStore((state) => state.openModal);
   const selectedSnapshots = useSnapshotListPageStore((state) => state.selectedSnapshots);
   const confirmAction = useSnapshotListPageStore((state) => state.confirmAction);
@@ -131,12 +149,8 @@ export function SnapshotListPage() {
     () => Object.values(selectedSnapshots),
     [selectedSnapshots],
   );
-  const tagsSnapshot =
-    tagModalOpen && tagResourceKey?.startsWith("snapshot:") === true
-      ? (loadedSnapshots.find((snapshot) => `snapshot:${snapshot.name}` === tagResourceKey) ?? null)
-      : null;
   const batchTagsResourceKey =
-    tagModalOpen && tagResourceKey?.startsWith("snapshots:batch:") === true ? tagResourceKey : null;
+    tagResourceKey?.startsWith("snapshots:batch:") === true ? tagResourceKey : null;
   const deletableSnapshotItems = selectedSnapshotItems.filter((snapshot) => !snapshot.deletedAt);
   const restorableSnapshotItems = selectedSnapshotItems.filter((snapshot) => snapshot.deletedAt);
 
@@ -144,8 +158,7 @@ export function SnapshotListPage() {
   const restoreMutation = useRestoreSnapshotMutation();
   const replaceTagsMutation = useReplaceSnapshotTagsMutation();
   const updateSnapshotMutation = useUpdateSnapshotMutation();
-  const [descriptionSnapshot, setDescriptionSnapshot] = useState<Snapshot | null>(null);
-  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [editDraft, setEditDraft] = useState<SnapshotEditDraft | null>(null);
 
   function handleCreateSession(snapshot: Snapshot) {
     setDetailSection(null);
@@ -201,19 +214,39 @@ export function SnapshotListPage() {
     }
   }
 
-  async function handleDescriptionSave() {
-    if (!descriptionSnapshot) {
+  async function handleSnapshotSave() {
+    if (!editDraft) {
       return;
     }
 
-    const result = await updateSnapshotMutation.mutateAsync({
-      name: descriptionSnapshot.name,
-      description: descriptionDraft === "" ? null : descriptionDraft,
-    });
-    if (detailSnapshot?.id === result.snapshot.id && detailSection) {
-      showSnapshot(result.snapshot, detailSection);
+    let updatedSnapshot = editDraft.snapshot;
+    const nextDescription = editDraft.description === "" ? null : editDraft.description;
+    if (nextDescription !== editDraft.snapshot.description) {
+      const result = await updateSnapshotMutation.mutateAsync({
+        name: editDraft.snapshot.name,
+        description: nextDescription,
+      });
+      updatedSnapshot = result.snapshot;
+      setEditDraft((currentDraft) =>
+        currentDraft?.snapshot.id === result.snapshot.id
+          ? { ...currentDraft, snapshot: result.snapshot }
+          : currentDraft,
+      );
     }
-    setDescriptionSnapshot(null);
+
+    const nextTags = entriesToTags(editDraft.tagEntries);
+    if (!tagsEqual(nextTags, editDraft.snapshot.tags ?? {})) {
+      const result = await replaceTagsMutation.mutateAsync({
+        name: editDraft.snapshot.name,
+        tags: nextTags,
+      });
+      updatedSnapshot = result.snapshot;
+    }
+
+    if (detailSnapshot?.id === updatedSnapshot.id && detailSection) {
+      showSnapshot(updatedSnapshot, detailSection);
+    }
+    setEditDraft(null);
   }
 
   const confirmDialog =
@@ -331,19 +364,13 @@ export function SnapshotListPage() {
                       selected={Boolean(selectedSnapshots[snapshot.id])}
                       onSelectedChange={(selected) => toggleSnapshotSelection(snapshot, selected)}
                       onDetails={() => showSnapshot(snapshot, "details")}
-                      onEvents={() => showSnapshot(snapshot, "events")}
                       onCreateSession={() => handleCreateSession(snapshot)}
-                      onEditTags={() => {
-                        initTagForm(
-                          "edit",
-                          `snapshot:${snapshot.name}`,
-                          tagsToEntries(snapshot.tags ?? {}),
-                        );
-                        openTagModal();
-                      }}
-                      onEditDescription={() => {
-                        setDescriptionSnapshot(snapshot);
-                        setDescriptionDraft(snapshot.description ?? "");
+                      onEdit={() => {
+                        setEditDraft({
+                          snapshot,
+                          description: snapshot.description ?? "",
+                          tagEntries: tagsToEntries(snapshot.tags ?? {}),
+                        });
                       }}
                       onRestore={() => void restoreMutation.mutateAsync(snapshot.name)}
                       onDelete={() => setConfirmAction({ kind: "delete", snapshot })}
@@ -355,17 +382,6 @@ export function SnapshotListPage() {
           </InfiniteTableShell>
         </>
       ) : null}
-
-      <TagEditModal
-        resourceKey={tagsSnapshot ? `snapshot:${tagsSnapshot.name}` : null}
-        title="Edit tags"
-        onSave={async (tags) => {
-          if (!tagsSnapshot) {
-            return;
-          }
-          await replaceTagsMutation.mutateAsync({ name: tagsSnapshot.name, tags });
-        }}
-      />
 
       <TagEditModal
         resourceKey={batchTagsResourceKey}
@@ -389,17 +405,21 @@ export function SnapshotListPage() {
         onCreateSession={handleCreateSession}
       />
       <SessionCreateModal onCreated={handleCreatedSession} />
-      <SnapshotDescriptionModal
-        snapshot={descriptionSnapshot}
-        value={descriptionDraft}
-        pending={updateSnapshotMutation.isPending}
-        onValueChange={setDescriptionDraft}
+      <SnapshotEditModal
+        draft={editDraft}
+        pending={updateSnapshotMutation.isPending || replaceTagsMutation.isPending}
+        onDescriptionChange={(description) =>
+          setEditDraft((draft) => (draft ? { ...draft, description } : null))
+        }
+        onTagEntriesChange={(tagEntries) =>
+          setEditDraft((draft) => (draft ? { ...draft, tagEntries } : null))
+        }
         onOpenChange={(open) => {
           if (!open) {
-            setDescriptionSnapshot(null);
+            setEditDraft(null);
           }
         }}
-        onSave={handleDescriptionSave}
+        onSave={handleSnapshotSave}
       />
 
       {confirmDialog ? (
@@ -443,10 +463,8 @@ type SnapshotRowProps = {
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
   onDetails: () => void;
-  onEvents: () => void;
   onCreateSession: () => void;
-  onEditDescription: () => void;
-  onEditTags: () => void;
+  onEdit: () => void;
   onRestore: () => void;
   onDelete: () => void;
 };
@@ -458,10 +476,8 @@ function SnapshotRow({
   selected,
   onSelectedChange,
   onDetails,
-  onEvents,
   onCreateSession,
-  onEditDescription,
-  onEditTags,
+  onEdit,
   onRestore,
   onDelete,
 }: SnapshotRowProps) {
@@ -513,10 +529,8 @@ function SnapshotRow({
           canWrite={canWrite}
           canCreateSession={canCreateSession}
           onDetails={onDetails}
-          onEvents={onEvents}
           onCreateSession={onCreateSession}
-          onEditDescription={onEditDescription}
-          onEditTags={onEditTags}
+          onEdit={onEdit}
           onRestore={onRestore}
           onDelete={onDelete}
         />
@@ -530,10 +544,8 @@ type SnapshotActionsMenuProps = {
   canWrite: boolean;
   canCreateSession: boolean;
   onDetails: () => void;
-  onEvents: () => void;
   onCreateSession: () => void;
-  onEditDescription: () => void;
-  onEditTags: () => void;
+  onEdit: () => void;
   onRestore: () => void;
   onDelete: () => void;
 };
@@ -543,10 +555,8 @@ function SnapshotActionsMenu({
   canWrite,
   canCreateSession,
   onDetails,
-  onEvents,
   onCreateSession,
-  onEditDescription,
-  onEditTags,
+  onEdit,
   onRestore,
   onDelete,
 }: SnapshotActionsMenuProps) {
@@ -562,8 +572,10 @@ function SnapshotActionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-40">
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
-          <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
+          <DropdownMenuItem onClick={onDetails}>
+            <Info />
+            Snapshot details
+          </DropdownMenuItem>
           {canCreateSession && !snapshot.deletedAt ? (
             <DropdownMenuItem onClick={onCreateSession}>
               <AppWindow />
@@ -575,12 +587,18 @@ function SnapshotActionsMenu({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={onEditDescription}>Edit description</DropdownMenuItem>
-              <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil />
+                Edit
+              </DropdownMenuItem>
               {snapshot.deletedAt ? (
-                <DropdownMenuItem onClick={onRestore}>Restore</DropdownMenuItem>
+                <DropdownMenuItem onClick={onRestore}>
+                  <RotateCcw />
+                  Restore
+                </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                  <Trash2 />
                   Delete
                 </DropdownMenuItem>
               )}
@@ -592,40 +610,47 @@ function SnapshotActionsMenu({
   );
 }
 
-type SnapshotDescriptionModalProps = {
-  snapshot: Snapshot | null;
-  value: string;
+type SnapshotEditModalProps = {
+  draft: SnapshotEditDraft | null;
   pending: boolean;
-  onValueChange: (value: string) => void;
+  onDescriptionChange: (description: string) => void;
+  onTagEntriesChange: (tagEntries: TagEntry[]) => void;
   onOpenChange: (open: boolean) => void;
   onSave: () => Promise<void>;
 };
 
-function SnapshotDescriptionModal({
-  snapshot,
-  value,
+function SnapshotEditModal({
+  draft,
   pending,
-  onValueChange,
+  onDescriptionChange,
+  onTagEntriesChange,
   onOpenChange,
   onSave,
-}: SnapshotDescriptionModalProps) {
+}: SnapshotEditModalProps) {
   return (
-    <Dialog open={snapshot !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+    <Dialog open={draft !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{snapshot ? `Edit ${snapshot.name}` : "Edit description"}</DialogTitle>
+          <DialogTitle>{draft ? `Edit ${draft.snapshot.name}` : "Edit snapshot"}</DialogTitle>
         </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="snapshot-description">Description</FieldLabel>
-            <Textarea
-              id="snapshot-description"
-              value={value}
-              onChange={(event) => onValueChange(event.target.value)}
+        <div className="min-h-0 overflow-y-auto py-2">
+          <FieldGroup>
+            <Field data-disabled={pending ? true : undefined}>
+              <FieldLabel htmlFor="snapshot-description">Description</FieldLabel>
+              <Textarea
+                id="snapshot-description"
+                value={draft?.description ?? ""}
+                onChange={(event) => onDescriptionChange(event.target.value)}
+                disabled={pending}
+              />
+            </Field>
+            <TagEditor
+              entries={draft?.tagEntries ?? []}
+              onChange={onTagEntriesChange}
               disabled={pending}
             />
-          </Field>
-        </FieldGroup>
+          </FieldGroup>
+        </div>
         <DialogFooter>
           <Button
             type="button"
@@ -642,4 +667,12 @@ function SnapshotDescriptionModal({
       </DialogContent>
     </Dialog>
   );
+}
+
+function tagsEqual(left: Record<string, string>, right: Record<string, string>) {
+  const leftEntries = Object.entries(left);
+  if (leftEntries.length !== Object.keys(right).length) {
+    return false;
+  }
+  return leftEntries.every(([key, value]) => right[key] === value);
 }
