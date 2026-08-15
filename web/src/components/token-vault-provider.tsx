@@ -1,35 +1,15 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useRouterState } from "@tanstack/react-router";
-import { RetryableLazy } from "#/components/retryable-lazy.tsx";
 import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
-let welcomeTokenAuthModalModule:
-  | Promise<typeof import("#/features/token/auth-modal/token-auth-modal.tsx")>
-  | undefined;
+const WelcomeTokenAuthModal = lazy(() =>
+  import("#/features/token/auth-modal/token-auth-modal.tsx").then((module) => ({
+    default: module.WelcomeTokenAuthModal,
+  })),
+);
 
-function loadWelcomeTokenAuthModal() {
-  if (!welcomeTokenAuthModalModule) {
-    welcomeTokenAuthModalModule = import("#/features/token/auth-modal/token-auth-modal.tsx").catch(
-      (error: unknown) => {
-        welcomeTokenAuthModalModule = undefined;
-        throw error;
-      },
-    );
-  }
-
-  return welcomeTokenAuthModalModule.then(({ WelcomeTokenAuthModal }) => ({
-    default: WelcomeTokenAuthModal,
-  }));
-}
-
-export function TokenVaultProvider({
-  children,
-  suppressWelcome = false,
-}: {
-  children: React.ReactNode;
-  suppressWelcome?: boolean;
-}) {
+export function TokenVaultProvider({ children }: { children: React.ReactNode }) {
   const guestMode = useRouterState({
     select: (state) => /^\/share\/?$/.test(state.location.pathname),
   });
@@ -52,14 +32,10 @@ export function TokenVaultProvider({
   return (
     <>
       {children}
-      {!suppressWelcome && !guestMode && needsWelcome ? (
-        <RetryableLazy
-          load={loadWelcomeTokenAuthModal}
-          fallback={null}
-          errorMessage="Unable to load the sign-in form."
-        >
-          {(WelcomeTokenAuthModal) => <WelcomeTokenAuthModal open onOpenChange={() => undefined} />}
-        </RetryableLazy>
+      {!guestMode && needsWelcome ? (
+        <Suspense fallback={null}>
+          <WelcomeTokenAuthModal open onOpenChange={() => undefined} />
+        </Suspense>
       ) : null}
     </>
   );

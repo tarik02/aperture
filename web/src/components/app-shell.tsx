@@ -1,25 +1,8 @@
 import { useRouterState } from "@tanstack/react-router";
-import { useContext, useEffect, useState } from "react";
-import { AppShellFailureContext } from "#/components/app-shell-failure-context.tsx";
-import { LazyChunkLoadingFallback, RetryableLazy } from "#/components/retryable-lazy.tsx";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { SidebarProvider } from "#/components/ui/sidebar-provider.tsx";
 
-let standardAppShellModule:
-  | Promise<typeof import("#/components/standard-app-shell.tsx")>
-  | undefined;
-
-function loadStandardAppShell() {
-  if (!standardAppShellModule) {
-    standardAppShellModule = import("#/components/standard-app-shell.tsx").catch(
-      (error: unknown) => {
-        standardAppShellModule = undefined;
-        throw error;
-      },
-    );
-  }
-
-  return standardAppShellModule;
-}
+const StandardAppShell = lazy(() => import("#/components/standard-app-shell.tsx"));
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -27,7 +10,6 @@ type AppShellProps = {
 
 export function AppShell({ children }: AppShellProps) {
   const [mounted, setMounted] = useState(false);
-  const shellFailure = useContext(AppShellFailureContext);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isWorkbenchRoute =
     /^\/-\/sessions\/[^/]+\/?$/.test(pathname) || /^\/share\/?$/.test(pathname);
@@ -51,15 +33,9 @@ export function AppShell({ children }: AppShellProps) {
       ) : isWorkbenchRoute ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">{children}</div>
       ) : (
-        <RetryableLazy
-          load={loadStandardAppShell}
-          fallback={<LazyChunkLoadingFallback />}
-          errorMessage="Unable to load the app shell."
-          onError={shellFailure?.onShellError}
-          onRetry={shellFailure?.onShellRecovered}
-        >
-          {(StandardAppShell) => <StandardAppShell>{children}</StandardAppShell>}
-        </RetryableLazy>
+        <Suspense fallback={<div className="fixed inset-0 bg-background" />}>
+          <StandardAppShell>{children}</StandardAppShell>
+        </Suspense>
       )}
     </SidebarProvider>
   );

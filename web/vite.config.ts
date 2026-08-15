@@ -30,16 +30,6 @@ const config = defineConfig({
         },
       },
     }),
-    {
-      name: "retryable-route-components",
-      enforce: "post",
-      transform(code, id) {
-        if (id.includes("node_modules") || !code.includes("lazyRouteComponent")) {
-          return;
-        }
-        return `import { retryableLazyRouteComponent } from "#/lib/retryable-route-component.ts";\n${code.replaceAll("lazyRouteComponent(", "retryableLazyRouteComponent(")}`;
-      },
-    },
     viteReact(),
   ]),
 });

@@ -1,5 +1,4 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
-import { RouteChunkError } from "./components/route-chunk-error";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
@@ -8,7 +7,6 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
-    defaultErrorComponent: RouteChunkError,
   });
 
   return router;
