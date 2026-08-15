@@ -94,12 +94,6 @@ type WebRTCInputMessage =
 
 type ViewportCommand = Extract<ClientMessage, { type: "viewport.set" }>;
 
-type FallbackScreencastSchedule = {
-  state: BrowserControlState;
-  viewport: ViewportPreset;
-  frameReady: boolean;
-};
-
 const initialMediaState: WebRTCMediaState = {
   phase: "idle",
   stream: null,
@@ -119,8 +113,6 @@ const initialCdpState: CdpControlState = {
   lastError: null,
 };
 const WEBRTC_WHEEL_DELTA_SCALE = 0.1;
-const FALLBACK_START_MAX_ATTEMPTS = 3;
-const FALLBACK_RETRY_DELAY_MS = 1000;
 
 export const initialBrowserControlState: BrowserControlState = browserState(
   false,
@@ -132,17 +124,6 @@ export const initialBrowserControlState: BrowserControlState = browserState(
 export function browserControl$(options: BrowserControlOptions): Observable<BrowserControlOutput> {
   return new Observable<BrowserControlOutput>((subscriber) => {
     const cdpInput$ = new Subject<ClientMessage>();
-    let latestCdpFrame: ScreencastFrame | null = null;
-    let fallbackStartAttempts = 0;
-    let fallbackRetryContext: FallbackScreencastSchedule | null = null;
-    const reconnect$ = options.reconnect$.pipe(
-      tap(() => {
-        latestCdpFrame = null;
-        fallbackStartAttempts = 0;
-        fallbackRetryContext = null;
-      }),
-      share(),
-    );
     const webRTCInput$ = new Subject<WebRTCInputMessage>();
     const webRTCViewport$ = new ReplaySubject<WebRTCViewportRequest>(1);
     const webRTCStreamSettings$ = new ReplaySubject<WebRTCStreamSettings>(1);
@@ -159,7 +140,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       startWith(options.viewport),
       shareReplay({ bufferSize: 1, refCount: true }),
     );
-    const cdpOutput$ = reconnect$.pipe(
+    const cdpOutput$ = options.reconnect$.pipe(
       startWith(undefined),
       switchMap(() =>
         cdpControl$({
@@ -178,26 +159,12 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       shareReplay({ bufferSize: 1, refCount: true }),
     );
     const cdpFrame$ = merge(
-      reconnect$.pipe(map(() => null)),
+      options.reconnect$.pipe(map(() => null)),
       cdpOutput$.pipe(
         filter((output) => output.type === "frame"),
         map((output) => output.frame),
       ),
-    ).pipe(
-      startWith<ScreencastFrame | null>(null),
-      tap((frame) => {
-        const previousFrame = latestCdpFrame;
-        latestCdpFrame = frame;
-        if (frame !== null || previousFrame !== null) {
-          fallbackStartAttempts = 0;
-        }
-      }),
-      shareReplay({ bufferSize: 1, refCount: true }),
-    );
-    const frameReady$ = cdpFrame$.pipe(
-      map((frame) => frame !== null),
-      distinctUntilChanged(),
-    );
+    ).pipe(startWith<ScreencastFrame | null>(null), shareReplay({ bufferSize: 1, refCount: true }));
     const mediaActive$ = cdpState$.pipe(
       map((state) => options.webrtcPreferred && state.phase === "connected"),
       distinctUntilChanged(),
@@ -349,41 +316,13 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       tap(([, state, viewport]) => cdpInput$.next(screencastStartCommand(state, viewport))),
       ignoreElements(),
     );
-    const fallbackScreencast$ = combineLatest([state$, viewport$, frameReady$]).pipe(
-      map(
-        ([state, viewport, frameReady]): FallbackScreencastSchedule => ({
-          state,
-          viewport,
-          frameReady,
-        }),
-      ),
-      tap((schedule) => {
-        if (
-          fallbackRetryContext === null ||
-          !sameFallbackScreencastRetryContext(fallbackRetryContext, schedule)
-        ) {
-          fallbackStartAttempts = 0;
-        }
-        fallbackRetryContext = schedule;
-      }),
-      distinctUntilChanged(sameFallbackScreencastSchedule),
-      switchMap(({ state, viewport }) => {
-        if (
-          fallbackStartAttempts >= FALLBACK_START_MAX_ATTEMPTS ||
-          !shouldStartFallbackScreencast(options.webrtcPreferred, state, latestCdpFrame)
-        ) {
+    const fallbackScreencast$ = combineLatest([state$, viewport$, cdpFrame$]).pipe(
+      switchMap(([state, viewport, frame]) => {
+        if (!shouldStartFallbackScreencast(options.webrtcPreferred, state, frame)) {
           return EMPTY;
         }
-        return timer(fallbackStartDelay(state, fallbackStartAttempts)).pipe(
-          filter(
-            () =>
-              fallbackStartAttempts < FALLBACK_START_MAX_ATTEMPTS &&
-              shouldStartFallbackScreencast(options.webrtcPreferred, state, latestCdpFrame),
-          ),
-          tap(() => {
-            fallbackStartAttempts += 1;
-            cdpInput$.next(screencastStartCommand(state, viewport));
-          }),
+        return timer(state.mediaPath === "fallback-cdp" ? 0 : 2500).pipe(
+          tap(() => cdpInput$.next(screencastStartCommand(state, viewport))),
         );
       }),
       ignoreElements(),
@@ -526,47 +465,6 @@ function shouldStartFallbackScreencast(
     return true;
   }
   return state.mediaPhase === "live" && !state.mediaStream;
-}
-
-function fallbackStartDelay(state: BrowserControlState, attempts: number): number {
-  if (attempts === 0) {
-    return state.mediaPath === "fallback-cdp" ? 0 : 2500;
-  }
-  return FALLBACK_RETRY_DELAY_MS * attempts;
-}
-
-function sameFallbackScreencastRetryContext(
-  previous: FallbackScreencastSchedule,
-  next: FallbackScreencastSchedule,
-): boolean {
-  return (
-    previous.state.phase === next.state.phase &&
-    previous.state.activeTargetId === next.state.activeTargetId &&
-    previous.state.mediaPhase === next.state.mediaPhase &&
-    previous.state.mediaPath === next.state.mediaPath &&
-    Boolean(previous.state.mediaStream) === Boolean(next.state.mediaStream) &&
-    previous.viewport.width === next.viewport.width &&
-    previous.viewport.height === next.viewport.height &&
-    previous.viewport.deviceScaleFactor === next.viewport.deviceScaleFactor
-  );
-}
-
-function sameFallbackScreencastSchedule(
-  previous: FallbackScreencastSchedule,
-  next: FallbackScreencastSchedule,
-): boolean {
-  return (
-    previous.frameReady === next.frameReady &&
-    previous.state.phase === next.state.phase &&
-    previous.state.activeTargetId === next.state.activeTargetId &&
-    previous.state.mediaPhase === next.state.mediaPhase &&
-    previous.state.mediaPath === next.state.mediaPath &&
-    Boolean(previous.state.mediaStream) === Boolean(next.state.mediaStream) &&
-    previous.state.lastError === next.state.lastError &&
-    previous.viewport.width === next.viewport.width &&
-    previous.viewport.height === next.viewport.height &&
-    previous.viewport.deviceScaleFactor === next.viewport.deviceScaleFactor
-  );
 }
 
 function isInputMessage(message: ClientMessage): message is WebRTCInputMessage {

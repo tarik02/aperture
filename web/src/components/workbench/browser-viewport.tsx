@@ -30,7 +30,6 @@ type FrameMetadata = Pick<ScreencastFrame, "width" | "height">;
 
 const MULTI_CLICK_MS = 500;
 const MULTI_CLICK_DISTANCE = 5;
-const latestFreshFrameByStream = new WeakMap<object, ScreencastFrame | null>();
 
 export function BrowserViewport({
   control,
@@ -112,7 +111,6 @@ export function BrowserViewport({
     const subscription = control.frame$.subscribe((frame) => {
       frameRef.current = frame;
       if (!frame) {
-        latestFreshFrameByStream.set(control.frame$, null);
         imageRef.current?.removeAttribute("src");
         if (frameMetadataRef.current !== null) {
           frameMetadataRef.current = null;
@@ -125,17 +123,6 @@ export function BrowserViewport({
         return;
       }
 
-      const previousFreshFrame = latestFreshFrameByStream.get(control.frame$) ?? null;
-      const isNewFrame =
-        !latestFreshFrameByStream.has(control.frame$) ||
-        previousFreshFrame === null ||
-        previousFreshFrame.targetId !== frame.targetId ||
-        previousFreshFrame.frameId !== frame.frameId ||
-        frame.receivedAt > previousFreshFrame.receivedAt;
-      if (isNewFrame) {
-        latestFreshFrameByStream.set(control.frame$, frame);
-      }
-
       if (imageRef.current && !showingWebRTC) {
         setImageFrame(imageRef.current, frame);
       }
@@ -145,7 +132,7 @@ export function BrowserViewport({
         frameMetadataRef.current = nextMetadata;
         setFrameMetadata(nextMetadata);
       }
-      if (isNewFrame && frameStaleRef.current) {
+      if (frameStaleRef.current) {
         frameStaleRef.current = false;
         setFrameStale(false);
       }
@@ -153,13 +140,6 @@ export function BrowserViewport({
 
     return () => subscription.unsubscribe();
   }, [control.frame$, showingWebRTC]);
-
-  useEffect(() => {
-    if (showingWebRTC || !frameMetadata || !imageRef.current || !frameRef.current) {
-      return;
-    }
-    setImageFrame(imageRef.current, frameRef.current);
-  }, [frameMetadata, showingWebRTC]);
 
   useEffect(() => {
     const subscription = interval(500).subscribe(() => {
