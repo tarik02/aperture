@@ -9,7 +9,3 @@ type NoopReconciler struct{}
 func (NoopReconciler) Reconcile(context.Context) error {
 	return nil
 }
-
-func (NoopReconciler) ReconcileRequired(context.Context) error {
-	return nil
-}

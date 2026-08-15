@@ -97,7 +97,6 @@ func newDeploymentCmd() *cobra.Command {
 	}
 	state.AddCommand(
 		newDeploymentStateGetCmd(),
-		newDeploymentStatePathCmd(),
 		newDeploymentStateMarkActiveCmd(),
 	)
 
@@ -109,21 +108,6 @@ func newDeploymentCmd() *cobra.Command {
 
 	cmd.AddCommand(state, edge)
 	return cmd
-}
-
-func newDeploymentStatePathCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "path",
-		Short: "print deployment state path",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(rootFlags)
-			if err != nil {
-				return fmt.Errorf("load config: %w", err)
-			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), cfg.DeployStatePath)
-			return err
-		},
-	}
 }
 
 func newDeploymentStateGetCmd() *cobra.Command {
@@ -162,7 +146,7 @@ func newDeploymentStateMarkActiveCmd() *cobra.Command {
 			if strings.TrimSpace(activeVersion) == "" {
 				activeVersion = cfg.DeployVersion
 			}
-			state, err := deploystate.New(cfg).MarkActiveContext(cmd.Context(), args[0], activeVersion)
+			state, err := deploystate.New(cfg).MarkActive(args[0], activeVersion)
 			if err != nil {
 				return fmt.Errorf("mark active deployment state: %w", err)
 			}
@@ -201,13 +185,13 @@ func newDeploymentEdgeWriteCmd() *cobra.Command {
 				if err := deploystate.Validate(state); err != nil {
 					return fmt.Errorf("validate edge deployment state: %w", err)
 				}
-				if err := traefik.WriteEdgeConfigForStateContext(cmd.Context(), cfg, state); err != nil {
+				if err := traefik.WriteEdgeConfigForState(cfg, state); err != nil {
 					return fmt.Errorf("write deployment edge config: %w", err)
 				}
 				return nil
 			}
 
-			if err := traefik.WriteEdgeConfigContext(cmd.Context(), cfg, deploystate.New(cfg)); err != nil {
+			if err := traefik.WriteEdgeConfig(cfg, deploystate.New(cfg)); err != nil {
 				return fmt.Errorf("write deployment edge config: %w", err)
 			}
 			return nil

@@ -1,20 +1,17 @@
 package deploystate
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/google/renameio/v2"
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -37,198 +34,6 @@ type Service struct {
 	blueURL  string
 	greenURL string
 	now      func() time.Time
-}
-
-// FileLock serializes deployment promotion with route publication across processes.
-type FileLock struct {
-	file      *os.File
-	inherited bool
-	path      string
-}
-
-type lockContextKey struct{}
-
-// WithLock runs fn while holding the deployment lock and propagates ownership to nested writers.
-func WithLock(ctx context.Context, statePath string, fn func(context.Context) error) error {
-	lock, err := AcquireLock(ctx, statePath)
-	if err != nil {
-		return err
-	}
-	resultErr := fn(context.WithValue(ctx, lockContextKey{}, lock))
-	if closeErr := lock.Close(); closeErr != nil {
-		return errors.Join(resultErr, closeErr)
-	}
-	return resultErr
-}
-
-// AcquireLock takes the deployment lock associated with statePath.
-func AcquireLock(ctx context.Context, statePath string) (*FileLock, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if lock, ok := ctx.Value(lockContextKey{}).(*FileLock); ok && lock.path == statePath {
-		if lock.file == nil || !lockMatchesCurrentAnchor(lock.file, statePath) {
-			return nil, errors.New("deployment lock pathname was replaced while held")
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return &FileLock{inherited: true, path: statePath}, nil
-	}
-	if fdText := os.Getenv("APERTURE_DEPLOY_LOCK_FD"); fdText != "" {
-		fd, parseErr := strconv.Atoi(fdText)
-		if parseErr != nil || fd < 0 {
-			return nil, errors.New("invalid inherited deployment lock descriptor")
-		}
-		lockPath := statePath + ".lock.anchor"
-		fdPath, fdErr := os.Stat(fmt.Sprintf("/proc/self/fd/%d", fd))
-		lockTarget, targetErr := os.Stat(lockPath)
-		_, descriptorErr := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
-		if fdErr != nil || targetErr != nil || descriptorErr != nil || !os.SameFile(fdPath, lockTarget) {
-			return nil, errors.New("inherited deployment lock descriptor does not match current lock inode")
-		}
-		if !inheritedLockHeld(fd) {
-			return nil, errors.New("inherited deployment lock descriptor is not locked")
-		}
-		return &FileLock{inherited: true, path: statePath}, nil
-	}
-	lockPath := statePath + ".lock"
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
-		return nil, fmt.Errorf("mkdir deployment lock dir: %w", err)
-	}
-	anchorPath := lockPath + ".anchor"
-	if err := ensureLockAnchor(lockPath, anchorPath); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(anchorPath, os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open deployment lock: %w", err)
-	}
-	for {
-		err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-		if err == nil {
-			if !lockMatchesCurrentAnchor(file, statePath) {
-				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-				_ = file.Close()
-				return nil, errors.New("deployment lock pathname was replaced during acquisition")
-			}
-			return &FileLock{file: file, path: statePath}, nil
-		}
-		if err != unix.EAGAIN && err != unix.EWOULDBLOCK {
-			_ = file.Close()
-			return nil, fmt.Errorf("lock deployment state: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			_ = file.Close()
-			return nil, ctx.Err()
-		case <-time.After(25 * time.Millisecond):
-		}
-	}
-}
-
-// ensureLockAnchor keeps a second hard link to the lock inode. Writers lock the
-// anchor, so renaming or replacing the public pathname cannot split the lock.
-func ensureLockAnchor(lockPath, anchorPath string) error {
-	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
-		if _, anchorErr := os.Stat(anchorPath); anchorErr == nil {
-			if linkErr := os.Link(anchorPath, lockPath); linkErr != nil && !os.IsExist(linkErr) {
-				return fmt.Errorf("restore deployment lock pathname: %w", linkErr)
-			}
-		} else if !os.IsNotExist(anchorErr) {
-			return fmt.Errorf("stat deployment lock anchor: %w", anchorErr)
-		}
-	}
-	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
-		file, createErr := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
-		if createErr != nil {
-			return fmt.Errorf("open deployment lock: %w", createErr)
-		}
-		if closeErr := file.Close(); closeErr != nil {
-			return fmt.Errorf("close deployment lock: %w", closeErr)
-		}
-	} else if err != nil {
-		return fmt.Errorf("stat deployment lock: %w", err)
-	}
-	lockInfo, err := os.Stat(lockPath)
-	if err != nil {
-		return fmt.Errorf("stat deployment lock: %w", err)
-	}
-	anchorInfo, anchorErr := os.Stat(anchorPath)
-	if anchorErr == nil {
-		if !os.SameFile(lockInfo, anchorInfo) {
-			return errors.New("deployment lock pathname was replaced; lock anchor inode differs")
-		}
-		return nil
-	}
-	if !os.IsNotExist(anchorErr) {
-		return fmt.Errorf("stat deployment lock anchor: %w", anchorErr)
-	}
-	if err := os.Link(lockPath, anchorPath); err != nil && !os.IsExist(err) {
-		return fmt.Errorf("create deployment lock anchor: %w", err)
-	}
-	anchorInfo, err = os.Stat(anchorPath)
-	if err != nil || !os.SameFile(lockInfo, anchorInfo) {
-		return errors.New("deployment lock anchor inode differs from lock pathname")
-	}
-	return nil
-}
-
-// inheritedLockHeld verifies the supplied descriptor itself owns the lock. A
-// nonblocking flock on an inherited open file description succeeds, while a
-// separately opened descriptor for the same pathname contends and fails.
-func inheritedLockHeld(fd int) bool {
-	if !lockEntryPresent(fd) {
-		return false
-	}
-	if unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB) != nil {
-		return false
-	}
-	return lockEntryPresent(fd)
-}
-
-func lockEntryPresent(fd int) bool {
-	var stat unix.Stat_t
-	if unix.Fstat(fd, &stat) != nil {
-		return false
-	}
-	locks, err := os.ReadFile("/proc/locks")
-	if err != nil {
-		return false
-	}
-	device := fmt.Sprintf("%02x:%02x", unix.Major(uint64(stat.Dev)), unix.Minor(uint64(stat.Dev)))
-	inode := strconv.FormatUint(stat.Ino, 10)
-	for _, line := range strings.Split(string(locks), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 6 || fields[1] != "FLOCK" || fields[3] != "WRITE" {
-			continue
-		}
-		parts := strings.Split(fields[5], ":")
-		if len(parts) == 3 && parts[0]+":"+parts[1] == device && parts[2] == inode {
-			return true
-		}
-	}
-	return false
-}
-
-func lockMatchesCurrentAnchor(file *os.File, statePath string) bool {
-	fdInfo, err := file.Stat()
-	if err != nil {
-		return false
-	}
-	pathInfo, err := os.Stat(statePath + ".lock.anchor")
-	return err == nil && os.SameFile(fdInfo, pathInfo)
-}
-
-// Close releases the deployment lock.
-func (l *FileLock) Close() error {
-	if l.inherited {
-		return nil
-	}
-	if err := unix.Flock(int(l.file.Fd()), unix.LOCK_UN); err != nil {
-		return errors.Join(fmt.Errorf("unlock deployment state: %w", err), l.file.Close())
-	}
-	return l.file.Close()
 }
 
 // New constructs a deployment-state service from runtime config.
@@ -260,66 +65,24 @@ func (s *Service) Load() (State, error) {
 
 // EnsureActive initializes deployment state when it does not exist.
 func (s *Service) EnsureActive(color, version string) (State, error) {
-	return s.EnsureActiveContext(context.Background(), color, version)
-}
-
-// EnsureActiveContext initializes deployment state while honoring cancellation.
-func (s *Service) EnsureActiveContext(ctx context.Context, color, version string) (state State, resultErr error) {
-	if err := ctx.Err(); err != nil {
-		return State{}, err
-	}
-	lock, err := AcquireLock(ctx, s.path)
-	if err != nil {
-		return State{}, err
-	}
-	defer func() {
-		if closeErr := lock.Close(); closeErr != nil {
-			resultErr = errors.Join(resultErr, closeErr)
-		}
-	}()
-	if err := ctx.Err(); err != nil {
-		return State{}, err
-	}
-
-	state, err = s.Load()
-	if checkErr := ctx.Err(); checkErr != nil {
-		return State{}, checkErr
-	}
+	state, err := s.Load()
 	if err == nil {
 		return state, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return State{}, err
 	}
-	return s.MarkActiveContext(context.WithValue(ctx, lockContextKey{}, lock), color, version)
+	return s.MarkActive(color, version)
 }
 
 // MarkActive atomically records color as the active API color.
 func (s *Service) MarkActive(color, version string) (State, error) {
-	return s.MarkActiveContext(context.Background(), color, version)
-}
-
-// MarkActiveContext records color as active while honoring cancellation while waiting.
-func (s *Service) MarkActiveContext(ctx context.Context, color, version string) (state State, resultErr error) {
-	lock, err := AcquireLock(ctx, s.path)
-	if err != nil {
-		return State{}, err
-	}
-	defer func() {
-		if closeErr := lock.Close(); closeErr != nil {
-			resultErr = errors.Join(resultErr, closeErr)
-		}
-	}()
-	if err := ctx.Err(); err != nil {
-		return State{}, err
-	}
-
 	color = strings.ToLower(strings.TrimSpace(color))
 	if !IsColor(color) {
 		return State{}, fmt.Errorf("deployment color must be blue or green")
 	}
 
-	state = State{
+	state := State{
 		ActiveColor:   color,
 		BlueURL:       s.blueURL,
 		GreenURL:      s.greenURL,
@@ -335,15 +98,9 @@ func (s *Service) MarkActiveContext(ctx context.Context, color, version string) 
 		return State{}, fmt.Errorf("encode deployment state: %w", err)
 	}
 	body = append(body, '\n')
-	if err := ctx.Err(); err != nil {
-		return State{}, err
-	}
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return State{}, fmt.Errorf("mkdir deployment state dir: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return State{}, err
 	}
 	if err := renameio.WriteFile(s.path, body, 0o600, renameio.WithStaticPermissions(0o600)); err != nil {
 		return State{}, fmt.Errorf("write deployment state: %w", err)
