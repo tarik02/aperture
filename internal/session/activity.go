@@ -35,25 +35,24 @@ func (s *Service) AcquireCDPPort(ctx context.Context, tenantID, sessionID string
 	// A suspended wake persists fresh activity and retention timestamps with its lifecycle update.
 	wasSuspended := sessionRow.Status == db.SessionStatusSuspended
 	inhibitorRelease, first := s.acquireInhibitor(sessionID)
-	release := s.releaseInhibitor(sessionID, inhibitorRelease)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
-		release()
+		inhibitorRelease()
 		return 0, nil, err
 	}
 	if sessionRow.CurrentCDPPort == nil || *sessionRow.CurrentCDPPort <= 0 {
-		release()
+		inhibitorRelease()
 		return 0, nil, ErrNotRunning
 	}
 	if first && !wasSuspended {
 		if err := s.touchConnected(ctx, sessionRow); err != nil {
-			release()
+			inhibitorRelease()
 			return 0, nil, err
 		}
 	}
-	return *sessionRow.CurrentCDPPort, release, nil
+	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionID, inhibitorRelease), nil
 }
 
 // AcquireAuthorizedCDPPort wakes a session-token-authorized session if needed and holds an activity inhibitor.
@@ -67,25 +66,24 @@ func (s *Service) AcquireAuthorizedCDPPort(ctx context.Context, routeSessionID, 
 	}
 	wasSuspended := sessionRow.Status == db.SessionStatusSuspended
 	inhibitorRelease, first := s.acquireInhibitor(sessionRow.ID)
-	release := s.releaseInhibitor(sessionRow.ID, inhibitorRelease)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
-		release()
+		inhibitorRelease()
 		return 0, nil, err
 	}
 	if sessionRow.CurrentCDPPort == nil || *sessionRow.CurrentCDPPort <= 0 {
-		release()
+		inhibitorRelease()
 		return 0, nil, ErrNotRunning
 	}
 	if first && !wasSuspended {
 		if err := s.touchConnected(ctx, sessionRow); err != nil {
-			release()
+			inhibitorRelease()
 			return 0, nil, err
 		}
 	}
-	return *sessionRow.CurrentCDPPort, release, nil
+	return *sessionRow.CurrentCDPPort, s.releaseInhibitor(sessionRow.ID, inhibitorRelease), nil
 }
 
 // WakeAuthorizedSession validates a public session token and waits until a suspended session is ready.
@@ -108,26 +106,25 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 	}
 	wasSuspended := sessionRow.Status == db.SessionStatusSuspended
 	inhibitorRelease, first := s.acquireInhibitor(sessionID)
-	release := s.releaseInhibitor(sessionID, inhibitorRelease)
 	unlock()
 
 	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
 	if err != nil {
-		release()
+		inhibitorRelease()
 		return 0, nil, err
 	}
 	port, err := wrapperPort(sessionRow)
 	if err != nil {
-		release()
+		inhibitorRelease()
 		return 0, nil, err
 	}
 	if first && !wasSuspended {
 		if err := s.touchConnected(ctx, sessionRow); err != nil {
-			release()
+			inhibitorRelease()
 			return 0, nil, err
 		}
 	}
-	return port, release, nil
+	return port, s.releaseInhibitor(sessionID, inhibitorRelease), nil
 }
 
 // SuspendIdleSessions stops running sessions that have no recent connection activity.
