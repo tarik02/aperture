@@ -27,7 +27,6 @@ const (
 	cdpReadyTimeout        = 45 * time.Second
 	cdpReadyPollInterval   = 500 * time.Millisecond
 	cdpReadyRequestTime    = 2 * time.Second
-	claimLeaseDuration     = 5 * time.Minute
 	defaultSuspendAfter    = 15 * time.Minute
 )
 
@@ -58,7 +57,7 @@ type Service struct {
 	mountLocal      func(ctx context.Context, sessionID string, baseSnapshotID *string) error
 	unmountLocal    func(ctx context.Context, sessionID string) error
 	mu              sync.Mutex
-	inhibitors      map[inhibitorKey]int
+	inhibitors      map[string]int
 	wakes           map[string]*wakeCall
 }
 
@@ -187,27 +186,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	if err := s.repo.CreateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
-	createClaim, err := ids.NewUUIDv7()
-	if err != nil {
-		return nil, err
-	}
-	claimed, err := s.repo.ClaimSessionIncarnation(ctx, sessionID, db.SessionStatusCreating, nil, createClaim)
-	if err != nil {
-		return nil, err
-	}
-	if !claimed {
-		return nil, fmt.Errorf("claim new session incarnation")
-	}
-	sessionRow.ClaimToken = &createClaim
-	sessionRow.ClaimExpiresAt = ptrString(time.Now().UTC().Add(claimLeaseDuration).Format(time.RFC3339Nano))
 
 	rawSessionToken, hashSessionToken, err := GenerateSessionToken(sessionID)
 	if err != nil {
 		return nil, err
-	}
-	fence := func(operation string) error { return s.reserveClaim(ctx, sessionID, createClaim, operation) }
-	if err := fence("create session token"); err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "session token creation fenced", err))
 	}
 	if err := s.repo.CreateSessionToken(ctx, &db.SessionToken{
 		SessionID: sessionID,
@@ -216,31 +198,27 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		RawToken:  &rawSessionToken,
 		CreatedAt: now.Format(time.RFC3339Nano),
 	}); err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "session token creation failed", err))
+		return nil, err
 	}
 
-	if err := fence("replace session tags"); err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "session tag replacement fenced", err))
-	}
 	if err := s.replaceTags(ctx, sessionID, input.Tags); err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "session tag replacement failed", err))
+		return nil, err
 	}
 
-	if err := fence("mount overlay"); err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "overlay mount fenced", err))
-	}
 	if err := s.mountOverlay(ctx, sessionID, baseSnapshotID); err != nil {
-		mountErr := &OverlayMountError{SessionID: sessionID, Err: err}
-		return nil, errors.Join(mountErr, s.markFailed(ctx, sessionRow, "overlay mount failed", mountErr))
+		_ = s.markFailed(ctx, sessionRow, "overlay mount failed", err)
+		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
 	}
 
 	port, err := AllocateCDPPort()
 	if err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "cdp port allocation failed", err))
+		_ = s.markFailed(ctx, sessionRow, "cdp port allocation failed", err)
+		return nil, err
 	}
 	wrapperPort, err := AllocateCDPPort(port)
 	if err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "wrapper port allocation failed", err))
+		_ = s.markFailed(ctx, sessionRow, "wrapper port allocation failed", err)
+		return nil, err
 	}
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
@@ -292,74 +270,35 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
 		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
 	}
-	if err := fence("prepare runtime"); err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "runtime preparation fenced", err))
-	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
-		return nil, errors.Join(err, s.markFailed(ctx, sessionRow, "runtime preparation failed", err))
+		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
+		return nil, err
 	}
 
 	runtimePath := layout.RuntimeEnv
 	startedAt := now.Format(time.RFC3339Nano)
-	sessionRow.Status = db.SessionStatusCreating
+	sessionRow.Status = db.SessionStatusRunning
 	sessionRow.StartedAt = &startedAt
 	sessionRow.StoppedAt = nil
 	sessionRow.DeletedAt = nil
 	sessionRow.RuntimeEnvPath = &runtimePath
 	sessionRow.CurrentCDPPort = &port
 
-	if err := fence("start browser"); err != nil {
-		failedStartedAt := sessionRow.StartedAt
-		failureErr := s.markFailed(ctx, sessionRow, "browser start fenced", err)
-		restoreCtx, restoreCancel := finalizationContext()
-		defer restoreCancel()
-		restoreErr := s.restoreFailedStartedAt(restoreCtx, sessionRow, failedStartedAt, nil)
-		return nil, fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr, restoreErr))
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.cleanupPreparedRuntime(ctx, sessionID)
+		return nil, err
 	}
+
 	if err := s.browser.Start(ctx, sessionID); err != nil {
-		failedStartedAt := sessionRow.StartedAt
-		failureErr := s.markFailed(ctx, sessionRow, "browser start failed", err)
-		restoreCtx, restoreCancel := finalizationContext()
-		defer restoreCancel()
-		restoreErr := s.restoreFailedStartedAt(restoreCtx, sessionRow, failedStartedAt, nil)
-		return nil, fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr, restoreErr))
-	}
-	if err := fence("wait for cdp readiness"); err != nil {
-		failedStartedAt := sessionRow.StartedAt
-		failureErr := s.markFailed(ctx, sessionRow, "browser readiness fenced", err)
-		restoreCtx, restoreCancel := finalizationContext()
-		defer restoreCancel()
-		restoreErr := s.restoreFailedStartedAt(restoreCtx, sessionRow, failedStartedAt, nil)
-		return nil, fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr, restoreErr))
+		sessionRow.StartedAt = nil
+		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
 	if err := s.waitForCDPReady(ctx, port); err != nil {
-		failedStartedAt := sessionRow.StartedAt
-		failureErr := s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
-		restoreCtx, restoreCancel := finalizationContext()
-		defer restoreCancel()
-		restoreErr := s.restoreFailedStartedAt(restoreCtx, sessionRow, failedStartedAt, nil)
-		return nil, fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr, restoreErr))
+		_ = s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
-	promoted, err := s.repo.PromoteClaimedSession(ctx, sessionRow, *sessionRow.ClaimToken)
-	if err != nil {
-		failedStartedAt := sessionRow.StartedAt
-		failureErr := s.markFailed(ctx, sessionRow, "session promotion failed", err)
-		restoreCtx, restoreCancel := finalizationContext()
-		defer restoreCancel()
-		restoreErr := s.restoreFailedStartedAt(restoreCtx, sessionRow, failedStartedAt, nil)
-		return nil, errors.Join(err, failureErr, restoreErr)
-	}
-	if !promoted {
-		failedStartedAt := sessionRow.StartedAt
-		failureErr := s.markFailed(ctx, sessionRow, "session promotion lost its claim", ErrInvalidState)
-		restoreCtx, restoreCancel := finalizationContext()
-		defer restoreCancel()
-		restoreErr := s.restoreFailedStartedAt(restoreCtx, sessionRow, failedStartedAt, nil)
-		return nil, errors.Join(ErrInvalidState, failureErr, restoreErr)
-	}
-	sessionRow.Status = db.SessionStatusRunning
-	sessionRow.ClaimToken = nil
-	sessionRow.ClaimExpiresAt = nil
+
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
 	}
@@ -526,42 +465,18 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if sessionRow.Status == db.SessionStatusExpired {
 		return nil, ErrExpired
 	}
-	originalStatus := sessionRow.Status
-	originalStartedAt := sessionRow.StartedAt
-	claimToken, err := ids.NewUUIDv7()
-	if err != nil {
+	wasRunning := sessionRow.Status == db.SessionStatusRunning
+
+	if err := s.retireMediaSession(sessionID); err != nil {
 		return nil, err
 	}
-	claimed, err := s.repo.ClaimSessionIncarnation(ctx, sessionID, originalStatus, originalStartedAt, claimToken)
-	if err != nil {
+	if wasRunning {
+		if err := s.browser.Stop(ctx, sessionID); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
 		return nil, err
-	}
-	if !claimed {
-		return nil, ErrInvalidState
-	}
-	sessionRow.Status = db.SessionStatusCreating
-	sessionRow.ClaimToken = &claimToken
-	sessionRow.ClaimExpiresAt = ptrString(time.Now().UTC().Add(claimLeaseDuration).Format(time.RFC3339Nano))
-
-	cleanupCtx, cleanupCancel := cleanupContext(ctx)
-	defer cleanupCancel()
-	restoreClaim := func(cause error) error {
-		finalizeCtx, finalizeCancel := finalizationContext()
-		defer finalizeCancel()
-		restoreErr := s.repo.RestoreSessionStatusIfClaimed(finalizeCtx, sessionID, claimToken, originalStatus, originalStartedAt)
-		return errors.Join(cause, restoreErr)
-	}
-
-	cleanupErr := s.runClaimedSessionSideEffects(
-		cleanupCtx,
-		sessionID,
-		claimToken,
-		originalStatus == db.SessionStatusRunning || originalStatus == db.SessionStatusCreating,
-		originalStatus == db.SessionStatusRunning || originalStatus == db.SessionStatusCreating,
-		true,
-	)
-	if cleanupErr != nil {
-		return nil, restoreClaim(cleanupErr)
 	}
 
 	now := s.now().UTC()
@@ -577,21 +492,19 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
 
-	finalizeCtx, finalizeCancel := finalizationContext()
-	defer finalizeCancel()
-	deleted, err := s.repo.FinalizeDeletedSessionIfClaimed(finalizeCtx, sessionRow, claimToken)
-	if err != nil {
-		return nil, restoreClaim(err)
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return nil, err
 	}
-	if !deleted {
-		return nil, restoreClaim(ErrInvalidState)
-	}
-	sessionRow.ClaimToken = nil
-	sessionRow.ClaimExpiresAt = nil
 	s.closeMediaSession(sessionID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
 	}
+	if wasRunning {
+		if err := s.unmountOverlay(ctx, sessionID); err != nil {
+			return nil, &OverlayMountError{SessionID: sessionID, Err: err}
+		}
+	}
+
 	tags, err := s.repo.ListSessionTags(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -625,59 +538,48 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	if !s.overlayPresent(sessionRow) {
 		return nil, ErrOverlayMissing
 	}
-	previousStartedAt := sessionRow.StartedAt
-	claimToken, err := ids.NewUUIDv7()
-	if err != nil {
-		return nil, err
-	}
-	claimed, err := s.repo.ClaimSessionIncarnation(ctx, sessionID, sessionRow.Status, previousStartedAt, claimToken)
-	if err != nil {
-		return nil, err
-	}
-	if !claimed {
-		return nil, ErrNotReopenable
-	}
-	sessionRow.ClaimToken = &claimToken
-	sessionRow.ClaimExpiresAt = ptrString(time.Now().UTC().Add(claimLeaseDuration).Format(time.RFC3339Nano))
-	sessionRow.Status = db.SessionStatusCreating
 
-	cleanupCtx, cleanupCancel := cleanupContext(ctx)
-	defer cleanupCancel()
-	if err := s.runClaimedSessionSideEffects(cleanupCtx, sessionID, claimToken, true, false, true); err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+	if err := s.retireMediaSession(sessionID); err != nil {
+		return nil, err
+	}
+	if err := s.browser.Stop(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	if err := s.browser.RemoveRuntimeEnv(sessionID); err != nil {
+		return nil, err
 	}
 
 	layout, err := paths.Session(s.cfg, sessionID)
 	if err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+		return nil, err
 	}
 
-	if err := s.reserveClaim(ctx, sessionID, claimToken, "mount overlay"); err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
-	}
 	if err := s.mountOverlay(ctx, sessionID, sessionRow.BaseSnapshotID); err != nil {
-		mountErr := &OverlayMountError{SessionID: sessionID, Err: err}
-		return nil, errors.Join(mountErr, s.markReopenFailedRetainedLocked(ctx, sessionRow, mountErr, previousStartedAt))
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
 	}
 
 	channel, err := s.channels.Resolve(sessionRow.BrowserChannel)
 	if err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
 	}
 
 	var browserArgs []string
 	if err := json.Unmarshal([]byte(sessionRow.BrowserArgsJSON), &browserArgs); err != nil {
-		parseErr := fmt.Errorf("parse browser args: %w", err)
-		return nil, errors.Join(parseErr, s.markReopenFailedRetainedLocked(ctx, sessionRow, parseErr, previousStartedAt))
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, fmt.Errorf("parse browser args: %w", err)
 	}
 
 	port, err := AllocateCDPPort()
 	if err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
 	}
 	wrapperPort, err := AllocateCDPPort(port)
 	if err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
 	}
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
@@ -689,7 +591,8 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	rawSessionToken, err := s.ensureSessionToken(ctx, sessionRow)
 
 	if err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
@@ -734,11 +637,9 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
 		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
 	}
-	if err := s.reserveClaim(ctx, sessionID, claimToken, "prepare runtime"); err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
-	}
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
-		return nil, errors.Join(err, s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt))
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
 	}
 
 	now := s.now().UTC()
@@ -746,7 +647,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 	runtimePath := layout.RuntimeEnv
 
-	sessionRow.Status = db.SessionStatusCreating
+	sessionRow.Status = db.SessionStatusRunning
 	sessionRow.DeletedAt = nil
 	sessionRow.StoppedAt = nil
 	sessionRow.StartedAt = &startedAt
@@ -756,34 +657,16 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	sessionRow.CurrentCDPPort = &port
 	sessionRow.LastConnectedAt = &startedAt
 
-	if err := s.reserveClaim(ctx, sessionID, claimToken, "start browser"); err != nil {
-		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
-		return nil, errors.Join(ErrBrowserStart, err, failureErr)
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.cleanupPreparedRuntime(ctx, sessionID)
+		return nil, err
 	}
+
 	if err := s.browser.Start(ctx, sessionID); err != nil {
-		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
-		return nil, fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr))
+		sessionRow.StartedAt = nil
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
-	if err := s.reserveClaim(ctx, sessionID, claimToken, "wait for cdp readiness"); err != nil {
-		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
-		return nil, errors.Join(ErrBrowserStart, err, failureErr)
-	}
-	if err := s.waitForCDPReady(ctx, runtimeEnv.CDPPort); err != nil {
-		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
-		return nil, fmt.Errorf("%w: %w", ErrBrowserStart, errors.Join(err, failureErr))
-	}
-	promoted, err := s.repo.PromoteClaimedSession(ctx, sessionRow, claimToken)
-	if err != nil {
-		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, err, previousStartedAt)
-		return nil, errors.Join(err, failureErr)
-	}
-	if !promoted {
-		failureErr := s.markReopenFailedRetainedLocked(ctx, sessionRow, ErrNotReopenable, previousStartedAt)
-		return nil, errors.Join(ErrNotReopenable, failureErr)
-	}
-	sessionRow.Status = db.SessionStatusRunning
-	sessionRow.ClaimToken = nil
-	sessionRow.ClaimExpiresAt = nil
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
@@ -804,9 +687,6 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 
 // RotateSessionToken replaces the session token without restarting the browser.
 func (s *Service) RotateSessionToken(ctx context.Context, tenantID, sessionID string) (*SessionView, error) {
-	unlock := s.repo.LockSession(sessionID)
-	defer unlock()
-
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {
 		return nil, err
@@ -837,15 +717,10 @@ func (s *Service) RotateSessionToken(ctx context.Context, tenantID, sessionID st
 		return nil, err
 	}
 
-	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
-	refreshed, err := s.repo.RefreshSessionExpiryIfGeneration(ctx, sessionID, sessionRow.Status, sessionRow.StartedAt, expiresAt)
-	if err != nil {
+	sessionRow.ExpiresAt = now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
-	if !refreshed {
-		return nil, ErrInvalidState
-	}
-	sessionRow.ExpiresAt = expiresAt
 	if err := s.appendEvent(ctx, sessionRow, "session.token_rotated", "session token rotated", nil); err != nil {
 		return nil, err
 	}
@@ -1046,21 +921,12 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 
 // ReconcileStartup aligns DB session state with systemd and runtime files after restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
-	sessions, err := s.repo.ListSessionsByStatuses(ctx, []string{db.SessionStatusRunning, db.SessionStatusCreating})
+	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
 		return err
 	}
 
 	for _, sessionRow := range sessions {
-		if sessionRow.Status == db.SessionStatusCreating {
-			if sessionRow.ClaimToken != nil && sessionRow.ClaimExpiresAt != nil && !isExpired(*sessionRow.ClaimExpiresAt, s.now().UTC()) {
-				continue
-			}
-			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation recovered abandoned creating session", nil); err != nil {
-				return err
-			}
-			continue
-		}
 		if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
 			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found expired lease on running session", nil); err != nil {
 				return err
@@ -1115,9 +981,6 @@ func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if sessionRow != nil && sessionRow.ClaimToken != nil && sessionRow.ClaimExpiresAt != nil && !isExpired(*sessionRow.ClaimExpiresAt, s.now().UTC()) {
-			continue
-		}
 		if sessionRow != nil && sessionRow.Status == db.SessionStatusRunning && isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
 			if err := s.markFailedRetained(ctx, sessionRow, "startup reconciliation stopped expired running session unit", nil); err != nil {
 				return err
@@ -1125,9 +988,9 @@ func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
 			continue
 		}
 		if sessionRow == nil || sessionRow.Status != db.SessionStatusRunning {
-			if _, err := s.cleanupSessionSideEffects(ctx, sessionID, sessionRow); err != nil {
-				return err
-			}
+			_ = s.retireMediaSession(sessionID)
+			_ = s.browser.Stop(ctx, sessionID)
+			_ = s.browser.RemoveRuntimeEnv(sessionID)
 		}
 	}
 	return nil
@@ -1165,13 +1028,10 @@ func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
 		if keep {
 			continue
 		}
-		if sessionRow != nil && sessionRow.ClaimToken != nil && sessionRow.ClaimExpiresAt != nil && !isExpired(*sessionRow.ClaimExpiresAt, s.now().UTC()) {
-			continue
-		}
 
-		if _, err := s.cleanupSessionSideEffects(ctx, sessionID, sessionRow); err != nil {
-			return err
-		}
+		_ = s.retireMediaSession(sessionID)
+		_ = s.browser.Stop(ctx, sessionID)
+		_ = s.browser.RemoveRuntimeEnv(sessionID)
 	}
 	return nil
 }
@@ -1288,229 +1148,70 @@ func (s *Service) closeMediaSession(sessionID string) {
 	}
 }
 
-func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
-	return s.markFailedRetained(ctx, sessionRow, message, cause)
-}
-
-func (s *Service) restoreFailedStartedAt(ctx context.Context, sessionRow *db.Session, failedStartedAt, restoredStartedAt *string) error {
-	if failedStartedAt == nil {
-		return nil
-	}
-	if err := s.repo.RestoreFailedSessionStartedAt(ctx, sessionRow.ID, *failedStartedAt, restoredStartedAt); err != nil {
-		return err
-	}
-	sessionRow.StartedAt = restoredStartedAt
-	return nil
-}
-
-func (s *Service) cleanupSessionSideEffects(ctx context.Context, sessionID string, expected *db.Session) (bool, error) {
-	if expected == nil {
-		cleanupCtx, cleanupCancel := cleanupContext(ctx)
-		defer cleanupCancel()
-		return true, s.runSessionSideEffects(cleanupCtx, sessionID)
-	}
-	unlock := s.repo.LockSession(sessionID)
-	defer unlock()
-	originalStatus := expected.Status
-	originalStartedAt := expected.StartedAt
-	claimToken, err := s.ensureCleanupClaim(ctx, expected)
-	if err != nil {
-		return false, err
-	}
-	cleanupCtx, cleanupCancel := cleanupContext(ctx)
-	defer cleanupCancel()
-	cleanupErr := s.runClaimedSessionSideEffects(cleanupCtx, sessionID, claimToken, true, originalStatus == db.SessionStatusCreating, true)
-	finalizeCtx, finalizeCancel := finalizationContext()
-	defer finalizeCancel()
-	restoreErr := s.repo.RestoreSessionStatusIfClaimed(finalizeCtx, sessionID, claimToken, originalStatus, originalStartedAt)
-	return true, errors.Join(cleanupErr, restoreErr)
-}
-
-func cleanupContext(_ context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 30*time.Second)
-}
-
-func finalizationContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 10*time.Second)
-}
-
-func ptrString(value string) *string { return &value }
-
-func (s *Service) runSessionSideEffects(ctx context.Context, sessionID string) error {
+func (s *Service) cleanupPreparedRuntime(ctx context.Context, sessionID string) error {
 	return errors.Join(
 		s.retireMediaSession(sessionID),
-		s.browser.Stop(ctx, sessionID),
 		s.browser.RemoveRuntimeEnv(sessionID),
 		s.unmountOverlay(ctx, sessionID),
 	)
 }
 
-func (s *Service) reserveClaim(ctx context.Context, sessionID, claimToken, operation string) error {
-	reserved, err := s.repo.ReserveSessionClaim(ctx, sessionID, claimToken)
-	if err != nil {
-		return fmt.Errorf("%s: reserve session claim: %w", operation, err)
-	}
-	if !reserved {
-		return fmt.Errorf("%s: session claim is no longer owned: %w", operation, ErrInvalidState)
-	}
-	return nil
-}
-
-func (s *Service) ensureCleanupClaim(ctx context.Context, sessionRow *db.Session) (string, error) {
-	if sessionRow.ClaimToken != nil {
-		claimToken := *sessionRow.ClaimToken
-		claimLive := sessionRow.ClaimExpiresAt != nil && !isExpired(*sessionRow.ClaimExpiresAt, s.now().UTC())
-		if claimLive {
-			if err := s.reserveClaim(ctx, sessionRow.ID, claimToken, "cleanup"); err != nil {
-				return "", err
-			}
-			return claimToken, nil
-		}
-		newToken, err := ids.NewUUIDv7()
-		if err != nil {
-			return "", err
-		}
-		claimed, err := s.repo.ClaimSessionIncarnation(ctx, sessionRow.ID, db.SessionStatusCreating, sessionRow.StartedAt, newToken)
-		if err != nil {
-			return "", err
-		}
-		if !claimed {
-			return "", fmt.Errorf("cleanup: expired claim generation conflict: %w", ErrInvalidState)
-		}
-		sessionRow.ClaimToken = &newToken
-		sessionRow.ClaimExpiresAt = ptrString(time.Now().UTC().Add(claimLeaseDuration).Format(time.RFC3339Nano))
-		return newToken, nil
-	}
-	claimToken, err := ids.NewUUIDv7()
-	if err != nil {
-		return "", err
-	}
-	claimed, err := s.repo.ClaimSessionIncarnation(ctx, sessionRow.ID, sessionRow.Status, sessionRow.StartedAt, claimToken)
-	if err != nil {
-		return "", err
-	}
-	if !claimed {
-		return "", fmt.Errorf("cleanup: session claim generation conflict: %w", ErrInvalidState)
-	}
-	sessionRow.Status = db.SessionStatusCreating
-	sessionRow.ClaimToken = &claimToken
-	sessionRow.ClaimExpiresAt = ptrString(time.Now().UTC().Add(claimLeaseDuration).Format(time.RFC3339Nano))
-	return claimToken, nil
-}
-
-func (s *Service) runClaimedSessionSideEffects(ctx context.Context, sessionID, claimToken string, stopBrowser, unmount, stopOnError bool) error {
-	var errs []error
-	run := func(operation string, sideEffect func() error) bool {
-		if err := s.reserveClaim(ctx, sessionID, claimToken, operation); err != nil {
-			errs = append(errs, err)
-			return false
-		}
-		if err := sideEffect(); err != nil {
-			errs = append(errs, err)
-			if stopOnError {
-				return false
-			}
-		}
-		return true
-	}
-	if !run("retire media", func() error { return s.retireMediaSession(sessionID) }) {
-		return errors.Join(errs...)
-	}
-	if stopBrowser && !run("stop browser", func() error { return s.browser.Stop(ctx, sessionID) }) {
-		return errors.Join(errs...)
-	}
-	if !run("remove runtime environment", func() error { return s.browser.RemoveRuntimeEnv(sessionID) }) {
-		return errors.Join(errs...)
-	}
-	if unmount && !run("unmount overlay", func() error { return s.unmountOverlay(ctx, sessionID) }) {
-		return errors.Join(errs...)
-	}
-	return errors.Join(errs...)
+func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
+	return s.markFailedRetained(ctx, sessionRow, message, cause)
 }
 
 func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
-	unlock := s.repo.LockSession(sessionRow.ID)
-	defer unlock()
-	return s.markFailedRetainedLocked(ctx, sessionRow, message, cause)
-}
+	_ = s.retireMediaSession(sessionRow.ID)
+	_ = s.browser.Stop(ctx, sessionRow.ID)
+	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
 
-func (s *Service) markFailedRetainedLocked(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
 	now := s.now().UTC().Format(time.RFC3339Nano)
-	originalStatus := sessionRow.Status
-	originalStartedAt := sessionRow.StartedAt
-	claimCtx, claimCancel := cleanupContext(ctx)
-	defer claimCancel()
-	claimToken, err := s.ensureCleanupClaim(claimCtx, sessionRow)
-	if err != nil {
-		return err
-	}
-	cleanupCtx, cleanupCancel := cleanupContext(ctx)
-	defer cleanupCancel()
-	cleanupErr := s.runClaimedSessionSideEffects(cleanupCtx, sessionRow.ID, claimToken, true, true, false)
-	finalizeCtx, finalizeCancel := finalizationContext()
-	defer finalizeCancel()
-	transitioned, transitionErr := s.repo.MarkSessionFailedIfClaimed(finalizeCtx, sessionRow.ID, claimToken, now)
-	if transitionErr != nil || !transitioned {
-		restoreErr := s.repo.RestoreSessionStatusIfClaimed(finalizeCtx, sessionRow.ID, claimToken, originalStatus, originalStartedAt)
-		if transitionErr != nil {
-			return errors.Join(cleanupErr, transitionErr, restoreErr)
-		}
-		return errors.Join(cleanupErr, fmt.Errorf("mark session failed: generation conflict"), restoreErr)
-	}
-
 	sessionRow.Status = db.SessionStatusFailed
 	sessionRow.StoppedAt = &now
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
-	sessionRow.ClaimToken = nil
-	sessionRow.ClaimExpiresAt = nil
-	s.closeMediaSession(sessionRow.ID)
-
-	reconcileErr := s.traefik.Reconcile(finalizeCtx)
-	eventErr := s.appendEvent(finalizeCtx, sessionRow, "session.failed", message, cause)
-	return errors.Join(cleanupErr, reconcileErr, eventErr)
-}
-
-func (s *Service) markReopenFailedRetainedLocked(ctx context.Context, sessionRow *db.Session, cause error, restoredStartedAt *string) error {
-	now := s.now().UTC().Format(time.RFC3339Nano)
-	originalStatus := sessionRow.Status
-	originalStartedAt := sessionRow.StartedAt
-	claimCtx, claimCancel := cleanupContext(ctx)
-	defer claimCancel()
-	claimToken, err := s.ensureCleanupClaim(claimCtx, sessionRow)
-	if err != nil {
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return err
 	}
-	cleanupCtx, cleanupCancel := cleanupContext(ctx)
-	defer cleanupCancel()
-	cleanupErr := s.runClaimedSessionSideEffects(cleanupCtx, sessionRow.ID, claimToken, true, true, false)
-	finalizeCtx, finalizeCancel := finalizationContext()
-	defer finalizeCancel()
-	transitioned, transitionErr := s.repo.MarkSessionFailedIfClaimed(finalizeCtx, sessionRow.ID, claimToken, now)
-	if transitionErr != nil || !transitioned {
-		restoreErr := s.repo.RestoreSessionStatusIfClaimed(finalizeCtx, sessionRow.ID, claimToken, originalStatus, originalStartedAt)
-		if transitionErr != nil {
-			return errors.Join(cleanupErr, transitionErr, restoreErr)
-		}
-		return errors.Join(cleanupErr, fmt.Errorf("mark reopen failed: generation conflict"), restoreErr)
+	s.closeMediaSession(sessionRow.ID)
+
+	if err := s.traefik.Reconcile(ctx); err != nil {
+		return err
 	}
 
-	var restoreErr error
-	if sessionRow.StartedAt != nil || restoredStartedAt != nil {
-		restoreErr = s.restoreFailedStartedAt(finalizeCtx, sessionRow, sessionRow.StartedAt, restoredStartedAt)
+	if err := s.appendEvent(ctx, sessionRow, "session.failed", message, cause); err != nil {
+		return err
 	}
+
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	return nil
+}
+
+func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
+	_ = s.retireMediaSession(sessionRow.ID)
+	_ = s.browser.Stop(ctx, sessionRow.ID)
+	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
+
+	now := s.now().UTC().Format(time.RFC3339Nano)
 	sessionRow.Status = db.SessionStatusFailed
 	sessionRow.StoppedAt = &now
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
-	sessionRow.ClaimToken = nil
-	sessionRow.ClaimExpiresAt = nil
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return err
+	}
 	s.closeMediaSession(sessionRow.ID)
-	reconcileErr := s.traefik.Reconcile(finalizeCtx)
-	eventErr := s.appendEvent(finalizeCtx, sessionRow, "session.reopen_failed", "session reopen failed", cause)
-	return errors.Join(cleanupErr, restoreErr, reconcileErr, eventErr)
+	if err := s.traefik.Reconcile(ctx); err != nil {
+		return err
+	}
+	if err := s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause); err != nil {
+		return err
+	}
+
+	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	return nil
 }
 
 func (s *Service) appendEvent(ctx context.Context, sessionRow *db.Session, eventType, message string, cause error) error {
@@ -1616,7 +1317,7 @@ func isExpired(expiresAt string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return !now.Before(parsed)
+	return now.After(parsed)
 }
 
 func isRetainedOrRunning(status string) bool {

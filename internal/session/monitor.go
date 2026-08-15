@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/db"
@@ -15,7 +14,6 @@ type Monitor struct {
 	logger        *zap.Logger
 	interval      time.Duration
 	activeChecker func() (bool, error)
-	runWG         sync.WaitGroup
 }
 
 // NewMonitor constructs a running-session monitor.
@@ -34,22 +32,6 @@ func (m *Monitor) SetActiveChecker(checker func() (bool, error)) {
 
 // Run executes the monitor loop until ctx is canceled.
 func (m *Monitor) Run(ctx context.Context) {
-	m.runWG.Add(1)
-	m.loop(ctx)
-}
-
-// Start registers the monitor before launching its loop, making Wait safe immediately.
-func (m *Monitor) Start(ctx context.Context) {
-	m.start(ctx)
-}
-
-func (m *Monitor) start(ctx context.Context) {
-	m.runWG.Add(1)
-	go m.loop(ctx)
-}
-
-func (m *Monitor) loop(ctx context.Context) {
-	defer m.runWG.Done()
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
@@ -64,9 +46,6 @@ func (m *Monitor) loop(ctx context.Context) {
 		}
 	}
 }
-
-// Wait blocks until the monitor loop and any in-progress tick have stopped.
-func (m *Monitor) Wait() { m.runWG.Wait() }
 
 func (m *Monitor) tick(ctx context.Context) {
 	if m.activeChecker != nil {
@@ -86,42 +65,42 @@ func (m *Monitor) tick(ctx context.Context) {
 		m.logger.Error("list running sessions", zap.Error(err))
 		return
 	}
-
+	var activeSessionIDs []string
+	var listErr error
 	if len(sessions) > 0 {
-		activeSessionIDs, err := m.service.browser.ListActiveSessionIDs(ctx)
-		if err != nil {
-			m.logger.Error("list active browser units", zap.Error(err))
-		} else {
-			active := make(map[string]struct{}, len(activeSessionIDs))
-			for _, sessionID := range activeSessionIDs {
-				active[sessionID] = struct{}{}
-			}
+		activeSessionIDs, listErr = m.service.browser.ListActiveSessionIDs(ctx)
+	}
+	activeSessions := make(map[string]struct{}, len(activeSessionIDs))
+	for _, sessionID := range activeSessionIDs {
+		activeSessions[sessionID] = struct{}{}
+	}
+	if listErr != nil {
+		m.logger.Error("list active browser units", zap.Error(listErr))
+	}
 
-			now := m.service.now().UTC()
-			refreshGenerations := make([]db.SessionGeneration, 0, len(sessions))
-			for _, sessionRow := range sessions {
-				if _, ok := active[sessionRow.ID]; !ok {
-					activeAfterRecheck, err := m.revalidateAndFailInactiveSession(ctx, sessionRow.ID, sessionRow.StartedAt, now)
-					if err != nil {
-						m.logger.Error("revalidate inactive session", zap.String("sessionId", sessionRow.ID), zap.Error(err))
-					}
-					if activeAfterRecheck {
-						refreshGenerations = append(refreshGenerations, db.SessionGeneration{ID: sessionRow.ID, StartedAt: sessionRow.StartedAt})
-					}
-					continue
-				}
-
-				if !isExpired(sessionRow.ExpiresAt, now) {
-					refreshGenerations = append(refreshGenerations, db.SessionGeneration{ID: sessionRow.ID, StartedAt: sessionRow.StartedAt})
-				}
+	for _, sessionRow := range sessions {
+		_, active := activeSessions[sessionRow.ID]
+		if listErr != nil {
+			active, err = m.service.browser.IsActive(ctx, sessionRow.ID)
+			if err != nil {
+				m.logger.Error("check browser unit", zap.String("sessionId", sessionRow.ID), zap.Error(err))
+				continue
 			}
-
-			refreshNow := m.service.now().UTC()
-			refreshNowText := refreshNow.Format(time.RFC3339Nano)
-			refreshExpiresAt := refreshNow.Add(time.Duration(m.service.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
-			if err := m.service.repo.RefreshRunningSessionExpiries(ctx, refreshGenerations, refreshNowText, refreshExpiresAt); err != nil {
-				m.logger.Error("refresh session leases", zap.Int("count", len(refreshGenerations)), zap.Error(err))
+		}
+		if !active {
+			if err := m.service.markFailedRetained(ctx, &sessionRow, "browser unit became inactive", nil); err != nil {
+				m.logger.Error("mark failed session", zap.String("sessionId", sessionRow.ID), zap.Error(err))
 			}
+			continue
+		}
+
+		now := m.service.now().UTC()
+		if isExpired(sessionRow.ExpiresAt, now) {
+			continue
+		}
+		expiresAt := now.Add(time.Duration(m.service.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+		if err := m.service.repo.RefreshRunningSessionExpiry(ctx, sessionRow.ID, expiresAt); err != nil {
+			m.logger.Error("refresh session lease", zap.String("sessionId", sessionRow.ID), zap.Error(err))
 		}
 	}
 
@@ -133,25 +112,4 @@ func (m *Monitor) tick(ctx context.Context) {
 	if suspended > 0 {
 		m.logger.Info("suspended idle sessions", zap.Int("count", suspended))
 	}
-}
-
-func (m *Monitor) revalidateAndFailInactiveSession(ctx context.Context, sessionID string, startedAt *string, _ time.Time) (bool, error) {
-	unlock := m.service.repo.LockSession(sessionID)
-	defer unlock()
-
-	sessionRow, err := m.service.repo.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return false, err
-	}
-	if sessionRow == nil || sessionRow.Status != db.SessionStatusRunning {
-		return false, nil
-	}
-	if (sessionRow.StartedAt == nil) != (startedAt == nil) || (startedAt != nil && *sessionRow.StartedAt != *startedAt) {
-		return false, nil
-	}
-
-	if err := m.service.markFailedRetainedLocked(ctx, sessionRow, "browser unit became inactive", nil); err != nil {
-		return false, err
-	}
-	return false, nil
 }

@@ -82,13 +82,6 @@ type Session struct {
 	ExpiredAt       *string `bun:"expired_at"`
 	LastConnectedAt *string `bun:"last_connected_at"`
 	SuspendedAt     *string `bun:"suspended_at"`
-	ClaimToken      *string `bun:"claim_token"`
-	ClaimExpiresAt  *string `bun:"claim_expires_at"`
-}
-
-type SessionGeneration struct {
-	ID        string
-	StartedAt *string
 }
 
 // SessionToken maps the session_tokens table.

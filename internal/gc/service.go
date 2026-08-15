@@ -2,7 +2,6 @@ package gc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -14,13 +13,7 @@ import (
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/supervisor"
-	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
-)
-
-const (
-	gcCleanupTimeout = 30 * time.Second
-	gcClaimLease     = 5 * time.Minute
 )
 
 // OverlayClient unmounts session overlays during expiry.
@@ -138,34 +131,23 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 		return false, nil
 	}
 	sessionRow = latest
-	originalStatus := sessionRow.Status
-	originalStartedAt := sessionRow.StartedAt
-	claimToken, err := ids.NewUUIDv7()
-	if err != nil {
-		return false, err
-	}
-	claimed, err := s.repo.ClaimSessionIncarnation(ctx, sessionRow.ID, originalStatus, originalStartedAt, claimToken)
-	if err != nil {
-		return false, err
-	}
-	if !claimed {
-		return false, nil
-	}
-	sessionRow.Status = db.SessionStatusCreating
-	sessionRow.ClaimToken = &claimToken
-	claimExpiresAt := time.Now().UTC().Add(gcClaimLease).Format(time.RFC3339Nano)
-	sessionRow.ClaimExpiresAt = &claimExpiresAt
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), gcCleanupTimeout)
-	defer cleanupCancel()
-	restoreClaim := func(cause error) error {
-		finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer finalizeCancel()
-		return errors.Join(cause, s.repo.RestoreSessionStatusIfClaimed(finalizeCtx, sessionRow.ID, claimToken, originalStatus, originalStartedAt))
-	}
 
-	cleanupErr := s.runClaimedCleanup(cleanupCtx, sessionRow, claimToken, originalStatus == db.SessionStatusRunning || originalStatus == db.SessionStatusCreating)
-	if cleanupErr != nil {
-		return false, restoreClaim(cleanupErr)
+	if s.mediaCleaner != nil {
+		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
+	}
+	if sessionRow.Status == db.SessionStatusRunning {
+		if err := s.browser.Stop(ctx, sessionRow.ID); err != nil {
+			return false, err
+		}
+	}
+	if err := s.browser.RemoveRuntimeEnv(sessionRow.ID); err != nil {
+		return false, err
+	}
+	if err := s.ensureOverlayUnmounted(ctx, sessionRow); err != nil {
+		return false, err
+	}
+	if err := s.removeSessionOverlayState(sessionRow); err != nil {
+		return false, err
 	}
 
 	expiredAt := now.Format(time.RFC3339Nano)
@@ -175,17 +157,9 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	sessionRow.CurrentCDPPort = nil
 	sessionRow.StoppedAt = &expiredAt
 	sessionRow.SuspendedAt = nil
-	finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer finalizeCancel()
-	expired, err := s.repo.FinalizeExpiredSessionIfClaimed(finalizeCtx, sessionRow, claimToken)
-	if err != nil {
-		return false, restoreClaim(err)
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		return false, err
 	}
-	if !expired {
-		return false, restoreClaim(fmt.Errorf("expire session: generation conflict"))
-	}
-	sessionRow.ClaimToken = nil
-	sessionRow.ClaimExpiresAt = nil
 	if s.mediaCleaner != nil {
 		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
 	}
@@ -217,75 +191,6 @@ func (s *Service) ensureOverlayUnmounted(ctx context.Context, sessionRow *db.Ses
 		}
 	}
 	return nil
-}
-
-func (s *Service) reserveClaim(ctx context.Context, sessionID, claimToken, operation string) error {
-	reserved, err := s.repo.ReserveSessionClaim(ctx, sessionID, claimToken)
-	if err != nil {
-		return fmt.Errorf("%s: reserve session claim: %w", operation, err)
-	}
-	if !reserved {
-		return fmt.Errorf("%s: session claim is no longer owned", operation)
-	}
-	return nil
-}
-
-func (s *Service) runClaimedCleanup(ctx context.Context, sessionRow *db.Session, claimToken string, stopBrowser bool) error {
-	var errs []error
-	run := func(operation string, sideEffect func() error) bool {
-		if err := s.reserveClaim(ctx, sessionRow.ID, claimToken, operation); err != nil {
-			errs = append(errs, err)
-			return false
-		}
-		if err := sideEffect(); err != nil {
-			errs = append(errs, err)
-		}
-		return true
-	}
-	if s.mediaCleaner != nil {
-		if !run("close media", func() error {
-			s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
-			return nil
-		}) {
-			return errors.Join(errs...)
-		}
-		if len(errs) > 0 {
-			return errors.Join(errs...)
-		}
-	}
-	if stopBrowser && !run("stop browser", func() error {
-		err := s.browser.Stop(ctx, sessionRow.ID)
-		if isMissingBrowserUnit(err) {
-			return nil
-		}
-		return err
-	}) {
-		return errors.Join(errs...)
-	}
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	if !run("remove runtime environment", func() error { return s.browser.RemoveRuntimeEnv(sessionRow.ID) }) {
-		return errors.Join(errs...)
-	}
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	if err := s.reserveClaim(ctx, sessionRow.ID, claimToken, "unmount overlay"); err != nil {
-		return errors.Join(append(errs, err)...)
-	}
-	if err := s.ensureOverlayUnmounted(ctx, sessionRow); err != nil {
-		return errors.Join(append(errs, err)...)
-	}
-	if !run("remove session overlay state", func() error { return s.removeSessionOverlayState(sessionRow) }) {
-		return errors.Join(errs...)
-	}
-	return errors.Join(errs...)
-}
-
-func isMissingBrowserUnit(err error) bool {
-	var commandErr *systemd.CommandError
-	return errors.As(err, &commandErr) && commandErr.ExitCode == 5
 }
 
 func (s *Service) removeSessionOverlayState(sessionRow *db.Session) error {

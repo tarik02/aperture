@@ -147,11 +147,8 @@ func (a *App) Serve(ctx context.Context) error {
 	monitor := session.NewMonitor(a.Sessions, a.Logger)
 	monitor.SetActiveChecker(a.deployColorActive)
 	monitorCtx, cancelMonitor := context.WithCancel(ctx)
-	defer func() {
-		cancelMonitor()
-		monitor.Wait()
-	}()
-	monitor.Start(monitorCtx)
+	defer cancelMonitor()
+	go monitor.Run(monitorCtx)
 	go a.reconcileSessionRoutesOnActivation(monitorCtx, role == deploystate.RoleActive)
 
 	server := &httpapi.Server{
