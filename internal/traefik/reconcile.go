@@ -28,11 +28,6 @@ func NewService(cfg config.Config, repo *db.Repository) *Service {
 	return &Service{cfg: cfg, repo: repo, deploy: deploystate.New(cfg)}
 }
 
-// Close releases deployment state resources.
-func (s *Service) Close() error {
-	return s.deploy.Close()
-}
-
 // Reconcile regenerates dynamic Traefik routes for sessions that can wake through CDP.
 func (s *Service) Reconcile(ctx context.Context) error {
 	state, err := s.loadState()
