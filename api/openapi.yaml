@@ -68,7 +68,7 @@ paths:
         requiredScopes: []
         tenantResolution: optional_header
       x-aperture-errors: [validation_failed, tenant_not_found]
-      description: Token metadata and optional effective tenant selection.
+      description: Token metadata and effective tenant selection. A system administrator without an explicit selection receives the first active tenant.
       parameters:
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:

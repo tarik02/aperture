@@ -9,6 +9,8 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
 } from "#/components/ui/combobox.tsx";
 import {
   DialogDescription,
@@ -151,7 +153,7 @@ export function SessionPromoteForm() {
           data-invalid={nameError ? true : undefined}
           data-disabled={pending ? true : undefined}
         >
-          <FieldLabel htmlFor="promote-name">Snapshot name</FieldLabel>
+          <FieldLabel htmlFor="promote-name-trigger">Snapshot name</FieldLabel>
           <Combobox
             items={snapshotNames}
             filter={null}
@@ -165,15 +167,29 @@ export function SessionPromoteForm() {
             }}
             disabled={pending}
           >
-            <ComboboxInput
-              id="promote-name"
-              placeholder="Search or enter a new snapshot name"
-              className="w-full"
-              aria-invalid={nameError ? true : undefined}
-              disabled={pending}
-              showClear
-            />
+            <ComboboxTrigger
+              id="promote-name-trigger"
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between font-normal"
+                />
+              }
+            >
+              <ComboboxValue>
+                <span className="truncate">{trimmedName || "Select or create a snapshot"}</span>
+              </ComboboxValue>
+            </ComboboxTrigger>
             <ComboboxContent align="start" className="w-(--anchor-width)">
+              <ComboboxInput
+                id="promote-name"
+                placeholder="Search or enter a new snapshot name"
+                aria-invalid={nameError ? true : undefined}
+                disabled={pending}
+                showTrigger={false}
+                showClear
+              />
               <ComboboxEmpty>
                 {snapshotsQuery.isFetching
                   ? "Searching snapshots..."

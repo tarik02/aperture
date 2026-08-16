@@ -650,12 +650,13 @@ export function SessionListPage() {
           deletePending: deleteMutation.isPending,
           reopenPending: reopenMutation.isPending,
           suspendPending: suspendMutation.isPending,
+          tagsPending: replaceTagsMutation.isPending,
           rotatePending: rotateMutation.isPending,
           copySharePending: copyingShareSessionId === detailSession?.id,
           onDelete: (session) => setConfirmAction({ kind: "delete", session }),
-          onEditTags: (session) => {
-            initTagForm("edit", `session:${session.id}`, tagsToEntries(session.tags ?? {}));
-            openTagModal();
+          onSaveTags: async (session, tags) => {
+            const result = await replaceTagsMutation.mutateAsync({ sessionId: session.id, tags });
+            return result.session;
           },
           onPromote: (session) => {
             setDetailSection(null);
@@ -742,7 +743,7 @@ function SessionActionsMenu({
       >
         <MoreHorizontal />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
+      <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onDetails}>
             <Info />

@@ -9,7 +9,7 @@ import type {
 import { windowsVirtualKeyCodeForCodeOrKey } from "#/lib/control/keyboard.ts";
 import type Protocol from "devtools-protocol";
 import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
-import { Observable, Subject, Subscription, timer } from "rxjs";
+import { exhaustMap, from, Observable, Subject, Subscription, timer } from "rxjs";
 import { webSocket, type WebSocketSubject } from "rxjs/webSocket";
 import { z } from "zod";
 
@@ -146,6 +146,12 @@ const targetVisibilityResultSchema = z.object({
       focused: z.boolean(),
       visible: z.boolean(),
     }),
+  }),
+});
+
+const pageReadyStateResultSchema = z.object({
+  result: z.object({
+    value: z.enum(["loading", "interactive", "complete"]),
   }),
 });
 
@@ -421,6 +427,7 @@ class BrowserControlConnectionRuntime {
   private activeTargetResolved = false;
   private targets: ControlTarget[] = [];
   private loadingTargetIds = new Set<string>();
+  private loadingCheckSubscriptions = new Map<string, Subscription>();
   private screencastStarting = false;
   private screencastFormat: ScreencastFormat = "jpeg";
   private connectStartedAt = 0;
@@ -471,6 +478,10 @@ class BrowserControlConnectionRuntime {
     this.activeTargetResolved = false;
     this.targets = [];
     this.loadingTargetIds.clear();
+    for (const subscription of this.loadingCheckSubscriptions.values()) {
+      subscription.unsubscribe();
+    }
+    this.loadingCheckSubscriptions.clear();
     this.screencastStarting = false;
     this.screencastFormat = "jpeg";
   }
@@ -511,7 +522,7 @@ class BrowserControlConnectionRuntime {
           this.handleScreencastFrame(params);
         }
         if (
-          (method === "Page.frameStartedLoading" || method === "Page.frameStartedNavigating") &&
+          method === "Page.frameStartedLoading" &&
           sessionId === this.pageSessionId &&
           this.pageTargetId
         ) {
@@ -790,6 +801,8 @@ class BrowserControlConnectionRuntime {
       if (index !== -1) {
         const removed = this.targets[index];
         this.targets = this.targets.filter((entry) => entry.id !== targetId);
+        this.loadingTargetIds.delete(targetId);
+        this.stopTargetLoadingCheck(targetId);
         if (this.activeTargetId === targetId) {
           this.activeTargetId = this.targets[0]?.id ?? null;
         }
@@ -845,6 +858,7 @@ class BrowserControlConnectionRuntime {
 
     this.targets = this.targets.filter((entry) => entry.id !== targetId);
     this.loadingTargetIds.delete(targetId);
+    this.stopTargetLoadingCheck(targetId);
     if (this.activeTargetId === targetId) {
       this.activeTargetId = this.targets[0]?.id ?? null;
     }
@@ -882,13 +896,52 @@ class BrowserControlConnectionRuntime {
   private setTargetLoading(targetId: string, loading: boolean) {
     if (loading) {
       this.loadingTargetIds.add(targetId);
+      this.startTargetLoadingCheck(targetId);
     } else {
       this.loadingTargetIds.delete(targetId);
+      this.stopTargetLoadingCheck(targetId);
     }
     this.targets = this.targets.map((target) =>
       target.id === targetId ? { ...target, loading } : target,
     );
     this.emitTargetsSnapshot();
+  }
+
+  private startTargetLoadingCheck(targetId: string) {
+    if (this.loadingCheckSubscriptions.has(targetId)) {
+      return;
+    }
+
+    const subscription = timer(500, 500)
+      .pipe(exhaustMap(() => from(this.targetIsLoading(targetId))))
+      .subscribe({
+        next: (loading) => {
+          if (!loading) {
+            this.setTargetLoading(targetId, false);
+          }
+        },
+        error: () => this.setTargetLoading(targetId, false),
+      });
+    this.loadingCheckSubscriptions.set(targetId, subscription);
+  }
+
+  private stopTargetLoadingCheck(targetId: string) {
+    this.loadingCheckSubscriptions.get(targetId)?.unsubscribe();
+    this.loadingCheckSubscriptions.delete(targetId);
+  }
+
+  private async targetIsLoading(targetId: string): Promise<boolean> {
+    const result = await this.withTarget(targetId, (socket, sessionId) =>
+      socket.call(
+        "Runtime.evaluate",
+        {
+          expression: "document.readyState",
+          returnByValue: true,
+        },
+        sessionId,
+      ),
+    );
+    return pageReadyStateResultSchema.parse(result).result.value !== "complete";
   }
 
   private async startScreencast(
