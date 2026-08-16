@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
@@ -19,6 +20,9 @@ const (
 )
 
 func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
+	if values.mediaProbeCache == nil {
+		values.mediaProbeCache = newMediaProbeCache()
+	}
 	requestedMode := strings.ToLower(strings.TrimSpace(values.GPUMode))
 	requestedCodec := strings.ToLower(strings.TrimSpace(values.MediaProducerCodec))
 	if requestedMode == "" {
@@ -120,6 +124,11 @@ func accessibleRenderNode() (string, error) {
 
 func probeMediaCodec(values RuntimeEnvValues, codec string) error {
 	inspectExecutable := filepath.Join(filepath.Dir(values.MediaProducerGSTExecutable), "gst-inspect-1.0")
+	registryPath := filepath.Join(values.CacheDir, "gstreamer-registry.bin")
+	cache := values.mediaProbeCache
+	if cache == nil {
+		cache = newMediaProbeCache()
+	}
 	elements := []string{"pipewiresrc", "queue", "videorate", "udpsink"}
 	switch codec {
 	case mediaCodecVP8:
@@ -132,11 +141,9 @@ func probeMediaCodec(values RuntimeEnvValues, codec string) error {
 		return fmt.Errorf("unsupported media producer codec %q", codec)
 	}
 	for _, element := range elements {
-		cmd := exec.Command(inspectExecutable, "--exists", element)
-		cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
-		cmd.Env = append(cmd.Env, "GST_REGISTRY_1_0="+filepath.Join(values.CacheDir, "gstreamer-registry.bin"))
-		if output, err := cmd.CombinedOutput(); err != nil {
-			detail := strings.TrimSpace(string(output))
+		result := cache.probe(inspectExecutable, values.MediaProducerPluginPath, registryPath, element)
+		if result.failed {
+			detail := result.detail
 			if detail != "" {
 				return fmt.Errorf("media codec %s requires GStreamer element %s: %s", codec, element, detail)
 			}
@@ -144,4 +151,52 @@ func probeMediaCodec(values RuntimeEnvValues, codec string) error {
 		}
 	}
 	return nil
+}
+
+type mediaProbeCache struct {
+	mu      sync.Mutex
+	entries map[mediaProbeCacheKey]mediaProbeResult
+}
+
+type mediaProbeCacheKey struct {
+	inspectExecutable string
+	pluginPath        string
+	registryPath      string
+	element           string
+}
+
+type mediaProbeResult struct {
+	failed bool
+	detail string
+}
+
+func newMediaProbeCache() *mediaProbeCache {
+	return &mediaProbeCache{entries: make(map[mediaProbeCacheKey]mediaProbeResult)}
+}
+
+func (c *mediaProbeCache) probe(inspectExecutable, pluginPath, registryPath, element string) mediaProbeResult {
+	key := mediaProbeCacheKey{
+		inspectExecutable: inspectExecutable,
+		pluginPath:        pluginPath,
+		registryPath:      registryPath,
+		element:           element,
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if result, ok := c.entries[key]; ok {
+		return result
+	}
+
+	cmd := exec.Command(inspectExecutable, "--exists", element)
+	cmd.Env = wrapperMediaProcessEnv(pluginPath)
+	cmd.Env = append(cmd.Env, "GST_REGISTRY_1_0="+registryPath)
+	output, err := cmd.CombinedOutput()
+	result := mediaProbeResult{}
+	if err != nil {
+		result.failed = true
+		result.detail = strings.TrimSpace(string(output))
+	}
+	c.entries[key] = result
+	return result
 }
