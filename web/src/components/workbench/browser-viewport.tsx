@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, AlertCircle, Loader2, Unplug } from "lucide-react";
 import { interval } from "rxjs";
 import { toast } from "sonner";
@@ -27,6 +27,10 @@ type BrowserViewportProps = {
 type MouseButton = "left" | "middle" | "right" | "none";
 type ViewportPoint = { x: number; y: number };
 type FrameMetadata = Pick<ScreencastFrame, "width" | "height">;
+type PressedKey = {
+  targetId: string;
+  input: ReturnType<typeof keyboardInputMessage>;
+};
 
 const MULTI_CLICK_MS = 500;
 const MULTI_CLICK_DISTANCE = 5;
@@ -42,6 +46,7 @@ export function BrowserViewport({
   const frameRef = useRef<ScreencastFrame | null>(null);
   const frameMetadataRef = useRef<FrameMetadata | null>(null);
   const frameStaleRef = useRef(false);
+  const pressedKeysRef = useRef(new Map<string, PressedKey>());
   const pointerCaptureRef = useRef<{
     pointerId: number;
     targetId: string;
@@ -106,6 +111,23 @@ export function BrowserViewport({
     renderHeight,
   );
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
+
+  const releasePressedKeys = useCallback(() => {
+    const pressedKeys = [...pressedKeysRef.current.values()].reverse();
+    pressedKeysRef.current.clear();
+
+    for (const pressedKey of pressedKeys) {
+      control.send({
+        type: "input.key",
+        targetId: pressedKey.targetId,
+        action: "up",
+        ...pressedKey.input,
+        text: undefined,
+        modifiers: 0,
+        autoRepeat: false,
+      });
+    }
+  }, [control.send]);
 
   useEffect(() => {
     const subscription = control.frame$.subscribe((frame) => {
@@ -220,14 +242,32 @@ export function BrowserViewport({
   useEffect(() => {
     return () => {
       dragCleanupRef.current?.();
+      releasePressedKeys();
     };
-  }, []);
+  }, [releasePressedKeys]);
+
+  useEffect(() => {
+    const handleWindowBlur = () => releasePressedKeys();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        releasePressedKeys();
+      }
+    };
+
+    window.addEventListener("blur", handleWindowBlur);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", handleWindowBlur);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [releasePressedKeys]);
 
   useEffect(() => {
     if (inputDisabled) {
       dragCleanupRef.current?.();
+      releasePressedKeys();
     }
-  }, [inputDisabled]);
+  }, [inputDisabled, releasePressedKeys]);
 
   function mapPointer(event: { clientX: number; clientY: number }, clamp: boolean) {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -599,23 +639,28 @@ export function BrowserViewport({
       return;
     }
 
-    control.send({
+    const input = keyboardInputMessage(event.nativeEvent, "down");
+    const sent = control.send({
       type: "input.key",
       targetId,
       action: "down",
-      ...keyboardInputMessage(event.nativeEvent, "down"),
+      ...input,
     });
+    if (sent) {
+      pressedKeysRef.current.set(event.code || event.key, { targetId, input });
+    }
   }
 
   function handleKeyUp(event: React.KeyboardEvent) {
-    const targetId = control.activeTargetId;
-    if (
-      inputDisabled ||
-      !targetId ||
-      (!control.captured &&
-        document.activeElement !== containerRef.current &&
-        !containerRef.current?.contains(event.target as Node))
-    ) {
+    const keyId = event.code || event.key;
+    const pressedKey = pressedKeysRef.current.get(keyId);
+    const targetId = pressedKey?.targetId ?? control.activeTargetId;
+    const canForwardUntrackedKey =
+      !inputDisabled &&
+      (control.captured ||
+        document.activeElement === containerRef.current ||
+        Boolean(containerRef.current?.contains(event.target as Node)));
+    if (!targetId || (!pressedKey && !canForwardUntrackedKey)) {
       return;
     }
     if (event.key === "Escape") {
@@ -625,20 +670,30 @@ export function BrowserViewport({
     event.preventDefault();
     event.stopPropagation();
 
-    if (resolveClipboardShortcut(event.nativeEvent)) {
+    if (!pressedKey && resolveClipboardShortcut(event.nativeEvent)) {
       return;
     }
 
-    if (!shouldForwardBrowserShortcut(event.nativeEvent)) {
+    if (!pressedKey && !shouldForwardBrowserShortcut(event.nativeEvent)) {
       return;
     }
 
-    control.send({
+    const sent = control.send({
       type: "input.key",
       targetId,
       action: "up",
       ...keyboardInputMessage(event.nativeEvent, "up"),
     });
+    if (sent) {
+      pressedKeysRef.current.delete(keyId);
+    }
+  }
+
+  function handleBlur(event: React.FocusEvent<HTMLDivElement>) {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+    releasePressedKeys();
   }
 
   function updateCursorHint(event: React.PointerEvent) {
@@ -676,6 +731,7 @@ export function BrowserViewport({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
+      onBlur={handleBlur}
       onClick={handlePointerClick}
       onPointerMove={handlePointerMove}
       onPointerEnter={updateCursorHint}
