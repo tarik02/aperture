@@ -38,9 +38,10 @@ type TagEditorProps = {
   onChange: (entries: TagEntry[]) => void;
   error?: string | null;
   disabled?: boolean;
+  hideLabel?: boolean;
 };
 
-export function TagEditor({ entries, onChange, error, disabled }: TagEditorProps) {
+export function TagEditor({ entries, onChange, error, disabled, hideLabel }: TagEditorProps) {
   const keyInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const pendingFocusIndexRef = useRef<number | null>(null);
 
@@ -70,7 +71,7 @@ export function TagEditor({ entries, onChange, error, disabled }: TagEditorProps
   return (
     <FieldGroup>
       <Field>
-        <FieldLabel>Tags</FieldLabel>
+        <FieldLabel className={hideLabel ? "sr-only" : undefined}>Tags</FieldLabel>
         <Table className="[&_tr]:hover:bg-transparent">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
