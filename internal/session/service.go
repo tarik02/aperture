@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
@@ -51,6 +52,7 @@ type Service struct {
 	browser         *supervisor.Browser
 	channels        *browser.Registry
 	traefik         traefik.Reconciler
+	successCache    *auth.BcryptSuccessCache
 	mediaCleaner    MediaSessionCleaner
 	waitForCDPReady CDPReadyWaiter
 	now             func() time.Time
@@ -80,6 +82,7 @@ func NewService(
 		browser:         browserSupervisor,
 		channels:        channels,
 		traefik:         traefikReconciler,
+		successCache:    auth.NewBcryptSuccessCache(),
 		waitForCDPReady: waitForCDPEndpoint,
 		now:             time.Now,
 	}
