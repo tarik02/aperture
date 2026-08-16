@@ -20,7 +20,6 @@ import {
   recordingSchema,
   recordingsSchema,
   recoveryCodesSchema,
-  screencastStatusSchema,
   securityStatusSchema,
   sessionSchema,
   sessionsBulkResponseSchema,
