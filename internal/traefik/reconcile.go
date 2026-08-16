@@ -5,14 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/deploystate"
 )
-
-var reconcileMu sync.Mutex
 
 // Reconciler regenerates Traefik dynamic configuration from current state.
 type Reconciler interface {
@@ -33,9 +30,6 @@ func NewService(cfg config.Config, repo *db.Repository) *Service {
 
 // Reconcile regenerates dynamic Traefik routes for sessions that can wake through CDP.
 func (s *Service) Reconcile(ctx context.Context) error {
-	reconcileMu.Lock()
-	defer reconcileMu.Unlock()
-
 	state, err := s.loadState()
 	if err != nil {
 		return err
@@ -64,7 +58,7 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := writeAtomicIfChanged(SessionsConfigPath(s.cfg), content); err != nil {
+	if err := WriteAtomic(SessionsConfigPath(s.cfg), content); err != nil {
 		return fmt.Errorf("%w: %w", ErrWrite, err)
 	}
 	return nil
