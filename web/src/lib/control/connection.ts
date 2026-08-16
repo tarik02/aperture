@@ -140,6 +140,15 @@ const attachTargetResultSchema: z.ZodType<Protocol.Target.AttachToTargetResponse
   sessionId: z.string(),
 });
 
+const targetVisibilityResultSchema = z.object({
+  result: z.object({
+    value: z.object({
+      focused: z.boolean(),
+      visible: z.boolean(),
+    }),
+  }),
+});
+
 const screencastFrameParamsSchema: z.ZodType<Protocol.Page.ScreencastFrameEvent> = z.object({
   data: z.string(),
   sessionId: z.number(),
@@ -157,6 +166,7 @@ const screencastFrameParamsSchema: z.ZodType<Protocol.Page.ScreencastFrameEvent>
 const CDP_CALL_TIMEOUT_MS = 5000;
 const CDP_CONNECT_RETRY_MS = 500;
 const CDP_CONNECT_TIMEOUT_MS = 30_000;
+const TAB_WINDOW_MARKER_URL = "chrome-extension://imdifnnggmlpoochobfcpghdppldpmjl/marker.html";
 
 function buildCdpWebSocket(rawWebSocketUrl: string): { url: string; protocols: string[] } {
   const source = new URL(rawWebSocketUrl, window.location.origin);
@@ -408,6 +418,7 @@ class BrowserControlConnectionRuntime {
   private pageTargetId: Protocol.Target.TargetID | null = null;
   private pageSessionId: Protocol.Target.SessionID | null = null;
   private activeTargetId: Protocol.Target.TargetID | null = null;
+  private activeTargetResolved = false;
   private targets: ControlTarget[] = [];
   private loadingTargetIds = new Set<string>();
   private screencastStarting = false;
@@ -457,6 +468,7 @@ class BrowserControlConnectionRuntime {
     this.pageTargetId = null;
     this.pageSessionId = null;
     this.activeTargetId = null;
+    this.activeTargetResolved = false;
     this.targets = [];
     this.loadingTargetIds.clear();
     this.screencastStarting = false;
@@ -533,8 +545,8 @@ class BrowserControlConnectionRuntime {
       }
 
       await browser.call("Target.setDiscoverTargets", { discover: true });
-      this.callbacks.onPhaseChange?.("connected");
       await this.refreshTargets();
+      this.callbacks.onPhaseChange?.("connected");
     } catch (error) {
       if (browser && this.browser === browser) {
         this.browser = null;
@@ -576,8 +588,11 @@ class BrowserControlConnectionRuntime {
         await this.refreshTargets();
         break;
       case "targets.activate":
-        await this.browserSocket().call("Target.activateTarget", { targetId: message.targetId });
+        if (this.pageTargetId && this.pageTargetId !== message.targetId) {
+          await this.stopScreencast();
+        }
         this.activeTargetId = message.targetId;
+        this.emitTargetsSnapshot();
         await this.refreshTargets();
         break;
       case "targets.create": {
@@ -707,10 +722,39 @@ class BrowserControlConnectionRuntime {
     }
 
     const pageTargets = result.targetInfos.filter(
-      (target) => target.type === "page" || target.type === "webview",
+      (target) =>
+        (target.type === "page" || target.type === "webview") &&
+        !target.url.startsWith(TAB_WINDOW_MARKER_URL),
     );
 
-    if (
+    if (!this.activeTargetResolved && pageTargets.length > 0) {
+      const targetStates = await Promise.all(
+        pageTargets.map(async (target) => {
+          try {
+            const result = await this.withTarget(target.targetId, (socket, sessionId) =>
+              socket.call(
+                "Runtime.evaluate",
+                {
+                  expression:
+                    "({ focused: document.hasFocus(), visible: document.visibilityState === 'visible' })",
+                  returnByValue: true,
+                },
+                sessionId,
+              ),
+            );
+            const state = targetVisibilityResultSchema.parse(result).result.value;
+            return { targetId: target.targetId, ...state };
+          } catch {
+            return { targetId: target.targetId, focused: false, visible: false };
+          }
+        }),
+      );
+      const activeTarget =
+        targetStates.find((target) => target.focused) ??
+        targetStates.find((target) => target.visible);
+      this.activeTargetId = activeTarget?.targetId ?? pageTargets[0]?.targetId ?? null;
+      this.activeTargetResolved = true;
+    } else if (
       !this.activeTargetId ||
       !pageTargets.some((target) => target.targetId === this.activeTargetId)
     ) {
@@ -757,7 +801,11 @@ class BrowserControlConnectionRuntime {
 
     if (index === -1) {
       this.targets = [...this.targets, target];
-      this.activeTargetId = this.activeTargetId ?? target.id;
+      if (this.activeTargetResolved) {
+        this.activeTargetId = this.activeTargetId ?? target.id;
+      } else {
+        this.scheduleTargetsRefresh();
+      }
       this.emitTargetsSnapshot();
       return;
     }
@@ -811,6 +859,9 @@ class BrowserControlConnectionRuntime {
 
   private controlTargetFromInfo(targetInfo: CdpTargetInfo): ControlTarget | null {
     if (targetInfo.type !== "page" && targetInfo.type !== "webview") {
+      return null;
+    }
+    if (targetInfo.url.startsWith(TAB_WINDOW_MARKER_URL)) {
       return null;
     }
 

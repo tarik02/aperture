@@ -19,7 +19,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
             <WindowControlsOverlayWatcher />
             <TokenVaultProvider>{children}</TokenVaultProvider>
             <PwaRegistration />
-            <Toaster richColors closeButton position="top-right" />
+            <Toaster richColors closeButton position="bottom-center" />
           </TooltipProvider>
         </HotkeysProvider>
       </QueryClientProvider>
