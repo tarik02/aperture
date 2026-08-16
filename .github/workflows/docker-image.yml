@@ -19,17 +19,35 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
-    name: build ${{ matrix.arch }}
+    name: build ${{ matrix.variant }} ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: amd64
+          - variant: default
+            nix_attribute: aperture-docker
+            suffix: ""
+            arch: amd64
             runner: ubuntu-24.04
-          - arch: arm64
+          - variant: default
+            nix_attribute: aperture-docker
+            suffix: ""
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - variant: gpu
+            nix_attribute: aperture-docker-gpu
+            suffix: -gpu
+            arch: amd64
+            runner: ubuntu-24.04
+          - variant: gpu
+            nix_attribute: aperture-docker-gpu
+            suffix: -gpu
+            arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
@@ -39,6 +57,11 @@ jobs:
 
       - uses: cachix/install-nix-action@v31.10.7
 
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
+
       - uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io
@@ -47,24 +70,74 @@ jobs:
 
       - name: Build image
         env:
+          NIX_ATTRIBUTE: ${{ matrix.nix_attribute }}
           VERSION: ${{ inputs.version }}
         run: |
           printf '%s' "$VERSION" > .aperture-deploy-version
-          nix build path:.#aperture-docker --print-build-logs
+          printf '%s' "$(git rev-parse HEAD)" > .aperture-source-revision
+          nix build "path:.#$NIX_ATTRIBUTE" --print-build-logs
 
       - name: Push architecture image
+        id: push
         env:
           ARCH: ${{ matrix.arch }}
           IMAGE: ghcr.io/${{ github.repository }}
+          SUFFIX: ${{ matrix.suffix }}
           VERSION: ${{ inputs.version }}
         run: |
           docker load < result
-          docker tag "aperture:$VERSION" "$IMAGE:$VERSION-$ARCH"
-          docker push "$IMAGE:$VERSION-$ARCH"
+          docker tag "aperture:$VERSION$SUFFIX" "$IMAGE:$VERSION$SUFFIX-$ARCH"
+          docker push "$IMAGE:$VERSION$SUFFIX-$ARCH"
+          repo_digest="$(docker image inspect "$IMAGE:$VERSION$SUFFIX-$ARCH" --format '{{json .RepoDigests}}' | jq -r --arg image "$IMAGE" '.[] | select(startswith($image + "@"))' | head -n 1)"
+          echo "digest=${repo_digest#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          artifact-name: aperture-${{ inputs.version }}-${{ matrix.variant }}-${{ matrix.arch }}-sbom
+          output-file: aperture-${{ inputs.version }}-${{ matrix.variant }}-${{ matrix.arch }}.spdx.json
+          upload-release-assets: false
+
+      - name: Attest SBOM
+        uses: actions/attest@v4.2.1
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: aperture-${{ inputs.version }}-${{ matrix.variant }}-${{ matrix.arch }}.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest build provenance
+        uses: actions/attest@v4.2.1
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign architecture image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
 
   manifest:
-    name: publish manifest
+    name: publish ${{ matrix.variant }} manifest
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            suffix: ""
+            multiarch: true
+          - variant: gpu
+            suffix: -gpu
+            multiarch: true
     runs-on: ubuntu-24.04
     steps:
       - uses: docker/login-action@v4.1.0
@@ -73,22 +146,51 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish multi-architecture image
+      - name: Publish image manifest
+        id: publish
         env:
           IMAGE: ghcr.io/${{ github.repository }}
+          MULTIARCH: ${{ matrix.multiarch }}
+          SUFFIX: ${{ matrix.suffix }}
           TAGS: ${{ inputs.tags }}
           VERSION: ${{ inputs.version }}
         run: |
           tag_args=()
+          first_tag=""
           while IFS= read -r tag; do
             if [[ -n "$tag" ]]; then
-              tag_args+=(--tag "$IMAGE:$tag")
+              if [[ -z "$first_tag" ]]; then
+                first_tag="$tag$SUFFIX"
+              fi
+              tag_args+=(--tag "$IMAGE:$tag$SUFFIX")
             fi
           done <<< "$TAGS"
 
+          source_args=("$IMAGE:$VERSION$SUFFIX-amd64")
+          if [[ "$MULTIARCH" == "true" ]]; then
+            source_args+=("$IMAGE:$VERSION$SUFFIX-arm64")
+          fi
+
           docker buildx imagetools create \
             "${tag_args[@]}" \
-            "$IMAGE:$VERSION-amd64" \
-            "$IMAGE:$VERSION-arm64"
+            "${source_args[@]}"
 
-          docker buildx imagetools inspect "$IMAGE:$(printf '%s\n' "$TAGS" | head -n 1)"
+          docker buildx imagetools inspect "$IMAGE:$first_tag"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$first_tag" --format '{{json .Manifest}}' | jq -r '.digest')"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest multi-architecture provenance
+        uses: actions/attest@v4.2.1
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign multi-architecture image
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"

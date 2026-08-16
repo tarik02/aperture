@@ -11,7 +11,8 @@ import {
   healthSchema,
   oidcProvidersSchema,
   promoteSessionResponseSchema,
-  screencastStatusSchema,
+  recordingSchema,
+  recordingsSchema,
   sessionSchema,
   sessionsBulkResponseSchema,
   sessionMutationResponseSchema,
@@ -101,7 +102,9 @@ type RequestOptions<T extends z.ZodType> = {
   body?: unknown;
 };
 
-type VoidRequestOptions = Omit<RequestOptions<z.ZodType>, "schema">;
+type VoidRequestOptions = Omit<RequestOptions<z.ZodType>, "schema"> & {
+  headers?: Record<string, string>;
+};
 
 function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   if (!query) {
@@ -190,12 +193,20 @@ async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise
 }
 
 async function requestVoid(options: VoidRequestOptions): Promise<void> {
-  const { method = "GET", path, credentials = null, tenantHeader = "none", query, body } = options;
+  const {
+    method = "GET",
+    path,
+    credentials = null,
+    tenantHeader = "none",
+    query,
+    body,
+    headers,
+  } = options;
 
   const hasBody = body !== undefined;
   const response = await fetch(buildUrl(path, query), {
     method,
-    headers: buildHeaders(credentials, tenantHeader, hasBody),
+    headers: { ...buildHeaders(credentials, tenantHeader, hasBody), ...headers },
     body: hasBody ? JSON.stringify(body) : undefined,
   });
 
@@ -255,6 +266,7 @@ export type SnapshotsListParams = {
   cursor?: string;
   includeDeleted?: boolean;
   deleted?: "active" | "deleted" | "all";
+  name?: string;
   tags?: TagFilterValue;
 };
 
@@ -301,6 +313,12 @@ export type PromoteSessionInput = {
 
 export type UpdateSnapshotInput = {
   description: string | null;
+};
+
+export type StartSessionRecordingInput = {
+  mode: "tab" | "viewer";
+  targetId: string;
+  clientId: string;
 };
 
 export type CreateAdminTokenInput = {
@@ -362,6 +380,16 @@ export const apiClient = {
       path: `/sessions/${encodeURIComponent(sessionId)}/browser/status`,
       schema: browserStatusSchema,
       credentials,
+    });
+  },
+
+  setBrowserMediaProfile(credentials: ApiCredentials, sessionId: string, profile: string) {
+    return requestVoid({
+      method: "POST",
+      path: `/sessions/${encodeURIComponent(sessionId)}/browser/quality`,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      body: { profile },
     });
   },
 
@@ -541,32 +569,55 @@ export const apiClient = {
     });
   },
 
-  getSessionScreencastStatus(credentials: ApiCredentials, sessionId: string) {
+  listSessionRecordings(credentials: ApiCredentials, sessionId: string) {
     return request({
-      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/status`,
-      schema: screencastStatusSchema,
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
+      schema: recordingsSchema,
       credentials,
       tenantHeader: "tenant-scoped",
     });
   },
 
-  startSessionScreencast(credentials: ApiCredentials, sessionId: string) {
+  startSessionRecording(
+    credentials: ApiCredentials,
+    sessionId: string,
+    input: StartSessionRecordingInput,
+  ) {
     return request({
       method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/start`,
-      schema: screencastStatusSchema,
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
+      schema: recordingSchema,
       credentials,
       tenantHeader: "tenant-scoped",
-      body: {},
+      body: input,
     });
   },
 
-  stopSessionScreencast(credentials: ApiCredentials, sessionId: string) {
+  getSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
+    return request({
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}`,
+      schema: recordingSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  stopSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
     return requestBlob({
       method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/screencast/stop`,
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
       credentials,
       tenantHeader: "tenant-scoped",
+    });
+  },
+
+  cancelSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
+    return requestVoid({
+      method: "POST",
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
+      credentials,
+      tenantHeader: "tenant-scoped",
+      headers: { Range: "bytes=0-0" },
     });
   },
 
@@ -581,6 +632,7 @@ export const apiClient = {
         cursor: params.cursor,
         includeDeleted: params.includeDeleted ? "true" : undefined,
         deleted: params.deleted,
+        name: params.name,
         tagKey: params.tags?.map((tag) => tag.key),
         tagOperator: params.tags?.map((tag) => tag.operator),
         tagValue: params.tags?.map((tag) => tag.values.join(",")),

@@ -1,11 +1,17 @@
 import {
+  EMPTY,
   Observable,
+  Subject,
   Subscription,
-  animationFrameScheduler,
-  auditTime,
+  debounceTime,
   distinctUntilChanged,
   filter,
-  merge,
+  interval,
+  map,
+  switchMap,
+  take,
+  takeUntil,
+  timer,
 } from "rxjs";
 import { z } from "zod";
 import { TENANT_HEADER, resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
@@ -17,11 +23,12 @@ export type WebRTCMediaSize = {
   width: number;
   height: number;
   deviceScaleFactor: number;
-  physicalWidth: number;
-  physicalHeight: number;
+  canvasWidth: number;
+  canvasHeight: number;
 };
 
 export type WebRTCViewportRequest = {
+  targetId: string;
   width: number;
   height: number;
   deviceScaleFactor: number;
@@ -38,6 +45,8 @@ export type WebRTCVideoProfile = {
   id: string;
   label: string;
   codec: string;
+  mimeType: string;
+  sdpFmtpLine: string;
 };
 
 export type WebRTCMediaMetrics = {
@@ -72,7 +81,18 @@ export type WebRTCMediaFailure =
 export type WebRTCMediaError =
   | WebRTCMediaFailure
   | { kind: "producer-resize-failed"; detail: string }
-  | { kind: "producer-quality-failed"; detail: string };
+  | { kind: "producer-quality-failed"; detail: string }
+  | { kind: "target-selection-failed"; detail: string };
+
+export type WebRTCTargetSelection = {
+  targetId: string;
+  generation: number;
+  width: number;
+  height: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  deviceScaleFactor: number;
+};
 
 export function webRTCMediaErrorMessage(error: WebRTCMediaError): string {
   switch (error.kind) {
@@ -102,6 +122,8 @@ export function webRTCMediaErrorMessage(error: WebRTCMediaError): string {
       return `WebRTC resize failed: ${error.detail}`;
     case "producer-quality-failed":
       return `WebRTC stream update failed: ${error.detail}`;
+    case "target-selection-failed":
+      return `WebRTC target selection failed: ${error.detail}`;
     case "unexpected":
       return error.cause instanceof Error ? error.cause.message : "WebRTC media failed";
     default: {
@@ -120,6 +142,8 @@ export type WebRTCMediaState = {
   metrics: WebRTCMediaMetrics | null;
   error: WebRTCMediaError | null;
   inputReady: boolean;
+  selectedTarget: WebRTCTargetSelection | null;
+  targetSwitching: boolean;
 };
 
 export type WebRTCInputMessage =
@@ -132,6 +156,8 @@ export type WebRTCMediaOptions = {
   credentials: ApiCredentials;
   iceServers: RTCIceServer[];
   input$: Observable<WebRTCInputMessage>;
+  inputEnabled$: Observable<boolean>;
+  targetId$: Observable<string | null>;
   viewportSize$: Observable<WebRTCViewportRequest>;
   streamSettings$: Observable<WebRTCStreamSettings>;
   reconnect: () => void;
@@ -151,6 +177,12 @@ type StatsAccumulator = {
   sample: StatsSample | null;
   metrics: WebRTCMediaMetrics;
 };
+
+const MAX_POINTER_BUFFERED_AMOUNT = 16 * 1024;
+const JITTER_BUFFER_TARGET_MS = 10;
+const TARGET_RETRY_DELAY_MS = 250;
+const TARGET_SELECTION_ERROR_DELAY_MS = 3000;
+const MEDIA_TIMEOUT_MS = 20_000;
 
 const evdevByCode: Readonly<Record<string, number>> = {
   Escape: 1,
@@ -284,19 +316,30 @@ const signalResponseSchema = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
+const targetSelectionSchema = z
+  .object({
+    target_id: z.string(),
+    generation: z.number().int().positive(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    physical_width: z.number().int().positive(),
+    physical_height: z.number().int().positive(),
+    device_scale_factor: z.number().positive(),
+  })
+  .strict();
 const controlResponseSchema = z.discriminatedUnion("type", [
   z
     .object({
-      version: z.literal(3),
+      version: z.literal(4),
       id: z.string(),
       type: z.literal("input.acquire.result"),
       ok: z.literal(true),
-      input: z.object({ pointer: z.boolean(), keyboard: z.boolean() }).strict(),
+      input: z.object({ pointer: z.boolean(), keyboard: z.boolean(), text: z.boolean() }).strict(),
     })
     .strict(),
   z
     .object({
-      version: z.literal(3),
+      version: z.literal(4),
       id: z.string(),
       type: z.literal("video.quality.set.result"),
       ok: z.literal(true),
@@ -314,7 +357,41 @@ const controlResponseSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      version: z.literal(3),
+      version: z.literal(4),
+      id: z.string(),
+      type: z.literal("input.release.result"),
+      ok: z.literal(true),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
+      id: z.string(),
+      type: z.literal("target.select.result"),
+      ok: z.literal(true),
+      target: targetSelectionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
+      type: z.literal("target.updated"),
+      ok: z.literal(true),
+      target: targetSelectionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
+      type: z.literal("target.unavailable"),
+      ok: z.literal(false),
+      target_id: z.string(),
+      error: z.object({ code: z.string(), message: z.string() }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(4),
       id: z.string(),
       type: z.literal("error"),
       ok: z.literal(false),
@@ -322,6 +399,15 @@ const controlResponseSchema = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
+const inputResponseSchema = z
+  .object({
+    version: z.literal(1),
+    sequence: z.number().int().positive().optional(),
+    type: z.literal("error"),
+    ok: z.literal(false),
+    error: z.object({ code: z.string(), message: z.string() }).strict(),
+  })
+  .strict();
 const mediaStatusSchema = z
   .object({
     mediaQuality: z
@@ -340,6 +426,8 @@ const mediaStatusSchema = z
           id: z.string(),
           label: z.string(),
           codec: z.string(),
+          mimeType: z.string(),
+          sdpFmtpLine: z.string(),
         })
         .strict(),
     ),
@@ -351,8 +439,17 @@ const viewportMetadataSchema = z
     width: z.number().positive(),
     height: z.number().positive(),
     deviceScaleFactor: z.number().positive(),
-    physicalWidth: z.number().positive(),
-    physicalHeight: z.number().positive(),
+    contentWidth: z.number().positive(),
+    contentHeight: z.number().positive(),
+    canvasWidth: z.number().positive(),
+    canvasHeight: z.number().positive(),
+  })
+  .strict();
+const viewportResponseSchema = z
+  .object({
+    targetId: z.string(),
+    generation: z.number().int().positive(),
+    viewport: viewportMetadataSchema,
   })
   .strict();
 const inboundVideoStatsSchema = z
@@ -418,6 +515,8 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         metrics: null,
         error: { kind: "setup-failed", cause },
         inputReady: false,
+        selectedTarget: null,
+        targetSwitching: false,
       });
       subscriber.complete();
       return;
@@ -432,28 +531,46 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       metrics: null,
       error: null,
       inputReady: false,
+      selectedTarget: null,
+      targetSwitching: false,
     };
     let closed = false;
     let inputSequence = 0;
+    let inputMotionSequence = 0;
+    let inputEnabled = true;
+    let inputReleasePending = false;
+    let inputReleaseRequestId: string | null = null;
     let controlRequest = 0;
     let keyframeInterval = 60;
     let mediaStatusLoaded = false;
     let pendingStreamSettings: WebRTCStreamSettings | null = null;
-    let reconnectAfterProfileChange = false;
+    let reconnectAfterQualityChange = false;
     let viewportRequest = 0;
     let viewportSettled = 0;
     const qualityRequests = new Map<string, WebRTCStreamSettings>();
+    const targetRequests = new Map<string, { targetId: string; sequence: number }>();
+    let targetRequestSequence = 0;
+    let latestTargetRequestSequence = 0;
+    let requestedTargetId: string | null = null;
     let statsSample: StatsSample | null = null;
-    let statsTimer: number | null = null;
-    let mediaTimeout: number | null = window.setTimeout(() => {
-      fail({ kind: "media-timeout", progress: "waiting for video" });
-    }, 20_000);
+    let statsSubscription: Subscription | null = null;
     const pendingSignals: string[] = [];
     const pendingCandidates: RTCIceCandidateInit[] = [];
+    const textKeyCodes = new Set<string>();
     const subscriptions = new Subscription();
+    const targetRetry$ = new Subject<string | null>();
+    const targetSelectionStarted$ = new Subject<string | null>();
+    const targetSelectionFailed$ = new Subject<{ targetId: string; detail: string }>();
+    const targetSelectionSettled$ = new Subject<string>();
+    const mediaStatus = loadMediaStatus(options);
     const control = connection.createDataChannel("control", { ordered: true });
     const input = connection.createDataChannel("input", { ordered: true });
-    connection.addTransceiver("video", { direction: "recvonly" });
+    const inputMotion = connection.createDataChannel("input-motion", {
+      ordered: false,
+      maxRetransmits: 0,
+    });
+    const videoTransceiver = connection.addTransceiver("video", { direction: "recvonly" });
+    videoTransceiver.receiver.jitterBufferTarget = JITTER_BUFFER_TARGET_MS;
     const socket = new WebSocket(
       buildSignalURL(options.sessionId),
       buildSignalProtocols(options.credentials),
@@ -470,6 +587,10 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       emit({ phase: "failed", error, inputReady: false });
       cleanup();
     };
+    const mediaTimeoutSubscription = timer(MEDIA_TIMEOUT_MS).subscribe(() => {
+      fail({ kind: "media-timeout", progress: "waiting for video" });
+    });
+    subscriptions.add(mediaTimeoutSubscription);
     const sendSignal = (message: unknown) => {
       const body = JSON.stringify(message);
       if (socket.readyState === WebSocket.OPEN) {
@@ -499,19 +620,22 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       const profileChanged =
         state.streamSettings !== null &&
         pendingStreamSettings.profile !== state.streamSettings.profile;
-      reconnectAfterProfileChange = profileChanged;
+      const bitrateIncreased =
+        state.streamSettings !== null &&
+        pendingStreamSettings.bitrateKbps > state.streamSettings.bitrateKbps;
+      reconnectAfterQualityChange = profileChanged || bitrateIncreased;
       qualityRequests.set(id, pendingStreamSettings);
       control.send(
         JSON.stringify({
-          version: 3,
+          version: 4,
           id,
           type: "video.quality.set",
           quality: {
             ...(profileChanged ? { profile: pendingStreamSettings.profile } : {}),
             ...(state.size
               ? {
-                  width: state.size.physicalWidth,
-                  height: state.size.physicalHeight,
+                  width: state.size.canvasWidth,
+                  height: state.size.canvasHeight,
                 }
               : {}),
             framerate: pendingStreamSettings.fps,
@@ -520,8 +644,104 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         }),
       );
     };
+    const acquireInput = () => {
+      if (
+        !inputEnabled ||
+        inputReleasePending ||
+        control.readyState !== "open" ||
+        input.readyState !== "open" ||
+        inputMotion.readyState !== "open" ||
+        state.inputReady ||
+        state.targetSwitching ||
+        !state.selectedTarget ||
+        state.selectedTarget.targetId !== requestedTargetId
+      ) {
+        return;
+      }
+      controlRequest += 1;
+      control.send(
+        JSON.stringify({
+          version: 4,
+          id: `input-${controlRequest}`,
+          type: "input.acquire",
+        }),
+      );
+    };
+    const releaseInput = () => {
+      if (inputReleasePending || control.readyState !== "open" || !state.inputReady) {
+        return;
+      }
+      controlRequest += 1;
+      inputReleasePending = true;
+      inputReleaseRequestId = `input-${controlRequest}`;
+      emit({ inputReady: false });
+      control.send(
+        JSON.stringify({
+          version: 4,
+          id: inputReleaseRequestId,
+          type: "input.release",
+        }),
+      );
+    };
+    const selectTarget = () => {
+      if (!requestedTargetId || control.readyState !== "open") {
+        return;
+      }
+      targetRequestSequence += 1;
+      latestTargetRequestSequence = targetRequestSequence;
+      controlRequest += 1;
+      const id = `target-${controlRequest}`;
+      targetRequests.set(id, { targetId: requestedTargetId, sequence: targetRequestSequence });
+      control.send(
+        JSON.stringify({
+          version: 4,
+          id,
+          type: "target.select",
+          target_id: requestedTargetId,
+        }),
+      );
+    };
+    subscriptions.add(
+      targetRetry$
+        .pipe(
+          switchMap((targetId) =>
+            targetId === null ? EMPTY : timer(TARGET_RETRY_DELAY_MS).pipe(map(() => targetId)),
+          ),
+        )
+        .subscribe((targetId) => {
+          if (!closed && requestedTargetId === targetId) {
+            selectTarget();
+          }
+        }),
+    );
+    subscriptions.add(
+      targetSelectionStarted$
+        .pipe(
+          switchMap((targetId) =>
+            targetId === null
+              ? EMPTY
+              : targetSelectionFailed$.pipe(
+                  filter((failure) => failure.targetId === targetId),
+                  take(1),
+                  switchMap((failure) =>
+                    timer(TARGET_SELECTION_ERROR_DELAY_MS).pipe(map(() => failure)),
+                  ),
+                  takeUntil(
+                    targetSelectionSettled$.pipe(
+                      filter((settledTargetId) => settledTargetId === targetId),
+                    ),
+                  ),
+                ),
+          ),
+        )
+        .subscribe((failure) => {
+          if (!closed && requestedTargetId === failure.targetId && state.targetSwitching) {
+            emit({ error: { kind: "target-selection-failed", detail: failure.detail } });
+          }
+        }),
+    );
 
-    void loadMediaStatus(options)
+    void mediaStatus
       .then((status) => {
         keyframeInterval = status.mediaKeyframeInterval;
         mediaStatusLoaded = true;
@@ -538,17 +758,34 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       })
       .catch(() => undefined);
 
-    const sendPointerMotion = (x: number, y: number) => {
+    const sendPointerMotion = (x: number, y: number, reliable: boolean) => {
       const width = state.size?.width;
       const height = state.size?.height;
       if (!width || !height) {
         return;
       }
-      sendInput({
-        type: "input.pointer.motion.absolute",
-        x: Math.min(1, Math.max(0, x / width)),
-        y: Math.min(1, Math.max(0, y / height)),
-      });
+      const channel = reliable ? input : inputMotion;
+      if (
+        !state.inputReady ||
+        channel.readyState !== "open" ||
+        (!reliable && channel.bufferedAmount > MAX_POINTER_BUFFERED_AMOUNT)
+      ) {
+        return;
+      }
+      if (reliable) {
+        inputSequence += 1;
+      } else {
+        inputMotionSequence += 1;
+      }
+      channel.send(
+        JSON.stringify({
+          version: 1,
+          sequence: reliable ? inputSequence : inputMotionSequence,
+          type: "input.pointer.motion.absolute",
+          x: Math.min(1, Math.max(0, x / width)),
+          y: Math.min(1, Math.max(0, y / height)),
+        }),
+      );
     };
     const cleanup = () => {
       if (closed) {
@@ -556,24 +793,18 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
       closed = true;
       subscriptions.unsubscribe();
-      if (mediaTimeout !== null) {
-        window.clearTimeout(mediaTimeout);
-        mediaTimeout = null;
-      }
-      if (statsTimer !== null) {
-        window.clearInterval(statsTimer);
-      }
       if (state.inputReady && control.readyState === "open") {
         controlRequest += 1;
         control.send(
           JSON.stringify({
-            version: 3,
+            version: 4,
             id: `input-${controlRequest}`,
             type: "input.release",
           }),
         );
       }
       input.close();
+      inputMotion.close();
       control.close();
       connection.close();
       socket.close();
@@ -585,8 +816,40 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       for (const body of pendingSignals.splice(0)) {
         socket.send(body);
       }
-      void connection
-        .createOffer()
+      void mediaStatus
+        .then((status) => {
+          const profile = status.mediaProfiles.find(
+            (candidate) => candidate.id === status.mediaQuality.profile,
+          );
+          if (!profile) {
+            throw new Error(`video profile ${status.mediaQuality.profile} is unavailable`);
+          }
+          const capabilities = RTCRtpReceiver.getCapabilities("video");
+          if (!capabilities) {
+            throw new Error("browser did not report video codec capabilities");
+          }
+          const configuredH264Profile = profile.sdpFmtpLine
+            .match(/(?:^|;)profile-level-id=([0-9a-f]{2})/i)?.[1]
+            ?.toLowerCase();
+          const preferredCodecs = capabilities.codecs.filter((codec) => {
+            if (codec.mimeType.toLowerCase() !== profile.mimeType.toLowerCase()) {
+              return false;
+            }
+            if (!configuredH264Profile) {
+              return true;
+            }
+            return (
+              codec.sdpFmtpLine
+                ?.match(/(?:^|;)profile-level-id=([0-9a-f]{2})/i)?.[1]
+                ?.toLowerCase() === configuredH264Profile
+            );
+          });
+          if (preferredCodecs.length === 0) {
+            throw new Error(`browser does not support ${profile.label}`);
+          }
+          videoTransceiver.setCodecPreferences(preferredCodecs);
+          return connection.createOffer();
+        })
         .then((offer) => connection.setLocalDescription(offer))
         .then(() => {
           const description = connection.localDescription;
@@ -635,7 +898,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         .catch(() => fail({ kind: "invalid-ice-candidate" }));
     });
     socket.addEventListener("close", () => {
-      if (!closed && reconnectAfterProfileChange) {
+      if (!closed && reconnectAfterQualityChange) {
         queueMicrotask(options.reconnect);
         return;
       }
@@ -644,7 +907,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
     });
     socket.addEventListener("error", () => {
-      if (reconnectAfterProfileChange) {
+      if (reconnectAfterQualityChange) {
         return;
       }
       fail({ kind: "unexpected", cause: new Error("WebRTC signaling failed") });
@@ -657,7 +920,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     });
     connection.addEventListener("connectionstatechange", () => {
       if (connection.connectionState === "failed" || connection.connectionState === "closed") {
-        if (reconnectAfterProfileChange) {
+        if (reconnectAfterQualityChange) {
           return;
         }
         fail({ kind: "peer-connection-lost", state: connection.connectionState });
@@ -665,7 +928,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     });
     connection.addEventListener("iceconnectionstatechange", () => {
       if (connection.iceConnectionState === "failed") {
-        if (reconnectAfterProfileChange) {
+        if (reconnectAfterQualityChange) {
           return;
         }
         fail({ kind: "ice-failed" });
@@ -675,19 +938,17 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       const stream = event.streams[0] ?? new MediaStream([event.track]);
       emit({ stream });
       const live = () => {
-        if (mediaTimeout !== null) {
-          window.clearTimeout(mediaTimeout);
-          mediaTimeout = null;
-        }
+        mediaTimeoutSubscription.unsubscribe();
         emit({ phase: "live", stream, error: null });
-        if (statsTimer === null) {
-          statsTimer = window.setInterval(() => {
+        if (statsSubscription === null) {
+          statsSubscription = interval(1000).subscribe(() => {
             void connection.getStats().then((report) => {
               const result = deriveMetrics(report, statsSample, null);
               statsSample = result.sample;
               emit({ metrics: result.metrics });
             });
-          }, 1000);
+          });
+          subscriptions.add(statsSubscription);
         }
       };
       if (event.track.muted) {
@@ -697,24 +958,20 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
       }
     });
 
-    const acquireInput = () => {
-      if (control.readyState !== "open" || input.readyState !== "open" || state.inputReady) {
+    const reconnectMedia = () => {
+      if (closed) {
         return;
       }
-      controlRequest += 1;
-      control.send(
-        JSON.stringify({
-          version: 3,
-          id: `input-${controlRequest}`,
-          type: "input.acquire",
-        }),
-      );
+      emit({ inputReady: false });
+      cleanup();
+      queueMicrotask(options.reconnect);
     };
     control.addEventListener("open", () => {
-      acquireInput();
+      selectTarget();
       sendStreamSettings();
     });
     input.addEventListener("open", acquireInput);
+    inputMotion.addEventListener("open", acquireInput);
     control.addEventListener("message", (event) => {
       const parsed = z
         .string()
@@ -728,7 +985,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
         const qualityRequest = qualityRequests.get(parsed.data.id);
         if (qualityRequest) {
           qualityRequests.delete(parsed.data.id);
-          reconnectAfterProfileChange = false;
+          reconnectAfterQualityChange = false;
           emit({
             error: {
               kind: "producer-quality-failed",
@@ -737,13 +994,48 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           });
           return;
         }
+        const targetRequest = targetRequests.get(parsed.data.id);
+        if (targetRequest) {
+          targetRequests.delete(parsed.data.id);
+          if (
+            targetRequest.sequence === latestTargetRequestSequence &&
+            targetRequest.targetId === requestedTargetId
+          ) {
+            if (!state.targetSwitching) {
+              targetSelectionStarted$.next(targetRequest.targetId);
+            }
+            emit({
+              selectedTarget: null,
+              targetSwitching: true,
+              inputReady: false,
+              ...(!state.targetSwitching ? { error: null } : {}),
+            });
+            targetSelectionFailed$.next({
+              targetId: targetRequest.targetId,
+              detail: parsed.data.error.message,
+            });
+            targetRetry$.next(targetRequest.targetId);
+          }
+          return;
+        }
+        if (parsed.data.id === inputReleaseRequestId) {
+          inputReleasePending = false;
+          inputReleaseRequestId = null;
+          reconnectMedia();
+          return;
+        }
         console.warn("WebRTC input acquisition failed", parsed.data.error);
         emit({ inputReady: false });
         return;
       }
       if (parsed.data.type === "video.quality.set.result") {
         qualityRequests.delete(parsed.data.id);
-        const previousProfile = state.streamSettings?.profile;
+        const previousSettings = state.streamSettings;
+        const shouldReconnect =
+          previousSettings !== null &&
+          (previousSettings.profile !== parsed.data.quality.profile ||
+            parsed.data.quality.bitrate_kbps > previousSettings.bitrateKbps);
+        reconnectAfterQualityChange = shouldReconnect;
         emit({
           streamSettings: {
             profile: parsed.data.quality.profile,
@@ -753,27 +1045,111 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           },
           error: null,
         });
-        if (previousProfile && previousProfile !== parsed.data.quality.profile) {
-          reconnectAfterProfileChange = true;
+        if (shouldReconnect) {
+          reconnectMedia();
+        }
+        return;
+      }
+      if (parsed.data.type === "target.select.result") {
+        const request = targetRequests.get(parsed.data.id);
+        targetRequests.delete(parsed.data.id);
+        if (
+          !request ||
+          request.sequence !== latestTargetRequestSequence ||
+          request.targetId !== requestedTargetId ||
+          parsed.data.target.target_id !== requestedTargetId
+        ) {
+          return;
+        }
+        const selectedTarget = targetSelection(parsed.data.target);
+        targetRetry$.next(null);
+        targetSelectionSettled$.next(selectedTarget.targetId);
+        emit({
+          selectedTarget,
+          targetSwitching: false,
+          size: selectedTarget,
+          inputReady: false,
+          error: null,
+        });
+        acquireInput();
+        return;
+      }
+      if (parsed.data.type === "target.updated") {
+        if (
+          parsed.data.target.target_id !== requestedTargetId ||
+          parsed.data.target.target_id !== state.selectedTarget?.targetId ||
+          parsed.data.target.generation < state.selectedTarget.generation
+        ) {
+          return;
+        }
+        const selectedTarget = targetSelection(parsed.data.target);
+        emit({ selectedTarget, size: selectedTarget, inputReady: false, error: null });
+        acquireInput();
+        return;
+      }
+      if (parsed.data.type === "target.unavailable") {
+        if (parsed.data.target_id !== requestedTargetId) {
+          return;
+        }
+        if (!state.targetSwitching) {
+          targetSelectionStarted$.next(parsed.data.target_id);
+        }
+        emit({
+          selectedTarget: null,
+          targetSwitching: true,
+          inputReady: false,
+          ...(!state.targetSwitching ? { error: null } : {}),
+        });
+        targetSelectionFailed$.next({
+          targetId: parsed.data.target_id,
+          detail: parsed.data.error.message,
+        });
+        targetRetry$.next(parsed.data.target_id);
+        return;
+      }
+      if (parsed.data.type === "input.release.result") {
+        if (parsed.data.id === inputReleaseRequestId) {
+          inputReleasePending = false;
+          inputReleaseRequestId = null;
+          emit({ inputReady: false });
+          acquireInput();
         }
         return;
       }
       emit({ inputReady: parsed.data.input.pointer || parsed.data.input.keyboard });
+      if (!inputEnabled) {
+        releaseInput();
+      }
     });
-    input.addEventListener("close", () => emit({ inputReady: false }));
-    input.addEventListener("error", () => emit({ inputReady: false }));
+    input.addEventListener("close", reconnectMedia);
+    input.addEventListener("error", reconnectMedia);
+    inputMotion.addEventListener("close", reconnectMedia);
+    inputMotion.addEventListener("error", reconnectMedia);
+    const handleInputResponse = (event: MessageEvent<unknown>) => {
+      const parsed = z
+        .string()
+        .transform((body) => JSON.parse(body))
+        .pipe(inputResponseSchema)
+        .safeParse(event.data);
+      if (!parsed.success) {
+        fail({ kind: "unexpected", cause: new Error("invalid WebRTC input response") });
+        return;
+      }
+      console.warn("WebRTC input failed", parsed.data.error);
+      if (
+        parsed.data.error.code === "input_overloaded" ||
+        parsed.data.error.code === "input_unavailable"
+      ) {
+        reconnectMedia();
+      }
+    };
+    input.addEventListener("message", handleInputResponse);
+    inputMotion.addEventListener("message", handleInputResponse);
 
-    const motion$ = options.input$.pipe(
-      filter((message) => message.type === "input.mouse" && message.action === "move"),
-      auditTime(0, animationFrameScheduler),
-    );
-    const transitions$ = options.input$.pipe(
-      filter((message) => message.type !== "input.mouse" || message.action !== "move"),
-    );
     subscriptions.add(
-      merge(motion$, transitions$).subscribe((message) => {
+      options.input$.subscribe((message) => {
         if (message.type === "input.mouse") {
-          sendPointerMotion(message.x, message.y);
+          sendPointerMotion(message.x, message.y, message.action !== "move");
           const button = pointerButton(message.button);
           if (!button || message.action === "move") {
             return;
@@ -791,39 +1167,83 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
           }
           return;
         }
-        if (message.type === "input.wheel") {
-          sendPointerMotion(message.x, message.y);
-          sendInput({
-            type: "input.pointer.scroll",
-            horizontal: message.deltaX,
-            vertical: message.deltaY,
-            stop_horizontal: false,
-            stop_vertical: false,
-          });
-          sendInput({
-            type: "input.pointer.scroll",
-            horizontal: 0,
-            vertical: 0,
-            stop_horizontal: message.deltaX !== 0,
-            stop_vertical: message.deltaY !== 0,
-          });
+        if (message.type === "input.key") {
+          if (message.action === "char") {
+            if (message.text) {
+              sendInput({ type: "input.keyboard.text", text: message.text });
+            }
+            return;
+          }
+          if (message.action === "down") {
+            if (message.code) {
+              textKeyCodes.delete(message.code);
+            }
+            if (message.text) {
+              sendInput({ type: "input.keyboard.text", text: message.text });
+              if (message.code) {
+                textKeyCodes.add(message.code);
+              }
+              return;
+            }
+          }
+          if (message.action === "up" && message.code && textKeyCodes.delete(message.code)) {
+            return;
+          }
+          const keycode = evdevByCode[message.code ?? ""];
+          if (keycode) {
+            sendInput({
+              type: "input.keyboard.key",
+              keycode,
+              pressed: message.action === "down",
+            });
+          }
           return;
         }
-        if (message.action === "char") {
-          return;
-        }
-        const keycode = evdevByCode[message.code ?? ""];
-        if (keycode) {
-          sendInput({
-            type: "input.keyboard.key",
-            keycode,
-            pressed: message.action === "down",
-          });
+        sendPointerMotion(message.x, message.y, true);
+        sendInput({
+          type: "input.pointer.scroll",
+          horizontal: message.deltaX,
+          vertical: message.deltaY,
+          stop_horizontal: false,
+          stop_vertical: false,
+        });
+        sendInput({
+          type: "input.pointer.scroll",
+          horizontal: 0,
+          vertical: 0,
+          stop_horizontal: message.deltaX !== 0,
+          stop_vertical: message.deltaY !== 0,
+        });
+      }),
+    );
+    subscriptions.add(
+      options.inputEnabled$.pipe(distinctUntilChanged()).subscribe((enabled) => {
+        inputEnabled = enabled;
+        if (enabled) {
+          acquireInput();
+        } else {
+          releaseInput();
         }
       }),
     );
     subscriptions.add(
-      options.viewportSize$.pipe(auditTime(32)).subscribe((viewport) => {
+      options.targetId$.pipe(distinctUntilChanged()).subscribe((targetId) => {
+        requestedTargetId = targetId;
+        latestTargetRequestSequence += 1;
+        targetRequests.clear();
+        targetRetry$.next(null);
+        targetSelectionStarted$.next(targetId);
+        emit({
+          selectedTarget: null,
+          targetSwitching: targetId !== null,
+          inputReady: false,
+          error: null,
+        });
+        selectTarget();
+      }),
+    );
+    subscriptions.add(
+      options.viewportSize$.pipe(debounceTime(150)).subscribe((viewport) => {
         viewportRequest += 1;
         const request = viewportRequest;
         void updateViewport(options, viewport)
@@ -832,7 +1252,9 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
               return;
             }
             viewportSettled = request;
-            emit({ size, error: null });
+            if (size.targetId === requestedTargetId) {
+              emit({ size: size.viewport, error: null });
+            }
             sendStreamSettings();
           })
           .catch((cause: unknown) => {
@@ -889,7 +1311,7 @@ function pointerButton(button: WebRTCPointerButton | undefined) {
 async function updateViewport(
   options: WebRTCMediaOptions,
   viewport: WebRTCViewportRequest,
-): Promise<WebRTCMediaSize> {
+): Promise<{ targetId: string; viewport: WebRTCMediaSize }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -911,7 +1333,29 @@ async function updateViewport(
   if (!response.ok) {
     throw new Error((await response.text()) || `resize failed with status ${response.status}`);
   }
-  return viewportMetadataSchema.parse(await response.json());
+  const result = viewportResponseSchema.parse(await response.json());
+  return {
+    targetId: result.targetId,
+    viewport: {
+      width: result.viewport.width,
+      height: result.viewport.height,
+      deviceScaleFactor: result.viewport.deviceScaleFactor,
+      canvasWidth: result.viewport.canvasWidth,
+      canvasHeight: result.viewport.canvasHeight,
+    },
+  };
+}
+
+function targetSelection(target: z.infer<typeof targetSelectionSchema>): WebRTCTargetSelection {
+  return {
+    targetId: target.target_id,
+    generation: target.generation,
+    width: target.width,
+    height: target.height,
+    canvasWidth: target.physical_width,
+    canvasHeight: target.physical_height,
+    deviceScaleFactor: target.device_scale_factor,
+  };
 }
 
 async function loadMediaStatus(options: WebRTCMediaOptions) {

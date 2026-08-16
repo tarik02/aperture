@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   build:
@@ -17,10 +18,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
 
+      - name: Validate GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
       - uses: cachix/install-nix-action@v31.10.7
 
-      - name: Validate GoReleaser configuration
-        run: nix develop -c goreleaser check
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
 
       - name: Build and check
         run: nix flake check --print-build-logs

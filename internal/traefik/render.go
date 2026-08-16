@@ -91,7 +91,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 
 		sessionBase := "/sessions/" + session.ID
 		cdpBase := sessionBase + "/cdp"
-		if session.CDPPort > 0 {
+		if session.CDPPort > 0 && session.WrapperPort > 0 {
 			cdpService := cdpServiceName(session.ID)
 			doc.HTTP.Routers[cdpWebSocketRouterName(session.ID)] = routerConfig{
 				Rule:    cdpWebSocketRouterRule(cdpBase),
@@ -133,7 +133,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			doc.HTTP.Services[cdpService] = serviceConfig{
 				LoadBalancer: loadBalancerConfig{
 					PassHostHeader: &passHostHeader,
-					Servers:        []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.CDPPort)}},
+					Servers:        []serverConfig{{URL: fmt.Sprintf("http://127.0.0.1:%d", session.WrapperPort)}},
 				},
 			}
 		}
@@ -155,16 +155,17 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		doc.HTTP.Middlewares[writeAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "write")
 
 		webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
-		screencastStrip := stripSessionPrefixMiddlewareName(session.ID, "screencast")
+		recordingsStrip := stripSessionPrefixMiddlewareName(session.ID, "recordings")
 		filesStrip := stripSessionPrefixMiddlewareName(session.ID, "files")
 		uploadsStrip := stripSessionPrefixMiddlewareName(session.ID, "uploads")
 		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
+		qualityReplace := replacePathMiddlewareName(session.ID, "browser-quality")
 		statusReplace := replacePathMiddlewareName(session.ID, "browser-status")
 
 		doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
-		doc.HTTP.Middlewares[screencastStrip] = middlewareConfig{
+		doc.HTTP.Middlewares[recordingsStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[filesStrip] = middlewareConfig{
@@ -176,11 +177,14 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		doc.HTTP.Middlewares[viewportReplace] = middlewareConfig{
 			ReplacePath: &replacePathConfig{Path: "/viewport"},
 		}
+		doc.HTTP.Middlewares[qualityReplace] = middlewareConfig{
+			ReplacePath: &replacePathConfig{Path: "/quality"},
+		}
 		doc.HTTP.Middlewares[statusReplace] = middlewareConfig{
 			ReplacePath: &replacePathConfig{Path: "/status"},
 		}
 
-		if session.CDPPort > 0 {
+		if session.CDPPort > 0 && session.WrapperPort > 0 {
 			doc.HTTP.Routers[cdpDiscoveryRouterName(session.ID)] = routerConfig{
 				Rule:    cdpDiscoveryRouterRule(cdpBase),
 				Service: wrapperService,
@@ -205,16 +209,22 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				middlewares: []string{webrtcStrip},
 			},
 			{
-				name:        screencastRouterName(session.ID),
-				rule:        pathPrefixRouterRule(sessionBase + "/screencast/"),
+				name:        recordingsRouterName(session.ID),
+				rule:        pathPrefixRouterRule(sessionBase + "/recordings"),
 				auth:        writeAuth,
-				middlewares: []string{screencastStrip},
+				middlewares: []string{recordingsStrip},
 			},
 			{
 				name:        browserViewportRouterName(session.ID),
 				rule:        pathRouterRule(sessionBase + "/browser/viewport"),
 				auth:        writeAuth,
 				middlewares: []string{viewportReplace},
+			},
+			{
+				name:        browserQualityRouterName(session.ID),
+				rule:        pathRouterRule(sessionBase + "/browser/quality"),
+				auth:        writeAuth,
+				middlewares: []string{qualityReplace},
 			},
 			{
 				name:        browserStatusRouterName(session.ID),
@@ -224,7 +234,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			},
 			{
 				name:        filesRouterName(session.ID),
-				rule:        pathTreeRouterRule(sessionBase + "/files"),
+				rule:        fmt.Sprintf("(%s) && !QueryRegexp(`token`, `^apf_`)", pathTreeRouterRule(sessionBase+"/files")),
 				auth:        writeAuth,
 				middlewares: []string{filesStrip},
 			},
@@ -370,12 +380,16 @@ func webrtcRouterName(sessionID string) string {
 	return "aperture-webrtc-" + sanitizeName(sessionID)
 }
 
-func screencastRouterName(sessionID string) string {
-	return "aperture-screencast-" + sanitizeName(sessionID)
+func recordingsRouterName(sessionID string) string {
+	return "aperture-recordings-" + sanitizeName(sessionID)
 }
 
 func browserViewportRouterName(sessionID string) string {
 	return "aperture-browser-viewport-" + sanitizeName(sessionID)
+}
+
+func browserQualityRouterName(sessionID string) string {
+	return "aperture-browser-quality-" + sanitizeName(sessionID)
 }
 
 func browserStatusRouterName(sessionID string) string {
@@ -715,6 +729,9 @@ func RunningSessionsFromDB(sessions []db.Session) []RunningSession {
 					view.WrapperPort = values.WrapperPort
 				}
 			}
+		}
+		if view.WrapperPort <= 0 {
+			continue
 		}
 		running = append(running, view)
 	}
