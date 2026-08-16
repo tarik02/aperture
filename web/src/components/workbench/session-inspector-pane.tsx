@@ -42,15 +42,19 @@ export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
         </div>
         <MetadataGrid
           items={[
-            { label: "Label", value: session.label ?? "—" },
-            { label: "ID", value: session.id },
-            { label: "Tenant", value: session.tenantId },
-            { label: "Channel", value: session.browserChannel ?? "—" },
-            { label: "Snapshot", value: session.baseSnapshotName ?? "—" },
-            { label: "Created", value: metadataTimestamp(session.createdAt) },
-            { label: "Started", value: metadataTimestamp(session.startedAt) },
-            { label: "Expires", value: metadataTimestamp(session.expiresAt) },
-            { label: "Tags", value: <TagBadges tags={session.tags} max={8} /> },
+            { kind: "text", label: "Label", value: session.label ?? "—" },
+            { kind: "identifier", label: "ID", value: session.id },
+            { kind: "identifier", label: "Tenant", value: session.tenantId },
+            { kind: "text", label: "Channel", value: session.browserChannel ?? "—" },
+            { kind: "text", label: "Snapshot", value: session.baseSnapshotName ?? "—" },
+            { kind: "text", label: "Created", value: metadataTimestamp(session.createdAt) },
+            { kind: "text", label: "Started", value: metadataTimestamp(session.startedAt) },
+            { kind: "text", label: "Expires", value: metadataTimestamp(session.expiresAt) },
+            {
+              kind: "text",
+              label: "Tags",
+              value: <TagBadges tags={session.tags} max={8} />,
+            },
           ]}
         />
         <Separator />

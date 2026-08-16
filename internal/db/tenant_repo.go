@@ -225,6 +225,18 @@ func (r *Repository) CreateAPIToken(ctx context.Context, token *APIToken, audit 
 	})
 }
 
+// DeleteAPIToken deletes an API token row.
+func (r *Repository) DeleteAPIToken(ctx context.Context, tokenID string) error {
+	_, err := r.db.bun.NewDelete().
+		Model((*APIToken)(nil)).
+		Where("id = ?", tokenID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("delete api token: %w", err)
+	}
+	return nil
+}
+
 // GetAPITokenByID returns an API token by id.
 func (r *Repository) GetAPITokenByID(ctx context.Context, tokenID string) (*APIToken, error) {
 	token := new(APIToken)

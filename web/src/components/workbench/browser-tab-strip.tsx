@@ -4,7 +4,7 @@ import {
   dropTargetForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { useEffect, useRef, useState } from "react";
-import { Globe2, Plus, X } from "lucide-react";
+import { Globe2, Plus, Wrench, X } from "lucide-react";
 import { Button } from "#/components/ui/button.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
@@ -17,6 +17,7 @@ type BrowserTabStripProps = {
   targets: ControlTarget[];
   activeTargetId: string | null;
   recordingTargetIds: ReadonlySet<string>;
+  devToolsTargetIds: ReadonlySet<string>;
   disabled?: boolean;
   onActivate: (targetId: string) => void;
   onCreate: () => void;
@@ -39,6 +40,7 @@ export function BrowserTabStrip({
   targets,
   activeTargetId,
   recordingTargetIds,
+  devToolsTargetIds,
   disabled,
   onActivate,
   onCreate,
@@ -65,6 +67,7 @@ export function BrowserTabStrip({
               target={target}
               active={active}
               recording={recordingTargetIds.has(target.id)}
+              devToolsOpen={devToolsTargetIds.has(target.id)}
               disabled={disabled}
               onActivate={onActivate}
               onClose={onClose}
@@ -82,6 +85,7 @@ function BrowserTab({
   target,
   active,
   recording,
+  devToolsOpen,
   disabled,
   onActivate,
   onClose,
@@ -90,6 +94,7 @@ function BrowserTab({
   target: ControlTarget;
   active: boolean;
   recording: boolean;
+  devToolsOpen: boolean;
   disabled?: boolean;
   onActivate: (targetId: string) => void;
   onClose: (targetId: string) => void;
@@ -189,6 +194,12 @@ function BrowserTab({
         onClick={() => onActivate(target.id)}
       >
         <TabFavicon url={target.url} />
+        {devToolsOpen ? (
+          <>
+            <Wrench aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="sr-only">DevTools open</span>
+          </>
+        ) : null}
         {recording ? (
           <>
             <span aria-hidden className="size-2 shrink-0 rounded-full bg-destructive" />
