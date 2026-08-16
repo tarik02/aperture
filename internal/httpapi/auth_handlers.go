@@ -49,7 +49,14 @@ func (s *Server) resolveSelectedTenant(c *gin.Context, principal auth.Principal)
 	case auth.AuthoritySystemAdmin:
 		tenantID = selectedTenantID(c)
 		if tenantID == "" {
-			return nil, nil
+			tenants, err := s.Auth.ListTenants(c.Request.Context(), false)
+			if err != nil {
+				return nil, err
+			}
+			if len(tenants) == 0 {
+				return nil, nil
+			}
+			tenantID = tenants[0].ID
 		}
 	default:
 		return nil, nil

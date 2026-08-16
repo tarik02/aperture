@@ -56,7 +56,11 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 		values.GPUMode = gpuModeHardware
 		values.RenderNode = renderNode
 		if requestedCodec == mediaCodecAuto {
-			values.MediaProducerCodec = mediaCodecH264
+			if !values.MediaProducerEnabled || probeMediaCodec(values, mediaCodecH264) == nil {
+				values.MediaProducerCodec = mediaCodecH264
+			} else {
+				values.MediaProducerCodec = mediaCodecVP8
+			}
 		} else {
 			values.MediaProducerCodec = requestedCodec
 		}

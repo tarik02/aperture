@@ -3,6 +3,7 @@ import { AppWindow, Cable, ChevronDown, KeyRound } from "lucide-react";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import { DialogFooter } from "#/components/ui/dialog.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
 import { Separator } from "#/components/ui/separator.tsx";
+import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
 import { useRotateSessionTokenMutation } from "#/features/session/session.mutations.ts";
 import { useSessionQuery } from "#/features/session/session.queries.ts";
@@ -19,9 +21,10 @@ import { useEffect, useMemo, useState } from "react";
 type ConnectionPanelProps = {
   session: Session;
   onRotate?: (session: Session) => void;
+  modalFooter?: boolean;
 };
 
-export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
+export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPanelProps) {
   const rotateMutation = useRotateSessionTokenMutation();
   const sessionQuery = useSessionQuery(session.id);
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
@@ -73,33 +76,53 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
     onRotate?.(result.session);
   }
 
-  return (
+  const fields = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-medium">Connection</h3>
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
       {currentSession.sessionToken ? (
         <CopyField value={currentSession.sessionToken} label="Token" />
       ) : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       {shareLink ? <CopyField value={shareLink} label="Share link" /> : null}
-      <Separator />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="whitespace-nowrap"
-          onClick={() => setRotateConfirmOpen(true)}
-          disabled={
-            rotateMutation.isPending ||
-            (currentSession.status !== "running" && currentSession.status !== "suspended")
-          }
-        >
-          <KeyRound data-icon="inline-start" />
-          Rotate session token
-        </Button>
-        <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
-      </div>
+    </div>
+  );
+
+  const actions = (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="whitespace-nowrap"
+        onClick={() => setRotateConfirmOpen(true)}
+        disabled={
+          rotateMutation.isPending ||
+          (currentSession.status !== "running" && currentSession.status !== "suspended")
+        }
+      >
+        <KeyRound data-icon="inline-start" />
+        Rotate session token
+      </Button>
+      <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
+    </>
+  );
+
+  return (
+    <div className={modalFooter ? "flex h-full min-h-0 flex-col" : "flex flex-col gap-3"}>
+      {modalFooter ? (
+        <>
+          <ScrollArea className="min-h-0 flex-1" viewportClassName="pr-3">
+            {fields}
+          </ScrollArea>
+          <DialogFooter className="mt-4 shrink-0">{actions}</DialogFooter>
+        </>
+      ) : (
+        <>
+          {fields}
+          <Separator />
+          <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
+        </>
+      )}
       <ConfirmDialog
         open={rotateConfirmOpen}
         title="Rotate Session token"

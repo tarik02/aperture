@@ -3,6 +3,7 @@
 Aperture is packaged with Nix and runs as a per-user desktop service on NixOS (or any Linux host with user systemd).
 
 For the single-container deployment, see [Docker](docker.md).
+For local source development, see [Development](development.md).
 
 ## Build and install
 
@@ -97,10 +98,10 @@ Edit the file to substitute your login user for `%aperture_user%` and the store-
 ## Bootstrap and operation
 
 ```bash
-aperture migrate
-aperture admin bootstrap
-# Use the printed system-admin token for /admin/* and tenant setup.
+aperture admin provision --admin-token-file ./admin-token
 ```
+
+The command migrates the database, creates a `default` tenant when no active tenant exists, and writes the initial system-admin token with mode `0600`. It is safe to run again; existing tokens and tenants are left unchanged.
 
 Garbage collection is not scheduled inside `aperture serve`; enable `aperture-gc.timer` or run `aperture trigger gc` manually.
 

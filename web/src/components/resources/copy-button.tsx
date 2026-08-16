@@ -1,4 +1,5 @@
 import { Check, Copy } from "lucide-react";
+import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
 import { timer } from "rxjs";
 import { toast } from "sonner";
@@ -10,13 +11,19 @@ type CopyButtonProps = {
   label?: string;
   className?: string;
   disabled?: boolean;
+  render?: ReactElement;
 };
 
 const COPY_RESET_MS = 2400;
 
-export function CopyButton({ value, label = "Copy", className, disabled }: CopyButtonProps) {
+export function CopyButton({
+  value,
+  label = "Copy",
+  className,
+  disabled,
+  render,
+}: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
-  const [tooltipOpen, setTooltipOpen] = useState(false);
 
   useEffect(() => {
     if (!copied) {
@@ -25,7 +32,6 @@ export function CopyButton({ value, label = "Copy", className, disabled }: CopyB
 
     const subscription = timer(COPY_RESET_MS).subscribe(() => {
       setCopied(false);
-      setTooltipOpen(false);
     });
     return () => subscription.unsubscribe();
   }, [copied]);
@@ -34,7 +40,6 @@ export function CopyButton({ value, label = "Copy", className, disabled }: CopyB
     try {
       await copyText(value);
       setCopied(true);
-      setTooltipOpen(true);
     } catch (error) {
       console.warn("Copy failed", error);
       toast.error("Copy failed");
@@ -42,21 +47,14 @@ export function CopyButton({ value, label = "Copy", className, disabled }: CopyB
   }
 
   return (
-    <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+    <Tooltip>
       <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            className={className}
-            aria-label={copied ? "Copied" : label}
-            disabled={disabled}
-            onClick={() => void handleCopy()}
-            onBlur={() => setTooltipOpen(false)}
-            onPointerLeave={() => setTooltipOpen(false)}
-          />
-        }
+        render={render ?? <Button variant="outline" size="icon-sm" />}
+        type="button"
+        className={className}
+        aria-label={copied ? "Copied" : label}
+        disabled={disabled}
+        onClick={() => void handleCopy()}
       >
         {copied ? <Check /> : <Copy />}
       </TooltipTrigger>

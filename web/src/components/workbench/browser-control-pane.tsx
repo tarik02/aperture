@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { usePanelRef } from "react-resizable-panels";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserToolbar } from "#/components/workbench/browser-toolbar.tsx";
 import { BrowserViewport } from "#/components/workbench/browser-viewport.tsx";
@@ -28,8 +29,53 @@ export function BrowserControlPane({
   onSessionDetails,
 }: BrowserControlPaneProps) {
   const [performanceOverlayEnabled, setPerformanceOverlayEnabled] = useState(false);
-  const [devToolsOpen, setDevToolsOpen] = useState(false);
+  const [devToolsTargetIds, setDevToolsTargetIds] = useState<ReadonlySet<string>>(() => new Set());
   const [devToolsDock, setDevToolsDock] = useState<DevToolsDock>("bottom");
+  const devToolsPanelRef = usePanelRef();
+  const activeTargetId = control.activeTargetId;
+  const devToolsOpen = activeTargetId !== null && devToolsTargetIds.has(activeTargetId);
+
+  useEffect(() => {
+    const targetIds = new Set(control.targets.map((target) => target.id));
+    setDevToolsTargetIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+
+      for (const targetId of current) {
+        if (targetIds.has(targetId)) {
+          next.add(targetId);
+        } else {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [control.targets]);
+
+  useLayoutEffect(() => {
+    if (devToolsOpen) {
+      devToolsPanelRef.current?.expand();
+    } else {
+      devToolsPanelRef.current?.collapse();
+    }
+  }, [devToolsOpen, devToolsPanelRef]);
+
+  function handleDevToolsOpenChange(open: boolean) {
+    if (!activeTargetId) {
+      return;
+    }
+
+    setDevToolsTargetIds((current) => {
+      const next = new Set(current);
+      if (open) {
+        next.add(activeTargetId);
+      } else {
+        next.delete(activeTargetId);
+      }
+      return next;
+    });
+  }
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -41,38 +87,42 @@ export function BrowserControlPane({
         performanceOverlayEnabled={performanceOverlayEnabled}
         onPerformanceOverlayChange={setPerformanceOverlayEnabled}
         devToolsOpen={devToolsOpen}
+        devToolsTargetIds={devToolsTargetIds}
         devToolsDock={devToolsDock}
-        onDevToolsOpenChange={setDevToolsOpen}
+        onDevToolsOpenChange={handleDevToolsOpenChange}
         onDevToolsDockChange={setDevToolsDock}
         onSessionDetails={onSessionDetails}
       />
-      {devToolsOpen ? (
-        <ResizablePanelGroup
-          orientation={devToolsDock === "bottom" ? "vertical" : "horizontal"}
-          className="min-h-0 min-w-0 flex-1"
+      <ResizablePanelGroup
+        orientation={devToolsDock === "bottom" ? "vertical" : "horizontal"}
+        className="min-h-0 min-w-0 flex-1 has-[[data-separator=active]]:[&_iframe]:pointer-events-none"
+      >
+        <ResizablePanel className="flex min-h-0 min-w-0" defaultSize="60%" minSize="20%">
+          <BrowserViewport
+            control={control}
+            viewport={control.viewport}
+            performanceOverlayEnabled={performanceOverlayEnabled}
+          />
+        </ResizablePanel>
+        <ResizableHandle withHandle disabled={!devToolsOpen} hidden={!devToolsOpen} />
+        <ResizablePanel
+          panelRef={devToolsPanelRef}
+          className="flex min-h-0 min-w-0"
+          collapsible
+          defaultSize="40%"
+          minSize="20%"
         >
-          <ResizablePanel className="flex min-h-0 min-w-0" defaultSize="60%" minSize="20%">
-            <BrowserViewport
-              control={control}
-              viewport={control.viewport}
-              performanceOverlayEnabled={performanceOverlayEnabled}
-            />
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel className="flex min-h-0 min-w-0" defaultSize="40%" minSize="20%">
-            <BrowserDevToolsPane
-              cdpUrl={cdpUrl}
-              targetId={control.phase === "connected" ? control.activeTargetId : null}
-            />
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      ) : (
-        <BrowserViewport
-          control={control}
-          viewport={control.viewport}
-          performanceOverlayEnabled={performanceOverlayEnabled}
-        />
-      )}
+          {Array.from(devToolsTargetIds, (targetId) => (
+            <div
+              key={targetId}
+              className="h-full min-h-0 w-full min-w-0"
+              hidden={targetId !== activeTargetId}
+            >
+              <BrowserDevToolsPane cdpUrl={cdpUrl} targetId={targetId} />
+            </div>
+          ))}
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }
