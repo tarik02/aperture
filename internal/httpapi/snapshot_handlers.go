@@ -35,12 +35,10 @@ func (s *Server) promoteSession(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	if req.Force {
-		principal := c.MustGet("principal").(auth.Principal)
-		if err := s.Auth.AuthorizeSnapshotNameIfExists(c.Request.Context(), principal, tenantIDFromContext(c), req.Name); err != nil {
-			WriteError(c, err)
-			return
-		}
+	principal := c.MustGet("principal").(auth.Principal)
+	if err := s.Auth.AuthorizeSnapshotNameIfExists(c.Request.Context(), principal, tenantIDFromContext(c), req.Name); err != nil {
+		WriteError(c, err)
+		return
 	}
 
 	view, err := s.Promotion.Promote(c.Request.Context(), snapshot.PromoteInput{

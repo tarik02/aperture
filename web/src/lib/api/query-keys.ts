@@ -39,6 +39,7 @@ export type SessionsFilters = {
 export type SnapshotsFilters = {
   includeDeleted?: boolean;
   deleted?: DeletedFilterValue;
+  name?: string;
   tags?: TagFilterValue;
   limit?: number;
 };

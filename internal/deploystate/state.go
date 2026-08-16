@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/config"
@@ -34,6 +35,11 @@ type Service struct {
 	blueURL  string
 	greenURL string
 	now      func() time.Time
+
+	mu         sync.RWMutex
+	cached     State
+	cachedInfo os.FileInfo
+	cacheValid bool
 }
 
 // New constructs a deployment-state service from runtime config.
@@ -46,8 +52,37 @@ func New(cfg config.Config) *Service {
 	}
 }
 
-// Load reads deployment state from disk.
+// Load reads deployment state, reusing the decoded value while the file is unchanged.
 func (s *Service) Load() (State, error) {
+	info, err := os.Stat(s.path)
+	if err != nil {
+		return State{}, err
+	}
+
+	s.mu.RLock()
+	if s.cacheValid && sameFileVersion(s.cachedInfo, info) {
+		state := s.cached
+		s.mu.RUnlock()
+		return state, nil
+	}
+	s.mu.RUnlock()
+
+	state, err := s.read()
+	if err != nil {
+		return State{}, err
+	}
+	loadedInfo, statErr := os.Stat(s.path)
+	if statErr == nil && sameFileVersion(info, loadedInfo) {
+		s.mu.Lock()
+		s.cached = state
+		s.cachedInfo = loadedInfo
+		s.cacheValid = true
+		s.mu.Unlock()
+	}
+	return state, nil
+}
+
+func (s *Service) read() (State, error) {
 	body, err := os.ReadFile(s.path)
 	if err != nil {
 		return State{}, err
@@ -105,7 +140,18 @@ func (s *Service) MarkActive(color, version string) (State, error) {
 	if err := renameio.WriteFile(s.path, body, 0o600, renameio.WithStaticPermissions(0o600)); err != nil {
 		return State{}, fmt.Errorf("write deployment state: %w", err)
 	}
+	s.mu.Lock()
+	s.cacheValid = false
+	s.cachedInfo = nil
+	s.mu.Unlock()
 	return state, nil
+}
+
+func sameFileVersion(left, right os.FileInfo) bool {
+	return left != nil && right != nil &&
+		os.SameFile(left, right) &&
+		left.Size() == right.Size() &&
+		left.ModTime().Equal(right.ModTime())
 }
 
 // Role returns the process role for color under state.

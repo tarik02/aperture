@@ -79,7 +79,7 @@ func WriteEdgeConfigForState(cfg config.Config, state deploystate.State) error {
 	if err != nil {
 		return err
 	}
-	if err := WriteAtomic(EdgeConfigPath(cfg), content); err != nil {
+	if err := writeAtomicIfChanged(EdgeConfigPath(cfg), content); err != nil {
 		return fmt.Errorf("%w: %w", ErrWrite, err)
 	}
 	return nil

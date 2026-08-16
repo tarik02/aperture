@@ -57,7 +57,7 @@ func (s *Service) authorizedSession(ctx context.Context, routeSessionID, authori
 	if tokenRow.RevokedAt != nil {
 		return nil, ErrSessionTokenRevoked
 	}
-	if !VerifySessionToken(tokenRow.TokenHash, secret) {
+	if !s.successCache.Verify(tokenRow.TokenHash, secret) {
 		return nil, ErrSessionTokenInvalid
 	}
 

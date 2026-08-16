@@ -1,0 +1,4 @@
+services:
+  aperture:
+    group_add:
+      - keep-groups
