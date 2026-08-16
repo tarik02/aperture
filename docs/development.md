@@ -79,6 +79,6 @@ Intel and AMD render nodes use the drivers bundled in the GPU image. NVIDIA uses
 hardware.nvidia-container-toolkit.enable = true;
 ```
 
-The runner detects an NVIDIA render node and requests `nvidia.com/gpu=all`. Codec `auto` falls back to VP8 because NVIDIA does not expose the VA-API encoder used by `h264-va`.
+The runner detects an NVIDIA render node and requests its matching CDI GPU device. Codec `auto` falls back to VP8 because NVIDIA does not expose the VA-API encoder used by `h264-va`.
 
 Use `nix run .#dev -- --help` or `nix run .#dev-gpu -- --help` for the complete option list.

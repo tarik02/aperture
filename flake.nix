@@ -967,6 +967,7 @@
             inherit name;
             runtimeInputs = [
               pkgs.coreutils
+              pkgs.jq
               pkgs.passt
               pkgs.gnused
               pkgs.podman

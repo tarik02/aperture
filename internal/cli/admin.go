@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -60,16 +61,22 @@ func newProvisionCmd() *cobra.Command {
 					return err
 				}
 
+				var persistErr error
 				if err := os.MkdirAll(filepath.Dir(adminTokenFile), 0o700); err != nil {
-					return fmt.Errorf("create admin token directory: %w", err)
-				}
-				if err := renameio.WriteFile(
+					persistErr = fmt.Errorf("create admin token directory: %w", err)
+				} else if err := renameio.WriteFile(
 					adminTokenFile,
 					[]byte(created.Raw+"\n"),
 					0o600,
 					renameio.WithStaticPermissions(0o600),
 				); err != nil {
-					return fmt.Errorf("write admin token: %w", err)
+					persistErr = fmt.Errorf("write admin token: %w", err)
+				}
+				if persistErr != nil {
+					if err := application.Repository.DeleteAPIToken(cmd.Context(), created.Token.ID); err != nil {
+						return errors.Join(persistErr, fmt.Errorf("roll back admin token: %w", err))
+					}
+					return persistErr
 				}
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "created system-admin token: %s\n", adminTokenFile); err != nil {
 					return err

@@ -477,7 +477,6 @@ func hardwareAccelerationBindMounts(renderNode string) ([][]string, error) {
 		}
 	}
 	for _, path := range []string{
-		"/dev/nvidia0",
 		"/dev/nvidiactl",
 		"/dev/nvidia-modeset",
 		"/dev/nvidia-uvm",
@@ -486,6 +485,13 @@ func hardwareAccelerationBindMounts(renderNode string) ([][]string, error) {
 		if _, err := os.Stat(path); err == nil {
 			mounts = append(mounts, []string{"--dev-bind", path, path})
 		}
+	}
+	nvidiaDevices, err := filepath.Glob("/dev/nvidia[0-9]*")
+	if err != nil {
+		return nil, fmt.Errorf("discover NVIDIA devices: %w", err)
+	}
+	for _, path := range nvidiaDevices {
+		mounts = append(mounts, []string{"--dev-bind", path, path})
 	}
 	mounts = append(mounts, []string{"--dir", "/dev/dri"})
 	if _, err := os.Stat(renderNode); err != nil {

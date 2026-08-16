@@ -35,6 +35,7 @@ dev_config_file=
 dev_render_node=/dev/dri/renderD128
 dev_render_node_set=0
 dev_nvidia=0
+dev_nvidia_cdi_device=
 
 while (( $# > 0 )); do
   case "$1" in
@@ -107,7 +108,20 @@ if (( dev_gpu == 1 )); then
   if [[ -r $dev_render_node_vendor_file ]] && [[ $(<"$dev_render_node_vendor_file") == 0x10de ]]; then
     dev_nvidia=1
     dev_nvidia_egl_vendor_file=/run/opengl-driver/share/glvnd/egl_vendor.d/10_nvidia.json
+    dev_nvidia_cdi_spec=/run/cdi/nvidia-container-toolkit.json
     [[ -f $dev_nvidia_egl_vendor_file ]] || fail "NVIDIA EGL vendor file not found: $dev_nvidia_egl_vendor_file"
+    [[ -r $dev_nvidia_cdi_spec ]] || fail "NVIDIA CDI spec not found: $dev_nvidia_cdi_spec"
+    dev_nvidia_cdi_device=$(
+      jq -r --arg render_node "/dev/dri/$dev_render_node_name" '
+        first(
+          .devices[]
+          | select(.name != "all")
+          | select(any(.containerEdits.deviceNodes[]?; .path == $render_node))
+          | .name
+        ) // empty
+      ' "$dev_nvidia_cdi_spec"
+    ) || fail "could not read NVIDIA CDI spec: $dev_nvidia_cdi_spec"
+    [[ -n $dev_nvidia_cdi_device ]] || fail "render node not found in NVIDIA CDI spec: /dev/dri/$dev_render_node_name"
   fi
 fi
 
@@ -213,7 +227,7 @@ if (( dev_gpu == 1 )); then
   )
   if (( dev_nvidia == 1 )); then
     dev_run_args+=(
-      --device nvidia.com/gpu=all
+      --device "nvidia.com/gpu=$dev_nvidia_cdi_device"
       --volume "$dev_nvidia_egl_vendor_file:/etc/glvnd/egl_vendor.d/10_nvidia.json:ro"
       --env __EGL_VENDOR_LIBRARY_FILENAMES=/etc/glvnd/egl_vendor.d/10_nvidia.json
     )
