@@ -65,6 +65,24 @@ func Resolve(layout paths.SessionLayout, relative string) (string, string, error
 	return target, normalized, nil
 }
 
+func Get(layout paths.SessionLayout, relative string) (File, error) {
+	fullPath, normalized, err := Resolve(layout, relative)
+	if err != nil {
+		return File{}, err
+	}
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return File{}, err
+	}
+	return File{
+		Name:         filepath.Base(normalized),
+		RelativePath: normalized,
+		Size:         info.Size(),
+		ModifiedAt:   info.ModTime().UTC(),
+		MIMEType:     detectMIME(fullPath),
+	}, nil
+}
+
 func Normalize(relative string) (string, error) {
 	if relative == "" || filepath.IsAbs(relative) || strings.Contains(relative, "\\") {
 		return "", ErrInvalidPath

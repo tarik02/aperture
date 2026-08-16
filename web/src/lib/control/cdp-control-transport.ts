@@ -16,7 +16,6 @@ export type CdpControlState = {
   phase: ControlConnectionPhase;
   targets: ControlTarget[];
   activeTargetId: string | null;
-  frame: ScreencastFrame | null;
   lastError: ControlError | null;
 };
 
@@ -29,13 +28,21 @@ export type CdpControlOptions = {
 
 export type CdpControlOutput =
   | { type: "state"; state: CdpControlState }
+  | { type: "frame"; frame: ScreencastFrame | null }
   | { type: "error"; error: ControlError };
+
+type CdpStateEvent = Extract<
+  ControlConnectionEvent,
+  { type: "phase" | "targets-snapshot" | "target-changed" | "error" }
+>;
+type CdpFrameEvent =
+  | Extract<ControlConnectionEvent, { type: "screencast-frame" | "screencast-stopped" }>
+  | { type: "phase"; phase: "disconnected" | "error" };
 
 const initialState: CdpControlState = {
   phase: "idle",
   targets: [],
   activeTargetId: null,
-  frame: null,
   lastError: null,
 };
 
@@ -43,7 +50,13 @@ export function cdpControl$(options: CdpControlOptions): Observable<CdpControlOu
   return new Observable<CdpControlOutput>((subscriber) => {
     const events$ = browserControlConnection$(options).pipe(share());
     const subscription = merge(
-      events$.pipe(scan(reduce, initialState), startWith(initialState), map(stateOutput)),
+      events$.pipe(
+        filter(isStateEvent),
+        scan(reduce, initialState),
+        startWith(initialState),
+        map(stateOutput),
+      ),
+      events$.pipe(filter(isFrameEvent), map(frameOutput)),
       events$.pipe(
         filter((event) => event.type === "error"),
         map(errorOutput),
@@ -54,14 +67,13 @@ export function cdpControl$(options: CdpControlOptions): Observable<CdpControlOu
   });
 }
 
-function reduce(state: CdpControlState, event: ControlConnectionEvent): CdpControlState {
+function reduce(state: CdpControlState, event: CdpStateEvent): CdpControlState {
   switch (event.type) {
     case "phase":
       return {
         ...state,
         phase: event.phase,
         lastError: event.phase === "connected" ? null : state.lastError,
-        frame: event.phase === "disconnected" || event.phase === "error" ? null : state.frame,
       };
     case "targets-snapshot": {
       const orderedTargets = mergeTargetsInCurrentOrder(state.targets, event.targets);
@@ -72,10 +84,6 @@ function reduce(state: CdpControlState, event: ControlConnectionEvent): CdpContr
         null;
       return { ...state, targets: orderedTargets, activeTargetId };
     }
-    case "screencast-frame":
-      return { ...state, frame: event.frame };
-    case "screencast-stopped":
-      return { ...state, frame: null };
     case "error":
       return { ...state, lastError: event.error };
     case "target-changed":
@@ -87,8 +95,27 @@ function reduce(state: CdpControlState, event: ControlConnectionEvent): CdpContr
   }
 }
 
+function isStateEvent(event: ControlConnectionEvent): event is CdpStateEvent {
+  return event.type !== "screencast-frame" && event.type !== "screencast-stopped";
+}
+
+function isFrameEvent(event: ControlConnectionEvent): event is CdpFrameEvent {
+  return (
+    event.type === "screencast-frame" ||
+    event.type === "screencast-stopped" ||
+    (event.type === "phase" && (event.phase === "disconnected" || event.phase === "error"))
+  );
+}
+
 function stateOutput(state: CdpControlState): CdpControlOutput {
   return { type: "state", state };
+}
+
+function frameOutput(event: CdpFrameEvent): CdpControlOutput {
+  return {
+    type: "frame",
+    frame: event.type === "screencast-frame" ? event.frame : null,
+  };
 }
 
 function errorOutput(event: Extract<ControlConnectionEvent, { type: "error" }>): CdpControlOutput {

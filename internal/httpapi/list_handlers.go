@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/db"
@@ -175,6 +176,7 @@ func (s *Server) listSnapshots(c *gin.Context) {
 	page, err := s.Snapshots.List(c.Request.Context(), tenantIDFromContext(c), snapshot.ListFilter{
 		IncludeDeleted: includeDeleted,
 		DeletedOnly:    deletedOnly,
+		Name:           strings.TrimSpace(c.Query("name")),
 		Tags:           tagFilters,
 		Resources:      resourceIDFilter(principal, auth.ResourceTypeSnapshot),
 	}, params)

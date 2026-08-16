@@ -16,7 +16,7 @@ export const Route = createRootRoute({
       { title: "Aperture" },
     ],
     links: [
-      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "manifest", href: "/manifest.webmanifest", crossOrigin: "use-credentials" },
       { rel: "icon", href: "/icon.svg", type: "image/svg+xml" },
       { rel: "apple-touch-icon", href: "/icons/icon-180.png" },
     ],
