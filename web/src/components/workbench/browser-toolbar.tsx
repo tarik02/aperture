@@ -37,6 +37,7 @@ type BrowserToolbarProps = {
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
   devToolsOpen: boolean;
+  devToolsTargetIds: ReadonlySet<string>;
   devToolsDock: DevToolsDock;
   onDevToolsOpenChange: (open: boolean) => void;
   onDevToolsDockChange: (dock: DevToolsDock) => void;
@@ -51,6 +52,7 @@ export function BrowserToolbar({
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
   devToolsOpen,
+  devToolsTargetIds,
   devToolsDock,
   onDevToolsOpenChange,
   onDevToolsDockChange,
@@ -115,6 +117,7 @@ export function BrowserToolbar({
           targets={control.targets}
           activeTargetId={control.activeTargetId}
           recordingTargetIds={recordingTargetIds}
+          devToolsTargetIds={devToolsTargetIds}
           disabled={!connected}
           onActivate={control.activateTarget}
           onCreate={() => control.createTarget("about:blank")}
