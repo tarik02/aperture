@@ -94,7 +94,9 @@ const (
 	OverlayMountFailed          ErrorCode = "overlay_mount_failed"
 	PromotionConflict           ErrorCode = "promotion_conflict"
 	PromotionServiceUnavailable ErrorCode = "promotion_service_unavailable"
+	RecordingNotFound           ErrorCode = "recording_not_found"
 	SessionExpired              ErrorCode = "session_expired"
+	SessionFileNotFound         ErrorCode = "session_file_not_found"
 	SessionInvalidState         ErrorCode = "session_invalid_state"
 	SessionNotFound             ErrorCode = "session_not_found"
 	SessionNotPromotable        ErrorCode = "session_not_promotable"
@@ -165,7 +167,11 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case PromotionServiceUnavailable:
 		return true
+	case RecordingNotFound:
+		return true
 	case SessionExpired:
+		return true
+	case SessionFileNotFound:
 		return true
 	case SessionInvalidState:
 		return true
@@ -927,7 +933,7 @@ type PromoteSessionInput struct {
 	// Description Optional snapshot description. `null` creates the snapshot without a description.
 	Description *string `json:"description,omitempty"`
 
-	// Force Allow reuse of a name owned by a deleted snapshot. This never overwrites an active snapshot.
+	// Force Deleted snapshot names are reused automatically. Set `true` to replace an active snapshot, which is renamed to its tombstone name and retained for the configured snapshot retention period.
 	Force *bool `json:"force,omitempty"`
 
 	// Name Tenant-unique snapshot name. Leading and trailing whitespace is removed.
@@ -1016,6 +1022,42 @@ type SessionBulkInput struct {
 // SessionBulkResponse Sessions found for the requested IDs, preserving request order.
 type SessionBulkResponse struct {
 	Sessions []Session `json:"sessions"`
+}
+
+// SessionFile Regular file retained with a browser session.
+type SessionFile struct {
+	// MimeType Detected media type.
+	MimeType string `json:"mimeType"`
+
+	// ModifiedAt Last file modification time.
+	ModifiedAt time.Time `json:"modifiedAt"`
+
+	// Name File name without directory components.
+	Name string `json:"name"`
+
+	// RelativePath Path below the session root. The first component is `downloads` or `recordings`.
+	RelativePath string `json:"relativePath"`
+
+	// Size File size in bytes.
+	Size int64 `json:"size"`
+}
+
+// SessionFileDownloadURL Signed attachment URL for one session file.
+type SessionFileDownloadURL struct {
+	// ExpiresAt Time after which the URL is rejected.
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Url URL containing a path-bound `apf_` token.
+	Url string `json:"url"`
+}
+
+// SessionFileDownloadURLInput Session file path and requested signed URL lifetime.
+type SessionFileDownloadURLInput struct {
+	// RelativePath Path from a `SessionFile` result.
+	RelativePath string `json:"relativePath"`
+
+	// TtlSeconds Requested lifetime in seconds. Omit it to use `signed_file_url_ttl`; values above `signed_file_url_max_ttl` are rejected.
+	TtlSeconds *int `json:"ttlSeconds,omitempty"`
 }
 
 // SessionMedia Media capabilities currently available for the session.
@@ -1263,6 +1305,9 @@ type LegacyIncludeDeleted = bool
 // Limit defines model for Limit.
 type Limit = int
 
+// RecordingId defines model for RecordingId.
+type RecordingId = openapi_types.UUID
+
 // RevokedFilter defines model for RevokedFilter.
 type RevokedFilter string
 
@@ -1298,6 +1343,9 @@ type CreateAdminToken = CreateAdminTokenInput
 
 // CreateSession Configuration for a new retained browser session.
 type CreateSession = CreateSessionInput
+
+// CreateSessionFileDownloadURL Session file path and requested signed URL lifetime.
+type CreateSessionFileDownloadURL = SessionFileDownloadURLInput
 
 // CreateTenant Tenant fields accepted by create and update operations.
 type CreateTenant = TenantInput
@@ -1486,8 +1534,20 @@ type GetSessionParams struct {
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
+// CreateSessionFileDownloadURLParams defines parameters for CreateSessionFileDownloadURL.
+type CreateSessionFileDownloadURLParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
 // PromoteSessionParams defines parameters for PromoteSession.
 type PromoteSessionParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// StopSessionRecordingParams defines parameters for StopSessionRecording.
+type StopSessionRecordingParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
@@ -1523,6 +1583,9 @@ type ListSnapshotsParams struct {
 
 	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Name ASCII case-insensitive substring matched against the snapshot name.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
 
 	// Deleted Select active resources, deleted resources only, or both. The default is `active`.
 	Deleted *ListSnapshotsParamsDeleted `form:"deleted,omitempty" json:"deleted,omitempty"`
@@ -1618,6 +1681,9 @@ type CreateSessionJSONRequestBody = CreateSessionInput
 
 // GetSessionsBulkJSONRequestBody defines body for GetSessionsBulk for application/json ContentType.
 type GetSessionsBulkJSONRequestBody = SessionBulkInput
+
+// CreateSessionFileDownloadURLJSONRequestBody defines body for CreateSessionFileDownloadURL for application/json ContentType.
+type CreateSessionFileDownloadURLJSONRequestBody = SessionFileDownloadURLInput
 
 // PromoteSessionJSONRequestBody defines body for PromoteSession for application/json ContentType.
 type PromoteSessionJSONRequestBody = PromoteSessionInput
@@ -2029,9 +2095,27 @@ type ClientInterface interface {
 	// Corresponds with GET /api/sessions/{sessionId} (the `GetSession` operationId).
 	GetSession(ctx context.Context, sessionId SessionId, params *GetSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateSessionFileDownloadURLWithBody Create a session file download URL
+	//
+	// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+	CreateSessionFileDownloadURLWithBody(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateSessionFileDownloadURL Create a session file download URL
+	//
+	// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+	CreateSessionFileDownloadURL(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PromoteSessionWithBody Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2040,12 +2124,19 @@ type ClientInterface interface {
 
 	// PromoteSession Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/promote (the `PromoteSession` operationId).
 	PromoteSession(ctx context.Context, sessionId SessionId, params *PromoteSessionParams, body PromoteSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StopSessionRecording Stop a session recording
+	//
+	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReopenSession Reopen a browser session
 	//
@@ -2817,9 +2908,47 @@ func (c *Client) GetSession(ctx context.Context, sessionId SessionId, params *Ge
 	return c.Client.Do(req)
 }
 
+// CreateSessionFileDownloadURLWithBody Create a session file download URL
+//
+// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+func (c *Client) CreateSessionFileDownloadURLWithBody(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSessionFileDownloadURLRequestWithBody(c.Server, sessionId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateSessionFileDownloadURL Create a session file download URL
+//
+// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+func (c *Client) CreateSessionFileDownloadURL(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSessionFileDownloadURLRequest(c.Server, sessionId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // PromoteSessionWithBody Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2838,13 +2967,30 @@ func (c *Client) PromoteSessionWithBody(ctx context.Context, sessionId SessionId
 
 // PromoteSession Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 //
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with POST /api/sessions/{sessionId}/promote (the `PromoteSession` operationId).
 func (c *Client) PromoteSession(ctx context.Context, sessionId SessionId, params *PromoteSessionParams, body PromoteSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPromoteSessionRequest(c.Server, sessionId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StopSessionRecording Stop a session recording
+//
+// Stops the selected recording without transferring its media data and returns the resulting session file.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopSessionRecordingRequest(c.Server, sessionId, recordingId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4773,6 +4919,68 @@ func NewGetSessionRequest(server string, sessionId SessionId, params *GetSession
 	return req, nil
 }
 
+// NewCreateSessionFileDownloadURLRequest calls the generic CreateSessionFileDownloadURL builder with application/json body
+func NewCreateSessionFileDownloadURLRequest(server string, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateSessionFileDownloadURLRequestWithBody(server, sessionId, params, "application/json", bodyReader)
+}
+
+// NewCreateSessionFileDownloadURLRequestWithBody constructs an http.Request for the CreateSessionFileDownloadURL method, with any body, and a specified content type
+func NewCreateSessionFileDownloadURLRequestWithBody(server string, sessionId SessionId, params *CreateSessionFileDownloadURLParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/files/download-url", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewPromoteSessionRequest calls the generic PromoteSession builder with application/json body
 func NewPromoteSessionRequest(server string, sessionId SessionId, params *PromoteSessionParams, body PromoteSessionJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -4816,6 +5024,62 @@ func NewPromoteSessionRequestWithBody(server string, sessionId SessionId, params
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewStopSessionRecordingRequest constructs an http.Request for the StopSessionRecording method
+func NewStopSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "recordingId", recordingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/recordings/%s/stop", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	if params != nil {
 
@@ -5087,6 +5351,18 @@ func NewListSnapshotsRequest(server string, params *ListSnapshotsParams) (*http.
 		if params.Cursor != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Name != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "name", *params.Name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -5990,9 +6266,27 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/sessions/{sessionId} (the `GetSession` operationId).
 	GetSessionWithResponse(ctx context.Context, sessionId SessionId, params *GetSessionParams, reqEditors ...RequestEditorFn) (*GetSessionResponse, error)
 
+	// CreateSessionFileDownloadURLWithBodyWithResponse Create a session file download URL
+	//
+	// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+	CreateSessionFileDownloadURLWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionFileDownloadURLResponse, error)
+
+	// CreateSessionFileDownloadURLWithResponse Create a session file download URL
+	//
+	// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+	CreateSessionFileDownloadURLWithResponse(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionFileDownloadURLResponse, error)
+
 	// PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -6001,12 +6295,21 @@ type ClientWithResponsesInterface interface {
 
 	// PromoteSessionWithResponse Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/promote (the `PromoteSession` operationId).
 	PromoteSessionWithResponse(ctx context.Context, sessionId SessionId, params *PromoteSessionParams, body PromoteSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*PromoteSessionResponse, error)
+
+	// StopSessionRecordingWithResponse Stop a session recording
+	//
+	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+	StopSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error)
 
 	// ReopenSessionWithResponse Reopen a browser session
 	//
@@ -7503,6 +7806,54 @@ func (r GetSessionResponse) ContentType() string {
 	return ""
 }
 
+type CreateSessionFileDownloadURLResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionFileDownloadURL
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CreateSessionFileDownloadURLResponse) GetJSON200() *SessionFileDownloadURL {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateSessionFileDownloadURLResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateSessionFileDownloadURLResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateSessionFileDownloadURLResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateSessionFileDownloadURLResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateSessionFileDownloadURLResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type PromoteSessionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7545,6 +7896,54 @@ func (r PromoteSessionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PromoteSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StopSessionRecordingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionFile
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r StopSessionRecordingResponse) GetJSON200() *SessionFile {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StopSessionRecordingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StopSessionRecordingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StopSessionRecordingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StopSessionRecordingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StopSessionRecordingResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -8728,9 +9127,39 @@ func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, sessio
 	return ParseGetSessionResponse(rsp)
 }
 
+// CreateSessionFileDownloadURLWithBodyWithResponse Create a session file download URL
+//
+// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+func (c *ClientWithResponses) CreateSessionFileDownloadURLWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionFileDownloadURLResponse, error) {
+	rsp, err := c.CreateSessionFileDownloadURLWithBody(ctx, sessionId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSessionFileDownloadURLResponse(rsp)
+}
+
+// CreateSessionFileDownloadURLWithResponse Create a session file download URL
+//
+// Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
+func (c *ClientWithResponses) CreateSessionFileDownloadURLWithResponse(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionFileDownloadURLResponse, error) {
+	rsp, err := c.CreateSessionFileDownloadURL(ctx, sessionId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSessionFileDownloadURLResponse(rsp)
+}
+
 // PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8745,7 +9174,7 @@ func (c *ClientWithResponses) PromoteSessionWithBodyWithResponse(ctx context.Con
 
 // PromoteSessionWithResponse Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. `force=true` replaces a deleted snapshot tombstone with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8756,6 +9185,21 @@ func (c *ClientWithResponses) PromoteSessionWithResponse(ctx context.Context, se
 		return nil, err
 	}
 	return ParsePromoteSessionResponse(rsp)
+}
+
+// StopSessionRecordingWithResponse Stop a session recording
+//
+// Stops the selected recording without transferring its media data and returns the resulting session file.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+func (c *ClientWithResponses) StopSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error) {
+	rsp, err := c.StopSessionRecording(ctx, sessionId, recordingId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStopSessionRecordingResponse(rsp)
 }
 
 // ReopenSessionWithResponse Reopen a browser session
@@ -9952,6 +10396,39 @@ func ParseGetSessionResponse(rsp *http.Response) (*GetSessionResponse, error) {
 	return response, nil
 }
 
+// ParseCreateSessionFileDownloadURLResponse parses an HTTP response from a CreateSessionFileDownloadURLWithResponse call
+func ParseCreateSessionFileDownloadURLResponse(rsp *http.Response) (*CreateSessionFileDownloadURLResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateSessionFileDownloadURLResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionFileDownloadURL
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePromoteSessionResponse parses an HTTP response from a PromoteSessionWithResponse call
 func ParsePromoteSessionResponse(rsp *http.Response) (*PromoteSessionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -9968,6 +10445,39 @@ func ParsePromoteSessionResponse(rsp *http.Response) (*PromoteSessionResponse, e
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest SnapshotMutation
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStopSessionRecordingResponse parses an HTTP response from a StopSessionRecordingWithResponse call
+func ParseStopSessionRecordingResponse(rsp *http.Response) (*StopSessionRecordingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StopSessionRecordingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionFile
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -10529,9 +11039,15 @@ type ServerInterface interface {
 	// GetSession Get a browser session
 	// (GET /api/sessions/{sessionId})
 	GetSession(c *gin.Context, sessionId SessionId, params GetSessionParams)
+	// CreateSessionFileDownloadURL Create a session file download URL
+	// (POST /api/sessions/{sessionId}/files/download-url)
+	CreateSessionFileDownloadURL(c *gin.Context, sessionId SessionId, params CreateSessionFileDownloadURLParams)
 	// PromoteSession Promote a browser session to a snapshot
 	// (POST /api/sessions/{sessionId}/promote)
 	PromoteSession(c *gin.Context, sessionId SessionId, params PromoteSessionParams)
+	// StopSessionRecording Stop a session recording
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/stop)
+	StopSessionRecording(c *gin.Context, sessionId SessionId, recordingId RecordingId, params StopSessionRecordingParams)
 	// ReopenSession Reopen a browser session
 	// (POST /api/sessions/{sessionId}/reopen)
 	ReopenSession(c *gin.Context, sessionId SessionId, params ReopenSessionParams)
@@ -11614,6 +12130,55 @@ func (siw *ServerInterfaceWrapper) GetSession(c *gin.Context) {
 	siw.Handler.GetSession(c, sessionId, params)
 }
 
+// CreateSessionFileDownloadURL operation middleware
+func (siw *ServerInterfaceWrapper) CreateSessionFileDownloadURL(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSessionFileDownloadURLParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateSessionFileDownloadURL(c, sessionId, params)
+}
+
 // PromoteSession operation middleware
 func (siw *ServerInterfaceWrapper) PromoteSession(c *gin.Context) {
 
@@ -11661,6 +12226,64 @@ func (siw *ServerInterfaceWrapper) PromoteSession(c *gin.Context) {
 	}
 
 	siw.Handler.PromoteSession(c, sessionId, params)
+}
+
+// StopSessionRecording operation middleware
+func (siw *ServerInterfaceWrapper) StopSessionRecording(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "recordingId" -------------
+	var recordingId RecordingId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordingId", c.Param("recordingId"), &recordingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter recordingId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StopSessionRecordingParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.StopSessionRecording(c, sessionId, recordingId, params)
 }
 
 // ReopenSession operation middleware
@@ -11881,6 +12504,14 @@ func (siw *ServerInterfaceWrapper) ListSnapshots(c *gin.Context) {
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", c.Request.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter name: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -12337,6 +12968,8 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/suspend", wrapper.SuspendSession)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/reopen", wrapper.ReopenSession)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/session-token/rotate", wrapper.RotateSessionToken)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/stop", wrapper.StopSessionRecording)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/files/download-url", wrapper.CreateSessionFileDownloadURL)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/promote", wrapper.PromoteSession)
 	router.GET(options.BaseURL+"/api/snapshots", wrapper.ListSnapshots)
 	router.DELETE(options.BaseURL+"/api/snapshots/:name", wrapper.DeleteSnapshot)
@@ -13418,6 +14051,47 @@ func (response GetSessiondefaultJSONResponse) VisitGetSessionResponse(w http.Res
 	return err
 }
 
+type CreateSessionFileDownloadURLRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    CreateSessionFileDownloadURLParams
+	Body      *CreateSessionFileDownloadURLJSONRequestBody
+}
+
+type CreateSessionFileDownloadURLResponseObject interface {
+	VisitCreateSessionFileDownloadURLResponse(w http.ResponseWriter) error
+}
+
+type CreateSessionFileDownloadURL200JSONResponse SessionFileDownloadURL
+
+func (response CreateSessionFileDownloadURL200JSONResponse) VisitCreateSessionFileDownloadURLResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSessionFileDownloadURLdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateSessionFileDownloadURLdefaultJSONResponse) VisitCreateSessionFileDownloadURLResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PromoteSessionRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Params    PromoteSessionParams
@@ -13448,6 +14122,47 @@ type PromoteSessiondefaultJSONResponse struct {
 }
 
 func (response PromoteSessiondefaultJSONResponse) VisitPromoteSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopSessionRecordingRequestObject struct {
+	SessionId   SessionId   `json:"sessionId"`
+	RecordingId RecordingId `json:"recordingId"`
+	Params      StopSessionRecordingParams
+}
+
+type StopSessionRecordingResponseObject interface {
+	VisitStopSessionRecordingResponse(w http.ResponseWriter) error
+}
+
+type StopSessionRecording200JSONResponse SessionFile
+
+func (response StopSessionRecording200JSONResponse) VisitStopSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopSessionRecordingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StopSessionRecordingdefaultJSONResponse) VisitStopSessionRecordingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -14095,9 +14810,15 @@ type StrictServerInterface interface {
 	// GetSession Get a browser session
 	// (GET /api/sessions/{sessionId})
 	GetSession(ctx context.Context, request GetSessionRequestObject) (GetSessionResponseObject, error)
+	// CreateSessionFileDownloadURL Create a session file download URL
+	// (POST /api/sessions/{sessionId}/files/download-url)
+	CreateSessionFileDownloadURL(ctx context.Context, request CreateSessionFileDownloadURLRequestObject) (CreateSessionFileDownloadURLResponseObject, error)
 	// PromoteSession Promote a browser session to a snapshot
 	// (POST /api/sessions/{sessionId}/promote)
 	PromoteSession(ctx context.Context, request PromoteSessionRequestObject) (PromoteSessionResponseObject, error)
+	// StopSessionRecording Stop a session recording
+	// (POST /api/sessions/{sessionId}/recordings/{recordingId}/stop)
+	StopSessionRecording(ctx context.Context, request StopSessionRecordingRequestObject) (StopSessionRecordingResponseObject, error)
 	// ReopenSession Reopen a browser session
 	// (POST /api/sessions/{sessionId}/reopen)
 	ReopenSession(ctx context.Context, request ReopenSessionRequestObject) (ReopenSessionResponseObject, error)
@@ -14977,6 +15698,40 @@ func (sh *strictHandler) GetSession(ctx *gin.Context, sessionId SessionId, param
 	}
 }
 
+// CreateSessionFileDownloadURL operation middleware
+func (sh *strictHandler) CreateSessionFileDownloadURL(ctx *gin.Context, sessionId SessionId, params CreateSessionFileDownloadURLParams) {
+	var request CreateSessionFileDownloadURLRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	var body CreateSessionFileDownloadURLJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSessionFileDownloadURL(ctx, request.(CreateSessionFileDownloadURLRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSessionFileDownloadURL")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(CreateSessionFileDownloadURLResponseObject); ok {
+		if err := validResponse.VisitCreateSessionFileDownloadURLResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // PromoteSession operation middleware
 func (sh *strictHandler) PromoteSession(ctx *gin.Context, sessionId SessionId, params PromoteSessionParams) {
 	var request PromoteSessionRequestObject
@@ -15004,6 +15759,34 @@ func (sh *strictHandler) PromoteSession(ctx *gin.Context, sessionId SessionId, p
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(PromoteSessionResponseObject); ok {
 		if err := validResponse.VisitPromoteSessionResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopSessionRecording operation middleware
+func (sh *strictHandler) StopSessionRecording(ctx *gin.Context, sessionId SessionId, recordingId RecordingId, params StopSessionRecordingParams) {
+	var request StopSessionRecordingRequestObject
+
+	request.SessionId = sessionId
+	request.RecordingId = recordingId
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.StopSessionRecording(ctx, request.(StopSessionRecordingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopSessionRecording")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(StopSessionRecordingResponseObject); ok {
+		if err := validResponse.VisitStopSessionRecordingResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {
@@ -15417,211 +16200,225 @@ func (sh *strictHandler) RevokeTenantToken(ctx *gin.Context, tokenId TokenId) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

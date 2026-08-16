@@ -331,26 +331,45 @@ type mcpSessionIDInput struct {
 	TenantID  string `json:"tenantId,omitempty"`
 	SessionID string `json:"sessionId"`
 }
-type mcpScreencastInput struct {
+type mcpRecordingStartInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
+	TargetID    string `json:"targetId"`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
 }
-type mcpBoundScreencastInput struct {
+type mcpBoundRecordingStartInput struct {
+	TargetID    string `json:"targetId"`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
 }
-type mcpScreencastOutput struct {
-	Active       bool   `json:"active"`
-	RelativePath string `json:"relativePath,omitempty"`
-	StartedAt    string `json:"startedAt,omitempty"`
-	StoppedAt    string `json:"stoppedAt,omitempty"`
-	SizeBytes    int64  `json:"sizeBytes,omitempty"`
-	FPS          int    `json:"fps,omitempty"`
-	Codec        string `json:"codec,omitempty"`
+type mcpRecordingInput struct {
+	TenantID    string `json:"tenantId,omitempty"`
+	SessionID   string `json:"sessionId"`
+	RecordingID string `json:"recordingId"`
+}
+type mcpBoundRecordingInput struct {
+	RecordingID string `json:"recordingId"`
+}
+type mcpRecordingOutput struct {
+	RecordingID       string `json:"recordingId"`
+	Mode              string `json:"mode"`
+	TargetID          string `json:"targetId"`
+	CaptureGeneration uint64 `json:"captureGeneration"`
+	Status            string `json:"status"`
+	StopReason        string `json:"stopReason,omitempty"`
+	RelativePath      string `json:"relativePath,omitempty"`
+	StartedAt         string `json:"startedAt,omitempty"`
+	StoppedAt         string `json:"stoppedAt,omitempty"`
+	SizeBytes         int64  `json:"sizeBytes,omitempty"`
+	FPS               int    `json:"fps,omitempty"`
+	BitrateKbps       int    `json:"bitrateKbps,omitempty"`
+	Codec             string `json:"codec,omitempty"`
+}
+type mcpRecordingsOutput struct {
+	Recordings []mcpRecordingOutput `json:"recordings"`
 }
 type mcpPromoteInput struct {
 	TenantID    string            `json:"tenantId,omitempty"`
@@ -485,9 +504,10 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get status for this session without waking it."}, s.mcpBoundStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get live connection data for this session without waking it."}, s.mcpBoundConnection)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend this running session."}, s.mcpBoundSuspend)
-		mcp.AddTool(server, &mcp.Tool{Name: "screencast.start", Description: "Start a screencast recording for this session."}, s.mcpBoundScreencastStart)
-		mcp.AddTool(server, &mcp.Tool{Name: "screencast.status", Description: "Get screencast recording status for this session."}, s.mcpBoundScreencastStatus)
-		mcp.AddTool(server, &mcp.Tool{Name: "screencast.stop", Description: "Stop the active screencast and return its session file path."}, s.mcpBoundScreencastStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a recording pinned to one ready browser target."}, s.mcpBoundRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings for this session."}, s.mcpBoundRecordingsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording by ID."}, s.mcpBoundRecordingStatus)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID."}, s.mcpBoundRecordingStop)
 		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
@@ -513,9 +533,10 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
-		mcp.AddTool(server, &mcp.Tool{Name: "screencast.start", Description: "Start a screencast recording for a session."}, s.mcpScreencastStart)
-		mcp.AddTool(server, &mcp.Tool{Name: "screencast.status", Description: "Get screencast recording status for a session."}, s.mcpScreencastStatus)
-		mcp.AddTool(server, &mcp.Tool{Name: "screencast.stop", Description: "Stop a screencast and return its session file path."}, s.mcpScreencastStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a recording pinned to one ready browser target."}, s.mcpRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings for a session."}, s.mcpRecordingsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording by ID."}, s.mcpRecordingStatus)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID."}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)

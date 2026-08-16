@@ -71,10 +71,13 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 		return nil, err
 	}
 	for _, sessionRow := range expiring {
-		if err := s.expireSession(ctx, &sessionRow, now); err != nil {
+		expired, err := s.expireSession(ctx, &sessionRow, now)
+		if err != nil {
 			return nil, err
 		}
-		result.ExpiredSessions++
+		if expired {
+			result.ExpiredSessions++
+		}
 	}
 
 	artifactsCutoff := now.Add(-time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
@@ -109,23 +112,42 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 	return result, nil
 }
 
-func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now time.Time) error {
+func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now time.Time) (bool, error) {
+	unlock := s.repo.LockSession(sessionRow.ID)
+	defer unlock()
+
+	latest, err := s.repo.GetSessionByID(ctx, sessionRow.ID)
+	if err != nil {
+		return false, err
+	}
+	if latest == nil || latest.Status == db.SessionStatusExpired {
+		return false, nil
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, latest.ExpiresAt)
+	if err != nil {
+		return false, fmt.Errorf("parse session expiry: %w", err)
+	}
+	if expiresAt.After(now) {
+		return false, nil
+	}
+	sessionRow = latest
+
 	if s.mediaCleaner != nil {
 		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
 	}
 	if sessionRow.Status == db.SessionStatusRunning {
 		if err := s.browser.Stop(ctx, sessionRow.ID); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if err := s.browser.RemoveRuntimeEnv(sessionRow.ID); err != nil {
-		return err
+		return false, err
 	}
 	if err := s.ensureOverlayUnmounted(ctx, sessionRow); err != nil {
-		return err
+		return false, err
 	}
 	if err := s.removeSessionOverlayState(sessionRow); err != nil {
-		return err
+		return false, err
 	}
 
 	expiredAt := now.Format(time.RFC3339Nano)
@@ -136,12 +158,12 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	sessionRow.StoppedAt = &expiredAt
 	sessionRow.SuspendedAt = nil
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		return err
+		return false, err
 	}
 	if s.mediaCleaner != nil {
 		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
 	}
-	return nil
+	return true, nil
 }
 
 func (s *Service) ensureOverlayUnmounted(ctx context.Context, sessionRow *db.Session) error {

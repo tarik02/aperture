@@ -1,9 +1,14 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
-import { WelcomeTokenAuthModal } from "#/features/token/auth-modal/token-auth-modal.tsx";
 import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
 import { fetchAuthMe } from "#/lib/auth-me.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
+
+const WelcomeTokenAuthModal = lazy(() =>
+  import("#/features/token/auth-modal/token-auth-modal.tsx").then((module) => ({
+    default: module.WelcomeTokenAuthModal,
+  })),
+);
 
 export function TokenVaultProvider({ children }: { children: React.ReactNode }) {
   const guestMode = useRouterState({
@@ -72,7 +77,11 @@ export function TokenVaultProvider({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
-      <WelcomeTokenAuthModal open={!guestMode && needsWelcome} onOpenChange={() => undefined} />
+      {!guestMode && needsWelcome ? (
+        <Suspense fallback={null}>
+          <WelcomeTokenAuthModal open onOpenChange={() => undefined} />
+        </Suspense>
+      ) : null}
     </>
   );
 }
