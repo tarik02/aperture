@@ -47,6 +47,7 @@ export function BrowserViewport({
   const frameMetadataRef = useRef<FrameMetadata | null>(null);
   const frameStaleRef = useRef(false);
   const pressedKeysRef = useRef(new Map<string, PressedKey>());
+  const releasedKeysRef = useRef(new Set<string>());
   const pointerCaptureRef = useRef<{
     pointerId: number;
     targetId: string;
@@ -113,11 +114,11 @@ export function BrowserViewport({
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
 
   const releasePressedKeys = useCallback(() => {
-    const pressedKeys = [...pressedKeysRef.current.values()].reverse();
+    const pressedKeys = [...pressedKeysRef.current.entries()].reverse();
     pressedKeysRef.current.clear();
 
-    for (const pressedKey of pressedKeys) {
-      control.send({
+    for (const [keyId, pressedKey] of pressedKeys) {
+      const sent = control.send({
         type: "input.key",
         targetId: pressedKey.targetId,
         action: "up",
@@ -126,6 +127,9 @@ export function BrowserViewport({
         modifiers: 0,
         autoRepeat: false,
       });
+      if (sent) {
+        releasedKeysRef.current.add(keyId);
+      }
     }
   }, [control.send]);
 
@@ -607,6 +611,12 @@ export function BrowserViewport({
       }
       return;
     }
+    const keyId = event.code || event.key;
+    if (event.repeat && releasedKeysRef.current.has(keyId)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const targetId = control.activeTargetId;
     if (
       inputDisabled ||
@@ -647,12 +657,18 @@ export function BrowserViewport({
       ...input,
     });
     if (sent) {
-      pressedKeysRef.current.set(event.code || event.key, { targetId, input });
+      releasedKeysRef.current.delete(keyId);
+      pressedKeysRef.current.set(keyId, { targetId, input });
     }
   }
 
   function handleKeyUp(event: React.KeyboardEvent) {
     const keyId = event.code || event.key;
+    if (releasedKeysRef.current.delete(keyId)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const pressedKey = pressedKeysRef.current.get(keyId);
     const targetId = pressedKey?.targetId ?? control.activeTargetId;
     const canForwardUntrackedKey =
