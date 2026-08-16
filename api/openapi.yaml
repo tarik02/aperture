@@ -63,7 +63,7 @@ paths:
         requiredScopes: []
         tenantResolution: optional_header
       x-aperture-errors: [validation_failed, tenant_not_found]
-      description: Token metadata and optional effective tenant selection.
+      description: Token metadata and effective tenant selection. A system administrator without an explicit selection receives the first active tenant.
       parameters:
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
@@ -1121,7 +1121,7 @@ components:
         principal: {$ref: '#/components/schemas/Principal'}
         selectedTenant:
           oneOf: [{$ref: '#/components/schemas/Tenant'}, {type: 'null'}]
-          description: Effective tenant, or `null` when a system administrator did not select one.
+          description: Effective tenant, or `null` when a system administrator has no active tenants.
     BrowserChannel:
       type: object
       description: Browser runtime selectable when creating a session.
