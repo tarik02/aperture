@@ -6,6 +6,7 @@ type SessionPromoteFormData = {
   baseSnapshotName: string | null;
   name: string;
   description: string;
+  replaceExisting: boolean;
   suspendBeforePromote: boolean;
   tagEntries: DraftTagEntry[];
   nameError: string | null;
@@ -29,6 +30,7 @@ const defaultFormData: SessionPromoteFormData = {
   baseSnapshotName: null,
   name: "",
   description: "",
+  replaceExisting: false,
   suspendBeforePromote: false,
   tagEntries: [],
   nameError: null,

@@ -15,12 +15,15 @@ function resolveTenantKey(credentials: ApiCredentials | null): string | null {
     : credentials.selectedTenantId;
 }
 
-export function useSnapshotsInfiniteQuery(filters: SnapshotsFilters = {}) {
+export function useSnapshotsInfiniteQuery(
+  filters: SnapshotsFilters = {},
+  options: { enabled?: boolean } = {},
+) {
   const credentials = useApiCredentials();
   const activeProfile = useTokenVaultStore(selectActiveProfile);
   const profileId = activeProfile?.id ?? "none";
   const tenantKey = resolveTenantKey(credentials);
-  const enabled = isTenantScopedQueryReady(credentials);
+  const enabled = isTenantScopedQueryReady(credentials) && options.enabled !== false;
 
   return useInfiniteQuery({
     queryKey: queryKeys.snapshots(profileId, tenantKey, filters),

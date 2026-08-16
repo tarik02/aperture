@@ -32,7 +32,12 @@ func (r *Repository) ListSnapshotsPage(ctx context.Context, filter SnapshotFilte
 		query = query.Where("deleted_at IS NULL")
 	}
 	if filter.Name != "" {
-		query = query.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(filter.Name)+"%")
+		name := strings.NewReplacer(
+			`\`, `\\`,
+			`%`, `\%`,
+			`_`, `\_`,
+		).Replace(strings.ToLower(filter.Name))
+		query = query.Where("LOWER(name) LIKE ? ESCAPE '\\'", "%"+name+"%")
 	}
 	for _, tag := range filter.Tags {
 		if tag.Key == "" || len(tag.Values) == 0 {
