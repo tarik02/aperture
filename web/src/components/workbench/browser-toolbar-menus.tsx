@@ -5,10 +5,10 @@ import {
   Copy,
   Download,
   Gauge,
+  Info,
   Maximize2,
   MoreVertical,
   Monitor,
-  MousePointer2,
   RotateCcw,
   Share2,
   X,
@@ -83,6 +83,7 @@ export function BrowserMenus({
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
   onReconnect,
+  onSessionDetails,
   now,
 }: {
   control: UseBrowserControlResult;
@@ -93,6 +94,7 @@ export function BrowserMenus({
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
   onReconnect: () => void;
+  onSessionDetails?: () => void;
   now: number;
 }) {
   const runningRecordings = control.recordings.filter(
@@ -129,12 +131,11 @@ export function BrowserMenus({
           </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
             <RestMenuItems
-              control={control}
               cdpUrl={cdpUrl}
               shareUrl={shareUrl}
               busy={busy}
-              connected={connected}
               onReconnect={onReconnect}
+              onSessionDetails={onSessionDetails}
             />
             <DropdownMenuSeparator />
             <RecordingMenuItems
@@ -236,12 +237,11 @@ export function BrowserMenus({
           </Tooltip>
           <DropdownMenuContent align="end" className="w-48">
             <RestMenuItems
-              control={control}
               cdpUrl={cdpUrl}
               shareUrl={shareUrl}
               busy={busy}
-              connected={connected}
               onReconnect={onReconnect}
+              onSessionDetails={onSessionDetails}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -251,22 +251,26 @@ export function BrowserMenus({
 }
 
 function RestMenuItems({
-  control,
   cdpUrl,
   shareUrl,
   busy,
-  connected,
   onReconnect,
+  onSessionDetails,
 }: {
-  control: UseBrowserControlResult;
   cdpUrl: string | null;
   shareUrl: string | null;
   busy: boolean;
-  connected: boolean;
   onReconnect: () => void;
+  onSessionDetails?: () => void;
 }) {
   return (
     <DropdownMenuGroup>
+      {onSessionDetails ? (
+        <DropdownMenuItem onClick={onSessionDetails}>
+          <Info />
+          Session details
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem
         disabled={!cdpUrl}
         onClick={() => {
@@ -300,13 +304,6 @@ function RestMenuItems({
       <DropdownMenuItem disabled={busy} onClick={onReconnect}>
         <RotateCcw />
         Reconnect
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        disabled={!connected}
-        onClick={() => control.setCaptured(!control.captured)}
-      >
-        <MousePointer2 />
-        {control.captured ? "Release input" : "Capture input"}
       </DropdownMenuItem>
     </DropdownMenuGroup>
   );

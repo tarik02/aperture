@@ -14,15 +14,17 @@ import (
 
 // Service provides authentication and tenant/token administration.
 type Service struct {
-	repo *db.Repository
-	now  func() time.Time
+	repo         *db.Repository
+	now          func() time.Time
+	successCache *BcryptSuccessCache
 }
 
 // NewService constructs an auth service.
 func NewService(repo *db.Repository) *Service {
 	return &Service{
-		repo: repo,
-		now:  time.Now,
+		repo:         repo,
+		now:          time.Now,
+		successCache: NewBcryptSuccessCache(),
 	}
 }
 
@@ -77,7 +79,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 		return Principal{}, ErrTokenInvalid
 	}
 
-	if !VerifySecret(row.TokenHash, secret) {
+	if !s.successCache.Verify(row.TokenHash, secret) {
 		return Principal{}, ErrTokenInvalid
 	}
 

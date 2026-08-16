@@ -40,6 +40,7 @@ type BrowserToolbarProps = {
   devToolsDock: DevToolsDock;
   onDevToolsOpenChange: (open: boolean) => void;
   onDevToolsDockChange: (dock: DevToolsDock) => void;
+  onSessionDetails?: () => void;
 };
 
 export function BrowserToolbar({
@@ -53,6 +54,7 @@ export function BrowserToolbar({
   devToolsDock,
   onDevToolsOpenChange,
   onDevToolsDockChange,
+  onSessionDetails,
 }: BrowserToolbarProps) {
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
 
@@ -179,6 +181,7 @@ export function BrowserToolbar({
           performanceOverlayEnabled={performanceOverlayEnabled}
           onPerformanceOverlayChange={onPerformanceOverlayChange}
           onReconnect={() => control.reconnect()}
+          onSessionDetails={onSessionDetails}
           now={recordingNow}
         />
       </div>

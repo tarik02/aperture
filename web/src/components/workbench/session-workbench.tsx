@@ -11,6 +11,10 @@ import {
 } from "#/components/ui/empty.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { BrowserControlPane } from "#/components/workbench/browser-control-pane.tsx";
+import {
+  SessionDetailModals,
+  type SessionDetailSection,
+} from "#/components/sessions/session-detail-modals.tsx";
 import { useBrowserControl } from "#/hooks/use-browser-control.ts";
 import { useRecentSessionsStore } from "#/features/session/recent-sessions.store.ts";
 import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
@@ -45,6 +49,7 @@ export function SessionWorkbench({
   const recordRecentSession = useRecentSessionsStore((state) => state.recordSession);
   const lastRecordedSessionId = useRef<string | null>(null);
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
+  const [detailSection, setDetailSection] = useState<SessionDetailSection | null>(null);
 
   const { session: ownerSession, isResolvingRoute } = useWorkbenchSession(
     guestMode ? undefined : sessionId,
@@ -136,6 +141,7 @@ export function SessionWorkbench({
           guestMode={guestMode}
           cdpUrl={cdpUrl}
           shareUrl={shareUrl}
+          onSessionDetails={guestMode ? undefined : () => setDetailSection("details")}
         />
       ) : (
         <Empty className="h-full border-none">
@@ -155,6 +161,13 @@ export function SessionWorkbench({
           </EmptyContent>
         </Empty>
       )}
+      {!guestMode ? (
+        <SessionDetailModals
+          session={ownerSession}
+          section={detailSection}
+          onSectionChange={setDetailSection}
+        />
+      ) : null}
     </div>
   );
 }

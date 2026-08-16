@@ -55,6 +55,7 @@ type RuntimeEnvValues struct {
 	MediaProducerKeyframe      int
 	MediaProducerUDPPortMin    int
 	MediaProducerUDPPortMax    int
+	mediaProbeCache            *mediaProbeCache
 }
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.

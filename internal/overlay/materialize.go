@@ -63,6 +63,10 @@ func materializeDir(ctx context.Context, lowerDir, upperDir, destDir, rel string
 	if err != nil {
 		return fmt.Errorf("%w: read lower %s: %v", ErrMaterializeFailed, rel, err)
 	}
+	lowerNames := make(map[string]struct{}, len(lowerEntries))
+	for _, entry := range lowerEntries {
+		lowerNames[entry.Name()] = struct{}{}
+	}
 
 	upperIndex, err := indexUpperEntries(upperPath)
 	if err != nil {
@@ -121,7 +125,7 @@ func materializeDir(ctx context.Context, lowerDir, upperDir, destDir, rel string
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, exists := findLowerEntry(lowerEntries, name); exists {
+		if _, exists := lowerNames[name]; exists {
 			continue
 		}
 
@@ -326,15 +330,6 @@ func readDirOptional(path string) ([]fs.DirEntry, error) {
 		return nil, err
 	}
 	return entries, nil
-}
-
-func findLowerEntry(entries []fs.DirEntry, name string) (fs.DirEntry, bool) {
-	for _, entry := range entries {
-		if entry.Name() == name {
-			return entry, true
-		}
-	}
-	return nil, false
 }
 
 func joinRel(base, rel string) string {

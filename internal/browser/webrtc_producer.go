@@ -39,6 +39,9 @@ type mediaProfile struct {
 }
 
 func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer, error) {
+	if values.mediaProbeCache == nil {
+		values.mediaProbeCache = newMediaProbeCache()
+	}
 	if values.MediaProducerUDPPortMin <= 0 || values.MediaProducerUDPPortMax < values.MediaProducerUDPPortMin || values.MediaProducerUDPPortMax > 65535 {
 		return nil, errors.New("media producer ICE UDP port range is invalid")
 	}

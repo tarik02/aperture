@@ -113,6 +113,26 @@ func (r *Repository) ListSessionTagsForSessions(ctx context.Context, sessionIDs 
 	return result, nil
 }
 
+// ListSessionTokensForSessions returns session tokens keyed by session id.
+func (r *Repository) ListSessionTokensForSessions(ctx context.Context, sessionIDs []string) (map[string]SessionToken, error) {
+	result := make(map[string]SessionToken, len(sessionIDs))
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+
+	tokens := make([]SessionToken, 0, len(sessionIDs))
+	if err := r.db.bun.NewSelect().
+		Model(&tokens).
+		Where("session_id IN (?)", bun.List(sessionIDs)).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list session tokens for sessions: %w", err)
+	}
+	for _, token := range tokens {
+		result[token.SessionID] = token
+	}
+	return result, nil
+}
+
 // ListSnapshotNamesByIDs returns snapshot names keyed by snapshot id.
 func (r *Repository) ListSnapshotNamesByIDs(ctx context.Context, snapshotIDs []string) (map[string]string, error) {
 	result := make(map[string]string, len(snapshotIDs))

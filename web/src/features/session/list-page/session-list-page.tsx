@@ -1,13 +1,18 @@
 import { Link } from "@tanstack/react-router";
 import {
   AppWindow,
+  Cable,
   Copy,
+  Info,
+  KeyRound,
+  Monitor,
   MoreHorizontal,
   Pause,
   Plus,
   RotateCcw,
   Tags as TagsIcon,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -558,14 +563,16 @@ export function SessionListPage() {
                           canPromote={canPromote}
                           copySharePending={copyingShareSessionId === session.id}
                           onDetails={() => openDetail(session, "details")}
-                          onConnection={() => openDetail(session, "connection")}
-                          onEvents={() => openDetail(session, "events")}
                           onCopyShareUrl={() => void handleCopyShareUrl(session)}
                           onDelete={() => setConfirmAction({ kind: "delete", session })}
                           onReopen={() => void handleReopen(session)}
                           onSuspend={() => setConfirmAction({ kind: "suspend", session })}
                           onPromote={() => {
-                            initPromoteSessionForm(session.id, session.status === "running");
+                            initPromoteSessionForm({
+                              sessionId: session.id,
+                              baseSnapshotName: session.baseSnapshotName ?? null,
+                              suspendBeforePromote: session.status === "running",
+                            });
                             openPromoteSessionModal();
                           }}
                           onRotate={() => setConfirmAction({ kind: "rotate", session })}
@@ -652,7 +659,11 @@ export function SessionListPage() {
           },
           onPromote: (session) => {
             setDetailSection(null);
-            initPromoteSessionForm(session.id, session.status === "running");
+            initPromoteSessionForm({
+              sessionId: session.id,
+              baseSnapshotName: session.baseSnapshotName ?? null,
+              suspendBeforePromote: session.status === "running",
+            });
             openPromoteSessionModal();
           },
           onReopen: (session) => void handleReopen(session),
@@ -688,8 +699,6 @@ type SessionActionsMenuProps = {
   canPromote: boolean;
   copySharePending: boolean;
   onDetails: () => void;
-  onConnection: () => void;
-  onEvents: () => void;
   onCopyShareUrl: () => void;
   onDelete: () => void;
   onReopen: () => void;
@@ -705,8 +714,6 @@ function SessionActionsMenu({
   canPromote,
   copySharePending,
   onDetails,
-  onConnection,
-  onEvents,
   onCopyShareUrl,
   onDelete,
   onReopen,
@@ -737,9 +744,10 @@ function SessionActionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-40">
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={onDetails}>Details</DropdownMenuItem>
-          <DropdownMenuItem onClick={onConnection}>Connection</DropdownMenuItem>
-          <DropdownMenuItem onClick={onEvents}>Events</DropdownMenuItem>
+          <DropdownMenuItem onClick={onDetails}>
+            <Info />
+            Session details
+          </DropdownMenuItem>
           {canWrite ? (
             <DropdownMenuItem disabled={copySharePending} onClick={onCopyShareUrl}>
               <Copy />
@@ -764,6 +772,7 @@ function SessionActionsMenu({
                           <Link to="/-/sessions/$sessionId" params={{ sessionId: session.id }} />
                         }
                       >
+                        <Monitor />
                         Default
                       </DropdownMenuItem>
                       <DropdownMenuItem
@@ -775,18 +784,26 @@ function SessionActionsMenu({
                           />
                         }
                       >
+                        <Cable />
                         CDP fallback
                       </DropdownMenuItem>
                     </DropdownMenuGroup>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               ) : null}
-              <DropdownMenuItem onClick={onEditTags}>Edit tags</DropdownMenuItem>
+              <DropdownMenuItem onClick={onEditTags}>
+                <TagsIcon />
+                Edit tags
+              </DropdownMenuItem>
               <DropdownMenuItem className="whitespace-nowrap" onClick={onRotate}>
+                <KeyRound />
                 Rotate session token
               </DropdownMenuItem>
               {session.status === "deleted" || session.status === "failed" ? (
-                <DropdownMenuItem onClick={onReopen}>Reopen</DropdownMenuItem>
+                <DropdownMenuItem onClick={onReopen}>
+                  <RotateCcw />
+                  Reopen
+                </DropdownMenuItem>
               ) : null}
               {session.status === "running" ? (
                 <DropdownMenuItem onClick={onSuspend}>
@@ -795,12 +812,16 @@ function SessionActionsMenu({
                 </DropdownMenuItem>
               ) : null}
               {canPromote && sessionPromotable ? (
-                <DropdownMenuItem onClick={onPromote}>Promote</DropdownMenuItem>
+                <DropdownMenuItem onClick={onPromote}>
+                  <Upload />
+                  Promote
+                </DropdownMenuItem>
               ) : null}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuGroup>
