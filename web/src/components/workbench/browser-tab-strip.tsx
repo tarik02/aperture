@@ -16,6 +16,7 @@ const BROWSER_TAB_DRAG_KIND = "browser-tab";
 type BrowserTabStripProps = {
   targets: ControlTarget[];
   activeTargetId: string | null;
+  recordingTargetIds: ReadonlySet<string>;
   disabled?: boolean;
   onActivate: (targetId: string) => void;
   onCreate: () => void;
@@ -37,6 +38,7 @@ type DropPlacement = "before" | "after";
 export function BrowserTabStrip({
   targets,
   activeTargetId,
+  recordingTargetIds,
   disabled,
   onActivate,
   onCreate,
@@ -62,6 +64,7 @@ export function BrowserTabStrip({
               key={target.id}
               target={target}
               active={active}
+              recording={recordingTargetIds.has(target.id)}
               disabled={disabled}
               onActivate={onActivate}
               onClose={onClose}
@@ -78,6 +81,7 @@ export function BrowserTabStrip({
 function BrowserTab({
   target,
   active,
+  recording,
   disabled,
   onActivate,
   onClose,
@@ -85,6 +89,7 @@ function BrowserTab({
 }: {
   target: ControlTarget;
   active: boolean;
+  recording: boolean;
   disabled?: boolean;
   onActivate: (targetId: string) => void;
   onClose: (targetId: string) => void;
@@ -184,6 +189,12 @@ function BrowserTab({
         onClick={() => onActivate(target.id)}
       >
         <TabFavicon url={target.url} />
+        {recording ? (
+          <>
+            <span aria-hidden className="size-2 shrink-0 rounded-full bg-destructive" />
+            <span className="sr-only">Recording</span>
+          </>
+        ) : null}
         <span className="min-w-0 truncate font-mono">{label}</span>
       </button>
       <Tooltip>

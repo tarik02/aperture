@@ -12,6 +12,32 @@ import (
 	"strings"
 )
 
+func (r *wrapperRuntime) handleCDPProxy(w http.ResponseWriter, req *http.Request) {
+	if r.values.CDPPort <= 0 {
+		writeWrapperError(w, http.StatusServiceUnavailable, "browser cdp port is not available")
+		return
+	}
+
+	r.mu.Lock()
+	r.cdpConnections++
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.cdpConnections--
+		r.mu.Unlock()
+	}()
+
+	target := &url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)),
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(w, req)
+}
+
 func (r *wrapperRuntime) handleCDPDiscovery(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)

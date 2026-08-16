@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { AppWindow, ChevronDown } from "lucide-react";
+import { AppWindow, Cable, ChevronDown, KeyRound } from "lucide-react";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu.tsx";
@@ -94,7 +95,8 @@ export function ConnectionPanel({ session, onRotate }: ConnectionPanelProps) {
             (currentSession.status !== "running" && currentSession.status !== "suspended")
           }
         >
-          Rotate Session token
+          <KeyRound data-icon="inline-start" />
+          Rotate session token
         </Button>
         <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
       </div>
@@ -125,6 +127,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
         className="rounded-r-none"
         disabled={disabled}
         render={disabled ? undefined : <Link to="/-/sessions/$sessionId" params={{ sessionId }} />}
+        nativeButton={disabled}
       >
         <AppWindow data-icon="inline-start" />
         Open
@@ -136,6 +139,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
               type="button"
               size="icon-sm"
               className="-ml-px rounded-l-none border-l-primary-foreground/30"
+              aria-label="Open session options"
               disabled={disabled}
             />
           }
@@ -143,13 +147,20 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
           <ChevronDown />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-40">
-          <DropdownMenuItem
-            render={
-              <Link to="/-/sessions/$sessionId" params={{ sessionId }} search={{ media: "cdp" }} />
-            }
-          >
-            CDP fallback
-          </DropdownMenuItem>
+          <DropdownMenuGroup>
+            <DropdownMenuItem
+              render={
+                <Link
+                  to="/-/sessions/$sessionId"
+                  params={{ sessionId }}
+                  search={{ media: "cdp" }}
+                />
+              }
+            >
+              <Cable />
+              CDP fallback
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

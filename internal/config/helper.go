@@ -43,10 +43,13 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("webrtc_compositor_height", defaults.WebRTCCompositorHeight)
 	v.SetDefault("webrtc_media_producer_enabled", defaults.WebRTCMediaProducerEnabled)
 	v.SetDefault("webrtc_media_producer_target", defaults.WebRTCMediaProducerTarget)
+	v.SetDefault("webrtc_media_producer_advertised_ip", defaults.WebRTCMediaProducerAdvertisedIP)
 	v.SetDefault("webrtc_media_producer_codec", defaults.WebRTCMediaProducerCodec)
 	v.SetDefault("webrtc_media_producer_fps", defaults.WebRTCMediaProducerFPS)
 	v.SetDefault("webrtc_media_producer_bitrate_kbps", defaults.WebRTCMediaProducerBitrateKbps)
 	v.SetDefault("webrtc_media_producer_keyframe_interval", defaults.WebRTCMediaProducerKeyframe)
+	v.SetDefault("webrtc_media_producer_udp_port_min", defaults.WebRTCMediaProducerUDPPortMin)
+	v.SetDefault("webrtc_media_producer_udp_port_max", defaults.WebRTCMediaProducerUDPPortMax)
 	v.SetDefault("webrtc_ice_servers", defaults.WebRTCICEServers)
 	v.SetDefault("log_level", defaults.LogLevel)
 

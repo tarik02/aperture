@@ -62,17 +62,44 @@ export const browserStatusSchema = z.object({
   sessionId: z.string(),
   cdpUrl: z.string(),
   media: sessionMediaSchema,
+  targets: z
+    .array(
+      z.object({
+        targetId: z.string(),
+        generation: z.number().int().positive(),
+        state: z.enum(["pending", "ready", "unavailable", "closed"]),
+        title: z.string(),
+        url: z.string(),
+        viewport: z.object({
+          width: z.number().int().positive(),
+          height: z.number().int().positive(),
+          deviceScaleFactor: z.number().positive(),
+          contentWidth: z.number().int().positive(),
+          contentHeight: z.number().int().positive(),
+          canvasWidth: z.number().int().positive(),
+          canvasHeight: z.number().int().positive(),
+        }),
+      }),
+    )
+    .default([]),
 });
 
-export const screencastStatusSchema = z.object({
-  active: z.boolean(),
-  path: z.string().optional(),
-  startedAt: z.string().optional(),
+export const recordingSchema = z.object({
+  recordingId: z.string(),
+  mode: z.enum(["tab", "viewer"]),
+  targetId: z.string(),
+  captureGeneration: z.number().int().positive(),
+  status: z.enum(["starting", "running", "stopped", "failed"]),
+  stopReason: z.string().optional(),
+  path: z.string(),
+  startedAt: z.string(),
   stoppedAt: z.string().optional(),
-  fps: z.number().optional(),
-  codec: z.string().optional(),
-  sizeBytes: z.number().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  fps: z.number().int().positive(),
+  bitrateKbps: z.number().int().positive(),
+  codec: z.string(),
 });
+export const recordingsSchema = z.array(recordingSchema);
 
 export const sessionSchema = z.object({
   id: z.string(),
@@ -180,6 +207,7 @@ export type AuthMeTenant = z.infer<typeof tenantSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;
+export type Recording = z.infer<typeof recordingSchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type ApiToken = z.infer<typeof tokenSchema>;

@@ -9,10 +9,11 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/renameio/v2 v2.0.2
 	github.com/google/uuid v1.6.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/oapi-codegen/runtime v1.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/tarik02/webdesktop v0.0.0-nightly.1.b5e76891d1d3.0.20260716204725-7de839c81a04
+	github.com/tarik02/webdesktop v0.0.0-nightly.2.7de839c81a04.0.20260804095618-96e0a8a22e23
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
 	github.com/uptrace/bun/driver/sqliteshim v1.2.18

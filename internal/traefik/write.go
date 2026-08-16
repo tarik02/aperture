@@ -1,6 +1,7 @@
 package traefik
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,4 +20,12 @@ func WriteAtomic(path string, content []byte) error {
 		return fmt.Errorf("write traefik config: %w", err)
 	}
 	return nil
+}
+
+func writeAtomicIfChanged(path string, content []byte) error {
+	existing, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(existing, content) {
+		return nil
+	}
+	return WriteAtomic(path, content)
 }

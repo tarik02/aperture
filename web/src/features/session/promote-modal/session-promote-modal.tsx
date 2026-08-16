@@ -4,11 +4,12 @@ import { useSessionPromoteModalStore } from "#/features/session/promote-modal/se
 
 export function SessionPromoteModal() {
   const open = useSessionPromoteModalStore((state) => state.open);
+  const pending = useSessionPromoteModalStore((state) => state.pending);
   const setOpen = useSessionPromoteModalStore((state) => state.setOpen);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl" showCloseButton={!pending}>
         <SessionPromoteForm />
       </DialogContent>
     </Dialog>

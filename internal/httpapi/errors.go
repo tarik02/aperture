@@ -20,6 +20,9 @@ var (
 	errSessionServiceUnavailable   = errors.New("session service unavailable")
 	errPromotionServiceUnavailable = errors.New("promotion service unavailable")
 	errSnapshotServiceUnavailable  = errors.New("snapshot service unavailable")
+	errBrowserControlFailed        = errors.New("browser control failed")
+	errRecordingNotFound           = errors.New("recording not found")
+	errSessionFileNotFound         = errors.New("session file not found")
 )
 
 type apiErrorDetail struct {
@@ -113,6 +116,12 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_invalid_state", err.Error()
 	case errors.Is(err, session.ErrNotRunning):
 		return http.StatusConflict, "session_not_running", err.Error()
+	case errors.Is(err, errRecordingNotFound):
+		return http.StatusNotFound, "recording_not_found", err.Error()
+	case errors.Is(err, errSessionFileNotFound):
+		return http.StatusNotFound, "session_file_not_found", err.Error()
+	case errors.Is(err, errBrowserControlFailed):
+		return http.StatusBadGateway, "browser_control_failed", errBrowserControlFailed.Error()
 	case errors.Is(err, session.ErrInvalidChannel), errors.Is(err, browser.ErrDeniedBrowserArg), errors.Is(err, browser.ErrDeniedCompositorBrowserArg):
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, session.ErrBrowserStart):

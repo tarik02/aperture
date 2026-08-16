@@ -68,6 +68,38 @@ const KEY_TO_WINDOWS_VIRTUAL_KEY: Record<string, number> = {
   ContextMenu: 93,
 };
 
+const FORWARDED_BROWSER_SHORTCUT_CODES = new Set([
+  "KeyA",
+  "KeyC",
+  "KeyF",
+  "KeyG",
+  "KeyH",
+  "KeyJ",
+  "KeyK",
+  "KeyL",
+  "KeyN",
+  "KeyO",
+  "KeyP",
+  "KeyR",
+  "KeyS",
+  "KeyT",
+  "KeyW",
+  "KeyX",
+  "KeyV",
+  "KeyZ",
+  "KeyY",
+  "BracketLeft",
+  "BracketRight",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Backspace",
+  "Delete",
+  "Enter",
+  "Tab",
+]);
+
 export function keyboardModifiers(event: KeyboardEvent | MouseEvent | WheelEvent): number {
   let modifiers = 0;
   if (event.altKey) {
@@ -117,7 +149,7 @@ export function shouldForwardBrowserShortcut(event: KeyboardEvent): boolean {
     return false;
   }
 
-  if (isModifierKey(event.key)) {
+  if (isModifierCode(event.code)) {
     return true;
   }
 
@@ -126,40 +158,7 @@ export function shouldForwardBrowserShortcut(event: KeyboardEvent): boolean {
     return true;
   }
 
-  const key = event.key.toLowerCase();
-  const forwarded = new Set([
-    "a",
-    "c",
-    "f",
-    "g",
-    "h",
-    "j",
-    "k",
-    "l",
-    "n",
-    "o",
-    "p",
-    "r",
-    "s",
-    "t",
-    "w",
-    "x",
-    "v",
-    "z",
-    "y",
-    "[",
-    "]",
-    "arrowleft",
-    "arrowright",
-    "arrowup",
-    "arrowdown",
-    "backspace",
-    "delete",
-    "enter",
-    "tab",
-  ]);
-
-  return forwarded.has(key);
+  return FORWARDED_BROWSER_SHORTCUT_CODES.has(event.code);
 }
 
 export function windowsVirtualKeyCodeForCodeOrKey(
@@ -205,6 +204,15 @@ export function windowsVirtualKeyCodeForCodeOrKey(
   return 0;
 }
 
-function isModifierKey(key: string): boolean {
-  return key === "Alt" || key === "Control" || key === "Meta" || key === "Shift";
+function isModifierCode(code: string): boolean {
+  return (
+    code === "AltLeft" ||
+    code === "AltRight" ||
+    code === "ControlLeft" ||
+    code === "ControlRight" ||
+    code === "MetaLeft" ||
+    code === "MetaRight" ||
+    code === "ShiftLeft" ||
+    code === "ShiftRight"
+  );
 }

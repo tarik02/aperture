@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { timer } from "rxjs";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
@@ -22,11 +23,11 @@ export function CopyButton({ value, label = "Copy", className, disabled }: CopyB
       return;
     }
 
-    const timer = window.setTimeout(() => {
+    const subscription = timer(COPY_RESET_MS).subscribe(() => {
       setCopied(false);
       setTooltipOpen(false);
-    }, COPY_RESET_MS);
-    return () => window.clearTimeout(timer);
+    });
+    return () => subscription.unsubscribe();
   }, [copied]);
 
   async function handleCopy() {
