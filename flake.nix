@@ -70,6 +70,8 @@
           || lib.hasPrefix "web/.output/" rel
           || rel == ".scaffold-tmp"
           || lib.hasPrefix ".scaffold-tmp/" rel
+          || rel == ".data"
+          || lib.hasPrefix ".data/" rel
           || rel == "vendor"
           || lib.hasPrefix "vendor/" rel;
 
@@ -923,7 +925,6 @@
                   "org.opencontainers.image.title" = "Aperture";
                   "org.opencontainers.image.description" = "Chromium session supervisor";
                   "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
-                  "org.opencontainers.image.url" = "https://aperture.tarik02.me";
                   "org.opencontainers.image.documentation" =
                     "https://github.com/tarik02/aperture/blob/master/docs/docker.md";
                   "org.opencontainers.image.licenses" = "MIT";
@@ -954,6 +955,54 @@
           hardware = true;
           driverPackages = gpuDriverPackages;
         };
+
+        mkDevContainerApp =
+          {
+            name,
+            image,
+            imageRef,
+            gpu,
+          }:
+          pkgs.writeShellApplication {
+            inherit name;
+            runtimeInputs = [
+              pkgs.coreutils
+              pkgs.jq
+              pkgs.passt
+              pkgs.gnused
+              pkgs.podman
+              pkgs.skopeo
+            ];
+            text = ''
+              export APERTURE_DEV_IMAGE_ARCHIVE=${lib.escapeShellArg (toString image)}
+              export APERTURE_DEV_IMAGE_REF=${lib.escapeShellArg imageRef}
+              export APERTURE_DEV_TRAEFIK_TEMPLATE=${lib.escapeShellArg (toString ./packaging/traefik/static.yaml.template)}
+              export APERTURE_DEV_GPU=${if gpu then "1" else "0"}
+              exec ${pkgs.bash}/bin/bash ${./scripts/dev-container} "$@"
+            '';
+          };
+
+        devContainerApp =
+          if pkgs.stdenv.isLinux then
+            mkDevContainerApp {
+              name = "aperture-dev";
+              image = defaultDockerImage;
+              imageRef = "localhost/aperture:${deployVersion}";
+              gpu = false;
+            }
+          else
+            null;
+
+        devGPUContainerApp =
+          if pkgs.stdenv.isLinux then
+            mkDevContainerApp {
+              name = "aperture-dev-gpu";
+              image = gpuDockerImage;
+              imageRef = "localhost/aperture:${deployVersion}-gpu";
+              gpu = true;
+            }
+          else
+            null;
 
       in
       {
@@ -990,6 +1039,19 @@
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           aperture-docker = defaultDockerImage;
           aperture-docker-gpu = gpuDockerImage;
+        };
+
+        apps = lib.optionalAttrs pkgs.stdenv.isLinux {
+          dev = {
+            type = "app";
+            program = "${devContainerApp}/bin/aperture-dev";
+            meta.description = "Run the software-rendered development container";
+          };
+          dev-gpu = {
+            type = "app";
+            program = "${devGPUContainerApp}/bin/aperture-dev-gpu";
+            meta.description = "Run the GPU development container";
+          };
         };
 
         checks.default = aperture;
