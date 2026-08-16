@@ -87,6 +87,7 @@ export function BrowserControlPane({
         performanceOverlayEnabled={performanceOverlayEnabled}
         onPerformanceOverlayChange={setPerformanceOverlayEnabled}
         devToolsOpen={devToolsOpen}
+        devToolsTargetIds={devToolsTargetIds}
         devToolsDock={devToolsDock}
         onDevToolsOpenChange={handleDevToolsOpenChange}
         onDevToolsDockChange={setDevToolsDock}
