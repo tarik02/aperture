@@ -886,6 +886,16 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 	if err != nil {
 		return db.PageResult[SessionView]{}, err
 	}
+	credentialSessionIDs := make([]string, 0, len(page.Items))
+	for _, sessionRow := range page.Items {
+		if retainedSessionAvailable(sessionRow.Status) {
+			credentialSessionIDs = append(credentialSessionIDs, sessionRow.ID)
+		}
+	}
+	tokensBySession, err := s.repo.ListSessionTokensForSessions(ctx, credentialSessionIDs)
+	if err != nil {
+		return db.PageResult[SessionView]{}, err
+	}
 	snapshotNames, err := s.repo.ListSnapshotNamesByIDs(ctx, snapshotIDs)
 	if err != nil {
 		return db.PageResult[SessionView]{}, err
@@ -907,9 +917,11 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 			BaseSnapshotName: baseSnapshotName,
 			Media:            s.sessionMediaView(sessionRow),
 		}
-		if err := s.populateSessionCredentials(ctx, &view); err != nil {
-			return db.PageResult[SessionView]{}, err
+		var token *db.SessionToken
+		if stored, ok := tokensBySession[sessionRow.ID]; ok {
+			token = &stored
 		}
+		s.populateSessionCredentialsFromToken(&view, token)
 		views = append(views, view)
 	}
 
@@ -1310,6 +1322,18 @@ func (s *Service) populateSessionCredentials(ctx context.Context, view *SessionV
 	view.CDPURL = s.cdpURL(view.Session.ID)
 	view.SessionToken = rawSessionToken
 	return nil
+}
+
+func (s *Service) populateSessionCredentialsFromToken(view *SessionView, tokenRow *db.SessionToken) {
+	if !retainedSessionAvailable(view.Session.Status) {
+		return
+	}
+	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken == "" {
+		view.CDPURL = s.cdpURL(view.Session.ID)
+		return
+	}
+	view.CDPURL = s.cdpURL(view.Session.ID)
+	view.SessionToken = *tokenRow.RawToken
 }
 
 func isExpired(expiresAt string, now time.Time) bool {
