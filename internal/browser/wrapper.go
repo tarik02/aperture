@@ -469,11 +469,22 @@ func hardwareAccelerationBindMounts(renderNode string) ([][]string, error) {
 		return nil, fmt.Errorf("hardware acceleration requires /sys: %w", err)
 	}
 
-	mounts := make([][]string, 0, 5)
+	mounts := make([][]string, 0, 10)
 	mounts = append(mounts, []string{"--ro-bind", "/sys", "/sys"})
 	for _, path := range []string{"/run/opengl-driver", "/run/opengl-driver-32"} {
 		if _, err := os.Stat(path); err == nil {
 			mounts = append(mounts, []string{"--ro-bind", path, path})
+		}
+	}
+	for _, path := range []string{
+		"/dev/nvidia0",
+		"/dev/nvidiactl",
+		"/dev/nvidia-modeset",
+		"/dev/nvidia-uvm",
+		"/dev/nvidia-uvm-tools",
+	} {
+		if _, err := os.Stat(path); err == nil {
+			mounts = append(mounts, []string{"--dev-bind", path, path})
 		}
 	}
 	mounts = append(mounts, []string{"--dir", "/dev/dri"})

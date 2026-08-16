@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: nix run .#dev -- [options]
+
+Run the Nix-built Aperture image with rootless Podman.
+
+Options:
+  --port PORT          Public HTTP port (default: 8080)
+  --env-file PATH      Pass an environment file to the container
+  --config PATH        Mount an Aperture TOML config
+  --render-node PATH   DRM render node for .#dev-gpu
+  -h, --help           Show this help
+
+The container runs in the foreground. State and the initial system-admin
+token persist under .data/ in the current directory.
+EOF
+}
+
+fail() {
+  printf 'aperture-dev: %s\n' "$1" >&2
+  exit 2
+}
+
+dev_port=8080
+dev_container_port=8080
+dev_bind_address=127.0.0.1
+dev_webrtc_udp_port_min=50000
+dev_webrtc_udp_port_max=50010
+dev_env_file=
+dev_config_file=
+dev_render_node=/dev/dri/renderD128
+dev_render_node_set=0
+dev_nvidia=0
+
+while (( $# > 0 )); do
+  case "$1" in
+    --port)
+      (( $# >= 2 )) || fail "--port requires a value"
+      dev_port=$2
+      shift 2
+      ;;
+    --port=*)
+      dev_port=${1#*=}
+      shift
+      ;;
+    --env-file)
+      (( $# >= 2 )) || fail "--env-file requires a path"
+      dev_env_file=$2
+      shift 2
+      ;;
+    --env-file=*)
+      dev_env_file=${1#*=}
+      shift
+      ;;
+    --config)
+      (( $# >= 2 )) || fail "--config requires a path"
+      dev_config_file=$2
+      shift 2
+      ;;
+    --config=*)
+      dev_config_file=${1#*=}
+      shift
+      ;;
+    --render-node)
+      (( $# >= 2 )) || fail "--render-node requires a path"
+      dev_render_node=$2
+      dev_render_node_set=1
+      shift 2
+      ;;
+    --render-node=*)
+      dev_render_node=${1#*=}
+      dev_render_node_set=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+done
+
+[[ $dev_port =~ ^[0-9]+$ ]] || fail "port must be an integer"
+dev_port=$((10#$dev_port))
+(( dev_port >= 1 && dev_port <= 65535 )) || fail "port must be between 1 and 65535"
+
+dev_gpu=${APERTURE_DEV_GPU:-0}
+case "$dev_gpu" in
+  0|1) ;;
+  *) fail "APERTURE_DEV_GPU must be 0 or 1" ;;
+esac
+if (( dev_gpu == 0 && dev_render_node_set == 1 )); then
+  fail "--render-node requires nix run .#dev-gpu"
+fi
+if (( dev_gpu == 1 )) && [[ ! -c $dev_render_node ]]; then
+  fail "render node is not a character device: $dev_render_node"
+fi
+if (( dev_gpu == 1 )); then
+  dev_render_node_name=$(basename -- "$(realpath -- "$dev_render_node")")
+  dev_render_node_vendor_file=/sys/class/drm/$dev_render_node_name/device/vendor
+  if [[ -r $dev_render_node_vendor_file ]] && [[ $(<"$dev_render_node_vendor_file") == 0x10de ]]; then
+    dev_nvidia=1
+    dev_nvidia_egl_vendor_file=/run/opengl-driver/share/glvnd/egl_vendor.d/10_nvidia.json
+    [[ -f $dev_nvidia_egl_vendor_file ]] || fail "NVIDIA EGL vendor file not found: $dev_nvidia_egl_vendor_file"
+  fi
+fi
+
+if [[ -n $dev_env_file ]]; then
+  [[ -f $dev_env_file ]] || fail "environment file not found: $dev_env_file"
+  dev_env_file=$(realpath -- "$dev_env_file")
+fi
+if [[ -n $dev_config_file ]]; then
+  [[ -f $dev_config_file ]] || fail "config file not found: $dev_config_file"
+  dev_config_file=$(realpath -- "$dev_config_file")
+fi
+
+dev_image_archive=${APERTURE_DEV_IMAGE_ARCHIVE:-}
+dev_image_ref=${APERTURE_DEV_IMAGE_REF:-}
+dev_traefik_template=${APERTURE_DEV_TRAEFIK_TEMPLATE:-}
+[[ -f $dev_image_archive ]] || fail "Nix image archive is unavailable"
+[[ -n $dev_image_ref ]] || fail "Nix image reference is unavailable"
+[[ -f $dev_traefik_template ]] || fail "Traefik config template is unavailable"
+
+install -d -m 0700 -- "$PWD/.data" "$PWD/.data/store"
+dev_data_dir=$(realpath -- "$PWD/.data")
+dev_store_dir=$dev_data_dir/store
+dev_admin_token_file=$dev_data_dir/admin-token
+
+dev_temp_dir=$(mktemp -d -t aperture-dev.XXXXXXXXXX)
+dev_traefik_config=$dev_temp_dir/traefik.yaml
+cleanup() {
+  rm -f -- "$dev_traefik_config"
+  rmdir -- "$dev_temp_dir" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+sed \
+  -e "s|@ENTRYPOINT_ADDRESS@|:$dev_container_port|g" \
+  -e 's|@DYNAMIC_CONFIG_DIR@|/run/aperture/traefik/dynamic|g' \
+  "$dev_traefik_template" > "$dev_traefik_config"
+chmod 0644 "$dev_traefik_config"
+
+printf 'Loading %s...\n' "$dev_image_ref"
+skopeo --insecure-policy copy --quiet \
+  "docker-archive:$dev_image_archive" \
+  "containers-storage:$dev_image_ref"
+
+printf 'Provisioning the development database...\n'
+dev_provision_args=(
+  run
+  --rm
+  --userns "keep-id:uid=1000,gid=1000"
+  --user 1000:1000
+  --volume "$dev_data_dir:/provision"
+  --volume "$dev_store_dir:/var/lib/aperture"
+  --entrypoint aperture
+)
+if [[ -n $dev_env_file ]]; then
+  dev_provision_args+=(--env-file "$dev_env_file")
+fi
+dev_provision_args+=(--env "APERTURE_EXTERNAL_BASE_URL=http://$dev_bind_address:$dev_port")
+if [[ -n $dev_config_file ]]; then
+  dev_provision_args+=(--volume "$dev_config_file:/etc/aperture/aperture.toml:ro")
+fi
+
+podman "${dev_provision_args[@]}" "$dev_image_ref" \
+  --config /etc/aperture/aperture.toml admin provision \
+  --admin-token-file /provision/admin-token \
+  --default-tenant default
+[[ -s $dev_admin_token_file ]] || fail "provisioning did not create $dev_admin_token_file"
+
+dev_run_args=(
+  run
+  --rm
+  --name aperture-dev
+  --userns "keep-id:uid=1000,gid=1000"
+  --user 0:0
+  --network pasta
+  --publish "$dev_bind_address:$dev_port:$dev_container_port/tcp"
+  --publish "$dev_bind_address:$dev_webrtc_udp_port_min-$dev_webrtc_udp_port_max:$dev_webrtc_udp_port_min-$dev_webrtc_udp_port_max/udp"
+  --cap-add SYS_ADMIN
+  --shm-size 2g
+  --stop-timeout 35
+  --tmpfs "/run/aperture:rw,nosuid,nodev,size=512m"
+  --volume "$dev_store_dir:/var/lib/aperture"
+  --volume "$dev_traefik_config:/etc/aperture/traefik.yaml:ro"
+  --health-cmd "curl -fsS http://127.0.0.1:$dev_container_port/api/health"
+)
+
+if [[ -n $dev_env_file ]]; then
+  dev_run_args+=(--env-file "$dev_env_file")
+fi
+dev_run_args+=(
+  --env "APERTURE_EXTERNAL_BASE_URL=http://$dev_bind_address:$dev_port"
+  --env "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP=$dev_bind_address"
+  --env "APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN=$dev_webrtc_udp_port_min"
+  --env "APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX=$dev_webrtc_udp_port_max"
+)
+if [[ -n $dev_config_file ]]; then
+  dev_run_args+=(--volume "$dev_config_file:/etc/aperture/aperture.toml:ro")
+fi
+if (( dev_gpu == 1 )); then
+  dev_run_args+=(
+    --group-add keep-groups
+    --env APERTURE_GPU_MODE=hardware
+    --env APERTURE_WEBRTC_COMPOSITOR_RENDERER=gl
+  )
+  if (( dev_nvidia == 1 )); then
+    dev_run_args+=(
+      --device nvidia.com/gpu=all
+      --volume "$dev_nvidia_egl_vendor_file:/etc/glvnd/egl_vendor.d/10_nvidia.json:ro"
+      --env __EGL_VENDOR_LIBRARY_FILENAMES=/etc/glvnd/egl_vendor.d/10_nvidia.json
+    )
+  else
+    dev_run_args+=(--device "$dev_render_node:$dev_render_node")
+  fi
+fi
+
+printf 'Aperture will listen at http://%s:%s\n' "$dev_bind_address" "$dev_port"
+printf 'System-admin token: %s\n' "$dev_admin_token_file"
+
+podman "${dev_run_args[@]}" "$dev_image_ref"

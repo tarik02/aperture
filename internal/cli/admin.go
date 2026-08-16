@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/google/renameio/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -21,9 +24,77 @@ func newAdminCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		newBootstrapCmd(),
+		newProvisionCmd(),
 		newAdminTenantsCmd(),
 		newAdminTokensCmd(),
 	)
+
+	return cmd
+}
+
+func newProvisionCmd() *cobra.Command {
+	var adminTokenFile string
+	var defaultTenant string
+
+	cmd := &cobra.Command{
+		Use:   "provision",
+		Short: "provision the initial system admin and tenant",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := openApp(cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = application.Close() }()
+
+			if err := application.Migrate(cmd.Context()); err != nil {
+				return err
+			}
+
+			tokenCount, err := application.Repository.CountAPITokens(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if tokenCount == 0 {
+				created, err := application.Auth.Bootstrap(cmd.Context(), auth.BootstrapInput{Name: "provisioning"})
+				if err != nil {
+					return err
+				}
+
+				if err := os.MkdirAll(filepath.Dir(adminTokenFile), 0o700); err != nil {
+					return fmt.Errorf("create admin token directory: %w", err)
+				}
+				if err := renameio.WriteFile(
+					adminTokenFile,
+					[]byte(created.Raw+"\n"),
+					0o600,
+					renameio.WithStaticPermissions(0o600),
+				); err != nil {
+					return fmt.Errorf("write admin token: %w", err)
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "created system-admin token: %s\n", adminTokenFile); err != nil {
+					return err
+				}
+			}
+
+			tenants, err := application.Auth.ListTenants(cmd.Context(), false)
+			if err != nil {
+				return err
+			}
+			if len(tenants) == 0 {
+				tenant, err := application.Auth.CreateTenant(cmd.Context(), auth.CreateTenantInput{DisplayName: defaultTenant})
+				if err != nil {
+					return err
+				}
+				return printTenant(cmd.OutOrStdout(), tenant)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&adminTokenFile, "admin-token-file", "", "file for the initial system-admin token")
+	cmd.Flags().StringVar(&defaultTenant, "default-tenant", "default", "tenant name used when no active tenant exists")
+	_ = cmd.MarkFlagRequired("admin-token-file")
 
 	return cmd
 }
