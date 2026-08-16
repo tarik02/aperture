@@ -19,15 +19,15 @@ import { EventsPanel } from "#/components/resources/events-panel.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
+import {
+  entriesToTags,
+  TagEditor,
+  tagsToEntries,
+  type TagEntry,
+} from "#/components/resources/tag-editor.tsx";
 import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
 import { Button } from "#/components/ui/button.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "#/components/ui/dialog.tsx";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,7 +39,7 @@ import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
 import type { Session } from "#/lib/api/schemas.ts";
 
-export type SessionDetailSection = "details" | "connection" | "events";
+export type SessionDetailSection = "details" | "connection" | "events" | "tags";
 
 type SessionDetailModalsProps = {
   session: Session | null;
@@ -55,15 +55,21 @@ type SessionDetailActions = {
   deletePending: boolean;
   reopenPending: boolean;
   suspendPending: boolean;
+  tagsPending: boolean;
   rotatePending: boolean;
   copySharePending: boolean;
   onDelete: (session: Session) => void;
-  onEditTags: (session: Session) => void;
+  onSaveTags: (session: Session, tags: Record<string, string>) => Promise<Session>;
   onPromote: (session: Session) => void;
   onReopen: (session: Session) => void;
   onSuspend: (session: Session) => void;
   onRotate: (session: Session) => void;
   onCopyShareUrl: (session: Session) => void;
+};
+
+type RetainedSessionDetailContent = {
+  session: Session;
+  section: SessionDetailSection;
 };
 
 export function SessionDetailModals({
@@ -73,13 +79,13 @@ export function SessionDetailModals({
   onSessionChange,
   actions,
 }: SessionDetailModalsProps) {
-  const [content, setContent] = useState<Session | null>(null);
+  const [content, setContent] = useState<RetainedSessionDetailContent | null>(null);
 
   useEffect(() => {
-    if (session) {
-      setContent(session);
+    if (session && section) {
+      setContent({ session, section });
     }
-  }, [session]);
+  }, [section, session]);
 
   function closeIfNeeded(open: boolean) {
     if (!open) {
@@ -87,69 +93,86 @@ export function SessionDetailModals({
     }
   }
 
-  const displayedSession = session ?? content;
+  const displayedSession = session ?? content?.session;
+  const displayedSection = section ?? content?.section ?? "details";
 
   return (
     <Dialog open={section !== null && session !== null} onOpenChange={closeIfNeeded}>
-      <DialogContent className="flex h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-4xl">
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-3xl">
         {displayedSession ? (
           <>
-            <DialogHeader>
+            <DialogHeader className="gap-0 px-4 pt-4 pr-12 pb-3">
               <DialogTitle className="flex items-center gap-2">
                 {displayedSession.label ?? "Session details"}
                 <SessionStatusBadge status={displayedSession.status} />
               </DialogTitle>
-              <DialogDescription className="break-all font-mono">
-                {displayedSession.id}
-              </DialogDescription>
             </DialogHeader>
             <Tabs
-              value={section ?? "details"}
+              value={displayedSection}
               onValueChange={(value) => {
                 if (isSessionDetailSection(value)) {
                   onSectionChange(value);
                 }
               }}
-              className="min-h-0 flex-1"
+              className="min-h-0 gap-0"
             >
-              <TabsList className="w-full sm:w-fit">
-                <TabsTrigger value="details">
+              <TabsList
+                variant="line"
+                className="h-10 w-full shrink-0 justify-start border-y px-4 py-0"
+              >
+                <TabsTrigger value="details" className="h-full flex-none rounded-none px-2.5">
                   <Info data-icon="inline-start" />
                   Details
                 </TabsTrigger>
-                <TabsTrigger value="connection">
+                <TabsTrigger value="connection" className="h-full flex-none rounded-none px-2.5">
                   <PlugZap data-icon="inline-start" />
                   Connection
                 </TabsTrigger>
-                <TabsTrigger value="events">
+                <TabsTrigger value="events" className="h-full flex-none rounded-none px-2.5">
                   <Clock3 data-icon="inline-start" />
                   Events
                 </TabsTrigger>
+                <TabsTrigger value="tags" className="h-full flex-none rounded-none px-2.5">
+                  <Tags data-icon="inline-start" />
+                  Tags
+                </TabsTrigger>
               </TabsList>
-              <div className="min-h-0 flex-1">
+              <div className="h-[min(50svh,20rem)] min-h-0 overflow-hidden p-4">
                 <TabsContent value="details" className="h-full min-h-0">
                   {actions ? (
-                    <div className="grid h-full min-h-0 gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                      <ScrollArea className="min-h-0">
+                    <div className="grid h-full min-h-0 gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]">
+                      <ScrollArea className="h-full min-h-0" viewportClassName="pr-3">
                         <SessionMetadata session={displayedSession} />
                       </ScrollArea>
                       <SessionDetailActionBar session={displayedSession} actions={actions} />
                     </div>
                   ) : (
-                    <ScrollArea className="h-full">
+                    <ScrollArea className="h-full min-h-0" viewportClassName="pr-3">
                       <SessionMetadata session={displayedSession} />
                     </ScrollArea>
                   )}
                 </TabsContent>
                 <TabsContent value="connection" className="h-full min-h-0">
-                  <ScrollArea className="h-full">
-                    <ConnectionPanel session={displayedSession} onRotate={onSessionChange} />
-                  </ScrollArea>
+                  <ConnectionPanel
+                    session={displayedSession}
+                    onRotate={onSessionChange}
+                    modalFooter
+                  />
                 </TabsContent>
                 <TabsContent value="events" className="h-full min-h-0">
-                  <ScrollArea className="h-full">
-                    <EventsPanel resourceType="session" resourceId={displayedSession.id} />
-                  </ScrollArea>
+                  <EventsPanel
+                    resourceType="session"
+                    resourceId={displayedSession.id}
+                    className="h-full"
+                  />
+                </TabsContent>
+                <TabsContent value="tags" className="h-full min-h-0">
+                  <SessionTagsPanel
+                    key={displayedSession.id}
+                    session={displayedSession}
+                    actions={actions}
+                    onSessionChange={onSessionChange}
+                  />
                 </TabsContent>
               </div>
             </Tabs>
@@ -161,24 +184,23 @@ export function SessionDetailModals({
 }
 
 function isSessionDetailSection(value: string): value is SessionDetailSection {
-  return value === "details" || value === "connection" || value === "events";
+  return value === "details" || value === "connection" || value === "events" || value === "tags";
 }
 
 function SessionMetadata({ session }: { session: Session }) {
   return (
     <MetadataGrid
       items={[
-        { label: "Label", value: session.label ?? "—" },
-        { label: "ID", value: session.id },
-        { label: "Tenant", value: session.tenantId },
-        { label: "Channel", value: session.browserChannel ?? "—" },
-        { label: "Snapshot", value: session.baseSnapshotName ?? "—" },
-        { label: "Created", value: metadataTimestamp(session.createdAt) },
-        { label: "Started", value: metadataTimestamp(session.startedAt) },
-        { label: "Stopped", value: metadataTimestamp(session.stoppedAt) },
-        { label: "Expires", value: metadataTimestamp(session.expiresAt) },
-        { label: "Deleted", value: metadataTimestamp(session.deletedAt) },
-        { label: "Tags", value: <TagBadges tags={session.tags} max={10} /> },
+        { kind: "text", label: "Label", value: session.label ?? "—" },
+        { kind: "identifier", label: "ID", value: session.id },
+        { kind: "identifier", label: "Tenant", value: session.tenantId },
+        { kind: "text", label: "Channel", value: session.browserChannel ?? "—" },
+        { kind: "text", label: "Snapshot", value: session.baseSnapshotName ?? "—" },
+        { kind: "text", label: "Created", value: metadataTimestamp(session.createdAt) },
+        { kind: "text", label: "Started", value: metadataTimestamp(session.startedAt) },
+        { kind: "text", label: "Stopped", value: metadataTimestamp(session.stoppedAt) },
+        { kind: "text", label: "Expires", value: metadataTimestamp(session.expiresAt) },
+        { kind: "text", label: "Deleted", value: metadataTimestamp(session.deletedAt) },
       ]}
     />
   );
@@ -204,7 +226,7 @@ function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProp
     actions.canWrite && (session.status === "running" || session.status === "suspended");
 
   return (
-    <div className="flex flex-col justify-end gap-2 sm:border-l sm:border-border sm:pl-4">
+    <div className="flex flex-col gap-2 sm:border-l sm:border-border sm:pl-4">
       <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
       {actions.canWrite ? (
         <Button
@@ -220,15 +242,6 @@ function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProp
       ) : null}
       {actions.canWrite ? (
         <>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => actions.onEditTags(session)}
-          >
-            <Tags data-icon="inline-start" />
-            Tags
-          </Button>
           <Button
             type="button"
             variant="outline"
@@ -291,6 +304,51 @@ function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProp
   );
 }
 
+type SessionTagsPanelProps = {
+  session: Session;
+  actions?: SessionDetailActions;
+  onSessionChange?: (session: Session) => void;
+};
+
+function SessionTagsPanel({ session, actions, onSessionChange }: SessionTagsPanelProps) {
+  const [entries, setEntries] = useState<TagEntry[]>(() => tagsToEntries(session.tags ?? {}));
+
+  if (!actions?.canWrite) {
+    return <TagBadges tags={session.tags} max={100} />;
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!actions) {
+      return;
+    }
+
+    const updatedSession = await actions.onSaveTags(session, entriesToTags(entries));
+    onSessionChange?.(updatedSession);
+  }
+
+  return (
+    <form
+      className="flex h-full min-h-0 flex-col gap-3"
+      onSubmit={(event) => void handleSubmit(event)}
+    >
+      <ScrollArea className="min-h-0 flex-1" viewportClassName="data-[has-overflow-y]:pr-3">
+        <TagEditor
+          entries={entries}
+          onChange={setEntries}
+          disabled={actions.tagsPending}
+          hideLabel
+        />
+      </ScrollArea>
+      <div className="flex shrink-0 justify-end border-t pt-3">
+        <Button type="submit" size="sm" disabled={actions.tagsPending}>
+          Save tags
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 type OpenSessionButtonProps = {
   sessionId: string;
   disabled: boolean;
@@ -324,7 +382,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
         >
           <ChevronDown />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuContent align="end" className="min-w-48">
           <DropdownMenuGroup>
             <DropdownMenuItem
               render={

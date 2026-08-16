@@ -101,9 +101,9 @@ Do not run the `-gpu` image without the GPU override. The control-plane health c
 The Compose files select the GPU mode:
 
 - The base definition uses software mode and does not need `/dev/dri`.
-- The GPU override selects hardware mode for either image. A missing render node or codec element fails session startup.
+- The GPU override selects hardware mode for either image. A missing render node fails session startup.
 
-`APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC` accepts `auto`, `vp8`, or `h264-va`. The default `auto` selects H.264 VA in resolved hardware mode and VP8 in resolved software mode. Explicit `h264-va` requires hardware, while explicit `vp8` permits GPU rendering with software media encoding.
+`APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC` accepts `auto`, `vp8`, or `h264-va`. The default `auto` uses H.264 VA when the selected GPU exposes the required GStreamer elements and falls back to VP8 otherwise. Explicit `h264-va` requires hardware, while explicit `vp8` permits GPU rendering with software media encoding.
 
 The per-session `/browser/status` response reports the resolved `gpuMode`, `mediaCodec`, and `renderNode` when hardware is active.
 
