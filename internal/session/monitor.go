@@ -65,12 +65,27 @@ func (m *Monitor) tick(ctx context.Context) {
 		m.logger.Error("list running sessions", zap.Error(err))
 		return
 	}
+	var activeSessionIDs []string
+	var listErr error
+	if len(sessions) > 0 {
+		activeSessionIDs, listErr = m.service.browser.ListActiveSessionIDs(ctx)
+	}
+	activeSessions := make(map[string]struct{}, len(activeSessionIDs))
+	for _, sessionID := range activeSessionIDs {
+		activeSessions[sessionID] = struct{}{}
+	}
+	if listErr != nil {
+		m.logger.Error("list active browser units", zap.Error(listErr))
+	}
 
 	for _, sessionRow := range sessions {
-		active, err := m.service.browser.IsActive(ctx, sessionRow.ID)
-		if err != nil {
-			m.logger.Error("check browser unit", zap.String("sessionId", sessionRow.ID), zap.Error(err))
-			continue
+		_, active := activeSessions[sessionRow.ID]
+		if listErr != nil {
+			active, err = m.service.browser.IsActive(ctx, sessionRow.ID)
+			if err != nil {
+				m.logger.Error("check browser unit", zap.String("sessionId", sessionRow.ID), zap.Error(err))
+				continue
+			}
 		}
 		if !active {
 			if err := m.service.markFailedRetained(ctx, &sessionRow, "browser unit became inactive", nil); err != nil {

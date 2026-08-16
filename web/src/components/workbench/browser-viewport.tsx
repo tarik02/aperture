@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Activity, AlertCircle, Loader2, Unplug } from "lucide-react";
+import { interval } from "rxjs";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
 import {
@@ -25,6 +26,7 @@ type BrowserViewportProps = {
 
 type MouseButton = "left" | "middle" | "right" | "none";
 type ViewportPoint = { x: number; y: number };
+type FrameMetadata = Pick<ScreencastFrame, "width" | "height">;
 
 const MULTI_CLICK_MS = 500;
 const MULTI_CLICK_DISTANCE = 5;
@@ -37,6 +39,9 @@ export function BrowserViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const frameRef = useRef<ScreencastFrame | null>(null);
+  const frameMetadataRef = useRef<FrameMetadata | null>(null);
+  const frameStaleRef = useRef(false);
   const pointerCaptureRef = useRef<{
     pointerId: number;
     targetId: string;
@@ -52,6 +57,8 @@ export function BrowserViewport({
     clickCount: number;
   } | null>(null);
   const [cursorHintPoint, setCursorHintPoint] = useState<ViewportPoint | null>(null);
+  const [frameMetadata, setFrameMetadata] = useState<FrameMetadata | null>(null);
+  const [frameStale, setFrameStale] = useState(false);
   const [presentedMedia, setPresentedMedia] = useState<{
     stream: MediaStream;
     targetId: string;
@@ -74,10 +81,10 @@ export function BrowserViewport({
     mediaTransitioning && presentedMedia ? presentedMedia.size : control.mediaSize;
   const renderWidth = showingWebRTC
     ? (displayedMediaSize?.width ?? viewport.width)
-    : (control.frame?.width ?? viewport.width);
+    : (frameMetadata?.width ?? viewport.width);
   const renderHeight = showingWebRTC
     ? (displayedMediaSize?.height ?? viewport.height)
-    : (control.frame?.height ?? viewport.height);
+    : (frameMetadata?.height ?? viewport.height);
   const inputWidth = showingWebRTC ? renderWidth : viewport.width;
   const inputHeight = showingWebRTC ? renderHeight : viewport.height;
   const contentWidth = showingWebRTC
@@ -101,12 +108,52 @@ export function BrowserViewport({
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
 
   useEffect(() => {
-    if (!control.frame || !imageRef.current) {
-      return;
-    }
-    const mime = control.frame.format === "png" ? "image/png" : "image/jpeg";
-    imageRef.current.src = `data:${mime};base64,${control.frame.data}`;
-  }, [control.frame]);
+    const subscription = control.frame$.subscribe((frame) => {
+      frameRef.current = frame;
+      if (!frame) {
+        imageRef.current?.removeAttribute("src");
+        if (frameMetadataRef.current !== null) {
+          frameMetadataRef.current = null;
+          setFrameMetadata(null);
+        }
+        if (frameStaleRef.current) {
+          frameStaleRef.current = false;
+          setFrameStale(false);
+        }
+        return;
+      }
+
+      if (imageRef.current && !showingWebRTC) {
+        setImageFrame(imageRef.current, frame);
+      }
+      const currentMetadata = frameMetadataRef.current;
+      if (currentMetadata?.width !== frame.width || currentMetadata?.height !== frame.height) {
+        const nextMetadata = { width: frame.width, height: frame.height };
+        frameMetadataRef.current = nextMetadata;
+        setFrameMetadata(nextMetadata);
+      }
+      if (frameStaleRef.current) {
+        frameStaleRef.current = false;
+        setFrameStale(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [control.frame$, showingWebRTC]);
+
+  useEffect(() => {
+    const subscription = interval(500).subscribe(() => {
+      const frame = frameRef.current;
+      const nextStale = frame !== null && Date.now() - frame.receivedAt > 3000;
+      if (nextStale === frameStaleRef.current) {
+        return;
+      }
+      frameStaleRef.current = nextStale;
+      setFrameStale(nextStale);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [control.frame$]);
 
   useEffect(() => {
     if (!videoRef.current) {
@@ -610,8 +657,8 @@ export function BrowserViewport({
 
   const status = resolveViewportStatus(
     control.phase,
-    control.frame,
-    control.frameStale,
+    frameMetadata !== null,
+    frameStale,
     control.mediaPhase,
     control.mediaPath,
     showingWebRTC,
@@ -675,7 +722,7 @@ export function BrowserViewport({
             }}
           />
         </div>
-      ) : control.frame ? (
+      ) : frameMetadata ? (
         <div
           className="relative overflow-hidden bg-black"
           style={{
@@ -770,6 +817,11 @@ function resolveDisconnectedHint(
     return "CDP disconnected";
   }
   return null;
+}
+
+function setImageFrame(image: HTMLImageElement, frame: ScreencastFrame): void {
+  const mime = frame.format === "png" ? "image/png" : "image/jpeg";
+  image.src = `data:${mime};base64,${frame.data}`;
 }
 
 function formatKbps(value: number | null | undefined) {
@@ -989,7 +1041,7 @@ async function pasteClipboard(control: UseBrowserControlResult) {
 
 function resolveViewportStatus(
   phase: ControlConnectionPhase,
-  frame: ScreencastFrame | null,
+  hasFrame: boolean,
   frameStale: boolean,
   mediaPhase: UseBrowserControlResult["mediaPhase"],
   mediaPath: UseBrowserControlResult["mediaPath"],
@@ -1001,7 +1053,7 @@ function resolveViewportStatus(
   if (mediaPhase === "live" && showingWebRTC) {
     return "webrtc-live";
   }
-  if (!frame) {
+  if (!hasFrame) {
     return "offline";
   }
   if (frameStale) {

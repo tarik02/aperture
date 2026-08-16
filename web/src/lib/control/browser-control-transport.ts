@@ -51,7 +51,6 @@ export type BrowserControlState = {
   phase: ControlConnectionPhase;
   targets: ControlTarget[];
   activeTargetId: string | null;
-  frame: ScreencastFrame | null;
   mediaPhase: WebRTCMediaPhase;
   mediaStream: MediaStream | null;
   mediaSize: WebRTCMediaSize | null;
@@ -85,6 +84,7 @@ type BrowserControlOptions = ConnectOptions & {
 
 export type BrowserControlOutput =
   | { type: "state"; state: BrowserControlState }
+  | { type: "frame"; frame: ScreencastFrame | null }
   | { type: "error"; error: ControlError };
 
 type WebRTCInputMessage =
@@ -110,7 +110,6 @@ const initialCdpState: CdpControlState = {
   phase: "idle",
   targets: [],
   activeTargetId: null,
-  frame: null,
   lastError: null,
 };
 const WEBRTC_WHEEL_DELTA_SCALE = 0.1;
@@ -159,6 +158,13 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       startWith(initialCdpState),
       shareReplay({ bufferSize: 1, refCount: true }),
     );
+    const cdpFrame$ = merge(
+      options.reconnect$.pipe(map(() => null)),
+      cdpOutput$.pipe(
+        filter((output) => output.type === "frame"),
+        map((output) => output.frame),
+      ),
+    ).pipe(startWith<ScreencastFrame | null>(null), shareReplay({ bufferSize: 1, refCount: true }));
     const mediaActive$ = cdpState$.pipe(
       map((state) => options.webrtcPreferred && state.phase === "connected"),
       distinctUntilChanged(),
@@ -310,9 +316,9 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       tap(([, state, viewport]) => cdpInput$.next(screencastStartCommand(state, viewport))),
       ignoreElements(),
     );
-    const fallbackScreencast$ = combineLatest([state$, viewport$]).pipe(
-      switchMap(([state, viewport]) => {
-        if (!shouldStartFallbackScreencast(options.webrtcPreferred, state)) {
+    const fallbackScreencast$ = combineLatest([state$, viewport$, cdpFrame$]).pipe(
+      switchMap(([state, viewport, frame]) => {
+        if (!shouldStartFallbackScreencast(options.webrtcPreferred, state, frame)) {
           return EMPTY;
         }
         return timer(state.mediaPath === "fallback-cdp" ? 0 : 2500).pipe(
@@ -325,9 +331,13 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       filter((output) => output.type === "error"),
       map((output): BrowserControlOutput => ({ type: "error", error: output.error })),
     );
+    const frameOutput$ = cdpFrame$.pipe(
+      map((frame): BrowserControlOutput => ({ type: "frame", frame })),
+    );
 
     const subscription = merge(
       state$.pipe(map((state): BrowserControlOutput => ({ type: "state", state }))),
+      frameOutput$,
       errorOutput$,
       mediaSelectionError$,
       webRTCViewportSync$,
@@ -358,17 +368,10 @@ function browserState(
   cdp: CdpControlState,
   media: WebRTCMediaState,
 ): BrowserControlState {
-  const mediaLive =
-    !fallbackSelected &&
-    media.phase === "live" &&
-    Boolean(media.stream) &&
-    media.selectedTarget?.targetId === cdp.activeTargetId &&
-    !media.targetSwitching;
   return {
     phase: cdp.phase,
     targets: cdp.targets,
     activeTargetId: cdp.activeTargetId,
-    frame: mediaLive ? null : cdp.frame,
     mediaPhase: media.phase,
     mediaStream: media.stream,
     mediaSize: media.size,
@@ -453,8 +456,9 @@ function screencastStartCommand(
 function shouldStartFallbackScreencast(
   webrtcPreferred: boolean,
   state: BrowserControlState,
+  frame: ScreencastFrame | null,
 ): boolean {
-  if (state.phase !== "connected" || state.frame || !state.activeTargetId) {
+  if (state.phase !== "connected" || frame || !state.activeTargetId) {
     return false;
   }
   if (!webrtcPreferred || state.mediaPath === "fallback-cdp") {
