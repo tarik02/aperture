@@ -35,6 +35,7 @@ type SnapshotView struct {
 type ListFilter struct {
 	IncludeDeleted bool
 	DeletedOnly    bool
+	Name           string
 	Tags           []db.TagFilter
 }
 
@@ -44,6 +45,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		TenantID:       tenantID,
 		IncludeDeleted: filter.IncludeDeleted,
 		DeletedOnly:    filter.DeletedOnly,
+		Name:           filter.Name,
 		Tags:           filter.Tags,
 	}, params)
 	if err != nil {

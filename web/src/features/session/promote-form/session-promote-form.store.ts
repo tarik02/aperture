@@ -3,6 +3,7 @@ import type { DraftTagEntry } from "#/features/session/form/session-form.store.t
 
 type SessionPromoteFormData = {
   sessionId: string | null;
+  baseSnapshotName: string | null;
   name: string;
   description: string;
   replaceExisting: boolean;
@@ -11,15 +12,22 @@ type SessionPromoteFormData = {
   nameError: string | null;
 };
 
+type SessionPromoteFormInput = {
+  sessionId: string;
+  baseSnapshotName: string | null;
+  suspendBeforePromote: boolean;
+};
+
 type SessionPromoteFormState = {
   mode: "promote";
   formData: SessionPromoteFormData;
-  initForm: (sessionId: string, suspendBeforePromote: boolean) => void;
+  initForm: (input: SessionPromoteFormInput) => void;
   setFormData: (patch: Partial<SessionPromoteFormData>) => void;
 };
 
 const defaultFormData: SessionPromoteFormData = {
   sessionId: null,
+  baseSnapshotName: null,
   name: "",
   description: "",
   replaceExisting: false,
@@ -31,7 +39,15 @@ const defaultFormData: SessionPromoteFormData = {
 export const useSessionPromoteFormStore = create<SessionPromoteFormState>()((set) => ({
   mode: "promote",
   formData: defaultFormData,
-  initForm: (sessionId, suspendBeforePromote) =>
-    set({ formData: { ...defaultFormData, sessionId, suspendBeforePromote } }),
+  initForm: ({ sessionId, baseSnapshotName, suspendBeforePromote }) =>
+    set({
+      formData: {
+        ...defaultFormData,
+        sessionId,
+        baseSnapshotName,
+        name: baseSnapshotName ?? "",
+        suspendBeforePromote,
+      },
+    }),
   setFormData: (patch) => set((state) => ({ formData: { ...state.formData, ...patch } })),
 }));

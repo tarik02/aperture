@@ -17,6 +17,7 @@ type BrowserControlPaneProps = {
   guestMode?: boolean;
   cdpUrl: string | null;
   shareUrl: string | null;
+  onSessionDetails?: () => void;
 };
 
 export function BrowserControlPane({
@@ -24,6 +25,7 @@ export function BrowserControlPane({
   guestMode = false,
   cdpUrl,
   shareUrl,
+  onSessionDetails,
 }: BrowserControlPaneProps) {
   const [performanceOverlayEnabled, setPerformanceOverlayEnabled] = useState(false);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
@@ -42,6 +44,7 @@ export function BrowserControlPane({
         devToolsDock={devToolsDock}
         onDevToolsOpenChange={setDevToolsOpen}
         onDevToolsDockChange={setDevToolsDock}
+        onSessionDetails={onSessionDetails}
       />
       {devToolsOpen ? (
         <ResizablePanelGroup

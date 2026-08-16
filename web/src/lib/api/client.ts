@@ -243,6 +243,7 @@ export type SnapshotsListParams = {
   cursor?: string;
   includeDeleted?: boolean;
   deleted?: "active" | "deleted" | "all";
+  name?: string;
   tags?: TagFilterValue;
 };
 
@@ -594,6 +595,7 @@ export const apiClient = {
         cursor: params.cursor,
         includeDeleted: params.includeDeleted ? "true" : undefined,
         deleted: params.deleted,
+        name: params.name,
         tagKey: params.tags?.map((tag) => tag.key),
         tagOperator: params.tags?.map((tag) => tag.operator),
         tagValue: params.tags?.map((tag) => tag.values.join(",")),
