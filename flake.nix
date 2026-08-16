@@ -923,7 +923,6 @@
                   "org.opencontainers.image.title" = "Aperture";
                   "org.opencontainers.image.description" = "Chromium session supervisor";
                   "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
-                  "org.opencontainers.image.url" = "https://aperture.tarik02.me";
                   "org.opencontainers.image.documentation" =
                     "https://github.com/tarik02/aperture/blob/master/docs/docker.md";
                   "org.opencontainers.image.licenses" = "MIT";
