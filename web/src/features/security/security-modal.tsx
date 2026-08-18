@@ -48,6 +48,17 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [disableOpen, setDisableOpen] = useState(false);
 
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setVerificationCode("");
+      setTOTPFlow({ kind: "idle" });
+    }
+    onOpenChange(nextOpen);
+  }
+
   async function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (newPassword !== confirmPassword) {
@@ -132,7 +143,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Security</DialogTitle>

@@ -115,6 +115,10 @@ export function TokenForm({
         await apiClient.completePasswordMFA(mfaCode);
       }
       upsertWebSession(await fetchAuthMe(null));
+      setPasswordStep("credentials");
+      setEmail("");
+      setPassword("");
+      setMFACode("");
       toast.success("Logged in");
       onDone();
     } catch (error) {
