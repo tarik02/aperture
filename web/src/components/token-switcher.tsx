@@ -160,7 +160,13 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
       </DropdownMenu>
 
       <TokenAuthModal />
-      <PasskeyModal open={passkeysOpen} onOpenChange={setPasskeysOpen} />
+      {activeProfile?.credentialType === "web_session" ? (
+        <PasskeyModal
+          profileId={activeProfile.id}
+          open={passkeysOpen}
+          onOpenChange={setPasskeysOpen}
+        />
+      ) : null}
       {removeProfileTarget ? (
         <ConfirmDialog
           open={removeProfileOpen}

@@ -22,14 +22,16 @@ type PendingAction =
   | null;
 
 type PasskeyModalProps = {
+  profileId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
+export function PasskeyModal({ profileId, open, onOpenChange }: PasskeyModalProps) {
   const queryClient = useQueryClient();
+  const passkeysQueryKey = queryKeys.passkeys(profileId);
   const passkeys = useQuery({
-    queryKey: queryKeys.passkeys,
+    queryKey: passkeysQueryKey,
     queryFn: () => apiClient.listPasskeys(),
     enabled: open,
   });
@@ -52,7 +54,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
       const options = await apiClient.beginPasskeyRegistration(passkeyName);
       const credential = await startRegistration({ optionsJSON: options.publicKey });
       await apiClient.finishPasskeyRegistration(credential);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.passkeys });
+      await queryClient.invalidateQueries({ queryKey: passkeysQueryKey });
       setName("");
       toast.success("Passkey added");
     } catch (error) {
@@ -71,7 +73,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
     setPendingAction({ kind: "rename", passkeyId });
     try {
       await apiClient.renamePasskey(passkeyId, passkeyName);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.passkeys });
+      await queryClient.invalidateQueries({ queryKey: passkeysQueryKey });
       setEditingId(null);
       toast.success("Passkey renamed");
     } catch (error) {
@@ -89,7 +91,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
     setPendingAction({ kind: "delete", passkeyId: deleteTarget.id });
     try {
       await apiClient.deletePasskey(deleteTarget.id);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.passkeys });
+      await queryClient.invalidateQueries({ queryKey: passkeysQueryKey });
       toast.success("Passkey deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Passkey deletion failed");

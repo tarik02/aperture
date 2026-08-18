@@ -66,6 +66,7 @@ func (s *Server) listPasskeys(c *gin.Context) {
 }
 
 func (s *Server) beginPasskeyRegistration(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
 	var request passkeyNameRequest
 	if err := bindJSON(c, &request); err != nil {
 		WriteError(c, err)
@@ -90,6 +91,7 @@ func (s *Server) completePasskeyRegistration(c *gin.Context) {
 }
 
 func (s *Server) renamePasskey(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
 	var request passkeyNameRequest
 	if err := bindJSON(c, &request); err != nil {
 		WriteError(c, err)
