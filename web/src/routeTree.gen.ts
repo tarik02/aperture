@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShareRouteImport } from './routes/share'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as Char91Char93UsersIndexRouteImport } from './routes/[-]/users/index'
 import { Route as Char91Char93TokensIndexRouteImport } from './routes/[-]/tokens/index'
 import { Route as Char91Char93TenantsIndexRouteImport } from './routes/[-]/tenants/index'
 import { Route as Char91Char93SnapshotsIndexRouteImport } from './routes/[-]/snapshots/index'
@@ -25,6 +26,11 @@ const ShareRoute = ShareRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Char91Char93UsersIndexRoute = Char91Char93UsersIndexRouteImport.update({
+  id: '/-/users/',
+  path: '/-/users/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const Char91Char93TokensIndexRoute = Char91Char93TokensIndexRouteImport.update({
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
   '/-/tenants/': typeof Char91Char93TenantsIndexRoute
   '/-/tokens/': typeof Char91Char93TokensIndexRoute
+  '/-/users/': typeof Char91Char93UsersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/-/snapshots': typeof Char91Char93SnapshotsIndexRoute
   '/-/tenants': typeof Char91Char93TenantsIndexRoute
   '/-/tokens': typeof Char91Char93TokensIndexRoute
+  '/-/users': typeof Char91Char93UsersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
   '/-/tenants/': typeof Char91Char93TenantsIndexRoute
   '/-/tokens/': typeof Char91Char93TokensIndexRoute
+  '/-/users/': typeof Char91Char93UsersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -95,6 +104,7 @@ export interface FileRouteTypes {
     | '/-/snapshots/'
     | '/-/tenants/'
     | '/-/tokens/'
+    | '/-/users/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
     | '/-/snapshots'
     | '/-/tenants'
     | '/-/tokens'
+    | '/-/users'
   id:
     | '__root__'
     | '/'
@@ -113,6 +124,7 @@ export interface FileRouteTypes {
     | '/-/snapshots/'
     | '/-/tenants/'
     | '/-/tokens/'
+    | '/-/users/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -123,6 +135,7 @@ export interface RootRouteChildren {
   Char91Char93SnapshotsIndexRoute: typeof Char91Char93SnapshotsIndexRoute
   Char91Char93TenantsIndexRoute: typeof Char91Char93TenantsIndexRoute
   Char91Char93TokensIndexRoute: typeof Char91Char93TokensIndexRoute
+  Char91Char93UsersIndexRoute: typeof Char91Char93UsersIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -139,6 +152,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/-/users/': {
+      id: '/-/users/'
+      path: '/-/users'
+      fullPath: '/-/users/'
+      preLoaderRoute: typeof Char91Char93UsersIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/-/tokens/': {
@@ -187,6 +207,7 @@ const rootRouteChildren: RootRouteChildren = {
   Char91Char93SnapshotsIndexRoute: Char91Char93SnapshotsIndexRoute,
   Char91Char93TenantsIndexRoute: Char91Char93TenantsIndexRoute,
   Char91Char93TokensIndexRoute: Char91Char93TokensIndexRoute,
+  Char91Char93UsersIndexRoute: Char91Char93UsersIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
