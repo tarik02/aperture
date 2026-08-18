@@ -29,14 +29,16 @@ type PendingAction =
   | null;
 
 type SecurityModalProps = {
+  profileId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
+export function SecurityModal({ profileId, open, onOpenChange }: SecurityModalProps) {
   const queryClient = useQueryClient();
+  const securityStatusQueryKey = queryKeys.securityStatus(profileId);
   const status = useQuery({
-    queryKey: queryKeys.securityStatus,
+    queryKey: securityStatusQueryKey,
     queryFn: () => apiClient.getSecurityStatus(),
     enabled: open,
   });
@@ -68,7 +70,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
     setPendingAction("password");
     try {
       await apiClient.setPassword(currentPassword, newPassword);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.securityStatus });
+      await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -100,7 +102,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
     setPendingAction("finish-totp");
     try {
       const result = await apiClient.completeTOTPEnrollment(totpFlow.code);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.securityStatus });
+      await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setTOTPFlow({ kind: "recovery-codes", codes: result.recoveryCodes });
       toast.success("Authenticator enabled");
     } catch (error) {
@@ -114,7 +116,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
     setPendingAction("recovery-codes");
     try {
       const result = await apiClient.regenerateRecoveryCodes(verificationCode);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.securityStatus });
+      await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setVerificationCode("");
       setTOTPFlow({ kind: "recovery-codes", codes: result.recoveryCodes });
       toast.success("Recovery codes replaced");
@@ -129,7 +131,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
     setPendingAction("disable-totp");
     try {
       await apiClient.disableTOTP(verificationCode);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.securityStatus });
+      await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setVerificationCode("");
       setTOTPFlow({ kind: "idle" });
       toast.success("Authenticator disabled");
