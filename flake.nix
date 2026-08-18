@@ -614,7 +614,7 @@
                 $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c \
                 -o $out/lib/weston/aperture-weston-shell.so \
-                $(pkg-config --cflags --libs weston libweston-15 wayland-server pixman-1 xkbcommon)
+                $(pkg-config --cflags --libs weston libweston-${lib.versions.major patchedWeston.version} wayland-server pixman-1 xkbcommon)
 
               mkdir -p $out/share/aperture/extensions/tab-window-enforcer
               cp ${./extensions/tab-window-enforcer}/* $out/share/aperture/extensions/tab-window-enforcer/
