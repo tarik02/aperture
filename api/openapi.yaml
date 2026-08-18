@@ -176,6 +176,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -198,6 +199,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, user_email_conflict]
       requestBody: {$ref: '#/components/requestBodies/CreateUser'}
       responses:
         '201': {description: Created user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
@@ -213,6 +215,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
       responses:
         '200': {description: User, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -224,6 +227,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, user_not_found, user_email_conflict]
       requestBody: {$ref: '#/components/requestBodies/UpdateUser'}
       responses:
         '200': {description: Updated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
@@ -236,6 +240,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
       responses:
         '200': {description: Disabled user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -248,6 +253,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
       parameters:
         - {$ref: '#/components/parameters/UserId'}
       responses:
@@ -262,6 +268,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
       parameters:
         - {$ref: '#/components/parameters/UserId'}
       responses:
@@ -276,6 +283,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [tenant_not_found]
       parameters:
         - {$ref: '#/components/parameters/TenantId'}
       responses:
@@ -293,6 +301,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, user_not_found, user_disabled]
       requestBody: {$ref: '#/components/requestBodies/UpsertTenantMembership'}
       responses:
         '200': {description: Tenant membership, content: {application/json: {schema: {$ref: '#/components/schemas/TenantMembership'}}}}
@@ -305,6 +314,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [membership_not_found]
       responses:
         '204': {description: Tenant membership deleted}
         default: {$ref: '#/components/responses/Error'}
@@ -317,6 +327,7 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
