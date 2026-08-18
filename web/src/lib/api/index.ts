@@ -14,6 +14,8 @@ export type {
   TenantsListParams,
   TenantHeaderMode,
   TokensListParams,
+  UserInput,
+  UsersListParams,
 } from "#/lib/api/client.ts";
 
 export {
@@ -37,9 +39,13 @@ export {
   snapshotSchema,
   snapshotsPageSchema,
   tenantSchema,
+  tenantMembershipSchema,
+  tenantMembershipsSchema,
   tokenSchema,
   tokensPageSchema,
   tenantsPageSchema,
+  userSchema,
+  usersPageSchema,
 } from "#/lib/api/schemas.ts";
 export type {
   ApiToken,
@@ -53,6 +59,9 @@ export type {
   Snapshot,
   SnapshotsPage,
   Tenant,
+  TenantMembership,
   TenantsPage,
   TokensPage,
+  User,
+  UsersPage,
 } from "#/lib/api/schemas.ts";
