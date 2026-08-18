@@ -125,6 +125,7 @@ export function UserListPage() {
       <InfiniteTableShell
         query={query}
         emptyTitle={deferredSearch ? "No matching users" : "No users"}
+        className="[--table-sticky-start-width:0rem]"
         loading={
           <Table>
             <TableHeader>

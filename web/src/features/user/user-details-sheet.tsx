@@ -149,7 +149,7 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
   return (
     <>
       <Sheet open={userId !== null} onOpenChange={onOpenChange}>
-        <SheetContent className="w-full sm:max-w-xl">
+        <SheetContent className="data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
           <SheetHeader className="border-b pr-12">
             <SheetTitle>{user?.displayName ?? "User details"}</SheetTitle>
             <SheetDescription>{user?.email ?? "Account without an email address"}</SheetDescription>
