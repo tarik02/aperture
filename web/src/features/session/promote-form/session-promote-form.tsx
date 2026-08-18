@@ -1,15 +1,17 @@
 import { Pause } from "lucide-react";
 import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
-import { Button } from "#/components/ui/button.tsx";
 import {
   Autocomplete,
+  AutocompleteContent,
+  AutocompleteEmpty,
+  AutocompleteInput,
   AutocompleteItem,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxList,
-} from "#/components/ui/combobox.tsx";
+  AutocompleteList,
+  AutocompleteTrigger,
+  AutocompleteValue,
+} from "#/components/ui/autocomplete.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import {
   DialogDescription,
   DialogFooter,
@@ -151,27 +153,48 @@ export function SessionPromoteForm() {
           data-invalid={nameError ? true : undefined}
           data-disabled={pending ? true : undefined}
         >
-          <FieldLabel htmlFor="promote-name">Snapshot name</FieldLabel>
+          <FieldLabel id="promote-name-label" htmlFor="promote-name-trigger">
+            Snapshot name
+          </FieldLabel>
           <Autocomplete
             items={snapshotNames}
             mode="none"
             filter={null}
             value={name}
             onValueChange={handleNameChange}
-            openOnInputClick
             disabled={pending}
           >
-            <ComboboxInput
-              id="promote-name"
-              placeholder="Search or enter a new snapshot name"
-              className="w-full"
+            <AutocompleteTrigger
+              id="promote-name-trigger"
+              aria-labelledby="promote-name-label promote-name-value"
               aria-invalid={nameError ? true : undefined}
               disabled={pending}
-              showTrigger={false}
-              showClear
-            />
-            <ComboboxContent align="start" className="w-(--anchor-width)">
-              <ComboboxEmpty>
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between font-normal"
+                />
+              }
+            >
+              <AutocompleteValue>
+                {(value) => (
+                  <span id="promote-name-value" className="truncate">
+                    {value.trim() || "Select or create a snapshot"}
+                  </span>
+                )}
+              </AutocompleteValue>
+            </AutocompleteTrigger>
+            <AutocompleteContent align="start" initialFocus>
+              <AutocompleteInput
+                id="promote-name-input"
+                aria-labelledby="promote-name-label"
+                placeholder="Search or enter a new snapshot name"
+                aria-invalid={nameError ? true : undefined}
+                disabled={pending}
+                showClear
+              />
+              <AutocompleteEmpty>
                 {snapshotsQuery.isFetching
                   ? "Searching snapshots..."
                   : snapshotSearchError
@@ -179,14 +202,14 @@ export function SessionPromoteForm() {
                     : trimmedName
                       ? `No match. "${trimmedName}" will be created.`
                       : "No snapshots found"}
-              </ComboboxEmpty>
-              <ComboboxList>
+              </AutocompleteEmpty>
+              <AutocompleteList>
                 {(snapshotName: string) => (
                   <AutocompleteItem key={snapshotName} value={snapshotName}>
                     {snapshotName}
                   </AutocompleteItem>
                 )}
-              </ComboboxList>
+              </AutocompleteList>
               {snapshotsQuery.hasNextPage ? (
                 <Button
                   type="button"
@@ -199,7 +222,7 @@ export function SessionPromoteForm() {
                   {snapshotsQuery.isFetchingNextPage ? "Loading..." : "Load more snapshots"}
                 </Button>
               ) : null}
-            </ComboboxContent>
+            </AutocompleteContent>
           </Autocomplete>
           <FieldDescription>
             {replacingExistingSnapshot
