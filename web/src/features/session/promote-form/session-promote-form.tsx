@@ -3,14 +3,12 @@ import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import {
-  Combobox,
+  Autocomplete,
+  AutocompleteItem,
   ComboboxContent,
   ComboboxEmpty,
   ComboboxInput,
-  ComboboxItem,
   ComboboxList,
-  ComboboxTrigger,
-  ComboboxValue,
 } from "#/components/ui/combobox.tsx";
 import {
   DialogDescription,
@@ -153,43 +151,26 @@ export function SessionPromoteForm() {
           data-invalid={nameError ? true : undefined}
           data-disabled={pending ? true : undefined}
         >
-          <FieldLabel htmlFor="promote-name-trigger">Snapshot name</FieldLabel>
-          <Combobox
+          <FieldLabel htmlFor="promote-name">Snapshot name</FieldLabel>
+          <Autocomplete
             items={snapshotNames}
+            mode="none"
             filter={null}
-            value={existingSnapshot?.name ?? null}
-            inputValue={name}
-            onInputValueChange={handleNameChange}
-            onValueChange={(value) => {
-              if (typeof value === "string") {
-                handleNameChange(value);
-              }
-            }}
+            value={name}
+            onValueChange={handleNameChange}
+            openOnInputClick
             disabled={pending}
           >
-            <ComboboxTrigger
-              id="promote-name-trigger"
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-between font-normal"
-                />
-              }
-            >
-              <ComboboxValue>
-                <span className="truncate">{trimmedName || "Select or create a snapshot"}</span>
-              </ComboboxValue>
-            </ComboboxTrigger>
+            <ComboboxInput
+              id="promote-name"
+              placeholder="Search or enter a new snapshot name"
+              className="w-full"
+              aria-invalid={nameError ? true : undefined}
+              disabled={pending}
+              showTrigger={false}
+              showClear
+            />
             <ComboboxContent align="start" className="w-(--anchor-width)">
-              <ComboboxInput
-                id="promote-name"
-                placeholder="Search or enter a new snapshot name"
-                aria-invalid={nameError ? true : undefined}
-                disabled={pending}
-                showTrigger={false}
-                showClear
-              />
               <ComboboxEmpty>
                 {snapshotsQuery.isFetching
                   ? "Searching snapshots..."
@@ -201,9 +182,9 @@ export function SessionPromoteForm() {
               </ComboboxEmpty>
               <ComboboxList>
                 {(snapshotName: string) => (
-                  <ComboboxItem key={snapshotName} value={snapshotName}>
+                  <AutocompleteItem key={snapshotName} value={snapshotName}>
                     {snapshotName}
-                  </ComboboxItem>
+                  </AutocompleteItem>
                 )}
               </ComboboxList>
               {snapshotsQuery.hasNextPage ? (
@@ -219,7 +200,7 @@ export function SessionPromoteForm() {
                 </Button>
               ) : null}
             </ComboboxContent>
-          </Combobox>
+          </Autocomplete>
           <FieldDescription>
             {replacingExistingSnapshot
               ? "The selected snapshot will be replaced with the same description and tags."
