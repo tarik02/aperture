@@ -515,7 +515,7 @@
             pname = "aperture";
             version = deployVersion;
             inherit src;
-            vendorHash = "sha256-Xf/2x1yZjWfFxraHf70r5H0FJgRZNI+EedOFce9gP/c=";
+            vendorHash = "sha256-D1tdiWlD6PVhnlFaIMAGE7FJetXKF86LUhD9Fcz0wfg=";
 
             subPackages = [
               "cmd/aperture"

@@ -1,7 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "#/components/ui/dialog.tsx";
 import { TokenForm } from "#/features/token/form/token-form.tsx";
 import { useTokenFormStore } from "#/features/token/form/token-form.store.ts";
 import { useTokenAuthModalStore } from "#/features/token/auth-modal/token-auth-modal.store.ts";
+import { apiClient } from "#/lib/api/client.ts";
 
 type WelcomeTokenAuthModalProps = {
   open: boolean;
@@ -24,10 +26,22 @@ export function TokenAuthModal() {
 }
 
 export function WelcomeTokenAuthModal({ open, onOpenChange }: WelcomeTokenAuthModalProps) {
+  const providers = useQuery({
+    queryKey: ["auth", "oidc-providers"],
+    queryFn: () => apiClient.listOIDCProviders(),
+    enabled: open,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false}>
-        <TokenForm mode="welcome" dismissible={false} onDone={() => undefined} />
+        <TokenForm
+          mode="welcome"
+          dismissible={false}
+          oidcProviders={providers.data?.providers}
+          onDone={() => undefined}
+        />
       </DialogContent>
     </Dialog>
   );

@@ -76,6 +76,18 @@ type AuditEvent struct {
 	CreatedAt    string  `bun:"created_at,notnull"`
 }
 
+// OIDCIdentity maps an OIDC provider subject to a user.
+type OIDCIdentity struct {
+	bun.BaseModel `bun:"table:oidc_identities"`
+
+	ProviderID  string  `bun:"provider_id,pk"`
+	Subject     string  `bun:"subject,pk"`
+	UserID      string  `bun:"user_id,notnull"`
+	Email       *string `bun:"email"`
+	CreatedAt   string  `bun:"created_at,notnull"`
+	LastLoginAt string  `bun:"last_login_at,notnull"`
+}
+
 // Snapshot maps the snapshots table.
 type Snapshot struct {
 	bun.BaseModel `bun:"table:snapshots"`
@@ -176,6 +188,7 @@ func RegisterModels(db *bun.DB) {
 		(*User)(nil),
 		(*TenantMembership)(nil),
 		(*AuditEvent)(nil),
+		(*OIDCIdentity)(nil),
 		(*Snapshot)(nil),
 		(*Session)(nil),
 		(*SessionToken)(nil),

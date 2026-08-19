@@ -17,7 +17,7 @@ const (
 	AuthMethodAPIToken    = "api_token"
 )
 
-// Principal holds authenticated API token state for a request.
+// Principal holds authenticated identity and authority state for a request.
 type Principal struct {
 	Type          string
 	ID            string
@@ -50,6 +50,9 @@ func ResolveTenantID(principal Principal, selectedTenantID string) (string, erro
 	switch principal.AuthorityType {
 	case AuthorityTenant:
 		if principal.TenantID == nil {
+			if principal.Type == PrincipalTypeUser {
+				return "", ErrTenantRequired
+			}
 			return "", ErrTenantNotFound
 		}
 		if selectedTenantID != "" && selectedTenantID != *principal.TenantID {

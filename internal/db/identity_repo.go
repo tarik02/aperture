@@ -171,6 +171,20 @@ func (r *Repository) ListUserMemberships(ctx context.Context, userID string) ([]
 	return memberships, nil
 }
 
+// ListUserTenants returns active tenants joined through a user's memberships.
+func (r *Repository) ListUserTenants(ctx context.Context, userID string) ([]Tenant, error) {
+	tenants := make([]Tenant, 0)
+	if err := r.db.bun.NewSelect().Model(&tenants).
+		Join("JOIN tenant_memberships AS membership ON membership.tenant_id = tenant.id").
+		Where("membership.user_id = ?", userID).
+		Where("tenant.deleted_at IS NULL").
+		OrderExpr("tenant.display_name ASC, tenant.id ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list user tenants: %w", err)
+	}
+	return tenants, nil
+}
+
 // DeleteTenantMembership removes a user's access to a tenant.
 func (r *Repository) DeleteTenantMembership(ctx context.Context, tenantID, userID string) error {
 	result, err := r.db.bun.NewDelete().Model((*TenantMembership)(nil)).

@@ -2,15 +2,25 @@ import { apiClient } from "#/lib/api/client.ts";
 import type { AuthMeResponse } from "#/lib/api/schemas.ts";
 
 export async function fetchAuthMe(
-  token: string,
+  token: string | null,
   selectedTenantId?: string | null,
 ): Promise<AuthMeResponse> {
-  return apiClient.getAuthMe({
-    token,
-    authorityType: null,
-    tenantId: null,
-    selectedTenantId: selectedTenantId ?? null,
-  });
+  return apiClient.getAuthMe(
+    token
+      ? {
+          token,
+          credentialType: "api_token",
+          authorityType: null,
+          tenantId: null,
+          selectedTenantId: selectedTenantId ?? null,
+        }
+      : {
+          credentialType: "web_session",
+          authorityType: null,
+          tenantId: null,
+          selectedTenantId: selectedTenantId ?? null,
+        },
+  );
 }
 
 export async function fetchApiHealth(): Promise<"ok" | "error"> {

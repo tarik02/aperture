@@ -9,6 +9,7 @@ import {
   createTokenResponseSchema,
   eventsPageSchema,
   healthSchema,
+  oidcProvidersSchema,
   promoteSessionResponseSchema,
   recordingSchema,
   recordingsSchema,
@@ -30,20 +31,38 @@ import type { AuthorityType, TokenProfile } from "#/stores/token-vault.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
 
-export type ApiCredentials = {
-  token: string;
+type CredentialContext = {
   authorityType: AuthorityType | null;
   tenantId: string | null;
   selectedTenantId: string | null;
 };
+
+export type ApiCredentials =
+  | (CredentialContext & {
+      credentialType: "api_token";
+      token: string;
+    })
+  | (CredentialContext & {
+      credentialType: "web_session";
+    });
 
 export type TenantHeaderMode = "none" | "optional" | "tenant-scoped";
 
 type QueryValue = string | number | boolean | Array<string | number | boolean> | undefined | null;
 
 export function credentialsFromProfile(profile: TokenProfile): ApiCredentials {
+  if (profile.credentialType === "web_session") {
+    return {
+      credentialType: "web_session",
+      authorityType: profile.authorityType,
+      tenantId: profile.tenantId,
+      selectedTenantId: profile.selectedTenantId,
+    };
+  }
+
   return {
     token: profile.rawToken,
+    credentialType: "api_token",
     authorityType: profile.authorityType,
     tenantId: profile.tenantId,
     selectedTenantId: profile.selectedTenantId,
@@ -59,6 +78,10 @@ export function resolveTenantHeader(
   }
 
   if (mode === "optional") {
+    return credentials.selectedTenantId ?? undefined;
+  }
+
+  if (credentials.credentialType === "web_session") {
     return credentials.selectedTenantId ?? undefined;
   }
 
@@ -125,7 +148,7 @@ function buildHeaders(
     headers["Content-Type"] = "application/json";
   }
 
-  if (credentials?.token) {
+  if (credentials?.credentialType === "api_token") {
     headers.Authorization = `Bearer ${credentials.token.trim()}`;
   }
 
@@ -330,6 +353,20 @@ export type UserInput = {
 };
 
 export const apiClient = {
+  listOIDCProviders() {
+    return request({
+      path: "/auth/providers",
+      schema: oidcProvidersSchema,
+    });
+  },
+
+  logoutWebSession() {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/logout",
+    });
+  },
+
   getHealth() {
     return request({
       path: "/api/health",

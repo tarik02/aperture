@@ -102,7 +102,7 @@ type principalResponse struct {
 	Type          string   `json:"type"`
 	ID            string   `json:"id"`
 	AuthMethod    string   `json:"authMethod"`
-	TokenID       string   `json:"tokenId"`
+	TokenID       *string  `json:"tokenId"`
 	UserID        *string  `json:"userId,omitempty"`
 	Name          string   `json:"name"`
 	AuthorityType string   `json:"authorityType"`
@@ -111,8 +111,19 @@ type principalResponse struct {
 }
 
 type authMeResponse struct {
-	Principal      principalResponse `json:"principal"`
-	SelectedTenant *tenantResponse   `json:"selectedTenant"`
+	Principal        principalResponse `json:"principal"`
+	SelectedTenant   *tenantResponse   `json:"selectedTenant"`
+	AvailableTenants []tenantResponse  `json:"availableTenants"`
+}
+
+type oidcProviderResponse struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	LoginURL string `json:"loginUrl"`
+}
+
+type oidcProvidersResponse struct {
+	Providers []oidcProviderResponse `json:"providers"`
 }
 
 type createUserRequest struct {
