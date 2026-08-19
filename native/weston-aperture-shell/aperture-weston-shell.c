@@ -163,12 +163,6 @@ bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *r
 static void
 unbind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root);
 
-static int
-background_get_label(struct weston_surface *surface, char *buf, size_t len)
-{
-	return snprintf(buf, len, "aperture background");
-}
-
 static struct weston_output *
 default_output(struct aperture_shell *shell)
 {
@@ -503,6 +497,7 @@ inject_button(struct aperture_shell *shell, struct aperture_shell_surface *surfa
 	      uint32_t button, bool press)
 {
 	struct weston_pointer *pointer = weston_seat_get_pointer(&shell->input_seat);
+	struct weston_pointer_button_event event;
 	struct timespec time;
 	enum wl_pointer_button_state state =
 		press ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED;
@@ -530,7 +525,8 @@ inject_button(struct aperture_shell *shell, struct aperture_shell_surface *surfa
 	} else {
 		pointer->button_count--;
 	}
-	pointer->grab->interface->button(pointer->grab, &time, button, state);
+	weston_pointer_button_event_init(&event, &time, &shell->input_seat, button, state);
+	pointer->grab->interface->button(pointer->grab, &event);
 	if (pointer->button_count == 1)
 		pointer->grab_serial = wl_display_get_serial(shell->compositor->wl_display);
 	shell->pointer_frame_pending = true;
@@ -1436,7 +1432,7 @@ create_background(struct aperture_shell *shell)
 		.height = output->height,
 		.capture_input = false,
 		.surface_committed = NULL,
-		.get_label = background_get_label,
+		.label = strdup("aperture background"),
 		.surface_private = NULL,
 	};
 
@@ -1461,7 +1457,7 @@ create_capture_background(struct aperture_shell *shell, struct aperture_output *
 		.height = capture->output->height,
 		.capture_input = false,
 		.surface_committed = NULL,
-		.get_label = background_get_label,
+		.label = strdup("aperture background"),
 		.surface_private = NULL,
 	};
 
