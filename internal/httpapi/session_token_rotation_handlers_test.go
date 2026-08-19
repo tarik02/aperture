@@ -34,10 +34,10 @@ func TestRotateSessionTokenHandler(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rotated); err != nil {
 		t.Fatalf("decode rotate response: %v", err)
 	}
-	if rotated.SessionToken == "" || rotated.SessionToken == created.SessionToken {
+	if rotated.Session.Connection.SessionToken == "" || rotated.Session.Connection.SessionToken == created.Session.Connection.SessionToken {
 		t.Fatalf("expected replacement token in response")
 	}
-	if rotated.CDPURL != created.CDPURL {
-		t.Fatalf("cdp url changed: %q -> %q", created.CDPURL, rotated.CDPURL)
+	if rotated.Session.Connection.CDPURL != created.Session.Connection.CDPURL {
+		t.Fatalf("cdp url changed: %q -> %q", created.Session.Connection.CDPURL, rotated.Session.Connection.CDPURL)
 	}
 }

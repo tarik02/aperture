@@ -265,7 +265,11 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := map[string]any{
-		"sessionId":       r.values.SessionID,
+		"sessionId": r.values.SessionID,
+		"browser": map[string]any{
+			"mode": r.values.BrowserMode,
+		},
+		"capabilities":    CapabilitiesFromRuntime(r.values),
 		"compositor":      r.values.CompositorEnabled,
 		"compositorPid":   r.compositorPID,
 		"browserCDPPort":  r.values.CDPPort,
@@ -292,8 +296,9 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	if r.values.RenderNode != "" {
 		status["renderNode"] = r.values.RenderNode
 	}
+	connection := map[string]any{}
 	if r.values.ExternalBaseURL != "" {
-		status["cdpUrl"] = strings.TrimRight(r.values.ExternalBaseURL, "/") + "/sessions/" + r.values.SessionID + "/cdp"
+		connection["cdpUrl"] = strings.TrimRight(r.values.ExternalBaseURL, "/") + "/sessions/" + r.values.SessionID + "/cdp"
 	}
 	iceServers := make([]struct {
 		URLs       []string `json:"urls"`
@@ -306,14 +311,8 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 			return
 		}
 	}
-	mediaMode := "cdp"
 	if r.values.MediaProducerEnabled {
-		mediaMode = "auto"
-	}
-	status["media"] = map[string]any{
-		"mode":           mediaMode,
-		"webrtcProducer": r.values.MediaProducerEnabled,
-		"iceServers":     iceServers,
+		connection["webrtc"] = map[string]any{"iceServers": iceServers}
 	}
 	if r.targets != nil {
 		status["targets"] = r.targets.snapshots()
@@ -329,10 +328,11 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
 			return
 		}
-		status["sessionToken"] = token
+		connection["sessionToken"] = token
 	} else if r.values.SessionToken != "" {
-		status["sessionToken"] = r.values.SessionToken
+		connection["sessionToken"] = r.values.SessionToken
 	}
+	status["connection"] = connection
 	writeWrapperJSON(w, http.StatusOK, status)
 }
 
@@ -546,16 +546,24 @@ func wrapperRecordingPipeline(codec string, bitrateKbps int, keyframe int) []str
 	}
 }
 
-func normalizeWrapperCodec(requested string, fallback string) string {
-	switch strings.TrimSpace(requested) {
-	case "h264-va", "vp8":
-		return strings.TrimSpace(requested)
+func resolveWrapperRecordingCodec(requested string, fallback string, gpuMode string) (string, error) {
+	codec := strings.TrimSpace(requested)
+	if codec == "" {
+		codec = strings.TrimSpace(fallback)
 	}
-	switch strings.TrimSpace(fallback) {
-	case "h264-va":
-		return "h264-va"
+	if codec == "" || codec == mediaCodecAuto {
+		codec = mediaCodecVP8
+	}
+	switch codec {
+	case mediaCodecVP8:
+		return codec, nil
+	case mediaCodecH264:
+		if gpuMode != gpuModeHardware {
+			return "", errors.New("h264-va recording requires hardware GPU mode")
+		}
+		return codec, nil
 	default:
-		return "vp8"
+		return "", fmt.Errorf("recording codec must be vp8 or h264-va")
 	}
 }
 

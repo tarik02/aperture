@@ -55,6 +55,7 @@ type UseBrowserControlOptions = {
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: RTCIceServer[];
+  recordingSupported?: boolean;
   forceCDPMedia?: boolean;
 };
 
@@ -85,6 +86,7 @@ export type UseBrowserControlResult = {
   viewportAutoSync: boolean;
   captured: boolean;
   recordings: Recording[];
+  recordingSupported: boolean;
   recordingBusy: boolean;
   recordingClientConnected: boolean;
   setCaptured: (captured: boolean) => void;
@@ -124,6 +126,7 @@ export function useBrowserControl({
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
+  recordingSupported = false,
   forceCDPMedia = false,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const profileCredentials = useApiCredentials();
@@ -349,6 +352,7 @@ export function useBrowserControl({
       if (
         !sessionId ||
         !credentials ||
+        !recordingSupported ||
         !targetId ||
         !recordingClientConnected ||
         !clientId ||
@@ -370,7 +374,7 @@ export function useBrowserControl({
         })
         .finally(() => setRecordingBusy(false));
     },
-    [sessionId, credentials, recordingBusy, recordingClientConnected],
+    [sessionId, credentials, recordingSupported, recordingBusy, recordingClientConnected],
   );
 
   const stopRecording = useCallback(
@@ -558,15 +562,15 @@ export function useBrowserControl({
   }, [controlState]);
 
   useEffect(() => {
-    if (enabled && sessionId && credentials) {
+    if (enabled && sessionId && credentials && recordingSupported) {
       return;
     }
     setRecordings([]);
     setRecordingBusy(false);
-  }, [enabled, sessionId, credentials]);
+  }, [enabled, sessionId, credentials, recordingSupported]);
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || !sessionId || !credentials || !recordingSupported) {
       setRecordingClientConnected(false);
       recordingClientIdRef.current = null;
       return;
@@ -636,7 +640,7 @@ export function useBrowserControl({
       setRecordingClientConnected(false);
       socket?.close();
     };
-  }, [enabled, sessionId, credentials, recordingTenantId]);
+  }, [enabled, sessionId, credentials, recordingTenantId, recordingSupported]);
 
   useEffect(() => {
     const socket = recordingClientSocketRef.current;
@@ -647,7 +651,7 @@ export function useBrowserControl({
   }, [activeTargetId, controlState.mediaTargetId]);
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || !sessionId || !credentials || !recordingSupported) {
       return;
     }
     let active = true;
@@ -665,14 +669,14 @@ export function useBrowserControl({
     return () => {
       active = false;
     };
-  }, [enabled, sessionId, credentials]);
+  }, [enabled, sessionId, credentials, recordingSupported]);
 
   const recordingPollingActive = recordings.some(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials || !recordingPollingActive) {
+    if (!enabled || !sessionId || !credentials || !recordingSupported || !recordingPollingActive) {
       return;
     }
     let active = true;
@@ -690,7 +694,7 @@ export function useBrowserControl({
       active = false;
       subscription.unsubscribe();
     };
-  }, [enabled, sessionId, credentials, recordingPollingActive]);
+  }, [enabled, sessionId, credentials, recordingSupported, recordingPollingActive]);
 
   useEffect(() => {
     if (
@@ -743,6 +747,7 @@ export function useBrowserControl({
     viewportAutoSync,
     captured,
     recordings,
+    recordingSupported,
     recordingBusy,
     recordingClientConnected,
     setCaptured,

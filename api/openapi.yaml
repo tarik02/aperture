@@ -74,19 +74,19 @@ paths:
       responses:
         '200': {description: Current principal, content: {application/json: {schema: {$ref: '#/components/schemas/AuthMe'}}}}
         default: {$ref: '#/components/responses/Error'}
-  /api/browser/channels:
+  /api/browser/configurations:
     get:
-      operationId: listBrowserChannels
+      operationId: listBrowserConfigurations
       tags: [browser]
-      summary: List available browser channels
+      summary: List available browser configurations
       x-aperture-auth:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: not_applicable
-      x-aperture-errors: [browser_channels_unavailable]
-      description: Browser channels accepted by session creation.
+      x-aperture-errors: [browser_configurations_unavailable]
+      description: Concrete browser channel and mode combinations accepted by session creation, with their prospective capabilities.
       responses:
-        '200': {description: Browser channels, content: {application/json: {schema: {$ref: '#/components/schemas/BrowserChannels'}}}}
+        '200': {description: Browser configurations, content: {application/json: {schema: {$ref: '#/components/schemas/BrowserConfigurations'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/admin/tenants:
     post:
@@ -1217,7 +1217,7 @@ components:
         - snapshot_not_deleted
         - session_not_promotable
         - promotion_conflict
-        - browser_channels_unavailable
+        - browser_configurations_unavailable
         - event_service_unavailable
         - session_service_unavailable
         - promotion_service_unavailable
@@ -1267,7 +1267,7 @@ components:
         snapshot_not_deleted: 409
         session_not_promotable: 409
         promotion_conflict: 409
-        browser_channels_unavailable: 500
+        browser_configurations_unavailable: 500
         event_service_unavailable: 500
         session_service_unavailable: 500
         promotion_service_unavailable: 500
@@ -1489,24 +1489,82 @@ components:
           type: array
           description: Active tenant memberships available to an account-backed principal. API-token principals return an empty array.
           items: {$ref: '#/components/schemas/Tenant'}
-    BrowserChannel:
+    BrowserMode:
+      type: string
+      description: Immutable Chromium execution mode selected for a session.
+      enum: [headed, headless]
+      example: headless
+    CapabilityState:
+      type: string
+      description: Whether capabilities describe the active runtime, a current launch projection, or an unavailable configuration.
+      enum: [active, prospective, unavailable]
+    LiveViewCapability:
       type: object
-      description: Browser runtime selectable when creating a session.
-      required: [name]
+      description: Ordered live-view transports supported by the browser configuration.
+      required: [transports]
       properties:
-        name:
+        transports:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [webrtc, cdp]}
+    RecordingCodecCapability:
+      type: object
+      required: [codec, mediaType]
+      properties:
+        codec: {type: string, enum: [vp8, h264-va]}
+        mediaType: {type: string, enum: [video/webm, video/x-matroska]}
+    CDPRecordingCapability:
+      type: object
+      required: [formats, defaultFormat, defaultQuality]
+      properties:
+        formats:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [jpeg, png]}
+        defaultFormat: {type: string, enum: [jpeg, png]}
+        defaultQuality: {type: integer, minimum: 1, maximum: 100}
+    RecordingCapability:
+      type: object
+      required: [mechanism, scope, modes, audio, codecs, concurrencyLimit]
+      properties:
+        mechanism: {type: string, enum: [compositor, cdp]}
+        scope: {type: string, enum: [window, page]}
+        modes:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [tab, viewer]}
+        audio: {type: boolean}
+        codecs:
+          type: array
+          items: {$ref: '#/components/schemas/RecordingCodecCapability'}
+        concurrencyLimit: {type: integer, minimum: 1}
+        cdp: {$ref: '#/components/schemas/CDPRecordingCapability'}
+    SessionCapabilities:
+      type: object
+      required: [state, liveView]
+      properties:
+        state: {$ref: '#/components/schemas/CapabilityState'}
+        liveView: {$ref: '#/components/schemas/LiveViewCapability'}
+        recording: {$ref: '#/components/schemas/RecordingCapability'}
+    BrowserConfiguration:
+      type: object
+      description: One launchable channel and browser-mode pair with its prospective capabilities.
+      required: [channel, mode, capabilities]
+      properties:
+        channel:
           type: string
           description: Configured browser channel name.
           example: chromium
-    BrowserChannels:
+        mode: {$ref: '#/components/schemas/BrowserMode'}
+        capabilities: {$ref: '#/components/schemas/SessionCapabilities'}
+    BrowserConfigurations:
       type: object
-      description: Browser channels enabled on this deployment.
-      required: [channels]
+      description: Browser configurations enabled on this deployment.
+      required: [configurations]
       properties:
-        channels:
+        configurations:
           type: array
-          items: {$ref: '#/components/schemas/BrowserChannel'}
-      example: {channels: [{name: chromium}]}
+          items: {$ref: '#/components/schemas/BrowserConfiguration'}
     Token:
       type: object
       description: API token metadata. The raw bearer secret is never included in this schema.
@@ -1679,8 +1737,12 @@ components:
           type: string
           minLength: 1
           pattern: '.*\S.*'
-          description: Channel returned by `GET /api/browser/channels`.
+          description: Channel from `GET /api/browser/configurations`.
           example: chromium
+        mode:
+          allOf: [{$ref: '#/components/schemas/BrowserMode'}]
+          default: headed
+          description: Immutable browser mode. Omit it to select `headed`.
         args:
           type: array
           description: Additional Chromium command-line arguments. Aperture rejects arguments that conflict with supervisor-owned behavior or deployment policy.
@@ -1706,7 +1768,7 @@ components:
       example:
         baseSnapshotName: signed-in-base
         label: checkout smoke test
-        browser: {channel: chromium, args: ['--lang=en-US']}
+        browser: {channel: chromium, mode: headless, args: ['--lang=en-US']}
         tags: {environment: staging, suite: checkout}
     IceServer:
       type: object
@@ -1727,28 +1789,31 @@ components:
           x-sensitive: true
           description: TURN credential. Treat it as a secret and do not persist it in logs.
           example: REDACTED
-    SessionMedia:
+    WebRTCConnection:
       type: object
-      description: Media capabilities currently available for the session.
-      required: [mode, webrtcProducer]
+      description: WebRTC connection data for an active session.
+      required: [iceServers]
       properties:
-        mode:
-          type: string
-          description: Configured media mode. `auto` enables deployment-selected media support; `cdp` exposes Chrome DevTools access only.
-          enum: [auto, cdp]
-          example: auto
-        webrtcProducer:
-          type: boolean
-          description: Whether the compositor WebRTC producer is available for this session.
-          example: true
         iceServers:
           type: array
-          description: ICE configuration for WebRTC setup. Omitted when WebRTC is unavailable or does not need configured ICE servers.
           items: {$ref: '#/components/schemas/IceServer'}
+    SessionConnection:
+      type: object
+      description: Routes and credentials that can reach or wake a retained session. Runtime-specific data is present only when the corresponding transport is available.
+      properties:
+        cdpUrl:
+          type: string
+          format: uri
+          description: Authenticated Chrome DevTools endpoint. Use it with `sessionToken`.
+        sessionToken:
+          type: string
+          x-sensitive: true
+          description: Session access secret. Rotation invalidates the previous token immediately.
+        webrtc: {$ref: '#/components/schemas/WebRTCConnection'}
     Session:
       type: object
       description: Browser session state, retention metadata, tags, and currently available access credentials.
-      required: [id, tenantId, status, media, createdAt, expiresAt]
+      required: [id, tenantId, status, browser, capabilities, connection, createdAt, expiresAt]
       properties:
         id:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
@@ -1765,11 +1830,9 @@ components:
           description: Optional operator-facing session label.
           example: checkout smoke test
         status: {$ref: '#/components/schemas/SessionStatus'}
-        browserChannel:
-          type: string
-          description: Browser channel used to create and reopen the session.
-          example: chromium
-        media: {$ref: '#/components/schemas/SessionMedia'}
+        browser: {$ref: '#/components/schemas/BrowserConfig'}
+        capabilities: {$ref: '#/components/schemas/SessionCapabilities'}
+        connection: {$ref: '#/components/schemas/SessionConnection'}
         createdAt:
           type: string
           format: date-time
@@ -1808,16 +1871,6 @@ components:
         tags:
           allOf: [{$ref: '#/components/schemas/StringMap'}]
           description: Session metadata tags. Omitted when no tags are set.
-        cdpUrl:
-          type: string
-          format: uri
-          description: Authenticated Chrome DevTools endpoint. Omitted when the session is not currently routable. Use it with `sessionToken`.
-          example: https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010
-        sessionToken:
-          type: string
-          x-sensitive: true
-          description: Session access secret returned when live access credentials are available. Rotation invalidates the previous token immediately.
-          example: aps_019f6cf0000070008000000000000010_REDACTED
     SessionPage:
       type: object
       description: Cursor-paginated browser sessions.
@@ -1843,36 +1896,16 @@ components:
         sessions: {type: array, items: {$ref: '#/components/schemas/Session'}}
     CreateSessionResult:
       type: object
-      description: Newly created session and its one-time initial access credentials.
-      required: [session, cdpUrl, sessionToken]
-      properties:
-        session: {$ref: '#/components/schemas/Session'}
-        cdpUrl:
-          type: string
-          format: uri
-          description: Authenticated Chrome DevTools endpoint for the new session.
-          example: https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010
-        sessionToken:
-          type: string
-          x-sensitive: true
-          description: Initial session access secret. Store it immediately.
-          example: aps_019f6cf0000070008000000000000010_REDACTED
-    SessionMutation:
-      type: object
-      description: Updated session and operation-specific live access credentials when available.
+      description: Newly created session. Active connection data is nested in the session.
       required: [session]
       properties:
         session: {$ref: '#/components/schemas/Session'}
-        cdpUrl:
-          type: string
-          format: uri
-          description: Current Chrome DevTools endpoint. Omitted by operations that do not expose live access.
-          example: https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010
-        sessionToken:
-          type: string
-          x-sensitive: true
-          description: Current raw session access secret. Omitted by operations that do not expose or replace credentials.
-          example: aps_019f6cf0000070008000000000000010_REDACTED
+    SessionMutation:
+      type: object
+      description: Updated session. Active connection data is nested in the session.
+      required: [session]
+      properties:
+        session: {$ref: '#/components/schemas/Session'}
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

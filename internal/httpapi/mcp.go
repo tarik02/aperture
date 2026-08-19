@@ -11,6 +11,7 @@ import (
 
 	"github.com/aperture/aperture/internal/agentbrowser"
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/session"
@@ -244,27 +245,27 @@ type mcpSnapshot struct {
 }
 
 type mcpSession struct {
-	ID               string            `json:"sessionId"`
-	TenantID         string            `json:"tenantId"`
-	Status           string            `json:"status"`
-	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
-	Label            *string           `json:"label,omitempty"`
-	BrowserChannel   string            `json:"browserChannel"`
-	CDPURL           string            `json:"cdpUrl,omitempty"`
-	SessionToken     string            `json:"sessionToken,omitempty"`
-	CreatedAt        string            `json:"createdAt"`
-	StartedAt        *string           `json:"startedAt,omitempty"`
-	StoppedAt        *string           `json:"stoppedAt,omitempty"`
-	DeletedAt        *string           `json:"deletedAt,omitempty"`
-	ExpiresAt        string            `json:"expiresAt"`
-	LastConnectedAt  *string           `json:"lastConnectedAt,omitempty"`
-	SuspendedAt      *string           `json:"suspendedAt,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
-	Media            sessionMedia      `json:"media"`
+	ID               string               `json:"sessionId"`
+	TenantID         string               `json:"tenantId"`
+	Status           string               `json:"status"`
+	BaseSnapshotName *string              `json:"baseSnapshotName,omitempty"`
+	Label            *string              `json:"label,omitempty"`
+	Browser          sessionBrowserConfig `json:"browser"`
+	Capabilities     browser.Capabilities `json:"capabilities"`
+	Connection       sessionConnection    `json:"connection"`
+	CreatedAt        string               `json:"createdAt"`
+	StartedAt        *string              `json:"startedAt,omitempty"`
+	StoppedAt        *string              `json:"stoppedAt,omitempty"`
+	DeletedAt        *string              `json:"deletedAt,omitempty"`
+	ExpiresAt        string               `json:"expiresAt"`
+	LastConnectedAt  *string              `json:"lastConnectedAt,omitempty"`
+	SuspendedAt      *string              `json:"suspendedAt,omitempty"`
+	Tags             map[string]string    `json:"tags,omitempty"`
 }
 
 func mcpSessionView(view *session.SessionView) mcpSession {
-	return mcpSession{ID: view.Session.ID, TenantID: view.Session.TenantID, Status: view.Session.Status, BaseSnapshotName: view.BaseSnapshotName, Label: view.Session.Label, BrowserChannel: view.Session.BrowserChannel, CDPURL: view.CDPURL, SessionToken: view.SessionToken, CreatedAt: view.Session.CreatedAt, StartedAt: view.Session.StartedAt, StoppedAt: view.Session.StoppedAt, DeletedAt: view.Session.DeletedAt, ExpiresAt: view.Session.ExpiresAt, LastConnectedAt: view.Session.LastConnectedAt, SuspendedAt: view.Session.SuspendedAt, Tags: view.Tags, Media: sessionMedia{Mode: view.Media.Mode, WebRTCProducer: view.Media.WebRTCProducer, ICEServers: toICEServerResponses(view.Media.ICEServers)}}
+	response := toSessionResponse(view)
+	return mcpSession{ID: response.ID, TenantID: response.TenantID, Status: response.Status, BaseSnapshotName: response.BaseSnapshotName, Label: response.Label, Browser: response.Browser, Capabilities: response.Capabilities, Connection: response.Connection, CreatedAt: response.CreatedAt, StartedAt: response.StartedAt, StoppedAt: response.StoppedAt, DeletedAt: response.DeletedAt, ExpiresAt: response.ExpiresAt, LastConnectedAt: response.LastConnectedAt, SuspendedAt: response.SuspendedAt, Tags: response.Tags}
 }
 
 func mcpSnapshotView(view *snapshot.SnapshotView) mcpSnapshot {
@@ -286,27 +287,21 @@ type mcpGetSnapshotInput struct {
 	Name     string `json:"name"`
 }
 type mcpCreateSessionInput struct {
-	TenantID         string            `json:"tenantId,omitempty"`
-	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
-	Label            *string           `json:"label,omitempty"`
-	BrowserChannel   string            `json:"browserChannel"`
-	BrowserArgs      []string          `json:"browserArgs,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
+	TenantID         string               `json:"tenantId,omitempty"`
+	BaseSnapshotName *string              `json:"baseSnapshotName,omitempty"`
+	Label            *string              `json:"label,omitempty"`
+	Browser          sessionBrowserConfig `json:"browser"`
+	Tags             map[string]string    `json:"tags,omitempty"`
 }
 type mcpCreateFromSnapshotInput struct {
-	TenantID       string            `json:"tenantId,omitempty"`
-	SnapshotName   string            `json:"snapshotName"`
-	Label          *string           `json:"label,omitempty"`
-	BrowserChannel string            `json:"browserChannel"`
-	BrowserArgs    []string          `json:"browserArgs,omitempty"`
-	Tags           map[string]string `json:"tags,omitempty"`
+	TenantID     string               `json:"tenantId,omitempty"`
+	SnapshotName string               `json:"snapshotName"`
+	Label        *string              `json:"label,omitempty"`
+	Browser      sessionBrowserConfig `json:"browser"`
+	Tags         map[string]string    `json:"tags,omitempty"`
 }
 type mcpCreateSessionOutput struct {
-	Session      mcpSession `json:"session"`
-	SessionID    string     `json:"sessionId"`
-	Status       string     `json:"status"`
-	CDPURL       string     `json:"cdpUrl"`
-	SessionToken string     `json:"sessionToken"`
+	Session mcpSession `json:"session"`
 }
 type mcpGetSessionInput struct {
 	TenantID  string `json:"tenantId,omitempty"`
@@ -335,18 +330,24 @@ type mcpSessionIDInput struct {
 	SessionID string `json:"sessionId"`
 }
 type mcpRecordingStartInput struct {
-	TenantID    string `json:"tenantId,omitempty"`
-	SessionID   string `json:"sessionId"`
-	TargetID    string `json:"targetId"`
-	FPS         int    `json:"fps,omitempty"`
-	BitrateKbps int    `json:"bitrateKbps,omitempty"`
-	Codec       string `json:"codec,omitempty"`
+	TenantID    string                  `json:"tenantId,omitempty"`
+	SessionID   string                  `json:"sessionId"`
+	TargetID    string                  `json:"targetId"`
+	FPS         int                     `json:"fps,omitempty"`
+	BitrateKbps int                     `json:"bitrateKbps,omitempty"`
+	Codec       string                  `json:"codec,omitempty"`
+	CDP         *mcpCDPRecordingOptions `json:"cdp,omitempty"`
 }
 type mcpBoundRecordingStartInput struct {
-	TargetID    string `json:"targetId"`
-	FPS         int    `json:"fps,omitempty"`
-	BitrateKbps int    `json:"bitrateKbps,omitempty"`
-	Codec       string `json:"codec,omitempty"`
+	TargetID    string                  `json:"targetId"`
+	FPS         int                     `json:"fps,omitempty"`
+	BitrateKbps int                     `json:"bitrateKbps,omitempty"`
+	Codec       string                  `json:"codec,omitempty"`
+	CDP         *mcpCDPRecordingOptions `json:"cdp,omitempty"`
+}
+type mcpCDPRecordingOptions struct {
+	Format  string `json:"format,omitempty"`
+	Quality int    `json:"quality,omitempty"`
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -357,19 +358,22 @@ type mcpBoundRecordingInput struct {
 	RecordingID string `json:"recordingId"`
 }
 type mcpRecordingOutput struct {
-	RecordingID       string `json:"recordingId"`
-	Mode              string `json:"mode"`
-	TargetID          string `json:"targetId"`
-	CaptureGeneration uint64 `json:"captureGeneration"`
-	Status            string `json:"status"`
-	StopReason        string `json:"stopReason,omitempty"`
-	RelativePath      string `json:"relativePath,omitempty"`
-	StartedAt         string `json:"startedAt,omitempty"`
-	StoppedAt         string `json:"stoppedAt,omitempty"`
-	SizeBytes         int64  `json:"sizeBytes,omitempty"`
-	FPS               int    `json:"fps,omitempty"`
-	BitrateKbps       int    `json:"bitrateKbps,omitempty"`
-	Codec             string `json:"codec,omitempty"`
+	RecordingID       string                  `json:"recordingId"`
+	Mode              string                  `json:"mode"`
+	TargetID          string                  `json:"targetId"`
+	CaptureGeneration uint64                  `json:"captureGeneration"`
+	Status            string                  `json:"status"`
+	StopReason        string                  `json:"stopReason,omitempty"`
+	RelativePath      string                  `json:"relativePath,omitempty"`
+	StartedAt         string                  `json:"startedAt,omitempty"`
+	StoppedAt         string                  `json:"stoppedAt,omitempty"`
+	SizeBytes         int64                   `json:"sizeBytes,omitempty"`
+	FPS               int                     `json:"fps,omitempty"`
+	BitrateKbps       int                     `json:"bitrateKbps,omitempty"`
+	Codec             string                  `json:"codec,omitempty"`
+	CDP               *mcpCDPRecordingOptions `json:"cdp,omitempty"`
+	AcceptedFrames    uint64                  `json:"acceptedFrames,omitempty"`
+	DroppedFrames     uint64                  `json:"droppedFrames,omitempty"`
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`
@@ -526,11 +530,10 @@ type mcpStatusOutput struct {
 	Session mcpSession `json:"session"`
 }
 type mcpConnectionOutput struct {
-	SessionID    string       `json:"sessionId"`
-	Status       string       `json:"status"`
-	CDPURL       string       `json:"cdpUrl"`
-	SessionToken string       `json:"sessionToken,omitempty"`
-	Media        sessionMedia `json:"media"`
+	SessionID    string               `json:"sessionId"`
+	Status       string               `json:"status"`
+	Capabilities browser.Capabilities `json:"capabilities"`
+	Connection   sessionConnection    `json:"connection"`
 }
 
 func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
@@ -575,7 +578,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording by ID."}, s.mcpRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID."}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
-		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
+		mcp.AddTool(server, &mcp.Tool{Name: "browser.configurations", Description: "List launchable browser configurations and their capabilities."}, s.mcpBrowserConfigurations)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenant.update", Description: "Update the tenant associated with this tenant-scoped token."}, s.mcpTenantUpdate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
@@ -782,11 +785,11 @@ func (s *Server) mcpSessionsCreate(ctx context.Context, _ *mcp.CallToolRequest, 
 			return nil, mcpCreateSessionOutput{}, mcpToolError("forbidden", err)
 		}
 	}
-	view, err := s.Sessions.Create(ctx, session.CreateInput{TenantID: tenantID, BaseSnapshotName: in.BaseSnapshotName, Label: in.Label, BrowserChannel: in.BrowserChannel, BrowserArgs: in.BrowserArgs, Tags: in.Tags})
+	view, err := s.Sessions.Create(ctx, session.CreateInput{TenantID: tenantID, BaseSnapshotName: in.BaseSnapshotName, Label: in.Label, BrowserChannel: in.Browser.Channel, BrowserMode: in.Browser.Mode, BrowserArgs: in.Browser.Args, Tags: in.Tags})
 	if err != nil {
 		return nil, mcpCreateSessionOutput{}, mcpToolError("session_unavailable", err)
 	}
-	result := mcpCreateSessionOutput{Session: mcpSessionView(view), SessionID: view.Session.ID, Status: view.Session.Status, CDPURL: view.CDPURL, SessionToken: view.SessionToken}
+	result := mcpCreateSessionOutput{Session: mcpSessionView(view)}
 	return nil, result, nil
 }
 
@@ -795,7 +798,7 @@ func (s *Server) mcpSessionsCreateFromSnapshot(ctx context.Context, _ *mcp.CallT
 		return nil, mcpCreateSessionOutput{}, mcpToolError("invalid_arguments", errors.New("snapshotName is required"))
 	}
 	baseSnapshotName := in.SnapshotName
-	return s.mcpSessionsCreate(ctx, nil, mcpCreateSessionInput{TenantID: in.TenantID, BaseSnapshotName: &baseSnapshotName, Label: in.Label, BrowserChannel: in.BrowserChannel, BrowserArgs: in.BrowserArgs, Tags: in.Tags})
+	return s.mcpSessionsCreate(ctx, nil, mcpCreateSessionInput{TenantID: in.TenantID, BaseSnapshotName: &baseSnapshotName, Label: in.Label, Browser: in.Browser, Tags: in.Tags})
 }
 
 func (s *Server) mcpSessionsList(ctx context.Context, _ *mcp.CallToolRequest, in mcpListSessionsInput) (*mcp.CallToolResult, mcpListSessionsOutput, error) {
@@ -905,7 +908,8 @@ func (s *Server) mcpSessionConnection(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return nil, mcpConnectionOutput{}, err
 	}
-	return nil, mcpConnectionOutput{SessionID: view.Session.ID, Status: view.Session.Status, CDPURL: view.CDPURL, SessionToken: view.SessionToken, Media: sessionMedia{Mode: view.Media.Mode, WebRTCProducer: view.Media.WebRTCProducer, ICEServers: toICEServerResponses(view.Media.ICEServers)}}, nil
+	response := toSessionResponse(view)
+	return nil, mcpConnectionOutput{SessionID: view.Session.ID, Status: view.Session.Status, Capabilities: response.Capabilities, Connection: response.Connection}, nil
 }
 func (s *Server) mcpSessionSuspend(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpStatusOutput, error) {
 	a, err := mcpAuthFromContext(ctx)

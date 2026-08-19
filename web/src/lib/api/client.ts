@@ -5,7 +5,7 @@ import type { TagFilterValue } from "#/lib/tag-filter.ts";
 import {
   authMeSchema,
   browserStatusSchema,
-  browserChannelsSchema,
+  browserConfigurationsSchema,
   createSessionResponseSchema,
   createTokenResponseSchema,
   eventsPageSchema,
@@ -36,6 +36,7 @@ import {
   userSchema,
   userInvitationSchema,
   usersPageSchema,
+  type BrowserMode,
 } from "#/lib/api/schemas.ts";
 import type { ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
 import type { AuthorityType, TokenProfile } from "#/stores/token-vault.ts";
@@ -327,6 +328,7 @@ export type CreateSessionInput = {
   label?: string | null;
   browser: {
     channel: string;
+    mode: BrowserMode;
     args?: string[];
   };
   tags?: Record<string, string>;
@@ -347,6 +349,10 @@ export type StartSessionRecordingInput = {
   mode: "tab" | "viewer";
   targetId: string;
   clientId: string;
+  cdp?: {
+    format: "jpeg" | "png";
+    quality?: number;
+  };
 };
 
 export type CreateAdminTokenInput = {
@@ -535,10 +541,10 @@ export const apiClient = {
     });
   },
 
-  getBrowserChannels(credentials: ApiCredentials) {
+  getBrowserConfigurations(credentials: ApiCredentials) {
     return request({
-      path: "/api/browser/channels",
-      schema: browserChannelsSchema,
+      path: "/api/browser/configurations",
+      schema: browserConfigurationsSchema,
       credentials,
       tenantHeader: "tenant-scoped",
     });
@@ -764,6 +770,7 @@ export const apiClient = {
         label: input.label ?? null,
         browser: {
           channel: input.browser.channel,
+          mode: input.browser.mode,
           args: input.browser.args ?? [],
         },
         tags: input.tags ?? {},

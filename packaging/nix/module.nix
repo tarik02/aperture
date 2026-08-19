@@ -26,6 +26,7 @@ let
         tool_output_max_bytes = 16777216;
         signed_file_url_ttl = "15m";
         signed_file_url_max_ttl = "24h";
+        browser_modes = [ "headless" ];
       }
       (
         lib.recursiveUpdate cfg.settings {

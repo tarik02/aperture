@@ -586,11 +586,11 @@ class BrowserControlConnectionRuntime {
       throw new Error("Session token unavailable");
     }
     const session = await apiClient.getSession(this.credentials, this.sessionId);
-    if (!session.sessionToken) {
+    if (!session.connection.sessionToken) {
       throw new Error("Session token unavailable");
     }
-    this.sessionToken = session.sessionToken;
-    return session.sessionToken;
+    this.sessionToken = session.connection.sessionToken;
+    return session.connection.sessionToken;
   }
 
   private async dispatch(message: ClientMessage) {

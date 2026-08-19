@@ -257,11 +257,13 @@ export function SessionListPage() {
     setCopyingShareSessionId(session.id);
     try {
       const detailedSession = await apiClient.getSession(credentials, session.id);
-      if (!detailedSession.sessionToken) {
+      if (!detailedSession.connection.sessionToken) {
         throw new Error("Session token unavailable");
       }
       const shareUrl = new URL("/share/", window.location.origin);
-      shareUrl.hash = new URLSearchParams({ token: detailedSession.sessionToken }).toString();
+      shareUrl.hash = new URLSearchParams({
+        token: detailedSession.connection.sessionToken,
+      }).toString();
       await copyText(shareUrl.toString());
       toast.success("Share URL copied");
     } catch (error) {
@@ -472,7 +474,7 @@ export function SessionListPage() {
                     />
                     <TableHead>Session</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Channel</TableHead>
+                    <TableHead>Browser</TableHead>
                     <TableHead>Snapshot</TableHead>
                     <TableHead>Tags</TableHead>
                     <TableHead>Created</TableHead>
@@ -495,7 +497,7 @@ export function SessionListPage() {
                     />
                     <TableHead>Session</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Channel</TableHead>
+                    <TableHead>Browser</TableHead>
                     <TableHead>Snapshot</TableHead>
                     <TableHead>Tags</TableHead>
                     <TableHead>Created</TableHead>
@@ -544,7 +546,9 @@ export function SessionListPage() {
                       <TableCell>
                         <SessionStatusBadge status={session.status} />
                       </TableCell>
-                      <TableCell>{session.browserChannel ?? "—"}</TableCell>
+                      <TableCell>
+                        {session.browser.channel} · {session.browser.mode}
+                      </TableCell>
                       <TableCell>{session.baseSnapshotName ?? "—"}</TableCell>
                       <TableCell>
                         <TagBadges tags={session.tags} />

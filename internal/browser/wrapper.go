@@ -260,6 +260,7 @@ type LaunchConfig struct {
 	HardwareAcceleration     bool
 	RenderNode               string
 	NestedWaylandSocket      string
+	IsolateDesktopRuntime    bool
 }
 
 // BuildBwrapCommand constructs the bwrap command that launches Chromium.
@@ -304,7 +305,6 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		extensions := strings.Join(extensionDirs, ",")
 		browserArgs = append(
 			browserArgs,
-			"--disable-extensions-except="+extensions,
 			"--load-extension="+extensions,
 		)
 	}
@@ -343,12 +343,12 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		"--tmpfs", "/tmp",
 	}
 
-	isolatedRuntime := strings.TrimSpace(cfg.NestedWaylandSocket) != ""
+	isolatedRuntime := cfg.IsolateDesktopRuntime || strings.TrimSpace(cfg.NestedWaylandSocket) != ""
 	for _, bind := range hostBindMounts(!isolatedRuntime) {
 		args = append(args, bind...)
 	}
 
-	runtimeMounts, err := runtimeBindMounts(cfg.NestedWaylandSocket)
+	runtimeMounts, err := runtimeBindMounts(cfg.NestedWaylandSocket, cfg.IsolateDesktopRuntime)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +384,7 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		args = append(args, "--setenv", "APERTURE_EXTENSION_SOCKET", cfg.ExtensionSocketPath)
 	}
 
-	for _, key := range passthroughEnvKeys(isolatedRuntime) {
+	for _, key := range passthroughEnvKeys(cfg.NestedWaylandSocket, cfg.IsolateDesktopRuntime) {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			args = append(args, "--setenv", key, value)
 		}
@@ -418,15 +418,20 @@ func sessionBindMounts(cfg LaunchConfig) [][]string {
 	return mounts
 }
 
-func runtimeBindMounts(nestedWaylandSocket string) ([][]string, error) {
+func runtimeBindMounts(nestedWaylandSocket string, isolateDesktopRuntime bool) ([][]string, error) {
 	runtimeDir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR"))
 	if runtimeDir == "" || !filepath.IsAbs(runtimeDir) {
 		if strings.TrimSpace(nestedWaylandSocket) != "" {
 			return nil, fmt.Errorf("XDG_RUNTIME_DIR is required for nested Wayland socket")
 		}
-		return nil, nil
+		if !isolateDesktopRuntime {
+			return nil, nil
+		}
 	}
 	if strings.TrimSpace(nestedWaylandSocket) == "" {
+		if isolateDesktopRuntime {
+			return isolatedRunMounts(), nil
+		}
 		if _, err := os.Stat(runtimeDir); err != nil {
 			return nil, nil
 		}
@@ -442,14 +447,7 @@ func runtimeBindMounts(nestedWaylandSocket string) ([][]string, error) {
 		return nil, fmt.Errorf("stat nested Wayland socket: %w", err)
 	}
 
-	mounts := [][]string{{"--dir", "/run"}}
-	if _, err := os.Stat("/run/systemd/resolve"); err == nil {
-		mounts = append(
-			mounts,
-			[]string{"--dir", "/run/systemd"},
-			[]string{"--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"},
-		)
-	}
+	mounts := isolatedRunMounts()
 	if strings.HasPrefix(runtimeDir, "/run/") {
 		mounts = append(mounts, []string{"--dir", "/run/user"})
 	}
@@ -459,6 +457,18 @@ func runtimeBindMounts(nestedWaylandSocket string) ([][]string, error) {
 		[]string{"--bind", socketPath, socketPath},
 	)
 	return mounts, nil
+}
+
+func isolatedRunMounts() [][]string {
+	mounts := [][]string{{"--dir", "/run"}}
+	if _, err := os.Stat("/run/systemd/resolve"); err == nil {
+		mounts = append(
+			mounts,
+			[]string{"--dir", "/run/systemd"},
+			[]string{"--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"},
+		)
+	}
+	return mounts
 }
 
 func hardwareAccelerationBindMounts(renderNode string) ([][]string, error) {
@@ -529,11 +539,20 @@ func hostBindMounts(includeRun bool) [][]string {
 	return mounts
 }
 
-func passthroughEnvKeys(isolatedRuntime bool) []string {
-	if isolatedRuntime {
+func passthroughEnvKeys(nestedWaylandSocket string, isolateDesktopRuntime bool) []string {
+	if strings.TrimSpace(nestedWaylandSocket) != "" {
 		return []string{
 			"WAYLAND_DISPLAY",
 			"XDG_RUNTIME_DIR",
+			"NVIDIA_VISIBLE_DEVICES",
+			"LIBVA_DRIVER_NAME",
+			"LIBVA_DRIVERS_PATH",
+			"LIBGL_DRIVERS_PATH",
+			"__EGL_VENDOR_LIBRARY_FILENAMES",
+		}
+	}
+	if isolateDesktopRuntime {
+		return []string{
 			"NVIDIA_VISIBLE_DEVICES",
 			"LIBVA_DRIVER_NAME",
 			"LIBVA_DRIVERS_PATH",
@@ -564,12 +583,26 @@ func LaunchFromRuntimeEnv() error {
 	if err != nil {
 		return err
 	}
+	if values.BrowserMode == BrowserModeHeaded && !values.CompositorEnabled {
+		return fmt.Errorf("headed browser mode requires the compositor")
+	}
+	if values.BrowserMode == BrowserModeHeadless && values.CompositorEnabled {
+		return fmt.Errorf("headless browser mode cannot enable the compositor")
+	}
 	if values.MediaProducerEnabled && !values.CompositorEnabled {
 		return fmt.Errorf("media producer requires compositor mode")
 	}
 
 	values, err = resolveGPU(values)
 	if err != nil {
+		return err
+	}
+	if values.RuntimeEnvPath != "" {
+		if err := WriteRuntimeEnv(values.RuntimeEnvPath, values); err != nil {
+			return fmt.Errorf("publish resolved runtime: %w", err)
+		}
+	}
+	if err := cleanupPartialRecordings(values.RecordingsDir); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "browser-session-wrapper: gpu mode=%s renderNode=%s mediaCodec=%s\n", values.GPUMode, values.RenderNode, values.MediaProducerCodec)
@@ -582,6 +615,56 @@ func LaunchFromRuntimeEnv() error {
 	if values.CompositorEnabled {
 		return launchWithCompositor(values, bwrapPath)
 	}
+	return launchHeadless(values, bwrapPath)
+}
+
+func launchHeadless(values RuntimeEnvValues, bwrapPath string) error {
+	if !values.TargetRegistryEnabled {
+		return errors.New("headless browser mode requires the target registry")
+	}
+	tabWindowExtensionDir, err := apertureTabWindowExtensionPath()
+	if err != nil {
+		return err
+	}
+	extensionNativeHostPath, err := apertureExtensionNativeHostPath()
+	if err != nil {
+		return err
+	}
+	extensionSocketPath := filepath.Join(values.CacheDir, "extension.sock")
+
+	ctx, cancelWrapper := context.WithCancel(context.Background())
+	defer cancelWrapper()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	wrapper := newWrapperRuntime(values, "")
+	targetRegistry := newWrapperTargetRegistry(wrapper, "", extensionSocketPath, 0)
+	if err := targetRegistry.Serve(ctx); err != nil {
+		return err
+	}
+	wrapper.setTargetRegistry(targetRegistry)
+	wrapperServer, wrapperDone, err := wrapper.serve(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		_ = wrapperServer.Shutdown(shutdownCtx)
+	}()
+
+	hardwareAcceleration := values.GPUMode == gpuModeHardware
+	extraArgs := append([]string(nil), values.BrowserExtraArgs...)
+	extraArgs = append(
+		extraArgs,
+		"--headless=new",
+		fmt.Sprintf("--window-size=%d,%d", values.CompositorWidth, values.CompositorHeight),
+	)
+	if hardwareAcceleration {
+		extraArgs = append(extraArgs, "--ignore-gpu-blocklist", "--enable-gpu-rasterization")
+	} else {
+		extraArgs = append(extraArgs, "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader")
+	}
 
 	cmd, err := BuildBwrapCommand(LaunchConfig{
 		BwrapPath:                bwrapPath,
@@ -592,30 +675,19 @@ func LaunchFromRuntimeEnv() error {
 		ArtifactsDir:             values.ArtifactsDir,
 		CDPPort:                  values.CDPPort,
 		DefaultArgs:              values.BrowserDefaultArgs,
-		ExtraArgs:                values.BrowserExtraArgs,
+		ExtraArgs:                extraArgs,
 		CaptureProofExtensionDir: values.CaptureProofExtensionDir,
-		HardwareAcceleration:     values.GPUMode == gpuModeHardware,
+		TabWindowExtensionDir:    tabWindowExtensionDir,
+		ExtensionNativeHostPath:  extensionNativeHostPath,
+		ExtensionSocketPath:      extensionSocketPath,
+		HardwareAcceleration:     hardwareAcceleration,
 		RenderNode:               values.RenderNode,
+		IsolateDesktopRuntime:    true,
 	})
 	if err != nil {
 		return err
 	}
 
-	ctx, cancelWrapper := context.WithCancel(context.Background())
-	defer cancelWrapper()
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(signals)
-	wrapper := newWrapperRuntime(values, "")
-	wrapperServer, wrapperDone, err := wrapper.serve(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer shutdownCancel()
-		_ = wrapperServer.Shutdown(shutdownCtx)
-	}()
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start browser: %w", err)
 	}
@@ -626,14 +698,17 @@ func LaunchFromRuntimeEnv() error {
 
 	select {
 	case err := <-browserDone:
+		wrapper.discardAllRecordings("browser_exited")
 		return err
 	case err := <-wrapperDone:
+		wrapper.discardAllRecordings("wrapper_exited")
 		stopProcess(cmd, browserDone)
 		if err != nil {
 			return fmt.Errorf("wrapper api exited: %w", err)
 		}
 		return fmt.Errorf("wrapper api exited")
 	case <-signals:
+		wrapper.stopAllRecordings("session_closed")
 		stopBrowserProcess(values.CDPPort, cmd, browserDone)
 		return nil
 	}
@@ -944,14 +1019,14 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	for {
 		select {
 		case err := <-browserDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.discardAllRecordings("browser_exited")
 			stopMediaProducer(mediaProducer)
 			stopProcess(compositor, compositorDone)
 			stopProcess(wirePlumber, wirePlumberDone)
 			stopProcess(pipeWire, pipeWireDone)
 			return err
 		case err := <-compositorDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.discardAllRecordings("compositor_exited")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(wirePlumber, wirePlumberDone)
@@ -961,7 +1036,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("compositor exited before browser")
 		case err := <-wirePlumberDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.discardAllRecordings("wireplumber_exited")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -971,7 +1046,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("session WirePlumber exited before browser")
 		case err := <-pipeWireDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.discardAllRecordings("pipewire_exited")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -981,7 +1056,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("session PipeWire exited before browser")
 		case err := <-wrapperDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.discardAllRecordings("wrapper_exited")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -1420,6 +1495,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 
 	values := RuntimeEnvValues{
 		SessionID:         *required["APERTURE_SESSION_ID"],
+		RuntimeEnvPath:    strings.TrimSpace(os.Getenv("RUNTIME_ENV_PATH")),
 		ExternalBaseURL:   strings.TrimSpace(os.Getenv("EXTERNAL_BASE_URL")),
 		SessionToken:      strings.TrimSpace(os.Getenv("SESSION_TOKEN")),
 		SessionTokenPath:  strings.TrimSpace(os.Getenv("SESSION_TOKEN_PATH")),
@@ -1431,6 +1507,13 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		CacheDir:          *required["CACHE_DIR"],
 		ArtifactsDir:      *required["ARTIFACTS_DIR"],
 		BrowserExecutable: *required["BROWSER_EXECUTABLE"],
+		BrowserMode:       strings.TrimSpace(os.Getenv("BROWSER_MODE")),
+	}
+	if values.BrowserMode == "" {
+		values.BrowserMode = BrowserModeHeaded
+	}
+	if values.BrowserMode != BrowserModeHeaded && values.BrowserMode != BrowserModeHeadless {
+		return RuntimeEnvValues{}, fmt.Errorf("browser mode must be headed or headless")
 	}
 
 	if _, err := fmt.Sscanf(portRaw, "%d", &values.CDPPort); err != nil {
@@ -1470,6 +1553,8 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	}
 	values.CaptureProofExtensionDir = strings.TrimSpace(os.Getenv("CAPTURE_PROOF_EXTENSION_DIR"))
 	values.GPUMode = strings.TrimSpace(os.Getenv("GPU_MODE"))
+	values.TargetRegistryEnabled = strings.TrimSpace(os.Getenv("TARGET_REGISTRY_ENABLED")) == "1"
+	values.RecordingMechanism = strings.TrimSpace(os.Getenv("RECORDING_MECHANISM"))
 	values.CompositorEnabled = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_ENABLED")) == "1"
 	values.CompositorExecutable = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_EXECUTABLE"))
 	values.CompositorBackend = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_BACKEND"))
