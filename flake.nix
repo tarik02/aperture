@@ -774,18 +774,18 @@
               #!/command/with-contenv sh
               set -eu
               exec 2>&1
-              export CI=true
-              export PNPM_CONFIG_STORE_DIR=/workspace/.data/pnpm-store
 
               : "''${APERTURE_DEV_PROXY_TARGET:?APERTURE_DEV_PROXY_TARGET is required}"
 
               cd /workspace
+              export CI=true
+              export PNPM_CONFIG_STORE_DIR=/workspace/.data/pnpm-store
+
               s6-setuidgid aperture \
                 pnpm --dir /workspace \
                   install --frozen-lockfile
               exec s6-setuidgid aperture \
-                pnpm --dir /workspace/web \
-                  dev \
+                pnpm --dir /workspace/web dev \
                   --host 0.0.0.0 \
                   --port 3000 \
                   --strictPort \
