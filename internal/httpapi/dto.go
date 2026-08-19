@@ -214,6 +214,9 @@ type tokenResponse struct {
 	Name          string   `json:"name"`
 	Scopes        []string `json:"scopes"`
 	CreatedAt     string   `json:"createdAt"`
+	CreatedByType string   `json:"createdByType"`
+	CreatedByID   *string  `json:"createdById"`
+	ParentTokenID *string  `json:"parentTokenId"`
 	ExpiresAt     *string  `json:"expiresAt"`
 	RevokedAt     *string  `json:"revokedAt"`
 }

@@ -200,10 +200,18 @@ func (s *Service) DeleteTenantMembership(ctx context.Context, tenantID, userID s
 
 // RecordAudit records a security audit event for the authenticated principal.
 func (s *Service) RecordAudit(ctx context.Context, principal Principal, input AuditInput) error {
+	event, err := s.newAuditEvent(principal, input)
+	if err != nil {
+		return err
+	}
+	return s.repo.CreateAuditEvent(ctx, event)
+}
+
+func (s *Service) newAuditEvent(principal Principal, input AuditInput) (*db.AuditEvent, error) {
 	action := strings.TrimSpace(input.Action)
 	resourceType := strings.TrimSpace(input.ResourceType)
 	if action == "" || resourceType == "" {
-		return fmt.Errorf("audit action and resource type are required")
+		return nil, fmt.Errorf("audit action and resource type are required")
 	}
 	data := input.Data
 	if data == nil {
@@ -211,24 +219,28 @@ func (s *Service) RecordAudit(ctx context.Context, principal Principal, input Au
 	}
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("marshal audit data: %w", err)
+		return nil, fmt.Errorf("marshal audit data: %w", err)
 	}
 	eventID, err := ids.NewUUIDv7()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	actorID := principal.ID
-	return s.repo.CreateAuditEvent(ctx, &db.AuditEvent{
+	var actorID *string
+	if principal.ID != "" {
+		value := principal.ID
+		actorID = &value
+	}
+	return &db.AuditEvent{
 		ID:           eventID,
 		ActorType:    principal.Type,
-		ActorID:      &actorID,
+		ActorID:      actorID,
 		TenantID:     input.TenantID,
 		Action:       action,
 		ResourceType: resourceType,
 		ResourceID:   input.ResourceID,
 		DataJSON:     string(dataJSON),
 		CreatedAt:    db.NowUTC(),
-	})
+	}, nil
 }
 
 // ListAuditEventsPage returns security audit entries.

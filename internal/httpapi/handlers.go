@@ -31,6 +31,9 @@ func toTokenResponse(token db.APIToken) (tokenResponse, error) {
 		Name:          token.Name,
 		Scopes:        scopes,
 		CreatedAt:     token.CreatedAt,
+		CreatedByType: token.CreatedByType,
+		CreatedByID:   token.CreatedByID,
+		ParentTokenID: token.ParentTokenID,
 		ExpiresAt:     token.ExpiresAt,
 		RevokedAt:     token.RevokedAt,
 	}, nil
@@ -137,6 +140,7 @@ func (s *Server) restoreTenant(c *gin.Context) {
 }
 
 func (s *Server) createAdminToken(c *gin.Context) {
+	principal := c.MustGet("principal").(auth.Principal)
 	var req createTokenRequest
 	if err := bindJSON(c, &req); err != nil {
 		WriteError(c, err)
@@ -149,7 +153,7 @@ func (s *Server) createAdminToken(c *gin.Context) {
 		return
 	}
 
-	created, err := s.Auth.CreateToken(c.Request.Context(), auth.CreateTokenInput{
+	created, err := s.Auth.DelegateToken(c.Request.Context(), principal, auth.CreateTokenInput{
 		AuthorityType: req.AuthorityType,
 		TenantID:      req.TenantID,
 		Name:          req.Name,
@@ -207,8 +211,9 @@ func (s *Server) listAdminTokens(c *gin.Context) {
 }
 
 func (s *Server) revokeAdminToken(c *gin.Context) {
+	principal := c.MustGet("principal").(auth.Principal)
 	tokenID := c.Param("tokenId")
-	if err := s.Auth.RevokeToken(c.Request.Context(), tokenID, nil); err != nil {
+	if err := s.Auth.RevokeTokenAs(c.Request.Context(), principal, tokenID, nil); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -266,7 +271,7 @@ func (s *Server) createTenantToken(c *gin.Context) {
 	}
 
 	tenantCopy := tenantID
-	created, err := s.Auth.CreateToken(c.Request.Context(), auth.CreateTokenInput{
+	created, err := s.Auth.DelegateToken(c.Request.Context(), principal, auth.CreateTokenInput{
 		AuthorityType: auth.AuthorityTenant,
 		TenantID:      &tenantCopy,
 		Name:          req.Name,
@@ -326,7 +331,7 @@ func (s *Server) revokeTenantToken(c *gin.Context) {
 	tenantID := *principal.TenantID
 
 	tokenID := c.Param("tokenId")
-	if err := s.Auth.RevokeToken(c.Request.Context(), tokenID, &tenantID); err != nil {
+	if err := s.Auth.RevokeTokenAs(c.Request.Context(), principal, tokenID, &tenantID); err != nil {
 		WriteError(c, err)
 		return
 	}
