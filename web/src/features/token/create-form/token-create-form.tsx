@@ -1,7 +1,22 @@
-import { useEffect, useState } from "react";
-import { CalendarClock, Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarClock, Check, ChevronsUpDown } from "lucide-react";
 import { Badge } from "#/components/ui/badge.tsx";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+  ComboboxValue,
+  useComboboxAnchor,
+} from "#/components/ui/combobox.tsx";
 import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
 import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "#/components/ui/input-group.tsx";
@@ -16,11 +31,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#/components/ui/select.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
+import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
+import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import type { ApiCredentials } from "#/lib/api/client.ts";
+import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import { adminScopeOptions, tenantScopeOptions, type ScopeOption } from "#/lib/scopes.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
@@ -34,11 +52,6 @@ const AUTHORITY_OPTIONS = [
 const RESOURCE_MODE_OPTIONS = [
   { value: "all", label: "All resources" },
   { value: "allowlist", label: "Allowlist" },
-];
-
-const RESOURCE_TYPE_OPTIONS = [
-  { value: "session", label: "Session" },
-  { value: "snapshot", label: "Snapshot" },
 ];
 
 export function TokenCreateForm() {
@@ -60,13 +73,21 @@ export function TokenCreateForm() {
     expiresAt,
     nameError,
     scopeError,
-    resourceGrantError,
     createdToken,
   } = draft;
 
   const availableScopes = isAdmin ? adminScopeOptions : tenantScopeOptions;
   const resourceRestrictedByParent = credentials?.resourceMode === "allowlist";
   const effectiveResourceMode = isAdmin && authorityType === "system_admin" ? "all" : resourceMode;
+  const resourceTenantId = isAdmin
+    ? tenantId.trim() || null
+    : (credentials?.tenantId ?? credentials?.selectedTenantId ?? null);
+  const resourceCredentials = useMemo<ApiCredentials | null>(() => {
+    if (!credentials || !resourceTenantId) {
+      return null;
+    }
+    return { ...credentials, selectedTenantId: resourceTenantId };
+  }, [credentials, resourceTenantId]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -82,24 +103,9 @@ export function TokenCreateForm() {
       return;
     }
 
-    const submittedResourceGrants =
-      effectiveResourceMode === "allowlist"
-        ? resourceGrants.map((grant) => ({ ...grant, resourceId: grant.resourceId.trim() }))
-        : [];
-    if (submittedResourceGrants.some((grant) => !grant.resourceId)) {
-      setFormData({ resourceGrantError: "Complete or remove every resource grant" });
-      return;
-    }
-    if (
-      new Set(
-        submittedResourceGrants.map((grant) => `${grant.resourceType}\u0000${grant.resourceId}`),
-      ).size !== submittedResourceGrants.length
-    ) {
-      setFormData({ resourceGrantError: "Resource grants must be unique" });
-      return;
-    }
+    const submittedResourceGrants = effectiveResourceMode === "allowlist" ? resourceGrants : [];
 
-    setFormData({ nameError: null, scopeError: null, resourceGrantError: null });
+    setFormData({ nameError: null, scopeError: null });
 
     const expiresAtValue = expiresAt ? new Date(expiresAt).toISOString() : null;
 
@@ -174,7 +180,7 @@ export function TokenCreateForm() {
                     setFormData({
                       authorityType: value,
                       ...(value === "system_admin"
-                        ? { resourceMode: "all", resourceGrantError: null }
+                        ? { resourceMode: "all", resourceGrants: [] }
                         : {}),
                     });
                   }
@@ -202,7 +208,7 @@ export function TokenCreateForm() {
                 <FieldLabel>Tenant</FieldLabel>
                 <TenantCombobox
                   value={tenantId || null}
-                  onSelect={(tenant) => setFormData({ tenantId: tenant.id })}
+                  onSelect={(tenant) => setFormData({ tenantId: tenant.id, resourceGrants: [] })}
                   disabled={mutation.isPending}
                   align="start"
                   triggerClassName="w-full"
@@ -234,7 +240,7 @@ export function TokenCreateForm() {
             value={effectiveResourceMode}
             onValueChange={(value) => {
               if (value === "all" || value === "allowlist") {
-                setFormData({ resourceMode: value, resourceGrantError: null });
+                setFormData({ resourceMode: value });
               }
             }}
             disabled={
@@ -267,11 +273,9 @@ export function TokenCreateForm() {
         {effectiveResourceMode === "allowlist" ? (
           <ResourceGrantEditor
             grants={resourceGrants}
-            error={resourceGrantError}
+            credentials={resourceCredentials}
             disabled={mutation.isPending}
-            onChange={(nextGrants) =>
-              setFormData({ resourceGrants: nextGrants, resourceGrantError: null })
-            }
+            onChange={(nextGrants) => setFormData({ resourceGrants: nextGrants })}
           />
         ) : null}
         <Field>
@@ -298,101 +302,195 @@ export function TokenCreateForm() {
 
 type ResourceGrantEditorProps = {
   grants: ResourceGrant[];
-  error: string | null;
+  credentials: ApiCredentials | null;
   disabled?: boolean;
   onChange: (grants: ResourceGrant[]) => void;
 };
 
-function ResourceGrantEditor({ grants, error, disabled, onChange }: ResourceGrantEditorProps) {
+type ResourceOption = {
+  value: string;
+  label: string;
+  detail: string;
+  resourceType: "session" | "snapshot";
+  resourceId: string;
+};
+
+type ResourceOptionGroup = {
+  value: string;
+  items: ResourceOption[];
+};
+
+function ResourceGrantEditor({
+  grants,
+  credentials,
+  disabled,
+  onChange,
+}: ResourceGrantEditorProps) {
+  const anchor = useComboboxAnchor();
+  const sessionsQuery = useSessionsInfiniteQuery(
+    { limit: 100 },
+    { credentials, enabled: credentials !== null },
+  );
+  const snapshotsQuery = useSnapshotsInfiniteQuery(
+    { limit: 100 },
+    { credentials, enabled: credentials !== null },
+  );
+  const sessions = useMemo(
+    () => flattenInfinitePages(sessionsQuery.data?.pages),
+    [sessionsQuery.data?.pages],
+  );
+  const snapshots = useMemo(
+    () => flattenInfinitePages(snapshotsQuery.data?.pages),
+    [snapshotsQuery.data?.pages],
+  );
+  const groups = useMemo<ResourceOptionGroup[]>(
+    () => [
+      {
+        value: "Sessions",
+        items: sessions.map((session) => ({
+          value: `session:${session.id}`,
+          label: session.label?.trim() || "Untitled session",
+          detail: `${session.status} · ${session.id}`,
+          resourceType: "session",
+          resourceId: session.id,
+        })),
+      },
+      {
+        value: "Snapshots",
+        items: snapshots.map((snapshot) => ({
+          value: `snapshot:${snapshot.id}`,
+          label: snapshot.name,
+          detail: snapshot.id,
+          resourceType: "snapshot",
+          resourceId: snapshot.id,
+        })),
+      },
+    ],
+    [sessions, snapshots],
+  );
+  const options = useMemo(() => groups.flatMap((group) => group.items), [groups]);
+  const selectedOptions = useMemo(
+    () =>
+      grants.map(
+        (grant) =>
+          options.find(
+            (option) =>
+              option.resourceType === grant.resourceType && option.resourceId === grant.resourceId,
+          ) ?? {
+            value: `${grant.resourceType}:${grant.resourceId}`,
+            label: grant.resourceId,
+            detail: grant.resourceId,
+            resourceType: grant.resourceType,
+            resourceId: grant.resourceId,
+          },
+      ),
+    [grants, options],
+  );
+  const loading = sessionsQuery.isLoading || snapshotsQuery.isLoading;
+  const failed = sessionsQuery.isError || snapshotsQuery.isError;
+  const loadingMore = sessionsQuery.isFetchingNextPage || snapshotsQuery.isFetchingNextPage;
+  const hasMore = sessionsQuery.hasNextPage || snapshotsQuery.hasNextPage;
+
   return (
-    <Field data-invalid={error ? true : undefined}>
-      <div className="flex items-center justify-between gap-2">
-        <FieldLabel>Resource grants</FieldLabel>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled}
-          onClick={() => onChange([...grants, { resourceType: "session", resourceId: "" }])}
-        >
-          <Plus data-icon="inline-start" />
-          Add
-        </Button>
-      </div>
-      {grants.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          {grants.map((grant, index) => (
-            <div
-              key={`${grant.resourceType}:${index}`}
-              className="grid grid-cols-[7rem_minmax(0,1fr)_2rem] items-center gap-2"
-            >
-              <Select
-                items={RESOURCE_TYPE_OPTIONS}
-                value={grant.resourceType}
-                onValueChange={(value) => {
-                  if (value === "session" || value === "snapshot") {
-                    onChange(
-                      grants.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, resourceType: value } : item,
-                      ),
-                    );
-                  }
-                }}
-                disabled={disabled}
-              >
-                <SelectTrigger size="sm" aria-label={`Resource type ${index + 1}`}>
-                  <SelectValue>
-                    {(selectedValue: unknown) =>
-                      RESOURCE_TYPE_OPTIONS.find((option) => option.value === selectedValue)
-                        ?.label ?? "Session"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {RESOURCE_TYPE_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <Input
-                value={grant.resourceId}
-                placeholder={`${grant.resourceType} ID`}
-                aria-label={`${grant.resourceType} ID ${index + 1}`}
-                disabled={disabled}
-                onChange={(event) =>
-                  onChange(
-                    grants.map((item, itemIndex) =>
-                      itemIndex === index ? { ...item, resourceId: event.target.value } : item,
-                    ),
-                  )
+    <Field data-disabled={disabled || credentials === null ? true : undefined}>
+      <FieldLabel htmlFor="token-resource-grants">Resource grants</FieldLabel>
+      <Combobox
+        multiple
+        autoHighlight
+        items={groups}
+        value={selectedOptions}
+        itemToStringLabel={(option: ResourceOption) => `${option.label} ${option.resourceId}`}
+        itemToStringValue={(option: ResourceOption) => option.value}
+        isItemEqualToValue={(option: ResourceOption, value: ResourceOption) =>
+          option.value === value.value
+        }
+        filter={(option: ResourceOption, query: string) => {
+          const normalizedQuery = query.trim().toLowerCase();
+          return (
+            option.label.toLowerCase().includes(normalizedQuery) ||
+            option.resourceId.toLowerCase().includes(normalizedQuery)
+          );
+        }}
+        onValueChange={(nextOptions: ResourceOption[]) =>
+          onChange(
+            nextOptions.map((option) => ({
+              resourceType: option.resourceType,
+              resourceId: option.resourceId,
+            })),
+          )
+        }
+        disabled={disabled || credentials === null}
+      >
+        <ComboboxChips ref={anchor}>
+          <ComboboxValue>
+            {(values) => (
+              <>
+                {values.map((option: ResourceOption) => (
+                  <ComboboxChip key={option.value}>
+                    <span className="max-w-48 truncate">
+                      {option.resourceType === "session" ? "Session" : "Snapshot"}: {option.label}
+                    </span>
+                  </ComboboxChip>
+                ))}
+                <ComboboxChipsInput
+                  id="token-resource-grants"
+                  placeholder={values.length === 0 ? "Search sessions and snapshots" : undefined}
+                  disabled={disabled || credentials === null}
+                />
+              </>
+            )}
+          </ComboboxValue>
+        </ComboboxChips>
+        <ComboboxContent anchor={anchor}>
+          <ComboboxEmpty>
+            {credentials === null
+              ? "Select a tenant first"
+              : loading
+                ? "Loading resources..."
+                : failed
+                  ? "Failed to load resources"
+                  : "No resources found"}
+          </ComboboxEmpty>
+          <ComboboxList>
+            {(group: ResourceOptionGroup) => (
+              <ComboboxGroup key={group.value} items={group.items}>
+                <ComboboxLabel>{group.value}</ComboboxLabel>
+                <ComboboxCollection>
+                  {(option: ResourceOption) => (
+                    <ComboboxItem key={option.value} value={option}>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate">{option.label}</span>
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          {option.detail}
+                        </span>
+                      </span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxCollection>
+              </ComboboxGroup>
+            )}
+          </ComboboxList>
+          {hasMore ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="m-1 w-[calc(100%-0.5rem)]"
+              onClick={() => {
+                if (sessionsQuery.hasNextPage) {
+                  void sessionsQuery.fetchNextPage();
                 }
-              />
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Remove resource grant ${index + 1}`}
-                      disabled={disabled}
-                      onClick={() => onChange(grants.filter((_, itemIndex) => itemIndex !== index))}
-                    />
-                  }
-                >
-                  <Trash2 />
-                </TooltipTrigger>
-                <TooltipContent>Remove grant</TooltipContent>
-              </Tooltip>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <FieldError>{error}</FieldError>
+                if (snapshotsQuery.hasNextPage) {
+                  void snapshotsQuery.fetchNextPage();
+                }
+              }}
+              disabled={loadingMore}
+            >
+              {loadingMore ? "Loading..." : "Load more resources"}
+            </Button>
+          ) : null}
+        </ComboboxContent>
+      </Combobox>
     </Field>
   );
 }
