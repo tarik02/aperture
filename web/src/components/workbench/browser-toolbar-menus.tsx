@@ -137,13 +137,17 @@ export function BrowserMenus({
               onReconnect={onReconnect}
               onSessionDetails={onSessionDetails}
             />
-            <DropdownMenuSeparator />
-            <RecordingMenuItems
-              control={control}
-              connected={connected}
-              runningRecordings={runningRecordings}
-              now={now}
-            />
+            {control.recordingSupported ? (
+              <>
+                <DropdownMenuSeparator />
+                <RecordingMenuItems
+                  control={control}
+                  connected={connected}
+                  runningRecordings={runningRecordings}
+                  now={now}
+                />
+              </>
+            ) : null}
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
               control={control}
@@ -155,37 +159,39 @@ export function BrowserMenus({
         </DropdownMenu>
       </div>
       <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant={recordingActive ? "destructive" : "ghost"}
-                      size="icon-sm"
-                      aria-label={recordingActive ? "Recording in progress" : "Recording"}
-                    />
-                  }
-                />
-              }
-            >
-              <Circle fill={recordingActive ? "currentColor" : "none"} />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {recordingActive ? "Recording in progress" : "Recording"}
-            </TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-72">
-            <RecordingMenuItems
-              control={control}
-              connected={connected}
-              runningRecordings={runningRecordings}
-              now={now}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {control.recordingSupported ? (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant={recordingActive ? "destructive" : "ghost"}
+                        size="icon-sm"
+                        aria-label={recordingActive ? "Recording in progress" : "Recording"}
+                      />
+                    }
+                  />
+                }
+              >
+                <Circle fill={recordingActive ? "currentColor" : "none"} />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {recordingActive ? "Recording in progress" : "Recording"}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-72">
+              <RecordingMenuItems
+                control={control}
+                connected={connected}
+                runningRecordings={runningRecordings}
+                now={now}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger

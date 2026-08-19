@@ -17,7 +17,10 @@ type Channel struct {
 
 // Registry resolves configured browser channel names to trusted executables.
 type Registry struct {
-	channels map[string]config.ChannelConfig
+	cfg           config.Config
+	channels      map[string]config.ChannelConfig
+	allowedModes  []string
+	implicitModes bool
 }
 
 // NewRegistry builds a channel registry from validated configuration.
@@ -35,10 +38,27 @@ func NewRegistry(cfg config.Config) (*Registry, error) {
 		if strings.TrimSpace(channel.Executable) == "" {
 			return nil, fmt.Errorf("channels.%s.executable is required", trimmed)
 		}
+		if err := ValidateBrowserArgs(channel.DefaultArgs); err != nil {
+			return nil, fmt.Errorf("channels.%s.default_args: %w", trimmed, err)
+		}
 		channels[trimmed] = channel
 	}
 
-	return &Registry{channels: channels}, nil
+	implicitModes := len(cfg.AllowedBrowserModes) == 0
+	allowedModes := make([]string, 0, len(cfg.AllowedBrowserModes))
+	for _, mode := range cfg.AllowedBrowserModes {
+		mode = strings.ToLower(strings.TrimSpace(mode))
+		if mode == "" {
+			continue
+		}
+		allowedModes = append(allowedModes, mode)
+	}
+	if len(allowedModes) == 0 {
+		allowedModes = []string{BrowserModeHeaded}
+	}
+	slices.Sort(allowedModes)
+
+	return &Registry{cfg: cfg, channels: channels, allowedModes: allowedModes, implicitModes: implicitModes}, nil
 }
 
 // Resolve returns the configured channel for name.

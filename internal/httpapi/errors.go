@@ -14,15 +14,15 @@ import (
 )
 
 var (
-	errChannelsUnavailable         = errors.New("browser channels unavailable")
-	errEventServiceUnavailable     = errors.New("event service unavailable")
-	errGCServiceUnavailable        = errors.New("gc service unavailable")
-	errSessionServiceUnavailable   = errors.New("session service unavailable")
-	errPromotionServiceUnavailable = errors.New("promotion service unavailable")
-	errSnapshotServiceUnavailable  = errors.New("snapshot service unavailable")
-	errBrowserControlFailed        = errors.New("browser control failed")
-	errRecordingNotFound           = errors.New("recording not found")
-	errSessionFileNotFound         = errors.New("session file not found")
+	errBrowserConfigurationsUnavailable = errors.New("browser configurations unavailable")
+	errEventServiceUnavailable          = errors.New("event service unavailable")
+	errGCServiceUnavailable             = errors.New("gc service unavailable")
+	errSessionServiceUnavailable        = errors.New("session service unavailable")
+	errPromotionServiceUnavailable      = errors.New("promotion service unavailable")
+	errSnapshotServiceUnavailable       = errors.New("snapshot service unavailable")
+	errBrowserControlFailed             = errors.New("browser control failed")
+	errRecordingNotFound                = errors.New("recording not found")
+	errSessionFileNotFound              = errors.New("session file not found")
 )
 
 type apiErrorDetail struct {
@@ -114,7 +114,7 @@ func mapError(err error) (int, string, string) {
 		return http.StatusNotFound, "session_file_not_found", err.Error()
 	case errors.Is(err, errBrowserControlFailed):
 		return http.StatusBadGateway, "browser_control_failed", errBrowserControlFailed.Error()
-	case errors.Is(err, session.ErrInvalidChannel), errors.Is(err, browser.ErrDeniedBrowserArg), errors.Is(err, browser.ErrDeniedCompositorBrowserArg):
+	case errors.Is(err, session.ErrInvalidConfiguration), errors.Is(err, browser.ErrDeniedBrowserArg), errors.Is(err, browser.ErrDeniedCompositorBrowserArg):
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, session.ErrBrowserStart):
 		return http.StatusBadGateway, "browser_start_failed", "browser failed to start"
@@ -132,8 +132,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusGone, "session_expired", "session expired"
 	case errors.Is(err, snapshot.ErrOverlayMissing), errors.Is(err, snapshot.ErrSessionNotPromotable):
 		return http.StatusConflict, "session_not_promotable", err.Error()
-	case errors.Is(err, errChannelsUnavailable):
-		return http.StatusInternalServerError, "browser_channels_unavailable", err.Error()
+	case errors.Is(err, errBrowserConfigurationsUnavailable):
+		return http.StatusInternalServerError, "browser_configurations_unavailable", err.Error()
 	case errors.Is(err, errEventServiceUnavailable):
 		return http.StatusInternalServerError, "event_service_unavailable", err.Error()
 	case errors.Is(err, errGCServiceUnavailable):

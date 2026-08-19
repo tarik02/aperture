@@ -15,8 +15,8 @@ const (
 	envPrefix     = "APERTURE"
 	defaultConfig = "aperture"
 
-	WebRTCMediaModeAuto          = "auto"
-	WebRTCMediaModeCDP           = "cdp"
+	BrowserModeHeaded            = "headed"
+	BrowserModeHeadless          = "headless"
 	GPUModeAuto                  = "auto"
 	GPUModeSoftware              = "software"
 	GPUModeHardware              = "hardware"
@@ -62,10 +62,10 @@ type Config struct {
 	SessionStorageQuotaBytes         int64                    `mapstructure:"session_storage_quota_bytes"`
 	SnapshotRetentionDays            int                      `mapstructure:"snapshot_retention_days"`
 	ChannelRegistry                  map[string]ChannelConfig `mapstructure:"channels"`
+	AllowedBrowserModes              []string                 `mapstructure:"browser_modes"`
 	ExternalBaseURL                  string                   `mapstructure:"external_base_url"`
 	CdpRouteBasePath                 string                   `mapstructure:"cdp_route_base_path"`
 	WebRTCCaptureProofExtensionDir   string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
-	WebRTCMediaMode                  string                   `mapstructure:"webrtc_media_mode"`
 	GPUMode                          string                   `mapstructure:"gpu_mode"`
 	WebRTCCompositorEnabled          bool                     `mapstructure:"webrtc_compositor_enabled"`
 	WebRTCCompositorExecutable       string                   `mapstructure:"webrtc_compositor_executable"`
@@ -120,10 +120,10 @@ func Defaults() Config {
 		SessionStorageQuotaBytes:         1024 * 1024 * 1024,
 		SnapshotRetentionDays:            7,
 		ChannelRegistry:                  nil,
+		AllowedBrowserModes:              []string{BrowserModeHeaded},
 		ExternalBaseURL:                  "",
 		CdpRouteBasePath:                 "/cdp",
 		WebRTCCaptureProofExtensionDir:   "",
-		WebRTCMediaMode:                  WebRTCMediaModeAuto,
 		GPUMode:                          GPUModeAuto,
 		WebRTCCompositorEnabled:          false,
 		WebRTCCompositorExecutable:       "",
@@ -195,8 +195,8 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("session_upload_max_file_bytes", defaults.SessionUploadMaxFileBytes)
 	v.SetDefault("session_storage_quota_bytes", defaults.SessionStorageQuotaBytes)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
+	v.SetDefault("browser_modes", defaults.AllowedBrowserModes)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
-	v.SetDefault("webrtc_media_mode", defaults.WebRTCMediaMode)
 	v.SetDefault("gpu_mode", defaults.GPUMode)
 	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)
 	v.SetDefault("webrtc_compositor_backend", defaults.WebRTCCompositorBackend)
@@ -248,10 +248,10 @@ func Load(flags *viper.Viper) (Config, error) {
 		"session_upload_max_file_bytes",
 		"session_storage_quota_bytes",
 		"snapshot_retention_days",
+		"browser_modes",
 		"external_base_url",
 		"cdp_route_base_path",
 		"webrtc_capture_proof_extension_dir",
-		"webrtc_media_mode",
 		"gpu_mode",
 		"webrtc_compositor_enabled",
 		"webrtc_compositor_executable",
@@ -364,7 +364,7 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"snapshot-retention-days":                 "snapshot_retention_days",
 		"external-base-url":                       "external_base_url",
 		"cdp-route-base-path":                     "cdp_route_base_path",
-		"webrtc-media-mode":                       "webrtc_media_mode",
+		"browser-modes":                           "browser_modes",
 		"gpu-mode":                                "gpu_mode",
 		"webrtc-compositor-enabled":               "webrtc_compositor_enabled",
 		"webrtc-compositor-executable":            "webrtc_compositor_executable",

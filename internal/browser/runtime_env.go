@@ -16,6 +16,7 @@ import (
 // RuntimeEnvValues are written for browser-session-wrapper consumption.
 type RuntimeEnvValues struct {
 	SessionID                  string
+	RuntimeEnvPath             string
 	ExternalBaseURL            string
 	SessionToken               string
 	SessionTokenPath           string
@@ -31,12 +32,15 @@ type RuntimeEnvValues struct {
 	CDPPort                    int
 	WrapperPort                int
 	BrowserExecutable          string
+	BrowserMode                string
 	BrowserDefaultArgs         []string
 	BrowserExtraArgs           []string
 	CaptureProofExtensionDir   string
 	GPUMode                    string
 	RenderNode                 string
 	CompositorEnabled          bool
+	TargetRegistryEnabled      bool
+	RecordingMechanism         string
 	CompositorExecutable       string
 	CompositorBackend          string
 	CompositorRenderer         string
@@ -60,8 +64,16 @@ type RuntimeEnvValues struct {
 
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
 func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
+	if strings.TrimSpace(values.BrowserMode) == "" {
+		values.BrowserMode = BrowserModeHeaded
+	}
+	values.TargetRegistryEnabled = true
+
 	if strings.TrimSpace(values.SessionID) == "" {
 		return nil, fmt.Errorf("session id is required")
+	}
+	if values.RuntimeEnvPath != "" && !filepath.IsAbs(values.RuntimeEnvPath) {
+		return nil, fmt.Errorf("runtime env path must be absolute")
 	}
 	if strings.TrimSpace(values.MergedUserDataDir) == "" {
 		return nil, fmt.Errorf("merged user data dir is required")
@@ -86,6 +98,22 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	}
 	if strings.TrimSpace(values.BrowserExecutable) == "" {
 		return nil, fmt.Errorf("browser executable is required")
+	}
+	switch values.BrowserMode {
+	case BrowserModeHeaded, BrowserModeHeadless:
+	default:
+		return nil, fmt.Errorf("browser mode must be headed or headless")
+	}
+	if !values.TargetRegistryEnabled {
+		return nil, fmt.Errorf("target registry is required")
+	}
+	switch values.RecordingMechanism {
+	case "", RecordingMechanismCompositor, RecordingMechanismCDP:
+	default:
+		return nil, fmt.Errorf("unsupported recording mechanism %q", values.RecordingMechanism)
+	}
+	if values.BrowserMode == BrowserModeHeadless && values.CompositorEnabled {
+		return nil, fmt.Errorf("headless browser mode cannot enable the compositor")
 	}
 	if extensionDir := strings.TrimSpace(values.CaptureProofExtensionDir); extensionDir != "" && !filepath.IsAbs(extensionDir) {
 		return nil, fmt.Errorf("capture proof extension dir must be absolute")
@@ -122,8 +150,8 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			return nil, err
 		}
 	}
-	if values.MediaProducerEnabled {
-		if !values.CompositorEnabled {
+	if values.MediaProducerEnabled || values.RecordingMechanism != "" {
+		if values.MediaProducerEnabled && !values.CompositorEnabled {
 			return nil, fmt.Errorf("media producer requires compositor mode")
 		}
 		if strings.TrimSpace(values.MediaProducerGSTExecutable) == "" {
@@ -142,7 +170,7 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 				}
 			}
 		}
-		if strings.TrimSpace(values.MediaProducerTarget) == "" {
+		if values.MediaProducerEnabled && strings.TrimSpace(values.MediaProducerTarget) == "" {
 			return nil, fmt.Errorf("media producer target is required")
 		}
 		if strings.TrimSpace(values.MediaProducerCodec) == "" {
@@ -157,10 +185,10 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		if values.MediaProducerKeyframe <= 0 {
 			return nil, fmt.Errorf("media producer keyframe interval must be positive")
 		}
-		if values.MediaProducerUDPPortMin <= 0 || values.MediaProducerUDPPortMin > 65535 {
+		if values.MediaProducerEnabled && (values.MediaProducerUDPPortMin <= 0 || values.MediaProducerUDPPortMin > 65535) {
 			return nil, fmt.Errorf("media producer UDP port minimum must be between 1 and 65535")
 		}
-		if values.MediaProducerUDPPortMax < values.MediaProducerUDPPortMin || values.MediaProducerUDPPortMax > 65535 {
+		if values.MediaProducerEnabled && (values.MediaProducerUDPPortMax < values.MediaProducerUDPPortMin || values.MediaProducerUDPPortMax > 65535) {
 			return nil, fmt.Errorf("media producer UDP port maximum must be between the minimum and 65535")
 		}
 	}
@@ -187,9 +215,15 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"CDP_PORT=" + strconv.Itoa(values.CDPPort),
 		"WRAPPER_PORT=" + strconv.Itoa(values.WrapperPort),
 		"BROWSER_EXECUTABLE=" + shellQuote(values.BrowserExecutable),
+		"BROWSER_MODE=" + shellQuote(values.BrowserMode),
 		"BROWSER_DEFAULT_ARGS=" + defaultArgs,
 		"BROWSER_EXTRA_ARGS=" + extraArgs,
 		"GPU_MODE=" + shellQuote(values.GPUMode),
+		"TARGET_REGISTRY_ENABLED=1",
+		"RECORDING_MECHANISM=" + shellQuote(values.RecordingMechanism),
+	}
+	if values.RuntimeEnvPath != "" {
+		lines = append(lines, "RUNTIME_ENV_PATH="+shellQuote(values.RuntimeEnvPath))
 	}
 	if strings.TrimSpace(values.InternalAPIURL) != "" {
 		lines = append(lines, "INTERNAL_API_URL="+shellQuote(values.InternalAPIURL))
@@ -218,19 +252,24 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 			"WEBRTC_COMPOSITOR_HEIGHT="+strconv.Itoa(values.CompositorHeight),
 		)
 	}
-	if values.MediaProducerEnabled {
+	if values.MediaProducerEnabled || values.RecordingMechanism != "" {
 		lines = append(
 			lines,
-			"WEBRTC_MEDIA_PRODUCER_ENABLED=1",
 			"WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE="+shellQuote(values.MediaProducerGSTExecutable),
 			"WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH="+shellQuote(values.MediaProducerPluginPath),
-			"WEBRTC_MEDIA_PRODUCER_TARGET="+shellQuote(values.MediaProducerTarget),
-			"WEBRTC_MEDIA_PRODUCER_ICE_SERVERS="+shellQuote(values.MediaProducerICEServers),
-			"WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+shellQuote(values.MediaProducerAdvertisedIP),
 			"WEBRTC_MEDIA_PRODUCER_CODEC="+shellQuote(values.MediaProducerCodec),
 			"WEBRTC_MEDIA_PRODUCER_FPS="+strconv.Itoa(values.MediaProducerFPS),
 			"WEBRTC_MEDIA_PRODUCER_BITRATE_KBPS="+strconv.Itoa(values.MediaProducerBitrateKbps),
 			"WEBRTC_MEDIA_PRODUCER_KEYFRAME_INTERVAL="+strconv.Itoa(values.MediaProducerKeyframe),
+		)
+	}
+	if values.MediaProducerEnabled {
+		lines = append(
+			lines,
+			"WEBRTC_MEDIA_PRODUCER_ENABLED=1",
+			"WEBRTC_MEDIA_PRODUCER_TARGET="+shellQuote(values.MediaProducerTarget),
+			"WEBRTC_MEDIA_PRODUCER_ICE_SERVERS="+shellQuote(values.MediaProducerICEServers),
+			"WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+shellQuote(values.MediaProducerAdvertisedIP),
 			"WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN="+strconv.Itoa(values.MediaProducerUDPPortMin),
 			"WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX="+strconv.Itoa(values.MediaProducerUDPPortMax),
 		)
@@ -241,6 +280,7 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 
 // WriteRuntimeEnv atomically writes the runtime env file for a session.
 func WriteRuntimeEnv(path string, values RuntimeEnvValues) error {
+	values.RuntimeEnvPath = path
 	body, err := RenderRuntimeEnv(values)
 	if err != nil {
 		return err
@@ -281,7 +321,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "RUNTIME_ENV_PATH", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "BROWSER_MODE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "RECORDING_MECHANISM", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -289,6 +329,8 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 			assignRuntimeString(&values, key, unquoted)
 		case "WEBRTC_COMPOSITOR_ENABLED":
 			values.CompositorEnabled = strings.TrimSpace(val) == "1"
+		case "TARGET_REGISTRY_ENABLED":
+			values.TargetRegistryEnabled = strings.TrimSpace(val) == "1"
 		case "WEBRTC_MEDIA_PRODUCER_ENABLED":
 			values.MediaProducerEnabled = strings.TrimSpace(val) == "1"
 		case "CDP_PORT":
@@ -381,6 +423,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 	switch key {
 	case "APERTURE_SESSION_ID":
 		values.SessionID = value
+	case "RUNTIME_ENV_PATH":
+		values.RuntimeEnvPath = value
 	case "EXTERNAL_BASE_URL":
 		values.ExternalBaseURL = value
 	case "SESSION_TOKEN":
@@ -403,10 +447,14 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.ArtifactsDir = value
 	case "BROWSER_EXECUTABLE":
 		values.BrowserExecutable = value
+	case "BROWSER_MODE":
+		values.BrowserMode = value
 	case "CAPTURE_PROOF_EXTENSION_DIR":
 		values.CaptureProofExtensionDir = value
 	case "GPU_MODE":
 		values.GPUMode = value
+	case "RECORDING_MECHANISM":
+		values.RecordingMechanism = value
 	case "WEBRTC_COMPOSITOR_EXECUTABLE":
 		values.CompositorExecutable = value
 	case "WEBRTC_COMPOSITOR_BACKEND":

@@ -33,33 +33,25 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
 
   const detailedSession = sessionQuery.data ?? session;
   const rotatedCredentials = rotatedSession?.id === detailedSession.id ? rotatedSession : null;
-  const currentSession = rotatedCredentials
-    ? {
-        ...detailedSession,
-        cdpUrl: rotatedCredentials.cdpUrl,
-        sessionToken: rotatedCredentials.sessionToken,
-      }
-    : detailedSession;
-  const rawCdpUrl = currentSession.cdpUrl;
+  const currentSession = rotatedCredentials ?? detailedSession;
+  const rawCdpUrl = currentSession.connection.cdpUrl;
+  const sessionToken = currentSession.connection.sessionToken;
   const cdpUrl = useMemo(
     () => (rawCdpUrl ? publicCdpUrl(rawCdpUrl, publicOrigin) : null),
     [publicOrigin, rawCdpUrl],
   );
   const tokenizedCdpUrl = useMemo(
-    () =>
-      cdpUrl && currentSession.sessionToken
-        ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken)
-        : null,
-    [cdpUrl, currentSession.sessionToken],
+    () => (cdpUrl && sessionToken ? cdpUrlWithToken(cdpUrl, sessionToken) : null),
+    [cdpUrl, sessionToken],
   );
   const shareLink = useMemo(() => {
-    if (!publicOrigin || !currentSession.sessionToken) {
+    if (!publicOrigin || !sessionToken) {
       return null;
     }
     const url = new URL("/share/", publicOrigin);
-    url.hash = new URLSearchParams({ token: currentSession.sessionToken }).toString();
+    url.hash = new URLSearchParams({ token: sessionToken }).toString();
     return url.toString();
-  }, [currentSession.sessionToken, publicOrigin]);
+  }, [sessionToken, publicOrigin]);
   const canOpen = currentSession.status === "running" || currentSession.status === "suspended";
 
   useEffect(() => {
@@ -79,9 +71,7 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
   const fields = (
     <div className="flex flex-col gap-3">
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
-      {currentSession.sessionToken ? (
-        <CopyField value={currentSession.sessionToken} label="Token" />
-      ) : null}
+      {sessionToken ? <CopyField value={sessionToken} label="Token" /> : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       {shareLink ? <CopyField value={shareLink} label="Share link" /> : null}
     </div>

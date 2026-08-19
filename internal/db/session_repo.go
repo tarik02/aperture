@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/uptrace/bun"
 )
@@ -20,6 +21,9 @@ const (
 
 // CreateSession inserts a session row.
 func (r *Repository) CreateSession(ctx context.Context, session *Session) error {
+	if strings.TrimSpace(session.BrowserMode) == "" {
+		session.BrowserMode = "headed"
+	}
 	_, err := r.db.bun.NewInsert().Model(session).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("insert session: %w", err)

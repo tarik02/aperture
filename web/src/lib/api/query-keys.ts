@@ -3,8 +3,8 @@ import type { TagFilterValue } from "#/lib/tag-filter.ts";
 export const queryKeys = {
   apiHealth: ["api-health"] as const,
   authMe: (profileId: string, tenantId: string | null) => ["auth-me", profileId, tenantId] as const,
-  browserChannels: (profileId: string, tenantId: string | null) =>
-    ["browser-channels", profileId, tenantId] as const,
+  browserConfigurations: (profileId: string, tenantId: string | null) =>
+    ["browser-configurations", profileId, tenantId] as const,
   browserStatus: (sessionId: string, revision: number) =>
     ["browser-status", sessionId, revision] as const,
   tenants: (profileId: string, filters: TenantsFilters) => ["tenants", profileId, filters] as const,

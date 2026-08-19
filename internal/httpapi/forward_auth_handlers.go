@@ -197,8 +197,6 @@ func (s *Server) rotateSessionToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:      toSessionResponse(view),
-		CDPURL:       view.CDPURL,
-		SessionToken: view.SessionToken,
+		Session: toSessionResponse(view),
 	})
 }

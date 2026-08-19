@@ -33,6 +33,7 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("session_upload_max_file_bytes", defaults.SessionUploadMaxFileBytes)
 	v.SetDefault("session_storage_quota_bytes", defaults.SessionStorageQuotaBytes)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
+	v.SetDefault("browser_modes", defaults.AllowedBrowserModes)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
 	v.SetDefault("gpu_mode", defaults.GPUMode)
 	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)

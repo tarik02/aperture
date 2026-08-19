@@ -23,7 +23,7 @@ import {
 import { TagEditor, entriesToTags } from "#/components/resources/tag-editor.tsx";
 import { BrowserArgsEditor } from "#/components/sessions/browser-args-editor.tsx";
 import { useCreateSessionMutation } from "#/features/session/session.mutations.ts";
-import { useBrowserChannelsQuery } from "#/features/browser/browser.queries.ts";
+import { useBrowserConfigurationsQuery } from "#/features/browser/browser.queries.ts";
 import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import type { CreateSessionResponse } from "#/lib/api/schemas.ts";
@@ -36,29 +36,42 @@ type SessionFormProps = {
 };
 
 export function SessionForm({ onCreated }: SessionFormProps) {
-  const channelsQuery = useBrowserChannelsQuery();
+  const configurationsQuery = useBrowserConfigurationsQuery();
   const snapshotsQuery = useSnapshotsInfiniteQuery({ limit: 100 });
   const mutation = useCreateSessionMutation();
 
   const draft = useSessionFormStore((state) => state.formData);
   const setFormData = useSessionFormStore((state) => state.setFormData);
   const closeModal = useSessionCreateModalStore((state) => state.closeModal);
-  const { label, channel, baseSnapshot, browserArgs, tagEntries, channelError } = draft;
+  const { label, channel, browserMode, baseSnapshot, browserArgs, tagEntries, channelError } =
+    draft;
 
   const snapshots = flattenInfinitePages(snapshotsQuery.data?.pages);
-  const channels = channelsQuery.data?.channels ?? [];
-  const selectedChannel = channel || channels[0]?.name || "";
+  const configurations = configurationsQuery.data?.configurations ?? [];
+  const channels = useMemo(
+    () => Array.from(new Set(configurations.map((configuration) => configuration.channel))),
+    [configurations],
+  );
+  const selectedChannel = channel || channels[0] || "";
+  const modes = configurations.filter((configuration) => configuration.channel === selectedChannel);
+  const selectedMode = modes.some((configuration) => configuration.mode === browserMode)
+    ? browserMode
+    : modes[0]?.mode;
   const channelOptions = useMemo(
-    () => channels.map((item) => ({ value: item.name, label: item.name })),
+    () => channels.map((item) => ({ value: item, label: item })),
     [channels],
   );
+  const modeOptions = modes.map((configuration) => ({
+    value: configuration.mode,
+    label: configuration.mode === "headed" ? "Headed" : "Headless",
+  }));
   const snapshotNames = useMemo(() => snapshots.map((snapshot) => snapshot.name), [snapshots]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
-    if (!selectedChannel) {
-      setFormData({ channelError: "Channel required" });
+    if (!selectedChannel || !selectedMode) {
+      setFormData({ channelError: "Browser configuration required" });
       return;
     }
 
@@ -67,7 +80,7 @@ export function SessionForm({ onCreated }: SessionFormProps) {
     const args = browserArgs.map((line) => line.trim()).filter(Boolean);
 
     const result = await mutation.mutateAsync({
-      browser: { channel: selectedChannel, args },
+      browser: { channel: selectedChannel, mode: selectedMode, args },
       baseSnapshotName: baseSnapshot,
       label: label.trim() || null,
       tags: entriesToTags(tagEntries),
@@ -97,8 +110,17 @@ export function SessionForm({ onCreated }: SessionFormProps) {
           <Select
             items={channelOptions}
             value={selectedChannel}
-            onValueChange={(value) => setFormData({ channel: value ?? "" })}
-            disabled={mutation.isPending || channelsQuery.isLoading}
+            onValueChange={(value) => {
+              const nextChannel = value ?? "";
+              const nextMode = configurations.find(
+                (configuration) => configuration.channel === nextChannel,
+              )?.mode;
+              setFormData({
+                channel: nextChannel,
+                browserMode: nextMode ?? browserMode,
+              });
+            }}
+            disabled={mutation.isPending || configurationsQuery.isLoading}
           >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Channel" />
@@ -106,14 +128,40 @@ export function SessionForm({ onCreated }: SessionFormProps) {
             <SelectContent>
               <SelectGroup>
                 {channels.map((item) => (
-                  <SelectItem key={item.name} value={item.name}>
-                    {item.name}
+                  <SelectItem key={item} value={item}>
+                    {item}
                   </SelectItem>
                 ))}
               </SelectGroup>
             </SelectContent>
           </Select>
           <FieldError>{channelError}</FieldError>
+        </Field>
+        <Field>
+          <FieldLabel>Mode</FieldLabel>
+          <Select
+            items={modeOptions}
+            value={selectedMode}
+            onValueChange={(value) => {
+              if (value === "headed" || value === "headless") {
+                setFormData({ browserMode: value });
+              }
+            }}
+            disabled={mutation.isPending || configurationsQuery.isLoading || modes.length < 2}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Mode" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {modes.map((configuration) => (
+                  <SelectItem key={configuration.mode} value={configuration.mode}>
+                    {configuration.mode === "headed" ? "Headed" : "Headless"}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </Field>
         <Field>
           <FieldLabel>Base snapshot</FieldLabel>

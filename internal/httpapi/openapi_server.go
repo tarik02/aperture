@@ -69,7 +69,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 	path := c.FullPath()
 	switch {
 	case path == "/api/auth/me":
-	case path == "/api/browser/channels":
+	case path == "/api/browser/configurations":
 		if !s.requireScope(c, auth.ScopeSessionsRead) {
 			return
 		}
@@ -252,12 +252,12 @@ func (s openAPIServer) GetCurrentPrincipal(ctx context.Context, _ generated.GetC
 	return openAPIPassthroughResponse{}, nil
 }
 
-func (s openAPIServer) ListBrowserChannels(ctx context.Context, _ generated.ListBrowserChannelsRequestObject) (generated.ListBrowserChannelsResponseObject, error) {
+func (s openAPIServer) ListBrowserConfigurations(ctx context.Context, _ generated.ListBrowserConfigurationsRequestObject) (generated.ListBrowserConfigurationsResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
 		return nil, errOpenAPIContext
 	}
-	s.server.listBrowserChannels(c)
+	s.server.listBrowserConfigurations(c)
 	return openAPIPassthroughResponse{}, nil
 }
 
@@ -513,7 +513,7 @@ func (openAPIPassthroughResponse) VisitGetCurrentPrincipalResponse(http.Response
 	return nil
 }
 
-func (openAPIPassthroughResponse) VisitListBrowserChannelsResponse(http.ResponseWriter) error {
+func (openAPIPassthroughResponse) VisitListBrowserConfigurationsResponse(http.ResponseWriter) error {
 	return nil
 }
 

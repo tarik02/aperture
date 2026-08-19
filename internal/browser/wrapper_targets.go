@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -32,10 +31,10 @@ const (
 type wrapperTargetSnapshot struct {
 	TargetID       string             `json:"targetId"`
 	WindowID       int64              `json:"windowId"`
-	SurfaceID      uint64             `json:"surfaceId"`
-	CaptureID      string             `json:"captureId"`
+	SurfaceID      uint64             `json:"surfaceId,omitempty"`
+	CaptureID      string             `json:"captureId,omitempty"`
 	Generation     uint64             `json:"generation"`
-	PipeWireTarget string             `json:"pipewireTarget"`
+	PipeWireTarget string             `json:"pipewireTarget,omitempty"`
 	State          wrapperTargetState `json:"state"`
 	Title          string             `json:"title"`
 	URL            string             `json:"url"`
@@ -191,6 +190,9 @@ func (registry *wrapperTargetRegistry) prepareBinding(ctx context.Context, nonce
 	if !validRegistryIdentifier(nonce) {
 		return errors.New("invalid binding preparation request")
 	}
+	if !registry.runtime.values.CompositorEnabled {
+		return nil
+	}
 	_, err := sendCompositorControlCommand(ctx, registry.controlSocket, "surface-prepare "+nonce+"\n")
 	return err
 }
@@ -198,6 +200,9 @@ func (registry *wrapperTargetRegistry) prepareBinding(ctx context.Context, nonce
 func (registry *wrapperTargetRegistry) cancelBinding(ctx context.Context, nonce string) error {
 	if !validRegistryIdentifier(nonce) {
 		return errors.New("invalid binding cancellation request")
+	}
+	if !registry.runtime.values.CompositorEnabled {
+		return nil
 	}
 	_, err := sendCompositorControlCommand(ctx, registry.controlSocket, "surface-cancel "+nonce+"\n")
 	return err
@@ -215,26 +220,28 @@ func (registry *wrapperTargetRegistry) bindWindow(ctx context.Context, message e
 	if message.WindowID <= 0 || message.TabID <= 0 || !validRegistryIdentifier(message.Nonce) {
 		return errors.New("invalid binding request")
 	}
-	bindCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	var surfaceID uint64
-	for bindCtx.Err() == nil {
-		response, err := sendCompositorControlCommand(bindCtx, registry.controlSocket, "surface-find "+message.Nonce+"\n")
-		if err == nil {
-			if _, err := fmt.Sscanf(response, "ok %d", &surfaceID); err != nil {
-				return fmt.Errorf("parse compositor surface binding %q: %w", response, err)
+	if registry.runtime.values.CompositorEnabled {
+		bindCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		for bindCtx.Err() == nil {
+			response, err := sendCompositorControlCommand(bindCtx, registry.controlSocket, "surface-find "+message.Nonce+"\n")
+			if err == nil {
+				if _, err := fmt.Sscanf(response, "ok %d", &surfaceID); err != nil {
+					return fmt.Errorf("parse compositor surface binding %q: %w", response, err)
+				}
+				break
 			}
-			break
+			timer := time.NewTimer(25 * time.Millisecond)
+			select {
+			case <-bindCtx.Done():
+				timer.Stop()
+			case <-timer.C:
+			}
 		}
-		timer := time.NewTimer(25 * time.Millisecond)
-		select {
-		case <-bindCtx.Done():
-			timer.Stop()
-		case <-timer.C:
+		if surfaceID == 0 {
+			return fmt.Errorf("binding marker surface was not found: %w", bindCtx.Err())
 		}
-	}
-	if surfaceID == 0 {
-		return fmt.Errorf("binding marker surface was not found: %w", bindCtx.Err())
 	}
 	registry.mu.Lock()
 	registry.windows[message.WindowID] = wrapperWindowBinding{
@@ -255,7 +262,7 @@ func (registry *wrapperTargetRegistry) settleWindow(ctx context.Context, message
 	}
 	registry.mu.Unlock()
 	if !exists || binding.TabID != message.TabID {
-		return errors.New("window has no matching surface binding")
+		return errors.New("window has no matching binding")
 	}
 	settleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -264,7 +271,7 @@ func (registry *wrapperTargetRegistry) settleWindow(ctx context.Context, message
 			registry.mu.Lock()
 			ready := false
 			for _, target := range registry.targets {
-				if target.WindowID == message.WindowID && target.SurfaceID == binding.SurfaceID && target.State == wrapperTargetReady {
+				if target.WindowID == message.WindowID && (!registry.runtime.values.CompositorEnabled || target.SurfaceID == binding.SurfaceID) && target.State == wrapperTargetReady {
 					ready = true
 					break
 				}
@@ -348,11 +355,11 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 				unavailable = append(unavailable, target)
 			}
 			registry.mu.Unlock()
-			if len(unavailable) > 0 {
+			if len(unavailable) > 0 && registry.runtime.values.CompositorEnabled {
 				_, _ = sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", binding.SurfaceID))
-				for _, target := range unavailable {
-					registry.runtime.targetUnavailable(target)
-				}
+			}
+			for _, target := range unavailable {
+				registry.runtime.targetUnavailable(target)
 			}
 			continue
 		}
@@ -376,13 +383,18 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 	registry.mu.Unlock()
 	for _, target := range closed {
 		registry.runtime.targetClosed(target)
-		_, _ = sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", target.SurfaceID))
-		registry.retireOutput(ctx, target.CaptureID)
+		if registry.runtime.values.CompositorEnabled {
+			_, _ = sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", target.SurfaceID))
+			registry.retireOutput(ctx, target.CaptureID)
+		}
 	}
 	return nil
 }
 
 func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding wrapperWindowBinding, discovered cdpTargetWindow) error {
+	if !registry.runtime.values.CompositorEnabled {
+		return registry.ensureHeadlessTarget(ctx, binding, discovered)
+	}
 	registry.mu.Lock()
 	existing, exists := registry.targets[discovered.Target.TargetID]
 	if exists && existing.WindowID == binding.WindowID && existing.SurfaceID == binding.SurfaceID && existing.State == wrapperTargetReady {
@@ -478,6 +490,46 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 	return nil
 }
 
+func (registry *wrapperTargetRegistry) ensureHeadlessTarget(ctx context.Context, binding wrapperWindowBinding, discovered cdpTargetWindow) error {
+	registry.mu.Lock()
+	existing, exists := registry.targets[discovered.Target.TargetID]
+	if exists && existing.WindowID == binding.WindowID && existing.State == wrapperTargetReady {
+		existing.Title = discovered.Target.Title
+		existing.URL = discovered.Target.URL
+		registry.targets[existing.TargetID] = existing
+		registry.mu.Unlock()
+		return nil
+	}
+	generation := uint64(1)
+	viewport := registry.viewport
+	if exists {
+		generation = existing.Generation + 1
+		viewport = existing.Viewport
+	}
+	registry.mu.Unlock()
+
+	if err := setTargetDeviceMetrics(ctx, registry.cdpPort, discovered.Target.TargetID, viewport); err != nil {
+		return err
+	}
+	next := wrapperTargetSnapshot{
+		TargetID:   discovered.Target.TargetID,
+		WindowID:   binding.WindowID,
+		Generation: generation,
+		State:      wrapperTargetPending,
+		Title:      discovered.Target.Title,
+		URL:        discovered.Target.URL,
+		Viewport:   viewport,
+	}
+	if err := registry.runtime.targetReady(ctx, next, existing, exists); err != nil {
+		return err
+	}
+	next.State = wrapperTargetReady
+	registry.mu.Lock()
+	registry.targets[next.TargetID] = next
+	registry.mu.Unlock()
+	return nil
+}
+
 func (registry *wrapperTargetRegistry) resizeTarget(ctx context.Context, targetID string, width int, height int, deviceScaleFactor float64) (wrapperTargetSnapshot, error) {
 	scaleNumerator := viewportScaleNumerator(deviceScaleFactor)
 	viewport := newCompositorViewport(width, height, scaleNumerator)
@@ -549,6 +601,9 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 	}
 	if viewport == existing.Viewport {
 		return existing, nil
+	}
+	if !registry.runtime.values.CompositorEnabled {
+		return registry.applyHeadlessTargetResize(ctx, existing, viewport)
 	}
 	registry.mu.Lock()
 	binding, bound := registry.windows[existing.WindowID]
@@ -648,6 +703,48 @@ func (registry *wrapperTargetRegistry) applyTargetResize(ctx context.Context, ta
 	registry.mu.Unlock()
 	cleanup = false
 	registry.retireOutput(ctx, existing.CaptureID)
+	return next, nil
+}
+
+func (registry *wrapperTargetRegistry) applyHeadlessTargetResize(ctx context.Context, existing wrapperTargetSnapshot, viewport compositorViewport) (wrapperTargetSnapshot, error) {
+	pending := existing
+	pending.State = wrapperTargetPending
+	registry.mu.Lock()
+	registry.targets[existing.TargetID] = pending
+	registry.mu.Unlock()
+	registry.runtime.targetTransitioning(existing.TargetID)
+	restored := false
+	defer func() {
+		if restored {
+			return
+		}
+		registry.mu.Lock()
+		current, exists := registry.targets[existing.TargetID]
+		if exists && current.State == wrapperTargetPending {
+			registry.targets[existing.TargetID] = existing
+		}
+		registry.mu.Unlock()
+		registry.runtime.targetRestored(existing.TargetID)
+	}()
+
+	if err := setTargetDeviceMetrics(ctx, registry.cdpPort, existing.TargetID, viewport); err != nil {
+		return wrapperTargetSnapshot{}, err
+	}
+	next := existing
+	next.Generation++
+	next.Viewport = viewport
+	next.State = wrapperTargetPending
+	if err := registry.runtime.targetReady(ctx, next, existing, true); err != nil {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = setTargetDeviceMetrics(rollbackCtx, registry.cdpPort, existing.TargetID, existing.Viewport)
+		cancel()
+		return wrapperTargetSnapshot{}, err
+	}
+	next.State = wrapperTargetReady
+	registry.mu.Lock()
+	registry.targets[existing.TargetID] = next
+	registry.mu.Unlock()
+	restored = true
 	return next, nil
 }
 
@@ -789,25 +886,11 @@ func (registry *wrapperTargetRegistry) readyTarget(targetID string) (wrapperTarg
 func discoverCDPTargetWindows(ctx context.Context, port int) ([]cdpTargetWindow, error) {
 	discoveryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(discoveryCtx, http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(port)+"/json/version", nil)
+	webSocketURL, err := browserCDPWebSocketURL(discoveryCtx, port)
 	if err != nil {
 		return nil, err
 	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("discover browser CDP endpoint: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("discover browser CDP endpoint: status %d", response.StatusCode)
-	}
-	var version struct {
-		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&version); err != nil {
-		return nil, fmt.Errorf("decode browser CDP endpoint: %w", err)
-	}
-	connection, _, err := websocket.Dial(discoveryCtx, version.WebSocketDebuggerURL, nil)
+	connection, _, err := websocket.Dial(discoveryCtx, webSocketURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connect browser CDP endpoint: %w", err)
 	}

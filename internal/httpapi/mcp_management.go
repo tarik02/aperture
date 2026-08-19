@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -48,12 +49,8 @@ type mcpTenantOutput struct {
 	Tenant db.Tenant `json:"tenant"`
 }
 
-type mcpBrowserChannel struct {
-	Name string `json:"name"`
-}
-
-type mcpBrowserChannelsOutput struct {
-	Channels []mcpBrowserChannel `json:"channels"`
+type mcpBrowserConfigurationsOutput struct {
+	Configurations []browser.BrowserConfiguration `json:"configurations"`
 }
 
 func (s *Server) mcpSnapshotUpdate(ctx context.Context, _ *mcp.CallToolRequest, in mcpSnapshotUpdateInput) (*mcp.CallToolResult, mcpSnapshotOutput, error) {
@@ -245,21 +242,16 @@ func (s *Server) mcpTenantsRestore(ctx context.Context, _ *mcp.CallToolRequest, 
 	return nil, mcpTenantOutput{Tenant: *tenant}, nil
 }
 
-func (s *Server) mcpBrowserChannels(ctx context.Context, _ *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpBrowserChannelsOutput, error) {
+func (s *Server) mcpBrowserConfigurations(ctx context.Context, _ *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpBrowserConfigurationsOutput, error) {
 	if s.Channels == nil {
-		return nil, mcpBrowserChannelsOutput{}, mcpToolError("internal", errChannelsUnavailable)
+		return nil, mcpBrowserConfigurationsOutput{}, mcpToolError("internal", errBrowserConfigurationsUnavailable)
 	}
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
-		return nil, mcpBrowserChannelsOutput{}, err
+		return nil, mcpBrowserConfigurationsOutput{}, err
 	}
 	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeSessionsRead) {
-		return nil, mcpBrowserChannelsOutput{}, mcpToolError("forbidden", nil)
+		return nil, mcpBrowserConfigurationsOutput{}, mcpToolError("forbidden", nil)
 	}
-	names := s.Channels.Names()
-	out := mcpBrowserChannelsOutput{Channels: make([]mcpBrowserChannel, 0, len(names))}
-	for _, name := range names {
-		out.Channels = append(out.Channels, mcpBrowserChannel{Name: name})
-	}
-	return nil, out, nil
+	return nil, mcpBrowserConfigurationsOutput{Configurations: s.Channels.Configurations()}, nil
 }

@@ -29,7 +29,7 @@ type SessionWorkbenchProps = {
   forceCDPMedia?: boolean;
   capability?: {
     credentials: ApiCredentials;
-    session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "sessionToken">;
+    session: Pick<Session, "id" | "status" | "capabilities" | "connection">;
   };
 };
 
@@ -59,32 +59,35 @@ export function SessionWorkbench({
     selectedSession?.status === "running" || selectedSession?.status === "suspended",
   );
   const cdpUrl = useMemo(() => {
-    if (!selectedSession?.cdpUrl || !selectedSession.sessionToken || !publicOrigin) {
+    const connection = selectedSession?.connection;
+    if (!connection?.cdpUrl || !connection.sessionToken || !publicOrigin) {
       return null;
     }
-    const sourceUrl = new URL(selectedSession.cdpUrl, publicOrigin);
+    const sourceUrl = new URL(connection.cdpUrl, publicOrigin);
     const url = new URL(publicOrigin);
-    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.sessionToken)}`;
+    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(connection.sessionToken)}`;
     return url.toString();
-  }, [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl]);
+  }, [publicOrigin, selectedSession?.connection]);
   const shareUrl = useMemo(() => {
-    if (!publicOrigin || !selectedSession?.sessionToken) {
+    const sessionToken = selectedSession?.connection.sessionToken;
+    if (!publicOrigin || !sessionToken) {
       return null;
     }
     const url = new URL("/share/", publicOrigin);
-    url.hash = new URLSearchParams({ token: selectedSession.sessionToken }).toString();
+    url.hash = new URLSearchParams({ token: sessionToken }).toString();
     return url.toString();
-  }, [publicOrigin, selectedSession?.sessionToken]);
+  }, [publicOrigin, selectedSession?.connection.sessionToken]);
 
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
     credentials: capability?.credentials,
-    sessionToken: capability?.session.sessionToken,
+    sessionToken: capability?.session.connection.sessionToken,
     enabled: canControl && tenantReady && canConnectSession,
     forceCDPMedia,
     webrtcProducerSupported:
-      selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
-    webrtcIceServers: selectedSession?.media.iceServers ?? emptyIceServers,
+      selectedSession?.capabilities.liveView.transports.includes("webrtc") ?? false,
+    webrtcIceServers: selectedSession?.connection.webrtc?.iceServers ?? emptyIceServers,
+    recordingSupported: selectedSession?.capabilities.recording !== undefined,
   });
 
   useEffect(() => {

@@ -52,16 +52,58 @@ const iceServerSchema = z.object({
   credential: z.string().optional(),
 });
 
-export const sessionMediaSchema = z.object({
-  mode: z.enum(["auto", "cdp"]),
-  webrtcProducer: z.boolean(),
-  iceServers: z.array(iceServerSchema).default([]),
+export const browserModeSchema = z.enum(["headed", "headless"]);
+
+export const sessionCapabilitiesSchema = z.object({
+  state: z.enum(["active", "prospective", "unavailable"]),
+  liveView: z.object({
+    transports: z.array(z.enum(["webrtc", "cdp"])),
+  }),
+  recording: z
+    .object({
+      mechanism: z.enum(["compositor", "cdp"]),
+      scope: z.enum(["window", "page"]),
+      modes: z.array(z.enum(["tab", "viewer"])),
+      audio: z.boolean(),
+      codecs: z.array(
+        z.object({
+          codec: z.enum(["vp8", "h264-va"]),
+          mediaType: z.enum(["video/webm", "video/x-matroska"]),
+        }),
+      ),
+      concurrencyLimit: z.number().int().positive(),
+      cdp: z
+        .object({
+          formats: z.array(z.enum(["jpeg", "png"])),
+          defaultFormat: z.enum(["jpeg", "png"]),
+          defaultQuality: z.number().int().min(1).max(100),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+export const sessionBrowserSchema = z.object({
+  channel: z.string(),
+  mode: browserModeSchema,
+  args: z.array(z.string()).default([]),
+});
+
+export const sessionConnectionSchema = z.object({
+  cdpUrl: z.string().optional(),
+  sessionToken: z.string().optional(),
+  webrtc: z
+    .object({
+      iceServers: z.array(iceServerSchema),
+    })
+    .optional(),
 });
 
 export const browserStatusSchema = z.object({
   sessionId: z.string(),
-  cdpUrl: z.string(),
-  media: sessionMediaSchema,
+  browser: z.object({ mode: browserModeSchema }),
+  capabilities: sessionCapabilitiesSchema,
+  connection: sessionConnectionSchema,
   targets: z
     .array(
       z.object({
@@ -98,6 +140,14 @@ export const recordingSchema = z.object({
   fps: z.number().int().positive(),
   bitrateKbps: z.number().int().positive(),
   codec: z.string(),
+  cdp: z
+    .object({
+      format: z.enum(["jpeg", "png"]),
+      quality: z.number().int().min(1).max(100).optional(),
+    })
+    .optional(),
+  acceptedFrames: z.number().int().nonnegative().optional(),
+  droppedFrames: z.number().int().nonnegative().optional(),
 });
 export const recordingsSchema = z.array(recordingSchema);
 
@@ -107,8 +157,9 @@ export const sessionSchema = z.object({
   baseSnapshotName: z.string().nullable().optional(),
   label: z.string().nullable().optional(),
   status: sessionStatusSchema,
-  browserChannel: z.string().optional(),
-  media: sessionMediaSchema,
+  browser: sessionBrowserSchema,
+  capabilities: sessionCapabilitiesSchema,
+  connection: sessionConnectionSchema,
   createdAt: z.string(),
   startedAt: z.string().nullable().optional(),
   stoppedAt: z.string().nullable().optional(),
@@ -117,8 +168,6 @@ export const sessionSchema = z.object({
   lastConnectedAt: z.string().nullable().optional(),
   suspendedAt: z.string().nullable().optional(),
   tags: z.record(z.string(), z.string()).optional(),
-  cdpUrl: z.string().optional(),
-  sessionToken: z.string().optional(),
 });
 
 export const snapshotSchema = z.object({
@@ -153,12 +202,14 @@ export const sessionsBulkResponseSchema = z.object({
 export const snapshotsPageSchema = paginatedSchema(snapshotSchema);
 export const tokensPageSchema = paginatedSchema(tokenSchema);
 
-export const browserChannelSchema = z.object({
-  name: z.string(),
+export const browserConfigurationSchema = z.object({
+  channel: z.string(),
+  mode: browserModeSchema,
+  capabilities: sessionCapabilitiesSchema,
 });
 
-export const browserChannelsSchema = z.object({
-  channels: z.array(browserChannelSchema),
+export const browserConfigurationsSchema = z.object({
+  configurations: z.array(browserConfigurationSchema),
 });
 
 export const eventSchema = z.object({
@@ -176,14 +227,10 @@ export const eventsPageSchema = paginatedSchema(eventSchema);
 
 export const createSessionResponseSchema = z.object({
   session: sessionSchema,
-  cdpUrl: z.string(),
-  sessionToken: z.string(),
 });
 
 export const sessionMutationResponseSchema = z.object({
   session: sessionSchema,
-  cdpUrl: z.string().optional(),
-  sessionToken: z.string().optional(),
 });
 
 export const snapshotMutationResponseSchema = z.object({
@@ -205,7 +252,8 @@ export type AuthMeResponse = z.infer<typeof authMeSchema>;
 export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
 export type Session = z.infer<typeof sessionSchema>;
-export type SessionMedia = z.infer<typeof sessionMediaSchema>;
+export type BrowserMode = z.infer<typeof browserModeSchema>;
+export type SessionCapabilities = z.infer<typeof sessionCapabilitiesSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;
 export type Recording = z.infer<typeof recordingSchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
@@ -216,8 +264,8 @@ export type SessionsPage = z.infer<typeof sessionsPageSchema>;
 export type SessionsBulkResponse = z.infer<typeof sessionsBulkResponseSchema>;
 export type SnapshotsPage = z.infer<typeof snapshotsPageSchema>;
 export type TokensPage = z.infer<typeof tokensPageSchema>;
-export type BrowserChannel = z.infer<typeof browserChannelSchema>;
-export type BrowserChannelsResponse = z.infer<typeof browserChannelsSchema>;
+export type BrowserConfiguration = z.infer<typeof browserConfigurationSchema>;
+export type BrowserConfigurationsResponse = z.infer<typeof browserConfigurationsSchema>;
 export type ResourceEvent = z.infer<typeof eventSchema>;
 export type EventsPage = z.infer<typeof eventsPageSchema>;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;

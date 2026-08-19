@@ -13,33 +13,7 @@ import (
 )
 
 func toSessionListItem(view session.SessionView) sessionListItemResponse {
-	resp := sessionListItemResponse{
-		ID:               view.Session.ID,
-		TenantID:         view.Session.TenantID,
-		BaseSnapshotName: view.BaseSnapshotName,
-		Label:            view.Session.Label,
-		Status:           view.Session.Status,
-		BrowserChannel:   view.Session.BrowserChannel,
-		Media: sessionMedia{
-			Mode:           view.Media.Mode,
-			WebRTCProducer: view.Media.WebRTCProducer,
-			ICEServers:     toICEServerResponses(view.Media.ICEServers),
-		},
-		CreatedAt: view.Session.CreatedAt,
-		StartedAt: view.Session.StartedAt,
-		StoppedAt: view.Session.StoppedAt,
-		DeletedAt: view.Session.DeletedAt,
-		ExpiresAt: view.Session.ExpiresAt,
-		Tags:      view.Tags,
-	}
-	if view.CDPURL != "" {
-		resp.CDPURL = view.CDPURL
-	}
-	if view.SessionToken != "" {
-		resp.SessionToken = view.SessionToken
-	}
-
-	return resp
+	return toSessionResponse(&view)
 }
 
 func toSnapshotListItem(view snapshot.SnapshotView) snapshotListItemResponse {
