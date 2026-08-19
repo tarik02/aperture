@@ -9,6 +9,7 @@ import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { TableCell, TableRow } from "#/components/ui/table.tsx";
 import type { PaginatedResponse } from "#/lib/api/pagination.ts";
+import { cn } from "#/lib/utils.ts";
 
 type TableSkeletonColumn = {
   cellClassName?: string;
@@ -21,6 +22,7 @@ type InfiniteTableShellProps<T> = {
   emptyTitle: string;
   loading: React.ReactNode;
   children: (items: T[]) => React.ReactNode;
+  className?: string;
 };
 
 export function InfiniteTableShell<T>({
@@ -28,14 +30,15 @@ export function InfiniteTableShell<T>({
   emptyTitle,
   loading,
   children,
+  className,
 }: InfiniteTableShellProps<T>) {
   if (query.isLoading) {
-    return <TableScrollArea>{loading}</TableScrollArea>;
+    return <TableScrollArea className={className}>{loading}</TableScrollArea>;
   }
 
   if (query.isError) {
     return (
-      <TableScrollArea>
+      <TableScrollArea className={className}>
         <div className="min-w-full">
           <Alert variant="destructive">
             <AlertDescription>Failed to load data</AlertDescription>
@@ -49,7 +52,7 @@ export function InfiniteTableShell<T>({
 
   if (items.length === 0) {
     return (
-      <TableScrollArea>
+      <TableScrollArea className={className}>
         <div className="flex h-full min-h-full min-w-full flex-1">
           <Empty className="min-h-full border">
             <EmptyHeader>
@@ -65,7 +68,7 @@ export function InfiniteTableShell<T>({
   }
 
   return (
-    <TableScrollArea>
+    <TableScrollArea className={className}>
       {children(items)}
       {query.hasNextPage ? (
         <div className="flex justify-center pt-1">
@@ -84,7 +87,13 @@ export function InfiniteTableShell<T>({
   );
 }
 
-function TableScrollArea({ children }: { children: React.ReactNode }) {
+function TableScrollArea({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -125,7 +134,10 @@ function TableScrollArea({ children }: { children: React.ReactNode }) {
       data-can-scroll-top="false"
       data-can-scroll-left="false"
       data-can-scroll-right="false"
-      className="relative flex h-full min-h-0 min-w-0 flex-1 [--table-scroll-padding-inline:0.75rem]"
+      className={cn(
+        "relative flex h-full min-h-0 min-w-0 flex-1 [--table-scroll-padding-inline:0.75rem]",
+        className,
+      )}
     >
       <ScrollArea
         data-table-scroll

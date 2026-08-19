@@ -18,9 +18,13 @@ import {
   sessionsPageSchema,
   snapshotMutationResponseSchema,
   snapshotsPageSchema,
+  tenantMembershipSchema,
+  tenantMembershipsSchema,
   tenantSchema,
   tenantsPageSchema,
   tokensPageSchema,
+  userSchema,
+  usersPageSchema,
 } from "#/lib/api/schemas.ts";
 import type { AuthorityType, TokenProfile } from "#/stores/token-vault.ts";
 
@@ -254,6 +258,13 @@ export type TenantsListParams = {
   deleted?: "active" | "deleted" | "all";
 };
 
+export type UsersListParams = {
+  limit?: number;
+  cursor?: string;
+  query?: string;
+  disabled?: "active" | "disabled" | "all";
+};
+
 export type TokensListParams = {
   limit?: number;
   cursor?: string;
@@ -310,6 +321,12 @@ export type CreateTenantTokenInput = {
   name: string;
   scopes: string[];
   expiresAt?: string | null;
+};
+
+export type UserInput = {
+  email: string | null;
+  displayName: string;
+  isSystemAdmin: boolean;
 };
 
 export const apiClient = {
@@ -404,6 +421,97 @@ export const apiClient = {
       method: "POST",
       path: `/api/admin/tenants/${tenantId}/restore`,
       schema: tenantSchema,
+      credentials,
+    });
+  },
+
+  listUsers(credentials: ApiCredentials, params: UsersListParams = {}) {
+    return request({
+      path: "/api/admin/users",
+      schema: usersPageSchema,
+      credentials,
+      query: {
+        limit: params.limit,
+        cursor: params.cursor,
+        query: params.query,
+        disabled: params.disabled,
+      },
+    });
+  },
+
+  createUser(credentials: ApiCredentials, input: UserInput) {
+    return request({
+      method: "POST",
+      path: "/api/admin/users",
+      schema: userSchema,
+      credentials,
+      body: input,
+    });
+  },
+
+  getUser(credentials: ApiCredentials, userId: string) {
+    return request({
+      path: `/api/admin/users/${encodeURIComponent(userId)}`,
+      schema: userSchema,
+      credentials,
+    });
+  },
+
+  updateUser(credentials: ApiCredentials, userId: string, input: UserInput) {
+    return request({
+      method: "PATCH",
+      path: `/api/admin/users/${encodeURIComponent(userId)}`,
+      schema: userSchema,
+      credentials,
+      body: input,
+    });
+  },
+
+  disableUser(credentials: ApiCredentials, userId: string) {
+    return request({
+      method: "DELETE",
+      path: `/api/admin/users/${encodeURIComponent(userId)}`,
+      schema: userSchema,
+      credentials,
+    });
+  },
+
+  restoreUser(credentials: ApiCredentials, userId: string) {
+    return request({
+      method: "POST",
+      path: `/api/admin/users/${encodeURIComponent(userId)}/restore`,
+      schema: userSchema,
+      credentials,
+    });
+  },
+
+  listUserMemberships(credentials: ApiCredentials, userId: string) {
+    return request({
+      path: `/api/admin/users/${encodeURIComponent(userId)}/memberships`,
+      schema: tenantMembershipsSchema,
+      credentials,
+    });
+  },
+
+  upsertTenantMembership(
+    credentials: ApiCredentials,
+    tenantId: string,
+    userId: string,
+    scopes: string[],
+  ) {
+    return request({
+      method: "PUT",
+      path: `/api/admin/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(userId)}`,
+      schema: tenantMembershipSchema,
+      credentials,
+      body: { scopes },
+    });
+  },
+
+  deleteTenantMembership(credentials: ApiCredentials, tenantId: string, userId: string) {
+    return requestVoid({
+      method: "DELETE",
+      path: `/api/admin/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(userId)}`,
       credentials,
     });
   },

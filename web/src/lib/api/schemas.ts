@@ -20,6 +20,24 @@ export const tenantSchema = z.object({
   deletedAt: z.string().nullable(),
 });
 
+export const userSchema = z.object({
+  id: z.string(),
+  email: z.string().nullable(),
+  displayName: z.string(),
+  isSystemAdmin: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  disabledAt: z.string().nullable(),
+});
+
+export const tenantMembershipSchema = z.object({
+  tenantId: z.string(),
+  userId: z.string(),
+  scopes: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 export const principalSchema = z.object({
   tokenId: z.string(),
   name: z.string(),
@@ -146,6 +164,8 @@ export const tokenSchema = z.object({
 });
 
 export const tenantsPageSchema = paginatedSchema(tenantSchema);
+export const usersPageSchema = paginatedSchema(userSchema);
+export const tenantMembershipsSchema = z.array(tenantMembershipSchema);
 export const sessionsPageSchema = paginatedSchema(sessionSchema);
 export const sessionsBulkResponseSchema = z.object({
   sessions: z.array(sessionSchema),
@@ -201,6 +221,8 @@ export const createTokenResponseSchema = z.object({
 
 export type PageMeta = z.infer<typeof pageMetaSchema>;
 export type Tenant = z.infer<typeof tenantSchema>;
+export type User = z.infer<typeof userSchema>;
+export type TenantMembership = z.infer<typeof tenantMembershipSchema>;
 export type AuthMeResponse = z.infer<typeof authMeSchema>;
 export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
@@ -212,6 +234,7 @@ export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export type ApiToken = z.infer<typeof tokenSchema>;
 export type TenantsPage = z.infer<typeof tenantsPageSchema>;
+export type UsersPage = z.infer<typeof usersPageSchema>;
 export type SessionsPage = z.infer<typeof sessionsPageSchema>;
 export type SessionsBulkResponse = z.infer<typeof sessionsBulkResponseSchema>;
 export type SnapshotsPage = z.infer<typeof snapshotsPageSchema>;

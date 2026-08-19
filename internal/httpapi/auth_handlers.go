@@ -9,7 +9,11 @@ import (
 
 func toPrincipalResponse(principal auth.Principal) principalResponse {
 	return principalResponse{
+		Type:          principal.Type,
+		ID:            principal.ID,
+		AuthMethod:    principal.AuthMethod,
 		TokenID:       principal.TokenID,
+		UserID:        principal.UserID,
 		Name:          principal.Name,
 		AuthorityType: principal.AuthorityType,
 		TenantID:      principal.TenantID,
