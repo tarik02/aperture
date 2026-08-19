@@ -13,12 +13,16 @@ export async function fetchAuthMe(
           authorityType: null,
           tenantId: null,
           selectedTenantId: selectedTenantId ?? null,
+          resourceMode: "all",
+          resourceGrants: [],
         }
       : {
           credentialType: "web_session",
           authorityType: null,
           tenantId: null,
           selectedTenantId: selectedTenantId ?? null,
+          resourceMode: "all",
+          resourceGrants: [],
         },
   );
 }

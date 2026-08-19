@@ -27,6 +27,7 @@ import {
   userSchema,
   usersPageSchema,
 } from "#/lib/api/schemas.ts";
+import type { ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
 import type { AuthorityType, TokenProfile } from "#/stores/token-vault.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
@@ -35,6 +36,8 @@ type CredentialContext = {
   authorityType: AuthorityType | null;
   tenantId: string | null;
   selectedTenantId: string | null;
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
 };
 
 export type ApiCredentials =
@@ -57,6 +60,8 @@ export function credentialsFromProfile(profile: TokenProfile): ApiCredentials {
       authorityType: profile.authorityType,
       tenantId: profile.tenantId,
       selectedTenantId: profile.selectedTenantId,
+      resourceMode: profile.resourceMode,
+      resourceGrants: profile.resourceGrants,
     };
   }
 
@@ -66,6 +71,8 @@ export function credentialsFromProfile(profile: TokenProfile): ApiCredentials {
     authorityType: profile.authorityType,
     tenantId: profile.tenantId,
     selectedTenantId: profile.selectedTenantId,
+    resourceMode: profile.resourceMode,
+    resourceGrants: profile.resourceGrants,
   };
 }
 
@@ -337,12 +344,16 @@ export type CreateAdminTokenInput = {
   authorityType: "system_admin" | "tenant";
   tenantId?: string | null;
   scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
   expiresAt?: string | null;
 };
 
 export type CreateTenantTokenInput = {
   name: string;
   scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
   expiresAt?: string | null;
 };
 
@@ -848,6 +859,8 @@ export const apiClient = {
         authorityType: input.authorityType,
         tenantId: input.tenantId ?? null,
         scopes: input.scopes,
+        resourceMode: input.authorityType === "system_admin" ? "all" : input.resourceMode,
+        resourceGrants: input.authorityType === "system_admin" ? [] : input.resourceGrants,
         expiresAt: input.expiresAt ?? null,
       },
     });
@@ -862,6 +875,8 @@ export const apiClient = {
       body: {
         name: input.name,
         scopes: input.scopes,
+        resourceMode: input.resourceMode,
+        resourceGrants: input.resourceGrants,
         expiresAt: input.expiresAt ?? null,
       },
     });

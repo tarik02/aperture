@@ -19,11 +19,12 @@ func (s *Service) AuthenticateUser(ctx context.Context, userID, selectedTenantID
 	}
 
 	principal := Principal{
-		Type:       PrincipalTypeUser,
-		ID:         user.ID,
-		AuthMethod: authMethod,
-		UserID:     &user.ID,
-		Name:       user.DisplayName,
+		Type:         PrincipalTypeUser,
+		ID:           user.ID,
+		AuthMethod:   authMethod,
+		UserID:       &user.ID,
+		Name:         user.DisplayName,
+		ResourceMode: ResourceModeAll,
 	}
 	if user.IsSystemAdmin {
 		principal.AuthorityType = AuthoritySystemAdmin

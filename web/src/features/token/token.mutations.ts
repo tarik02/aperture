@@ -8,6 +8,10 @@ import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
+export type CreateTokenMutationInput =
+  | { kind: "admin"; input: CreateAdminTokenInput }
+  | { kind: "tenant"; input: CreateTenantTokenInput };
+
 function useInvalidateTokens() {
   const queryClient = useQueryClient();
   const activeProfile = useTokenVaultStore(selectActiveProfile);
@@ -23,11 +27,17 @@ export function useCreateTokenMutation() {
   const invalidate = useInvalidateTokens();
 
   return useMutation({
-    mutationFn: (input: CreateAdminTokenInput | CreateTenantTokenInput) => {
-      if (credentials!.authorityType === "system_admin") {
-        return apiClient.createAdminToken(credentials!, input as CreateAdminTokenInput);
+    mutationFn: (request: CreateTokenMutationInput) => {
+      switch (request.kind) {
+        case "admin":
+          return apiClient.createAdminToken(credentials!, request.input);
+        case "tenant":
+          return apiClient.createTenantToken(credentials!, request.input);
+        default: {
+          const exhaustive: never = request;
+          return exhaustive;
+        }
       }
-      return apiClient.createTenantToken(credentials!, input as CreateTenantTokenInput);
     },
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Create failed"),

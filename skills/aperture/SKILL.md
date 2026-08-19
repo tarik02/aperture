@@ -48,7 +48,9 @@ Creating a session from a snapshot also requires `snapshots:read`. Promoting a s
 
 API tokens use `apt_<tokenId>_<secret>`. The `sessionToken` uses `aps_<sessionId>_<secret>` and is bound to exactly one session. It authorizes that session's routed live endpoints through forward auth, including CDP, WebRTC signaling, and per-session MCP. It does not authorize `/api/*` or central MCP.
 
-Authenticated API and MCP token creation delegates the caller's authority. A child cannot add scopes, cross a tenant boundary, or outlive an expiring parent token. Token metadata identifies the creating principal in `createdByType` and `createdById`; `parentTokenId` identifies the API token used for delegation.
+Authenticated API and MCP token creation delegates the caller's authority. A child cannot add scopes, cross a tenant boundary, or outlive an expiring parent token. A resource-restricted parent can create only another `allowlist` token whose grants are a subset of its own. Token metadata identifies the creating principal in `createdByType` and `createdById`; `parentTokenId` identifies the API token used for delegation.
+
+Tenant API tokens support `resourceMode: "all"` or `resourceMode: "allowlist"`. Allowlist grants use `{ "resourceType": "session" | "snapshot", "resourceId": "<UUIDv7>" }`. Authorization requires the tenant boundary, action scope, and matching resource grant. System-admin tokens cannot use allowlists. Restricted session, snapshot, bulk, and event lists filter ungranted rows before pagination; direct access returns `resource_access_denied`. `GET /api/tenant` remains available, but restricted tokens cannot mutate the tenant.
 
 ## Response Conventions
 
@@ -125,6 +127,10 @@ Admin token creation body:
   "authorityType": "tenant",
   "tenantId": "required for tenant authority",
   "scopes": ["sessions:read", "sessions:write"],
+  "resourceMode": "allowlist",
+  "resourceGrants": [
+    { "resourceType": "session", "resourceId": "01900000-0000-7000-8000-000000000001" }
+  ],
   "expiresAt": "optional RFC3339Nano timestamp"
 }
 ```
@@ -135,6 +141,8 @@ Tenant-local token creation omits `authorityType` and `tenantId`:
 {
   "name": "agent",
   "scopes": ["sessions:read"],
+  "resourceMode": "all",
+  "resourceGrants": [],
   "expiresAt": null
 }
 ```
@@ -153,6 +161,8 @@ Aperture exposes Streamable HTTP MCP when `mcp_enabled` is true (the default):
 Both endpoints use `Authorization: Bearer ...`. Central MCP accepts Aperture API tokens only. Session-bound MCP accepts either an authorized API token or that session's `sessionToken`.
 
 Central tools take `tenantId` or `sessionId` where required and expose management, session, snapshot, event, and session-file workflows. Session-bound MCP binds the session from the URL and omits `sessionId` from tool inputs. A session token can use only tools for its bound session.
+
+Central and session-bound MCP apply API token resource grants before native or agent-browser tools reach a session or snapshot. `tokens.create` accepts `resourceMode` and `resourceGrants` with the same rules as the REST API.
 
 Agent-browser tools are selected when the MCP connection is established with the `agentBrowserTools` query parameter:
 
@@ -212,6 +222,8 @@ Create request:
 ```
 
 `browser.channel` is required. Use `GET /api/browser/channels` rather than assuming a channel name.
+
+A restricted token may create a blank session or use a granted base snapshot. New sessions and promoted snapshots do not extend its allowlist automatically. The returned `sessionToken` still authorizes the new session. Force promotion may replace an existing deleted snapshot tombstone only when that snapshot is granted.
 
 Create returns `201`:
 

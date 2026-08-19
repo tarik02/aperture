@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/session"
@@ -102,10 +103,12 @@ func (s *Server) listSessions(c *gin.Context) {
 		return
 	}
 
+	principal := c.MustGet("principal").(auth.Principal)
 	page, err := s.Sessions.List(c.Request.Context(), tenantIDFromContext(c), session.ListFilter{
 		IncludeDeleted: parseIncludeDeleted(c),
 		Status:         status,
 		Tags:           tagFilters,
+		Resources:      resourceIDFilter(principal, auth.ResourceTypeSession),
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))
@@ -131,7 +134,8 @@ func (s *Server) getSessionsBulk(c *gin.Context) {
 		return
 	}
 
-	views, err := s.Sessions.GetByIDs(c.Request.Context(), tenantIDFromContext(c), req.IDs)
+	principal := c.MustGet("principal").(auth.Principal)
+	views, err := s.Sessions.GetByIDs(c.Request.Context(), tenantIDFromContext(c), req.IDs, resourceIDFilter(principal, auth.ResourceTypeSession))
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -168,11 +172,13 @@ func (s *Server) listSnapshots(c *gin.Context) {
 		return
 	}
 
+	principal := c.MustGet("principal").(auth.Principal)
 	page, err := s.Snapshots.List(c.Request.Context(), tenantIDFromContext(c), snapshot.ListFilter{
 		IncludeDeleted: includeDeleted,
 		DeletedOnly:    deletedOnly,
 		Name:           strings.TrimSpace(c.Query("name")),
 		Tags:           tagFilters,
+		Resources:      resourceIDFilter(principal, auth.ResourceTypeSnapshot),
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))
@@ -198,9 +204,13 @@ func (s *Server) listEvents(c *gin.Context) {
 		return
 	}
 
+	principal := c.MustGet("principal").(auth.Principal)
+	resources, restricted := eventResourceFilter(principal)
 	page, err := s.Events.List(c.Request.Context(), tenantIDFromContext(c), event.ListFilter{
 		ResourceType: parseOptionalQuery(c, "resourceType"),
 		ResourceID:   parseOptionalQuery(c, "resourceId"),
+		Resources:    resources,
+		Restricted:   restricted,
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))

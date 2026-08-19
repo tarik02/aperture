@@ -68,6 +68,9 @@ func (s *Server) mcpSnapshotUpdate(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
+	if err := s.Auth.AuthorizeSnapshotName(ctx, *a.principal, tenantID, in.Name); err != nil {
+		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", err)
+	}
 	view, err := s.Snapshots.UpdateDescription(ctx, tenantID, in.Name, in.Description)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, mcpToolError("snapshot_unavailable", err)
@@ -86,6 +89,9 @@ func (s *Server) mcpSnapshotDelete(ctx context.Context, _ *mcp.CallToolRequest, 
 	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
+	}
+	if err := s.Auth.AuthorizeSnapshotName(ctx, *a.principal, tenantID, in.Name); err != nil {
+		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", err)
 	}
 	view, err := s.Snapshots.Delete(ctx, tenantID, in.Name)
 	if err != nil {
@@ -109,6 +115,9 @@ func (s *Server) mcpSnapshotReplaceTags(ctx context.Context, _ *mcp.CallToolRequ
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
+	if err := s.Auth.AuthorizeSnapshotName(ctx, *a.principal, tenantID, in.Name); err != nil {
+		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", err)
+	}
 	view, err := s.Snapshots.ReplaceTags(ctx, tenantID, in.Name, in.Tags)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, mcpToolError("snapshot_unavailable", err)
@@ -127,6 +136,9 @@ func (s *Server) mcpSnapshotRestore(ctx context.Context, _ *mcp.CallToolRequest,
 	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
+	}
+	if err := s.Auth.AuthorizeSnapshotName(ctx, *a.principal, tenantID, in.Name); err != nil {
+		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", err)
 	}
 	view, err := s.Snapshots.Restore(ctx, tenantID, in.Name)
 	if err != nil {
@@ -190,7 +202,7 @@ func (s *Server) mcpTenantUpdate(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpTenantOutput{}, err
 	}
-	if a.principal == nil || a.principal.AuthorityType != auth.AuthorityTenant || a.principal.TenantID == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) {
+	if a.principal == nil || a.principal.AuthorityType != auth.AuthorityTenant || a.principal.TenantID == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) || auth.IsResourceRestricted(*a.principal) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
 	tenant, err := s.Auth.UpdateTenant(ctx, *a.principal.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})

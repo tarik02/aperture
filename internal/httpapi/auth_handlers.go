@@ -12,16 +12,22 @@ func toPrincipalResponse(principal auth.Principal) principalResponse {
 	if principal.TokenID != "" {
 		tokenID = &principal.TokenID
 	}
+	resourceGrants := make([]resourceGrantResponse, 0, len(principal.ResourceGrants))
+	for _, grant := range principal.ResourceGrants {
+		resourceGrants = append(resourceGrants, resourceGrantResponse{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
 	return principalResponse{
-		Type:          principal.Type,
-		ID:            principal.ID,
-		AuthMethod:    principal.AuthMethod,
-		TokenID:       tokenID,
-		UserID:        principal.UserID,
-		Name:          principal.Name,
-		AuthorityType: principal.AuthorityType,
-		TenantID:      principal.TenantID,
-		Scopes:        principal.Scopes,
+		Type:           principal.Type,
+		ID:             principal.ID,
+		AuthMethod:     principal.AuthMethod,
+		TokenID:        tokenID,
+		UserID:         principal.UserID,
+		Name:           principal.Name,
+		AuthorityType:  principal.AuthorityType,
+		TenantID:       principal.TenantID,
+		Scopes:         principal.Scopes,
+		ResourceMode:   principal.ResourceMode,
+		ResourceGrants: resourceGrants,
 	}
 }
 

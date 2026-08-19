@@ -42,9 +42,11 @@ func (r updateTenantRequest) Validate() error {
 }
 
 type createTenantLocalTokenRequest struct {
-	Name      string   `json:"name"`
-	Scopes    []string `json:"scopes"`
-	ExpiresAt *string  `json:"expiresAt"`
+	Name           string                 `json:"name"`
+	Scopes         []string               `json:"scopes"`
+	ResourceMode   string                 `json:"resourceMode"`
+	ResourceGrants []resourceGrantRequest `json:"resourceGrants"`
+	ExpiresAt      *string                `json:"expiresAt"`
 }
 
 func (r createTenantLocalTokenRequest) Validate() error {
@@ -53,6 +55,9 @@ func (r createTenantLocalTokenRequest) Validate() error {
 	}
 	if len(r.Scopes) == 0 {
 		return validationError("scopes is required")
+	}
+	if err := validateTokenResourceScope(r.ResourceMode, r.ResourceGrants, authAuthorityTenant); err != nil {
+		return err
 	}
 	if r.ExpiresAt != nil && strings.TrimSpace(*r.ExpiresAt) != "" {
 		if _, err := time.Parse(time.RFC3339Nano, *r.ExpiresAt); err != nil {
@@ -63,11 +68,13 @@ func (r createTenantLocalTokenRequest) Validate() error {
 }
 
 type createTokenRequest struct {
-	Name          string   `json:"name"`
-	AuthorityType string   `json:"authorityType"`
-	TenantID      *string  `json:"tenantId"`
-	Scopes        []string `json:"scopes"`
-	ExpiresAt     *string  `json:"expiresAt"`
+	Name           string                 `json:"name"`
+	AuthorityType  string                 `json:"authorityType"`
+	TenantID       *string                `json:"tenantId"`
+	Scopes         []string               `json:"scopes"`
+	ResourceMode   string                 `json:"resourceMode"`
+	ResourceGrants []resourceGrantRequest `json:"resourceGrants"`
+	ExpiresAt      *string                `json:"expiresAt"`
 }
 
 func (r createTokenRequest) Validate() error {
@@ -83,10 +90,45 @@ func (r createTokenRequest) Validate() error {
 	if r.AuthorityType == authAuthorityTenant && (r.TenantID == nil || strings.TrimSpace(*r.TenantID) == "") {
 		return validationError("tenantId is required for tenant tokens")
 	}
+	if err := validateTokenResourceScope(r.ResourceMode, r.ResourceGrants, r.AuthorityType); err != nil {
+		return err
+	}
 	if r.ExpiresAt != nil && strings.TrimSpace(*r.ExpiresAt) != "" {
 		if _, err := time.Parse(time.RFC3339Nano, *r.ExpiresAt); err != nil {
 			return validationError("expiresAt must be RFC3339Nano")
 		}
+	}
+	return nil
+}
+
+type resourceGrantRequest struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
+}
+
+func validateTokenResourceScope(mode string, grants []resourceGrantRequest, authorityType string) error {
+	if mode == "" || mode == "all" {
+		if len(grants) != 0 {
+			return validationError("resourceGrants requires allowlist resourceMode")
+		}
+		return nil
+	}
+	if mode != "allowlist" || authorityType != authAuthorityTenant {
+		return validationError("invalid resourceMode")
+	}
+	seen := make(map[string]struct{}, len(grants))
+	for _, grant := range grants {
+		if grant.ResourceType != "session" && grant.ResourceType != "snapshot" {
+			return validationError("resourceType must be session or snapshot")
+		}
+		if err := ids.ValidateUUIDv7(grant.ResourceID); err != nil {
+			return validationError("resourceId must be UUIDv7")
+		}
+		key := grant.ResourceType + "\x00" + grant.ResourceID
+		if _, ok := seen[key]; ok {
+			return validationError("resource grants must be unique")
+		}
+		seen[key] = struct{}{}
 	}
 	return nil
 }
@@ -99,15 +141,17 @@ type tenantResponse struct {
 }
 
 type principalResponse struct {
-	Type          string   `json:"type"`
-	ID            string   `json:"id"`
-	AuthMethod    string   `json:"authMethod"`
-	TokenID       *string  `json:"tokenId"`
-	UserID        *string  `json:"userId,omitempty"`
-	Name          string   `json:"name"`
-	AuthorityType string   `json:"authorityType"`
-	TenantID      *string  `json:"tenantId"`
-	Scopes        []string `json:"scopes"`
+	Type           string                  `json:"type"`
+	ID             string                  `json:"id"`
+	AuthMethod     string                  `json:"authMethod"`
+	TokenID        *string                 `json:"tokenId"`
+	UserID         *string                 `json:"userId,omitempty"`
+	Name           string                  `json:"name"`
+	AuthorityType  string                  `json:"authorityType"`
+	TenantID       *string                 `json:"tenantId"`
+	Scopes         []string                `json:"scopes"`
+	ResourceMode   string                  `json:"resourceMode"`
+	ResourceGrants []resourceGrantResponse `json:"resourceGrants"`
 }
 
 type authMeResponse struct {
@@ -208,17 +252,24 @@ type browserChannelsResponse struct {
 }
 
 type tokenResponse struct {
-	ID            string   `json:"id"`
-	AuthorityType string   `json:"authorityType"`
-	TenantID      *string  `json:"tenantId"`
-	Name          string   `json:"name"`
-	Scopes        []string `json:"scopes"`
-	CreatedAt     string   `json:"createdAt"`
-	CreatedByType string   `json:"createdByType"`
-	CreatedByID   *string  `json:"createdById"`
-	ParentTokenID *string  `json:"parentTokenId"`
-	ExpiresAt     *string  `json:"expiresAt"`
-	RevokedAt     *string  `json:"revokedAt"`
+	ID             string                  `json:"id"`
+	AuthorityType  string                  `json:"authorityType"`
+	TenantID       *string                 `json:"tenantId"`
+	Name           string                  `json:"name"`
+	Scopes         []string                `json:"scopes"`
+	CreatedAt      string                  `json:"createdAt"`
+	CreatedByType  string                  `json:"createdByType"`
+	CreatedByID    *string                 `json:"createdById"`
+	ParentTokenID  *string                 `json:"parentTokenId"`
+	ResourceMode   string                  `json:"resourceMode"`
+	ResourceGrants []resourceGrantResponse `json:"resourceGrants"`
+	ExpiresAt      *string                 `json:"expiresAt"`
+	RevokedAt      *string                 `json:"revokedAt"`
+}
+
+type resourceGrantResponse struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
 }
 
 type createTokenResponse struct {

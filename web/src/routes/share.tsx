@@ -85,6 +85,8 @@ function ShareRoute() {
             authorityType: null,
             tenantId: null,
             selectedTenantId: null,
+            resourceMode: "all",
+            resourceGrants: [],
           }
         : null,
     [capability],
