@@ -5,24 +5,35 @@ import (
 	"net/url"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/config"
 	"github.com/gin-gonic/gin"
 )
 
-func (s *Server) listOIDCProviders(c *gin.Context) {
-	if s.WebAuth == nil {
-		c.JSON(http.StatusOK, oidcProvidersResponse{Providers: []oidcProviderResponse{}})
-		return
+func (s *Server) listLoginMethods(c *gin.Context) {
+	response := make([]loginMethodResponse, 0, len(s.Config.LoginMethods))
+	for _, method := range s.Config.LoginMethods {
+		switch method {
+		case config.LoginMethodAPIToken:
+			response = append(response, loginMethodResponse{Type: method})
+		case config.LoginMethodPassword, config.LoginMethodPasskey:
+			if s.WebAuth != nil {
+				response = append(response, loginMethodResponse{Type: method})
+			}
+		case config.LoginMethodOIDC:
+			if s.WebAuth == nil {
+				continue
+			}
+			for _, provider := range s.WebAuth.Providers() {
+				response = append(response, loginMethodResponse{
+					Type:     method,
+					ID:       provider.ID,
+					Name:     provider.DisplayName,
+					LoginURL: "/auth/oidc/" + url.PathEscape(provider.ID) + "/login",
+				})
+			}
+		}
 	}
-	providers := s.WebAuth.Providers()
-	response := make([]oidcProviderResponse, 0, len(providers))
-	for _, provider := range providers {
-		response = append(response, oidcProviderResponse{
-			ID:       provider.ID,
-			Name:     provider.DisplayName,
-			LoginURL: "/auth/oidc/" + url.PathEscape(provider.ID) + "/login",
-		})
-	}
-	c.JSON(http.StatusOK, oidcProvidersResponse{Providers: response})
+	c.JSON(http.StatusOK, loginMethodsResponse{Methods: response})
 }
 
 func (s *Server) beginOIDC(c *gin.Context) {

@@ -4,6 +4,7 @@ export const queryKeys = {
   apiHealth: ["api-health"] as const,
   authMe: (profileId: string, tenantId: string | null) => ["auth-me", profileId, tenantId] as const,
   passkeys: (profileId: string) => ["passkeys", profileId] as const,
+  securityStatus: (profileId: string) => ["security-status", profileId] as const,
   browserChannels: (profileId: string, tenantId: string | null) =>
     ["browser-channels", profileId, tenantId] as const,
   browserStatus: (sessionId: string, revision: number) =>

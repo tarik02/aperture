@@ -6,6 +6,7 @@ import {
   KeyRound,
   LogOut,
   Plus,
+  ShieldCheck,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -31,6 +32,7 @@ import { useTokenFormStore } from "#/features/token/form/token-form.store.ts";
 import { cn } from "#/lib/utils.ts";
 import { apiClient } from "#/lib/api/client.ts";
 import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
+import { SecurityModal } from "#/features/security/security-modal.tsx";
 
 type TokenSwitcherProps = {
   className?: string;
@@ -49,6 +51,7 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
   const [removeProfileOpen, setRemoveProfileOpen] = useState(false);
   const [removingProfile, setRemovingProfile] = useState(false);
   const [passkeysOpen, setPasskeysOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const removeProfileTarget = profiles.find((profile) => profile.id === removeProfileId) ?? null;
 
   function handleSwitch(profileId: string) {
@@ -142,10 +145,16 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
             Add token
           </DropdownMenuItem>
           {activeProfile?.credentialType === "web_session" ? (
-            <DropdownMenuItem onClick={() => setPasskeysOpen(true)}>
-              <Fingerprint />
-              Passkeys
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem onClick={() => setSecurityOpen(true)}>
+                <ShieldCheck />
+                Security
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPasskeysOpen(true)}>
+                <Fingerprint />
+                Passkeys
+              </DropdownMenuItem>
+            </>
           ) : null}
           {activeProfile ? (
             <DropdownMenuItem
@@ -161,11 +170,18 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
 
       <TokenAuthModal />
       {activeProfile?.credentialType === "web_session" ? (
-        <PasskeyModal
-          profileId={activeProfile.id}
-          open={passkeysOpen}
-          onOpenChange={setPasskeysOpen}
-        />
+        <>
+          <SecurityModal
+            profileId={activeProfile.id}
+            open={securityOpen}
+            onOpenChange={setSecurityOpen}
+          />
+          <PasskeyModal
+            profileId={activeProfile.id}
+            open={passkeysOpen}
+            onOpenChange={setPasskeysOpen}
+          />
+        </>
       ) : null}
       {removeProfileTarget ? (
         <ConfirmDialog

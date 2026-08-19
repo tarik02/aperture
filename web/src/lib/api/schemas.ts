@@ -63,6 +63,14 @@ export const userSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   disabledAt: z.string().nullable(),
+  passwordSetupStatus: z
+    .enum(["available", "configured", "email_required", "user_disabled", "login_disabled"])
+    .optional(),
+});
+
+export const userInvitationSchema = z.object({
+  token: z.string(),
+  expiresAt: z.string(),
 });
 
 export const tenantMembershipSchema = z.object({
@@ -76,7 +84,7 @@ export const tenantMembershipSchema = z.object({
 export const principalSchema = z.object({
   type: z.enum(["api_token", "user", "system"]),
   id: z.string(),
-  authMethod: z.enum(["api_token", "oidc", "passkey"]),
+  authMethod: z.enum(["api_token", "oidc", "passkey", "password"]),
   tokenId: z.string().nullable(),
   userId: z.string().nullable().optional(),
   name: z.string(),
@@ -93,13 +101,19 @@ export const authMeSchema = z.object({
   availableTenants: z.array(tenantSchema),
 });
 
-export const oidcProvidersSchema = z.object({
-  providers: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      loginUrl: z.string(),
-    }),
+export const loginMethodsSchema = z.object({
+  methods: z.array(
+    z.discriminatedUnion("type", [
+      z.object({ type: z.literal("password") }),
+      z.object({ type: z.literal("api_token") }),
+      z.object({ type: z.literal("passkey") }),
+      z.object({
+        type: z.literal("oidc"),
+        id: z.string(),
+        name: z.string(),
+        loginUrl: z.string(),
+      }),
+    ]),
   ),
 });
 
@@ -178,6 +192,26 @@ export const passkeysSchema = z.object({
 
 export const passkeyMutationSchema = z.object({
   passkey: passkeySchema,
+});
+
+export const passwordLoginResponseSchema = z.object({
+  mfaRequired: z.boolean(),
+});
+
+export const securityStatusSchema = z.object({
+  hasPassword: z.boolean(),
+  totpEnabled: z.boolean(),
+  recoveryCodesRemaining: z.number().int().nonnegative(),
+});
+
+export const totpEnrollmentSchema = z.object({
+  secret: z.string(),
+  otpauthUrl: z.string(),
+  qrCodeDataUrl: z.string(),
+});
+
+export const recoveryCodesSchema = z.object({
+  recoveryCodes: z.array(z.string()),
 });
 
 export const healthSchema = z.object({
@@ -356,16 +390,19 @@ export const createTokenResponseSchema = z.object({
 export type PageMeta = z.infer<typeof pageMetaSchema>;
 export type Tenant = z.infer<typeof tenantSchema>;
 export type User = z.infer<typeof userSchema>;
+export type UserInvitation = z.infer<typeof userInvitationSchema>;
 export type TenantMembership = z.infer<typeof tenantMembershipSchema>;
 export type AuthMeResponse = z.infer<typeof authMeSchema>;
 export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
 export type ResourceMode = z.infer<typeof resourceModeSchema>;
 export type ResourceGrant = z.infer<typeof resourceGrantSchema>;
-export type OIDCProviders = z.infer<typeof oidcProvidersSchema>;
+export type LoginMethods = z.infer<typeof loginMethodsSchema>;
 export type PasskeyLoginOptions = z.infer<typeof passkeyLoginOptionsSchema>;
 export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
 export type Passkey = z.infer<typeof passkeySchema>;
+export type SecurityStatus = z.infer<typeof securityStatusSchema>;
+export type TOTPEnrollment = z.infer<typeof totpEnrollmentSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;

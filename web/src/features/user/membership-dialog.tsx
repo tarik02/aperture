@@ -32,6 +32,7 @@ type MembershipDialogProps = {
   tenantLabel?: string | null;
   existingTenantIds: string[];
   onOpenChange: (open: boolean) => void;
+  onOpenChangeComplete: (open: boolean) => void;
 };
 
 export function MembershipDialog({
@@ -41,6 +42,7 @@ export function MembershipDialog({
   tenantLabel = null,
   existingTenantIds,
   onOpenChange,
+  onOpenChangeComplete,
 }: MembershipDialogProps) {
   const mutation = useUpsertTenantMembershipMutation();
   const [tenantId, setTenantId] = useState<string | null>(null);
@@ -81,7 +83,7 @@ export function MembershipDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
       <DialogContent className="sm:max-w-md">
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader>

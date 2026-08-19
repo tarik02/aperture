@@ -160,20 +160,26 @@ type authMeResponse struct {
 	AvailableTenants []tenantResponse  `json:"availableTenants"`
 }
 
-type oidcProviderResponse struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	LoginURL string `json:"loginUrl"`
+type loginMethodResponse struct {
+	Type     string `json:"type"`
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	LoginURL string `json:"loginUrl,omitempty"`
 }
 
-type oidcProvidersResponse struct {
-	Providers []oidcProviderResponse `json:"providers"`
+type loginMethodsResponse struct {
+	Methods []loginMethodResponse `json:"methods"`
 }
 
 type createUserRequest struct {
 	Email         *string `json:"email"`
 	DisplayName   string  `json:"displayName"`
 	IsSystemAdmin *bool   `json:"isSystemAdmin"`
+}
+
+type userInvitationResponse struct {
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expiresAt"`
 }
 
 func (r createUserRequest) Validate() error {
@@ -195,13 +201,14 @@ func (r createUserRequest) Validate() error {
 type updateUserRequest = createUserRequest
 
 type userResponse struct {
-	ID            string  `json:"id"`
-	Email         *string `json:"email"`
-	DisplayName   string  `json:"displayName"`
-	IsSystemAdmin bool    `json:"isSystemAdmin"`
-	CreatedAt     string  `json:"createdAt"`
-	UpdatedAt     string  `json:"updatedAt"`
-	DisabledAt    *string `json:"disabledAt"`
+	ID                  string  `json:"id"`
+	Email               *string `json:"email"`
+	DisplayName         string  `json:"displayName"`
+	IsSystemAdmin       bool    `json:"isSystemAdmin"`
+	CreatedAt           string  `json:"createdAt"`
+	UpdatedAt           string  `json:"updatedAt"`
+	DisabledAt          *string `json:"disabledAt"`
+	PasswordSetupStatus *string `json:"passwordSetupStatus,omitempty"`
 }
 
 type upsertTenantMembershipRequest struct {

@@ -10,14 +10,17 @@ import {
   createTokenResponseSchema,
   eventsPageSchema,
   healthSchema,
-  oidcProvidersSchema,
+  loginMethodsSchema,
   passkeyLoginOptionsSchema,
   passkeyMutationSchema,
   passkeyRegistrationOptionsSchema,
   passkeysSchema,
+  passwordLoginResponseSchema,
   promoteSessionResponseSchema,
   recordingSchema,
   recordingsSchema,
+  recoveryCodesSchema,
+  securityStatusSchema,
   sessionSchema,
   sessionsBulkResponseSchema,
   sessionMutationResponseSchema,
@@ -27,9 +30,11 @@ import {
   tenantMembershipSchema,
   tenantMembershipsSchema,
   tenantSchema,
+  totpEnrollmentSchema,
   tenantsPageSchema,
   tokensPageSchema,
   userSchema,
+  userInvitationSchema,
   usersPageSchema,
 } from "#/lib/api/schemas.ts";
 import type { ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
@@ -369,10 +374,10 @@ export type UserInput = {
 };
 
 export const apiClient = {
-  listOIDCProviders() {
+  listLoginMethods() {
     return request({
-      path: "/auth/providers",
-      schema: oidcProvidersSchema,
+      path: "/auth/login-methods",
+      schema: loginMethodsSchema,
     });
   },
 
@@ -430,6 +435,80 @@ export const apiClient = {
     return requestVoid({
       method: "DELETE",
       path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
+    });
+  },
+
+  loginWithPassword(email: string, password: string) {
+    return request({
+      method: "POST",
+      path: "/auth/password/login",
+      schema: passwordLoginResponseSchema,
+      body: { email, password },
+    });
+  },
+
+  completePasswordMFA(code: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/password/login/mfa",
+      body: { code },
+    });
+  },
+
+  getSecurityStatus() {
+    return request({
+      path: "/auth/security",
+      schema: securityStatusSchema,
+    });
+  },
+
+  setPassword(currentPassword: string, newPassword: string) {
+    return requestVoid({
+      method: "PUT",
+      path: "/auth/password",
+      body: { currentPassword, newPassword },
+    });
+  },
+
+  acceptUserInvitation(token: string, password: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/invitations/accept",
+      body: { token, password },
+    });
+  },
+
+  beginTOTPEnrollment() {
+    return request({
+      method: "POST",
+      path: "/auth/totp/enrollment/options",
+      schema: totpEnrollmentSchema,
+    });
+  },
+
+  completeTOTPEnrollment(code: string) {
+    return request({
+      method: "POST",
+      path: "/auth/totp/enrollment/finish",
+      schema: recoveryCodesSchema,
+      body: { code },
+    });
+  },
+
+  regenerateRecoveryCodes(code: string) {
+    return request({
+      method: "POST",
+      path: "/auth/totp/recovery-codes",
+      schema: recoveryCodesSchema,
+      body: { code },
+    });
+  },
+
+  disableTOTP(code: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/totp/disable",
+      body: { code },
     });
   },
 
@@ -574,6 +653,15 @@ export const apiClient = {
       schema: userSchema,
       credentials,
       body: input,
+    });
+  },
+
+  createUserInvitation(credentials: ApiCredentials, userId: string) {
+    return request({
+      method: "POST",
+      path: `/api/admin/users/${encodeURIComponent(userId)}/invitation`,
+      schema: userInvitationSchema,
+      credentials,
     });
   },
 

@@ -26,9 +26,9 @@ export function TokenAuthModal() {
 }
 
 export function WelcomeTokenAuthModal({ open, onOpenChange }: WelcomeTokenAuthModalProps) {
-  const providers = useQuery({
-    queryKey: ["auth", "oidc-providers"],
-    queryFn: () => apiClient.listOIDCProviders(),
+  const loginMethods = useQuery({
+    queryKey: ["auth", "login-methods"],
+    queryFn: () => apiClient.listLoginMethods(),
     enabled: open,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -39,7 +39,7 @@ export function WelcomeTokenAuthModal({ open, onOpenChange }: WelcomeTokenAuthMo
         <TokenForm
           mode="welcome"
           dismissible={false}
-          oidcProviders={providers.data?.providers}
+          loginMethods={loginMethods.data?.methods}
           onDone={() => undefined}
         />
       </DialogContent>

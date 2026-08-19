@@ -61,6 +61,7 @@ export function UserListPage() {
   const [status, setStatus] = useState<UserDisabledFilterValue>("active");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userSheetOpen, setUserSheetOpen] = useState(false);
   const deferredSearch = useDeferredValue(search.trim());
   const filters = useMemo(
     () => ({ query: deferredSearch || undefined, disabled: status }),
@@ -159,7 +160,10 @@ export function UserListPage() {
                 <TableRow
                   key={user.id}
                   className="cursor-pointer"
-                  onClick={() => setSelectedUserId(user.id)}
+                  onClick={() => {
+                    setSelectedUserId(user.id);
+                    setUserSheetOpen(true);
+                  }}
                 >
                   <TableCell>
                     <div className="flex min-w-0 flex-col gap-0.5">
@@ -195,6 +199,7 @@ export function UserListPage() {
                       onClick={(event) => {
                         event.stopPropagation();
                         setSelectedUserId(user.id);
+                        setUserSheetOpen(true);
                       }}
                     >
                       <ChevronRight />
@@ -210,11 +215,16 @@ export function UserListPage() {
       <UserFormDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onSaved={(user) => setSelectedUserId(user.id)}
+        onSaved={(user) => {
+          setSelectedUserId(user.id);
+          setUserSheetOpen(true);
+        }}
       />
       <UserDetailsSheet
+        open={userSheetOpen}
         userId={selectedUserId}
-        onOpenChange={(open) => {
+        onOpenChange={setUserSheetOpen}
+        onOpenChangeComplete={(open) => {
           if (!open) {
             setSelectedUserId(null);
           }

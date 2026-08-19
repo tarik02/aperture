@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { KeyRound, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { KeyRound, Link2, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
@@ -35,6 +35,11 @@ import { Skeleton } from "#/components/ui/skeleton.tsx";
 import { MembershipDialog } from "#/features/user/membership-dialog.tsx";
 import { UserFormDialog } from "#/features/user/user-form-dialog.tsx";
 import {
+  UserInvitationDialog,
+  type UserPasswordLink,
+} from "#/features/user/user-invitation-dialog.tsx";
+import {
+  useCreateUserInvitationMutation,
   useDeleteTenantMembershipMutation,
   useDisableUserMutation,
   useRestoreUserMutation,
@@ -57,19 +62,31 @@ type ConfirmAction =
   | null;
 
 type UserDetailsSheetProps = {
+  open: boolean;
   userId: string | null;
   onOpenChange: (open: boolean) => void;
+  onOpenChangeComplete: (open: boolean) => void;
 };
 
-export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps) {
+export function UserDetailsSheet({
+  open,
+  userId,
+  onOpenChange,
+  onOpenChangeComplete,
+}: UserDetailsSheetProps) {
   const userQuery = useUserQuery(userId);
   const membershipsQuery = useUserMembershipsQuery(userId);
   const tenantsQuery = useTenantsInfiniteQuery({ limit: 100 });
   const disableMutation = useDisableUserMutation();
   const restoreMutation = useRestoreUserMutation();
   const deleteMembershipMutation = useDeleteTenantMembershipMutation();
+  const createInvitationMutation = useCreateUserInvitationMutation();
   const [editOpen, setEditOpen] = useState(false);
+  const [passwordLinkOpen, setPasswordLinkOpen] = useState(false);
+  const [passwordLink, setPasswordLink] = useState<UserPasswordLink | null>(null);
+  const [membershipOpen, setMembershipOpen] = useState(false);
   const [membershipDialog, setMembershipDialog] = useState<MembershipDialogState>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
 
   const tenantNames = useMemo(
@@ -90,6 +107,16 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
     ? tenantNames.get(selectedMembership.tenantId)
     : null;
   const lifecyclePending = disableMutation.isPending || restoreMutation.isPending;
+  let setupLinkDescription = "Create a one-time link for the user to choose their password.";
+  if (user?.passwordSetupStatus === "user_disabled") {
+    setupLinkDescription = "Restore the user before creating a setup link.";
+  } else if (user?.passwordSetupStatus === "email_required") {
+    setupLinkDescription = "Add an email address before enabling password sign-in.";
+  } else if (user?.passwordSetupStatus === "configured") {
+    setupLinkDescription = "Create a one-time link to replace the current password.";
+  }
+  const canCreatePasswordLink =
+    user?.passwordSetupStatus === "available" || user?.passwordSetupStatus === "configured";
 
   async function handleConfirmAction() {
     if (!user || !confirmAction) {
@@ -116,6 +143,22 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
         const _exhaustive: never = confirmAction;
         return _exhaustive;
       }
+    }
+  }
+
+  async function handleCreateInvitation() {
+    if (!user) {
+      return;
+    }
+    try {
+      const invitation = await createInvitationMutation.mutateAsync(user.id);
+      setPasswordLink({
+        kind: user.passwordSetupStatus === "configured" ? "reset" : "setup",
+        invitation,
+      });
+      setPasswordLinkOpen(true);
+    } catch {
+      // The mutation displays the API error.
     }
   }
 
@@ -148,7 +191,7 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
 
   return (
     <>
-      <Sheet open={userId !== null} onOpenChange={onOpenChange}>
+      <Sheet open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
         <SheetContent className="data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
           <SheetHeader className="border-b pr-12">
             <SheetTitle>{user?.displayName ?? "User details"}</SheetTitle>
@@ -221,7 +264,10 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
                           variant="outline"
                           size="sm"
                           disabled={lifecyclePending}
-                          onClick={() => setConfirmAction({ kind: "restore" })}
+                          onClick={() => {
+                            setConfirmAction({ kind: "restore" });
+                            setConfirmOpen(true);
+                          }}
                         >
                           <RotateCcw data-icon="inline-start" />
                           Restore user
@@ -232,13 +278,43 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
                           variant="destructive"
                           size="sm"
                           disabled={lifecyclePending}
-                          onClick={() => setConfirmAction({ kind: "disable" })}
+                          onClick={() => {
+                            setConfirmAction({ kind: "disable" });
+                            setConfirmOpen(true);
+                          }}
                         >
                           Disable user
                         </Button>
                       )}
                     </CardFooter>
                   </Card>
+
+                  {user.passwordSetupStatus !== "login_disabled" ? (
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardTitle>Password sign-in</CardTitle>
+                        <CardDescription>{setupLinkDescription}</CardDescription>
+                      </CardHeader>
+                      {canCreatePasswordLink ? (
+                        <CardFooter className="justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={createInvitationMutation.isPending}
+                            onClick={() => void handleCreateInvitation()}
+                          >
+                            <Link2 data-icon="inline-start" />
+                            {createInvitationMutation.isPending
+                              ? "Creating..."
+                              : user.passwordSetupStatus === "configured"
+                                ? "Reset password"
+                                : "Create setup link"}
+                          </Button>
+                        </CardFooter>
+                      ) : null}
+                    </Card>
+                  ) : null}
 
                   <Card size="sm">
                     <CardHeader>
@@ -254,7 +330,10 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
                           title={
                             user.disabledAt ? "Restore the user before granting access" : undefined
                           }
-                          onClick={() => setMembershipDialog({ kind: "create" })}
+                          onClick={() => {
+                            setMembershipDialog({ kind: "create" });
+                            setMembershipOpen(true);
+                          }}
                         >
                           <Plus data-icon="inline-start" />
                           Add
@@ -316,9 +395,10 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
                                         ? "Restore the user before changing access"
                                         : undefined
                                     }
-                                    onClick={() =>
-                                      setMembershipDialog({ kind: "edit", membership })
-                                    }
+                                    onClick={() => {
+                                      setMembershipDialog({ kind: "edit", membership });
+                                      setMembershipOpen(true);
+                                    }}
                                   >
                                     <Pencil />
                                   </Button>
@@ -327,9 +407,10 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
                                     variant="ghost"
                                     size="icon-sm"
                                     aria-label="Remove tenant access"
-                                    onClick={() =>
-                                      setConfirmAction({ kind: "remove-access", membership })
-                                    }
+                                    onClick={() => {
+                                      setConfirmAction({ kind: "remove-access", membership });
+                                      setConfirmOpen(true);
+                                    }}
                                   >
                                     <Trash2 />
                                   </Button>
@@ -356,13 +437,25 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
             onOpenChange={setEditOpen}
             onSaved={() => setEditOpen(false)}
           />
+          <UserInvitationDialog
+            open={passwordLinkOpen}
+            link={passwordLink}
+            userName={user.displayName}
+            onOpenChange={setPasswordLinkOpen}
+            onOpenChangeComplete={(open) => {
+              if (!open) {
+                setPasswordLink(null);
+              }
+            }}
+          />
           <MembershipDialog
-            open={membershipDialog !== null}
+            open={membershipOpen}
             userId={user.id}
             membership={selectedMembership}
             tenantLabel={selectedTenantLabel}
             existingTenantIds={memberships.map((membership) => membership.tenantId)}
-            onOpenChange={(open) => {
+            onOpenChange={setMembershipOpen}
+            onOpenChangeComplete={(open) => {
               if (!open) {
                 setMembershipDialog(null);
               }
@@ -373,13 +466,14 @@ export function UserDetailsSheet({ userId, onOpenChange }: UserDetailsSheetProps
 
       {confirmDialog ? (
         <ConfirmDialog
-          open={confirmAction !== null}
+          open={confirmOpen}
           title={confirmDialog.title}
           description={confirmDialog.description}
           confirmLabel={confirmDialog.confirmLabel}
           variant={confirmDialog.variant}
           pending={confirmDialog.pending}
-          onOpenChange={(open) => {
+          onOpenChange={setConfirmOpen}
+          onOpenChangeComplete={(open) => {
             if (!open) {
               setConfirmAction(null);
             }

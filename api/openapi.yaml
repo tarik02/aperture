@@ -7,7 +7,7 @@ info:
 
     ## Authentication
 
-    Send `Authorization: Bearer <token>` or authenticate through a configured OIDC provider and browser session cookie. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Tenant API tokens may additionally restrict access to explicit session and snapshot IDs. Raw tokens are returned only on creation or rotation.
+    Send `Authorization: Bearer <token>` or authenticate through an account browser session established by OIDC, passkey, or password. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Tenant API tokens may additionally restrict access to explicit session and snapshot IDs. Raw tokens are returned only on creation or rotation.
 
     ## Tenant selection
 
@@ -258,6 +258,22 @@ paths:
         - {$ref: '#/components/parameters/UserId'}
       responses:
         '200': {description: Restored user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}/invitation:
+    post:
+      operationId: createUserInvitation
+      tags: [users]
+      summary: Create a user password link
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found, user_invitation_unavailable]
+      description: Creates a setup or reset link for an active user with an email address. Replaces any outstanding password link. The raw token is returned only once and expires after seven days.
+      parameters:
+        - {$ref: '#/components/parameters/UserId'}
+      responses:
+        '201': {description: Created password link token, content: {application/json: {schema: {$ref: '#/components/schemas/UserInvitation'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/admin/users/{userId}/memberships:
     get:
@@ -842,7 +858,7 @@ components:
       type: apiKey
       in: cookie
       name: aperture_session
-      description: Server-side browser session established by a configured OIDC provider.
+      description: Server-side browser session established by OIDC, passkey, or password login.
   parameters:
     Limit:
       name: limit
@@ -1176,6 +1192,7 @@ components:
         - user_not_found
         - user_disabled
         - user_email_conflict
+        - user_invitation_unavailable
         - membership_not_found
         - oidc_provider_not_found
         - oidc_flow_invalid
@@ -1225,6 +1242,7 @@ components:
         user_not_found: 404
         user_disabled: 409
         user_email_conflict: 409
+        user_invitation_unavailable: 409
         membership_not_found: 404
         oidc_provider_not_found: 404
         oidc_flow_invalid: 400
@@ -1365,6 +1383,17 @@ components:
         createdAt: {type: string, format: date-time}
         updatedAt: {type: string, format: date-time}
         disabledAt: {type: [string, 'null'], format: date-time}
+        passwordSetupStatus:
+          type: string
+          enum: [available, configured, email_required, user_disabled, login_disabled]
+          description: Password setup state included by the get-user operation.
+    UserInvitation:
+      type: object
+      description: One-time account setup secret returned only when created.
+      required: [token, expiresAt]
+      properties:
+        token: {type: string, description: Raw setup token. Store and transmit it as a secret.}
+        expiresAt: {type: string, format: date-time}
     UserPage:
       type: object
       required: [data, meta]
@@ -1421,7 +1450,7 @@ components:
         authMethod:
           type: string
           description: Authentication mechanism used for this request.
-          enum: [api_token, oidc, passkey]
+          enum: [api_token, oidc, passkey, password]
         tokenId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
           description: Identifier of the API token used for authentication, or `null` for account-backed sessions.

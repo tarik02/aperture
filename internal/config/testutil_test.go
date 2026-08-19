@@ -36,6 +36,7 @@ func validTestConfig(t *testing.T) Config {
 		},
 		ExternalBaseURL:       "https://browser.example.test",
 		CdpRouteBasePath:      "/cdp",
+		LoginMethods:          []string{LoginMethodPassword},
 		WebSessionLifetime:    30 * 24 * time.Hour,
 		WebSessionIdleTimeout: 24 * time.Hour,
 		LogLevel:              "info",

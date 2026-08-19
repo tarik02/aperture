@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/alexedwards/argon2id"
 	"github.com/alexedwards/scs/v2"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
@@ -46,12 +47,13 @@ type OIDCProvider struct {
 
 // WebService owns browser sessions, OIDC providers, and passkeys.
 type WebService struct {
-	auth        *Service
-	sessions    *scs.SessionManager
-	providers   map[string]*oidcProvider
-	public      []OIDCProvider
-	passkeys    *webauthnlib.WebAuthn
-	passkeyRPID string
+	auth              *Service
+	sessions          *scs.SessionManager
+	providers         map[string]*oidcProvider
+	public            []OIDCProvider
+	passkeys          *webauthnlib.WebAuthn
+	passkeyRPID       string
+	passwordDummyHash string
 }
 
 // NewWebService initializes durable browser sessions, passkeys, and configured OIDC providers.
@@ -74,6 +76,10 @@ func NewWebService(ctx context.Context, cfg config.Config, authService *Service,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initialize webauthn: %w", err)
+	}
+	passwordDummyHash, err := argon2id.CreateHash("invalid-password", passwordHashParams)
+	if err != nil {
+		return nil, fmt.Errorf("initialize password authentication: %w", err)
 	}
 
 	providers := make(map[string]*oidcProvider, len(cfg.OIDCProviders))
@@ -118,12 +124,13 @@ func NewWebService(ctx context.Context, cfg config.Config, authService *Service,
 	sessions.Cookie.Persist = true
 
 	return &WebService{
-		auth:        authService,
-		sessions:    sessions,
-		providers:   providers,
-		public:      public,
-		passkeys:    passkeys,
-		passkeyRPID: base.Hostname(),
+		auth:              authService,
+		sessions:          sessions,
+		providers:         providers,
+		public:            public,
+		passkeys:          passkeys,
+		passkeyRPID:       base.Hostname(),
+		passwordDummyHash: passwordDummyHash,
 	}, nil
 }
 
