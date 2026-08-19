@@ -11,7 +11,6 @@ type TokenCreateFormData = {
   expiresAt: string;
   nameError: string | null;
   scopeError: string | null;
-  resourceGrantError: string | null;
   createdToken: CreateTokenResponse | null;
 };
 
@@ -33,7 +32,6 @@ const defaultFormData = (tenantId: string, resourceMode: ResourceMode): TokenCre
   expiresAt: "",
   nameError: null,
   scopeError: null,
-  resourceGrantError: null,
   createdToken: null,
 });
 

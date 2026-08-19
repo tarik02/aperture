@@ -15,12 +15,16 @@ function resolveTenantKey(credentials: ApiCredentials | null): string | null {
     : credentials.selectedTenantId;
 }
 
-export function useSessionsInfiniteQuery(filters: SessionsFilters = {}) {
-  const credentials = useApiCredentials();
+export function useSessionsInfiniteQuery(
+  filters: SessionsFilters = {},
+  options: { enabled?: boolean; credentials?: ApiCredentials | null } = {},
+) {
+  const activeCredentials = useApiCredentials();
+  const credentials = options.credentials === undefined ? activeCredentials : options.credentials;
   const activeProfile = useTokenVaultStore(selectActiveProfile);
   const profileId = activeProfile?.id ?? "none";
   const tenantKey = resolveTenantKey(credentials);
-  const enabled = isTenantScopedQueryReady(credentials);
+  const enabled = isTenantScopedQueryReady(credentials) && options.enabled !== false;
 
   return useInfiniteQuery({
     queryKey: queryKeys.sessions(profileId, tenantKey, filters),
