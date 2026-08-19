@@ -1,10 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
-  Autocomplete as AutocompletePrimitive,
-  Combobox as ComboboxPrimitive,
-} from "@base-ui/react";
+import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 
 import { cn } from "#/lib/utils.ts";
 import { Button } from "#/components/ui/button.tsx";
@@ -17,10 +14,6 @@ import {
 import { ChevronDownIcon, XIcon, CheckIcon } from "lucide-react";
 
 const Combobox = ComboboxPrimitive.Root;
-const Autocomplete = AutocompletePrimitive.Root;
-
-const itemClassName =
-  "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4";
 
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
   return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />;
@@ -138,7 +131,10 @@ function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.
   return (
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
-      className={cn(itemClassName, "pr-8 pl-1.5", className)}
+      className={cn(
+        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className,
+      )}
       {...props}
     >
       {children}
@@ -150,16 +146,6 @@ function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.
         <CheckIcon className="pointer-events-none" />
       </ComboboxPrimitive.ItemIndicator>
     </ComboboxPrimitive.Item>
-  );
-}
-
-function AutocompleteItem({ className, ...props }: AutocompletePrimitive.Item.Props) {
-  return (
-    <AutocompletePrimitive.Item
-      data-slot="autocomplete-item"
-      className={cn(itemClassName, "px-1.5", className)}
-      {...props}
-    />
   );
 }
 
@@ -268,8 +254,6 @@ function useComboboxAnchor() {
 }
 
 export {
-  Autocomplete,
-  AutocompleteItem,
   Combobox,
   ComboboxInput,
   ComboboxContent,
