@@ -16,9 +16,11 @@ Run the Nix-built software-rendering image with rootless Podman:
 nix run .#dev
 ```
 
-The command builds and loads the image, then runs it in the foreground at `http://127.0.0.1:8080`. The container includes the patched Weston compositor, Aperture shell, Chromium, PipeWire, GStreamer, bubblewrap, overlay helpers, Traefik, and s6. State persists in `.data/store` under the current directory.
+The runner mounts the current checkout at `/workspace`, so run it from the repository root.
 
-The runner uses pasta networking. It binds the selected public HTTP port and WebRTC UDP ports `50000-50010` to `127.0.0.1`. Internal API and session ports stay inside the container. The runner fixes the WebRTC port range and advertised address to match these mappings.
+The command builds and loads a development image, then runs it in the foreground. The image adds Node and pnpm to the production runtime, and s6 runs Vite in full-bundle mode beside Aperture and Traefik. Vite watches the mounted checkout, applies frontend changes live, and proxies API and session traffic to Traefik inside the container. Production images do not include the development tools or Vite service.
+
+The runner derives a stable address from the worktree path within Linux's `127.0.0.0/8` loopback network. It publishes Vite and WebRTC on that address. Different worktrees can therefore reuse HTTP port `8080` and WebRTC UDP ports `50000-50010` without collisions. State persists in `.data/store` under each worktree.
 
 The runner provisions a `default` tenant and writes the full-access system-admin token to `.data/admin-token` on the first run. Later runs preserve both. Git ignores `.data`, and the runner creates the directory with mode `0700` and the token with mode `0600`.
 
@@ -28,7 +30,7 @@ Load the token into your shell with:
 export APERTURE_TOKEN=$(<.data/admin-token)
 ```
 
-Stop the container with `Ctrl-C`.
+Stop Vite and the container with `Ctrl-C`.
 
 ### Custom port and settings
 
@@ -37,6 +39,17 @@ Choose another public port with `--port`:
 ```bash
 nix run .#dev -- --port 18080
 ```
+
+The Podman container name defaults to the repository directory, which is unique across normal Worktrunk worktrees. Override the name, loopback address, or UDP range when needed:
+
+```bash
+nix run .#dev -- \
+  --container-name aperture-local \
+  --bind-address 127.80.0.1 \
+  --udp-port-range 62000-62010
+```
+
+Each worktree keeps its state in its own `.data` directory. Parallel worktrees get distinct container names and loopback addresses automatically, so their default ports can stay the same.
 
 Pass Aperture environment overrides with a Podman environment file:
 
@@ -53,7 +66,7 @@ APERTURE_WEBRTC_COMPOSITOR_WIDTH=1920
 APERTURE_WEBRTC_COMPOSITOR_HEIGHT=1080
 ```
 
-The runner sets `APERTURE_EXTERNAL_BASE_URL` to the selected loopback port. Use the environment file for other Aperture settings.
+The runner sets `APERTURE_EXTERNAL_BASE_URL` to the selected loopback address and port. Use the environment file for other Aperture settings.
 
 Mount a complete configuration file when environment overrides are insufficient:
 
