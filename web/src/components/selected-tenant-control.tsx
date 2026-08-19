@@ -15,7 +15,12 @@ export function SelectedTenantControl({
   const setSelectedTenant = useTokenVaultStore((state) => state.setSelectedTenant);
   const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
 
-  if (!activeProfile || activeProfile.authorityType !== "system_admin") {
+  if (
+    !activeProfile ||
+    (activeProfile.authorityType !== "system_admin" &&
+      (activeProfile.credentialType !== "web_session" ||
+        activeProfile.availableTenants.length === 0))
+  ) {
     return null;
   }
 
@@ -30,6 +35,9 @@ export function SelectedTenantControl({
       placeholder="Tenant"
       triggerClassName={cn("h-7 max-w-56", triggerClassName)}
       align={align}
+      options={
+        activeProfile.credentialType === "web_session" ? activeProfile.availableTenants : undefined
+      }
     />
   );
 }

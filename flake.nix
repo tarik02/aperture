@@ -442,7 +442,7 @@
           nativeBuildInputs = [
             pkgs.makeWrapper
           ]
-          ++ lib.optionals pkgs.stdenv.isLinux [
+          ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.patchelf
           ];
 
@@ -455,7 +455,7 @@
             cp LICENSE $out/share/licenses/agent-browser/LICENSE
             chmod +x $out/libexec/agent-browser/agent-browser
 
-            ${lib.optionalString pkgs.stdenv.isLinux ''
+            ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
               patchelf \
                 --set-interpreter ${pkgs.stdenv.cc.bintools.dynamicLinker} \
                 $out/libexec/agent-browser/agent-browser
@@ -489,7 +489,7 @@
         };
 
         s6OverlayRootfs =
-          if pkgs.stdenv.isLinux then
+          if pkgs.stdenv.hostPlatform.isLinux then
             pkgs.runCommand "s6-overlay-rootfs-${s6OverlayVersion}"
               {
                 nativeBuildInputs = [
@@ -515,7 +515,7 @@
             pname = "aperture";
             version = deployVersion;
             inherit src;
-            vendorHash = "sha256-Xf/2x1yZjWfFxraHf70r5H0FJgRZNI+EedOFce9gP/c=";
+            vendorHash = "sha256-JPemeh7V0CRyCxKHAzFYYV8cO3AA1xrlyN0svhJH3a0=";
 
             subPackages = [
               "cmd/aperture"
@@ -530,7 +530,7 @@
               pnpm = pnpmLatest;
               fetcherVersion = 4;
               pnpmWorkspaces = [ "@aperture/web" ];
-              hash = "sha256-qvsj4YLNMwY84NJ7hRCjonf4GEeB6xXwqsGWvIEMmTw=";
+              hash = "sha256-yShV8HD3slablReSJTZOvcv7sOQKET4n1U4UWG+P5t0=";
             };
 
             nativeBuildInputs = [
@@ -737,7 +737,7 @@
             compositorRenderer,
             gstreamerPluginPath,
           }:
-          if pkgs.stdenv.isLinux then
+          if pkgs.stdenv.hostPlatform.isLinux then
             pkgs.runCommand "aperture-docker-rootfs-${variant}" { } ''
               mkdir -p $out
               cp -R ${./packaging/docker/rootfs}/. $out/
@@ -767,8 +767,30 @@
             gstreamerPluginPath,
             hardware,
             driverPackages ? [ ],
+            development ? false,
           }:
           let
+            devViteServiceRun = pkgs.writeText "aperture-vite-run" ''
+              #!/command/with-contenv sh
+              set -eu
+              exec 2>&1
+
+              : "''${APERTURE_DEV_PROXY_TARGET:?APERTURE_DEV_PROXY_TARGET is required}"
+
+              cd /workspace
+              export CI=true
+              export PNPM_CONFIG_STORE_DIR=/workspace/.data/pnpm-store
+
+              s6-setuidgid aperture \
+                pnpm --dir /workspace \
+                  install --frozen-lockfile
+              exec s6-setuidgid aperture \
+                pnpm --dir /workspace/web dev \
+                  --host 0.0.0.0 \
+                  --port 3000 \
+                  --strictPort \
+                  --clearScreen false
+            '';
             dockerRootfs = mkDockerRootfs {
               inherit
                 variant
@@ -779,7 +801,7 @@
             };
             vaDriverPath = lib.makeSearchPath "lib/dri" driverPackages;
           in
-          if pkgs.stdenv.isLinux then
+          if pkgs.stdenv.hostPlatform.isLinux then
             pkgs.dockerTools.buildLayeredImage {
               name = "aperture";
               tag = "${deployVersion}${tagSuffix}";
@@ -799,6 +821,10 @@
                 (lib.getOutput "out" pkgs.fontconfig)
                 pkgs.cacert
               ]
+              ++ lib.optionals development [
+                pkgs.nodejs_22
+                pnpmLatest
+              ]
               ++ browserFonts
               ++ driverPackages;
               extraCommands = ''
@@ -808,6 +834,11 @@
                 cp -R --preserve=mode,timestamps --no-preserve=ownership ${dockerRootfs}/. .
                 chmod u+w .
                 chmod -R u+w etc
+                ${lib.optionalString development ''
+                  mkdir -p etc/services.d/vite
+                  cp ${devViteServiceRun} etc/services.d/vite/run
+                  chmod 0755 etc/services.d/vite/run
+                ''}
 
                 mkdir -p etc/aperture home/aperture run usr/local/bin usr/share/licenses/aperture var/lib/aperture tmp
                 cp ${./LICENSE} usr/share/licenses/aperture/LICENSE
@@ -877,19 +908,25 @@
                   "XDG_RUNTIME_DIR=/run/aperture/user"
                   "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
                   "PATH=/command:/usr/local/bin:${
-                    lib.makeBinPath [
-                      aperture
-                      agentBrowser
-                      pkgs.traefik
-                      runtimeChromium
-                      pkgs.bashInteractive
-                      pkgs.coreutils
-                      pkgs.curl
-                      pkgs.findutils
-                      pkgs.gnugrep
-                      pkgs.gnused
-                      pkgs.sudo
-                    ]
+                    lib.makeBinPath (
+                      [
+                        aperture
+                        agentBrowser
+                        pkgs.traefik
+                        runtimeChromium
+                        pkgs.bashInteractive
+                        pkgs.coreutils
+                        pkgs.curl
+                        pkgs.findutils
+                        pkgs.gnugrep
+                        pkgs.gnused
+                        pkgs.sudo
+                      ]
+                      ++ lib.optionals development [
+                        pkgs.nodejs_22
+                        pnpmLatest
+                      ]
+                    )
                   }"
                   "S6_BEHAVIOUR_IF_STAGE2_FAILS=2"
                   "S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0"
@@ -904,13 +941,16 @@
                 ExposedPorts = {
                   "8080/tcp" = { };
                 }
+                // lib.optionalAttrs development {
+                  "3000/tcp" = { };
+                }
                 // lib.genAttrs (map (port: "${toString port}/udp") (lib.range 50000 50010)) (_: { });
                 Healthcheck = {
                   Test = [
                     "CMD"
                     "curl"
                     "-fsS"
-                    "http://127.0.0.1:8080/api/health"
+                    "http://127.0.0.1:${if development then "3000" else "8080"}/api/health"
                   ];
                   Interval = 10000000000;
                   Timeout = 3000000000;
@@ -956,6 +996,28 @@
           driverPackages = gpuDriverPackages;
         };
 
+        devDockerImage = mkDockerImage {
+          variant = "dev";
+          tagSuffix = "-dev";
+          gpuMode = "software";
+          compositorRenderer = "pixman";
+          gstreamerPluginPath = defaultGstreamerPluginPath;
+          hardware = pkgs.stdenv.hostPlatform.isx86_64;
+          driverPackages = defaultDriverPackages;
+          development = true;
+        };
+
+        devGPUDockerImage = mkDockerImage {
+          variant = "dev-gpu";
+          tagSuffix = "-dev-gpu";
+          gpuMode = "hardware";
+          compositorRenderer = "gl";
+          gstreamerPluginPath = gpuGstreamerPluginPath;
+          hardware = true;
+          driverPackages = gpuDriverPackages;
+          development = true;
+        };
+
         mkDevContainerApp =
           {
             name,
@@ -983,22 +1045,22 @@
           };
 
         devContainerApp =
-          if pkgs.stdenv.isLinux then
+          if pkgs.stdenv.hostPlatform.isLinux then
             mkDevContainerApp {
               name = "aperture-dev";
-              image = defaultDockerImage;
-              imageRef = "localhost/aperture:${deployVersion}";
+              image = devDockerImage;
+              imageRef = "localhost/aperture:${deployVersion}-dev";
               gpu = false;
             }
           else
             null;
 
         devGPUContainerApp =
-          if pkgs.stdenv.isLinux then
+          if pkgs.stdenv.hostPlatform.isLinux then
             mkDevContainerApp {
               name = "aperture-dev-gpu";
-              image = gpuDockerImage;
-              imageRef = "localhost/aperture:${deployVersion}-gpu";
+              image = devGPUDockerImage;
+              imageRef = "localhost/aperture:${deployVersion}-dev-gpu";
               gpu = true;
             }
           else
@@ -1036,12 +1098,12 @@
           agent-browser = agentBrowser;
           patched-weston = patchedWeston;
         }
-        // lib.optionalAttrs pkgs.stdenv.isLinux {
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           aperture-docker = defaultDockerImage;
           aperture-docker-gpu = gpuDockerImage;
         };
 
-        apps = lib.optionalAttrs pkgs.stdenv.isLinux {
+        apps = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           dev = {
             type = "app";
             program = "${devContainerApp}/bin/aperture-dev";

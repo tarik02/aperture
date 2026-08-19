@@ -82,9 +82,61 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "tenant_deactivated", "tenant is deactivated"
 	case errors.Is(err, auth.ErrTokenNameConflict):
 		return http.StatusConflict, "token_name_conflict", "api token name already exists"
+	case errors.Is(err, auth.ErrTokenDelegation):
+		return http.StatusForbidden, "token_delegation_exceeded", "token delegation exceeds caller authority"
+	case errors.Is(err, auth.ErrResourceAccessDenied):
+		return http.StatusForbidden, "resource_access_denied", "resource access denied"
+	case errors.Is(err, auth.ErrUserNotFound):
+		return http.StatusNotFound, "user_not_found", "user not found"
+	case errors.Is(err, auth.ErrUserDisabled):
+		return http.StatusConflict, "user_disabled", "user is disabled"
+	case errors.Is(err, auth.ErrUserEmailConflict):
+		return http.StatusConflict, "user_email_conflict", "user email already exists"
+	case errors.Is(err, auth.ErrMembershipNotFound):
+		return http.StatusNotFound, "membership_not_found", "tenant membership not found"
+	case errors.Is(err, auth.ErrOIDCProviderNotFound):
+		return http.StatusNotFound, "oidc_provider_not_found", "oidc provider not found"
+	case errors.Is(err, auth.ErrIdentityNotProvisioned):
+		return http.StatusForbidden, "identity_not_provisioned", "user is not provisioned"
+	case errors.Is(err, auth.ErrOIDCFlowInvalid):
+		return http.StatusBadRequest, "oidc_flow_invalid", "oidc flow is invalid or expired"
+	case errors.Is(err, auth.ErrOIDCAuthentication):
+		return http.StatusUnauthorized, "oidc_authentication_failed", "oidc authentication failed"
+	case errors.Is(err, auth.ErrPasskeyNotFound):
+		return http.StatusNotFound, "passkey_not_found", "passkey not found"
+	case errors.Is(err, auth.ErrPasskeyExists):
+		return http.StatusConflict, "passkey_already_registered", "passkey is already registered"
+	case errors.Is(err, auth.ErrPasskeyNameInvalid):
+		return http.StatusBadRequest, "validation_failed", "passkey name is required"
+	case errors.Is(err, auth.ErrPasskeyFlowInvalid):
+		return http.StatusBadRequest, "passkey_flow_invalid", "passkey flow is invalid or expired"
+	case errors.Is(err, auth.ErrPasskeyAuthentication):
+		return http.StatusUnauthorized, "passkey_authentication_failed", "passkey authentication failed"
+	case errors.Is(err, auth.ErrPasswordAuthentication):
+		return http.StatusUnauthorized, "password_authentication_failed", "email or password is invalid"
+	case errors.Is(err, auth.ErrPasswordInvalid):
+		return http.StatusBadRequest, "password_invalid", err.Error()
+	case errors.Is(err, auth.ErrPasswordEmailRequired):
+		return http.StatusConflict, "password_email_required", "an email address is required for password login"
+	case errors.Is(err, auth.ErrCurrentPasswordMissing):
+		return http.StatusBadRequest, "current_password_required", "current password is required"
+	case errors.Is(err, auth.ErrCurrentPasswordInvalid):
+		return http.StatusUnauthorized, "current_password_invalid", "current password is invalid"
+	case errors.Is(err, auth.ErrInvitationUnavailable):
+		return http.StatusConflict, "user_invitation_unavailable", "the user must be active and have an email address"
+	case errors.Is(err, auth.ErrInvitationInvalid):
+		return http.StatusBadRequest, "user_invitation_invalid", "password link is invalid or expired"
+	case errors.Is(err, auth.ErrMFAFlowInvalid):
+		return http.StatusBadRequest, "mfa_flow_invalid", "multi-factor authentication flow is invalid or expired"
+	case errors.Is(err, auth.ErrMFACodeInvalid):
+		return http.StatusUnauthorized, "mfa_code_invalid", "authentication code is invalid"
+	case errors.Is(err, auth.ErrTOTPAlreadyEnabled):
+		return http.StatusConflict, "totp_already_enabled", "authenticator is already enabled"
+	case errors.Is(err, auth.ErrTOTPNotEnabled):
+		return http.StatusConflict, "totp_not_enabled", "authenticator is not enabled"
 	case errors.Is(err, auth.ErrBootstrapNotEmpty):
 		return http.StatusConflict, "bootstrap_refused", "bootstrap refused: api tokens already exist"
-	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope):
+	case errors.Is(err, auth.ErrInvalidScopes), errors.Is(err, auth.ErrInvalidAuthority), errors.Is(err, auth.ErrTenantTokenCrossScope), errors.Is(err, auth.ErrInvalidResourceScope):
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, errRequestDecode):
 		return http.StatusBadRequest, "invalid_request_body", "invalid request body"

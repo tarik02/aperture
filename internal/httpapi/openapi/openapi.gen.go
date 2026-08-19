@@ -131,6 +131,21 @@ func (e CreateAdminTokenInput0AuthorityType) Valid() bool {
 	}
 }
 
+// Defines values for CreateAdminTokenInput0ResourceMode.
+const (
+	CreateAdminTokenInput0ResourceModeAll CreateAdminTokenInput0ResourceMode = "all"
+)
+
+// Valid indicates whether the value is a known member of the CreateAdminTokenInput0ResourceMode enum.
+func (e CreateAdminTokenInput0ResourceMode) Valid() bool {
+	switch e {
+	case CreateAdminTokenInput0ResourceModeAll:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAdminTokenInput1AuthorityType.
 const (
 	CreateAdminTokenInput1AuthorityTypeTenant CreateAdminTokenInput1AuthorityType = "tenant"
@@ -148,124 +163,157 @@ func (e CreateAdminTokenInput1AuthorityType) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
-	AuthenticationRequired           ErrorCode = "authentication_required"
-	AuthenticationTokenExpired       ErrorCode = "authentication_token_expired"
-	AuthenticationTokenRevoked       ErrorCode = "authentication_token_revoked"
-	BaseSnapshotDeleted              ErrorCode = "base_snapshot_deleted"
-	BaseSnapshotNotFound             ErrorCode = "base_snapshot_not_found"
-	BrowserConfigurationsUnavailable ErrorCode = "browser_configurations_unavailable"
-	BrowserControlFailed             ErrorCode = "browser_control_failed"
-	BrowserStartFailed               ErrorCode = "browser_start_failed"
-	EventServiceUnavailable          ErrorCode = "event_service_unavailable"
-	InsufficientScope                ErrorCode = "insufficient_scope"
-	InternalError                    ErrorCode = "internal_error"
-	InvalidAuthenticationToken       ErrorCode = "invalid_authentication_token"
-	InvalidRequestBody               ErrorCode = "invalid_request_body"
-	OverlayMountFailed               ErrorCode = "overlay_mount_failed"
-	PromotionConflict                ErrorCode = "promotion_conflict"
-	PromotionServiceUnavailable      ErrorCode = "promotion_service_unavailable"
-	RecordingNotFound                ErrorCode = "recording_not_found"
-	SessionExpired                   ErrorCode = "session_expired"
-	SessionFileNotFound              ErrorCode = "session_file_not_found"
-	SessionInvalidState              ErrorCode = "session_invalid_state"
-	SessionNotFound                  ErrorCode = "session_not_found"
-	SessionNotPromotable             ErrorCode = "session_not_promotable"
-	SessionNotReopenable             ErrorCode = "session_not_reopenable"
-	SessionNotRunning                ErrorCode = "session_not_running"
-	SessionOverlayMissing            ErrorCode = "session_overlay_missing"
-	SessionServiceUnavailable        ErrorCode = "session_service_unavailable"
-	SnapshotDeleted                  ErrorCode = "snapshot_deleted"
-	SnapshotNameConflict             ErrorCode = "snapshot_name_conflict"
-	SnapshotNotDeleted               ErrorCode = "snapshot_not_deleted"
-	SnapshotNotFound                 ErrorCode = "snapshot_not_found"
-	SnapshotServiceUnavailable       ErrorCode = "snapshot_service_unavailable"
-	TenantDeactivated                ErrorCode = "tenant_deactivated"
-	TenantNotFound                   ErrorCode = "tenant_not_found"
-	TenantSelectionNotPermitted      ErrorCode = "tenant_selection_not_permitted"
-	TenantSelectionRequired          ErrorCode = "tenant_selection_required"
-	TokenNameConflict                ErrorCode = "token_name_conflict"
-	TokenNotFound                    ErrorCode = "token_not_found"
-	ValidationFailed                 ErrorCode = "validation_failed"
+	ErrorCodeAuthenticationRequired           ErrorCode = "authentication_required"
+	ErrorCodeAuthenticationTokenExpired       ErrorCode = "authentication_token_expired"
+	ErrorCodeAuthenticationTokenRevoked       ErrorCode = "authentication_token_revoked"
+	ErrorCodeBaseSnapshotDeleted              ErrorCode = "base_snapshot_deleted"
+	ErrorCodeBaseSnapshotNotFound             ErrorCode = "base_snapshot_not_found"
+	ErrorCodeBrowserConfigurationsUnavailable ErrorCode = "browser_configurations_unavailable"
+	ErrorCodeBrowserControlFailed             ErrorCode = "browser_control_failed"
+	ErrorCodeBrowserStartFailed               ErrorCode = "browser_start_failed"
+	ErrorCodeEventServiceUnavailable          ErrorCode = "event_service_unavailable"
+	ErrorCodeIdentityNotProvisioned           ErrorCode = "identity_not_provisioned"
+	ErrorCodeInsufficientScope                ErrorCode = "insufficient_scope"
+	ErrorCodeInternalError                    ErrorCode = "internal_error"
+	ErrorCodeInvalidAuthenticationToken       ErrorCode = "invalid_authentication_token"
+	ErrorCodeInvalidRequestBody               ErrorCode = "invalid_request_body"
+	ErrorCodeMembershipNotFound               ErrorCode = "membership_not_found"
+	ErrorCodeOidcAuthenticationFailed         ErrorCode = "oidc_authentication_failed"
+	ErrorCodeOidcFlowInvalid                  ErrorCode = "oidc_flow_invalid"
+	ErrorCodeOidcProviderNotFound             ErrorCode = "oidc_provider_not_found"
+	ErrorCodeOverlayMountFailed               ErrorCode = "overlay_mount_failed"
+	ErrorCodePromotionConflict                ErrorCode = "promotion_conflict"
+	ErrorCodePromotionServiceUnavailable      ErrorCode = "promotion_service_unavailable"
+	ErrorCodeRecordingNotFound                ErrorCode = "recording_not_found"
+	ErrorCodeResourceAccessDenied             ErrorCode = "resource_access_denied"
+	ErrorCodeSessionExpired                   ErrorCode = "session_expired"
+	ErrorCodeSessionFileNotFound              ErrorCode = "session_file_not_found"
+	ErrorCodeSessionInvalidState              ErrorCode = "session_invalid_state"
+	ErrorCodeSessionNotFound                  ErrorCode = "session_not_found"
+	ErrorCodeSessionNotPromotable             ErrorCode = "session_not_promotable"
+	ErrorCodeSessionNotReopenable             ErrorCode = "session_not_reopenable"
+	ErrorCodeSessionNotRunning                ErrorCode = "session_not_running"
+	ErrorCodeSessionOverlayMissing            ErrorCode = "session_overlay_missing"
+	ErrorCodeSessionServiceUnavailable        ErrorCode = "session_service_unavailable"
+	ErrorCodeSnapshotDeleted                  ErrorCode = "snapshot_deleted"
+	ErrorCodeSnapshotNameConflict             ErrorCode = "snapshot_name_conflict"
+	ErrorCodeSnapshotNotDeleted               ErrorCode = "snapshot_not_deleted"
+	ErrorCodeSnapshotNotFound                 ErrorCode = "snapshot_not_found"
+	ErrorCodeSnapshotServiceUnavailable       ErrorCode = "snapshot_service_unavailable"
+	ErrorCodeTenantDeactivated                ErrorCode = "tenant_deactivated"
+	ErrorCodeTenantNotFound                   ErrorCode = "tenant_not_found"
+	ErrorCodeTenantSelectionNotPermitted      ErrorCode = "tenant_selection_not_permitted"
+	ErrorCodeTenantSelectionRequired          ErrorCode = "tenant_selection_required"
+	ErrorCodeTokenDelegationExceeded          ErrorCode = "token_delegation_exceeded"
+	ErrorCodeTokenNameConflict                ErrorCode = "token_name_conflict"
+	ErrorCodeTokenNotFound                    ErrorCode = "token_not_found"
+	ErrorCodeUserDisabled                     ErrorCode = "user_disabled"
+	ErrorCodeUserEmailConflict                ErrorCode = "user_email_conflict"
+	ErrorCodeUserInvitationUnavailable        ErrorCode = "user_invitation_unavailable"
+	ErrorCodeUserNotFound                     ErrorCode = "user_not_found"
+	ErrorCodeValidationFailed                 ErrorCode = "validation_failed"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
 func (e ErrorCode) Valid() bool {
 	switch e {
-	case AuthenticationRequired:
+	case ErrorCodeAuthenticationRequired:
 		return true
-	case AuthenticationTokenExpired:
+	case ErrorCodeAuthenticationTokenExpired:
 		return true
-	case AuthenticationTokenRevoked:
+	case ErrorCodeAuthenticationTokenRevoked:
 		return true
-	case BaseSnapshotDeleted:
+	case ErrorCodeBaseSnapshotDeleted:
 		return true
-	case BaseSnapshotNotFound:
+	case ErrorCodeBaseSnapshotNotFound:
 		return true
-	case BrowserConfigurationsUnavailable:
+	case ErrorCodeBrowserConfigurationsUnavailable:
 		return true
-	case BrowserControlFailed:
+	case ErrorCodeBrowserControlFailed:
 		return true
-	case BrowserStartFailed:
+	case ErrorCodeBrowserStartFailed:
 		return true
-	case EventServiceUnavailable:
+	case ErrorCodeEventServiceUnavailable:
 		return true
-	case InsufficientScope:
+	case ErrorCodeIdentityNotProvisioned:
 		return true
-	case InternalError:
+	case ErrorCodeInsufficientScope:
 		return true
-	case InvalidAuthenticationToken:
+	case ErrorCodeInternalError:
 		return true
-	case InvalidRequestBody:
+	case ErrorCodeInvalidAuthenticationToken:
 		return true
-	case OverlayMountFailed:
+	case ErrorCodeInvalidRequestBody:
 		return true
-	case PromotionConflict:
+	case ErrorCodeMembershipNotFound:
 		return true
-	case PromotionServiceUnavailable:
+	case ErrorCodeOidcAuthenticationFailed:
 		return true
-	case RecordingNotFound:
+	case ErrorCodeOidcFlowInvalid:
 		return true
-	case SessionExpired:
+	case ErrorCodeOidcProviderNotFound:
 		return true
-	case SessionFileNotFound:
+	case ErrorCodeOverlayMountFailed:
 		return true
-	case SessionInvalidState:
+	case ErrorCodePromotionConflict:
 		return true
-	case SessionNotFound:
+	case ErrorCodePromotionServiceUnavailable:
 		return true
-	case SessionNotPromotable:
+	case ErrorCodeRecordingNotFound:
 		return true
-	case SessionNotReopenable:
+	case ErrorCodeResourceAccessDenied:
 		return true
-	case SessionNotRunning:
+	case ErrorCodeSessionExpired:
 		return true
-	case SessionOverlayMissing:
+	case ErrorCodeSessionFileNotFound:
 		return true
-	case SessionServiceUnavailable:
+	case ErrorCodeSessionInvalidState:
 		return true
-	case SnapshotDeleted:
+	case ErrorCodeSessionNotFound:
 		return true
-	case SnapshotNameConflict:
+	case ErrorCodeSessionNotPromotable:
 		return true
-	case SnapshotNotDeleted:
+	case ErrorCodeSessionNotReopenable:
 		return true
-	case SnapshotNotFound:
+	case ErrorCodeSessionNotRunning:
 		return true
-	case SnapshotServiceUnavailable:
+	case ErrorCodeSessionOverlayMissing:
 		return true
-	case TenantDeactivated:
+	case ErrorCodeSessionServiceUnavailable:
 		return true
-	case TenantNotFound:
+	case ErrorCodeSnapshotDeleted:
 		return true
-	case TenantSelectionNotPermitted:
+	case ErrorCodeSnapshotNameConflict:
 		return true
-	case TenantSelectionRequired:
+	case ErrorCodeSnapshotNotDeleted:
 		return true
-	case TokenNameConflict:
+	case ErrorCodeSnapshotNotFound:
 		return true
-	case TokenNotFound:
+	case ErrorCodeSnapshotServiceUnavailable:
 		return true
-	case ValidationFailed:
+	case ErrorCodeTenantDeactivated:
+		return true
+	case ErrorCodeTenantNotFound:
+		return true
+	case ErrorCodeTenantSelectionNotPermitted:
+		return true
+	case ErrorCodeTenantSelectionRequired:
+		return true
+	case ErrorCodeTokenDelegationExceeded:
+		return true
+	case ErrorCodeTokenNameConflict:
+		return true
+	case ErrorCodeTokenNotFound:
+		return true
+	case ErrorCodeUserDisabled:
+		return true
+	case ErrorCodeUserEmailConflict:
+		return true
+	case ErrorCodeUserInvitationUnavailable:
+		return true
+	case ErrorCodeUserNotFound:
+		return true
+	case ErrorCodeValidationFailed:
 		return true
 	default:
 		return false
@@ -353,6 +401,51 @@ func (e LiveViewCapabilityTransports) Valid() bool {
 	case LiveViewCapabilityTransportsCdp:
 		return true
 	case LiveViewCapabilityTransportsWebrtc:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PrincipalAuthMethod.
+const (
+	PrincipalAuthMethodApiToken PrincipalAuthMethod = "api_token"
+	PrincipalAuthMethodOidc     PrincipalAuthMethod = "oidc"
+	PrincipalAuthMethodPasskey  PrincipalAuthMethod = "passkey"
+	PrincipalAuthMethodPassword PrincipalAuthMethod = "password"
+)
+
+// Valid indicates whether the value is a known member of the PrincipalAuthMethod enum.
+func (e PrincipalAuthMethod) Valid() bool {
+	switch e {
+	case PrincipalAuthMethodApiToken:
+		return true
+	case PrincipalAuthMethodOidc:
+		return true
+	case PrincipalAuthMethodPasskey:
+		return true
+	case PrincipalAuthMethodPassword:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PrincipalType.
+const (
+	PrincipalTypeApiToken PrincipalType = "api_token"
+	PrincipalTypeSystem   PrincipalType = "system"
+	PrincipalTypeUser     PrincipalType = "user"
+)
+
+// Valid indicates whether the value is a known member of the PrincipalType enum.
+func (e PrincipalType) Valid() bool {
+	switch e {
+	case PrincipalTypeApiToken:
+		return true
+	case PrincipalTypeSystem:
+		return true
+	case PrincipalTypeUser:
 		return true
 	default:
 		return false
@@ -449,6 +542,42 @@ func (e RecordingCodecCapabilityMediaType) Valid() bool {
 	}
 }
 
+// Defines values for ResourceMode.
+const (
+	ResourceModeAll       ResourceMode = "all"
+	ResourceModeAllowlist ResourceMode = "allowlist"
+)
+
+// Valid indicates whether the value is a known member of the ResourceMode enum.
+func (e ResourceMode) Valid() bool {
+	switch e {
+	case ResourceModeAll:
+		return true
+	case ResourceModeAllowlist:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResourceType.
+const (
+	ResourceTypeSession  ResourceType = "session"
+	ResourceTypeSnapshot ResourceType = "snapshot"
+)
+
+// Valid indicates whether the value is a known member of the ResourceType enum.
+func (e ResourceType) Valid() bool {
+	switch e {
+	case ResourceTypeSession:
+		return true
+	case ResourceTypeSnapshot:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Scope.
 const (
 	ScopeSessionsRead   Scope = "sessions:read"
@@ -539,6 +668,33 @@ func (e TenantScope) Valid() bool {
 	}
 }
 
+// Defines values for UserPasswordSetupStatus.
+const (
+	UserPasswordSetupStatusAvailable     UserPasswordSetupStatus = "available"
+	UserPasswordSetupStatusConfigured    UserPasswordSetupStatus = "configured"
+	UserPasswordSetupStatusEmailRequired UserPasswordSetupStatus = "email_required"
+	UserPasswordSetupStatusLoginDisabled UserPasswordSetupStatus = "login_disabled"
+	UserPasswordSetupStatusUserDisabled  UserPasswordSetupStatus = "user_disabled"
+)
+
+// Valid indicates whether the value is a known member of the UserPasswordSetupStatus enum.
+func (e UserPasswordSetupStatus) Valid() bool {
+	switch e {
+	case UserPasswordSetupStatusAvailable:
+		return true
+	case UserPasswordSetupStatusConfigured:
+		return true
+	case UserPasswordSetupStatusEmailRequired:
+		return true
+	case UserPasswordSetupStatusLoginDisabled:
+		return true
+	case UserPasswordSetupStatusUserDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Deleted.
 const (
 	DeletedActive  Deleted = "active"
@@ -617,6 +773,27 @@ func (e ListAdminTokensParamsRevoked) Valid() bool {
 	case ListAdminTokensParamsRevokedAll:
 		return true
 	case ListAdminTokensParamsRevokedRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListUsersParamsDisabled.
+const (
+	ListUsersParamsDisabledActive   ListUsersParamsDisabled = "active"
+	ListUsersParamsDisabledAll      ListUsersParamsDisabled = "all"
+	ListUsersParamsDisabledDisabled ListUsersParamsDisabled = "disabled"
+)
+
+// Valid indicates whether the value is a known member of the ListUsersParamsDisabled enum.
+func (e ListUsersParamsDisabled) Valid() bool {
+	switch e {
+	case ListUsersParamsDisabledActive:
+		return true
+	case ListUsersParamsDisabledAll:
+		return true
+	case ListUsersParamsDisabledDisabled:
 		return true
 	default:
 		return false
@@ -713,16 +890,44 @@ func (e ListTenantTokensParamsRevoked) Valid() bool {
 	}
 }
 
-// AuthMe Current principal and its effective tenant selection.
-type AuthMe struct {
-	// Principal Authenticated API token identity and authorization context.
-	Principal Principal `json:"principal"`
+// AuditEvent defines model for AuditEvent.
+type AuditEvent struct {
+	Action  string  `json:"action"`
+	ActorId *string `json:"actorId,omitempty"`
 
-	// SelectedTenant Effective tenant, or `null` when a system administrator has no active tenants.
-	SelectedTenant *Tenant `json:"selectedTenant,omitempty"`
+	// ActorType Stable category of the authenticated or audited actor.
+	ActorType PrincipalType          `json:"actorType"`
+	CreatedAt time.Time              `json:"createdAt"`
+	Data      map[string]interface{} `json:"data"`
+
+	// Id Time-ordered UUID version 7 generated by Aperture.
+	Id           UUIDv7  `json:"id"`
+	ResourceId   *string `json:"resourceId,omitempty"`
+	ResourceType string  `json:"resourceType"`
+	TenantId     *UUIDv7 `json:"tenantId,omitempty"`
 }
 
-// AuthorityType Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
+// AuditEventPage defines model for AuditEventPage.
+type AuditEventPage struct {
+	Data []AuditEvent `json:"data"`
+
+	// Meta Cursor pagination metadata for a newest-first result page.
+	Meta PageMeta `json:"meta"`
+}
+
+// AuthMe Current principal and its effective tenant selection.
+type AuthMe struct {
+	// AvailableTenants Active tenant memberships available to an account-backed principal. API-token principals return an empty array.
+	AvailableTenants []Tenant `json:"availableTenants"`
+
+	// Principal Authenticated subject identity and authorization context.
+	Principal Principal `json:"principal"`
+
+	// SelectedTenant Effective tenant, or `null` when the principal has not selected one.
+	SelectedTenant *Tenant `json:"selectedTenant"`
+}
+
+// AuthorityType Authorization boundary. `system_admin` principals may administer the deployment and select tenants. `tenant` principals act within one effective tenant.
 type AuthorityType string
 
 // BrowserConfig Browser runtime configuration used to create or reopen the session.
@@ -787,12 +992,21 @@ type CreateAdminTokenInput0 struct {
 	// Name Operator-assigned name. Leading and trailing whitespace is removed.
 	Name string `json:"name"`
 
+	// ResourceGrants Must be empty for a system administrator token.
+	ResourceGrants *[]ResourceGrant `json:"resourceGrants,omitempty"`
+
+	// ResourceMode System administrator tokens cannot use resource allowlists.
+	ResourceMode *CreateAdminTokenInput0ResourceMode `json:"resourceMode,omitempty"`
+
 	// Scopes Must include `system:admin`.
 	Scopes []Scope `json:"scopes"`
 }
 
 // CreateAdminTokenInput0AuthorityType defines model for CreateAdminTokenInput.0.AuthorityType.
 type CreateAdminTokenInput0AuthorityType string
+
+// CreateAdminTokenInput0ResourceMode System administrator tokens cannot use resource allowlists.
+type CreateAdminTokenInput0ResourceMode string
 
 // CreateAdminTokenInput1 defines model for CreateAdminTokenInput.1.
 type CreateAdminTokenInput1 struct {
@@ -803,6 +1017,12 @@ type CreateAdminTokenInput1 struct {
 
 	// Name Operator-assigned name. Leading and trailing whitespace is removed.
 	Name string `json:"name"`
+
+	// ResourceGrants Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`.
+	ResourceGrants *[]ResourceGrant `json:"resourceGrants,omitempty"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode *ResourceMode `json:"resourceMode,omitempty"`
 
 	// Scopes Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
 	Scopes []TenantScope `json:"scopes"`
@@ -842,6 +1062,12 @@ type CreateTenantTokenInput struct {
 
 	// Name Operator-assigned name. Leading and trailing whitespace is removed.
 	Name string `json:"name"`
+
+	// ResourceGrants Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`.
+	ResourceGrants *[]ResourceGrant `json:"resourceGrants,omitempty"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode *ResourceMode `json:"resourceMode,omitempty"`
 
 	// Scopes Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.
 	Scopes []TenantScope `json:"scopes"`
@@ -971,23 +1197,47 @@ type PageMeta struct {
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
-// Principal Authenticated API token identity and authorization context.
+// Principal Authenticated subject identity and authorization context.
 type Principal struct {
-	// AuthorityType Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
+	// AuthMethod Authentication mechanism used for this request.
+	AuthMethod PrincipalAuthMethod `json:"authMethod"`
+
+	// AuthorityType Authorization boundary. `system_admin` principals may administer the deployment and select tenants. `tenant` principals act within one effective tenant.
 	AuthorityType AuthorityType `json:"authorityType"`
 
-	// Name Operator-assigned token name.
+	// Id Stable identifier of the authenticated subject.
+	Id string `json:"id"`
+
+	// Name Display name of the authenticated credential or user.
 	Name string `json:"name"`
 
-	// Scopes Scopes granted to the token.
+	// ResourceGrants Explicit grants when `resourceMode` is `allowlist`; empty when it is `all`.
+	ResourceGrants []ResourceGrant `json:"resourceGrants"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode ResourceMode `json:"resourceMode"`
+
+	// Scopes Scopes granted to the authenticated principal.
 	Scopes []Scope `json:"scopes"`
 
-	// TenantId Bound tenant for a tenant token, or `null` for a system administrator token.
+	// TenantId Effective tenant for tenant authority, or `null` when no tenant is selected.
 	TenantId *UUIDv7 `json:"tenantId,omitempty"`
 
-	// TokenId Identifier of the API token used for authentication.
-	TokenId UUIDv7 `json:"tokenId"`
+	// TokenId Identifier of the API token used for authentication, or `null` for account-backed sessions.
+	TokenId *UUIDv7 `json:"tokenId"`
+
+	// Type Stable category of the authenticated or audited actor.
+	Type PrincipalType `json:"type"`
+
+	// UserId User identifier for account-backed authentication, or `null` for API tokens.
+	UserId *UUIDv7 `json:"userId,omitempty"`
 }
+
+// PrincipalAuthMethod Authentication mechanism used for this request.
+type PrincipalAuthMethod string
+
+// PrincipalType Stable category of the authenticated or audited actor.
+type PrincipalType string
 
 // PromoteSessionInput Snapshot metadata created from a stopped, retained session.
 type PromoteSessionInput struct {
@@ -1042,7 +1292,22 @@ type ReplaceTagsInput struct {
 	Tags StringMap `json:"tags"`
 }
 
-// Scope Permission granted to an API token. `system:admin` implies every scope. Tenant tokens cannot receive `system:admin` or `tenants:write`.
+// ResourceGrant Access to one existing tenant session or snapshot by its stable UUIDv7 identifier.
+type ResourceGrant struct {
+	// ResourceId Time-ordered UUID version 7 generated by Aperture.
+	ResourceId UUIDv7 `json:"resourceId"`
+
+	// ResourceType Tenant resource category accepted by API token allowlists.
+	ResourceType ResourceType `json:"resourceType"`
+}
+
+// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+type ResourceMode string
+
+// ResourceType Tenant resource category accepted by API token allowlists.
+type ResourceType string
+
+// Scope Permission granted to a principal. `system:admin` implies every scope. Tenant credentials and memberships cannot receive `system:admin` or `tenants:write`.
 type Scope string
 
 // Session Browser session state, retention metadata, tags, and currently available access credentials.
@@ -1265,6 +1530,24 @@ type TenantInput struct {
 	DisplayName string `json:"displayName"`
 }
 
+// TenantMembership defines model for TenantMembership.
+type TenantMembership struct {
+	CreatedAt time.Time     `json:"createdAt"`
+	Scopes    []TenantScope `json:"scopes"`
+
+	// TenantId Time-ordered UUID version 7 generated by Aperture.
+	TenantId  UUIDv7    `json:"tenantId"`
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// UserId Time-ordered UUID version 7 generated by Aperture.
+	UserId UUIDv7 `json:"userId"`
+}
+
+// TenantMembershipInput defines model for TenantMembershipInput.
+type TenantMembershipInput struct {
+	Scopes []TenantScope `json:"scopes"`
+}
+
 // TenantPage Cursor-paginated tenants.
 type TenantPage struct {
 	Data []Tenant `json:"data"`
@@ -1278,11 +1561,17 @@ type TenantScope string
 
 // Token API token metadata. The raw bearer secret is never included in this schema.
 type Token struct {
-	// AuthorityType Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
+	// AuthorityType Authorization boundary. `system_admin` principals may administer the deployment and select tenants. `tenant` principals act within one effective tenant.
 	AuthorityType AuthorityType `json:"authorityType"`
 
 	// CreatedAt Time the token was created.
 	CreatedAt time.Time `json:"createdAt"`
+
+	// CreatedById User or API token identifier that created the token, or `null` for trusted local system actions.
+	CreatedById *UUIDv7 `json:"createdById"`
+
+	// CreatedByType Principal category that created the token.
+	CreatedByType PrincipalType `json:"createdByType"`
 
 	// ExpiresAt Authentication expiry time, or `null` when the token does not expire automatically.
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
@@ -1292,6 +1581,15 @@ type Token struct {
 
 	// Name Operator-assigned token name, unique within its authority and tenant context.
 	Name string `json:"name"`
+
+	// ParentTokenId API token used to delegate this token, or `null` when a user or trusted local system created it.
+	ParentTokenId *UUIDv7 `json:"parentTokenId"`
+
+	// ResourceGrants Explicit session and snapshot grants when `resourceMode` is `allowlist`.
+	ResourceGrants []ResourceGrant `json:"resourceGrants"`
+
+	// ResourceMode Whether a tenant API token can access every tenant resource or only explicit grants.
+	ResourceMode ResourceMode `json:"resourceMode"`
 
 	// RevokedAt Revocation time, or `null` while the token is active.
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
@@ -1318,6 +1616,52 @@ type UUIDv7 = openapi_types.UUID
 type UpdateSnapshotInput struct {
 	// Description New description. Send `null` to clear it; an empty string is stored as an empty description.
 	Description *string `json:"description,omitempty"`
+}
+
+// User defines model for User.
+type User struct {
+	CreatedAt   time.Time            `json:"createdAt"`
+	DisabledAt  *time.Time           `json:"disabledAt,omitempty"`
+	DisplayName string               `json:"displayName"`
+	Email       *openapi_types.Email `json:"email,omitempty"`
+
+	// Id Time-ordered UUID version 7 generated by Aperture.
+	Id            UUIDv7 `json:"id"`
+	IsSystemAdmin bool   `json:"isSystemAdmin"`
+
+	// PasswordSetupStatus Password setup state included by the get-user operation.
+	PasswordSetupStatus *UserPasswordSetupStatus `json:"passwordSetupStatus,omitempty"`
+	UpdatedAt           time.Time                `json:"updatedAt"`
+}
+
+// UserPasswordSetupStatus Password setup state included by the get-user operation.
+type UserPasswordSetupStatus string
+
+// UserInput defines model for UserInput.
+type UserInput struct {
+	DisplayName string `json:"displayName"`
+
+	// Email Optional normalized login and contact email.
+	Email *openapi_types.Email `json:"email,omitempty"`
+
+	// IsSystemAdmin Grants deployment-wide administration independently of tenant memberships.
+	IsSystemAdmin bool `json:"isSystemAdmin"`
+}
+
+// UserInvitation One-time account setup secret returned only when created.
+type UserInvitation struct {
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Token Raw setup token. Store and transmit it as a secret.
+	Token string `json:"token"`
+}
+
+// UserPage defines model for UserPage.
+type UserPage struct {
+	Data []User `json:"data"`
+
+	// Meta Cursor pagination metadata for a newest-first result page.
+	Meta PageMeta `json:"meta"`
 }
 
 // WebRTCConnection WebRTC connection data for an active session.
@@ -1370,6 +1714,9 @@ type TenantId = UUIDv7
 // TokenId Time-ordered UUID version 7 generated by Aperture.
 type TokenId = UUIDv7
 
+// UserId Time-ordered UUID version 7 generated by Aperture.
+type UserId = UUIDv7
+
 // CreateAdminToken Token definition accepted by the system administrator token endpoint.
 type CreateAdminToken = CreateAdminTokenInput
 
@@ -1385,6 +1732,9 @@ type CreateTenant = TenantInput
 // CreateTenantToken Token definition automatically bound to the authenticated tenant.
 type CreateTenantToken = CreateTenantTokenInput
 
+// CreateUser defines model for CreateUser.
+type CreateUser = UserInput
+
 // PromoteSession Snapshot metadata created from a stopped, retained session.
 type PromoteSession = PromoteSessionInput
 
@@ -1399,6 +1749,27 @@ type UpdateSnapshot = UpdateSnapshotInput
 
 // UpdateTenant Tenant fields accepted by create and update operations.
 type UpdateTenant = TenantInput
+
+// UpdateUser defines model for UpdateUser.
+type UpdateUser = UserInput
+
+// UpsertTenantMembership defines model for UpsertTenantMembership.
+type UpsertTenantMembership = TenantMembershipInput
+
+// ListAuditEventsParams defines parameters for ListAuditEvents.
+type ListAuditEventsParams struct {
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor       *Cursor        `form:"cursor,omitempty" json:"cursor,omitempty"`
+	TenantId     *UUIDv7        `form:"tenantId,omitempty" json:"tenantId,omitempty"`
+	ActorType    *PrincipalType `form:"actorType,omitempty" json:"actorType,omitempty"`
+	ActorId      *string        `form:"actorId,omitempty" json:"actorId,omitempty"`
+	Action       *string        `form:"action,omitempty" json:"action,omitempty"`
+	ResourceType *string        `form:"resourceType,omitempty" json:"resourceType,omitempty"`
+	ResourceId   *string        `form:"resourceId,omitempty" json:"resourceId,omitempty"`
+}
 
 // ListTenantsParams defines parameters for ListTenants.
 type ListTenantsParams struct {
@@ -1446,9 +1817,27 @@ type ListAdminTokensParams struct {
 // ListAdminTokensParamsRevoked defines parameters for ListAdminTokens.
 type ListAdminTokensParamsRevoked string
 
+// ListUsersParams defines parameters for ListUsers.
+type ListUsersParams struct {
+	// Limit Requested page size. Omitted or `0` uses 50. Values above 100 are accepted but clamped to 100.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque `nextCursor` from the previous page. Reuse it only with the same operation and filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Query Case-insensitive substring matched against display name or email.
+	Query *string `form:"query,omitempty" json:"query,omitempty"`
+
+	// Disabled Select active users, disabled users only, or both.
+	Disabled *ListUsersParamsDisabled `form:"disabled,omitempty" json:"disabled,omitempty"`
+}
+
+// ListUsersParamsDisabled defines parameters for ListUsers.
+type ListUsersParamsDisabled string
+
 // GetCurrentPrincipalParams defines parameters for GetCurrentPrincipal.
 type GetCurrentPrincipalParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -1466,7 +1855,7 @@ type ListEventsParams struct {
 	// ResourceId Exact resource identifier within the selected tenant.
 	ResourceId *string `form:"resourceId,omitempty" json:"resourceId,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -1493,7 +1882,7 @@ type ListSessionsParams struct {
 	// TagOperator Optional operator paired by position with each tag predicate. Omit the entire parameter to use `eq` for every predicate. If supplied, its entry count must match `tagKey`.
 	TagOperator *TagOperator `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -1502,67 +1891,67 @@ type ListSessionsParamsTagOperator string
 
 // CreateSessionParams defines parameters for CreateSession.
 type CreateSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionsBulkParams defines parameters for GetSessionsBulk.
 type GetSessionsBulkParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // DeleteSessionParams defines parameters for DeleteSession.
 type DeleteSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // CreateSessionFileDownloadURLParams defines parameters for CreateSessionFileDownloadURL.
 type CreateSessionFileDownloadURLParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // PromoteSessionParams defines parameters for PromoteSession.
 type PromoteSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // StopSessionRecordingParams defines parameters for StopSessionRecording.
 type StopSessionRecordingParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReopenSessionParams defines parameters for ReopenSession.
 type ReopenSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RotateSessionTokenParams defines parameters for RotateSessionToken.
 type RotateSessionTokenParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // SuspendSessionParams defines parameters for SuspendSession.
 type SuspendSessionParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReplaceSessionTagsParams defines parameters for ReplaceSessionTags.
 type ReplaceSessionTagsParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -1593,7 +1982,7 @@ type ListSnapshotsParams struct {
 	// TagOperator Optional operator paired by position with each tag predicate. Omit the entire parameter to use `eq` for every predicate. If supplied, its entry count must match `tagKey`.
 	TagOperator *TagOperator `form:"tagOperator,omitempty" json:"tagOperator,omitempty"`
 
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -1605,25 +1994,25 @@ type ListSnapshotsParamsTagOperator string
 
 // DeleteSnapshotParams defines parameters for DeleteSnapshot.
 type DeleteSnapshotParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // UpdateSnapshotParams defines parameters for UpdateSnapshot.
 type UpdateSnapshotParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // RestoreSnapshotParams defines parameters for RestoreSnapshot.
 type RestoreSnapshotParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
 // ReplaceSnapshotTagsParams defines parameters for ReplaceSnapshotTags.
 type ReplaceSnapshotTagsParams struct {
-	// XApertureTenantId Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
@@ -1654,8 +2043,17 @@ type CreateTenantJSONRequestBody = TenantInput
 // UpdateTenantJSONRequestBody defines body for UpdateTenant for application/json ContentType.
 type UpdateTenantJSONRequestBody = TenantInput
 
+// UpsertTenantMembershipJSONRequestBody defines body for UpsertTenantMembership for application/json ContentType.
+type UpsertTenantMembershipJSONRequestBody = TenantMembershipInput
+
 // CreateAdminTokenJSONRequestBody defines body for CreateAdminToken for application/json ContentType.
 type CreateAdminTokenJSONRequestBody = CreateAdminTokenInput
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = UserInput
+
+// UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
+type UpdateUserJSONRequestBody = UserInput
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = CreateSessionInput
@@ -1820,6 +2218,11 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// ListAuditEvents List security audit events
+	//
+	// Corresponds with GET /api/admin/audit-events (the `ListAuditEvents` operationId).
+	ListAuditEvents(ctx context.Context, params *ListAuditEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListTenants List tenants
 	//
 	// Newest-first tenant list.
@@ -1870,6 +2273,30 @@ type ClientInterface interface {
 	// Corresponds with PATCH /api/admin/tenants/{tenantId} (the `UpdateTenant` operationId).
 	UpdateTenant(ctx context.Context, tenantId TenantId, body UpdateTenantJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListTenantMemberships List tenant memberships
+	//
+	// Corresponds with GET /api/admin/tenants/{tenantId}/memberships (the `ListTenantMemberships` operationId).
+	ListTenantMemberships(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteTenantMembership Delete a tenant membership
+	//
+	// Corresponds with DELETE /api/admin/tenants/{tenantId}/memberships/{userId} (the `DeleteTenantMembership` operationId).
+	DeleteTenantMembership(ctx context.Context, tenantId TenantId, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpsertTenantMembershipWithBody Create or update a tenant membership
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+	UpsertTenantMembershipWithBody(ctx context.Context, tenantId TenantId, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpsertTenantMembership Create or update a tenant membership
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+	UpsertTenantMembership(ctx context.Context, tenantId TenantId, userId UserId, body UpsertTenantMembershipJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RestoreTenant Restore a tenant
 	//
 	// Restores a tenant. Revoked tokens remain revoked.
@@ -1886,7 +2313,7 @@ type ClientInterface interface {
 
 	// CreateAdminTokenWithBody Create an API token
 	//
-	// Creates an administrator or tenant token. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1895,7 +2322,7 @@ type ClientInterface interface {
 
 	// CreateAdminToken Create an API token
 	//
-	// Creates an administrator or tenant token. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1908,6 +2335,66 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/admin/tokens/{tokenId}/revoke (the `RevokeAdminToken` operationId).
 	RevokeAdminToken(ctx context.Context, tokenId TokenId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListUsers List users
+	//
+	// Corresponds with GET /api/admin/users (the `ListUsers` operationId).
+	ListUsers(ctx context.Context, params *ListUsersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateUserWithBody Create a user
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+	CreateUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateUser Create a user
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+	CreateUser(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DisableUser Disable a user
+	//
+	// Corresponds with DELETE /api/admin/users/{userId} (the `DisableUser` operationId).
+	DisableUser(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetUser Get a user
+	//
+	// Corresponds with GET /api/admin/users/{userId} (the `GetUser` operationId).
+	GetUser(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateUserWithBody Update a user
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+	UpdateUserWithBody(ctx context.Context, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateUser Update a user
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+	UpdateUser(ctx context.Context, userId UserId, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateUserInvitation Create a user password link
+	//
+	// Creates a setup or reset link for an active user with an email address. Replaces any outstanding password link. The raw token is returned only once and expires after seven days.
+	//
+	// Corresponds with POST /api/admin/users/{userId}/invitation (the `CreateUserInvitation` operationId).
+	CreateUserInvitation(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListUserMemberships List a user's tenant memberships
+	//
+	// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
+	ListUserMemberships(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RestoreUser Restore a user
+	//
+	// Corresponds with POST /api/admin/users/{userId}/restore (the `RestoreUser` operationId).
+	RestoreUser(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetCurrentPrincipal Get the authenticated principal
 	//
@@ -1925,7 +2412,7 @@ type ClientInterface interface {
 
 	// ListEvents List tenant events
 	//
-	// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+	// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 	//
 	// Corresponds with GET /api/events (the `ListEvents` operationId).
 	ListEvents(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1939,14 +2426,14 @@ type ClientInterface interface {
 
 	// ListSessions List browser sessions
 	//
-	// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+	// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 	//
 	// Corresponds with GET /api/sessions (the `ListSessions` operationId).
 	ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateSessionWithBody Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1955,7 +2442,7 @@ type ClientInterface interface {
 
 	// CreateSession Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1964,7 +2451,7 @@ type ClientInterface interface {
 
 	// GetSessionsBulkWithBody Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1973,7 +2460,7 @@ type ClientInterface interface {
 
 	// GetSessionsBulk Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2014,7 +2501,7 @@ type ClientInterface interface {
 
 	// PromoteSessionWithBody Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2023,7 +2510,7 @@ type ClientInterface interface {
 
 	// PromoteSession Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2078,7 +2565,7 @@ type ClientInterface interface {
 
 	// ListSnapshots List snapshots
 	//
-	// Newest-first snapshots. Tag predicates use logical AND.
+	// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 	//
 	// Corresponds with GET /api/snapshots (the `ListSnapshots` operationId).
 	ListSnapshots(ctx context.Context, params *ListSnapshotsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2167,7 +2654,7 @@ type ClientInterface interface {
 
 	// CreateTenantTokenWithBody Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2176,7 +2663,7 @@ type ClientInterface interface {
 
 	// CreateTenantToken Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2189,6 +2676,21 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/tenant/tokens/{tokenId}/revoke (the `RevokeTenantToken` operationId).
 	RevokeTenantToken(ctx context.Context, tokenId TokenId, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ListAuditEvents List security audit events
+//
+// Corresponds with GET /api/admin/audit-events (the `ListAuditEvents` operationId).
+func (c *Client) ListAuditEvents(ctx context.Context, params *ListAuditEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAuditEventsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // ListTenants List tenants
@@ -2301,6 +2803,70 @@ func (c *Client) UpdateTenant(ctx context.Context, tenantId TenantId, body Updat
 	return c.Client.Do(req)
 }
 
+// ListTenantMemberships List tenant memberships
+//
+// Corresponds with GET /api/admin/tenants/{tenantId}/memberships (the `ListTenantMemberships` operationId).
+func (c *Client) ListTenantMemberships(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTenantMembershipsRequest(c.Server, tenantId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteTenantMembership Delete a tenant membership
+//
+// Corresponds with DELETE /api/admin/tenants/{tenantId}/memberships/{userId} (the `DeleteTenantMembership` operationId).
+func (c *Client) DeleteTenantMembership(ctx context.Context, tenantId TenantId, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteTenantMembershipRequest(c.Server, tenantId, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpsertTenantMembershipWithBody Create or update a tenant membership
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+func (c *Client) UpsertTenantMembershipWithBody(ctx context.Context, tenantId TenantId, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpsertTenantMembershipRequestWithBody(c.Server, tenantId, userId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpsertTenantMembership Create or update a tenant membership
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+func (c *Client) UpsertTenantMembership(ctx context.Context, tenantId TenantId, userId UserId, body UpsertTenantMembershipJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpsertTenantMembershipRequest(c.Server, tenantId, userId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // RestoreTenant Restore a tenant
 //
 // Restores a tenant. Revoked tokens remain revoked.
@@ -2337,7 +2903,7 @@ func (c *Client) ListAdminTokens(ctx context.Context, params *ListAdminTokensPar
 
 // CreateAdminTokenWithBody Create an API token
 //
-// Creates an administrator or tenant token. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2356,7 +2922,7 @@ func (c *Client) CreateAdminTokenWithBody(ctx context.Context, contentType strin
 
 // CreateAdminToken Create an API token
 //
-// Creates an administrator or tenant token. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2380,6 +2946,166 @@ func (c *Client) CreateAdminToken(ctx context.Context, body CreateAdminTokenJSON
 // Corresponds with POST /api/admin/tokens/{tokenId}/revoke (the `RevokeAdminToken` operationId).
 func (c *Client) RevokeAdminToken(ctx context.Context, tokenId TokenId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRevokeAdminTokenRequest(c.Server, tokenId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListUsers List users
+//
+// Corresponds with GET /api/admin/users (the `ListUsers` operationId).
+func (c *Client) ListUsers(ctx context.Context, params *ListUsersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUsersRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateUserWithBody Create a user
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+func (c *Client) CreateUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateUserRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateUser Create a user
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+func (c *Client) CreateUser(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateUserRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DisableUser Disable a user
+//
+// Corresponds with DELETE /api/admin/users/{userId} (the `DisableUser` operationId).
+func (c *Client) DisableUser(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDisableUserRequest(c.Server, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetUser Get a user
+//
+// Corresponds with GET /api/admin/users/{userId} (the `GetUser` operationId).
+func (c *Client) GetUser(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetUserRequest(c.Server, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateUserWithBody Update a user
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+func (c *Client) UpdateUserWithBody(ctx context.Context, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateUserRequestWithBody(c.Server, userId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateUser Update a user
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+func (c *Client) UpdateUser(ctx context.Context, userId UserId, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateUserRequest(c.Server, userId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateUserInvitation Create a user password link
+//
+// Creates a setup or reset link for an active user with an email address. Replaces any outstanding password link. The raw token is returned only once and expires after seven days.
+//
+// Corresponds with POST /api/admin/users/{userId}/invitation (the `CreateUserInvitation` operationId).
+func (c *Client) CreateUserInvitation(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateUserInvitationRequest(c.Server, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListUserMemberships List a user's tenant memberships
+//
+// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
+func (c *Client) ListUserMemberships(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUserMembershipsRequest(c.Server, userId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RestoreUser Restore a user
+//
+// Corresponds with POST /api/admin/users/{userId}/restore (the `RestoreUser` operationId).
+func (c *Client) RestoreUser(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestoreUserRequest(c.Server, userId)
 	if err != nil {
 		return nil, err
 	}
@@ -2426,7 +3152,7 @@ func (c *Client) ListBrowserConfigurations(ctx context.Context, reqEditors ...Re
 
 // ListEvents List tenant events
 //
-// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 //
 // Corresponds with GET /api/events (the `ListEvents` operationId).
 func (c *Client) ListEvents(ctx context.Context, params *ListEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2460,7 +3186,7 @@ func (c *Client) GetHealth(ctx context.Context, reqEditors ...RequestEditorFn) (
 
 // ListSessions List browser sessions
 //
-// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 //
 // Corresponds with GET /api/sessions (the `ListSessions` operationId).
 func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2477,7 +3203,7 @@ func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, r
 
 // CreateSessionWithBody Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2496,7 +3222,7 @@ func (c *Client) CreateSessionWithBody(ctx context.Context, params *CreateSessio
 
 // CreateSession Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2515,7 +3241,7 @@ func (c *Client) CreateSession(ctx context.Context, params *CreateSessionParams,
 
 // GetSessionsBulkWithBody Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2534,7 +3260,7 @@ func (c *Client) GetSessionsBulkWithBody(ctx context.Context, params *GetSession
 
 // GetSessionsBulk Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2625,7 +3351,7 @@ func (c *Client) CreateSessionFileDownloadURL(ctx context.Context, sessionId Ses
 
 // PromoteSessionWithBody Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2644,7 +3370,7 @@ func (c *Client) PromoteSessionWithBody(ctx context.Context, sessionId SessionId
 
 // PromoteSession Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2769,7 +3495,7 @@ func (c *Client) ReplaceSessionTags(ctx context.Context, sessionId SessionId, pa
 
 // ListSnapshots List snapshots
 //
-// Newest-first snapshots. Tag predicates use logical AND.
+// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 //
 // Corresponds with GET /api/snapshots (the `ListSnapshots` operationId).
 func (c *Client) ListSnapshots(ctx context.Context, params *ListSnapshotsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2968,7 +3694,7 @@ func (c *Client) ListTenantTokens(ctx context.Context, params *ListTenantTokensP
 
 // CreateTenantTokenWithBody Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2987,7 +3713,7 @@ func (c *Client) CreateTenantTokenWithBody(ctx context.Context, contentType stri
 
 // CreateTenantToken Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -3019,6 +3745,144 @@ func (c *Client) RevokeTenantToken(ctx context.Context, tokenId TokenId, reqEdit
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewListAuditEventsRequest constructs an http.Request for the ListAuditEvents method
+func NewListAuditEventsRequest(server string, params *ListAuditEventsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/audit-events")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.TenantId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "tenantId", *params.TenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ActorType != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "actorType", *params.ActorType, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ActorId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "actorId", *params.ActorId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Action != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "action", *params.Action, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ResourceType != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "resourceType", *params.ResourceType, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ResourceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "resourceId", *params.ResourceId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewListTenantsRequest constructs an http.Request for the ListTenants method
@@ -3223,6 +4087,135 @@ func NewUpdateTenantRequestWithBody(server string, tenantId TenantId, contentTyp
 	}
 
 	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListTenantMembershipsRequest constructs an http.Request for the ListTenantMemberships method
+func NewListTenantMembershipsRequest(server string, tenantId TenantId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/tenants/%s/memberships", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteTenantMembershipRequest constructs an http.Request for the DeleteTenantMembership method
+func NewDeleteTenantMembershipRequest(server string, tenantId TenantId, userId UserId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/tenants/%s/memberships/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpsertTenantMembershipRequest calls the generic UpsertTenantMembership builder with application/json body
+func NewUpsertTenantMembershipRequest(server string, tenantId TenantId, userId UserId, body UpsertTenantMembershipJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpsertTenantMembershipRequestWithBody(server, tenantId, userId, "application/json", bodyReader)
+}
+
+// NewUpsertTenantMembershipRequestWithBody constructs an http.Request for the UpsertTenantMembership method, with any body, and a specified content type
+func NewUpsertTenantMembershipRequestWithBody(server string, tenantId TenantId, userId UserId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenantId", tenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/tenants/%s/memberships/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -3449,6 +4442,353 @@ func NewRevokeAdminTokenRequest(server string, tokenId TokenId) (*http.Request, 
 	}
 
 	operationPath := fmt.Sprintf("/api/admin/tokens/%s/revoke", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListUsersRequest constructs an http.Request for the ListUsers method
+func NewListUsersRequest(server string, params *ListUsersParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Query != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "query", *params.Query, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Disabled != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "disabled", *params.Disabled, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateUserRequest calls the generic CreateUser builder with application/json body
+func NewCreateUserRequest(server string, body CreateUserJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateUserRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateUserRequestWithBody constructs an http.Request for the CreateUser method, with any body, and a specified content type
+func NewCreateUserRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDisableUserRequest constructs an http.Request for the DisableUser method
+func NewDisableUserRequest(server string, userId UserId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetUserRequest constructs an http.Request for the GetUser method
+func NewGetUserRequest(server string, userId UserId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateUserRequest calls the generic UpdateUser builder with application/json body
+func NewUpdateUserRequest(server string, userId UserId, body UpdateUserJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateUserRequestWithBody(server, userId, "application/json", bodyReader)
+}
+
+// NewUpdateUserRequestWithBody constructs an http.Request for the UpdateUser method, with any body, and a specified content type
+func NewUpdateUserRequestWithBody(server string, userId UserId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCreateUserInvitationRequest constructs an http.Request for the CreateUserInvitation method
+func NewCreateUserInvitationRequest(server string, userId UserId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users/%s/invitation", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListUserMembershipsRequest constructs an http.Request for the ListUserMemberships method
+func NewListUserMembershipsRequest(server string, userId UserId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users/%s/memberships", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRestoreUserRequest constructs an http.Request for the RestoreUser method
+func NewRestoreUserRequest(server string, userId UserId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "userId", userId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/users/%s/restore", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -5067,6 +6407,13 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// ListAuditEventsWithResponse List security audit events
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/admin/audit-events (the `ListAuditEvents` operationId).
+	ListAuditEventsWithResponse(ctx context.Context, params *ListAuditEventsParams, reqEditors ...RequestEditorFn) (*ListAuditEventsResponse, error)
+
 	// ListTenantsWithResponse List tenants
 	//
 	// Newest-first tenant list.
@@ -5121,6 +6468,34 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /api/admin/tenants/{tenantId} (the `UpdateTenant` operationId).
 	UpdateTenantWithResponse(ctx context.Context, tenantId TenantId, body UpdateTenantJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateTenantResponse, error)
 
+	// ListTenantMembershipsWithResponse List tenant memberships
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/admin/tenants/{tenantId}/memberships (the `ListTenantMemberships` operationId).
+	ListTenantMembershipsWithResponse(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*ListTenantMembershipsResponse, error)
+
+	// DeleteTenantMembershipWithResponse Delete a tenant membership
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/admin/tenants/{tenantId}/memberships/{userId} (the `DeleteTenantMembership` operationId).
+	DeleteTenantMembershipWithResponse(ctx context.Context, tenantId TenantId, userId UserId, reqEditors ...RequestEditorFn) (*DeleteTenantMembershipResponse, error)
+
+	// UpsertTenantMembershipWithBodyWithResponse Create or update a tenant membership
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+	UpsertTenantMembershipWithBodyWithResponse(ctx context.Context, tenantId TenantId, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpsertTenantMembershipResponse, error)
+
+	// UpsertTenantMembershipWithResponse Create or update a tenant membership
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+	UpsertTenantMembershipWithResponse(ctx context.Context, tenantId TenantId, userId UserId, body UpsertTenantMembershipJSONRequestBody, reqEditors ...RequestEditorFn) (*UpsertTenantMembershipResponse, error)
+
 	// RestoreTenantWithResponse Restore a tenant
 	//
 	// Restores a tenant. Revoked tokens remain revoked.
@@ -5141,7 +6516,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateAdminTokenWithBodyWithResponse Create an API token
 	//
-	// Creates an administrator or tenant token. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5150,7 +6525,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateAdminTokenWithResponse Create an API token
 	//
-	// Creates an administrator or tenant token. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5165,6 +6540,78 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/admin/tokens/{tokenId}/revoke (the `RevokeAdminToken` operationId).
 	RevokeAdminTokenWithResponse(ctx context.Context, tokenId TokenId, reqEditors ...RequestEditorFn) (*RevokeAdminTokenResponse, error)
+
+	// ListUsersWithResponse List users
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/admin/users (the `ListUsers` operationId).
+	ListUsersWithResponse(ctx context.Context, params *ListUsersParams, reqEditors ...RequestEditorFn) (*ListUsersResponse, error)
+
+	// CreateUserWithBodyWithResponse Create a user
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+	CreateUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateUserResponse, error)
+
+	// CreateUserWithResponse Create a user
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+	CreateUserWithResponse(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateUserResponse, error)
+
+	// DisableUserWithResponse Disable a user
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/admin/users/{userId} (the `DisableUser` operationId).
+	DisableUserWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*DisableUserResponse, error)
+
+	// GetUserWithResponse Get a user
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/admin/users/{userId} (the `GetUser` operationId).
+	GetUserWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*GetUserResponse, error)
+
+	// UpdateUserWithBodyWithResponse Update a user
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+	UpdateUserWithBodyWithResponse(ctx context.Context, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error)
+
+	// UpdateUserWithResponse Update a user
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+	UpdateUserWithResponse(ctx context.Context, userId UserId, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error)
+
+	// CreateUserInvitationWithResponse Create a user password link
+	//
+	// Creates a setup or reset link for an active user with an email address. Replaces any outstanding password link. The raw token is returned only once and expires after seven days.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/admin/users/{userId}/invitation (the `CreateUserInvitation` operationId).
+	CreateUserInvitationWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*CreateUserInvitationResponse, error)
+
+	// ListUserMembershipsWithResponse List a user's tenant memberships
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
+	ListUserMembershipsWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*ListUserMembershipsResponse, error)
+
+	// RestoreUserWithResponse Restore a user
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/admin/users/{userId}/restore (the `RestoreUser` operationId).
+	RestoreUserWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*RestoreUserResponse, error)
 
 	// GetCurrentPrincipalWithResponse Get the authenticated principal
 	//
@@ -5186,7 +6633,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListEventsWithResponse List tenant events
 	//
-	// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+	// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -5204,7 +6651,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSessionsWithResponse List browser sessions
 	//
-	// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+	// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -5213,7 +6660,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionWithBodyWithResponse Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5222,7 +6669,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionWithResponse Create a browser session
 	//
-	// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+	// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5231,7 +6678,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetSessionsBulkWithBodyWithResponse Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5240,7 +6687,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetSessionsBulkWithResponse Get browser sessions by ID
 	//
-	// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+	// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5285,7 +6732,7 @@ type ClientWithResponsesInterface interface {
 
 	// PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5294,7 +6741,7 @@ type ClientWithResponsesInterface interface {
 
 	// PromoteSessionWithResponse Promote a browser session to a snapshot
 	//
-	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+	// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5357,7 +6804,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSnapshotsWithResponse List snapshots
 	//
-	// Newest-first snapshots. Tag predicates use logical AND.
+	// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -5456,7 +6903,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateTenantTokenWithBodyWithResponse Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5465,7 +6912,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateTenantTokenWithResponse Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5480,6 +6927,54 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/tenant/tokens/{tokenId}/revoke (the `RevokeTenantToken` operationId).
 	RevokeTenantTokenWithResponse(ctx context.Context, tokenId TokenId, reqEditors ...RequestEditorFn) (*RevokeTenantTokenResponse, error)
+}
+
+type ListAuditEventsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AuditEventPage
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListAuditEventsResponse) GetJSON200() *AuditEventPage {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListAuditEventsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListAuditEventsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAuditEventsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAuditEventsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAuditEventsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListTenantsResponse struct {
@@ -5674,6 +7169,143 @@ func (r UpdateTenantResponse) ContentType() string {
 	return ""
 }
 
+type ListTenantMembershipsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]TenantMembership
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListTenantMembershipsResponse) GetJSON200() *[]TenantMembership {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListTenantMembershipsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListTenantMembershipsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTenantMembershipsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTenantMembershipsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListTenantMembershipsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteTenantMembershipResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteTenantMembershipResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteTenantMembershipResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteTenantMembershipResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteTenantMembershipResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteTenantMembershipResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpsertTenantMembershipResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TenantMembership
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpsertTenantMembershipResponse) GetJSON200() *TenantMembership {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpsertTenantMembershipResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpsertTenantMembershipResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpsertTenantMembershipResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpsertTenantMembershipResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpsertTenantMembershipResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RestoreTenantResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5853,6 +7485,390 @@ func (r RevokeAdminTokenResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RevokeAdminTokenResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListUsersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserPage
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListUsersResponse) GetJSON200() *UserPage {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListUsersResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListUsersResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUsersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUsersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUsersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *User
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateUserResponse) GetJSON201() *User {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateUserResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateUserResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateUserResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DisableUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *User
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DisableUserResponse) GetJSON200() *User {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DisableUserResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DisableUserResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DisableUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DisableUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DisableUserResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *User
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetUserResponse) GetJSON200() *User {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetUserResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetUserResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetUserResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *User
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateUserResponse) GetJSON200() *User {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateUserResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateUserResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateUserResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateUserInvitationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *UserInvitation
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateUserInvitationResponse) GetJSON201() *UserInvitation {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateUserInvitationResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateUserInvitationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateUserInvitationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateUserInvitationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateUserInvitationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListUserMembershipsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]TenantMembership
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListUserMembershipsResponse) GetJSON200() *[]TenantMembership {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListUserMembershipsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListUserMembershipsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUserMembershipsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUserMembershipsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUserMembershipsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RestoreUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *User
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RestoreUserResponse) GetJSON200() *User {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RestoreUserResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RestoreUserResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RestoreUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RestoreUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RestoreUserResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7093,6 +9109,19 @@ func (r RevokeTenantTokenResponse) ContentType() string {
 	return ""
 }
 
+// ListAuditEventsWithResponse List security audit events
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/admin/audit-events (the `ListAuditEvents` operationId).
+func (c *ClientWithResponses) ListAuditEventsWithResponse(ctx context.Context, params *ListAuditEventsParams, reqEditors ...RequestEditorFn) (*ListAuditEventsResponse, error) {
+	rsp, err := c.ListAuditEvents(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAuditEventsResponse(rsp)
+}
+
 // ListTenantsWithResponse List tenants
 //
 // Newest-first tenant list.
@@ -7183,6 +9212,58 @@ func (c *ClientWithResponses) UpdateTenantWithResponse(ctx context.Context, tena
 	return ParseUpdateTenantResponse(rsp)
 }
 
+// ListTenantMembershipsWithResponse List tenant memberships
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/admin/tenants/{tenantId}/memberships (the `ListTenantMemberships` operationId).
+func (c *ClientWithResponses) ListTenantMembershipsWithResponse(ctx context.Context, tenantId TenantId, reqEditors ...RequestEditorFn) (*ListTenantMembershipsResponse, error) {
+	rsp, err := c.ListTenantMemberships(ctx, tenantId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTenantMembershipsResponse(rsp)
+}
+
+// DeleteTenantMembershipWithResponse Delete a tenant membership
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/admin/tenants/{tenantId}/memberships/{userId} (the `DeleteTenantMembership` operationId).
+func (c *ClientWithResponses) DeleteTenantMembershipWithResponse(ctx context.Context, tenantId TenantId, userId UserId, reqEditors ...RequestEditorFn) (*DeleteTenantMembershipResponse, error) {
+	rsp, err := c.DeleteTenantMembership(ctx, tenantId, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteTenantMembershipResponse(rsp)
+}
+
+// UpsertTenantMembershipWithBodyWithResponse Create or update a tenant membership
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+func (c *ClientWithResponses) UpsertTenantMembershipWithBodyWithResponse(ctx context.Context, tenantId TenantId, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpsertTenantMembershipResponse, error) {
+	rsp, err := c.UpsertTenantMembershipWithBody(ctx, tenantId, userId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpsertTenantMembershipResponse(rsp)
+}
+
+// UpsertTenantMembershipWithResponse Create or update a tenant membership
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/admin/tenants/{tenantId}/memberships/{userId} (the `UpsertTenantMembership` operationId).
+func (c *ClientWithResponses) UpsertTenantMembershipWithResponse(ctx context.Context, tenantId TenantId, userId UserId, body UpsertTenantMembershipJSONRequestBody, reqEditors ...RequestEditorFn) (*UpsertTenantMembershipResponse, error) {
+	rsp, err := c.UpsertTenantMembership(ctx, tenantId, userId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpsertTenantMembershipResponse(rsp)
+}
+
 // RestoreTenantWithResponse Restore a tenant
 //
 // Restores a tenant. Revoked tokens remain revoked.
@@ -7215,7 +9296,7 @@ func (c *ClientWithResponses) ListAdminTokensWithResponse(ctx context.Context, p
 
 // CreateAdminTokenWithBodyWithResponse Create an API token
 //
-// Creates an administrator or tenant token. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7230,7 +9311,7 @@ func (c *ClientWithResponses) CreateAdminTokenWithBodyWithResponse(ctx context.C
 
 // CreateAdminTokenWithResponse Create an API token
 //
-// Creates an administrator or tenant token. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7256,6 +9337,138 @@ func (c *ClientWithResponses) RevokeAdminTokenWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseRevokeAdminTokenResponse(rsp)
+}
+
+// ListUsersWithResponse List users
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/admin/users (the `ListUsers` operationId).
+func (c *ClientWithResponses) ListUsersWithResponse(ctx context.Context, params *ListUsersParams, reqEditors ...RequestEditorFn) (*ListUsersResponse, error) {
+	rsp, err := c.ListUsers(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUsersResponse(rsp)
+}
+
+// CreateUserWithBodyWithResponse Create a user
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+func (c *ClientWithResponses) CreateUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateUserResponse, error) {
+	rsp, err := c.CreateUserWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateUserResponse(rsp)
+}
+
+// CreateUserWithResponse Create a user
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/admin/users (the `CreateUser` operationId).
+func (c *ClientWithResponses) CreateUserWithResponse(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateUserResponse, error) {
+	rsp, err := c.CreateUser(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateUserResponse(rsp)
+}
+
+// DisableUserWithResponse Disable a user
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/admin/users/{userId} (the `DisableUser` operationId).
+func (c *ClientWithResponses) DisableUserWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*DisableUserResponse, error) {
+	rsp, err := c.DisableUser(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDisableUserResponse(rsp)
+}
+
+// GetUserWithResponse Get a user
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/admin/users/{userId} (the `GetUser` operationId).
+func (c *ClientWithResponses) GetUserWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*GetUserResponse, error) {
+	rsp, err := c.GetUser(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetUserResponse(rsp)
+}
+
+// UpdateUserWithBodyWithResponse Update a user
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+func (c *ClientWithResponses) UpdateUserWithBodyWithResponse(ctx context.Context, userId UserId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error) {
+	rsp, err := c.UpdateUserWithBody(ctx, userId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateUserResponse(rsp)
+}
+
+// UpdateUserWithResponse Update a user
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/admin/users/{userId} (the `UpdateUser` operationId).
+func (c *ClientWithResponses) UpdateUserWithResponse(ctx context.Context, userId UserId, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error) {
+	rsp, err := c.UpdateUser(ctx, userId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateUserResponse(rsp)
+}
+
+// CreateUserInvitationWithResponse Create a user password link
+//
+// Creates a setup or reset link for an active user with an email address. Replaces any outstanding password link. The raw token is returned only once and expires after seven days.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/admin/users/{userId}/invitation (the `CreateUserInvitation` operationId).
+func (c *ClientWithResponses) CreateUserInvitationWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*CreateUserInvitationResponse, error) {
+	rsp, err := c.CreateUserInvitation(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateUserInvitationResponse(rsp)
+}
+
+// ListUserMembershipsWithResponse List a user's tenant memberships
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/admin/users/{userId}/memberships (the `ListUserMemberships` operationId).
+func (c *ClientWithResponses) ListUserMembershipsWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*ListUserMembershipsResponse, error) {
+	rsp, err := c.ListUserMemberships(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUserMembershipsResponse(rsp)
+}
+
+// RestoreUserWithResponse Restore a user
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/admin/users/{userId}/restore (the `RestoreUser` operationId).
+func (c *ClientWithResponses) RestoreUserWithResponse(ctx context.Context, userId UserId, reqEditors ...RequestEditorFn) (*RestoreUserResponse, error) {
+	rsp, err := c.RestoreUser(ctx, userId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestoreUserResponse(rsp)
 }
 
 // GetCurrentPrincipalWithResponse Get the authenticated principal
@@ -7290,7 +9503,7 @@ func (c *ClientWithResponses) ListBrowserConfigurationsWithResponse(ctx context.
 
 // ListEventsWithResponse List tenant events
 //
-// Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+// Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -7320,7 +9533,7 @@ func (c *ClientWithResponses) GetHealthWithResponse(ctx context.Context, reqEdit
 
 // ListSessionsWithResponse List browser sessions
 //
-// Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+// Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -7335,7 +9548,7 @@ func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, para
 
 // CreateSessionWithBodyWithResponse Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7350,7 +9563,7 @@ func (c *ClientWithResponses) CreateSessionWithBodyWithResponse(ctx context.Cont
 
 // CreateSessionWithResponse Create a browser session
 //
-// Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+// Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7365,7 +9578,7 @@ func (c *ClientWithResponses) CreateSessionWithResponse(ctx context.Context, par
 
 // GetSessionsBulkWithBodyWithResponse Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7380,7 +9593,7 @@ func (c *ClientWithResponses) GetSessionsBulkWithBodyWithResponse(ctx context.Co
 
 // GetSessionsBulkWithResponse Get browser sessions by ID
 //
-// Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+// Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7455,7 +9668,7 @@ func (c *ClientWithResponses) CreateSessionFileDownloadURLWithResponse(ctx conte
 
 // PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7470,7 +9683,7 @@ func (c *ClientWithResponses) PromoteSessionWithBodyWithResponse(ctx context.Con
 
 // PromoteSessionWithResponse Promote a browser session to a snapshot
 //
-// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+// Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7575,7 +9788,7 @@ func (c *ClientWithResponses) ReplaceSessionTagsWithResponse(ctx context.Context
 
 // ListSnapshotsWithResponse List snapshots
 //
-// Newest-first snapshots. Tag predicates use logical AND.
+// Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -7740,7 +9953,7 @@ func (c *ClientWithResponses) ListTenantTokensWithResponse(ctx context.Context, 
 
 // CreateTenantTokenWithBodyWithResponse Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7755,7 +9968,7 @@ func (c *ClientWithResponses) CreateTenantTokenWithBodyWithResponse(ctx context.
 
 // CreateTenantTokenWithResponse Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7781,6 +9994,39 @@ func (c *ClientWithResponses) RevokeTenantTokenWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseRevokeTenantTokenResponse(rsp)
+}
+
+// ParseListAuditEventsResponse parses an HTTP response from a ListAuditEventsWithResponse call
+func ParseListAuditEventsResponse(rsp *http.Response) (*ListAuditEventsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAuditEventsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AuditEventPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListTenantsResponse parses an HTTP response from a ListTenantsWithResponse call
@@ -7915,6 +10161,101 @@ func ParseUpdateTenantResponse(rsp *http.Response) (*UpdateTenantResponse, error
 	return response, nil
 }
 
+// ParseListTenantMembershipsResponse parses an HTTP response from a ListTenantMembershipsWithResponse call
+func ParseListTenantMembershipsResponse(rsp *http.Response) (*ListTenantMembershipsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTenantMembershipsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []TenantMembership
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteTenantMembershipResponse parses an HTTP response from a DeleteTenantMembershipWithResponse call
+func ParseDeleteTenantMembershipResponse(rsp *http.Response) (*DeleteTenantMembershipResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteTenantMembershipResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpsertTenantMembershipResponse parses an HTTP response from a UpsertTenantMembershipWithResponse call
+func ParseUpsertTenantMembershipResponse(rsp *http.Response) (*UpsertTenantMembershipResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpsertTenantMembershipResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TenantMembership
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRestoreTenantResponse parses an HTTP response from a RestoreTenantWithResponse call
 func ParseRestoreTenantResponse(rsp *http.Response) (*RestoreTenantResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -8030,6 +10371,270 @@ func ParseRevokeAdminTokenResponse(rsp *http.Response) (*RevokeAdminTokenRespons
 	switch {
 	case rsp.StatusCode == 204:
 		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUsersResponse parses an HTTP response from a ListUsersWithResponse call
+func ParseListUsersResponse(rsp *http.Response) (*ListUsersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUsersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateUserResponse parses an HTTP response from a CreateUserWithResponse call
+func ParseCreateUserResponse(rsp *http.Response) (*CreateUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest User
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDisableUserResponse parses an HTTP response from a DisableUserWithResponse call
+func ParseDisableUserResponse(rsp *http.Response) (*DisableUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DisableUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest User
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetUserResponse parses an HTTP response from a GetUserWithResponse call
+func ParseGetUserResponse(rsp *http.Response) (*GetUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest User
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateUserResponse parses an HTTP response from a UpdateUserWithResponse call
+func ParseUpdateUserResponse(rsp *http.Response) (*UpdateUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest User
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateUserInvitationResponse parses an HTTP response from a CreateUserInvitationWithResponse call
+func ParseCreateUserInvitationResponse(rsp *http.Response) (*CreateUserInvitationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateUserInvitationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest UserInvitation
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUserMembershipsResponse parses an HTTP response from a ListUserMembershipsWithResponse call
+func ParseListUserMembershipsResponse(rsp *http.Response) (*ListUserMembershipsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUserMembershipsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []TenantMembership
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRestoreUserResponse parses an HTTP response from a RestoreUserWithResponse call
+func ParseRestoreUserResponse(rsp *http.Response) (*RestoreUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RestoreUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest User
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -8892,6 +11497,9 @@ func ParseRevokeTenantTokenResponse(rsp *http.Response) (*RevokeTenantTokenRespo
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListAuditEvents List security audit events
+	// (GET /api/admin/audit-events)
+	ListAuditEvents(c *gin.Context, params ListAuditEventsParams)
 	// ListTenants List tenants
 	// (GET /api/admin/tenants)
 	ListTenants(c *gin.Context, params ListTenantsParams)
@@ -8904,6 +11512,15 @@ type ServerInterface interface {
 	// UpdateTenant Update a tenant
 	// (PATCH /api/admin/tenants/{tenantId})
 	UpdateTenant(c *gin.Context, tenantId TenantId)
+	// ListTenantMemberships List tenant memberships
+	// (GET /api/admin/tenants/{tenantId}/memberships)
+	ListTenantMemberships(c *gin.Context, tenantId TenantId)
+	// DeleteTenantMembership Delete a tenant membership
+	// (DELETE /api/admin/tenants/{tenantId}/memberships/{userId})
+	DeleteTenantMembership(c *gin.Context, tenantId TenantId, userId UserId)
+	// UpsertTenantMembership Create or update a tenant membership
+	// (PUT /api/admin/tenants/{tenantId}/memberships/{userId})
+	UpsertTenantMembership(c *gin.Context, tenantId TenantId, userId UserId)
 	// RestoreTenant Restore a tenant
 	// (POST /api/admin/tenants/{tenantId}/restore)
 	RestoreTenant(c *gin.Context, tenantId TenantId)
@@ -8916,6 +11533,30 @@ type ServerInterface interface {
 	// RevokeAdminToken Revoke an API token
 	// (POST /api/admin/tokens/{tokenId}/revoke)
 	RevokeAdminToken(c *gin.Context, tokenId TokenId)
+	// ListUsers List users
+	// (GET /api/admin/users)
+	ListUsers(c *gin.Context, params ListUsersParams)
+	// CreateUser Create a user
+	// (POST /api/admin/users)
+	CreateUser(c *gin.Context)
+	// DisableUser Disable a user
+	// (DELETE /api/admin/users/{userId})
+	DisableUser(c *gin.Context, userId UserId)
+	// GetUser Get a user
+	// (GET /api/admin/users/{userId})
+	GetUser(c *gin.Context, userId UserId)
+	// UpdateUser Update a user
+	// (PATCH /api/admin/users/{userId})
+	UpdateUser(c *gin.Context, userId UserId)
+	// CreateUserInvitation Create a user password link
+	// (POST /api/admin/users/{userId}/invitation)
+	CreateUserInvitation(c *gin.Context, userId UserId)
+	// ListUserMemberships List a user's tenant memberships
+	// (GET /api/admin/users/{userId}/memberships)
+	ListUserMemberships(c *gin.Context, userId UserId)
+	// RestoreUser Restore a user
+	// (POST /api/admin/users/{userId}/restore)
+	RestoreUser(c *gin.Context, userId UserId)
 	// GetCurrentPrincipal Get the authenticated principal
 	// (GET /api/auth/me)
 	GetCurrentPrincipal(c *gin.Context, params GetCurrentPrincipalParams)
@@ -9004,6 +11645,89 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(c *gin.Context)
+
+// ListAuditEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListAuditEvents(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAuditEventsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "tenantId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tenantId", c.Request.URL.Query(), &params.TenantId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "actorType" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actorType", c.Request.URL.Query(), &params.ActorType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter actorType: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "actorId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actorId", c.Request.URL.Query(), &params.ActorId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter actorId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "action" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", c.Request.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter action: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "resourceType" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "resourceType", c.Request.URL.Query(), &params.ResourceType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter resourceType: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "resourceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "resourceId", c.Request.URL.Query(), &params.ResourceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter resourceId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListAuditEvents(c, params)
+}
 
 // ListTenants operation middleware
 func (siw *ServerInterfaceWrapper) ListTenants(c *gin.Context) {
@@ -9117,6 +11841,99 @@ func (siw *ServerInterfaceWrapper) UpdateTenant(c *gin.Context) {
 	}
 
 	siw.Handler.UpdateTenant(c, tenantId)
+}
+
+// ListTenantMemberships operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantMemberships(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListTenantMemberships(c, tenantId)
+}
+
+// DeleteTenantMembership operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTenantMembership(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteTenantMembership(c, tenantId, userId)
+}
+
+// UpsertTenantMembership operation middleware
+func (siw *ServerInterfaceWrapper) UpsertTenantMembership(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tenantId" -------------
+	var tenantId TenantId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tenantId", c.Param("tenantId"), &tenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter tenantId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpsertTenantMembership(c, tenantId, userId)
 }
 
 // RestoreTenant operation middleware
@@ -9255,6 +12072,220 @@ func (siw *ServerInterfaceWrapper) RevokeAdminToken(c *gin.Context) {
 	}
 
 	siw.Handler.RevokeAdminToken(c, tokenId)
+}
+
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUsersParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", c.Request.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter cursor: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "query" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "query", c.Request.URL.Query(), &params.Query, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter query: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "disabled" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "disabled", c.Request.URL.Query(), &params.Disabled, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter disabled: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListUsers(c, params)
+}
+
+// CreateUser operation middleware
+func (siw *ServerInterfaceWrapper) CreateUser(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateUser(c)
+}
+
+// DisableUser operation middleware
+func (siw *ServerInterfaceWrapper) DisableUser(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DisableUser(c, userId)
+}
+
+// GetUser operation middleware
+func (siw *ServerInterfaceWrapper) GetUser(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetUser(c, userId)
+}
+
+// UpdateUser operation middleware
+func (siw *ServerInterfaceWrapper) UpdateUser(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateUser(c, userId)
+}
+
+// CreateUserInvitation operation middleware
+func (siw *ServerInterfaceWrapper) CreateUserInvitation(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateUserInvitation(c, userId)
+}
+
+// ListUserMemberships operation middleware
+func (siw *ServerInterfaceWrapper) ListUserMemberships(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListUserMemberships(c, userId)
+}
+
+// RestoreUser operation middleware
+func (siw *ServerInterfaceWrapper) RestoreUser(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RestoreUser(c, userId)
 }
 
 // GetCurrentPrincipal operation middleware
@@ -10479,6 +13510,18 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.DELETE(options.BaseURL+"/api/admin/tenants/:tenantId", wrapper.DeleteTenant)
 	router.PATCH(options.BaseURL+"/api/admin/tenants/:tenantId", wrapper.UpdateTenant)
 	router.POST(options.BaseURL+"/api/admin/tenants/:tenantId/restore", wrapper.RestoreTenant)
+	router.GET(options.BaseURL+"/api/admin/users", wrapper.ListUsers)
+	router.POST(options.BaseURL+"/api/admin/users", wrapper.CreateUser)
+	router.DELETE(options.BaseURL+"/api/admin/users/:userId", wrapper.DisableUser)
+	router.GET(options.BaseURL+"/api/admin/users/:userId", wrapper.GetUser)
+	router.PATCH(options.BaseURL+"/api/admin/users/:userId", wrapper.UpdateUser)
+	router.POST(options.BaseURL+"/api/admin/users/:userId/restore", wrapper.RestoreUser)
+	router.POST(options.BaseURL+"/api/admin/users/:userId/invitation", wrapper.CreateUserInvitation)
+	router.GET(options.BaseURL+"/api/admin/users/:userId/memberships", wrapper.ListUserMemberships)
+	router.GET(options.BaseURL+"/api/admin/tenants/:tenantId/memberships", wrapper.ListTenantMemberships)
+	router.DELETE(options.BaseURL+"/api/admin/tenants/:tenantId/memberships/:userId", wrapper.DeleteTenantMembership)
+	router.PUT(options.BaseURL+"/api/admin/tenants/:tenantId/memberships/:userId", wrapper.UpsertTenantMembership)
+	router.GET(options.BaseURL+"/api/admin/audit-events", wrapper.ListAuditEvents)
 	router.GET(options.BaseURL+"/api/admin/tokens", wrapper.ListAdminTokens)
 	router.POST(options.BaseURL+"/api/admin/tokens", wrapper.CreateAdminToken)
 	router.POST(options.BaseURL+"/api/admin/tokens/:tokenId/revoke", wrapper.RevokeAdminToken)
@@ -10508,6 +13551,45 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 }
 
 type ErrorJSONResponse Error
+
+type ListAuditEventsRequestObject struct {
+	Params ListAuditEventsParams
+}
+
+type ListAuditEventsResponseObject interface {
+	VisitListAuditEventsResponse(w http.ResponseWriter) error
+}
+
+type ListAuditEvents200JSONResponse AuditEventPage
+
+func (response ListAuditEvents200JSONResponse) VisitListAuditEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditEventsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListAuditEventsdefaultJSONResponse) VisitListAuditEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListTenantsRequestObject struct {
 	Params ListTenantsParams
@@ -10666,6 +13748,120 @@ func (response UpdateTenantdefaultJSONResponse) VisitUpdateTenantResponse(w http
 	return err
 }
 
+type ListTenantMembershipsRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+}
+
+type ListTenantMembershipsResponseObject interface {
+	VisitListTenantMembershipsResponse(w http.ResponseWriter) error
+}
+
+type ListTenantMemberships200JSONResponse []TenantMembership
+
+func (response ListTenantMemberships200JSONResponse) VisitListTenantMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTenantMembershipsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListTenantMembershipsdefaultJSONResponse) VisitListTenantMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTenantMembershipRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	UserId   UserId   `json:"userId"`
+}
+
+type DeleteTenantMembershipResponseObject interface {
+	VisitDeleteTenantMembershipResponse(w http.ResponseWriter) error
+}
+
+type DeleteTenantMembership204Response struct {
+}
+
+func (response DeleteTenantMembership204Response) VisitDeleteTenantMembershipResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTenantMembershipdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteTenantMembershipdefaultJSONResponse) VisitDeleteTenantMembershipResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpsertTenantMembershipRequestObject struct {
+	TenantId TenantId `json:"tenantId"`
+	UserId   UserId   `json:"userId"`
+	Body     *UpsertTenantMembershipJSONRequestBody
+}
+
+type UpsertTenantMembershipResponseObject interface {
+	VisitUpsertTenantMembershipResponse(w http.ResponseWriter) error
+}
+
+type UpsertTenantMembership200JSONResponse TenantMembership
+
+func (response UpsertTenantMembership200JSONResponse) VisitUpsertTenantMembershipResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpsertTenantMembershipdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpsertTenantMembershipdefaultJSONResponse) VisitUpsertTenantMembershipResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RestoreTenantRequestObject struct {
 	TenantId TenantId `json:"tenantId"`
 }
@@ -10805,6 +14001,319 @@ type RevokeAdminTokendefaultJSONResponse struct {
 }
 
 func (response RevokeAdminTokendefaultJSONResponse) VisitRevokeAdminTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsersRequestObject struct {
+	Params ListUsersParams
+}
+
+type ListUsersResponseObject interface {
+	VisitListUsersResponse(w http.ResponseWriter) error
+}
+
+type ListUsers200JSONResponse UserPage
+
+func (response ListUsers200JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsersdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListUsersdefaultJSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUserRequestObject struct {
+	Body *CreateUserJSONRequestBody
+}
+
+type CreateUserResponseObject interface {
+	VisitCreateUserResponse(w http.ResponseWriter) error
+}
+
+type CreateUser201JSONResponse User
+
+func (response CreateUser201JSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUserdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateUserdefaultJSONResponse) VisitCreateUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisableUserRequestObject struct {
+	UserId UserId `json:"userId"`
+}
+
+type DisableUserResponseObject interface {
+	VisitDisableUserResponse(w http.ResponseWriter) error
+}
+
+type DisableUser200JSONResponse User
+
+func (response DisableUser200JSONResponse) VisitDisableUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisableUserdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DisableUserdefaultJSONResponse) VisitDisableUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserRequestObject struct {
+	UserId UserId `json:"userId"`
+}
+
+type GetUserResponseObject interface {
+	VisitGetUserResponse(w http.ResponseWriter) error
+}
+
+type GetUser200JSONResponse User
+
+func (response GetUser200JSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetUserdefaultJSONResponse) VisitGetUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUserRequestObject struct {
+	UserId UserId `json:"userId"`
+	Body   *UpdateUserJSONRequestBody
+}
+
+type UpdateUserResponseObject interface {
+	VisitUpdateUserResponse(w http.ResponseWriter) error
+}
+
+type UpdateUser200JSONResponse User
+
+func (response UpdateUser200JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUserdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateUserdefaultJSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUserInvitationRequestObject struct {
+	UserId UserId `json:"userId"`
+}
+
+type CreateUserInvitationResponseObject interface {
+	VisitCreateUserInvitationResponse(w http.ResponseWriter) error
+}
+
+type CreateUserInvitation201JSONResponse UserInvitation
+
+func (response CreateUserInvitation201JSONResponse) VisitCreateUserInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUserInvitationdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateUserInvitationdefaultJSONResponse) VisitCreateUserInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUserMembershipsRequestObject struct {
+	UserId UserId `json:"userId"`
+}
+
+type ListUserMembershipsResponseObject interface {
+	VisitListUserMembershipsResponse(w http.ResponseWriter) error
+}
+
+type ListUserMemberships200JSONResponse []TenantMembership
+
+func (response ListUserMemberships200JSONResponse) VisitListUserMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUserMembershipsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListUserMembershipsdefaultJSONResponse) VisitListUserMembershipsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUserRequestObject struct {
+	UserId UserId `json:"userId"`
+}
+
+type RestoreUserResponseObject interface {
+	VisitRestoreUserResponse(w http.ResponseWriter) error
+}
+
+type RestoreUser200JSONResponse User
+
+func (response RestoreUser200JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUserdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RestoreUserdefaultJSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -11827,6 +15336,9 @@ func (response RevokeTenantTokendefaultJSONResponse) VisitRevokeTenantTokenRespo
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListAuditEvents List security audit events
+	// (GET /api/admin/audit-events)
+	ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error)
 	// ListTenants List tenants
 	// (GET /api/admin/tenants)
 	ListTenants(ctx context.Context, request ListTenantsRequestObject) (ListTenantsResponseObject, error)
@@ -11839,6 +15351,15 @@ type StrictServerInterface interface {
 	// UpdateTenant Update a tenant
 	// (PATCH /api/admin/tenants/{tenantId})
 	UpdateTenant(ctx context.Context, request UpdateTenantRequestObject) (UpdateTenantResponseObject, error)
+	// ListTenantMemberships List tenant memberships
+	// (GET /api/admin/tenants/{tenantId}/memberships)
+	ListTenantMemberships(ctx context.Context, request ListTenantMembershipsRequestObject) (ListTenantMembershipsResponseObject, error)
+	// DeleteTenantMembership Delete a tenant membership
+	// (DELETE /api/admin/tenants/{tenantId}/memberships/{userId})
+	DeleteTenantMembership(ctx context.Context, request DeleteTenantMembershipRequestObject) (DeleteTenantMembershipResponseObject, error)
+	// UpsertTenantMembership Create or update a tenant membership
+	// (PUT /api/admin/tenants/{tenantId}/memberships/{userId})
+	UpsertTenantMembership(ctx context.Context, request UpsertTenantMembershipRequestObject) (UpsertTenantMembershipResponseObject, error)
 	// RestoreTenant Restore a tenant
 	// (POST /api/admin/tenants/{tenantId}/restore)
 	RestoreTenant(ctx context.Context, request RestoreTenantRequestObject) (RestoreTenantResponseObject, error)
@@ -11851,6 +15372,30 @@ type StrictServerInterface interface {
 	// RevokeAdminToken Revoke an API token
 	// (POST /api/admin/tokens/{tokenId}/revoke)
 	RevokeAdminToken(ctx context.Context, request RevokeAdminTokenRequestObject) (RevokeAdminTokenResponseObject, error)
+	// ListUsers List users
+	// (GET /api/admin/users)
+	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
+	// CreateUser Create a user
+	// (POST /api/admin/users)
+	CreateUser(ctx context.Context, request CreateUserRequestObject) (CreateUserResponseObject, error)
+	// DisableUser Disable a user
+	// (DELETE /api/admin/users/{userId})
+	DisableUser(ctx context.Context, request DisableUserRequestObject) (DisableUserResponseObject, error)
+	// GetUser Get a user
+	// (GET /api/admin/users/{userId})
+	GetUser(ctx context.Context, request GetUserRequestObject) (GetUserResponseObject, error)
+	// UpdateUser Update a user
+	// (PATCH /api/admin/users/{userId})
+	UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error)
+	// CreateUserInvitation Create a user password link
+	// (POST /api/admin/users/{userId}/invitation)
+	CreateUserInvitation(ctx context.Context, request CreateUserInvitationRequestObject) (CreateUserInvitationResponseObject, error)
+	// ListUserMemberships List a user's tenant memberships
+	// (GET /api/admin/users/{userId}/memberships)
+	ListUserMemberships(ctx context.Context, request ListUserMembershipsRequestObject) (ListUserMembershipsResponseObject, error)
+	// RestoreUser Restore a user
+	// (POST /api/admin/users/{userId}/restore)
+	RestoreUser(ctx context.Context, request RestoreUserRequestObject) (RestoreUserResponseObject, error)
 	// GetCurrentPrincipal Get the authenticated principal
 	// (GET /api/auth/me)
 	GetCurrentPrincipal(ctx context.Context, request GetCurrentPrincipalRequestObject) (GetCurrentPrincipalResponseObject, error)
@@ -11988,6 +15533,32 @@ type strictHandler struct {
 	options     StrictGinServerOptions
 }
 
+// ListAuditEvents operation middleware
+func (sh *strictHandler) ListAuditEvents(ctx *gin.Context, params ListAuditEventsParams) {
+	var request ListAuditEventsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAuditEvents(ctx, request.(ListAuditEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAuditEvents")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ListAuditEventsResponseObject); ok {
+		if err := validResponse.VisitListAuditEventsResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListTenants operation middleware
 func (sh *strictHandler) ListTenants(ctx *gin.Context, params ListTenantsParams) {
 	var request ListTenantsRequestObject
@@ -12104,6 +15675,93 @@ func (sh *strictHandler) UpdateTenant(ctx *gin.Context, tenantId TenantId) {
 	}
 }
 
+// ListTenantMemberships operation middleware
+func (sh *strictHandler) ListTenantMemberships(ctx *gin.Context, tenantId TenantId) {
+	var request ListTenantMembershipsRequestObject
+
+	request.TenantId = tenantId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTenantMemberships(ctx, request.(ListTenantMembershipsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTenantMemberships")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ListTenantMembershipsResponseObject); ok {
+		if err := validResponse.VisitListTenantMembershipsResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTenantMembership operation middleware
+func (sh *strictHandler) DeleteTenantMembership(ctx *gin.Context, tenantId TenantId, userId UserId) {
+	var request DeleteTenantMembershipRequestObject
+
+	request.TenantId = tenantId
+	request.UserId = userId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTenantMembership(ctx, request.(DeleteTenantMembershipRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTenantMembership")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(DeleteTenantMembershipResponseObject); ok {
+		if err := validResponse.VisitDeleteTenantMembershipResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpsertTenantMembership operation middleware
+func (sh *strictHandler) UpsertTenantMembership(ctx *gin.Context, tenantId TenantId, userId UserId) {
+	var request UpsertTenantMembershipRequestObject
+
+	request.TenantId = tenantId
+	request.UserId = userId
+
+	var body UpsertTenantMembershipJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UpsertTenantMembership(ctx, request.(UpsertTenantMembershipRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpsertTenantMembership")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(UpsertTenantMembershipResponseObject); ok {
+		if err := validResponse.VisitUpsertTenantMembershipResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RestoreTenant operation middleware
 func (sh *strictHandler) RestoreTenant(ctx *gin.Context, tenantId TenantId) {
 	var request RestoreTenantRequestObject
@@ -12206,6 +15864,226 @@ func (sh *strictHandler) RevokeAdminToken(ctx *gin.Context, tokenId TokenId) {
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(RevokeAdminTokenResponseObject); ok {
 		if err := validResponse.VisitRevokeAdminTokenResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUsers operation middleware
+func (sh *strictHandler) ListUsers(ctx *gin.Context, params ListUsersParams) {
+	var request ListUsersRequestObject
+
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUsers(ctx, request.(ListUsersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUsers")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ListUsersResponseObject); ok {
+		if err := validResponse.VisitListUsersResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateUser operation middleware
+func (sh *strictHandler) CreateUser(ctx *gin.Context) {
+	var request CreateUserRequestObject
+
+	var body CreateUserJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateUser(ctx, request.(CreateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateUser")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(CreateUserResponseObject); ok {
+		if err := validResponse.VisitCreateUserResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DisableUser operation middleware
+func (sh *strictHandler) DisableUser(ctx *gin.Context, userId UserId) {
+	var request DisableUserRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DisableUser(ctx, request.(DisableUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DisableUser")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(DisableUserResponseObject); ok {
+		if err := validResponse.VisitDisableUserResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUser operation middleware
+func (sh *strictHandler) GetUser(ctx *gin.Context, userId UserId) {
+	var request GetUserRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUser(ctx, request.(GetUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUser")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(GetUserResponseObject); ok {
+		if err := validResponse.VisitGetUserResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateUser operation middleware
+func (sh *strictHandler) UpdateUser(ctx *gin.Context, userId UserId) {
+	var request UpdateUserRequestObject
+
+	request.UserId = userId
+
+	var body UpdateUserJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateUser(ctx, request.(UpdateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateUser")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(UpdateUserResponseObject); ok {
+		if err := validResponse.VisitUpdateUserResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateUserInvitation operation middleware
+func (sh *strictHandler) CreateUserInvitation(ctx *gin.Context, userId UserId) {
+	var request CreateUserInvitationRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateUserInvitation(ctx, request.(CreateUserInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateUserInvitation")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(CreateUserInvitationResponseObject); ok {
+		if err := validResponse.VisitCreateUserInvitationResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUserMemberships operation middleware
+func (sh *strictHandler) ListUserMemberships(ctx *gin.Context, userId UserId) {
+	var request ListUserMembershipsRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUserMemberships(ctx, request.(ListUserMembershipsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUserMemberships")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ListUserMembershipsResponseObject); ok {
+		if err := validResponse.VisitListUserMembershipsResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreUser operation middleware
+func (sh *strictHandler) RestoreUser(ctx *gin.Context, userId UserId) {
+	var request RestoreUserRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreUser(ctx, request.(RestoreUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreUser")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(RestoreUserResponseObject); ok {
+		if err := validResponse.VisitRestoreUserResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {
@@ -12961,203 +16839,248 @@ func (sh *strictHandler) RevokeTenantToken(ctx *gin.Context, tokenId TokenId) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"+v8BAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

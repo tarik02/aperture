@@ -10,7 +10,7 @@ import (
 
 // NewRouter returns the HTTP API router. staticAssets may be nil to disable SPA
 // fallback.
-func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteBasePath string) *gin.Engine {
+func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteBasePath string) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	if logger == nil {
 		logger = zap.NewNop()
@@ -26,6 +26,28 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	router.Any("/mcp", server.mcp)
 	router.Any("/sessions/:sessionId/mcp", server.mcp)
 	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
+	router.GET("/auth/login-methods", server.listLoginMethods)
+	if server.WebAuth != nil {
+		router.GET("/auth/oidc/:providerId/login", server.beginOIDC)
+		router.GET("/auth/oidc/:providerId/callback", server.completeOIDC)
+		router.POST("/auth/password/login", server.loginWithPassword)
+		router.POST("/auth/password/login/mfa", server.completePasswordMFA)
+		router.POST("/auth/passkeys/login/options", server.beginPasskeyLogin)
+		router.POST("/auth/passkeys/login/finish", server.completePasskeyLogin)
+		router.GET("/auth/security", server.getSecurityStatus)
+		router.PUT("/auth/password", server.setPassword)
+		router.POST("/auth/invitations/accept", server.acceptUserInvitation)
+		router.POST("/auth/totp/enrollment/options", server.beginTOTPEnrollment)
+		router.POST("/auth/totp/enrollment/finish", server.completeTOTPEnrollment)
+		router.POST("/auth/totp/recovery-codes", server.regenerateRecoveryCodes)
+		router.POST("/auth/totp/disable", server.disableTOTP)
+		router.GET("/auth/passkeys", server.listPasskeys)
+		router.POST("/auth/passkeys/registration/options", server.beginPasskeyRegistration)
+		router.POST("/auth/passkeys/registration/finish", server.completePasskeyRegistration)
+		router.PATCH("/auth/passkeys/:passkeyId", server.renamePasskey)
+		router.DELETE("/auth/passkeys/:passkeyId", server.deletePasskey)
+		router.POST("/auth/logout", server.logoutWebSession)
+	}
 	internal := router.Group("/internal")
 	{
 		internal.GET("/forward-auth/cdp/:sessionId", server.sessionTokenForwardAuth)
@@ -46,6 +68,9 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 
 	registerStaticFallback(router, staticAssets, cdpRouteBasePath, server)
 
+	if server.WebAuth != nil {
+		return server.WebAuth.LoadAndSave(router)
+	}
 	return router
 }
 

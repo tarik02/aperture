@@ -74,7 +74,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 			return
 		}
 	case strings.HasPrefix(path, "/api/admin/"):
-		if principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(principal.Scopes, auth.ScopeSystemAdmin) {
+		if principal.AuthorityType != auth.AuthoritySystemAdmin || !auth.HasScope(principal.Scopes, auth.ScopeSystemAdmin) || auth.IsResourceRestricted(principal) {
 			WriteError(c, auth.ErrScopeDenied)
 			c.Abort()
 			return
@@ -87,6 +87,11 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		}
 		if principal.TenantID == nil {
 			WriteError(c, auth.ErrTenantNotFound)
+			c.Abort()
+			return
+		}
+		if path == "/api/tenant" && c.Request.Method != http.MethodGet && auth.IsResourceRestricted(principal) {
+			WriteError(c, auth.ErrResourceAccessDenied)
 			c.Abort()
 			return
 		}
@@ -114,6 +119,11 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 			return
 		}
 		c.Set("tenantId", tenantID)
+		if !auth.HasResourceAccess(principal, auth.ResourceTypeSession, c.Param("sessionId")) {
+			WriteError(c, auth.ErrResourceAccessDenied)
+			c.Abort()
+			return
+		}
 	case strings.HasPrefix(path, "/api/sessions"):
 		if !s.requireSessionScope(c, auth.ScopeSessionsWrite) {
 			return
@@ -134,6 +144,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 func captureOpenAPIRequestBody(c *gin.Context) {
 	path := c.FullPath()
 	hasBody := c.Request.Method == http.MethodPost && (path == "/api/admin/tenants" ||
+		path == "/api/admin/users" ||
 		path == "/api/admin/tokens" ||
 		path == "/api/tenant/tokens" ||
 		path == "/api/sessions" ||
@@ -141,9 +152,11 @@ func captureOpenAPIRequestBody(c *gin.Context) {
 		path == "/api/sessions/:sessionId/files/download-url" ||
 		path == "/api/sessions/:sessionId/promote") ||
 		c.Request.Method == http.MethodPatch && (path == "/api/admin/tenants/:tenantId" ||
+			path == "/api/admin/users/:userId" ||
 			path == "/api/tenant" ||
 			path == "/api/snapshots/:name") ||
-		c.Request.Method == http.MethodPut && (path == "/api/sessions/:sessionId/tags" ||
+		c.Request.Method == http.MethodPut && (path == "/api/admin/tenants/:tenantId/memberships/:userId" ||
+			path == "/api/sessions/:sessionId/tags" ||
 			path == "/api/snapshots/:name/tags")
 	if !hasBody {
 		c.Next()
@@ -169,6 +182,114 @@ func restoreOpenAPIRequestBody(next generated.StrictHandlerFunc, _ string) gener
 		}
 		return next(c, request)
 	}
+}
+
+func (s openAPIServer) ListUsers(ctx context.Context, _ generated.ListUsersRequestObject) (generated.ListUsersResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.listUsers(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) CreateUser(ctx context.Context, _ generated.CreateUserRequestObject) (generated.CreateUserResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createUser(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) GetUser(ctx context.Context, _ generated.GetUserRequestObject) (generated.GetUserResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.getUser(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) UpdateUser(ctx context.Context, _ generated.UpdateUserRequestObject) (generated.UpdateUserResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.updateUser(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) DisableUser(ctx context.Context, _ generated.DisableUserRequestObject) (generated.DisableUserResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.disableUser(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) RestoreUser(ctx context.Context, _ generated.RestoreUserRequestObject) (generated.RestoreUserResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.restoreUser(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) CreateUserInvitation(ctx context.Context, _ generated.CreateUserInvitationRequestObject) (generated.CreateUserInvitationResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createUserInvitation(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) ListUserMemberships(ctx context.Context, _ generated.ListUserMembershipsRequestObject) (generated.ListUserMembershipsResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.listUserMemberships(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) ListTenantMemberships(ctx context.Context, _ generated.ListTenantMembershipsRequestObject) (generated.ListTenantMembershipsResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.listTenantMemberships(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) UpsertTenantMembership(ctx context.Context, _ generated.UpsertTenantMembershipRequestObject) (generated.UpsertTenantMembershipResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.upsertTenantMembership(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) DeleteTenantMembership(ctx context.Context, _ generated.DeleteTenantMembershipRequestObject) (generated.DeleteTenantMembershipResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.deleteTenantMembership(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) ListAuditEvents(ctx context.Context, _ generated.ListAuditEventsRequestObject) (generated.ListAuditEventsResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.listAuditEvents(c)
+	return openAPIPassthroughResponse{}, nil
 }
 
 func (s openAPIServer) ListTenants(ctx context.Context, _ generated.ListTenantsRequestObject) (generated.ListTenantsResponseObject, error) {
@@ -494,6 +615,54 @@ func (openAPIPassthroughResponse) VisitUpdateTenantResponse(http.ResponseWriter)
 }
 
 func (openAPIPassthroughResponse) VisitRestoreTenantResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitListUsersResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateUserResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitGetUserResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitUpdateUserResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitDisableUserResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitRestoreUserResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateUserInvitationResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitListUserMembershipsResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitListTenantMembershipsResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitUpsertTenantMembershipResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitDeleteTenantMembershipResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitListAuditEventsResponse(http.ResponseWriter) error {
 	return nil
 }
 

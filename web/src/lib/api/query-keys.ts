@@ -3,11 +3,17 @@ import type { TagFilterValue } from "#/lib/tag-filter.ts";
 export const queryKeys = {
   apiHealth: ["api-health"] as const,
   authMe: (profileId: string, tenantId: string | null) => ["auth-me", profileId, tenantId] as const,
+  passkeys: (profileId: string) => ["passkeys", profileId] as const,
+  securityStatus: (profileId: string) => ["security-status", profileId] as const,
   browserConfigurations: (profileId: string, tenantId: string | null) =>
     ["browser-configurations", profileId, tenantId] as const,
   browserStatus: (sessionId: string, revision: number) =>
     ["browser-status", sessionId, revision] as const,
   tenants: (profileId: string, filters: TenantsFilters) => ["tenants", profileId, filters] as const,
+  users: (profileId: string, filters: UsersFilters) => ["users", profileId, filters] as const,
+  user: (profileId: string, userId: string) => ["user", profileId, userId] as const,
+  userMemberships: (profileId: string, userId: string) =>
+    ["user-memberships", profileId, userId] as const,
   sessions: (profileId: string, tenantId: string | null, filters: SessionsFilters) =>
     ["sessions", profileId, tenantId, filters] as const,
   session: (profileId: string, tenantId: string | null, sessionId: string) =>
@@ -25,6 +31,12 @@ export const queryKeys = {
 export type TenantsFilters = {
   includeDeleted?: boolean;
   deleted?: DeletedFilterValue;
+  limit?: number;
+};
+
+export type UsersFilters = {
+  query?: string;
+  disabled?: UserDisabledFilterValue;
   limit?: number;
 };
 
@@ -54,6 +66,7 @@ export type TokensFilters = {
 
 export type TokensQueryMode = "admin" | "tenant";
 export type DeletedFilterValue = "active" | "deleted" | "all";
+export type UserDisabledFilterValue = "active" | "disabled" | "all";
 export type TokenRevokedFilterValue = "all" | "active" | "revoked";
 
 export type EventsFilters = {

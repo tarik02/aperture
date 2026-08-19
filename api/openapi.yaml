@@ -7,11 +7,11 @@ info:
 
     ## Authentication
 
-    Send `Authorization: Bearer <token>`. The health check is public. `system:admin` grants every scope, but admin routes still require a `system_admin` token. Raw tokens are returned only on creation or rotation.
+    Send `Authorization: Bearer <token>` or authenticate through an account browser session established by OIDC, passkey, or password. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Tenant API tokens may additionally restrict access to explicit session and snapshot IDs. Raw tokens are returned only on creation or rotation.
 
     ## Tenant selection
 
-    Tenant tokens use their bound tenant. System administrators select a tenant with `X-Aperture-Tenant-Id` for tenant-scoped operations.
+    Tenant API tokens use their bound tenant. System administrators and account sessions with multiple memberships select a tenant with `X-Aperture-Tenant-Id` for tenant-scoped operations. Aperture selects the only membership automatically when an account has one.
 
     ## Pagination
 
@@ -24,17 +24,22 @@ servers:
   - url: /
 security:
   - bearerAuth: []
+  - webSession: []
 tags:
   - name: system
     description: Deployment health and runtime identity.
   - name: auth
-    description: Information about the API token used for the current request.
+    description: Information about the credential and principal used for the current request.
   - name: browser
     description: Browser runtime capabilities available for new sessions.
   - name: tenants
     description: Tenant administration and tenant self-service operations.
   - name: tokens
     description: Create, inspect, and revoke system administrator or tenant API tokens.
+  - name: users
+    description: User accounts and tenant memberships.
+  - name: audit
+    description: Security-sensitive identity and administration activity.
   - name: sessions
     description: Create and manage isolated Chromium sessions and their retained state.
   - name: snapshots
@@ -162,6 +167,195 @@ paths:
       responses:
         '200': {description: Restored tenant, content: {application/json: {schema: {$ref: '#/components/schemas/Tenant'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/admin/users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: query
+          in: query
+          description: Case-insensitive substring matched against display name or email.
+          schema: {type: string}
+        - name: disabled
+          in: query
+          description: Select active users, disabled users only, or both.
+          schema: {type: string, enum: [active, disabled, all], default: active}
+      responses:
+        '200': {description: User page, content: {application/json: {schema: {$ref: '#/components/schemas/UserPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, user_email_conflict]
+      requestBody: {$ref: '#/components/requestBodies/CreateUser'}
+      responses:
+        '201': {description: Created user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}:
+    parameters:
+      - {$ref: '#/components/parameters/UserId'}
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
+      responses:
+        '200': {description: User, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, user_not_found, user_email_conflict]
+      requestBody: {$ref: '#/components/requestBodies/UpdateUser'}
+      responses:
+        '200': {description: Updated user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: disableUser
+      tags: [users]
+      summary: Disable a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
+      responses:
+        '200': {description: Disabled user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}/restore:
+    post:
+      operationId: restoreUser
+      tags: [users]
+      summary: Restore a user
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
+      parameters:
+        - {$ref: '#/components/parameters/UserId'}
+      responses:
+        '200': {description: Restored user, content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}/invitation:
+    post:
+      operationId: createUserInvitation
+      tags: [users]
+      summary: Create a user password link
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found, user_invitation_unavailable]
+      description: Creates a setup or reset link for an active user with an email address. Replaces any outstanding password link. The raw token is returned only once and expires after seven days.
+      parameters:
+        - {$ref: '#/components/parameters/UserId'}
+      responses:
+        '201': {description: Created password link token, content: {application/json: {schema: {$ref: '#/components/schemas/UserInvitation'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/users/{userId}/memberships:
+    get:
+      operationId: listUserMemberships
+      tags: [users]
+      summary: List a user's tenant memberships
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [user_not_found]
+      parameters:
+        - {$ref: '#/components/parameters/UserId'}
+      responses:
+        '200': {description: Tenant memberships, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/TenantMembership'}}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}/memberships:
+    get:
+      operationId: listTenantMemberships
+      tags: [users]
+      summary: List tenant memberships
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [tenant_not_found]
+      parameters:
+        - {$ref: '#/components/parameters/TenantId'}
+      responses:
+        '200': {description: Tenant memberships, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/TenantMembership'}}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/tenants/{tenantId}/memberships/{userId}:
+    parameters:
+      - {$ref: '#/components/parameters/TenantId'}
+      - {$ref: '#/components/parameters/UserId'}
+    put:
+      operationId: upsertTenantMembership
+      tags: [users]
+      summary: Create or update a tenant membership
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, user_not_found, user_disabled]
+      requestBody: {$ref: '#/components/requestBodies/UpsertTenantMembership'}
+      responses:
+        '200': {description: Tenant membership, content: {application/json: {schema: {$ref: '#/components/schemas/TenantMembership'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteTenantMembership
+      tags: [users]
+      summary: Delete a tenant membership
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [membership_not_found]
+      responses:
+        '204': {description: Tenant membership deleted}
+        default: {$ref: '#/components/responses/Error'}
+  /api/admin/audit-events:
+    get:
+      operationId: listAuditEvents
+      tags: [audit]
+      summary: List security audit events
+      x-aperture-auth:
+        authorityTypes: [system_admin]
+        requiredScopes: [system:admin]
+        tenantResolution: not_applicable
+      x-aperture-errors: [validation_failed]
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: tenantId, in: query, schema: {$ref: '#/components/schemas/UUIDv7'}}
+        - {name: actorType, in: query, schema: {$ref: '#/components/schemas/PrincipalType'}}
+        - {name: actorId, in: query, schema: {type: string}}
+        - {name: action, in: query, schema: {type: string}}
+        - {name: resourceType, in: query, schema: {type: string}}
+        - {name: resourceId, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Audit event page, content: {application/json: {schema: {$ref: '#/components/schemas/AuditEventPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/admin/tokens:
     post:
       operationId: createAdminToken
@@ -171,8 +365,8 @@ paths:
         authorityTypes: [system_admin]
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
-      x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict]
-      description: Creates an administrator or tenant token. The raw token is returned once.
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
+      description: Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateAdminToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -249,7 +443,7 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
-      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated]
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, resource_access_denied]
       description: Replaces the bound tenant's display name.
       requestBody: {$ref: '#/components/requestBodies/UpdateTenant'}
       responses:
@@ -264,8 +458,8 @@ paths:
         authorityTypes: [tenant]
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
-      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict]
-      description: Creates a token bound to the caller's tenant. The raw token is returned once.
+      x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
+      description: Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -324,7 +518,7 @@ paths:
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_service_unavailable]
-      description: Newest-first sessions. Credentials are included only while available and must be treated as secrets.
+      description: Newest-first sessions. A resource-restricted token receives only granted sessions; filtering occurs before pagination. Credentials are included only while available and must be treated as secrets.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -353,8 +547,8 @@ paths:
               property: baseSnapshotName
               operator: non_empty
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed]
-      description: Starts a browser with a retained overlay. Returns the CDP URL and session token. Failed startup may leave a reopenable `failed` session.
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed]
+      description: Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
       requestBody: {$ref: '#/components/requestBodies/CreateSession'}
       responses:
         '201': {description: Created session, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
@@ -371,7 +565,7 @@ paths:
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_service_unavailable]
-      description: Returns up to 100 sessions in request order. Missing, foreign, and deleted sessions are omitted.
+      description: Returns up to 100 sessions in request order. Missing, foreign, deleted, and ungranted sessions are omitted before results are returned.
       requestBody: {$ref: '#/components/requestBodies/SessionBulk'}
       responses:
         '200': {description: Browser sessions, content: {application/json: {schema: {$ref: '#/components/schemas/SessionBulkResponse'}}}}
@@ -388,7 +582,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_service_unavailable]
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable]
       description: Session metadata and current credentials when available.
       responses:
         '200': {description: Browser session, content: {application/json: {schema: {$ref: '#/components/schemas/Session'}}}}
@@ -401,7 +595,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
       description: Stops and marks the session `deleted`. The retained overlay remains reopenable until `expiresAt`.
       responses:
         '200': {description: Deleted session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
@@ -415,7 +609,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_service_unavailable]
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable]
       description: Replaces all session tags. Send an empty map to clear them.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -433,7 +627,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_invalid_state, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_invalid_state, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed]
       description: Stops a `running` session, retains its overlay, and resets retention.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -450,7 +644,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_not_reopenable, session_overlay_missing, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed, browser_start_failed]
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_not_reopenable, session_overlay_missing, session_expired, session_service_unavailable, overlay_mount_failed, browser_control_failed, browser_start_failed]
       description: Restarts a retained `deleted` or `failed` session and returns fresh credentials.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -467,7 +661,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
       description: Replaces the access token of a `running` session and invalidates the old token.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -520,8 +714,8 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write, snapshots:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_promotable, promotion_conflict, snapshot_name_conflict, promotion_service_unavailable]
-      description: Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name.
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_promotable, promotion_conflict, snapshot_name_conflict, promotion_service_unavailable]
+      description: Promotes a retained `deleted`, `failed`, or `suspended` session. Deleted snapshot names are reused automatically. `force=true` replaces an active snapshot with the requested name. Reusing or replacing a name requires its grant for resource-restricted tokens; the resulting snapshot is not added to the token's allowlist.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -541,7 +735,7 @@ paths:
         requiredScopes: [snapshots:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, snapshot_service_unavailable]
-      description: Newest-first snapshots. Tag predicates use logical AND.
+      description: Newest-first snapshots. A resource-restricted token receives only granted snapshots; filtering occurs before pagination. Tag predicates use logical AND.
       parameters:
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
@@ -570,7 +764,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, snapshot_not_found, snapshot_service_unavailable]
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, snapshot_not_found, snapshot_service_unavailable]
       description: Replaces or clears a retained snapshot description.
       requestBody: {$ref: '#/components/requestBodies/UpdateSnapshot'}
       responses:
@@ -584,7 +778,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, snapshot_not_found, snapshot_service_unavailable]
+      x-aperture-errors: [validation_failed, resource_access_denied, snapshot_not_found, snapshot_service_unavailable]
       description: Soft-deletes a snapshot. Existing sessions are unaffected; new sessions cannot use it. Idempotent.
       responses:
         '200': {description: Deleted snapshot, content: {application/json: {schema: {$ref: '#/components/schemas/SnapshotMutation'}}}}
@@ -598,7 +792,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, snapshot_not_found, snapshot_service_unavailable]
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, snapshot_not_found, snapshot_service_unavailable]
       description: Replaces all tags on a retained snapshot. Send an empty map to clear them.
       parameters:
         - {$ref: '#/components/parameters/SnapshotName'}
@@ -616,7 +810,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [snapshots:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, snapshot_not_found, snapshot_not_deleted, snapshot_service_unavailable]
+      x-aperture-errors: [validation_failed, resource_access_denied, snapshot_not_found, snapshot_not_deleted, snapshot_service_unavailable]
       description: Clears snapshot deletion and expiry markers.
       parameters:
         - {$ref: '#/components/parameters/SnapshotName'}
@@ -634,7 +828,7 @@ paths:
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, event_service_unavailable]
-      description: Newest-first tenant events. `resourceType` and `resourceId` are exact-match filters.
+      description: Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
       parameters:
         - {$ref: '#/components/parameters/SelectedTenantId'}
         - {$ref: '#/components/parameters/Limit'}
@@ -660,6 +854,11 @@ components:
       bearerFormat: Aperture API token
       description: |
         Aperture API token sent as `Authorization: Bearer <token>`. API tokens normally start with `apt_`. Session access tokens use a separate `aps_` format and are not accepted as API authentication.
+    webSession:
+      type: apiKey
+      in: cookie
+      name: aperture_session
+      description: Server-side browser session established by OIDC, passkey, or password login.
   parameters:
     Limit:
       name: limit
@@ -707,7 +906,7 @@ components:
       name: X-Aperture-Tenant-Id
       in: header
       description: |
-        Tenant selected for a tenant-scoped operation. A system administrator token must provide this header. A tenant token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+        Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
       schema: {$ref: '#/components/schemas/UUIDv7'}
       example: 019f6cf0-0000-7000-8000-000000000001
     TenantId:
@@ -721,6 +920,12 @@ components:
       in: path
       required: true
       description: UUIDv7 identifier of the API token. This is not the raw token secret.
+      schema: {$ref: '#/components/schemas/UUIDv7'}
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: UUIDv7 identifier of a user.
       schema: {$ref: '#/components/schemas/UUIDv7'}
     SessionId:
       name: sessionId
@@ -781,6 +986,18 @@ components:
       required: true
       description: Replacement tenant display name. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/TenantInput'}}}
+    CreateUser:
+      required: true
+      description: User profile and deployment-level authority.
+      content: {application/json: {schema: {$ref: '#/components/schemas/UserInput'}}}
+    UpdateUser:
+      required: true
+      description: Replacement user profile and deployment-level authority.
+      content: {application/json: {schema: {$ref: '#/components/schemas/UserInput'}}}
+    UpsertTenantMembership:
+      required: true
+      description: Tenant-bound action scopes granted to the user.
+      content: {application/json: {schema: {$ref: '#/components/schemas/TenantMembershipInput'}}}
     CreateAdminToken:
       required: true
       description: System administrator or tenant token definition. The JSON body must not exceed 1 MiB.
@@ -838,6 +1055,9 @@ components:
             insufficientScope:
               summary: 403 · required scope missing
               value: {error: {code: insufficient_scope, message: insufficient scope}}
+            resourceAccessDenied:
+              summary: 403 · resource is not granted
+              value: {error: {code: resource_access_denied, message: resource access denied}}
             tenantSelectionNotPermitted:
               summary: 403 · tenant token selected another tenant
               value: {error: {code: tenant_selection_not_permitted, message: tenant selection not permitted}}
@@ -866,13 +1086,18 @@ components:
     AuthorityType:
       type: string
       description: |
-        Token authority boundary. `system_admin` tokens may administer the deployment and select tenants. `tenant` tokens are permanently bound to one tenant.
+        Authorization boundary. `system_admin` principals may administer the deployment and select tenants. `tenant` principals act within one effective tenant.
       enum: [system_admin, tenant]
       example: tenant
+    PrincipalType:
+      type: string
+      description: Stable category of the authenticated or audited actor.
+      enum: [api_token, user, system]
+      example: api_token
     Scope:
       type: string
       description: |
-        Permission granted to an API token. `system:admin` implies every scope. Tenant tokens cannot receive `system:admin` or `tenants:write`.
+        Permission granted to a principal. `system:admin` implies every scope. Tenant credentials and memberships cannot receive `system:admin` or `tenants:write`.
       enum:
         - system:admin
         - sessions:read
@@ -892,6 +1117,24 @@ components:
         - snapshots:write
         - tenant:write
       example: sessions:write
+    ResourceMode:
+      type: string
+      description: Whether a tenant API token can access every tenant resource or only explicit grants.
+      enum: [all, allowlist]
+      default: all
+      example: allowlist
+    ResourceType:
+      type: string
+      description: Tenant resource category accepted by API token allowlists.
+      enum: [session, snapshot]
+      example: session
+    ResourceGrant:
+      type: object
+      description: Access to one existing tenant session or snapshot by its stable UUIDv7 identifier.
+      required: [resourceType, resourceId]
+      properties:
+        resourceType: {$ref: '#/components/schemas/ResourceType'}
+        resourceId: {$ref: '#/components/schemas/UUIDv7'}
     SessionStatus:
       type: string
       description: |
@@ -938,12 +1181,23 @@ components:
         - authentication_token_expired
         - authentication_token_revoked
         - insufficient_scope
+        - resource_access_denied
         - tenant_selection_not_permitted
         - tenant_selection_required
         - tenant_not_found
         - token_not_found
         - tenant_deactivated
         - token_name_conflict
+        - token_delegation_exceeded
+        - user_not_found
+        - user_disabled
+        - user_email_conflict
+        - user_invitation_unavailable
+        - membership_not_found
+        - oidc_provider_not_found
+        - oidc_flow_invalid
+        - oidc_authentication_failed
+        - identity_not_provisioned
         - validation_failed
         - invalid_request_body
         - session_not_found
@@ -977,12 +1231,23 @@ components:
         authentication_token_expired: 401
         authentication_token_revoked: 401
         insufficient_scope: 403
+        resource_access_denied: 403
         tenant_selection_not_permitted: 403
         tenant_selection_required: 400
         tenant_not_found: 404
         token_not_found: 404
         tenant_deactivated: 409
         token_name_conflict: 409
+        token_delegation_exceeded: 403
+        user_not_found: 404
+        user_disabled: 409
+        user_email_conflict: 409
+        user_invitation_unavailable: 409
+        membership_not_found: 404
+        oidc_provider_not_found: 404
+        oidc_flow_invalid: 400
+        oidc_authentication_failed: 401
+        identity_not_provisioned: 403
         validation_failed: 400
         invalid_request_body: 400
         session_not_found: 404
@@ -1092,36 +1357,138 @@ components:
       description: Cursor-paginated tenants.
       required: [data, meta]
       properties: {data: {type: array, items: {$ref: '#/components/schemas/Tenant'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    UserInput:
+      type: object
+      required: [displayName, isSystemAdmin]
+      properties:
+        email:
+          type: [string, 'null']
+          format: email
+          description: Optional normalized login and contact email.
+        displayName:
+          type: string
+          minLength: 1
+          pattern: '.*\S.*'
+        isSystemAdmin:
+          type: boolean
+          description: Grants deployment-wide administration independently of tenant memberships.
+    User:
+      type: object
+      required: [id, displayName, isSystemAdmin, createdAt, updatedAt]
+      properties:
+        id: {$ref: '#/components/schemas/UUIDv7'}
+        email: {type: [string, 'null'], format: email}
+        displayName: {type: string}
+        isSystemAdmin: {type: boolean}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        disabledAt: {type: [string, 'null'], format: date-time}
+        passwordSetupStatus:
+          type: string
+          enum: [available, configured, email_required, user_disabled, login_disabled]
+          description: Password setup state included by the get-user operation.
+    UserInvitation:
+      type: object
+      description: One-time account setup secret returned only when created.
+      required: [token, expiresAt]
+      properties:
+        token: {type: string, description: Raw setup token. Store and transmit it as a secret.}
+        expiresAt: {type: string, format: date-time}
+    UserPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/User'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
+    TenantMembershipInput:
+      type: object
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TenantScope'}
+    TenantMembership:
+      type: object
+      required: [tenantId, userId, scopes, createdAt, updatedAt]
+      properties:
+        tenantId: {$ref: '#/components/schemas/UUIDv7'}
+        userId: {$ref: '#/components/schemas/UUIDv7'}
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TenantScope'}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    AuditEvent:
+      type: object
+      required: [id, actorType, action, resourceType, data, createdAt]
+      properties:
+        id: {$ref: '#/components/schemas/UUIDv7'}
+        actorType: {$ref: '#/components/schemas/PrincipalType'}
+        actorId: {type: [string, 'null']}
+        tenantId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+        action: {type: string, example: tenant_membership.upserted}
+        resourceType: {type: string, example: tenant_membership}
+        resourceId: {type: [string, 'null']}
+        data: {type: object, additionalProperties: true}
+        createdAt: {type: string, format: date-time}
+    AuditEventPage:
+      type: object
+      required: [data, meta]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/AuditEvent'}}, meta: {$ref: '#/components/schemas/PageMeta'}}
     Principal:
       type: object
-      description: Authenticated API token identity and authorization context.
-      required: [tokenId, name, authorityType, scopes]
+      description: Authenticated subject identity and authorization context.
+      required: [type, id, authMethod, tokenId, name, authorityType, scopes, resourceMode, resourceGrants]
       properties:
+        type: {$ref: '#/components/schemas/PrincipalType'}
+        id:
+          type: string
+          description: Stable identifier of the authenticated subject.
+        authMethod:
+          type: string
+          description: Authentication mechanism used for this request.
+          enum: [api_token, oidc, passkey, password]
         tokenId:
-          allOf: [{$ref: '#/components/schemas/UUIDv7'}]
-          description: Identifier of the API token used for authentication.
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: Identifier of the API token used for authentication, or `null` for account-backed sessions.
+        userId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: User identifier for account-backed authentication, or `null` for API tokens.
         name:
           type: string
-          description: Operator-assigned token name.
+          description: Display name of the authenticated credential or user.
           example: deployment automation
         authorityType: {$ref: '#/components/schemas/AuthorityType'}
         tenantId:
           oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
-          description: Bound tenant for a tenant token, or `null` for a system administrator token.
+          description: Effective tenant for tenant authority, or `null` when no tenant is selected.
         scopes:
           type: array
-          description: Scopes granted to the token.
+          description: Scopes granted to the authenticated principal.
           uniqueItems: true
           items: {$ref: '#/components/schemas/Scope'}
+        resourceMode: {$ref: '#/components/schemas/ResourceMode'}
+        resourceGrants:
+          type: array
+          description: Explicit grants when `resourceMode` is `allowlist`; empty when it is `all`.
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ResourceGrant'}
     AuthMe:
       type: object
       description: Current principal and its effective tenant selection.
-      required: [principal]
+      required: [principal, selectedTenant, availableTenants]
       properties:
         principal: {$ref: '#/components/schemas/Principal'}
         selectedTenant:
           oneOf: [{$ref: '#/components/schemas/Tenant'}, {type: 'null'}]
-          description: Effective tenant, or `null` when a system administrator has no active tenants.
+          description: Effective tenant, or `null` when the principal has not selected one.
+        availableTenants:
+          type: array
+          description: Active tenant memberships available to an account-backed principal. API-token principals return an empty array.
+          items: {$ref: '#/components/schemas/Tenant'}
     BrowserMode:
       type: string
       description: Immutable Chromium execution mode selected for a session.
@@ -1201,7 +1568,7 @@ components:
     Token:
       type: object
       description: API token metadata. The raw bearer secret is never included in this schema.
-      required: [id, authorityType, name, scopes, createdAt]
+      required: [id, authorityType, name, scopes, createdAt, createdByType, createdById, parentTokenId, resourceMode, resourceGrants]
       properties:
         id:
           allOf: [{$ref: '#/components/schemas/UUIDv7'}]
@@ -1225,6 +1592,21 @@ components:
           format: date-time
           description: Time the token was created.
           example: '2026-07-17T12:00:00Z'
+        createdByType:
+          allOf: [{$ref: '#/components/schemas/PrincipalType'}]
+          description: Principal category that created the token.
+        createdById:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: User or API token identifier that created the token, or `null` for trusted local system actions.
+        parentTokenId:
+          oneOf: [{$ref: '#/components/schemas/UUIDv7'}, {type: 'null'}]
+          description: API token used to delegate this token, or `null` when a user or trusted local system created it.
+        resourceMode: {$ref: '#/components/schemas/ResourceMode'}
+        resourceGrants:
+          type: array
+          description: Explicit session and snapshot grants when `resourceMode` is `allowlist`.
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ResourceGrant'}
         expiresAt:
           type: [string, 'null']
           format: date-time
@@ -1260,6 +1642,16 @@ components:
               format: date-time
               description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
               example: '2026-08-17T12:00:00Z'
+            resourceMode:
+              type: string
+              enum: [all]
+              default: all
+              description: System administrator tokens cannot use resource allowlists.
+            resourceGrants:
+              type: array
+              maxItems: 0
+              items: {$ref: '#/components/schemas/ResourceGrant'}
+              description: Must be empty for a system administrator token.
         - type: object
           required: [name, authorityType, tenantId, scopes]
           properties:
@@ -1285,6 +1677,12 @@ components:
               format: date-time
               description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
               example: '2026-08-17T12:00:00Z'
+            resourceMode: {$ref: '#/components/schemas/ResourceMode'}
+            resourceGrants:
+              type: array
+              uniqueItems: true
+              items: {$ref: '#/components/schemas/ResourceGrant'}
+              description: Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`.
     CreateTenantTokenInput:
       type: object
       description: Token definition automatically bound to the authenticated tenant.
@@ -1308,6 +1706,12 @@ components:
           format: date-time
           description: Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.
           example: '2026-08-17T12:00:00Z'
+        resourceMode: {$ref: '#/components/schemas/ResourceMode'}
+        resourceGrants:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ResourceGrant'}
+          description: Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`.
     CreateTokenResponse:
       type: object
       description: Created token metadata and its one-time bearer secret.

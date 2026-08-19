@@ -31,6 +31,7 @@ type Server struct {
 	Config        config.Config
 	Repository    *db.Repository
 	Auth          *auth.Service
+	WebAuth       *auth.WebService
 	Sessions      *session.Service
 	Snapshots     *snapshot.Service
 	Promotion     *snapshot.PromotionService
@@ -134,11 +135,16 @@ func (s *Server) deployRole() (deploystate.State, string, string, error) {
 
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 	rawToken, err := rawTokenFromRequest(c)
-	if err != nil {
+	if err != nil && !errors.Is(err, auth.ErrTokenMissing) {
 		return auth.Principal{}, err
 	}
 
-	principal, err := s.Auth.Authenticate(c.Request.Context(), rawToken)
+	var principal auth.Principal
+	if err == nil {
+		principal, err = s.Auth.Authenticate(c.Request.Context(), rawToken)
+	} else if s.WebAuth != nil {
+		principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenantID(c))
+	}
 	if err != nil {
 		return auth.Principal{}, err
 	}
@@ -256,7 +262,28 @@ func (s *Server) requireSessionScope(c *gin.Context, scope string) bool {
 		return false
 	}
 	c.Set("tenantId", tenantID)
+	if sessionID := c.Param("sessionId"); sessionID != "" && !auth.HasResourceAccess(p, auth.ResourceTypeSession, sessionID) {
+		WriteError(c, auth.ErrResourceAccessDenied)
+		c.Abort()
+		return false
+	}
 	return true
+}
+
+func resourceIDFilter(principal auth.Principal, resourceType string) db.ResourceIDFilter {
+	ids, restricted := auth.ResourceIDs(principal, resourceType)
+	return db.ResourceIDFilter{Restricted: restricted, IDs: ids}
+}
+
+func eventResourceFilter(principal auth.Principal) ([]db.ResourceReference, bool) {
+	if !auth.IsResourceRestricted(principal) {
+		return nil, false
+	}
+	resources := make([]db.ResourceReference, 0, len(principal.ResourceGrants))
+	for _, grant := range principal.ResourceGrants {
+		resources = append(resources, db.ResourceReference{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
+	return resources, true
 }
 
 func tenantIDFromContext(c *gin.Context) string {

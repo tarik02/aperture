@@ -1,5 +1,16 @@
 import { useState } from "react";
-import { Check, ChevronsUpDown, KeyRound, Plus, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronsUpDown,
+  Fingerprint,
+  KeyRound,
+  LogOut,
+  Plus,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+} from "lucide-react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { TokenAuthModal } from "#/features/token/auth-modal/token-auth-modal.tsx";
 import { Button } from "#/components/ui/button.tsx";
@@ -19,6 +30,9 @@ import {
 import { useTokenAuthModalStore } from "#/features/token/auth-modal/token-auth-modal.store.ts";
 import { useTokenFormStore } from "#/features/token/form/token-form.store.ts";
 import { cn } from "#/lib/utils.ts";
+import { apiClient } from "#/lib/api/client.ts";
+import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
+import { SecurityModal } from "#/features/security/security-modal.tsx";
 
 type TokenSwitcherProps = {
   className?: string;
@@ -35,6 +49,9 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
 
   const [removeProfileId, setRemoveProfileId] = useState<string | null>(null);
   const [removeProfileOpen, setRemoveProfileOpen] = useState(false);
+  const [removingProfile, setRemovingProfile] = useState(false);
+  const [passkeysOpen, setPasskeysOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const removeProfileTarget = profiles.find((profile) => profile.id === removeProfileId) ?? null;
 
   function handleSwitch(profileId: string) {
@@ -45,13 +62,23 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
     setActiveProfile(profileId);
   }
 
-  function handleRemove() {
+  async function handleRemove() {
     if (!removeProfileTarget) {
       return;
     }
 
-    removeProfile(removeProfileTarget.id);
-    setRemoveProfileOpen(false);
+    setRemovingProfile(true);
+    try {
+      if (removeProfileTarget.credentialType === "web_session") {
+        await apiClient.logoutWebSession();
+      }
+      removeProfile(removeProfileTarget.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Logout failed");
+      throw error;
+    } finally {
+      setRemovingProfile(false);
+    }
   }
 
   function openRemoveProfile(profileId: string) {
@@ -77,7 +104,11 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
             />
           }
         >
-          <KeyRound data-icon="inline-start" />
+          {activeProfile?.credentialType === "web_session" ? (
+            <UserRound data-icon="inline-start" />
+          ) : (
+            <KeyRound data-icon="inline-start" />
+          )}
           <span data-sidebar-collapse-label className="min-w-0 flex-1 truncate text-left">
             {triggerLabel}
           </span>
@@ -88,7 +119,7 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
           />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="top" className="w-64">
-          <DropdownMenuLabel>Tokens</DropdownMenuLabel>
+          <DropdownMenuLabel>Credentials</DropdownMenuLabel>
           {profiles.length === 0 ? (
             <DropdownMenuItem disabled>No saved tokens</DropdownMenuItem>
           ) : (
@@ -113,26 +144,57 @@ export function TokenSwitcher({ className }: TokenSwitcherProps) {
             <Plus />
             Add token
           </DropdownMenuItem>
+          {activeProfile?.credentialType === "web_session" ? (
+            <>
+              <DropdownMenuItem onClick={() => setSecurityOpen(true)}>
+                <ShieldCheck />
+                Security
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPasskeysOpen(true)}>
+                <Fingerprint />
+                Passkeys
+              </DropdownMenuItem>
+            </>
+          ) : null}
           {activeProfile ? (
             <DropdownMenuItem
-              variant="destructive"
+              variant={activeProfile.credentialType === "api_token" ? "destructive" : undefined}
               onClick={() => openRemoveProfile(activeProfile.id)}
             >
-              <Trash2 />
-              Remove
+              {activeProfile.credentialType === "web_session" ? <LogOut /> : <Trash2 />}
+              {activeProfile.credentialType === "web_session" ? "Log out" : "Remove"}
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <TokenAuthModal />
+      {activeProfile?.credentialType === "web_session" ? (
+        <>
+          <SecurityModal
+            profileId={activeProfile.id}
+            open={securityOpen}
+            onOpenChange={setSecurityOpen}
+          />
+          <PasskeyModal
+            profileId={activeProfile.id}
+            open={passkeysOpen}
+            onOpenChange={setPasskeysOpen}
+          />
+        </>
+      ) : null}
       {removeProfileTarget ? (
         <ConfirmDialog
           open={removeProfileOpen}
-          title="Remove token"
-          description={`Remove ${profileDisplayName(removeProfileTarget)} from this browser?`}
-          confirmLabel="Remove"
-          variant="destructive"
+          title={removeProfileTarget.credentialType === "web_session" ? "Log out" : "Remove token"}
+          description={
+            removeProfileTarget.credentialType === "web_session"
+              ? `Log out ${profileDisplayName(removeProfileTarget)}?`
+              : `Remove ${profileDisplayName(removeProfileTarget)} from this browser?`
+          }
+          confirmLabel={removeProfileTarget.credentialType === "web_session" ? "Log out" : "Remove"}
+          pending={removingProfile}
+          variant={removeProfileTarget.credentialType === "api_token" ? "destructive" : "default"}
           onOpenChange={setRemoveProfileOpen}
           onConfirm={handleRemove}
         />

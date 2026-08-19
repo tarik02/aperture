@@ -37,6 +37,7 @@ type ListFilter struct {
 	DeletedOnly    bool
 	Name           string
 	Tags           []db.TagFilter
+	Resources      db.ResourceIDFilter
 }
 
 // List returns tenant snapshots with cursor pagination.
@@ -47,6 +48,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		DeletedOnly:    filter.DeletedOnly,
 		Name:           filter.Name,
 		Tags:           filter.Tags,
+		Resources:      filter.Resources,
 	}, params)
 	if err != nil {
 		return db.PageResult[SnapshotView]{}, err

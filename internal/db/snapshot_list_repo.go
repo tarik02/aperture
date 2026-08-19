@@ -15,6 +15,7 @@ type SnapshotFilter struct {
 	DeletedOnly    bool
 	Name           string
 	Tags           []TagFilter
+	Resources      ResourceIDFilter
 }
 
 // ListSnapshotsPage returns tenant snapshots with cursor pagination.
@@ -26,6 +27,13 @@ func (r *Repository) ListSnapshotsPage(ctx context.Context, filter SnapshotFilte
 	}
 
 	query := r.db.bun.NewSelect().Model((*Snapshot)(nil)).Where("tenant_id = ?", filter.TenantID)
+	if filter.Resources.Restricted {
+		if len(filter.Resources.IDs) == 0 {
+			query = query.Where("1 = 0")
+		} else {
+			query = query.Where("id IN (?)", bun.List(filter.Resources.IDs))
+		}
+	}
 	if filter.DeletedOnly {
 		query = query.Where("deleted_at IS NOT NULL")
 	} else if !filter.IncludeDeleted {

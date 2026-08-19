@@ -52,6 +52,9 @@ tool_output_max_bytes: 16777216
 signed_file_url_ttl: 15m
 signed_file_url_max_ttl: 24h
 browser_modes: [headless]
+login_methods: [password, api_token, passkey, oidc]
+web_session_lifetime: 720h
+web_session_idle_timeout: 24h
 
 channels:
   chromium:
@@ -59,7 +62,28 @@ channels:
     default_args: []
 ```
 
-The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the session-bound `sessionToken` (`aps_<sessionId>_<secret>`). A session token authorizes that session's routed live endpoints, including CDP, WebRTC, and per-session MCP; it does not authorize `/api/*` or central MCP. Signed session-file URLs use `apf_<payload>.<signature>` query tokens.
+The first available `login_methods` entry is the default in the login dialog. `password` and `api_token` show forms; `passkey` starts WebAuthn; `oidc` expands to the providers below in their configured order.
+
+To enable OIDC login, register `${external_base_url}/auth/oidc/PROVIDER_ID/callback` with the provider and add it to the config:
+
+```yaml
+oidc_providers:
+  - id: company
+    display_name: Company account
+    issuer_url: https://accounts.example.test
+    client_id: aperture
+    client_secret: REPLACE_ME
+    scopes: [openid, profile, email]
+    auto_provision: false
+```
+
+With `auto_provision: false`, a system administrator must create the user first. Aperture links the provider identity only when the provider returns a verified email matching that user. Set `auto_provision: true` to create users on first login. Tenant access still comes from the user's tenant memberships.
+
+Authenticated users can register discoverable passkeys from the web UI. Aperture derives the WebAuthn RP ID and origin from `external_base_url`, so changing its hostname makes credentials registered for the old RP unavailable. Passkey registration requires an existing account session; passkeys do not provision users.
+
+Users with an email address can set an Argon2id password from the web UI. They can also enable TOTP for password login; enrollment creates ten one-time recovery codes that are shown once and stored only as SHA-256 hashes. OIDC and passkey login remain available when TOTP is enabled.
+
+The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the session-bound `sessionToken` (`aps_<sessionId>_<secret>`). A session token authorizes that session's routed live endpoints, including CDP, WebRTC, and per-session MCP; it does not authorize `/api/*` or central MCP. Signed session-file URLs use `apf_<payload>.<signature>` query tokens. OIDC, passkey, and password browser sessions authorize the web UI and same-origin API or live-session requests, but not MCP clients.
 
 On first `aperture serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
 

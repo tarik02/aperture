@@ -24,15 +24,25 @@ func toTokenResponse(token db.APIToken) (tokenResponse, error) {
 		return tokenResponse{}, err
 	}
 
+	resourceGrants := make([]resourceGrantResponse, 0, len(token.ResourceGrants))
+	for _, grant := range token.ResourceGrants {
+		resourceGrants = append(resourceGrants, resourceGrantResponse{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
+
 	return tokenResponse{
-		ID:            token.ID,
-		AuthorityType: token.AuthorityType,
-		TenantID:      token.TenantID,
-		Name:          token.Name,
-		Scopes:        scopes,
-		CreatedAt:     token.CreatedAt,
-		ExpiresAt:     token.ExpiresAt,
-		RevokedAt:     token.RevokedAt,
+		ID:             token.ID,
+		AuthorityType:  token.AuthorityType,
+		TenantID:       token.TenantID,
+		Name:           token.Name,
+		Scopes:         scopes,
+		CreatedAt:      token.CreatedAt,
+		CreatedByType:  token.CreatedByType,
+		CreatedByID:    token.CreatedByID,
+		ParentTokenID:  token.ParentTokenID,
+		ResourceMode:   token.ResourceMode,
+		ResourceGrants: resourceGrants,
+		ExpiresAt:      token.ExpiresAt,
+		RevokedAt:      token.RevokedAt,
 	}, nil
 }
 
@@ -137,6 +147,7 @@ func (s *Server) restoreTenant(c *gin.Context) {
 }
 
 func (s *Server) createAdminToken(c *gin.Context) {
+	principal := c.MustGet("principal").(auth.Principal)
 	var req createTokenRequest
 	if err := bindJSON(c, &req); err != nil {
 		WriteError(c, err)
@@ -149,12 +160,14 @@ func (s *Server) createAdminToken(c *gin.Context) {
 		return
 	}
 
-	created, err := s.Auth.CreateToken(c.Request.Context(), auth.CreateTokenInput{
-		AuthorityType: req.AuthorityType,
-		TenantID:      req.TenantID,
-		Name:          req.Name,
-		Scopes:        req.Scopes,
-		ExpiresAt:     expiresAt,
+	created, err := s.Auth.DelegateToken(c.Request.Context(), principal, auth.CreateTokenInput{
+		AuthorityType:  req.AuthorityType,
+		TenantID:       req.TenantID,
+		Name:           req.Name,
+		Scopes:         req.Scopes,
+		ResourceMode:   req.ResourceMode,
+		ResourceGrants: toAuthResourceGrants(req.ResourceGrants),
+		ExpiresAt:      expiresAt,
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -207,8 +220,9 @@ func (s *Server) listAdminTokens(c *gin.Context) {
 }
 
 func (s *Server) revokeAdminToken(c *gin.Context) {
+	principal := c.MustGet("principal").(auth.Principal)
 	tokenID := c.Param("tokenId")
-	if err := s.Auth.RevokeToken(c.Request.Context(), tokenID, nil); err != nil {
+	if err := s.Auth.RevokeTokenAs(c.Request.Context(), principal, tokenID, nil); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -266,12 +280,14 @@ func (s *Server) createTenantToken(c *gin.Context) {
 	}
 
 	tenantCopy := tenantID
-	created, err := s.Auth.CreateToken(c.Request.Context(), auth.CreateTokenInput{
-		AuthorityType: auth.AuthorityTenant,
-		TenantID:      &tenantCopy,
-		Name:          req.Name,
-		Scopes:        req.Scopes,
-		ExpiresAt:     expiresAt,
+	created, err := s.Auth.DelegateToken(c.Request.Context(), principal, auth.CreateTokenInput{
+		AuthorityType:  auth.AuthorityTenant,
+		TenantID:       &tenantCopy,
+		Name:           req.Name,
+		Scopes:         req.Scopes,
+		ResourceMode:   req.ResourceMode,
+		ResourceGrants: toAuthResourceGrants(req.ResourceGrants),
+		ExpiresAt:      expiresAt,
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -285,6 +301,14 @@ func (s *Server) createTenantToken(c *gin.Context) {
 	}
 
 	c.JSON(201, createTokenResponse{Token: token, RawToken: created.Raw})
+}
+
+func toAuthResourceGrants(grants []resourceGrantRequest) []auth.ResourceGrant {
+	result := make([]auth.ResourceGrant, 0, len(grants))
+	for _, grant := range grants {
+		result = append(result, auth.ResourceGrant{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
+	return result
 }
 
 func (s *Server) listTenantTokens(c *gin.Context) {
@@ -326,7 +350,7 @@ func (s *Server) revokeTenantToken(c *gin.Context) {
 	tenantID := *principal.TenantID
 
 	tokenID := c.Param("tokenId")
-	if err := s.Auth.RevokeToken(c.Request.Context(), tokenID, &tenantID); err != nil {
+	if err := s.Auth.RevokeTokenAs(c.Request.Context(), principal, tokenID, &tenantID); err != nil {
 		WriteError(c, err)
 		return
 	}

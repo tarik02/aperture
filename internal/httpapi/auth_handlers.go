@@ -8,12 +8,26 @@ import (
 )
 
 func toPrincipalResponse(principal auth.Principal) principalResponse {
+	var tokenID *string
+	if principal.TokenID != "" {
+		tokenID = &principal.TokenID
+	}
+	resourceGrants := make([]resourceGrantResponse, 0, len(principal.ResourceGrants))
+	for _, grant := range principal.ResourceGrants {
+		resourceGrants = append(resourceGrants, resourceGrantResponse{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
 	return principalResponse{
-		TokenID:       principal.TokenID,
-		Name:          principal.Name,
-		AuthorityType: principal.AuthorityType,
-		TenantID:      principal.TenantID,
-		Scopes:        principal.Scopes,
+		Type:           principal.Type,
+		ID:             principal.ID,
+		AuthMethod:     principal.AuthMethod,
+		TokenID:        tokenID,
+		UserID:         principal.UserID,
+		Name:           principal.Name,
+		AuthorityType:  principal.AuthorityType,
+		TenantID:       principal.TenantID,
+		Scopes:         principal.Scopes,
+		ResourceMode:   principal.ResourceMode,
+		ResourceGrants: resourceGrants,
 	}
 }
 
@@ -21,7 +35,8 @@ func (s *Server) authMe(c *gin.Context) {
 	principal := c.MustGet("principal").(auth.Principal)
 
 	resp := authMeResponse{
-		Principal: toPrincipalResponse(principal),
+		Principal:        toPrincipalResponse(principal),
+		AvailableTenants: []tenantResponse{},
 	}
 
 	selectedTenant, err := s.resolveSelectedTenant(c, principal)
@@ -30,6 +45,16 @@ func (s *Server) authMe(c *gin.Context) {
 		return
 	}
 	resp.SelectedTenant = selectedTenant
+	if principal.Type == auth.PrincipalTypeUser && principal.UserID != nil {
+		tenants, err := s.Auth.UserTenants(c.Request.Context(), *principal.UserID)
+		if err != nil {
+			WriteError(c, err)
+			return
+		}
+		for _, tenant := range tenants {
+			resp.AvailableTenants = append(resp.AvailableTenants, toTenantResponse(tenant))
+		}
+	}
 
 	c.JSON(http.StatusOK, resp)
 }

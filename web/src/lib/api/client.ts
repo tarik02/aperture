@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { ApiRequestError, parseApiErrorBody } from "#/lib/api/errors.ts";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 import {
@@ -9,41 +10,80 @@ import {
   createTokenResponseSchema,
   eventsPageSchema,
   healthSchema,
+  loginMethodsSchema,
+  passkeyLoginOptionsSchema,
+  passkeyMutationSchema,
+  passkeyRegistrationOptionsSchema,
+  passkeysSchema,
+  passwordLoginResponseSchema,
   promoteSessionResponseSchema,
   recordingSchema,
   recordingsSchema,
+  recoveryCodesSchema,
+  securityStatusSchema,
   sessionSchema,
   sessionsBulkResponseSchema,
   sessionMutationResponseSchema,
   sessionsPageSchema,
   snapshotMutationResponseSchema,
   snapshotsPageSchema,
+  tenantMembershipSchema,
+  tenantMembershipsSchema,
   tenantSchema,
+  totpEnrollmentSchema,
   tenantsPageSchema,
   tokensPageSchema,
+  userSchema,
+  userInvitationSchema,
+  usersPageSchema,
   type BrowserMode,
 } from "#/lib/api/schemas.ts";
+import type { ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
 import type { AuthorityType, TokenProfile } from "#/stores/token-vault.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
 
-export type ApiCredentials = {
-  token: string;
+type CredentialContext = {
   authorityType: AuthorityType | null;
   tenantId: string | null;
   selectedTenantId: string | null;
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
 };
+
+export type ApiCredentials =
+  | (CredentialContext & {
+      credentialType: "api_token";
+      token: string;
+    })
+  | (CredentialContext & {
+      credentialType: "web_session";
+    });
 
 export type TenantHeaderMode = "none" | "optional" | "tenant-scoped";
 
 type QueryValue = string | number | boolean | Array<string | number | boolean> | undefined | null;
 
 export function credentialsFromProfile(profile: TokenProfile): ApiCredentials {
+  if (profile.credentialType === "web_session") {
+    return {
+      credentialType: "web_session",
+      authorityType: profile.authorityType,
+      tenantId: profile.tenantId,
+      selectedTenantId: profile.selectedTenantId,
+      resourceMode: profile.resourceMode,
+      resourceGrants: profile.resourceGrants,
+    };
+  }
+
   return {
     token: profile.rawToken,
+    credentialType: "api_token",
     authorityType: profile.authorityType,
     tenantId: profile.tenantId,
     selectedTenantId: profile.selectedTenantId,
+    resourceMode: profile.resourceMode,
+    resourceGrants: profile.resourceGrants,
   };
 }
 
@@ -56,6 +96,10 @@ export function resolveTenantHeader(
   }
 
   if (mode === "optional") {
+    return credentials.selectedTenantId ?? undefined;
+  }
+
+  if (credentials.credentialType === "web_session") {
     return credentials.selectedTenantId ?? undefined;
   }
 
@@ -122,7 +166,7 @@ function buildHeaders(
     headers["Content-Type"] = "application/json";
   }
 
-  if (credentials?.token) {
+  if (credentials?.credentialType === "api_token") {
     headers.Authorization = `Bearer ${credentials.token.trim()}`;
   }
 
@@ -255,6 +299,13 @@ export type TenantsListParams = {
   deleted?: "active" | "deleted" | "all";
 };
 
+export type UsersListParams = {
+  limit?: number;
+  cursor?: string;
+  query?: string;
+  disabled?: "active" | "disabled" | "all";
+};
+
 export type TokensListParams = {
   limit?: number;
   cursor?: string;
@@ -309,16 +360,171 @@ export type CreateAdminTokenInput = {
   authorityType: "system_admin" | "tenant";
   tenantId?: string | null;
   scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
   expiresAt?: string | null;
 };
 
 export type CreateTenantTokenInput = {
   name: string;
   scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
   expiresAt?: string | null;
 };
 
+export type UserInput = {
+  email: string | null;
+  displayName: string;
+  isSystemAdmin: boolean;
+};
+
 export const apiClient = {
+  listLoginMethods() {
+    return request({
+      path: "/auth/login-methods",
+      schema: loginMethodsSchema,
+    });
+  },
+
+  beginPasskeyLogin() {
+    return request({
+      method: "POST",
+      path: "/auth/passkeys/login/options",
+      schema: passkeyLoginOptionsSchema,
+    });
+  },
+
+  finishPasskeyLogin(credential: AuthenticationResponseJSON) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/passkeys/login/finish",
+      body: credential,
+    });
+  },
+
+  listPasskeys() {
+    return request({
+      path: "/auth/passkeys",
+      schema: passkeysSchema,
+    });
+  },
+
+  beginPasskeyRegistration(name: string) {
+    return request({
+      method: "POST",
+      path: "/auth/passkeys/registration/options",
+      schema: passkeyRegistrationOptionsSchema,
+      body: { name },
+    });
+  },
+
+  finishPasskeyRegistration(credential: RegistrationResponseJSON) {
+    return request({
+      method: "POST",
+      path: "/auth/passkeys/registration/finish",
+      schema: passkeyMutationSchema,
+      body: credential,
+    });
+  },
+
+  renamePasskey(passkeyId: string, name: string) {
+    return request({
+      method: "PATCH",
+      path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
+      schema: passkeyMutationSchema,
+      body: { name },
+    });
+  },
+
+  deletePasskey(passkeyId: string) {
+    return requestVoid({
+      method: "DELETE",
+      path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
+    });
+  },
+
+  loginWithPassword(email: string, password: string) {
+    return request({
+      method: "POST",
+      path: "/auth/password/login",
+      schema: passwordLoginResponseSchema,
+      body: { email, password },
+    });
+  },
+
+  completePasswordMFA(code: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/password/login/mfa",
+      body: { code },
+    });
+  },
+
+  getSecurityStatus() {
+    return request({
+      path: "/auth/security",
+      schema: securityStatusSchema,
+    });
+  },
+
+  setPassword(currentPassword: string, newPassword: string) {
+    return requestVoid({
+      method: "PUT",
+      path: "/auth/password",
+      body: { currentPassword, newPassword },
+    });
+  },
+
+  acceptUserInvitation(token: string, password: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/invitations/accept",
+      body: { token, password },
+    });
+  },
+
+  beginTOTPEnrollment() {
+    return request({
+      method: "POST",
+      path: "/auth/totp/enrollment/options",
+      schema: totpEnrollmentSchema,
+    });
+  },
+
+  completeTOTPEnrollment(code: string) {
+    return request({
+      method: "POST",
+      path: "/auth/totp/enrollment/finish",
+      schema: recoveryCodesSchema,
+      body: { code },
+    });
+  },
+
+  regenerateRecoveryCodes(code: string) {
+    return request({
+      method: "POST",
+      path: "/auth/totp/recovery-codes",
+      schema: recoveryCodesSchema,
+      body: { code },
+    });
+  },
+
+  disableTOTP(code: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/totp/disable",
+      body: { code },
+    });
+  },
+
+  logoutWebSession() {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/logout",
+    });
+  },
+
   getHealth() {
     return request({
       path: "/api/health",
@@ -410,6 +616,106 @@ export const apiClient = {
       method: "POST",
       path: `/api/admin/tenants/${tenantId}/restore`,
       schema: tenantSchema,
+      credentials,
+    });
+  },
+
+  listUsers(credentials: ApiCredentials, params: UsersListParams = {}) {
+    return request({
+      path: "/api/admin/users",
+      schema: usersPageSchema,
+      credentials,
+      query: {
+        limit: params.limit,
+        cursor: params.cursor,
+        query: params.query,
+        disabled: params.disabled,
+      },
+    });
+  },
+
+  createUser(credentials: ApiCredentials, input: UserInput) {
+    return request({
+      method: "POST",
+      path: "/api/admin/users",
+      schema: userSchema,
+      credentials,
+      body: input,
+    });
+  },
+
+  getUser(credentials: ApiCredentials, userId: string) {
+    return request({
+      path: `/api/admin/users/${encodeURIComponent(userId)}`,
+      schema: userSchema,
+      credentials,
+    });
+  },
+
+  updateUser(credentials: ApiCredentials, userId: string, input: UserInput) {
+    return request({
+      method: "PATCH",
+      path: `/api/admin/users/${encodeURIComponent(userId)}`,
+      schema: userSchema,
+      credentials,
+      body: input,
+    });
+  },
+
+  createUserInvitation(credentials: ApiCredentials, userId: string) {
+    return request({
+      method: "POST",
+      path: `/api/admin/users/${encodeURIComponent(userId)}/invitation`,
+      schema: userInvitationSchema,
+      credentials,
+    });
+  },
+
+  disableUser(credentials: ApiCredentials, userId: string) {
+    return request({
+      method: "DELETE",
+      path: `/api/admin/users/${encodeURIComponent(userId)}`,
+      schema: userSchema,
+      credentials,
+    });
+  },
+
+  restoreUser(credentials: ApiCredentials, userId: string) {
+    return request({
+      method: "POST",
+      path: `/api/admin/users/${encodeURIComponent(userId)}/restore`,
+      schema: userSchema,
+      credentials,
+    });
+  },
+
+  listUserMemberships(credentials: ApiCredentials, userId: string) {
+    return request({
+      path: `/api/admin/users/${encodeURIComponent(userId)}/memberships`,
+      schema: tenantMembershipsSchema,
+      credentials,
+    });
+  },
+
+  upsertTenantMembership(
+    credentials: ApiCredentials,
+    tenantId: string,
+    userId: string,
+    scopes: string[],
+  ) {
+    return request({
+      method: "PUT",
+      path: `/api/admin/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(userId)}`,
+      schema: tenantMembershipSchema,
+      credentials,
+      body: { scopes },
+    });
+  },
+
+  deleteTenantMembership(credentials: ApiCredentials, tenantId: string, userId: string) {
+    return requestVoid({
+      method: "DELETE",
+      path: `/api/admin/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(userId)}`,
       credentials,
     });
   },
@@ -710,6 +1016,8 @@ export const apiClient = {
         authorityType: input.authorityType,
         tenantId: input.tenantId ?? null,
         scopes: input.scopes,
+        resourceMode: input.authorityType === "system_admin" ? "all" : input.resourceMode,
+        resourceGrants: input.authorityType === "system_admin" ? [] : input.resourceGrants,
         expiresAt: input.expiresAt ?? null,
       },
     });
@@ -724,6 +1032,8 @@ export const apiClient = {
       body: {
         name: input.name,
         scopes: input.scopes,
+        resourceMode: input.resourceMode,
+        resourceGrants: input.resourceGrants,
         expiresAt: input.expiresAt ?? null,
       },
     });

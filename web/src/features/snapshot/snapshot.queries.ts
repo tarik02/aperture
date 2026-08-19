@@ -17,9 +17,10 @@ function resolveTenantKey(credentials: ApiCredentials | null): string | null {
 
 export function useSnapshotsInfiniteQuery(
   filters: SnapshotsFilters = {},
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; credentials?: ApiCredentials | null } = {},
 ) {
-  const credentials = useApiCredentials();
+  const activeCredentials = useApiCredentials();
+  const credentials = options.credentials === undefined ? activeCredentials : options.credentials;
   const activeProfile = useTokenVaultStore(selectActiveProfile);
   const profileId = activeProfile?.id ?? "none";
   const tenantKey = resolveTenantKey(credentials);

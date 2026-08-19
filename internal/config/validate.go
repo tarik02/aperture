@@ -13,6 +13,53 @@ import (
 func Validate(cfg Config) error {
 	var errs []error
 	errs = append(errs, validateMCP(cfg)...)
+	if cfg.WebSessionLifetime <= 0 {
+		errs = append(errs, errors.New("web_session_lifetime must be positive"))
+	}
+	if cfg.WebSessionIdleTimeout <= 0 {
+		errs = append(errs, errors.New("web_session_idle_timeout must be positive"))
+	}
+	if len(cfg.LoginMethods) == 0 {
+		errs = append(errs, errors.New("login_methods must not be empty"))
+	}
+	loginMethods := make(map[string]struct{}, len(cfg.LoginMethods))
+	for index, method := range cfg.LoginMethods {
+		switch method {
+		case LoginMethodPassword, LoginMethodAPIToken, LoginMethodPasskey, LoginMethodOIDC:
+		default:
+			errs = append(errs, fmt.Errorf("login_methods[%d] is invalid", index))
+			continue
+		}
+		if _, exists := loginMethods[method]; exists {
+			errs = append(errs, fmt.Errorf("login_methods[%d] is duplicated", index))
+			continue
+		}
+		loginMethods[method] = struct{}{}
+	}
+	providerIDs := make(map[string]struct{}, len(cfg.OIDCProviders))
+	for index, provider := range cfg.OIDCProviders {
+		providerID := strings.TrimSpace(provider.ID)
+		if providerID == "" || strings.ContainsAny(providerID, "/\\ \t\r\n") {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].id is invalid", index))
+		} else if _, exists := providerIDs[providerID]; exists {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].id is duplicated", index))
+		} else {
+			providerIDs[providerID] = struct{}{}
+		}
+		if strings.TrimSpace(provider.DisplayName) == "" {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].display_name is required", index))
+		}
+		issuer, err := url.Parse(strings.TrimSpace(provider.IssuerURL))
+		if err != nil || issuer.Host == "" || (issuer.Scheme != "https" && issuer.Scheme != "http") {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].issuer_url is invalid", index))
+		}
+		if strings.TrimSpace(provider.ClientID) == "" {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_id is required", index))
+		}
+		if strings.TrimSpace(provider.ClientSecret) == "" {
+			errs = append(errs, fmt.Errorf("oidc_providers[%d].client_secret is required", index))
+		}
+	}
 
 	errs = append(errs, validateRequiredAbsolutePath("store_root", cfg.StoreRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("runtime_root", cfg.RuntimeRoot)...)

@@ -29,6 +29,10 @@ const config = defineConfig({
             target: devProxyTarget,
             changeOrigin: true,
           },
+          "/auth": {
+            target: devProxyTarget,
+            changeOrigin: true,
+          },
           "/sessions": {
             target: devProxyTarget,
             changeOrigin: true,

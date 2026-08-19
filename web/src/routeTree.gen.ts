@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShareRouteImport } from './routes/share'
+import { Route as InviteRouteImport } from './routes/invite'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as Char91Char93UsersIndexRouteImport } from './routes/[-]/users/index'
 import { Route as Char91Char93TokensIndexRouteImport } from './routes/[-]/tokens/index'
 import { Route as Char91Char93TenantsIndexRouteImport } from './routes/[-]/tenants/index'
 import { Route as Char91Char93SnapshotsIndexRouteImport } from './routes/[-]/snapshots/index'
@@ -22,9 +24,19 @@ const ShareRoute = ShareRouteImport.update({
   path: '/share',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteRoute = InviteRouteImport.update({
+  id: '/invite',
+  path: '/invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Char91Char93UsersIndexRoute = Char91Char93UsersIndexRouteImport.update({
+  id: '/-/users/',
+  path: '/-/users/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const Char91Char93TokensIndexRoute = Char91Char93TokensIndexRouteImport.update({
@@ -59,70 +71,84 @@ const Char91Char93SessionsSessionIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
   '/-/tenants/': typeof Char91Char93TenantsIndexRoute
   '/-/tokens/': typeof Char91Char93TokensIndexRoute
+  '/-/users/': typeof Char91Char93UsersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots': typeof Char91Char93SnapshotsIndexRoute
   '/-/tenants': typeof Char91Char93TenantsIndexRoute
   '/-/tokens': typeof Char91Char93TokensIndexRoute
+  '/-/users': typeof Char91Char93UsersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
   '/-/tenants/': typeof Char91Char93TenantsIndexRoute
   '/-/tokens/': typeof Char91Char93TokensIndexRoute
+  '/-/users/': typeof Char91Char93UsersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/invite'
     | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
     | '/-/snapshots/'
     | '/-/tenants/'
     | '/-/tokens/'
+    | '/-/users/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/invite'
     | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions'
     | '/-/snapshots'
     | '/-/tenants'
     | '/-/tokens'
+    | '/-/users'
   id:
     | '__root__'
     | '/'
+    | '/invite'
     | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
     | '/-/snapshots/'
     | '/-/tenants/'
     | '/-/tokens/'
+    | '/-/users/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  InviteRoute: typeof InviteRoute
   ShareRoute: typeof ShareRoute
   Char91Char93SessionsSessionIdRoute: typeof Char91Char93SessionsSessionIdRoute
   Char91Char93SessionsIndexRoute: typeof Char91Char93SessionsIndexRoute
   Char91Char93SnapshotsIndexRoute: typeof Char91Char93SnapshotsIndexRoute
   Char91Char93TenantsIndexRoute: typeof Char91Char93TenantsIndexRoute
   Char91Char93TokensIndexRoute: typeof Char91Char93TokensIndexRoute
+  Char91Char93UsersIndexRoute: typeof Char91Char93UsersIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -134,11 +160,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShareRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invite': {
+      id: '/invite'
+      path: '/invite'
+      fullPath: '/invite'
+      preLoaderRoute: typeof InviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/-/users/': {
+      id: '/-/users/'
+      path: '/-/users'
+      fullPath: '/-/users/'
+      preLoaderRoute: typeof Char91Char93UsersIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/-/tokens/': {
@@ -181,22 +221,15 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  InviteRoute: InviteRoute,
   ShareRoute: ShareRoute,
   Char91Char93SessionsSessionIdRoute: Char91Char93SessionsSessionIdRoute,
   Char91Char93SessionsIndexRoute: Char91Char93SessionsIndexRoute,
   Char91Char93SnapshotsIndexRoute: Char91Char93SnapshotsIndexRoute,
   Char91Char93TenantsIndexRoute: Char91Char93TenantsIndexRoute,
   Char91Char93TokensIndexRoute: Char91Char93TokensIndexRoute,
+  Char91Char93UsersIndexRoute: Char91Char93UsersIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,11 +43,13 @@ type BootstrapInput struct {
 
 // CreateTokenInput configures API token creation.
 type CreateTokenInput struct {
-	AuthorityType string
-	TenantID      *string
-	Name          string
-	Scopes        []string
-	ExpiresAt     *time.Time
+	AuthorityType  string
+	TenantID       *string
+	Name           string
+	Scopes         []string
+	ResourceMode   string
+	ResourceGrants []ResourceGrant
+	ExpiresAt      *time.Time
 }
 
 // CreateTenantInput configures tenant creation.
@@ -95,14 +98,27 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if err != nil {
 		return Principal{}, fmt.Errorf("parse token scopes: %w", err)
 	}
+	storedGrants, err := s.repo.ListAPITokenResourceGrants(ctx, []string{row.ID})
+	if err != nil {
+		return Principal{}, err
+	}
+	resourceGrants := make([]ResourceGrant, 0, len(storedGrants[row.ID]))
+	for _, grant := range storedGrants[row.ID] {
+		resourceGrants = append(resourceGrants, ResourceGrant{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
+	}
 
 	return Principal{
-		TokenID:       row.ID,
-		AuthorityType: row.AuthorityType,
-		TenantID:      row.TenantID,
-		Name:          row.Name,
-		Scopes:        scopes,
-		ExpiresAt:     row.ExpiresAt,
+		Type:           PrincipalTypeAPIToken,
+		ID:             row.ID,
+		AuthMethod:     AuthMethodAPIToken,
+		TokenID:        row.ID,
+		AuthorityType:  row.AuthorityType,
+		TenantID:       row.TenantID,
+		Name:           row.Name,
+		Scopes:         scopes,
+		ResourceMode:   row.ResourceMode,
+		ResourceGrants: resourceGrants,
+		ExpiresAt:      row.ExpiresAt,
 	}, nil
 }
 
@@ -139,10 +155,21 @@ func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) (CreatedT
 		TokenHash:     hash,
 		ScopesJSON:    scopesJSON,
 		CreatedAt:     db.NowUTC(),
+		CreatedByType: PrincipalTypeSystem,
+		ResourceMode:  ResourceModeAll,
 		ExpiresAt:     FormatExpiresAt(input.ExpiresAt),
 	}
 
-	if err := s.repo.CreateBootstrapAPIToken(ctx, row); err != nil {
+	audit, err := s.newAuditEvent(Principal{Type: PrincipalTypeSystem}, AuditInput{
+		Action:       "token.created",
+		ResourceType: "api_token",
+		ResourceID:   &row.ID,
+		Data:         map[string]any{"authorityType": row.AuthorityType, "parentTokenId": nil, "resourceMode": row.ResourceMode, "resourceGrantCount": 0},
+	})
+	if err != nil {
+		return CreatedToken{}, err
+	}
+	if err := s.repo.CreateBootstrapAPIToken(ctx, row, audit); err != nil {
 		if errors.Is(err, db.ErrBootstrapNotEmpty) {
 			return CreatedToken{}, ErrBootstrapNotEmpty
 		}
@@ -256,38 +283,127 @@ func (s *Service) RestoreTenant(ctx context.Context, tenantID string) (*db.Tenan
 	return tenant, nil
 }
 
-// CreateToken creates an API token and returns the raw value once.
+// CreateToken creates a token as the trusted local system actor.
 func (s *Service) CreateToken(ctx context.Context, input CreateTokenInput) (CreatedToken, error) {
-	if err := ValidateScopes(input.AuthorityType, input.Scopes); err != nil {
+	validated, err := s.validateCreateTokenInput(ctx, input)
+	if err != nil {
 		return CreatedToken{}, err
 	}
+	return s.createToken(ctx, Principal{Type: PrincipalTypeSystem}, validated)
+}
 
-	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		return CreatedToken{}, fmt.Errorf("token name is required")
+// DelegateToken creates a token within the authenticated principal's authority.
+func (s *Service) DelegateToken(ctx context.Context, principal Principal, input CreateTokenInput) (CreatedToken, error) {
+	validated, err := s.validateCreateTokenInput(ctx, input)
+	if err != nil {
+		return CreatedToken{}, err
+	}
+	if err := validateTokenDelegation(principal, validated); err != nil {
+		return CreatedToken{}, err
+	}
+	return s.createToken(ctx, principal, validated)
+}
+
+func (s *Service) validateCreateTokenInput(ctx context.Context, input CreateTokenInput) (CreateTokenInput, error) {
+	if err := ValidateScopes(input.AuthorityType, input.Scopes); err != nil {
+		return CreateTokenInput{}, err
+	}
+
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return CreateTokenInput{}, fmt.Errorf("token name is required")
 	}
 
 	switch input.AuthorityType {
 	case AuthoritySystemAdmin:
 		if input.TenantID != nil {
-			return CreatedToken{}, ErrInvalidAuthority
+			return CreateTokenInput{}, ErrInvalidAuthority
 		}
 	case AuthorityTenant:
 		if input.TenantID == nil || strings.TrimSpace(*input.TenantID) == "" {
-			return CreatedToken{}, ErrTenantRequired
+			return CreateTokenInput{}, ErrTenantRequired
 		}
-		if _, err := s.requireActiveTenant(ctx, *input.TenantID); err != nil {
-			return CreatedToken{}, err
+		tenantID := strings.TrimSpace(*input.TenantID)
+		if _, err := s.requireActiveTenant(ctx, tenantID); err != nil {
+			return CreateTokenInput{}, err
 		}
+		input.TenantID = &tenantID
 	default:
-		return CreatedToken{}, ErrInvalidAuthority
+		return CreateTokenInput{}, ErrInvalidAuthority
 	}
 
-	return s.createToken(ctx, input)
+	if input.ResourceMode == "" {
+		input.ResourceMode = ResourceModeAll
+	}
+	switch input.ResourceMode {
+	case ResourceModeAll:
+		if len(input.ResourceGrants) != 0 {
+			return CreateTokenInput{}, ErrInvalidResourceScope
+		}
+	case ResourceModeAllowlist:
+		if input.AuthorityType != AuthorityTenant || input.TenantID == nil {
+			return CreateTokenInput{}, ErrInvalidResourceScope
+		}
+		seen := make(map[string]struct{}, len(input.ResourceGrants))
+		grants := make([]ResourceGrant, 0, len(input.ResourceGrants))
+		for _, grant := range input.ResourceGrants {
+			if grant.ResourceType != ResourceTypeSession && grant.ResourceType != ResourceTypeSnapshot {
+				return CreateTokenInput{}, ErrInvalidResourceScope
+			}
+			if err := ids.ValidateUUIDv7(grant.ResourceID); err != nil {
+				return CreateTokenInput{}, ErrInvalidResourceScope
+			}
+			key := grant.ResourceType + "\x00" + grant.ResourceID
+			if _, ok := seen[key]; ok {
+				return CreateTokenInput{}, ErrInvalidResourceScope
+			}
+			seen[key] = struct{}{}
+
+			switch grant.ResourceType {
+			case ResourceTypeSession:
+				row, err := s.repo.GetSessionByTenantAndID(ctx, *input.TenantID, grant.ResourceID)
+				if err != nil {
+					return CreateTokenInput{}, err
+				}
+				if row == nil {
+					return CreateTokenInput{}, ErrInvalidResourceScope
+				}
+			case ResourceTypeSnapshot:
+				row, err := s.repo.GetSnapshotByID(ctx, grant.ResourceID)
+				if err != nil {
+					return CreateTokenInput{}, err
+				}
+				if row == nil || row.TenantID != *input.TenantID {
+					return CreateTokenInput{}, ErrInvalidResourceScope
+				}
+			}
+			grants = append(grants, grant)
+		}
+		slices.SortFunc(grants, func(a, b ResourceGrant) int {
+			if order := strings.Compare(a.ResourceType, b.ResourceType); order != 0 {
+				return order
+			}
+			return strings.Compare(a.ResourceID, b.ResourceID)
+		})
+		input.ResourceGrants = grants
+	default:
+		return CreateTokenInput{}, ErrInvalidResourceScope
+	}
+
+	return input, nil
 }
 
-// RevokeToken revokes an API token, optionally enforcing tenant ownership.
+// RevokeToken revokes a token as the trusted local system actor.
 func (s *Service) RevokeToken(ctx context.Context, tokenID string, tenantID *string) error {
+	return s.revokeToken(ctx, Principal{Type: PrincipalTypeSystem}, tokenID, tenantID)
+}
+
+// RevokeTokenAs revokes a token and records the authenticated actor.
+func (s *Service) RevokeTokenAs(ctx context.Context, principal Principal, tokenID string, tenantID *string) error {
+	return s.revokeToken(ctx, principal, tokenID, tenantID)
+}
+
+func (s *Service) revokeToken(ctx context.Context, principal Principal, tokenID string, tenantID *string) error {
 	row, err := s.repo.GetAPITokenByID(ctx, tokenID)
 	if err != nil {
 		return err
@@ -306,7 +422,16 @@ func (s *Service) RevokeToken(ctx context.Context, tokenID string, tenantID *str
 		return nil
 	}
 
-	if err := s.repo.RevokeAPIToken(ctx, tokenID, db.NowUTC()); err != nil {
+	audit, err := s.newAuditEvent(principal, AuditInput{
+		TenantID:     row.TenantID,
+		Action:       "token.revoked",
+		ResourceType: "api_token",
+		ResourceID:   &row.ID,
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.repo.RevokeAPIToken(ctx, tokenID, db.NowUTC(), audit); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrTokenNotFound
 		}
@@ -317,12 +442,41 @@ func (s *Service) RevokeToken(ctx context.Context, tokenID string, tenantID *str
 
 // ListTokens returns API tokens, optionally scoped to a tenant.
 func (s *Service) ListTokens(ctx context.Context, tenantID *string) ([]db.APIToken, error) {
-	return s.repo.ListAPITokens(ctx, tenantID)
+	tokens, err := s.repo.ListAPITokens(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.populateTokenResourceGrants(ctx, tokens); err != nil {
+		return nil, err
+	}
+	return tokens, nil
 }
 
 // ListTokensPage returns API tokens with cursor pagination.
 func (s *Service) ListTokensPage(ctx context.Context, filter db.APITokenFilter, params db.PageParams) (db.PageResult[db.APIToken], error) {
-	return s.repo.ListAPITokensPage(ctx, filter, params)
+	page, err := s.repo.ListAPITokensPage(ctx, filter, params)
+	if err != nil {
+		return db.PageResult[db.APIToken]{}, err
+	}
+	if err := s.populateTokenResourceGrants(ctx, page.Items); err != nil {
+		return db.PageResult[db.APIToken]{}, err
+	}
+	return page, nil
+}
+
+func (s *Service) populateTokenResourceGrants(ctx context.Context, tokens []db.APIToken) error {
+	tokenIDs := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		tokenIDs = append(tokenIDs, token.ID)
+	}
+	grants, err := s.repo.ListAPITokenResourceGrants(ctx, tokenIDs)
+	if err != nil {
+		return err
+	}
+	for i := range tokens {
+		tokens[i].ResourceGrants = grants[tokens[i].ID]
+	}
+	return nil
 }
 
 // GetTenant returns a tenant by id, including deactivated tenants.
@@ -342,6 +496,36 @@ func (s *Service) RequireActiveTenant(ctx context.Context, tenantID string) (*db
 	return s.requireActiveTenant(ctx, tenantID)
 }
 
+// AuthorizeSnapshotName checks a restricted principal's grant for a tenant snapshot name.
+func (s *Service) AuthorizeSnapshotName(ctx context.Context, principal Principal, tenantID, name string) error {
+	if !IsResourceRestricted(principal) {
+		return nil
+	}
+	row, err := s.repo.GetSnapshotByTenantAndName(ctx, tenantID, name)
+	if err != nil {
+		return err
+	}
+	if row == nil || !HasResourceAccess(principal, ResourceTypeSnapshot, row.ID) {
+		return ErrResourceAccessDenied
+	}
+	return nil
+}
+
+// AuthorizeSnapshotNameIfExists checks a restricted principal's grant when a tenant snapshot name is already in use.
+func (s *Service) AuthorizeSnapshotNameIfExists(ctx context.Context, principal Principal, tenantID, name string) error {
+	if !IsResourceRestricted(principal) {
+		return nil
+	}
+	row, err := s.repo.GetSnapshotByTenantAndName(ctx, tenantID, name)
+	if err != nil {
+		return err
+	}
+	if row != nil && !HasResourceAccess(principal, ResourceTypeSnapshot, row.ID) {
+		return ErrResourceAccessDenied
+	}
+	return nil
+}
+
 func (s *Service) requireActiveTenant(ctx context.Context, tenantID string) (*db.Tenant, error) {
 	tenant, err := s.repo.GetTenantByID(ctx, tenantID)
 	if err != nil {
@@ -356,7 +540,7 @@ func (s *Service) requireActiveTenant(ctx context.Context, tenantID string) (*db
 	return tenant, nil
 }
 
-func (s *Service) createToken(ctx context.Context, input CreateTokenInput) (CreatedToken, error) {
+func (s *Service) createToken(ctx context.Context, principal Principal, input CreateTokenInput) (CreatedToken, error) {
 	tokenID, err := ids.NewUUIDv7()
 	if err != nil {
 		return CreatedToken{}, err
@@ -372,18 +556,50 @@ func (s *Service) createToken(ctx context.Context, input CreateTokenInput) (Crea
 		return CreatedToken{}, err
 	}
 
+	var createdByID *string
+	if principal.ID != "" {
+		value := principal.ID
+		createdByID = &value
+	}
+	var parentTokenID *string
+	if principal.TokenID != "" {
+		value := principal.TokenID
+		parentTokenID = &value
+	}
 	row := &db.APIToken{
-		ID:            tokenID,
-		AuthorityType: input.AuthorityType,
-		TenantID:      input.TenantID,
-		Name:          strings.TrimSpace(input.Name),
-		TokenHash:     hash,
-		ScopesJSON:    scopesJSON,
-		CreatedAt:     db.NowUTC(),
-		ExpiresAt:     FormatExpiresAt(input.ExpiresAt),
+		ID:             tokenID,
+		AuthorityType:  input.AuthorityType,
+		TenantID:       input.TenantID,
+		Name:           input.Name,
+		TokenHash:      hash,
+		ScopesJSON:     scopesJSON,
+		CreatedAt:      db.NowUTC(),
+		CreatedByType:  principal.Type,
+		CreatedByID:    createdByID,
+		ParentTokenID:  parentTokenID,
+		ResourceMode:   input.ResourceMode,
+		ExpiresAt:      FormatExpiresAt(input.ExpiresAt),
+		ResourceGrants: make([]db.APITokenResourceGrant, 0, len(input.ResourceGrants)),
+	}
+	for _, grant := range input.ResourceGrants {
+		row.ResourceGrants = append(row.ResourceGrants, db.APITokenResourceGrant{
+			TokenID:      tokenID,
+			ResourceType: grant.ResourceType,
+			ResourceID:   grant.ResourceID,
+		})
 	}
 
-	if err := s.repo.CreateAPIToken(ctx, row); err != nil {
+	audit, err := s.newAuditEvent(principal, AuditInput{
+		TenantID:     row.TenantID,
+		Action:       "token.created",
+		ResourceType: "api_token",
+		ResourceID:   &row.ID,
+		Data:         map[string]any{"authorityType": row.AuthorityType, "parentTokenId": row.ParentTokenID, "resourceMode": row.ResourceMode, "resourceGrantCount": len(row.ResourceGrants)},
+	})
+	if err != nil {
+		return CreatedToken{}, err
+	}
+	if err := s.repo.CreateAPIToken(ctx, row, audit); err != nil {
 		if isUniqueViolation(err) {
 			return CreatedToken{}, ErrTokenNameConflict
 		}
@@ -391,6 +607,49 @@ func (s *Service) createToken(ctx context.Context, input CreateTokenInput) (Crea
 	}
 
 	return CreatedToken{Raw: raw, Token: *row}, nil
+}
+
+func validateTokenDelegation(principal Principal, input CreateTokenInput) error {
+	switch principal.AuthorityType {
+	case AuthoritySystemAdmin:
+		if !HasScope(principal.Scopes, ScopeSystemAdmin) {
+			return ErrTokenDelegation
+		}
+	case AuthorityTenant:
+		if input.AuthorityType != AuthorityTenant || principal.TenantID == nil || input.TenantID == nil || *principal.TenantID != *input.TenantID {
+			return ErrTokenDelegation
+		}
+		if !HasScope(principal.Scopes, ScopeTenantWrite) {
+			return ErrScopeDenied
+		}
+	default:
+		return ErrTokenDelegation
+	}
+
+	if !HasScope(principal.Scopes, ScopeSystemAdmin) {
+		for _, scope := range input.Scopes {
+			if !slices.Contains(principal.Scopes, scope) {
+				return ErrTokenDelegation
+			}
+		}
+	}
+	if IsResourceRestricted(principal) {
+		if input.ResourceMode != ResourceModeAllowlist {
+			return ErrTokenDelegation
+		}
+		for _, grant := range input.ResourceGrants {
+			if !HasResourceAccess(principal, grant.ResourceType, grant.ResourceID) {
+				return ErrTokenDelegation
+			}
+		}
+	}
+	if principal.Type == PrincipalTypeAPIToken && principal.ExpiresAt != nil {
+		parentExpiry, err := time.Parse(time.RFC3339Nano, *principal.ExpiresAt)
+		if err != nil || input.ExpiresAt == nil || input.ExpiresAt.UTC().After(parentExpiry) {
+			return ErrTokenDelegation
+		}
+	}
+	return nil
 }
 
 func isUniqueViolation(err error) bool {

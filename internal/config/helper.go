@@ -52,6 +52,9 @@ func LoadFromFileOnly(path string) (Config, error) {
 	v.SetDefault("webrtc_media_producer_udp_port_min", defaults.WebRTCMediaProducerUDPPortMin)
 	v.SetDefault("webrtc_media_producer_udp_port_max", defaults.WebRTCMediaProducerUDPPortMax)
 	v.SetDefault("webrtc_ice_servers", defaults.WebRTCICEServers)
+	v.SetDefault("login_methods", defaults.LoginMethods)
+	v.SetDefault("web_session_lifetime", defaults.WebSessionLifetime)
+	v.SetDefault("web_session_idle_timeout", defaults.WebSessionIdleTimeout)
 	v.SetDefault("log_level", defaults.LogLevel)
 
 	if err := v.ReadInConfig(); err != nil {

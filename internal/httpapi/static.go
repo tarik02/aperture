@@ -41,7 +41,18 @@ func registerStaticFallback(router *gin.Engine, assets fs.FS, cdpRouteBasePath s
 }
 
 func isSPAPath(requestPath string) bool {
-	return requestPath == "/" || requestPath == "/-" || strings.HasPrefix(requestPath, "/-/") || requestPath == "/share" || strings.HasPrefix(requestPath, "/share/")
+	switch {
+	case requestPath == "/", requestPath == "/-":
+		return true
+	case strings.HasPrefix(requestPath, "/-/"):
+		return true
+	case requestPath == "/invite", strings.HasPrefix(requestPath, "/invite/"):
+		return true
+	case requestPath == "/share", strings.HasPrefix(requestPath, "/share/"):
+		return true
+	default:
+		return false
+	}
 }
 
 func tryServeStaticFile(c *gin.Context, assets fs.FS, requestPath string) bool {

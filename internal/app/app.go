@@ -36,6 +36,7 @@ type App struct {
 	DB         *db.DB
 	Repository *db.Repository
 	Auth       *auth.Service
+	WebAuth    *auth.WebService
 	Sessions   *session.Service
 	Snapshots  *snapshot.Service
 	Promotion  *snapshot.PromotionService
@@ -121,6 +122,11 @@ func (a *App) Serve(ctx context.Context) error {
 	if err := a.Migrate(ctx); err != nil {
 		return err
 	}
+	webAuth, err := auth.NewWebService(ctx, a.Config, a.Auth, a.DB.SQL())
+	if err != nil {
+		return err
+	}
+	a.WebAuth = webAuth
 
 	role, err := a.deployRole()
 	if err != nil {
@@ -155,6 +161,7 @@ func (a *App) Serve(ctx context.Context) error {
 		Config:        a.Config,
 		Repository:    a.Repository,
 		Auth:          a.Auth,
+		WebAuth:       a.WebAuth,
 		Sessions:      a.Sessions,
 		Snapshots:     a.Snapshots,
 		Promotion:     a.Promotion,

@@ -10,14 +10,69 @@ type contextKey int
 
 const principalContextKey contextKey = iota
 
-// Principal holds authenticated API token state for a request.
+const (
+	PrincipalTypeAPIToken = "api_token"
+	PrincipalTypeUser     = "user"
+	PrincipalTypeSystem   = "system"
+	AuthMethodAPIToken    = "api_token"
+	ResourceModeAll       = "all"
+	ResourceModeAllowlist = "allowlist"
+	ResourceTypeSession   = "session"
+	ResourceTypeSnapshot  = "snapshot"
+)
+
+// ResourceGrant allows access to one tenant resource.
+type ResourceGrant struct {
+	ResourceType string
+	ResourceID   string
+}
+
+// Principal holds authenticated identity and authority state for a request.
 type Principal struct {
-	TokenID       string
-	AuthorityType string
-	TenantID      *string
-	Name          string
-	Scopes        []string
-	ExpiresAt     *string
+	Type           string
+	ID             string
+	AuthMethod     string
+	TokenID        string
+	UserID         *string
+	AuthorityType  string
+	TenantID       *string
+	Name           string
+	Scopes         []string
+	ResourceMode   string
+	ResourceGrants []ResourceGrant
+	ExpiresAt      *string
+}
+
+// IsResourceRestricted reports whether a principal uses an explicit allowlist.
+func IsResourceRestricted(principal Principal) bool {
+	return principal.ResourceMode == ResourceModeAllowlist
+}
+
+// HasResourceAccess reports whether a principal may access a resource id.
+func HasResourceAccess(principal Principal, resourceType, resourceID string) bool {
+	if !IsResourceRestricted(principal) {
+		return true
+	}
+	for _, grant := range principal.ResourceGrants {
+		if grant.ResourceType == resourceType && grant.ResourceID == resourceID {
+			return true
+		}
+	}
+	return false
+}
+
+// ResourceIDs returns allowed ids for a resource type and whether filtering is required.
+func ResourceIDs(principal Principal, resourceType string) ([]string, bool) {
+	if !IsResourceRestricted(principal) {
+		return nil, false
+	}
+	ids := make([]string, 0)
+	for _, grant := range principal.ResourceGrants {
+		if grant.ResourceType == resourceType {
+			ids = append(ids, grant.ResourceID)
+		}
+	}
+	return ids, true
 }
 
 // WithPrincipal stores principal on ctx.
@@ -39,6 +94,9 @@ func ResolveTenantID(principal Principal, selectedTenantID string) (string, erro
 	switch principal.AuthorityType {
 	case AuthorityTenant:
 		if principal.TenantID == nil {
+			if principal.Type == PrincipalTypeUser {
+				return "", ErrTenantRequired
+			}
 			return "", ErrTenantNotFound
 		}
 		if selectedTenantID != "" && selectedTenantID != *principal.TenantID {

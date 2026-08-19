@@ -26,15 +26,157 @@ type Tenant struct {
 type APIToken struct {
 	bun.BaseModel `bun:"table:api_tokens"`
 
+	ID             string                  `bun:"id,pk"`
+	AuthorityType  string                  `bun:"authority_type,notnull"`
+	TenantID       *string                 `bun:"tenant_id"`
+	Name           string                  `bun:"name,notnull"`
+	TokenHash      string                  `bun:"token_hash,notnull"`
+	ScopesJSON     string                  `bun:"scopes_json,notnull"`
+	CreatedAt      string                  `bun:"created_at,notnull"`
+	CreatedByType  string                  `bun:"created_by_type,notnull"`
+	CreatedByID    *string                 `bun:"created_by_id"`
+	ParentTokenID  *string                 `bun:"parent_token_id"`
+	ResourceMode   string                  `bun:"resource_mode,notnull"`
+	ExpiresAt      *string                 `bun:"expires_at"`
+	RevokedAt      *string                 `bun:"revoked_at"`
+	ResourceGrants []APITokenResourceGrant `bun:"-"`
+}
+
+// APITokenResourceGrant restricts a token to one session or snapshot.
+type APITokenResourceGrant struct {
+	bun.BaseModel `bun:"table:api_token_resource_grants"`
+
+	TokenID      string `bun:"token_id,pk"`
+	ResourceType string `bun:"resource_type,pk"`
+	ResourceID   string `bun:"resource_id,pk"`
+}
+
+// ResourceIDFilter limits a query to an explicit set of resource ids.
+type ResourceIDFilter struct {
+	Restricted bool
+	IDs        []string
+}
+
+// ResourceReference identifies a resource for polymorphic event filtering.
+type ResourceReference struct {
+	ResourceType string
+	ResourceID   string
+}
+
+// User maps the users table.
+type User struct {
+	bun.BaseModel `bun:"table:users"`
+
 	ID            string  `bun:"id,pk"`
-	AuthorityType string  `bun:"authority_type,notnull"`
-	TenantID      *string `bun:"tenant_id"`
-	Name          string  `bun:"name,notnull"`
-	TokenHash     string  `bun:"token_hash,notnull"`
-	ScopesJSON    string  `bun:"scopes_json,notnull"`
+	Email         *string `bun:"email"`
+	DisplayName   string  `bun:"display_name,notnull"`
+	IsSystemAdmin bool    `bun:"is_system_admin,notnull"`
 	CreatedAt     string  `bun:"created_at,notnull"`
-	ExpiresAt     *string `bun:"expires_at"`
-	RevokedAt     *string `bun:"revoked_at"`
+	UpdatedAt     string  `bun:"updated_at,notnull"`
+	DisabledAt    *string `bun:"disabled_at"`
+}
+
+// TenantMembership maps a user's tenant scopes.
+type TenantMembership struct {
+	bun.BaseModel `bun:"table:tenant_memberships"`
+
+	TenantID   string `bun:"tenant_id,pk"`
+	UserID     string `bun:"user_id,pk"`
+	ScopesJSON string `bun:"scopes_json,notnull"`
+	CreatedAt  string `bun:"created_at,notnull"`
+	UpdatedAt  string `bun:"updated_at,notnull"`
+}
+
+// AuditEvent maps security and administration audit entries.
+type AuditEvent struct {
+	bun.BaseModel `bun:"table:audit_events"`
+
+	ID           string  `bun:"id,pk"`
+	ActorType    string  `bun:"actor_type,notnull"`
+	ActorID      *string `bun:"actor_id"`
+	TenantID     *string `bun:"tenant_id"`
+	Action       string  `bun:"action,notnull"`
+	ResourceType string  `bun:"resource_type,notnull"`
+	ResourceID   *string `bun:"resource_id"`
+	DataJSON     string  `bun:"data_json,notnull"`
+	CreatedAt    string  `bun:"created_at,notnull"`
+}
+
+// OIDCIdentity maps an OIDC provider subject to a user.
+type OIDCIdentity struct {
+	bun.BaseModel `bun:"table:oidc_identities"`
+
+	ProviderID  string  `bun:"provider_id,pk"`
+	Subject     string  `bun:"subject,pk"`
+	UserID      string  `bun:"user_id,notnull"`
+	Email       *string `bun:"email"`
+	CreatedAt   string  `bun:"created_at,notnull"`
+	LastLoginAt string  `bun:"last_login_at,notnull"`
+}
+
+// WebAuthnUserHandle maps an RP-specific opaque handle to a user.
+type WebAuthnUserHandle struct {
+	bun.BaseModel `bun:"table:webauthn_user_handles"`
+
+	UserID    string `bun:"user_id,pk"`
+	RPID      string `bun:"rp_id,pk"`
+	Handle    []byte `bun:"handle,notnull"`
+	CreatedAt string `bun:"created_at,notnull"`
+}
+
+// Passkey stores one WebAuthn credential.
+type Passkey struct {
+	bun.BaseModel `bun:"table:passkeys"`
+
+	ID             string  `bun:"id,pk"`
+	UserID         string  `bun:"user_id,notnull"`
+	RPID           string  `bun:"rp_id,notnull"`
+	Name           string  `bun:"name,notnull"`
+	CredentialID   []byte  `bun:"credential_id,notnull"`
+	CredentialJSON []byte  `bun:"credential_json,notnull"`
+	CreatedAt      string  `bun:"created_at,notnull"`
+	LastUsedAt     *string `bun:"last_used_at"`
+}
+
+// UserPassword stores one user's Argon2id password hash.
+type UserPassword struct {
+	bun.BaseModel `bun:"table:user_passwords"`
+
+	UserID       string `bun:"user_id,pk"`
+	PasswordHash string `bun:"password_hash,notnull"`
+	CreatedAt    string `bun:"created_at,notnull"`
+	UpdatedAt    string `bun:"updated_at,notnull"`
+}
+
+// UserInvitation stores one active password link per user.
+type UserInvitation struct {
+	bun.BaseModel `bun:"table:user_invitations"`
+
+	UserID    string `bun:"user_id,pk"`
+	TokenHash []byte `bun:"token_hash,notnull"`
+	ExpiresAt string `bun:"expires_at,notnull"`
+	CreatedAt string `bun:"created_at,notnull"`
+}
+
+// TOTPCredential stores one user's active authenticator secret.
+type TOTPCredential struct {
+	bun.BaseModel `bun:"table:totp_credentials"`
+
+	UserID    string `bun:"user_id,pk"`
+	Secret    string `bun:"secret,notnull"`
+	CreatedAt string `bun:"created_at,notnull"`
+	UpdatedAt string `bun:"updated_at,notnull"`
+}
+
+// RecoveryCode stores a hashed one-time MFA recovery code.
+type RecoveryCode struct {
+	bun.BaseModel `bun:"table:recovery_codes"`
+
+	ID        string  `bun:"id,pk"`
+	UserID    string  `bun:"user_id,notnull"`
+	CodeHash  []byte  `bun:"code_hash,notnull"`
+	CreatedAt string  `bun:"created_at,notnull"`
+	UsedAt    *string `bun:"used_at"`
 }
 
 // Snapshot maps the snapshots table.
@@ -135,6 +277,16 @@ func RegisterModels(db *bun.DB) {
 		(*SchemaMigration)(nil),
 		(*Tenant)(nil),
 		(*APIToken)(nil),
+		(*User)(nil),
+		(*TenantMembership)(nil),
+		(*AuditEvent)(nil),
+		(*OIDCIdentity)(nil),
+		(*WebAuthnUserHandle)(nil),
+		(*Passkey)(nil),
+		(*UserPassword)(nil),
+		(*UserInvitation)(nil),
+		(*TOTPCredential)(nil),
+		(*RecoveryCode)(nil),
 		(*Snapshot)(nil),
 		(*Session)(nil),
 		(*SessionToken)(nil),
