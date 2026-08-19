@@ -63,6 +63,14 @@ export const userSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   disabledAt: z.string().nullable(),
+  passwordSetupStatus: z
+    .enum(["available", "configured", "email_required", "user_disabled", "login_disabled"])
+    .optional(),
+});
+
+export const userInvitationSchema = z.object({
+  token: z.string(),
+  expiresAt: z.string(),
 });
 
 export const tenantMembershipSchema = z.object({
@@ -93,13 +101,19 @@ export const authMeSchema = z.object({
   availableTenants: z.array(tenantSchema),
 });
 
-export const oidcProvidersSchema = z.object({
-  providers: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      loginUrl: z.string(),
-    }),
+export const loginMethodsSchema = z.object({
+  methods: z.array(
+    z.discriminatedUnion("type", [
+      z.object({ type: z.literal("password") }),
+      z.object({ type: z.literal("api_token") }),
+      z.object({ type: z.literal("passkey") }),
+      z.object({
+        type: z.literal("oidc"),
+        id: z.string(),
+        name: z.string(),
+        loginUrl: z.string(),
+      }),
+    ]),
   ),
 });
 
@@ -376,13 +390,14 @@ export const createTokenResponseSchema = z.object({
 export type PageMeta = z.infer<typeof pageMetaSchema>;
 export type Tenant = z.infer<typeof tenantSchema>;
 export type User = z.infer<typeof userSchema>;
+export type UserInvitation = z.infer<typeof userInvitationSchema>;
 export type TenantMembership = z.infer<typeof tenantMembershipSchema>;
 export type AuthMeResponse = z.infer<typeof authMeSchema>;
 export type AuthMePrincipal = z.infer<typeof principalSchema>;
 export type AuthMeTenant = z.infer<typeof tenantSchema>;
 export type ResourceMode = z.infer<typeof resourceModeSchema>;
 export type ResourceGrant = z.infer<typeof resourceGrantSchema>;
-export type OIDCProviders = z.infer<typeof oidcProvidersSchema>;
+export type LoginMethods = z.infer<typeof loginMethodsSchema>;
 export type PasskeyLoginOptions = z.infer<typeof passkeyLoginOptionsSchema>;
 export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
 export type Passkey = z.infer<typeof passkeySchema>;

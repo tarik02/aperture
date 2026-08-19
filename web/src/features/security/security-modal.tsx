@@ -196,7 +196,7 @@ export function SecurityModal({ profileId, open, onOpenChange }: SecurityModalPr
                         id="security-new-password"
                         type="password"
                         autoComplete="new-password"
-                        minLength={12}
+                        minLength={8}
                         maxLength={1024}
                         value={newPassword}
                         onChange={(event) => setNewPassword(event.target.value)}
@@ -210,7 +210,7 @@ export function SecurityModal({ profileId, open, onOpenChange }: SecurityModalPr
                         id="security-confirm-password"
                         type="password"
                         autoComplete="new-password"
-                        minLength={12}
+                        minLength={8}
                         maxLength={1024}
                         value={confirmPassword}
                         onChange={(event) => setConfirmPassword(event.target.value)}

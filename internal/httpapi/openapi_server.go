@@ -238,6 +238,15 @@ func (s openAPIServer) RestoreUser(ctx context.Context, _ generated.RestoreUserR
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) CreateUserInvitation(ctx context.Context, _ generated.CreateUserInvitationRequestObject) (generated.CreateUserInvitationResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createUserInvitation(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) ListUserMemberships(ctx context.Context, _ generated.ListUserMembershipsRequestObject) (generated.ListUserMembershipsResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -630,6 +639,10 @@ func (openAPIPassthroughResponse) VisitDisableUserResponse(http.ResponseWriter) 
 }
 
 func (openAPIPassthroughResponse) VisitRestoreUserResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateUserInvitationResponse(http.ResponseWriter) error {
 	return nil
 }
 

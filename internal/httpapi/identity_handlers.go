@@ -3,9 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/gin-gonic/gin"
 )
@@ -110,7 +113,29 @@ func (s *Server) getUser(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toUserResponse(*user))
+	passwordSetupStatus := "login_disabled"
+	if slices.Contains(s.Config.LoginMethods, config.LoginMethodPassword) {
+		switch {
+		case user.DisabledAt != nil:
+			passwordSetupStatus = "user_disabled"
+		case user.Email == nil:
+			passwordSetupStatus = "email_required"
+		default:
+			invitationAvailable, err := s.Auth.UserInvitationAvailable(c.Request.Context(), user.ID)
+			if err != nil {
+				WriteError(c, err)
+				return
+			}
+			if invitationAvailable {
+				passwordSetupStatus = "available"
+			} else {
+				passwordSetupStatus = "configured"
+			}
+		}
+	}
+	response := toUserResponse(*user)
+	response.PasswordSetupStatus = &passwordSetupStatus
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) updateUser(c *gin.Context) {
@@ -156,6 +181,30 @@ func (s *Server) restoreUser(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toUserResponse(*user))
+}
+
+func (s *Server) createUserInvitation(c *gin.Context) {
+	if !slices.Contains(s.Config.LoginMethods, config.LoginMethodPassword) {
+		WriteError(c, auth.ErrInvitationUnavailable)
+		return
+	}
+	invitation, err := s.Auth.CreateUserInvitation(c.Request.Context(), c.Param("userId"))
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	userID := c.Param("userId")
+	if !s.recordAudit(c, auth.AuditInput{
+		Action:       "user.password_link.created",
+		ResourceType: "user",
+		ResourceID:   &userID,
+	}) {
+		return
+	}
+	c.JSON(http.StatusCreated, userInvitationResponse{
+		Token:     invitation.Token,
+		ExpiresAt: invitation.ExpiresAt.Format(time.RFC3339Nano),
+	})
 }
 
 func (s *Server) listTenantMemberships(c *gin.Context) {

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShareRouteImport } from './routes/share'
+import { Route as InviteRouteImport } from './routes/invite'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as Char91Char93UsersIndexRouteImport } from './routes/[-]/users/index'
 import { Route as Char91Char93TokensIndexRouteImport } from './routes/[-]/tokens/index'
@@ -21,6 +22,11 @@ import { Route as Char91Char93SessionsSessionIdRouteImport } from './routes/[-]/
 const ShareRoute = ShareRouteImport.update({
   id: '/share',
   path: '/share',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteRoute = InviteRouteImport.update({
+  id: '/invite',
+  path: '/invite',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -65,6 +71,7 @@ const Char91Char93SessionsSessionIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
@@ -75,6 +82,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions': typeof Char91Char93SessionsIndexRoute
@@ -86,6 +94,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/invite'
     | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/invite'
     | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions'
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/invite'
     | '/share'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
@@ -129,6 +141,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  InviteRoute: typeof InviteRoute
   ShareRoute: typeof ShareRoute
   Char91Char93SessionsSessionIdRoute: typeof Char91Char93SessionsSessionIdRoute
   Char91Char93SessionsIndexRoute: typeof Char91Char93SessionsIndexRoute
@@ -145,6 +158,13 @@ declare module '@tanstack/react-router' {
       path: '/share'
       fullPath: '/share'
       preLoaderRoute: typeof ShareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite': {
+      id: '/invite'
+      path: '/invite'
+      fullPath: '/invite'
+      preLoaderRoute: typeof InviteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -201,6 +221,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  InviteRoute: InviteRoute,
   ShareRoute: ShareRoute,
   Char91Char93SessionsSessionIdRoute: Char91Char93SessionsSessionIdRoute,
   Char91Char93SessionsIndexRoute: Char91Char93SessionsIndexRoute,
@@ -212,12 +233,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

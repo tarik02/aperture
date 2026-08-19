@@ -148,6 +148,16 @@ type UserPassword struct {
 	UpdatedAt    string `bun:"updated_at,notnull"`
 }
 
+// UserInvitation stores one active password link per user.
+type UserInvitation struct {
+	bun.BaseModel `bun:"table:user_invitations"`
+
+	UserID    string `bun:"user_id,pk"`
+	TokenHash []byte `bun:"token_hash,notnull"`
+	ExpiresAt string `bun:"expires_at,notnull"`
+	CreatedAt string `bun:"created_at,notnull"`
+}
+
 // TOTPCredential stores one user's active authenticator secret.
 type TOTPCredential struct {
 	bun.BaseModel `bun:"table:totp_credentials"`
@@ -273,6 +283,7 @@ func RegisterModels(db *bun.DB) {
 		(*WebAuthnUserHandle)(nil),
 		(*Passkey)(nil),
 		(*UserPassword)(nil),
+		(*UserInvitation)(nil),
 		(*TOTPCredential)(nil),
 		(*RecoveryCode)(nil),
 		(*Snapshot)(nil),

@@ -27,6 +27,10 @@ const (
 	DeployColorGreen             = "green"
 	BrowserSupervisorSystemd     = "systemd"
 	BrowserSupervisorDirect      = "direct"
+	LoginMethodPassword          = "password"
+	LoginMethodAPIToken          = "api_token"
+	LoginMethodPasskey           = "passkey"
+	LoginMethodOIDC              = "oidc"
 )
 
 // ChannelConfig describes a configured browser channel.
@@ -103,6 +107,7 @@ type Config struct {
 	ToolOutputMaxBytes               int64                    `mapstructure:"tool_output_max_bytes"`
 	SignedFileURLTTL                 time.Duration            `mapstructure:"signed_file_url_ttl"`
 	SignedFileURLMaxTTL              time.Duration            `mapstructure:"signed_file_url_max_ttl"`
+	LoginMethods                     []string                 `mapstructure:"login_methods"`
 	OIDCProviders                    []OIDCProviderConfig     `mapstructure:"oidc_providers"`
 	WebSessionLifetime               time.Duration            `mapstructure:"web_session_lifetime"`
 	WebSessionIdleTimeout            time.Duration            `mapstructure:"web_session_idle_timeout"`
@@ -164,10 +169,16 @@ func Defaults() Config {
 		ToolOutputMaxBytes:               16 * 1024 * 1024,
 		SignedFileURLTTL:                 15 * time.Minute,
 		SignedFileURLMaxTTL:              24 * time.Hour,
-		OIDCProviders:                    nil,
-		WebSessionLifetime:               30 * 24 * time.Hour,
-		WebSessionIdleTimeout:            24 * time.Hour,
-		LogLevel:                         "info",
+		LoginMethods: []string{
+			LoginMethodPassword,
+			LoginMethodAPIToken,
+			LoginMethodPasskey,
+			LoginMethodOIDC,
+		},
+		OIDCProviders:         nil,
+		WebSessionLifetime:    30 * 24 * time.Hour,
+		WebSessionIdleTimeout: 24 * time.Hour,
+		LogLevel:              "info",
 	}
 }
 
@@ -237,6 +248,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("tool_output_max_bytes", defaults.ToolOutputMaxBytes)
 	v.SetDefault("signed_file_url_ttl", defaults.SignedFileURLTTL)
 	v.SetDefault("signed_file_url_max_ttl", defaults.SignedFileURLMaxTTL)
+	v.SetDefault("login_methods", defaults.LoginMethods)
 	v.SetDefault("oidc_providers", defaults.OIDCProviders)
 	v.SetDefault("web_session_lifetime", defaults.WebSessionLifetime)
 	v.SetDefault("web_session_idle_timeout", defaults.WebSessionIdleTimeout)
@@ -297,6 +309,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"tool_output_max_bytes",
 		"signed_file_url_ttl",
 		"signed_file_url_max_ttl",
+		"login_methods",
 		"oidc_providers",
 		"web_session_lifetime",
 		"web_session_idle_timeout",

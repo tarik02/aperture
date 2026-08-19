@@ -51,6 +51,7 @@ agent_browser_idle_timeout: 5m
 tool_output_max_bytes: 16777216
 signed_file_url_ttl: 15m
 signed_file_url_max_ttl: 24h
+login_methods: [password, api_token, passkey, oidc]
 web_session_lifetime: 720h
 web_session_idle_timeout: 24h
 
@@ -59,6 +60,8 @@ channels:
     executable: /run/current-system/sw/bin/chromium
     default_args: []
 ```
+
+The first available `login_methods` entry is the default in the login dialog. `password` and `api_token` show forms; `passkey` starts WebAuthn; `oidc` expands to the providers below in their configured order.
 
 To enable OIDC login, register `${external_base_url}/auth/oidc/PROVIDER_ID/callback` with the provider and add it to the config:
 

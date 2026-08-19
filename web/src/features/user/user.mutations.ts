@@ -72,6 +72,15 @@ export function useRestoreUserMutation() {
   });
 }
 
+export function useCreateUserInvitationMutation() {
+  const credentials = useApiCredentials();
+
+  return useMutation({
+    mutationFn: (userId: string) => apiClient.createUserInvitation(credentials!, userId),
+    onError: (error) => toastMutationError(error, "Password link creation failed"),
+  });
+}
+
 export function useUpsertTenantMembershipMutation() {
   const credentials = useApiCredentials();
   const invalidate = useInvalidateMemberships();

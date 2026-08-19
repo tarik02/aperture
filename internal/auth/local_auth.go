@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	passwordMinLength = 12
+	passwordMinLength = 8
 	passwordMaxLength = 1024
 	recoveryCodeCount = 10
 	recoveryCodeBytes = 10
@@ -219,6 +219,29 @@ func (s *WebService) SetPassword(ctx context.Context, currentPassword, newPasswo
 	}
 	principal := Principal{Type: PrincipalTypeUser, ID: user.ID, UserID: &user.ID, AuthMethod: authMethod, Name: user.DisplayName}
 	return s.auth.RecordAudit(ctx, principal, AuditInput{Action: action, ResourceType: "user", ResourceID: &user.ID})
+}
+
+// AcceptUserInvitation sets the invited user's password and establishes a browser session.
+func (s *WebService) AcceptUserInvitation(ctx context.Context, token, password string) error {
+	user, err := s.auth.AcceptUserInvitation(ctx, token, password)
+	if err != nil {
+		return err
+	}
+	principal := Principal{
+		Type:       PrincipalTypeUser,
+		ID:         user.ID,
+		UserID:     &user.ID,
+		AuthMethod: AuthMethodPassword,
+		Name:       user.DisplayName,
+	}
+	if err := s.auth.RecordAudit(ctx, principal, AuditInput{
+		Action:       "password.set",
+		ResourceType: "user",
+		ResourceID:   &user.ID,
+	}); err != nil {
+		return err
+	}
+	return s.establishAuthenticatedSession(ctx, user, AuthMethodPassword)
 }
 
 // BeginTOTPEnrollment generates a new authenticator secret for the authenticated user.

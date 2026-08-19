@@ -26,7 +26,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	router.Any("/mcp", server.mcp)
 	router.Any("/sessions/:sessionId/mcp", server.mcp)
 	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
-	router.GET("/auth/providers", server.listOIDCProviders)
+	router.GET("/auth/login-methods", server.listLoginMethods)
 	if server.WebAuth != nil {
 		router.GET("/auth/oidc/:providerId/login", server.beginOIDC)
 		router.GET("/auth/oidc/:providerId/callback", server.completeOIDC)
@@ -36,6 +36,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		router.POST("/auth/passkeys/login/finish", server.completePasskeyLogin)
 		router.GET("/auth/security", server.getSecurityStatus)
 		router.PUT("/auth/password", server.setPassword)
+		router.POST("/auth/invitations/accept", server.acceptUserInvitation)
 		router.POST("/auth/totp/enrollment/options", server.beginTOTPEnrollment)
 		router.POST("/auth/totp/enrollment/finish", server.completeTOTPEnrollment)
 		router.POST("/auth/totp/recovery-codes", server.regenerateRecoveryCodes)

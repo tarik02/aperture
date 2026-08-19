@@ -2,8 +2,11 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
+	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/config"
 	"github.com/gin-gonic/gin"
 )
 
@@ -44,6 +47,18 @@ func (r passwordUpdateRequest) Validate() error {
 
 type passwordLoginResponse struct {
 	MFARequired bool `json:"mfaRequired"`
+}
+
+type invitationAcceptRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
+func (r invitationAcceptRequest) Validate() error {
+	if strings.TrimSpace(r.Token) == "" || r.Password == "" {
+		return validationError("invitation token and password are required")
+	}
+	return nil
 }
 
 type securityStatusResponse struct {
@@ -112,6 +127,28 @@ func (s *Server) setPassword(c *gin.Context) {
 		return
 	}
 	if err := s.WebAuth.SetPassword(c.Request.Context(), request.CurrentPassword, request.NewPassword); err != nil {
+		WriteError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) acceptUserInvitation(c *gin.Context) {
+	if !slices.Contains(s.Config.LoginMethods, config.LoginMethodPassword) {
+		WriteError(c, auth.ErrInvitationInvalid)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
+	var request invitationAcceptRequest
+	if err := bindJSON(c, &request); err != nil {
+		WriteError(c, err)
+		return
+	}
+	if err := s.WebAuth.AcceptUserInvitation(
+		c.Request.Context(),
+		strings.TrimSpace(request.Token),
+		request.Password,
+	); err != nil {
 		WriteError(c, err)
 		return
 	}

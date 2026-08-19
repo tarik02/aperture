@@ -10,7 +10,7 @@ import {
   createTokenResponseSchema,
   eventsPageSchema,
   healthSchema,
-  oidcProvidersSchema,
+  loginMethodsSchema,
   passkeyLoginOptionsSchema,
   passkeyMutationSchema,
   passkeyRegistrationOptionsSchema,
@@ -34,6 +34,7 @@ import {
   tenantsPageSchema,
   tokensPageSchema,
   userSchema,
+  userInvitationSchema,
   usersPageSchema,
 } from "#/lib/api/schemas.ts";
 import type { ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
@@ -373,10 +374,10 @@ export type UserInput = {
 };
 
 export const apiClient = {
-  listOIDCProviders() {
+  listLoginMethods() {
     return request({
-      path: "/auth/providers",
-      schema: oidcProvidersSchema,
+      path: "/auth/login-methods",
+      schema: loginMethodsSchema,
     });
   },
 
@@ -466,6 +467,14 @@ export const apiClient = {
       method: "PUT",
       path: "/auth/password",
       body: { currentPassword, newPassword },
+    });
+  },
+
+  acceptUserInvitation(token: string, password: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/invitations/accept",
+      body: { token, password },
     });
   },
 
@@ -644,6 +653,15 @@ export const apiClient = {
       schema: userSchema,
       credentials,
       body: input,
+    });
+  },
+
+  createUserInvitation(credentials: ApiCredentials, userId: string) {
+    return request({
+      method: "POST",
+      path: `/api/admin/users/${encodeURIComponent(userId)}/invitation`,
+      schema: userInvitationSchema,
+      credentials,
     });
   },
 

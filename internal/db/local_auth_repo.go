@@ -34,6 +34,61 @@ func (r *Repository) UpsertUserPassword(ctx context.Context, password *UserPassw
 	return nil
 }
 
+// UpsertUserInvitation replaces any outstanding password link for a user.
+func (r *Repository) UpsertUserInvitation(ctx context.Context, invitation *UserInvitation) error {
+	if _, err := r.db.bun.NewInsert().Model(invitation).
+		On("CONFLICT (user_id) DO UPDATE").
+		Set("token_hash = EXCLUDED.token_hash").
+		Set("expires_at = EXCLUDED.expires_at").
+		Set("created_at = EXCLUDED.created_at").
+		Exec(ctx); err != nil {
+		return fmt.Errorf("upsert user invitation: %w", err)
+	}
+	return nil
+}
+
+// GetUserInvitationByTokenHash returns an invitation by its secret hash.
+func (r *Repository) GetUserInvitationByTokenHash(ctx context.Context, tokenHash []byte) (*UserInvitation, error) {
+	invitation := new(UserInvitation)
+	err := r.db.bun.NewSelect().Model(invitation).Where("token_hash = ?", tokenHash).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select user invitation: %w", err)
+	}
+	return invitation, nil
+}
+
+// AcceptUserInvitation consumes a password link and stores the chosen password atomically.
+func (r *Repository) AcceptUserInvitation(ctx context.Context, invitation *UserInvitation, password *UserPassword) error {
+	return r.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		result, err := tx.NewDelete().Model((*UserInvitation)(nil)).
+			Where("user_id = ?", invitation.UserID).
+			Where("token_hash = ?", invitation.TokenHash).
+			Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("consume user invitation: %w", err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("user invitation rows affected: %w", err)
+		}
+		if rows != 1 {
+			return sql.ErrNoRows
+		}
+
+		if _, err := tx.NewInsert().Model(password).
+			On("CONFLICT (user_id) DO UPDATE").
+			Set("password_hash = EXCLUDED.password_hash").
+			Set("updated_at = EXCLUDED.updated_at").
+			Exec(ctx); err != nil {
+			return fmt.Errorf("set invited user password: %w", err)
+		}
+		return nil
+	})
+}
+
 // GetTOTPCredential returns a user's active authenticator credential.
 func (r *Repository) GetTOTPCredential(ctx context.Context, userID string) (*TOTPCredential, error) {
 	credential := new(TOTPCredential)

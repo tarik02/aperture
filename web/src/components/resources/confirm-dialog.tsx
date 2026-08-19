@@ -1,14 +1,12 @@
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "#/components/ui/alert-dialog.tsx";
-import type { Button } from "#/components/ui/button.tsx";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#/components/ui/dialog.tsx";
+import { Button } from "#/components/ui/button.tsx";
 import type { ComponentProps } from "react";
 
 type ConfirmDialogProps = {
@@ -19,6 +17,7 @@ type ConfirmDialogProps = {
   pending?: boolean;
   variant?: ComponentProps<typeof Button>["variant"];
   onOpenChange: (open: boolean) => void;
+  onOpenChangeComplete?: (open: boolean) => void;
   onConfirm: () => Promise<void> | void;
 };
 
@@ -30,6 +29,7 @@ export function ConfirmDialog({
   pending = false,
   variant = "default",
   onOpenChange,
+  onOpenChangeComplete,
   onConfirm,
 }: ConfirmDialogProps) {
   async function handleConfirm() {
@@ -42,24 +42,26 @@ export function ConfirmDialog({
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
+    <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
+      <DialogContent showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
             type="button"
             variant={variant}
             disabled={pending}
             onClick={() => void handleConfirm()}
           >
             {confirmLabel}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

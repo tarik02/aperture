@@ -12,7 +12,7 @@ const WelcomeTokenAuthModal = lazy(() =>
 
 export function TokenVaultProvider({ children }: { children: React.ReactNode }) {
   const guestMode = useRouterState({
-    select: (state) => /^\/share\/?$/.test(state.location.pathname),
+    select: (state) => /^\/(?:invite|share)\/?$/.test(state.location.pathname),
   });
   const hydrated = useTokenVaultStore((state) => state.hydrated);
   const profiles = useTokenVaultStore((state) => state.profiles);

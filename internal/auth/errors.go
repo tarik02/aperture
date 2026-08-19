@@ -40,6 +40,8 @@ var (
 	ErrPasswordEmailRequired  = errors.New("user email is required for password login")
 	ErrCurrentPasswordMissing = errors.New("current password is required")
 	ErrCurrentPasswordInvalid = errors.New("current password is invalid")
+	ErrInvitationUnavailable  = errors.New("user invitation is unavailable")
+	ErrInvitationInvalid      = errors.New("user invitation is invalid or expired")
 	ErrMFAFlowInvalid         = errors.New("multi-factor authentication flow invalid or expired")
 	ErrMFACodeInvalid         = errors.New("multi-factor authentication code invalid")
 	ErrTOTPAlreadyEnabled     = errors.New("totp already enabled")

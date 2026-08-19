@@ -122,6 +122,10 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadRequest, "current_password_required", "current password is required"
 	case errors.Is(err, auth.ErrCurrentPasswordInvalid):
 		return http.StatusUnauthorized, "current_password_invalid", "current password is invalid"
+	case errors.Is(err, auth.ErrInvitationUnavailable):
+		return http.StatusConflict, "user_invitation_unavailable", "the user must be active and have an email address"
+	case errors.Is(err, auth.ErrInvitationInvalid):
+		return http.StatusBadRequest, "user_invitation_invalid", "password link is invalid or expired"
 	case errors.Is(err, auth.ErrMFAFlowInvalid):
 		return http.StatusBadRequest, "mfa_flow_invalid", "multi-factor authentication flow is invalid or expired"
 	case errors.Is(err, auth.ErrMFACodeInvalid):
