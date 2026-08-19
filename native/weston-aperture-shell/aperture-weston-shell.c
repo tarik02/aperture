@@ -36,16 +36,12 @@ void weston_seat_release_pointer(struct weston_seat *seat);
 void weston_seat_release_keyboard(struct weston_seat *seat);
 void weston_seat_release(struct weston_seat *seat);
 
-void notify_motion_absolute(struct weston_seat *seat, const struct timespec *time,
-			    struct weston_coord_global pos);
-void notify_button(struct weston_seat *seat, const struct timespec *time,
-		   int32_t button, enum wl_pointer_button_state state);
-void notify_axis(struct weston_seat *seat, const struct timespec *time,
-		 struct weston_pointer_axis_event *event);
+void notify_motion(const struct weston_pointer_motion_event *event);
+void notify_button(const struct weston_pointer_button_event *event);
+void notify_axis(const struct weston_pointer_axis_event *event);
 void notify_axis_source(struct weston_seat *seat, uint32_t source);
 void notify_pointer_frame(struct weston_seat *seat);
-void notify_key(struct weston_seat *seat, const struct timespec *time, uint32_t key,
-		enum wl_keyboard_key_state state, enum weston_key_state_update update_state);
+void notify_key(const struct weston_key_event *event);
 
 enum {
 	aperture_max_text_bytes = 4096,
@@ -477,6 +473,7 @@ inject_pointer_motion(struct aperture_shell *shell, struct aperture_shell_surfac
 		      double x, double y)
 {
 	struct weston_coord_global pos;
+	struct weston_pointer_motion_event event;
 	struct timespec time;
 
 	if (!surface || !surface->capture_output)
@@ -486,7 +483,9 @@ inject_pointer_motion(struct aperture_shell *shell, struct aperture_shell_surfac
 
 	viewport_to_global(surface, x, y, &pos);
 	now(&time);
-	notify_motion_absolute(&shell->input_seat, &time, pos);
+	weston_pointer_motion_event_init(&event, &time, &shell->input_seat,
+					 WESTON_POINTER_MOTION_ABS, &pos, NULL, NULL);
+	notify_motion(&event);
 	weston_seat_repick(&shell->input_seat);
 	shell->pointer_frame_pending = true;
 	return NULL;
@@ -544,19 +543,21 @@ inject_axis(struct aperture_shell *shell, struct aperture_shell_surface *surface
 	now(&time);
 	notify_axis_source(&shell->input_seat, WL_POINTER_AXIS_SOURCE_WHEEL);
 	if (dx != 0.0) {
-		struct weston_pointer_axis_event event = {
-			.axis = WL_POINTER_AXIS_HORIZONTAL_SCROLL,
-			.value = dx,
-		};
-		notify_axis(&shell->input_seat, &time, &event);
+		struct weston_pointer_axis_event event;
+
+		weston_pointer_axis_event_init(&event, &time, &shell->input_seat,
+					       WL_POINTER_AXIS_HORIZONTAL_SCROLL,
+					       dx, false, 0);
+		notify_axis(&event);
 		shell->pointer_frame_pending = true;
 	}
 	if (dy != 0.0) {
-		struct weston_pointer_axis_event event = {
-			.axis = WL_POINTER_AXIS_VERTICAL_SCROLL,
-			.value = dy,
-		};
-		notify_axis(&shell->input_seat, &time, &event);
+		struct weston_pointer_axis_event event;
+
+		weston_pointer_axis_event_init(&event, &time, &shell->input_seat,
+					       WL_POINTER_AXIS_VERTICAL_SCROLL,
+					       dy, false, 0);
+		notify_axis(&event);
 		shell->pointer_frame_pending = true;
 	}
 	return NULL;
@@ -566,6 +567,7 @@ static const char *
 inject_key(struct aperture_shell *shell, struct aperture_shell_surface *surface,
 	   uint32_t key, bool press)
 {
+	struct weston_key_event event;
 	struct timespec time;
 
 	if (!key)
@@ -575,9 +577,11 @@ inject_key(struct aperture_shell *shell, struct aperture_shell_surface *surface,
 
 	activate_surface_for_seat(surface, &shell->input_seat, WESTON_ACTIVATE_FLAG_NONE);
 	now(&time);
-	notify_key(&shell->input_seat, &time, key,
-		   press ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED,
-		   STATE_UPDATE_AUTOMATIC);
+	weston_key_event_init(&event, &time, &shell->input_seat, key,
+			      press ? WL_KEYBOARD_KEY_STATE_PRESSED :
+				      WL_KEYBOARD_KEY_STATE_RELEASED,
+			      STATE_UPDATE_AUTOMATIC);
+	notify_key(&event);
 	return NULL;
 }
 
