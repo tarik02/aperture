@@ -6,17 +6,20 @@ usage() {
   cat <<'EOF'
 Usage: nix run .#dev -- [options]
 
-Run the Nix-built Aperture image with rootless Podman.
+Run the Nix-built Aperture backend with rootless Podman and the live Vite frontend.
 
 Options:
-  --port PORT          Public HTTP port (default: 8080)
-  --env-file PATH      Pass an environment file to the container
-  --config PATH        Mount an Aperture TOML config
-  --render-node PATH   DRM render node for .#dev-gpu
-  -h, --help           Show this help
+  --port PORT              Public HTTP port (default: 8080)
+  --container-name NAME    Podman container name (default: worktree directory)
+  --bind-address ADDRESS   Loopback address (default: derived from worktree)
+  --udp-port-range RANGE   WebRTC UDP range (default: 50000-50010)
+  --env-file PATH          Pass an environment file to the container
+  --config PATH            Mount an Aperture TOML config
+  --render-node PATH       DRM render node for .#dev-gpu
+  -h, --help               Show this help
 
-The container runs in the foreground. State and the initial system-admin
-token persist under .data/ in the current directory.
+Vite runs in the foreground. State and the initial system-admin token persist
+under .data/ in the current directory.
 EOF
 }
 
@@ -26,10 +29,17 @@ fail() {
 }
 
 dev_port=8080
-dev_container_port=8080
-dev_bind_address=127.0.0.1
-dev_webrtc_udp_port_min=50000
-dev_webrtc_udp_port_max=50010
+dev_frontend_container_port=3000
+dev_backend_container_port=8080
+dev_container_name=${PWD##*/}
+read -r dev_worktree_checksum _ < <(printf '%s\n' "$PWD" | cksum)
+dev_bind_octet_2=$((64 + dev_worktree_checksum % 64))
+dev_bind_octet_3=$(((dev_worktree_checksum >> 6) % 256))
+dev_bind_octet_4=$((1 + (dev_worktree_checksum >> 14) % 254))
+dev_bind_address="127.$dev_bind_octet_2.$dev_bind_octet_3.$dev_bind_octet_4"
+dev_webrtc_udp_port_range=50000-50010
+dev_webrtc_udp_port_min=
+dev_webrtc_udp_port_max=
 dev_env_file=
 dev_config_file=
 dev_render_node=/dev/dri/renderD128
@@ -46,6 +56,33 @@ while (( $# > 0 )); do
       ;;
     --port=*)
       dev_port=${1#*=}
+      shift
+      ;;
+    --container-name)
+      (( $# >= 2 )) || fail "--container-name requires a value"
+      dev_container_name=$2
+      shift 2
+      ;;
+    --container-name=*)
+      dev_container_name=${1#*=}
+      shift
+      ;;
+    --bind-address)
+      (( $# >= 2 )) || fail "--bind-address requires a value"
+      dev_bind_address=$2
+      shift 2
+      ;;
+    --bind-address=*)
+      dev_bind_address=${1#*=}
+      shift
+      ;;
+    --udp-port-range)
+      (( $# >= 2 )) || fail "--udp-port-range requires a value"
+      dev_webrtc_udp_port_range=$2
+      shift 2
+      ;;
+    --udp-port-range=*)
+      dev_webrtc_udp_port_range=${1#*=}
       shift
       ;;
     --env-file)
@@ -90,6 +127,28 @@ done
 [[ $dev_port =~ ^[0-9]+$ ]] || fail "port must be an integer"
 dev_port=$((10#$dev_port))
 (( dev_port >= 1 && dev_port <= 65535 )) || fail "port must be between 1 and 65535"
+[[ $dev_container_name =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] ||
+  fail "container name must start with an alphanumeric character and contain only alphanumerics, ., _, or -"
+
+if [[ $dev_bind_address =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+  dev_bind_octets=("${BASH_REMATCH[@]:1}")
+else
+  fail "bind address must be an IPv4 loopback address"
+fi
+(( dev_bind_octets[0] == 127 )) || fail "bind address must be in 127.0.0.0/8"
+for dev_bind_octet in "${dev_bind_octets[@]}"; do
+  (( 10#$dev_bind_octet <= 255 )) || fail "bind address contains an invalid octet"
+done
+
+if [[ $dev_webrtc_udp_port_range =~ ^([0-9]+)-([0-9]+)$ ]]; then
+  dev_webrtc_udp_port_min=$((10#${BASH_REMATCH[1]}))
+  dev_webrtc_udp_port_max=$((10#${BASH_REMATCH[2]}))
+else
+  fail "UDP port range must be MIN-MAX"
+fi
+(( dev_webrtc_udp_port_min >= 1 && dev_webrtc_udp_port_max <= 65535 )) ||
+  fail "UDP ports must be between 1 and 65535"
+(( dev_webrtc_udp_port_min <= dev_webrtc_udp_port_max )) || fail "UDP port range minimum exceeds maximum"
 
 dev_gpu=${APERTURE_DEV_GPU:-0}
 case "$dev_gpu" in
@@ -137,9 +196,11 @@ fi
 dev_image_archive=${APERTURE_DEV_IMAGE_ARCHIVE:-}
 dev_image_ref=${APERTURE_DEV_IMAGE_REF:-}
 dev_traefik_template=${APERTURE_DEV_TRAEFIK_TEMPLATE:-}
+dev_project_dir=$(realpath -- "$PWD")
 [[ -f $dev_image_archive ]] || fail "Nix image archive is unavailable"
 [[ -n $dev_image_ref ]] || fail "Nix image reference is unavailable"
 [[ -f $dev_traefik_template ]] || fail "Traefik config template is unavailable"
+[[ -f $dev_project_dir/web/package.json ]] || fail "run this command from the Aperture repository root"
 
 install -d -m 0700 -- "$PWD/.data" "$PWD/.data/store"
 dev_data_dir=$(realpath -- "$PWD/.data")
@@ -149,13 +210,16 @@ dev_admin_token_file=$dev_data_dir/admin-token
 dev_temp_dir=$(mktemp -d -t aperture-dev.XXXXXXXXXX)
 dev_traefik_config=$dev_temp_dir/traefik.yaml
 cleanup() {
+  exit_status=$?
+  trap - EXIT
   rm -f -- "$dev_traefik_config"
   rmdir -- "$dev_temp_dir" 2>/dev/null || true
+  exit "$exit_status"
 }
 trap cleanup EXIT
 
 sed \
-  -e "s|@ENTRYPOINT_ADDRESS@|:$dev_container_port|g" \
+  -e "s|@ENTRYPOINT_ADDRESS@|:$dev_backend_container_port|g" \
   -e 's|@DYNAMIC_CONFIG_DIR@|/run/aperture/traefik/dynamic|g' \
   "$dev_traefik_template" > "$dev_traefik_config"
 chmod 0644 "$dev_traefik_config"
@@ -192,25 +256,28 @@ podman "${dev_provision_args[@]}" "$dev_image_ref" \
 dev_run_args=(
   run
   --rm
-  --name aperture-dev
+  --name "$dev_container_name"
+  --replace
   --userns "keep-id:uid=1000,gid=1000"
   --user 0:0
   --network pasta
-  --publish "$dev_bind_address:$dev_port:$dev_container_port/tcp"
+  --publish "$dev_bind_address:$dev_port:$dev_frontend_container_port/tcp"
   --publish "$dev_bind_address:$dev_webrtc_udp_port_min-$dev_webrtc_udp_port_max:$dev_webrtc_udp_port_min-$dev_webrtc_udp_port_max/udp"
   --cap-add SYS_ADMIN
   --shm-size 2g
   --stop-timeout 35
   --tmpfs "/run/aperture:rw,nosuid,nodev,size=512m"
+  --volume "$dev_project_dir:/workspace"
   --volume "$dev_store_dir:/var/lib/aperture"
   --volume "$dev_traefik_config:/etc/aperture/traefik.yaml:ro"
-  --health-cmd "curl -fsS http://127.0.0.1:$dev_container_port/api/health"
+  --health-cmd "curl -fsS http://127.0.0.1:$dev_frontend_container_port/api/health"
 )
 
 if [[ -n $dev_env_file ]]; then
   dev_run_args+=(--env-file "$dev_env_file")
 fi
 dev_run_args+=(
+  --env "APERTURE_DEV_PROXY_TARGET=http://127.0.0.1:$dev_backend_container_port"
   --env "APERTURE_EXTERNAL_BASE_URL=http://$dev_bind_address:$dev_port"
   --env "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP=$dev_bind_address"
   --env "APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN=$dev_webrtc_udp_port_min"
@@ -236,7 +303,11 @@ if (( dev_gpu == 1 )); then
   fi
 fi
 
-printf 'Aperture will listen at http://%s:%s\n' "$dev_bind_address" "$dev_port"
+printf 'Aperture will listen at http://%s:%s through containerized Vite\n' "$dev_bind_address" "$dev_port"
+printf 'Container: %s\n' "$dev_container_name"
+printf 'Loopback address: %s\n' "$dev_bind_address"
+printf 'WebRTC UDP ports: %s-%s\n' "$dev_webrtc_udp_port_min" "$dev_webrtc_udp_port_max"
 printf 'System-admin token: %s\n' "$dev_admin_token_file"
+printf '\nhttp://%s:%s/\n\n' "$dev_bind_address" "$dev_port"
 
 podman "${dev_run_args[@]}" "$dev_image_ref"
