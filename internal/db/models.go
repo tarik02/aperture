@@ -114,6 +114,30 @@ type OIDCIdentity struct {
 	LastLoginAt string  `bun:"last_login_at,notnull"`
 }
 
+// WebAuthnUserHandle maps an RP-specific opaque handle to a user.
+type WebAuthnUserHandle struct {
+	bun.BaseModel `bun:"table:webauthn_user_handles"`
+
+	UserID    string `bun:"user_id,pk"`
+	RPID      string `bun:"rp_id,pk"`
+	Handle    []byte `bun:"handle,notnull"`
+	CreatedAt string `bun:"created_at,notnull"`
+}
+
+// Passkey stores one WebAuthn credential.
+type Passkey struct {
+	bun.BaseModel `bun:"table:passkeys"`
+
+	ID             string  `bun:"id,pk"`
+	UserID         string  `bun:"user_id,notnull"`
+	RPID           string  `bun:"rp_id,notnull"`
+	Name           string  `bun:"name,notnull"`
+	CredentialID   []byte  `bun:"credential_id,notnull"`
+	CredentialJSON []byte  `bun:"credential_json,notnull"`
+	CreatedAt      string  `bun:"created_at,notnull"`
+	LastUsedAt     *string `bun:"last_used_at"`
+}
+
 // Snapshot maps the snapshots table.
 type Snapshot struct {
 	bun.BaseModel `bun:"table:snapshots"`
@@ -215,6 +239,8 @@ func RegisterModels(db *bun.DB) {
 		(*TenantMembership)(nil),
 		(*AuditEvent)(nil),
 		(*OIDCIdentity)(nil),
+		(*WebAuthnUserHandle)(nil),
+		(*Passkey)(nil),
 		(*Snapshot)(nil),
 		(*Session)(nil),
 		(*SessionToken)(nil),

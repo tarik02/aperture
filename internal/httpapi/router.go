@@ -30,6 +30,13 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	if server.WebAuth != nil {
 		router.GET("/auth/oidc/:providerId/login", server.beginOIDC)
 		router.GET("/auth/oidc/:providerId/callback", server.completeOIDC)
+		router.POST("/auth/passkeys/login/options", server.beginPasskeyLogin)
+		router.POST("/auth/passkeys/login/finish", server.completePasskeyLogin)
+		router.GET("/auth/passkeys", server.listPasskeys)
+		router.POST("/auth/passkeys/registration/options", server.beginPasskeyRegistration)
+		router.POST("/auth/passkeys/registration/finish", server.completePasskeyRegistration)
+		router.PATCH("/auth/passkeys/:passkeyId", server.renamePasskey)
+		router.DELETE("/auth/passkeys/:passkeyId", server.deletePasskey)
 		router.POST("/auth/logout", server.logoutWebSession)
 	}
 	internal := router.Group("/internal")

@@ -49,13 +49,13 @@ func (s *Server) completeOIDC(c *gin.Context) {
 }
 
 func (s *Server) logoutWebSession(c *gin.Context) {
-	userID, err := s.WebAuth.Logout(c.Request.Context())
+	userID, authMethod, err := s.WebAuth.Logout(c.Request.Context())
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 	if userID != "" {
-		principal := auth.Principal{Type: auth.PrincipalTypeUser, ID: userID, UserID: &userID, AuthMethod: auth.AuthMethodOIDC}
+		principal := auth.Principal{Type: auth.PrincipalTypeUser, ID: userID, UserID: &userID, AuthMethod: authMethod}
 		if err := s.Auth.RecordAudit(c.Request.Context(), principal, auth.AuditInput{Action: "user.logged_out", ResourceType: "user", ResourceID: &userID}); err != nil {
 			WriteError(c, err)
 			return
