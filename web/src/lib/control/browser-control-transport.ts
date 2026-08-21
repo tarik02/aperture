@@ -175,6 +175,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
           ? webRTCMedia$({
               sessionId: options.sessionId,
               credentials: options.credentials,
+              sessionToken: options.sessionToken,
               iceServers: options.iceServers,
               input$: webRTCInput$,
               inputEnabled$: fallbackSelected$.pipe(map((selected) => !selected)),

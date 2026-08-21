@@ -579,7 +579,9 @@ export function useBrowserControl({
     const connect = () => {
       const clientId = crypto.randomUUID();
       const protocols = ["aperture-recording.v1"];
-      if (credentials.credentialType === "api_token") {
+      if (sessionToken) {
+        protocols.push(`authorization.bearer.${sessionToken}`);
+      } else if (credentials.credentialType === "api_token") {
         protocols.push(`authorization.bearer.${credentials.token}`);
       }
       if (recordingTenantId) {
@@ -636,7 +638,7 @@ export function useBrowserControl({
       setRecordingClientConnected(false);
       socket?.close();
     };
-  }, [enabled, sessionId, credentials, recordingTenantId]);
+  }, [enabled, sessionId, credentials, sessionToken, recordingTenantId]);
 
   useEffect(() => {
     const socket = recordingClientSocketRef.current;

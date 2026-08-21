@@ -154,6 +154,7 @@ export type WebRTCInputMessage =
 export type WebRTCMediaOptions = {
   sessionId: string;
   credentials: ApiCredentials;
+  sessionToken?: string;
   iceServers: RTCIceServer[];
   input$: Observable<WebRTCInputMessage>;
   inputEnabled$: Observable<boolean>;
@@ -573,7 +574,7 @@ export function webRTCMedia$(options: WebRTCMediaOptions): Observable<WebRTCMedi
     videoTransceiver.receiver.jitterBufferTarget = JITTER_BUFFER_TARGET_MS;
     const socket = new WebSocket(
       buildSignalURL(options.sessionId),
-      buildSignalProtocols(options.credentials),
+      buildSignalProtocols(options.credentials, options.sessionToken),
     );
 
     const emit = (patch: Partial<WebRTCMediaState>) => {
@@ -1384,9 +1385,11 @@ function buildSignalURL(sessionId: string): string {
   return `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/webrtc/signal`;
 }
 
-function buildSignalProtocols(credentials: ApiCredentials): string[] {
+function buildSignalProtocols(credentials: ApiCredentials, sessionToken?: string): string[] {
   const protocols = ["aperture-webrtc.v1"];
-  if (credentials.credentialType === "api_token") {
+  if (sessionToken) {
+    protocols.push(`authorization.bearer.${sessionToken}`);
+  } else if (credentials.credentialType === "api_token") {
     protocols.push(`authorization.bearer.${credentials.token}`);
   }
   const tenantId = resolveTenantHeader(credentials, "tenant-scoped");

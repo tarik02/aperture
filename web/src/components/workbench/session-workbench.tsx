@@ -79,7 +79,7 @@ export function SessionWorkbench({
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
     credentials: capability?.credentials,
-    sessionToken: capability?.session.sessionToken,
+    sessionToken: selectedSession?.sessionToken,
     enabled: canControl && tenantReady && canConnectSession,
     forceCDPMedia,
     webrtcProducerSupported:
