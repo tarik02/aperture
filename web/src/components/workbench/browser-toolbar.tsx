@@ -121,7 +121,9 @@ export function BrowserToolbar({
           disabled={!connected}
           onActivate={control.activateTarget}
           onCreate={() => control.createTarget("about:blank")}
+          onDuplicate={control.duplicateTarget}
           onClose={control.closeTarget}
+          onReload={control.reload}
           onReorder={control.reorderTargets}
         />
       </div>
@@ -143,8 +145,8 @@ export function BrowserToolbar({
             onClick={() => {
               if (loading) {
                 control.stopLoading();
-              } else {
-                control.reload();
+              } else if (control.activeTargetId) {
+                control.reload(control.activeTargetId);
               }
             }}
           >
