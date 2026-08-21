@@ -1316,7 +1316,9 @@ async function updateViewport(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (options.credentials.credentialType === "api_token") {
+  if (options.sessionToken) {
+    headers.Authorization = `Bearer ${options.sessionToken}`;
+  } else if (options.credentials.credentialType === "api_token") {
     headers.Authorization = `Bearer ${options.credentials.token.trim()}`;
   }
   const tenantId = resolveTenantHeader(options.credentials, "tenant-scoped");
@@ -1361,7 +1363,9 @@ function targetSelection(target: z.infer<typeof targetSelectionSchema>): WebRTCT
 
 async function loadMediaStatus(options: WebRTCMediaOptions) {
   const headers: Record<string, string> = {};
-  if (options.credentials.credentialType === "api_token") {
+  if (options.sessionToken) {
+    headers.Authorization = `Bearer ${options.sessionToken}`;
+  } else if (options.credentials.credentialType === "api_token") {
     headers.Authorization = `Bearer ${options.credentials.token.trim()}`;
   }
   const tenantId = resolveTenantHeader(options.credentials, "tenant-scoped");

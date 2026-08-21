@@ -118,6 +118,7 @@ type RequestOptions<T extends z.ZodType> = {
   path: string;
   schema: T;
   credentials?: ApiCredentials | null;
+  bearerToken?: string;
   tenantHeader?: TenantHeaderMode;
   query?: Record<string, QueryValue>;
   body?: unknown;
@@ -154,6 +155,7 @@ function buildUrl(path: string, query?: Record<string, QueryValue>): string {
 
 function buildHeaders(
   credentials: ApiCredentials | null | undefined,
+  bearerToken: string | undefined,
   tenantHeader: TenantHeaderMode,
   hasBody: boolean,
 ): Record<string, string> {
@@ -165,7 +167,9 @@ function buildHeaders(
     headers["Content-Type"] = "application/json";
   }
 
-  if (credentials?.credentialType === "api_token") {
+  if (bearerToken) {
+    headers.Authorization = `Bearer ${bearerToken}`;
+  } else if (credentials?.credentialType === "api_token") {
     headers.Authorization = `Bearer ${credentials.token.trim()}`;
   }
 
@@ -183,6 +187,7 @@ async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise
     path,
     schema,
     credentials = null,
+    bearerToken,
     tenantHeader = "none",
     query,
     body,
@@ -191,7 +196,7 @@ async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise
   const hasBody = body !== undefined;
   const response = await fetch(buildUrl(path, query), {
     method,
-    headers: buildHeaders(credentials, tenantHeader, hasBody),
+    headers: buildHeaders(credentials, bearerToken, tenantHeader, hasBody),
     body: hasBody ? JSON.stringify(body) : undefined,
   });
 
@@ -218,6 +223,7 @@ async function requestVoid(options: VoidRequestOptions): Promise<void> {
     method = "GET",
     path,
     credentials = null,
+    bearerToken,
     tenantHeader = "none",
     query,
     body,
@@ -227,7 +233,7 @@ async function requestVoid(options: VoidRequestOptions): Promise<void> {
   const hasBody = body !== undefined;
   const response = await fetch(buildUrl(path, query), {
     method,
-    headers: { ...buildHeaders(credentials, tenantHeader, hasBody), ...headers },
+    headers: { ...buildHeaders(credentials, bearerToken, tenantHeader, hasBody), ...headers },
     body: hasBody ? JSON.stringify(body) : undefined,
   });
 
@@ -247,11 +253,18 @@ async function requestBlob(options: Omit<VoidRequestOptions, "body">): Promise<{
   blob: Blob;
   filename: string | null;
 }> {
-  const { method = "GET", path, credentials = null, tenantHeader = "none", query } = options;
+  const {
+    method = "GET",
+    path,
+    credentials = null,
+    bearerToken,
+    tenantHeader = "none",
+    query,
+  } = options;
 
   const response = await fetch(buildUrl(path, query), {
     method,
-    headers: buildHeaders(credentials, tenantHeader, false),
+    headers: buildHeaders(credentials, bearerToken, tenantHeader, false),
   });
 
   if (!response.ok) {
@@ -544,19 +557,26 @@ export const apiClient = {
     });
   },
 
-  getBrowserStatus(credentials: ApiCredentials, sessionId: string) {
+  getBrowserStatus(credentials: ApiCredentials, sessionId: string, sessionToken?: string) {
     return request({
       path: `/sessions/${encodeURIComponent(sessionId)}/browser/status`,
       schema: browserStatusSchema,
       credentials,
+      bearerToken: sessionToken,
     });
   },
 
-  setBrowserMediaProfile(credentials: ApiCredentials, sessionId: string, profile: string) {
+  setBrowserMediaProfile(
+    credentials: ApiCredentials,
+    sessionId: string,
+    profile: string,
+    sessionToken?: string,
+  ) {
     return requestVoid({
       method: "POST",
       path: `/sessions/${encodeURIComponent(sessionId)}/browser/quality`,
       credentials,
+      bearerToken: sessionToken,
       tenantHeader: "tenant-scoped",
       body: { profile },
     });
@@ -838,11 +858,12 @@ export const apiClient = {
     });
   },
 
-  listSessionRecordings(credentials: ApiCredentials, sessionId: string) {
+  listSessionRecordings(credentials: ApiCredentials, sessionId: string, sessionToken?: string) {
     return request({
       path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
       schema: recordingsSchema,
       credentials,
+      bearerToken: sessionToken,
       tenantHeader: "tenant-scoped",
     });
   },
@@ -851,40 +872,60 @@ export const apiClient = {
     credentials: ApiCredentials,
     sessionId: string,
     input: StartSessionRecordingInput,
+    sessionToken?: string,
   ) {
     return request({
       method: "POST",
       path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
       schema: recordingSchema,
       credentials,
+      bearerToken: sessionToken,
       tenantHeader: "tenant-scoped",
       body: input,
     });
   },
 
-  getSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
+  getSessionRecording(
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    sessionToken?: string,
+  ) {
     return request({
       path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}`,
       schema: recordingSchema,
       credentials,
+      bearerToken: sessionToken,
       tenantHeader: "tenant-scoped",
     });
   },
 
-  stopSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
+  stopSessionRecording(
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    sessionToken?: string,
+  ) {
     return requestBlob({
       method: "POST",
       path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
       credentials,
+      bearerToken: sessionToken,
       tenantHeader: "tenant-scoped",
     });
   },
 
-  cancelSessionRecording(credentials: ApiCredentials, sessionId: string, recordingId: string) {
+  cancelSessionRecording(
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    sessionToken?: string,
+  ) {
     return requestVoid({
       method: "POST",
       path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
       credentials,
+      bearerToken: sessionToken,
       tenantHeader: "tenant-scoped",
       headers: { Range: "bytes=0-0" },
     });

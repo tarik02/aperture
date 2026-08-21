@@ -358,7 +358,7 @@ export function useBrowserControl({
       }
       setRecordingBusy(true);
       apiClient
-        .startSessionRecording(credentials, sessionId, { mode, targetId, clientId })
+        .startSessionRecording(credentials, sessionId, { mode, targetId, clientId }, sessionToken)
         .then((recording) => {
           setRecordings((current) => [
             ...current.filter((candidate) => candidate.recordingId !== recording.recordingId),
@@ -370,7 +370,7 @@ export function useBrowserControl({
         })
         .finally(() => setRecordingBusy(false));
     },
-    [sessionId, credentials, recordingBusy, recordingClientConnected],
+    [sessionId, credentials, sessionToken, recordingBusy, recordingClientConnected],
   );
 
   const stopRecording = useCallback(
@@ -380,7 +380,7 @@ export function useBrowserControl({
       }
       setRecordingBusy(true);
       apiClient
-        .stopSessionRecording(credentials, sessionId, recordingId)
+        .stopSessionRecording(credentials, sessionId, recordingId, sessionToken)
         .then(({ blob, filename }) => {
           const recording = recordings.find((candidate) => candidate.recordingId === recordingId);
           downloadBlob(
@@ -388,7 +388,7 @@ export function useBrowserControl({
             filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
           );
           void apiClient
-            .getSessionRecording(credentials, sessionId, recordingId)
+            .getSessionRecording(credentials, sessionId, recordingId, sessionToken)
             .then((status) => {
               setRecordings((current) =>
                 current.map((candidate) =>
@@ -412,7 +412,7 @@ export function useBrowserControl({
         })
         .finally(() => setRecordingBusy(false));
     },
-    [sessionId, credentials, recordingBusy, recordings],
+    [sessionId, credentials, sessionToken, recordingBusy, recordings],
   );
 
   const cancelRecording = useCallback(
@@ -422,8 +422,10 @@ export function useBrowserControl({
       }
       setRecordingBusy(true);
       apiClient
-        .cancelSessionRecording(credentials, sessionId, recordingId)
-        .then(() => apiClient.getSessionRecording(credentials, sessionId, recordingId))
+        .cancelSessionRecording(credentials, sessionId, recordingId, sessionToken)
+        .then(() =>
+          apiClient.getSessionRecording(credentials, sessionId, recordingId, sessionToken),
+        )
         .then((status) => {
           setRecordings((current) =>
             current.map((candidate) =>
@@ -437,7 +439,7 @@ export function useBrowserControl({
         })
         .finally(() => setRecordingBusy(false));
     },
-    [sessionId, credentials, recordingBusy],
+    [sessionId, credentials, sessionToken, recordingBusy],
   );
 
   const commitViewport = useCallback(
@@ -655,7 +657,7 @@ export function useBrowserControl({
     let active = true;
     const refresh = () => {
       void apiClient
-        .listSessionRecordings(credentials, sessionId)
+        .listSessionRecordings(credentials, sessionId, sessionToken)
         .then((nextRecordings) => {
           if (active) {
             setRecordings(nextRecordings);
@@ -667,7 +669,7 @@ export function useBrowserControl({
     return () => {
       active = false;
     };
-  }, [enabled, sessionId, credentials]);
+  }, [enabled, sessionId, credentials, sessionToken]);
 
   const recordingPollingActive = recordings.some(
     (recording) => recording.status === "starting" || recording.status === "running",
@@ -680,7 +682,7 @@ export function useBrowserControl({
     let active = true;
     const subscription = interval(2000).subscribe(() => {
       void apiClient
-        .listSessionRecordings(credentials, sessionId)
+        .listSessionRecordings(credentials, sessionId, sessionToken)
         .then((nextRecordings) => {
           if (active) {
             setRecordings(nextRecordings);
@@ -692,7 +694,7 @@ export function useBrowserControl({
       active = false;
       subscription.unsubscribe();
     };
-  }, [enabled, sessionId, credentials, recordingPollingActive]);
+  }, [enabled, sessionId, credentials, sessionToken, recordingPollingActive]);
 
   useEffect(() => {
     if (

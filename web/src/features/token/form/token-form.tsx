@@ -44,6 +44,7 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mfaCode, setMFACode] = useState("");
+  const [mfaMethod, setMFAMethod] = useState<"totp" | "recovery">("totp");
 
   const busy = passkeySubmitting || passwordSubmitting || submitting || bootstrapping;
   const methods = loginMethods ?? [];
@@ -127,6 +128,7 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
       setEmail("");
       setPassword("");
       setMFACode("");
+      setMFAMethod("totp");
       toast.success("Logged in");
       onDone();
     } catch (error) {
@@ -178,11 +180,13 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
             </>
           ) : (
             <Field>
-              <FieldLabel htmlFor="login-mfa-code">Authenticator or recovery code</FieldLabel>
+              <FieldLabel htmlFor={`login-${mfaMethod}-code`}>
+                {mfaMethod === "totp" ? "Authenticator code" : "Recovery code"}
+              </FieldLabel>
               <Input
-                id="login-mfa-code"
-                name="code"
-                autoComplete="one-time-code"
+                id={`login-${mfaMethod}-code`}
+                name={mfaMethod}
+                autoComplete={mfaMethod === "totp" ? "one-time-code" : "off"}
                 value={mfaCode}
                 onChange={(event) => setMFACode(event.target.value)}
                 disabled={busy}
@@ -192,21 +196,36 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
             </Field>
           )}
           {passwordStep === "mfa" ? (
-            <Field orientation="horizontal" className="justify-end">
+            <Field orientation="horizontal" className="justify-between">
               <Button
                 type="button"
-                variant="outline"
+                variant="link"
+                className="px-0"
                 disabled={busy}
                 onClick={() => {
-                  setPasswordStep("credentials");
+                  setMFAMethod(mfaMethod === "totp" ? "recovery" : "totp");
                   setMFACode("");
                 }}
               >
-                Back
+                Use {mfaMethod === "totp" ? "a recovery code" : "an authenticator code"}
               </Button>
-              <Button type="submit" disabled={busy || !mfaCode}>
-                Verify
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => {
+                    setPasswordStep("credentials");
+                    setMFACode("");
+                    setMFAMethod("totp");
+                  }}
+                >
+                  Back
+                </Button>
+                <Button type="submit" disabled={busy || !mfaCode}>
+                  Verify
+                </Button>
+              </div>
             </Field>
           ) : (
             <Field>

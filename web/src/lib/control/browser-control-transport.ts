@@ -246,6 +246,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
                   options.credentials,
                   options.sessionId,
                   selection.settings.profile,
+                  options.sessionToken,
                 )
                 .then(() => webRTCReconnect$.next())
                 .catch((cause: unknown) => {
