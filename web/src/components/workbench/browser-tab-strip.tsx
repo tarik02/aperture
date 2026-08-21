@@ -6,10 +6,20 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Globe2, Plus, Wrench, X } from "lucide-react";
 import { Button } from "#/components/ui/button.tsx";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "#/components/ui/context-menu.tsx";
 import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+import { copyText } from "#/components/resources/copy-button.tsx";
 import { cn } from "#/lib/utils.ts";
 import type { ControlTarget } from "#/lib/control/messages.ts";
+import { toast } from "sonner";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
 
@@ -21,7 +31,9 @@ type BrowserTabStripProps = {
   disabled?: boolean;
   onActivate: (targetId: string) => void;
   onCreate: () => void;
+  onDuplicate: (target: ControlTarget) => void;
   onClose: (targetId: string) => void;
+  onReload: (targetId: string) => void;
   onReorder: (
     sourceTargetId: string,
     destinationTargetId: string,
@@ -44,7 +56,9 @@ export function BrowserTabStrip({
   disabled,
   onActivate,
   onCreate,
+  onDuplicate,
   onClose,
+  onReload,
   onReorder,
 }: BrowserTabStripProps) {
   if (targets.length === 0) {
@@ -59,7 +73,7 @@ export function BrowserTabStrip({
   return (
     <ScrollArea scrollbars="horizontal" className="h-8 min-w-0 flex-1">
       <div className="flex min-w-max items-end gap-0.5 px-1 pt-1">
-        {targets.map((target) => {
+        {targets.map((target, index) => {
           const active = target.id === activeTargetId;
           return (
             <BrowserTab
@@ -70,8 +84,14 @@ export function BrowserTabStrip({
               devToolsOpen={devToolsTargetIds.has(target.id)}
               disabled={disabled}
               onActivate={onActivate}
+              onDuplicate={onDuplicate}
               onClose={onClose}
+              onReload={onReload}
               onReorder={onReorder}
+              closeOtherTargetIds={targets
+                .filter((current) => current.id !== target.id)
+                .map((current) => current.id)}
+              closeRightTargetIds={targets.slice(index + 1).map((current) => current.id)}
             />
           );
         })}
@@ -88,8 +108,12 @@ function BrowserTab({
   devToolsOpen,
   disabled,
   onActivate,
+  onDuplicate,
   onClose,
+  onReload,
   onReorder,
+  closeOtherTargetIds,
+  closeRightTargetIds,
 }: {
   target: ControlTarget;
   active: boolean;
@@ -97,12 +121,16 @@ function BrowserTab({
   devToolsOpen: boolean;
   disabled?: boolean;
   onActivate: (targetId: string) => void;
+  onDuplicate: (target: ControlTarget) => void;
   onClose: (targetId: string) => void;
+  onReload: (targetId: string) => void;
   onReorder: (
     sourceTargetId: string,
     destinationTargetId: string,
     placement: DropPlacement,
   ) => void;
+  closeOtherTargetIds: string[];
+  closeRightTargetIds: string[];
 }) {
   const tabRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -151,82 +179,133 @@ function BrowserTab({
   }, [onReorder, target.id]);
 
   return (
-    <div
-      ref={tabRef}
-      data-browser-tab
-      className={cn(
-        "group relative flex h-7 w-52 max-w-[38vw] min-w-28 cursor-grab select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-[background-color,border-color,color,opacity] active:cursor-grabbing",
-        active
-          ? "border-border bg-background text-foreground"
-          : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
-        dragging && "opacity-60",
-      )}
-      title={target.url || "about:blank"}
-      onMouseDown={(event) => {
-        if (event.button === 1) {
-          event.preventDefault();
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={
+          <div
+            ref={tabRef}
+            data-browser-tab
+            className={cn(
+              "group relative flex h-7 w-52 max-w-[38vw] min-w-28 cursor-grab select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-[background-color,border-color,color,opacity] active:cursor-grabbing",
+              active
+                ? "border-border bg-background text-foreground"
+                : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
+              dragging && "opacity-60",
+            )}
+            title={target.url || "about:blank"}
+            onMouseDown={(event) => {
+              if (event.button === 1) {
+                event.preventDefault();
+              }
+            }}
+            onAuxClick={(event) => {
+              if (event.button === 1 && !disabled) {
+                event.preventDefault();
+                onClose(target.id);
+              }
+            }}
+          />
         }
-      }}
-      onAuxClick={(event) => {
-        if (event.button === 1 && !disabled) {
-          event.preventDefault();
-          onClose(target.id);
-        }
-      }}
-    >
-      <span
-        className={cn(
-          "pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary opacity-0",
-          dropPlacement === "before" && "opacity-100",
-        )}
-      />
-      <span
-        className={cn(
-          "pointer-events-none absolute inset-y-1 right-0 w-0.5 rounded-full bg-primary opacity-0",
-          dropPlacement === "after" && "opacity-100",
-        )}
-      />
-      <button
-        type="button"
-        aria-current={active ? "page" : undefined}
-        disabled={disabled}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-        onClick={() => onActivate(target.id)}
       >
-        <TabFavicon url={target.url} />
-        {devToolsOpen ? (
-          <>
-            <Wrench aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="sr-only">DevTools open</span>
-          </>
-        ) : null}
-        {recording ? (
-          <>
-            <span aria-hidden className="size-2 shrink-0 rounded-full bg-destructive" />
-            <span className="sr-only">Recording</span>
-          </>
-        ) : null}
-        <span className="min-w-0 truncate font-mono">{label}</span>
-      </button>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="shrink-0 opacity-55 hover:opacity-100 group-hover:opacity-100"
-              aria-label="Close tab"
-              disabled={disabled}
-              onClick={() => onClose(target.id)}
-            />
-          }
+        <span
+          className={cn(
+            "pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary opacity-0",
+            dropPlacement === "before" && "opacity-100",
+          )}
+        />
+        <span
+          className={cn(
+            "pointer-events-none absolute inset-y-1 right-0 w-0.5 rounded-full bg-primary opacity-0",
+            dropPlacement === "after" && "opacity-100",
+          )}
+        />
+        <button
+          type="button"
+          aria-current={active ? "page" : undefined}
+          disabled={disabled}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          onClick={() => onActivate(target.id)}
         >
-          <X />
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Close tab</TooltipContent>
-      </Tooltip>
-    </div>
+          <TabFavicon url={target.url} />
+          {devToolsOpen ? (
+            <>
+              <Wrench aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="sr-only">DevTools open</span>
+            </>
+          ) : null}
+          {recording ? (
+            <>
+              <span aria-hidden className="size-2 shrink-0 rounded-full bg-destructive" />
+              <span className="sr-only">Recording</span>
+            </>
+          ) : null}
+          <span className="min-w-0 truncate font-mono">{label}</span>
+        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="shrink-0 opacity-55 hover:opacity-100 group-hover:opacity-100"
+                aria-label="Close tab"
+                disabled={disabled}
+                onClick={() => onClose(target.id)}
+              />
+            }
+          >
+            <X />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Close tab</TooltipContent>
+        </Tooltip>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-48">
+        <ContextMenuGroup>
+          <ContextMenuItem disabled={disabled} onClick={() => onReload(target.id)}>
+            Reload
+          </ContextMenuItem>
+          <ContextMenuItem disabled={disabled} onClick={() => onDuplicate(target)}>
+            Duplicate
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              void copyText(target.url || "about:blank").catch(() => {
+                toast.error("Copy failed");
+              });
+            }}
+          >
+            Copy URL
+          </ContextMenuItem>
+        </ContextMenuGroup>
+        <ContextMenuSeparator />
+        <ContextMenuGroup>
+          <ContextMenuItem disabled={disabled} onClick={() => onClose(target.id)}>
+            Close
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={disabled || closeOtherTargetIds.length === 0}
+            onClick={() => {
+              for (const targetId of closeOtherTargetIds) {
+                onClose(targetId);
+              }
+            }}
+          >
+            Close other tabs
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={disabled || closeRightTargetIds.length === 0}
+            onClick={() => {
+              for (const targetId of closeRightTargetIds) {
+                onClose(targetId);
+              }
+            }}
+          >
+            Close tabs to the right
+          </ContextMenuItem>
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

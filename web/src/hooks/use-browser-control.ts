@@ -102,9 +102,10 @@ export type UseBrowserControlResult = {
     placement: "before" | "after",
   ) => void;
   createTarget: (url?: string) => void;
+  duplicateTarget: (target: ControlTarget) => void;
   closeTarget: (targetId: string) => void;
   navigate: (url: string) => void;
-  reload: () => void;
+  reload: (targetId: string) => void;
   stopLoading: () => void;
   historyBack: () => void;
   historyForward: () => void;
@@ -140,6 +141,11 @@ export function useBrowserControl({
   const [recordingClientConnected, setRecordingClientConnected] = useState(false);
 
   const activeTargetIdRef = useRef<string | null>(null);
+  const targetsRef = useRef<ControlTarget[]>([]);
+  const pendingDuplicateRef = useRef<{
+    sourceTargetId: string;
+    existingTargetIds: ReadonlySet<string>;
+  } | null>(null);
   const viewportRef = useRef(viewport);
   const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
   const viewportAutoSyncRef = useRef(false);
@@ -219,6 +225,7 @@ export function useBrowserControl({
   const activeTargetId = controlState.activeTargetId;
 
   activeTargetIdRef.current = activeTargetId;
+  targetsRef.current = targets;
   viewportRef.current = viewport;
   browserViewportSizeRef.current = browserViewportSize;
   viewportAutoSyncRef.current = viewportAutoSync;
@@ -308,6 +315,19 @@ export function useBrowserControl({
     [send],
   );
 
+  const duplicateTarget = useCallback(
+    (target: ControlTarget) => {
+      pendingDuplicateRef.current = {
+        sourceTargetId: target.id,
+        existingTargetIds: new Set(targetsRef.current.map((current) => current.id)),
+      };
+      if (!send({ type: "targets.create", url: target.url || "about:blank" })) {
+        pendingDuplicateRef.current = null;
+      }
+    },
+    [send],
+  );
+
   const closeTarget = useCallback(
     (targetId: string) => {
       send({ type: "targets.close", targetId });
@@ -322,9 +342,12 @@ export function useBrowserControl({
     [sendForActive],
   );
 
-  const reload = useCallback(() => {
-    sendForActive((targetId) => ({ type: "page.reload", targetId }));
-  }, [sendForActive]);
+  const reload = useCallback(
+    (targetId: string) => {
+      send({ type: "page.reload", targetId });
+    },
+    [send],
+  );
 
   const stopLoading = useCallback(() => {
     sendForActive((targetId) => ({ type: "page.stopLoading", targetId }));
@@ -554,10 +577,21 @@ export function useBrowserControl({
 
   useEffect(() => {
     setTargets((current) => mergeTargetsInCurrentOrder(current, controlState.targets));
+    const pendingDuplicate = pendingDuplicateRef.current;
+    const duplicateTargetId = controlState.activeTargetId;
+    if (
+      pendingDuplicate &&
+      duplicateTargetId &&
+      !pendingDuplicate.existingTargetIds.has(duplicateTargetId)
+    ) {
+      pendingDuplicateRef.current = null;
+      reorderTargets(duplicateTargetId, pendingDuplicate.sourceTargetId, "after");
+    }
     if (controlState.phase !== "connected") {
+      pendingDuplicateRef.current = null;
       setCaptured(false);
     }
-  }, [controlState]);
+  }, [controlState, reorderTargets]);
 
   useEffect(() => {
     if (enabled && sessionId && credentials) {
@@ -760,6 +794,7 @@ export function useBrowserControl({
     activateTarget,
     reorderTargets,
     createTarget,
+    duplicateTarget,
     closeTarget,
     navigate,
     reload,
