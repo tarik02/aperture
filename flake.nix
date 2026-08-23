@@ -87,9 +87,80 @@
           pkgs.noto-fonts-color-emoji
         ];
 
-        browserFontsConf = pkgs.makeFontsConf {
-          fontDirectories = browserFonts;
-        };
+        browserFontsConf = pkgs.writeText "aperture-fonts.conf" ''
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+          <fontconfig>
+            ${lib.concatMapStringsSep "\n" (font: "<dir>${font}</dir>") browserFonts}
+            <cachedir prefix="xdg">fontconfig</cachedir>
+            <config>
+              <rescan>
+                <int>0</int>
+              </rescan>
+            </config>
+
+            <alias binding="strong">
+              <family>system-ui</family>
+              <prefer><family>Noto Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>ui-sans-serif</family>
+              <prefer><family>Noto Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>ui-rounded</family>
+              <prefer><family>Noto Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>sans-serif</family>
+              <prefer>
+                <family>Noto Sans</family>
+                <family>Noto Sans CJK SC</family>
+                <family>Noto Color Emoji</family>
+              </prefer>
+            </alias>
+            <alias binding="strong">
+              <family>ui-serif</family>
+              <prefer><family>Noto Serif</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>serif</family>
+              <prefer>
+                <family>Noto Serif</family>
+                <family>Noto Sans CJK SC</family>
+                <family>Noto Color Emoji</family>
+              </prefer>
+            </alias>
+            <alias binding="strong">
+              <family>ui-monospace</family>
+              <prefer><family>Noto Sans Mono</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>monospace</family>
+              <prefer>
+                <family>Noto Sans Mono</family>
+                <family>Noto Sans Mono CJK SC</family>
+                <family>Noto Color Emoji</family>
+              </prefer>
+            </alias>
+            <alias binding="strong">
+              <family>emoji</family>
+              <prefer><family>Noto Color Emoji</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>Apple Color Emoji</family>
+              <prefer><family>Noto Color Emoji</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>Segoe UI Emoji</family>
+              <prefer><family>Noto Color Emoji</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>Segoe UI Symbol</family>
+              <prefer><family>Noto Sans Symbols2</family></prefer>
+            </alias>
+          </fontconfig>
+        '';
 
         browserCursorTheme = pkgs.adwaita-icon-theme;
 
@@ -1097,6 +1168,7 @@
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          aperture-chromium = runtimeChromium;
           aperture-docker = defaultDockerImage;
           aperture-docker-gpu = gpuDockerImage;
         };
