@@ -9,6 +9,7 @@ import {
   Maximize2,
   MoreVertical,
   Monitor,
+  MousePointer2,
   RotateCcw,
   Share2,
   X,
@@ -82,6 +83,8 @@ export function BrowserMenus({
   connected,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
+  localCursorEnabled,
+  onLocalCursorChange,
   onReconnect,
   onSessionDetails,
   now,
@@ -93,6 +96,8 @@ export function BrowserMenus({
   connected: boolean;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
+  localCursorEnabled: boolean;
+  onLocalCursorChange: (enabled: boolean) => void;
   onReconnect: () => void;
   onSessionDetails?: () => void;
   now: number;
@@ -150,6 +155,8 @@ export function BrowserMenus({
               connected={connected}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
+              localCursorEnabled={localCursorEnabled}
+              onLocalCursorChange={onLocalCursorChange}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -212,6 +219,8 @@ export function BrowserMenus({
               connected={connected}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
+              localCursorEnabled={localCursorEnabled}
+              onLocalCursorChange={onLocalCursorChange}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -395,11 +404,15 @@ function ViewportStreamMenuItems({
   connected,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
+  localCursorEnabled,
+  onLocalCursorChange,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
+  localCursorEnabled: boolean;
+  onLocalCursorChange: (enabled: boolean) => void;
 }) {
   const showStreamMenu =
     control.mediaPath === "webrtc-live" || control.mediaPath === "fallback-cdp";
@@ -407,6 +420,18 @@ function ViewportStreamMenuItems({
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
       {showStreamMenu ? <StreamMenu control={control} /> : null}
+      <DropdownMenuCheckboxItem
+        disabled={!connected || control.remoteCursorBusy}
+        checked={control.remoteCursorEnabled}
+        onCheckedChange={control.setRemoteCursorEnabled}
+      >
+        <MousePointer2 />
+        Remote cursor
+      </DropdownMenuCheckboxItem>
+      <DropdownMenuCheckboxItem checked={localCursorEnabled} onCheckedChange={onLocalCursorChange}>
+        <MousePointer2 />
+        Local cursor
+      </DropdownMenuCheckboxItem>
       {control.mediaPath === "webrtc-live" ? (
         <DropdownMenuCheckboxItem
           checked={performanceOverlayEnabled}

@@ -22,6 +22,7 @@ type BrowserViewportProps = {
   control: UseBrowserControlResult;
   viewport: ViewportPreset;
   performanceOverlayEnabled: boolean;
+  localCursorEnabled: boolean;
 };
 
 type MouseButton = "left" | "middle" | "right" | "none";
@@ -39,6 +40,7 @@ export function BrowserViewport({
   control,
   viewport,
   performanceOverlayEnabled,
+  localCursorEnabled,
 }: BrowserViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -763,7 +765,10 @@ export function BrowserViewport({
       }}
       aria-busy={mediaTransitioning}
       aria-disabled={inputDisabled}
-      className="relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden bg-background outline-none"
+      className={cn(
+        "relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden bg-background outline-none",
+        !localCursorEnabled && "cursor-none",
+      )}
     >
       {showingWebRTC ? (
         <div

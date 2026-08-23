@@ -20,7 +20,6 @@
 #include <wayland-server-protocol.h>
 #include <weston/weston.h>
 
-#include "cursor-shape-v1-server-protocol.h"
 #include "fractional-scale-v1-server-protocol.h"
 #include "text-input-unstable-v3-server-protocol.h"
 #include "viewporter-server-protocol.h"
@@ -63,7 +62,6 @@ struct aperture_shell {
 	struct wl_event_source *control_source;
 	struct wl_listener destroy_listener;
 	struct wl_listener text_input_focus_listener;
-	struct wl_global *cursor_shape_global;
 	struct wl_global *fractional_scale_global;
 	struct wl_global *text_input_global;
 	struct wl_global *viewporter_global;
@@ -79,6 +77,7 @@ struct aperture_shell {
 	bool input_pointer_initialized;
 	bool input_keyboard_initialized;
 	bool pointer_frame_pending;
+	bool cursor_visible;
 };
 
 struct aperture_shell_surface {
@@ -150,6 +149,19 @@ static const uint32_t aperture_media_canvas_bucket = 64;
 
 static int
 create_background(struct aperture_shell *shell);
+
+static void
+update_cursor_visibility(struct aperture_shell *shell)
+{
+	struct weston_output *output;
+
+	weston_layer_set_position(&shell->compositor->cursor_layer,
+				  shell->cursor_visible ?
+				  WESTON_LAYER_POSITION_CURSOR :
+				  WESTON_LAYER_POSITION_HIDDEN);
+	wl_list_for_each(output, &shell->compositor->output_list, link)
+		weston_output_schedule_repaint(output);
+}
 
 static void
 bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root,
@@ -934,78 +946,6 @@ static const struct wp_fractional_scale_manager_v1_interface
 	};
 
 static void
-cursor_shape_device_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static void
-cursor_shape_device_set_shape(struct wl_client *client, struct wl_resource *resource,
-			      uint32_t serial, uint32_t shape)
-{
-	uint32_t max_shape = wl_resource_get_version(resource) >= 2 ?
-				     WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_ALL_RESIZE :
-				     WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_ZOOM_OUT;
-
-	if (shape < WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT || shape > max_shape) {
-		wl_resource_post_error(resource,
-				       WP_CURSOR_SHAPE_DEVICE_V1_ERROR_INVALID_SHAPE,
-				       "invalid cursor shape");
-		return;
-	}
-}
-
-static const struct wp_cursor_shape_device_v1_interface cursor_shape_device_interface = {
-	cursor_shape_device_destroy,
-	cursor_shape_device_set_shape,
-};
-
-static void
-cursor_shape_manager_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static void
-cursor_shape_manager_get_pointer(struct wl_client *client, struct wl_resource *resource,
-				 uint32_t id, struct wl_resource *pointer_resource)
-{
-	struct wl_resource *device_resource;
-
-	device_resource = wl_resource_create(client, &wp_cursor_shape_device_v1_interface,
-					    wl_resource_get_version(resource), id);
-	if (!device_resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(device_resource, &cursor_shape_device_interface,
-				       NULL, NULL);
-}
-
-static void
-cursor_shape_manager_get_tablet_tool_v2(struct wl_client *client,
-					struct wl_resource *resource, uint32_t id,
-					struct wl_resource *tablet_tool_resource)
-{
-	struct wl_resource *device_resource;
-
-	device_resource = wl_resource_create(client, &wp_cursor_shape_device_v1_interface,
-					    wl_resource_get_version(resource), id);
-	if (!device_resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(device_resource, &cursor_shape_device_interface,
-				       NULL, NULL);
-}
-
-static const struct wp_cursor_shape_manager_v1_interface cursor_shape_manager_interface = {
-	cursor_shape_manager_destroy,
-	cursor_shape_manager_get_pointer,
-	cursor_shape_manager_get_tablet_tool_v2,
-};
-
-static void
 viewport_destroy_resource(struct wl_resource *resource)
 {
 	struct aperture_viewport *viewport = wl_resource_get_user_data(resource);
@@ -1193,31 +1133,6 @@ create_fractional_scale_manager(struct aperture_shell *shell)
 		shell->compositor->wl_display, &wp_fractional_scale_manager_v1_interface, 1,
 		shell, bind_fractional_scale_manager);
 	return shell->fractional_scale_global ? 0 : -1;
-}
-
-static void
-bind_cursor_shape_manager(struct wl_client *client, void *data, uint32_t version,
-			  uint32_t id)
-{
-	struct wl_resource *resource;
-
-	resource = wl_resource_create(client, &wp_cursor_shape_manager_v1_interface,
-				      version, id);
-	if (!resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(resource, &cursor_shape_manager_interface, data,
-				       NULL);
-}
-
-static int
-create_cursor_shape_manager(struct aperture_shell *shell)
-{
-	shell->cursor_shape_global = wl_global_create(
-		shell->compositor->wl_display, &wp_cursor_shape_manager_v1_interface, 2,
-		shell, bind_cursor_shape_manager);
-	return shell->cursor_shape_global ? 0 : -1;
 }
 
 static void
@@ -1694,6 +1609,25 @@ handle_control_command(struct aperture_control_client *client)
 	struct aperture_shell_surface *surface;
 	struct aperture_output *capture;
 
+	if (strcmp(client->buffer, "cursor-status") == 0) {
+		snprintf(response, sizeof response, "ok %u\n",
+			 client->shell->cursor_visible ? 1 : 0);
+		write_control_response(client, response);
+		return;
+	}
+
+	if (sscanf(client->buffer, "cursor-visible %u %c", &pressed, &trailing) == 1) {
+		if (pressed > 1) {
+			write_control_response(client, "error invalid cursor visibility\n");
+			return;
+		}
+		client->shell->cursor_visible = pressed != 0;
+		update_cursor_visibility(client->shell);
+		snprintf(response, sizeof response, "ok %u\n", pressed);
+		write_control_response(client, response);
+		return;
+	}
+
 	if (sscanf(client->buffer, "surface-prepare %128s %c", identifier, &trailing) == 1) {
 		if (!valid_control_id(identifier)) {
 			write_control_response(client, "error invalid binding nonce\n");
@@ -2110,8 +2044,6 @@ destroy_shell(struct wl_listener *listener, void *data)
 	wl_list_remove(&shell->text_input_focus_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
-	if (shell->cursor_shape_global)
-		wl_global_destroy(shell->cursor_shape_global);
 	if (shell->fractional_scale_global)
 		wl_global_destroy(shell->fractional_scale_global);
 	if (shell->text_input_global)
@@ -2171,6 +2103,7 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	shell->width = parse_positive_env("APERTURE_VIEWPORT_WIDTH", 1280);
 	shell->height = parse_positive_env("APERTURE_VIEWPORT_HEIGHT", 720);
 	shell->scale_numerator = aperture_scale_denominator;
+	shell->cursor_visible = true;
 	wl_list_init(&shell->surfaces);
 	wl_list_init(&shell->outputs);
 	wl_list_init(&shell->control_clients);
@@ -2202,8 +2135,6 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (create_fractional_scale_manager(shell) < 0)
 		goto err;
 	if (create_viewporter(shell) < 0)
-		goto err;
-	if (create_cursor_shape_manager(shell) < 0)
 		goto err;
 	if (create_text_input_manager(shell) < 0)
 		goto err;

@@ -265,6 +265,10 @@ export const browserStatusSchema = z.object({
     .default([]),
 });
 
+export const cursorVisibilitySchema = z.object({
+  visible: z.boolean(),
+});
+
 export const recordingSchema = z.object({
   recordingId: z.string(),
   mode: z.enum(["tab", "viewer"]),
@@ -406,6 +410,7 @@ export type TOTPEnrollment = z.infer<typeof totpEnrollmentSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type SessionMedia = z.infer<typeof sessionMediaSchema>;
 export type BrowserStatus = z.infer<typeof browserStatusSchema>;
+export type CursorVisibility = z.infer<typeof cursorVisibilitySchema>;
 export type Recording = z.infer<typeof recordingSchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;

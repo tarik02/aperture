@@ -98,6 +98,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 	case path == "/api/sessions" && c.Request.Method == http.MethodGet,
 		path == "/api/sessions/bulk",
 		path == "/api/sessions/:sessionId" && c.Request.Method == http.MethodGet,
+		path == "/api/sessions/:sessionId/cursor" && c.Request.Method == http.MethodGet,
 		path == "/api/events":
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
 			return
@@ -156,6 +157,7 @@ func captureOpenAPIRequestBody(c *gin.Context) {
 			path == "/api/tenant" ||
 			path == "/api/snapshots/:name") ||
 		c.Request.Method == http.MethodPut && (path == "/api/admin/tenants/:tenantId/memberships/:userId" ||
+			path == "/api/sessions/:sessionId/cursor" ||
 			path == "/api/sessions/:sessionId/tags" ||
 			path == "/api/snapshots/:name/tags")
 	if !hasBody {
@@ -445,6 +447,24 @@ func (s openAPIServer) GetSession(ctx context.Context, _ generated.GetSessionReq
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) GetSessionCursor(ctx context.Context, _ generated.GetSessionCursorRequestObject) (generated.GetSessionCursorResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.getSessionCursor(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) SetSessionCursor(ctx context.Context, _ generated.SetSessionCursorRequestObject) (generated.SetSessionCursorResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.setSessionCursor(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) StopSessionRecording(ctx context.Context, _ generated.StopSessionRecordingRequestObject) (generated.StopSessionRecordingResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -711,6 +731,14 @@ func (openAPIPassthroughResponse) VisitDeleteSessionResponse(http.ResponseWriter
 }
 
 func (openAPIPassthroughResponse) VisitGetSessionResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitGetSessionCursorResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitSetSessionCursorResponse(http.ResponseWriter) error {
 	return nil
 }
 

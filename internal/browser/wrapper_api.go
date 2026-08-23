@@ -210,6 +210,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
+	mux.HandleFunc("/cursor", r.handleCursor)
 	mux.HandleFunc("/quality", r.handleQuality)
 	mux.HandleFunc("/recordings", r.handleRecordings)
 	mux.HandleFunc("/recordings/client", r.handleRecordingClient)
@@ -380,6 +381,46 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 		return
 	}
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
+}
+
+func (r *wrapperRuntime) handleCursor(w http.ResponseWriter, req *http.Request) {
+	visible := false
+	switch req.Method {
+	case http.MethodGet:
+		response, err := sendCompositorControlCommand(req.Context(), r.controlSocket, "cursor-status\n")
+		if err != nil {
+			writeWrapperError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		var value int
+		if _, err := fmt.Sscanf(response, "ok %d", &value); err != nil || (value != 0 && value != 1) {
+			writeWrapperError(w, http.StatusBadGateway, "invalid compositor cursor response")
+			return
+		}
+		visible = value == 1
+	case http.MethodPut:
+		var body struct {
+			Visible *bool `json:"visible"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Visible == nil {
+			writeWrapperError(w, http.StatusBadRequest, "invalid cursor request")
+			return
+		}
+		visible = *body.Visible
+		value := 0
+		if visible {
+			value = 1
+		}
+		if _, err := sendCompositorControlCommand(req.Context(), r.controlSocket, fmt.Sprintf("cursor-visible %d\n", value)); err != nil {
+			writeWrapperError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeWrapperJSON(w, http.StatusOK, map[string]bool{"visible": visible})
 }
 
 func (r *wrapperRuntime) handleQuality(w http.ResponseWriter, req *http.Request) {

@@ -8,6 +8,7 @@ import {
   browserChannelsSchema,
   createSessionResponseSchema,
   createTokenResponseSchema,
+  cursorVisibilitySchema,
   eventsPageSchema,
   healthSchema,
   loginMethodsSchema,
@@ -563,6 +564,33 @@ export const apiClient = {
       schema: browserStatusSchema,
       credentials,
       bearerToken: sessionToken,
+    });
+  },
+
+  getBrowserCursor(credentials: ApiCredentials, sessionId: string, sessionToken?: string) {
+    return request({
+      path: `/sessions/${encodeURIComponent(sessionId)}/browser/cursor`,
+      schema: cursorVisibilitySchema,
+      credentials,
+      bearerToken: sessionToken,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
+  setBrowserCursor(
+    credentials: ApiCredentials,
+    sessionId: string,
+    visible: boolean,
+    sessionToken?: string,
+  ) {
+    return request({
+      method: "PUT",
+      path: `/sessions/${encodeURIComponent(sessionId)}/browser/cursor`,
+      schema: cursorVisibilitySchema,
+      credentials,
+      bearerToken: sessionToken,
+      tenantHeader: "tenant-scoped",
+      body: { visible },
     });
   },
 

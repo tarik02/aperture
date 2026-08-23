@@ -36,6 +36,8 @@ type BrowserToolbarProps = {
   shareUrl: string | null;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
+  localCursorEnabled: boolean;
+  onLocalCursorChange: (enabled: boolean) => void;
   devToolsOpen: boolean;
   devToolsTargetIds: ReadonlySet<string>;
   devToolsDock: DevToolsDock;
@@ -51,6 +53,8 @@ export function BrowserToolbar({
   shareUrl,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
+  localCursorEnabled,
+  onLocalCursorChange,
   devToolsOpen,
   devToolsTargetIds,
   devToolsDock,
@@ -185,6 +189,8 @@ export function BrowserToolbar({
           connected={connected}
           performanceOverlayEnabled={performanceOverlayEnabled}
           onPerformanceOverlayChange={onPerformanceOverlayChange}
+          localCursorEnabled={localCursorEnabled}
+          onLocalCursorChange={onLocalCursorChange}
           onReconnect={() => control.reconnect()}
           onSessionDetails={onSessionDetails}
           now={recordingNow}
