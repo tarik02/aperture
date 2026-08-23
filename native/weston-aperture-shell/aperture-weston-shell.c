@@ -20,7 +20,6 @@
 #include <wayland-server-protocol.h>
 #include <weston/weston.h>
 
-#include "cursor-shape-v1-server-protocol.h"
 #include "fractional-scale-v1-server-protocol.h"
 #include "text-input-unstable-v3-server-protocol.h"
 #include "viewporter-server-protocol.h"
@@ -63,7 +62,6 @@ struct aperture_shell {
 	struct wl_event_source *control_source;
 	struct wl_listener destroy_listener;
 	struct wl_listener text_input_focus_listener;
-	struct wl_global *cursor_shape_global;
 	struct wl_global *fractional_scale_global;
 	struct wl_global *text_input_global;
 	struct wl_global *viewporter_global;
@@ -934,78 +932,6 @@ static const struct wp_fractional_scale_manager_v1_interface
 	};
 
 static void
-cursor_shape_device_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static void
-cursor_shape_device_set_shape(struct wl_client *client, struct wl_resource *resource,
-			      uint32_t serial, uint32_t shape)
-{
-	uint32_t max_shape = wl_resource_get_version(resource) >= 2 ?
-				     WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_ALL_RESIZE :
-				     WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_ZOOM_OUT;
-
-	if (shape < WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT || shape > max_shape) {
-		wl_resource_post_error(resource,
-				       WP_CURSOR_SHAPE_DEVICE_V1_ERROR_INVALID_SHAPE,
-				       "invalid cursor shape");
-		return;
-	}
-}
-
-static const struct wp_cursor_shape_device_v1_interface cursor_shape_device_interface = {
-	cursor_shape_device_destroy,
-	cursor_shape_device_set_shape,
-};
-
-static void
-cursor_shape_manager_destroy(struct wl_client *client, struct wl_resource *resource)
-{
-	wl_resource_destroy(resource);
-}
-
-static void
-cursor_shape_manager_get_pointer(struct wl_client *client, struct wl_resource *resource,
-				 uint32_t id, struct wl_resource *pointer_resource)
-{
-	struct wl_resource *device_resource;
-
-	device_resource = wl_resource_create(client, &wp_cursor_shape_device_v1_interface,
-					    wl_resource_get_version(resource), id);
-	if (!device_resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(device_resource, &cursor_shape_device_interface,
-				       NULL, NULL);
-}
-
-static void
-cursor_shape_manager_get_tablet_tool_v2(struct wl_client *client,
-					struct wl_resource *resource, uint32_t id,
-					struct wl_resource *tablet_tool_resource)
-{
-	struct wl_resource *device_resource;
-
-	device_resource = wl_resource_create(client, &wp_cursor_shape_device_v1_interface,
-					    wl_resource_get_version(resource), id);
-	if (!device_resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(device_resource, &cursor_shape_device_interface,
-				       NULL, NULL);
-}
-
-static const struct wp_cursor_shape_manager_v1_interface cursor_shape_manager_interface = {
-	cursor_shape_manager_destroy,
-	cursor_shape_manager_get_pointer,
-	cursor_shape_manager_get_tablet_tool_v2,
-};
-
-static void
 viewport_destroy_resource(struct wl_resource *resource)
 {
 	struct aperture_viewport *viewport = wl_resource_get_user_data(resource);
@@ -1193,31 +1119,6 @@ create_fractional_scale_manager(struct aperture_shell *shell)
 		shell->compositor->wl_display, &wp_fractional_scale_manager_v1_interface, 1,
 		shell, bind_fractional_scale_manager);
 	return shell->fractional_scale_global ? 0 : -1;
-}
-
-static void
-bind_cursor_shape_manager(struct wl_client *client, void *data, uint32_t version,
-			  uint32_t id)
-{
-	struct wl_resource *resource;
-
-	resource = wl_resource_create(client, &wp_cursor_shape_manager_v1_interface,
-				      version, id);
-	if (!resource) {
-		wl_client_post_no_memory(client);
-		return;
-	}
-	wl_resource_set_implementation(resource, &cursor_shape_manager_interface, data,
-				       NULL);
-}
-
-static int
-create_cursor_shape_manager(struct aperture_shell *shell)
-{
-	shell->cursor_shape_global = wl_global_create(
-		shell->compositor->wl_display, &wp_cursor_shape_manager_v1_interface, 2,
-		shell, bind_cursor_shape_manager);
-	return shell->cursor_shape_global ? 0 : -1;
 }
 
 static void
@@ -2110,8 +2011,6 @@ destroy_shell(struct wl_listener *listener, void *data)
 	wl_list_remove(&shell->text_input_focus_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
-	if (shell->cursor_shape_global)
-		wl_global_destroy(shell->cursor_shape_global);
 	if (shell->fractional_scale_global)
 		wl_global_destroy(shell->fractional_scale_global);
 	if (shell->text_input_global)
@@ -2202,8 +2101,6 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	if (create_fractional_scale_manager(shell) < 0)
 		goto err;
 	if (create_viewporter(shell) < 0)
-		goto err;
-	if (create_cursor_shape_manager(shell) < 0)
 		goto err;
 	if (create_text_input_manager(shell) < 0)
 		goto err;

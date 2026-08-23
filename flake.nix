@@ -91,6 +91,8 @@
           fontDirectories = browserFonts;
         };
 
+        browserCursorTheme = pkgs.adwaita-icon-theme;
+
         runtimeGstreamer =
           (pkgs.gst_all_1.gstreamer.override {
             enableDocumentation = false;
@@ -351,6 +353,9 @@
               makeWrapper $out/libexec/chromium/chromium $out/bin/chromium \
                 --set CHROME_WRAPPER chromium \
                 --set FONTCONFIG_FILE ${browserFontsConf} \
+                --set XCURSOR_PATH ${browserCursorTheme}/share/icons \
+                --set XCURSOR_THEME Adwaita \
+                --set XCURSOR_SIZE 24 \
                 --prefix LD_LIBRARY_PATH : ${
                   lib.makeLibraryPath [
                     pkgs.libva
@@ -591,12 +596,6 @@
                 ${pkgs.wayland-protocols}/share/wayland-protocols/stable/viewporter/viewporter.xml \
                 $TMPDIR/aperture-wayland-protocols/viewporter-server-protocol.h
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
-                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner server-header \
-                ${pkgs.wayland-protocols}/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml \
-                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-server-protocol.h
-              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
                 ${pkgs.wayland-protocols}/share/wayland-protocols/stable/tablet/tablet-v2.xml \
                 $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
@@ -610,7 +609,6 @@
                 native/weston-aperture-shell/aperture-weston-shell.c \
                 $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/viewporter-protocol.c \
-                $TMPDIR/aperture-wayland-protocols/cursor-shape-v1-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/tablet-v2-protocol.c \
                 $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c \
                 -o $out/lib/weston/aperture-weston-shell.so \
