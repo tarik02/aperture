@@ -237,8 +237,8 @@ in
     };
     chromiumPackage = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.chromium;
-      description = "Chromium build used for the default browser channel.";
+      default = self.packages.${pkgs.system}.aperture-chromium;
+      description = "Chromium build with Aperture's font configuration.";
     };
     chromiumArgs = lib.mkOption {
       type = lib.types.listOf lib.types.str;
