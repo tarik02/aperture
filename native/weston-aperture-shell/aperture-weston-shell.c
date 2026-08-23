@@ -77,6 +77,7 @@ struct aperture_shell {
 	bool input_pointer_initialized;
 	bool input_keyboard_initialized;
 	bool pointer_frame_pending;
+	bool cursor_visible;
 };
 
 struct aperture_shell_surface {
@@ -148,6 +149,19 @@ static const uint32_t aperture_media_canvas_bucket = 64;
 
 static int
 create_background(struct aperture_shell *shell);
+
+static void
+update_cursor_visibility(struct aperture_shell *shell)
+{
+	struct weston_output *output;
+
+	weston_layer_set_position(&shell->compositor->cursor_layer,
+				  shell->cursor_visible ?
+				  WESTON_LAYER_POSITION_CURSOR :
+				  WESTON_LAYER_POSITION_HIDDEN);
+	wl_list_for_each(output, &shell->compositor->output_list, link)
+		weston_output_schedule_repaint(output);
+}
 
 static void
 bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *root,
@@ -1595,6 +1609,25 @@ handle_control_command(struct aperture_control_client *client)
 	struct aperture_shell_surface *surface;
 	struct aperture_output *capture;
 
+	if (strcmp(client->buffer, "cursor-status") == 0) {
+		snprintf(response, sizeof response, "ok %u\n",
+			 client->shell->cursor_visible ? 1 : 0);
+		write_control_response(client, response);
+		return;
+	}
+
+	if (sscanf(client->buffer, "cursor-visible %u %c", &pressed, &trailing) == 1) {
+		if (pressed > 1) {
+			write_control_response(client, "error invalid cursor visibility\n");
+			return;
+		}
+		client->shell->cursor_visible = pressed != 0;
+		update_cursor_visibility(client->shell);
+		snprintf(response, sizeof response, "ok %u\n", pressed);
+		write_control_response(client, response);
+		return;
+	}
+
 	if (sscanf(client->buffer, "surface-prepare %128s %c", identifier, &trailing) == 1) {
 		if (!valid_control_id(identifier)) {
 			write_control_response(client, "error invalid binding nonce\n");
@@ -2070,6 +2103,7 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	shell->width = parse_positive_env("APERTURE_VIEWPORT_WIDTH", 1280);
 	shell->height = parse_positive_env("APERTURE_VIEWPORT_HEIGHT", 720);
 	shell->scale_numerator = aperture_scale_denominator;
+	shell->cursor_visible = true;
 	wl_list_init(&shell->surfaces);
 	wl_list_init(&shell->outputs);
 	wl_list_init(&shell->control_clients);

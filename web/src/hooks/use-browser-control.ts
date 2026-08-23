@@ -87,6 +87,8 @@ export type UseBrowserControlResult = {
   recordings: Recording[];
   recordingBusy: boolean;
   recordingClientConnected: boolean;
+  remoteCursorEnabled: boolean;
+  remoteCursorBusy: boolean;
   setCaptured: (captured: boolean) => void;
   setViewport: (viewport: ViewportPreset) => void;
   setBrowserViewportSize: (size: BrowserViewportSize) => void;
@@ -113,6 +115,7 @@ export type UseBrowserControlResult = {
   startRecording: (mode: "tab" | "viewer") => void;
   stopRecording: (recordingId: string) => void;
   cancelRecording: (recordingId: string) => void;
+  setRemoteCursorEnabled: (enabled: boolean) => void;
   reconnect: () => void;
 };
 
@@ -139,6 +142,8 @@ export function useBrowserControl({
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [recordingBusy, setRecordingBusy] = useState(false);
   const [recordingClientConnected, setRecordingClientConnected] = useState(false);
+  const [remoteCursorEnabled, setRemoteCursorEnabledState] = useState(true);
+  const [remoteCursorBusy, setRemoteCursorBusy] = useState(false);
 
   const activeTargetIdRef = useRef<string | null>(null);
   const targetsRef = useRef<ControlTarget[]>([]);
@@ -465,6 +470,23 @@ export function useBrowserControl({
     [sessionId, credentials, sessionToken, recordingBusy],
   );
 
+  const setRemoteCursorEnabled = useCallback(
+    (visible: boolean) => {
+      if (!sessionId || !credentials || remoteCursorBusy) {
+        return;
+      }
+      setRemoteCursorBusy(true);
+      void apiClient
+        .setBrowserCursor(credentials, sessionId, visible, sessionToken)
+        .then((cursor) => setRemoteCursorEnabledState(cursor.visible))
+        .catch((cause: unknown) => {
+          toast.error(errorMessage(cause, "Remote cursor could not be updated"));
+        })
+        .finally(() => setRemoteCursorBusy(false));
+    },
+    [sessionId, credentials, sessionToken, remoteCursorBusy],
+  );
+
   const commitViewport = useCallback(
     (preset: ViewportPreset) => {
       setViewport(preset);
@@ -600,6 +622,33 @@ export function useBrowserControl({
     setRecordings([]);
     setRecordingBusy(false);
   }, [enabled, sessionId, credentials]);
+
+  useEffect(() => {
+    setRemoteCursorEnabledState(true);
+    if (!enabled || !sessionId || !credentials) {
+      setRemoteCursorBusy(false);
+      return;
+    }
+
+    let active = true;
+    setRemoteCursorBusy(true);
+    void apiClient
+      .getBrowserCursor(credentials, sessionId, sessionToken)
+      .then((cursor) => {
+        if (active) {
+          setRemoteCursorEnabledState(cursor.visible);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) {
+          setRemoteCursorBusy(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [enabled, sessionId, credentials, sessionToken]);
 
   useEffect(() => {
     if (!enabled || !sessionId || !credentials) {
@@ -783,6 +832,8 @@ export function useBrowserControl({
     recordings,
     recordingBusy,
     recordingClientConnected,
+    remoteCursorEnabled,
+    remoteCursorBusy,
     setCaptured,
     setViewport: applyViewport,
     setBrowserViewportSize,
@@ -805,6 +856,7 @@ export function useBrowserControl({
     startRecording,
     stopRecording,
     cancelRecording,
+    setRemoteCursorEnabled,
     reconnect,
   };
 }

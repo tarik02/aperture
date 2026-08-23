@@ -21,6 +21,8 @@ type BrowserControlPaneProps = {
   onSessionDetails?: () => void;
 };
 
+const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
+
 export function BrowserControlPane({
   control,
   guestMode = false,
@@ -29,11 +31,23 @@ export function BrowserControlPane({
   onSessionDetails,
 }: BrowserControlPaneProps) {
   const [performanceOverlayEnabled, setPerformanceOverlayEnabled] = useState(false);
+  const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
   const [devToolsTargetIds, setDevToolsTargetIds] = useState<ReadonlySet<string>>(() => new Set());
   const [devToolsDock, setDevToolsDock] = useState<DevToolsDock>("bottom");
   const devToolsPanelRef = usePanelRef();
   const activeTargetId = control.activeTargetId;
   const devToolsOpen = activeTargetId !== null && devToolsTargetIds.has(activeTargetId);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(LOCAL_CURSOR_STORAGE_KEY);
+      if (stored === "false") {
+        setLocalCursorEnabled(false);
+      }
+    } catch {
+      // Local cursor remains enabled when storage is unavailable.
+    }
+  }, []);
 
   useEffect(() => {
     const targetIds = new Set(control.targets.map((target) => target.id));
@@ -77,6 +91,15 @@ export function BrowserControlPane({
     });
   }
 
+  function handleLocalCursorChange(enabled: boolean) {
+    setLocalCursorEnabled(enabled);
+    try {
+      window.localStorage.setItem(LOCAL_CURSOR_STORAGE_KEY, String(enabled));
+    } catch {
+      // Keep the preference for this page when storage is unavailable.
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <BrowserToolbar
@@ -86,6 +109,8 @@ export function BrowserControlPane({
         shareUrl={shareUrl}
         performanceOverlayEnabled={performanceOverlayEnabled}
         onPerformanceOverlayChange={setPerformanceOverlayEnabled}
+        localCursorEnabled={localCursorEnabled}
+        onLocalCursorChange={handleLocalCursorChange}
         devToolsOpen={devToolsOpen}
         devToolsTargetIds={devToolsTargetIds}
         devToolsDock={devToolsDock}
@@ -102,6 +127,7 @@ export function BrowserControlPane({
             control={control}
             viewport={control.viewport}
             performanceOverlayEnabled={performanceOverlayEnabled}
+            localCursorEnabled={localCursorEnabled}
           />
         </ResizablePanel>
         <ResizableHandle withHandle disabled={!devToolsOpen} hidden={!devToolsOpen} />

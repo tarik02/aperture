@@ -669,6 +669,40 @@ paths:
       responses:
         '200': {description: Session and new token, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/cursor:
+    get:
+      operationId: getSessionCursor
+      tags: [sessions]
+      summary: Get remote cursor visibility
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
+      description: Returns whether the remote browser cursor is composited into the live stream and recordings.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: setSessionCursor
+      tags: [sessions]
+      summary: Set remote cursor visibility
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
+      description: Enables or disables compositing the remote browser cursor into the live stream and recordings.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/SetCursorVisibility'}
+      responses:
+        '200': {description: Updated remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/recordings/{recordingId}/stop:
     post:
       operationId: stopSessionRecording
@@ -1026,6 +1060,10 @@ components:
       required: true
       description: Session file path and optional signed URL lifetime. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/SessionFileDownloadURLInput'}}}
+    SetCursorVisibility:
+      required: true
+      description: Remote cursor visibility. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}
     UpdateSnapshot:
       required: true
       description: Replacement snapshot description. The JSON body must not exceed 1 MiB.
@@ -1873,6 +1911,14 @@ components:
           x-sensitive: true
           description: Current raw session access secret. Omitted by operations that do not expose or replace credentials.
           example: aps_019f6cf0000070008000000000000010_REDACTED
+    CursorVisibility:
+      type: object
+      description: Whether the remote browser cursor is composited into session media.
+      required: [visible]
+      properties:
+        visible:
+          type: boolean
+          description: Whether to include the remote cursor in live streams and recordings.
     SessionFile:
       type: object
       description: Regular file retained with a browser session.
