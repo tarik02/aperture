@@ -764,6 +764,19 @@
               '';
             });
 
+        apertureDev = buildGoModule {
+          pname = "aperture-dev";
+          version = sourceVersion;
+          inherit src;
+          vendorHash = "sha256-JPemeh7V0CRyCxKHAzFYYV8cO3AA1xrlyN0svhJH3a0=";
+          subPackages = [ "cmd/aperture-dev" ];
+          env.CGO_ENABLED = "0";
+          doCheck = false;
+          overrideModAttrs = _: {
+            name = "aperture-${deployVersion}-go-modules";
+          };
+        };
+
         gpuDriverPackages = [
           gpuMesa
         ]
@@ -1096,12 +1109,7 @@
           pkgs.writeShellApplication {
             inherit name;
             runtimeInputs = [
-              pkgs.coreutils
-              pkgs.curl
-              pkgs.findutils
-              pkgs.jq
               pkgs.passt
-              pkgs.gnused
               pkgs.podman
               pkgs.skopeo
             ];
@@ -1110,7 +1118,7 @@
               export APERTURE_DEV_IMAGE_REF=${lib.escapeShellArg imageRef}
               export APERTURE_DEV_TRAEFIK_TEMPLATE=${lib.escapeShellArg (toString ./packaging/traefik/static.yaml.template)}
               export APERTURE_DEV_GPU=${if gpu then "1" else "0"}
-              exec ${pkgs.bash}/bin/bash ${./scripts/dev-container} "$@"
+              exec ${apertureDev}/bin/aperture-dev "$@"
             '';
           };
 
@@ -1187,7 +1195,10 @@
           };
         };
 
-        checks.default = aperture;
+        checks = {
+          default = aperture;
+          aperture-dev = apertureDev;
+        };
       }
     )
     // {
