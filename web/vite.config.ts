@@ -6,9 +6,6 @@ import viteReact from "@vitejs/plugin-react";
 const devProxyTarget = process.env.APERTURE_DEV_PROXY_TARGET;
 
 const config = defineConfig({
-  experimental: {
-    bundledDev: true,
-  },
   fmt: {
     ignorePatterns: ["src/routeTree.gen.ts"],
   },

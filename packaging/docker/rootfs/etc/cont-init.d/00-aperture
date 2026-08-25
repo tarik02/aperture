@@ -6,6 +6,12 @@ if [ -z "${APERTURE_EXTERNAL_BASE_URL:-}" ]; then
   exit 64
 fi
 
+if [ -n "${APERTURE_CONFIG_SOURCE:-}" ]; then
+  install -m 0644 -o root -g root \
+    "$APERTURE_CONFIG_SOURCE" \
+    /etc/aperture/aperture.toml
+fi
+
 seen_device_gids=""
 for device in /dev/dri/card* /dev/dri/renderD*; do
   [ -e "$device" ] || continue

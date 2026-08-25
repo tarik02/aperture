@@ -764,6 +764,19 @@
               '';
             });
 
+        apertureDev = buildGoModule {
+          pname = "aperture-dev";
+          version = sourceVersion;
+          inherit src;
+          vendorHash = "sha256-JPemeh7V0CRyCxKHAzFYYV8cO3AA1xrlyN0svhJH3a0=";
+          subPackages = [ "cmd/aperture-dev" ];
+          env.CGO_ENABLED = "0";
+          doCheck = false;
+          overrideModAttrs = _: {
+            name = "aperture-${deployVersion}-go-modules";
+          };
+        };
+
         gpuDriverPackages = [
           gpuMesa
         ]
@@ -850,15 +863,14 @@
               export CI=true
               export PNPM_CONFIG_STORE_DIR=/workspace/.data/pnpm-store
 
-              s6-setuidgid aperture \
-                pnpm --dir /workspace \
-                  install --frozen-lockfile
-              exec s6-setuidgid aperture \
-                pnpm --dir /workspace/web dev \
-                  --host 0.0.0.0 \
-                  --port 3000 \
-                  --strictPort \
-                  --clearScreen false
+              pnpm --dir /workspace \
+                install --frozen-lockfile
+              pnpm --dir /workspace/web generate-routes
+              exec pnpm --dir /workspace/web dev \
+                --host 0.0.0.0 \
+                --port 3000 \
+                --strictPort \
+                --clearScreen false
             '';
             dockerRootfs = mkDockerRootfs {
               inherit
@@ -1097,10 +1109,7 @@
           pkgs.writeShellApplication {
             inherit name;
             runtimeInputs = [
-              pkgs.coreutils
-              pkgs.jq
               pkgs.passt
-              pkgs.gnused
               pkgs.podman
               pkgs.skopeo
             ];
@@ -1109,7 +1118,7 @@
               export APERTURE_DEV_IMAGE_REF=${lib.escapeShellArg imageRef}
               export APERTURE_DEV_TRAEFIK_TEMPLATE=${lib.escapeShellArg (toString ./packaging/traefik/static.yaml.template)}
               export APERTURE_DEV_GPU=${if gpu then "1" else "0"}
-              exec ${pkgs.bash}/bin/bash ${./scripts/dev-container} "$@"
+              exec ${apertureDev}/bin/aperture-dev "$@"
             '';
           };
 
@@ -1186,7 +1195,10 @@
           };
         };
 
-        checks.default = aperture;
+        checks = {
+          default = aperture;
+          aperture-dev = apertureDev;
+        };
       }
     )
     // {

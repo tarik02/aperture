@@ -18,11 +18,11 @@ nix run .#dev
 
 The runner mounts the current checkout at `/workspace`, so run it from the repository root.
 
-The command builds and loads a development image, then runs it in the foreground. The image adds Node and pnpm to the production runtime, and s6 runs Vite in full-bundle mode beside Aperture and Traefik. Vite watches the mounted checkout, applies frontend changes live, and proxies API and session traffic to Traefik inside the container. Production images do not include the development tools or Vite service.
+The command builds and loads a development image, then runs it in the foreground. Later starts reuse the image when its Nix store path and image digest are unchanged. The image adds Node and pnpm to the production runtime, and s6 runs Vite beside Aperture and Traefik. Vite watches the mounted checkout, applies frontend changes live, and proxies API and session traffic to Traefik inside the container. Production images do not include the development tools or Vite service.
 
-The runner derives a stable address from the worktree path within Linux's `127.0.0.0/8` loopback network. It publishes Vite and WebRTC on that address. Different worktrees can therefore reuse HTTP port `8080` and WebRTC UDP ports `50000-50010` without collisions. State persists in `.data/store` under each worktree.
+The runner derives a stable address from the worktree path within Linux's `127.0.0.0/8` loopback network. It publishes Vite and WebRTC on that address. Different worktrees can therefore reuse HTTP port `8080` and WebRTC UDP ports `50000-50010` without collisions. Application state persists in a Podman volume derived from the worktree path. The runner prints its name at startup.
 
-The runner provisions a `default` tenant and writes the full-access system-admin token to `.data/admin-token` on the first run. Later runs preserve both. Git ignores `.data`, and the runner creates the directory with mode `0700` and the token with mode `0600`.
+The runner provisions a `default` tenant and writes the full-access system-admin token to `.data/admin-token` when it initializes the state volume. Later runs skip provisioning. Git ignores `.data`, and the runner creates the directory with mode `0700` and the token with mode `0600`. The first start after upgrading from the bind-mounted state layout copies an existing `.data/store` into the volume and leaves the original directory untouched.
 
 Load the token into your shell with:
 
@@ -49,7 +49,7 @@ nix run .#dev -- \
   --udp-port-range 62000-62010
 ```
 
-Each worktree keeps its state in its own `.data` directory. Parallel worktrees get distinct container names and loopback addresses automatically, so their default ports can stay the same.
+Each worktree gets its own state volume, container name, and loopback address, so parallel worktrees can keep the default ports.
 
 Pass Aperture environment overrides with a Podman environment file:
 
