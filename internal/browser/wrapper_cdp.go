@@ -133,13 +133,12 @@ func collaborationCDPRequestAllowed(role string, body []byte) (any, bool) {
 	if strings.HasPrefix(request.Method, "Input.") {
 		return request.ID, false
 	}
-	if role == "editor" {
-		return request.ID, true
-	}
 	switch request.Method {
 	case "Target.setDiscoverTargets", "Target.getTargets", "Target.attachToTarget", "Target.detachFromTarget", "Target.activateTarget",
 		"Page.enable", "Page.bringToFront", "Page.startScreencast", "Page.stopScreencast", "Page.screencastFrameAck":
 		return request.ID, true
+	case "Target.createTarget", "Target.closeTarget", "Page.navigate", "Page.reload", "Page.stopLoading", "Page.getNavigationHistory", "Page.navigateToHistoryEntry", "Emulation.setDeviceMetricsOverride":
+		return request.ID, role == "editor"
 	case "Runtime.evaluate":
 		var params struct {
 			Expression string `json:"expression"`

@@ -219,7 +219,7 @@ func (r *Repository) GetSessionCollaborationCapability(ctx context.Context, sess
 
 // CreateSessionCollaborationCapability inserts one role-scoped sharing secret.
 func (r *Repository) CreateSessionCollaborationCapability(ctx context.Context, capability *SessionCollaborationCapability) error {
-	if _, err := r.db.bun.NewInsert().Model(capability).Exec(ctx); err != nil {
+	if _, err := r.db.bun.NewInsert().Model(capability).On("CONFLICT (session_id, role) DO NOTHING").Exec(ctx); err != nil {
 		return fmt.Errorf("insert session collaboration capability: %w", err)
 	}
 	return nil
