@@ -1,4 +1,4 @@
-import { Eye, Radio } from "lucide-react";
+import { Radio } from "lucide-react";
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "#/components/ui/avatar.tsx";
 import { Button } from "#/components/ui/button.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "#/components/ui/popover.tsx";
@@ -9,7 +9,7 @@ import type {
 } from "#/hooks/use-collaboration-control.ts";
 import { cn } from "#/lib/utils.ts";
 
-const visibleParticipantCount = 3;
+const visibleParticipantCount = 5;
 
 export function CollaborationPresence({ collaboration }: { collaboration: CollaborationControl }) {
   const participants = [...collaboration.participants].sort((left, right) => {
@@ -32,13 +32,12 @@ export function CollaborationPresence({ collaboration }: { collaboration: Collab
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-0.5 px-1" aria-label="Session participants">
+    <div className="flex shrink-0 items-center -space-x-1.5 px-2" aria-label="Session participants">
       {visible.map((participant) => (
         <ParticipantButton
           key={participant.clientId}
           participant={participant}
           collaboration={collaboration}
-          compact
         />
       ))}
       {overflow > 0 ? (
@@ -48,25 +47,25 @@ export function CollaborationPresence({ collaboration }: { collaboration: Collab
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 px-2 text-xs text-muted-foreground"
+                size="icon-sm"
+                className="shrink-0 rounded-full border bg-background text-[0.65rem] text-muted-foreground"
                 aria-label={`${overflow} more participants`}
               />
             }
           >
             +{overflow}
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-64 gap-1.5">
-            <PopoverTitle className="px-1 pb-1 text-xs text-muted-foreground">
-              Everyone in this session
-            </PopoverTitle>
-            {participants.map((participant) => (
-              <ParticipantButton
-                key={participant.clientId}
-                participant={participant}
-                collaboration={collaboration}
-              />
-            ))}
+          <PopoverContent align="end" className="w-auto gap-2">
+            <PopoverTitle className="text-xs text-muted-foreground">Everyone</PopoverTitle>
+            <div className="flex flex-wrap items-center gap-1">
+              {participants.map((participant) => (
+                <ParticipantButton
+                  key={participant.clientId}
+                  participant={participant}
+                  collaboration={collaboration}
+                />
+              ))}
+            </div>
           </PopoverContent>
         </Popover>
       ) : null}
@@ -77,19 +76,17 @@ export function CollaborationPresence({ collaboration }: { collaboration: Collab
 function ParticipantButton({
   participant,
   collaboration,
-  compact = false,
 }: {
   participant: CollaborationParticipant;
   collaboration: CollaborationControl;
-  compact?: boolean;
 }) {
   const local = participant.clientId === collaboration.clientId;
   const following = participant.clientId === collaboration.followingClientId;
   const label = local
     ? `${participant.name} (you)`
     : following
-      ? `Stop following ${participant.name}`
-      : `Follow ${participant.name}`;
+      ? `${participant.name} · click to stop following`
+      : `${participant.name} · click to follow`;
 
   return (
     <Tooltip>
@@ -98,11 +95,8 @@ function ParticipantButton({
           <Button
             type="button"
             variant={following ? "secondary" : "ghost"}
-            size="sm"
-            className={cn(
-              "h-7 min-w-0 gap-1.5 px-1.5 text-xs",
-              compact ? "max-w-32" : "w-full justify-start",
-            )}
+            size="icon-sm"
+            className="shrink-0 rounded-full p-0 disabled:opacity-100"
             disabled={local}
             aria-label={label}
             aria-pressed={following}
@@ -110,21 +104,22 @@ function ParticipantButton({
           />
         }
       >
-        <ParticipantAvatar participant={participant} />
-        <span className="min-w-0 truncate">{participant.name}</span>
-        {following ? <Eye className="size-3 shrink-0" /> : null}
+        <ParticipantAvatar participant={participant} following={following} />
       </TooltipTrigger>
-      <TooltipContent side="bottom">
-        {label}
-        {participant.activeTargetId ? " · active tab available" : ""}
-      </TooltipContent>
+      <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   );
 }
 
-function ParticipantAvatar({ participant }: { participant: CollaborationParticipant }) {
+function ParticipantAvatar({
+  participant,
+  following,
+}: {
+  participant: CollaborationParticipant;
+  following: boolean;
+}) {
   return (
-    <Avatar size="sm" className="shrink-0">
+    <Avatar size="sm" className={cn("shrink-0 ring-2 ring-background", following && "ring-ring")}>
       <AvatarImage src={gravatarURL(participant.avatarHash)} alt="" />
       <AvatarFallback>{initials(participant.name)}</AvatarFallback>
       {participant.holdingInput ? (

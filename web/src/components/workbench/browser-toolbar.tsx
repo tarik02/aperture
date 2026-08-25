@@ -7,10 +7,10 @@ import {
   PanelBottom,
   PanelLeftIcon,
   PanelRight,
+  Pencil,
   RefreshCw,
   Square,
   Lock,
-  Paintbrush,
   Unlock,
   Wrench,
 } from "lucide-react";
@@ -78,8 +78,7 @@ export function BrowserToolbar({
   const displayUrl = control.activeTarget?.url ?? "";
   const busy = control.phase === "connecting";
   const connected = control.phase === "connected";
-  const browserMutationEnabled =
-    connected && collaborationRole !== "viewer" && control.collaboration.hasControl;
+  const browserMutationEnabled = connected && collaborationRole !== "viewer";
   const loading = control.activeTarget?.loading ?? false;
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
@@ -145,28 +144,6 @@ export function BrowserToolbar({
           onReorder={control.reorderTargets}
         />
         <CollaborationPresence collaboration={control.collaboration} />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant={paintingEnabled ? "secondary" : "ghost"}
-                size="icon-sm"
-                className="my-0.5 shrink-0"
-                disabled={!paintingEnabled && (!connected || !control.activeTargetId)}
-                aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-                aria-pressed={paintingEnabled}
-                onClick={() => onPaintingEnabledChange(!paintingEnabled)}
-              />
-            }
-          >
-            <Paintbrush />
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-          </TooltipContent>
-        </Tooltip>
-        <InputControlButton control={control} />
       </div>
       <div className="flex h-9 items-center gap-1 px-1.5">
         <div className="flex shrink-0 items-center gap-0.5">
@@ -215,6 +192,27 @@ export function BrowserToolbar({
           />
         </InputGroup>
         {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={paintingEnabled ? "secondary" : "ghost"}
+                size="icon-sm"
+                className="shrink-0"
+                disabled={!paintingEnabled && (!connected || !control.activeTargetId)}
+                aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+                aria-pressed={paintingEnabled}
+                onClick={() => onPaintingEnabledChange(!paintingEnabled)}
+              />
+            }
+          >
+            <Pencil />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+          </TooltipContent>
+        </Tooltip>
         <DevToolsButton
           open={devToolsOpen}
           dock={devToolsDock}
@@ -224,6 +222,7 @@ export function BrowserToolbar({
           onOpenChange={onDevToolsOpenChange}
           onDockChange={onDevToolsDockChange}
         />
+        <InputControlButton control={control} />
         <BrowserMenus
           control={control}
           cdpUrl={cdpUrl}
@@ -289,8 +288,8 @@ function InputControlButton({ control }: { control: UseBrowserControlResult }) {
           <Button
             type="button"
             variant={pressed ? "secondary" : "ghost"}
-            size="sm"
-            className="mx-1 my-0.5 h-7 shrink-0 gap-1.5 px-2 text-xs"
+            size="icon-sm"
+            className="shrink-0"
             disabled={disabled}
             aria-label={label}
             aria-pressed={pressed}
@@ -299,7 +298,6 @@ function InputControlButton({ control }: { control: UseBrowserControlResult }) {
         }
       >
         {pressed ? <Unlock /> : <Lock />}
-        <span className="hidden lg:inline">{label}</span>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
