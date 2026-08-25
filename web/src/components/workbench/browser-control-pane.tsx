@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
+import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
 import { BrowserToolbar } from "#/components/workbench/browser-toolbar.tsx";
 import { BrowserViewport } from "#/components/workbench/browser-viewport.tsx";
 import {
@@ -16,8 +17,9 @@ import {
 type BrowserControlPaneProps = {
   control: UseBrowserControlResult;
   guestMode?: boolean;
+  collaborationRole: CollaborationRole;
   cdpUrl: string | null;
-  shareUrl: string | null;
+  shareUrls: { editor: string; viewer: string } | null;
   onSessionDetails?: () => void;
 };
 
@@ -26,8 +28,9 @@ const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
 export function BrowserControlPane({
   control,
   guestMode = false,
+  collaborationRole,
   cdpUrl,
-  shareUrl,
+  shareUrls,
   onSessionDetails,
 }: BrowserControlPaneProps) {
   const [performanceOverlayEnabled, setPerformanceOverlayEnabled] = useState(false);
@@ -105,8 +108,9 @@ export function BrowserControlPane({
       <BrowserToolbar
         control={control}
         guestMode={guestMode}
+        collaborationRole={collaborationRole}
         cdpUrl={cdpUrl}
-        shareUrl={shareUrl}
+        shareUrls={shareUrls}
         performanceOverlayEnabled={performanceOverlayEnabled}
         onPerformanceOverlayChange={setPerformanceOverlayEnabled}
         localCursorEnabled={localCursorEnabled}

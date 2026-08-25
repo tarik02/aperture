@@ -669,6 +669,27 @@ paths:
       responses:
         '200': {description: Session and new token, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/collaboration-capabilities/{role}/rotate:
+    post:
+      operationId: rotateCollaborationCapability
+      tags: [sessions]
+      summary: Rotate a collaboration capability
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
+      description: Replaces one role-scoped sharing secret without invalidating the other role or owner credentials.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - name: role
+          in: path
+          required: true
+          schema: {type: string, enum: [editor, viewer]}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Session and rotated collaboration capability, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/cursor:
     get:
       operationId: getSessionCursor
@@ -1856,6 +1877,21 @@ components:
           x-sensitive: true
           description: Session access secret returned when live access credentials are available. Rotation invalidates the previous token immediately.
           example: aps_019f6cf0000070008000000000000010_REDACTED
+        collaboration:
+          $ref: '#/components/schemas/SessionCollaborationCapabilities'
+    SessionCollaborationCapabilities:
+      type: object
+      description: Owner-visible role-scoped secrets used to build collaboration links.
+      required: [editorToken, viewerToken]
+      properties:
+        editorToken:
+          type: string
+          x-sensitive: true
+          example: ape_019f6cf0000070008000000000000010_REDACTED
+        viewerToken:
+          type: string
+          x-sensitive: true
+          example: apv_019f6cf0000070008000000000000010_REDACTED
     SessionPage:
       type: object
       description: Cursor-paginated browser sessions.

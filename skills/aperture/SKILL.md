@@ -48,7 +48,7 @@ Authorities are `system_admin` and `tenant`. Current scope behavior:
 
 Creating a session from a snapshot also requires `snapshots:read`. Promoting a session requires both `sessions:write` and `snapshots:write`.
 
-API tokens use `apt_<tokenId>_<secret>`. The `sessionToken` uses `aps_<sessionId>_<secret>` and is bound to exactly one session. It authorizes that session's routed live endpoints through forward auth, including CDP, WebRTC signaling, and per-session MCP. It does not authorize `/api/*` or central MCP.
+API tokens use `apt_<tokenId>_<secret>`. The owner-only `sessionToken` uses `aps_<sessionId>_<secret>` and is bound to exactly one session. Editor (`ape_`) and viewer (`apv_`) collaboration capabilities authorize narrower live-session routes and never authorize MCP, files, or recordings. None of these session-bound credentials authorize `/api/*` or central MCP.
 
 Authenticated API and MCP token creation delegates the caller's authority. A child cannot add scopes, cross a tenant boundary, or outlive an expiring parent token. A resource-restricted parent can create only another `allowlist` token whose grants are a subset of its own. Token metadata identifies the creating principal in `createdByType` and `createdById`; `parentTokenId` identifies the API token used for delegation.
 

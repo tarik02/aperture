@@ -9,6 +9,8 @@ import {
   PanelRight,
   RefreshCw,
   Square,
+  Lock,
+  Unlock,
   Wrench,
 } from "lucide-react";
 import { interval } from "rxjs";
@@ -28,12 +30,14 @@ import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
+import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
 
 type BrowserToolbarProps = {
   control: UseBrowserControlResult;
   guestMode: boolean;
+  collaborationRole: CollaborationRole;
   cdpUrl: string | null;
-  shareUrl: string | null;
+  shareUrls: { editor: string; viewer: string } | null;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
@@ -49,8 +53,9 @@ type BrowserToolbarProps = {
 export function BrowserToolbar({
   control,
   guestMode,
+  collaborationRole,
   cdpUrl,
-  shareUrl,
+  shareUrls,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
   localCursorEnabled,
@@ -67,6 +72,8 @@ export function BrowserToolbar({
   const displayUrl = control.activeTarget?.url ?? "";
   const busy = control.phase === "connecting";
   const connected = control.phase === "connected";
+  const browserMutationEnabled =
+    connected && collaborationRole !== "viewer" && control.collaboration.hasControl;
   const loading = control.activeTarget?.loading ?? false;
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
@@ -123,6 +130,7 @@ export function BrowserToolbar({
           recordingTargetIds={recordingTargetIds}
           devToolsTargetIds={devToolsTargetIds}
           disabled={!connected}
+          mutationDisabled={!browserMutationEnabled}
           onActivate={control.activateTarget}
           onCreate={() => control.createTarget("about:blank")}
           onDuplicate={control.duplicateTarget}
@@ -130,22 +138,27 @@ export function BrowserToolbar({
           onReload={control.reload}
           onReorder={control.reorderTargets}
         />
+        <InputControlButton control={control} />
       </div>
       <div className="flex h-9 items-center gap-1 px-1.5">
         <div className="flex shrink-0 items-center gap-0.5">
-          <ToolbarButton label="Back" disabled={!connected} onClick={() => control.historyBack()}>
+          <ToolbarButton
+            label="Back"
+            disabled={!browserMutationEnabled}
+            onClick={() => control.historyBack()}
+          >
             <ArrowLeft />
           </ToolbarButton>
           <ToolbarButton
             label="Forward"
-            disabled={!connected}
+            disabled={!browserMutationEnabled}
             onClick={() => control.historyForward()}
           >
             <ArrowRight />
           </ToolbarButton>
           <ToolbarButton
             label={loading ? "Stop loading" : "Reload"}
-            disabled={!connected}
+            disabled={!browserMutationEnabled}
             onClick={() => {
               if (loading) {
                 control.stopLoading();
@@ -170,21 +183,23 @@ export function BrowserToolbar({
             }}
             placeholder="URL"
             className="h-7 px-2 font-mono text-xs text-muted-foreground transition-colors focus-visible:text-foreground"
-            disabled={!connected}
+            disabled={!browserMutationEnabled}
           />
         </InputGroup>
         {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
         <DevToolsButton
           open={devToolsOpen}
           dock={devToolsDock}
-          available={connected && Boolean(cdpUrl && control.activeTargetId)}
+          available={
+            collaborationRole !== "viewer" && connected && Boolean(cdpUrl && control.activeTargetId)
+          }
           onOpenChange={onDevToolsOpenChange}
           onDockChange={onDevToolsDockChange}
         />
         <BrowserMenus
           control={control}
           cdpUrl={cdpUrl}
-          shareUrl={shareUrl}
+          shareUrls={shareUrls}
           busy={busy}
           connected={connected}
           performanceOverlayEnabled={performanceOverlayEnabled}
@@ -197,6 +212,69 @@ export function BrowserToolbar({
         />
       </div>
     </div>
+  );
+}
+
+function InputControlButton({ control }: { control: UseBrowserControlResult }) {
+  const collaboration = control.collaboration;
+  const targetId = control.activeTargetId;
+  let label = "Control offline";
+  let disabled = collaboration.phase !== "connected" || !targetId;
+  let pressed = false;
+  let action = () => undefined;
+
+  if (collaboration.role === "viewer") {
+    label = "View only";
+    disabled = true;
+  } else if (collaboration.hasControl && collaboration.leaseMode === "explicit") {
+    label = "Unlock control";
+    pressed = true;
+    action = () => {
+      collaboration.release();
+    };
+  } else if (collaboration.hasControl) {
+    label = "Lock control";
+    action = () => {
+      collaboration.promote();
+    };
+  } else if (collaboration.role === "owner") {
+    label = collaboration.holderClientId ? "Take control" : "Claim control";
+    action = () => {
+      if (targetId) {
+        collaboration.take(targetId);
+      }
+    };
+  } else {
+    label = collaboration.holderClientId ? "Control in use" : "Claim control";
+    disabled = disabled || collaboration.holderClientId !== null;
+    action = () => {
+      if (targetId) {
+        collaboration.claim(targetId);
+      }
+    };
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant={pressed ? "secondary" : "ghost"}
+            size="sm"
+            className="mx-1 my-0.5 h-7 shrink-0 gap-1.5 px-2 text-xs"
+            disabled={disabled}
+            aria-label={label}
+            aria-pressed={pressed}
+            onClick={action}
+          />
+        }
+      >
+        {pressed ? <Unlock /> : <Lock />}
+        <span className="hidden lg:inline">{label}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }
 

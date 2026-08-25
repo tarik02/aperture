@@ -78,7 +78,7 @@ const VIEWPORT_LIMITS = {
 export function BrowserMenus({
   control,
   cdpUrl,
-  shareUrl,
+  shareUrls,
   busy,
   connected,
   performanceOverlayEnabled,
@@ -91,7 +91,7 @@ export function BrowserMenus({
 }: {
   control: UseBrowserControlResult;
   cdpUrl: string | null;
-  shareUrl: string | null;
+  shareUrls: { editor: string; viewer: string } | null;
   busy: boolean;
   connected: boolean;
   performanceOverlayEnabled: boolean;
@@ -137,7 +137,7 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-72">
             <RestMenuItems
               cdpUrl={cdpUrl}
-              shareUrl={shareUrl}
+              shareUrls={shareUrls}
               busy={busy}
               onReconnect={onReconnect}
               onSessionDetails={onSessionDetails}
@@ -145,14 +145,14 @@ export function BrowserMenus({
             <DropdownMenuSeparator />
             <RecordingMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role === "owner"}
               runningRecordings={runningRecordings}
               now={now}
             />
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role !== "viewer"}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
@@ -187,7 +187,7 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-72">
             <RecordingMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role === "owner"}
               runningRecordings={runningRecordings}
               now={now}
             />
@@ -216,7 +216,7 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-56">
             <ViewportStreamMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role !== "viewer"}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
@@ -247,7 +247,7 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-48">
             <RestMenuItems
               cdpUrl={cdpUrl}
-              shareUrl={shareUrl}
+              shareUrls={shareUrls}
               busy={busy}
               onReconnect={onReconnect}
               onSessionDetails={onSessionDetails}
@@ -261,13 +261,13 @@ export function BrowserMenus({
 
 function RestMenuItems({
   cdpUrl,
-  shareUrl,
+  shareUrls,
   busy,
   onReconnect,
   onSessionDetails,
 }: {
   cdpUrl: string | null;
-  shareUrl: string | null;
+  shareUrls: { editor: string; viewer: string } | null;
   busy: boolean;
   onReconnect: () => void;
   onSessionDetails?: () => void;
@@ -296,19 +296,34 @@ function RestMenuItems({
         Copy CDP URL
       </DropdownMenuItem>
       <DropdownMenuItem
-        disabled={!shareUrl}
+        disabled={!shareUrls}
         onClick={() => {
-          if (!shareUrl) {
+          if (!shareUrls) {
             return;
           }
-          void copyText(shareUrl).then(
-            () => toast.success("Share URL copied"),
+          void copyText(shareUrls.editor).then(
+            () => toast.success("Editor URL copied"),
             () => toast.error("Copy failed"),
           );
         }}
       >
         <Share2 />
-        Copy share URL
+        Copy editor URL
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={!shareUrls}
+        onClick={() => {
+          if (!shareUrls) {
+            return;
+          }
+          void copyText(shareUrls.viewer).then(
+            () => toast.success("Viewer URL copied"),
+            () => toast.error("Copy failed"),
+          );
+        }}
+      >
+        <Share2 />
+        Copy viewer URL
       </DropdownMenuItem>
       <DropdownMenuItem disabled={busy} onClick={onReconnect}>
         <RotateCcw />

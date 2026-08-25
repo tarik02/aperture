@@ -1,41 +1,44 @@
 # Session sharing
 
-Aperture session tokens can be shared as short-lived capabilities for one browser session. A capability grants browser control, CDP access, file listing and downloads, and uploads. It does not grant tenant access or session lifecycle operations such as suspend, reopen, delete, promote, tag changes, or token rotation.
+Aperture exposes separate editor and viewer capabilities for one browser session. Editor capabilities can request the session-wide input lease and use browser controls. Viewer capabilities can watch the session but cannot send browser input. Neither capability grants tenant access, files, recordings, DevTools, or session lifecycle operations.
 
 ## Share links
 
-Session creation, detail, list, bulk, mutation, and wrapper status responses expose the current session token when it is available.
+Owner-facing session responses expose independently rotatable editor and viewer capabilities under `collaboration`.
 
 The web interface copies links in this form:
 
 ```text
-https://aperture.example/share/#token=aps_<session-id>_<secret>
+https://aperture.example/share/#token=ape_<session-id>_<secret>
+https://aperture.example/share/#token=apv_<session-id>_<secret>
 ```
 
 The share route moves the token into tab-scoped session storage and removes it from the address bar. It uses the session ID embedded in the token to connect to the existing session routes. Opening a share link never adopts or falls back to account credentials already stored in the browser.
 
-Rotating the session token invalidates new share, browser transport, file, and CDP authorizations. Existing direct CDP WebSockets remain connected until they close.
+Rotating one collaboration capability invalidates new connections using that role without affecting the owner session token or the other collaboration role. Existing WebSockets remain connected until they close.
 
 ## Capability authentication
 
 Session HTTP routes accept the token as a bearer credential:
 
 ```http
-Authorization: Bearer aps_<session-id>_<secret>
+Authorization: Bearer ape_<session-id>_<secret>
+Authorization: Bearer apv_<session-id>_<secret>
 ```
 
 WebSocket routes use the existing bearer subprotocol:
 
 ```text
-authorization.bearer.aps_<session-id>_<secret>
+authorization.bearer.ape_<session-id>_<secret>
+authorization.bearer.apv_<session-id>_<secret>
 ```
 
 No tenant header is required. The token's embedded session ID must match the routed `/sessions/:sessionId/...` path. Suspended sessions wake through the same activity path used by direct CDP access.
 
-Direct CDP discovery and WebSocket URLs keep the existing path-token format:
+Direct CDP discovery and WebSocket URLs use the capability in the existing path-token format. Collaboration CDP connections are filtered by role, and all `Input.*` methods are rejected:
 
 ```text
-/sessions/<session-id>/cdp/<session-token>/
+/sessions/<session-id>/cdp/<collaboration-capability>/
 ```
 
 ## Files
@@ -54,7 +57,7 @@ Uploads use `multipart/form-data` and may contain multiple files. Names are sani
 
 Each request accepts at most 100 files, and a session may retain at most 1,000 uploaded files.
 
-File routes accept either a matching session capability or an account token with `sessions:write`.
+File routes accept the owner session token or an account token with `sessions:write`. Editor and viewer capabilities cannot access files.
 
 ## Limits and audit events
 

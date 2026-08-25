@@ -48,6 +48,7 @@ type wrapperRuntime struct {
 	viewers          map[*wrapperViewer]struct{}
 	activeRequests   int
 	cdpConnections   int
+	collaboration    *collaborationHub
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -198,6 +199,12 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	if err := r.reconcilePendingUploads(); err != nil {
 		return nil, nil, fmt.Errorf("reconcile pending uploads: %w", err)
 	}
+	collaboration, err := newCollaborationHub(r)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create collaboration coordinator: %w", err)
+	}
+	r.collaboration = collaboration
+	go collaboration.run(ctx)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)
@@ -208,6 +215,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
 	mux.HandleFunc("/devtools/", r.handleCDPProxy)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
+	mux.HandleFunc("/collaboration", collaboration.serveHTTP)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/cursor", r.handleCursor)

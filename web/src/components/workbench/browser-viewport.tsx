@@ -84,7 +84,11 @@ export function BrowserViewport({
       control.mediaTargetId !== control.activeTargetId ||
       presentedMedia?.stream !== control.mediaStream ||
       presentedMedia?.targetId !== control.activeTargetId);
-  const inputDisabled = control.mediaSwitching || mediaTransitioning;
+  const inputDisabled =
+    control.mediaSwitching ||
+    mediaTransitioning ||
+    control.collaboration.phase !== "connected" ||
+    control.collaboration.role === "viewer";
   const displayedMediaSize =
     mediaTransitioning && presentedMedia ? presentedMedia.size : control.mediaSize;
   const renderWidth = showingWebRTC
@@ -114,6 +118,10 @@ export function BrowserViewport({
     renderHeight,
   );
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
+
+  useEffect(() => {
+    control.setInputDimensions({ width: inputWidth, height: inputHeight });
+  }, [control.setInputDimensions, inputHeight, inputWidth]);
 
   const releasePressedKeys = useCallback(() => {
     const pressedKeys = [...pressedKeysRef.current.entries()].reverse();
@@ -253,7 +261,10 @@ export function BrowserViewport({
   }, [releasePressedKeys]);
 
   useEffect(() => {
-    const handleWindowBlur = () => releasePressedKeys();
+    const handleWindowBlur = () => {
+      releasePressedKeys();
+      releaseImplicitControl();
+    };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         releasePressedKeys();
@@ -266,7 +277,7 @@ export function BrowserViewport({
       window.removeEventListener("blur", handleWindowBlur);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [releasePressedKeys]);
+  }, [releasePressedKeys, control.collaboration]);
 
   useEffect(() => {
     if (inputDisabled) {
@@ -310,8 +321,17 @@ export function BrowserViewport({
     if (!control.captured) {
       control.setCaptured(true);
     }
+    if (!control.collaboration.hasControl) {
+      control.collaboration.claim(control.activeTargetId);
+    }
     containerRef.current?.focus();
     return control.activeTargetId;
+  }
+
+  function releaseImplicitControl() {
+    if (control.collaboration.hasControl && control.collaboration.leaseMode === "implicit") {
+      control.collaboration.release();
+    }
   }
 
   function preventViewportDefault(event: React.SyntheticEvent) {
@@ -331,7 +351,30 @@ export function BrowserViewport({
       return;
     }
     control.setCaptured(true);
+    if (control.activeTargetId && !control.collaboration.hasControl) {
+      control.collaboration.claim(control.activeTargetId);
+    }
     containerRef.current?.focus();
+  }
+
+  function handlePointerEnter(event: React.PointerEvent) {
+    updateCursorHint(event);
+    if (inputDisabled || !control.activeTargetId) {
+      return;
+    }
+    control.setCaptured(true);
+    if (!control.collaboration.hasControl) {
+      control.collaboration.claim(control.activeTargetId);
+    }
+  }
+
+  function handlePointerLeave() {
+    setCursorHintPoint(null);
+    if (!pointerCaptureRef.current) {
+      releasePressedKeys();
+      releaseImplicitControl();
+      control.setCaptured(false);
+    }
   }
 
   function handlePointerClick() {
@@ -610,6 +653,7 @@ export function BrowserViewport({
         event.preventDefault();
         event.stopPropagation();
         control.setCaptured(false);
+        releaseImplicitControl();
       }
       return;
     }
@@ -712,6 +756,8 @@ export function BrowserViewport({
       return;
     }
     releasePressedKeys();
+    releaseImplicitControl();
+    control.setCaptured(false);
   }
 
   function updateCursorHint(event: React.PointerEvent) {
@@ -752,8 +798,13 @@ export function BrowserViewport({
       onBlur={handleBlur}
       onClick={handlePointerClick}
       onPointerMove={handlePointerMove}
-      onPointerEnter={updateCursorHint}
-      onPointerLeave={() => setCursorHintPoint(null)}
+      onFocus={() => {
+        if (!inputDisabled && control.activeTargetId && !control.collaboration.hasControl) {
+          control.collaboration.claim(control.activeTargetId);
+        }
+      }}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}

@@ -238,6 +238,19 @@ type SessionToken struct {
 	RevokedAt *string `bun:"revoked_at"`
 }
 
+// SessionCollaborationCapability maps one role-scoped session sharing secret.
+type SessionCollaborationCapability struct {
+	bun.BaseModel `bun:"table:session_collaboration_capabilities"`
+
+	SessionID string  `bun:"session_id,pk"`
+	Role      string  `bun:"role,pk"`
+	TenantID  string  `bun:"tenant_id,notnull"`
+	TokenHash string  `bun:"token_hash,notnull"`
+	RawToken  string  `bun:"raw_token,notnull"`
+	CreatedAt string  `bun:"created_at,notnull"`
+	RevokedAt *string `bun:"revoked_at"`
+}
+
 // SessionTag maps the session_tags table.
 type SessionTag struct {
 	bun.BaseModel `bun:"table:session_tags"`
@@ -289,6 +302,7 @@ func RegisterModels(db *bun.DB) {
 		(*Snapshot)(nil),
 		(*Session)(nil),
 		(*SessionToken)(nil),
+		(*SessionCollaborationCapability)(nil),
 		(*SessionTag)(nil),
 		(*SnapshotTag)(nil),
 		(*Event)(nil),

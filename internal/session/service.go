@@ -100,12 +100,13 @@ type CreateInput struct {
 
 // SessionView is returned by session APIs.
 type SessionView struct {
-	Session          db.Session
-	Tags             map[string]string
-	BaseSnapshotName *string
-	CDPURL           string
-	SessionToken     string
-	Media            SessionMediaView
+	Session                   db.Session
+	Tags                      map[string]string
+	BaseSnapshotName          *string
+	CDPURL                    string
+	SessionToken              string
+	CollaborationCapabilities CollaborationCapabilitiesView
+	Media                     SessionMediaView
 }
 
 // SessionMediaView describes the media transport capability for a session.
@@ -311,13 +312,18 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		return nil, err
 	}
 
+	capabilities, err := s.ensureCollaborationCapabilities(ctx, *sessionRow)
+	if err != nil {
+		return nil, err
+	}
 	return &SessionView{
-		Session:          *sessionRow,
-		Tags:             tags,
-		BaseSnapshotName: baseSnapshotName,
-		CDPURL:           s.cdpURL(sessionID),
-		SessionToken:     rawSessionToken,
-		Media:            s.sessionMediaView(*sessionRow),
+		Session:                   *sessionRow,
+		Tags:                      tags,
+		BaseSnapshotName:          baseSnapshotName,
+		CDPURL:                    s.cdpURL(sessionID),
+		SessionToken:              rawSessionToken,
+		CollaborationCapabilities: capabilities,
+		Media:                     s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -679,12 +685,17 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err != nil {
 		return nil, err
 	}
+	capabilities, err := s.ensureCollaborationCapabilities(ctx, *sessionRow)
+	if err != nil {
+		return nil, err
+	}
 	return &SessionView{
-		Session:      *sessionRow,
-		Tags:         tags,
-		CDPURL:       s.cdpURL(sessionID),
-		SessionToken: rawSessionToken,
-		Media:        s.sessionMediaView(*sessionRow),
+		Session:                   *sessionRow,
+		Tags:                      tags,
+		CDPURL:                    s.cdpURL(sessionID),
+		SessionToken:              rawSessionToken,
+		CollaborationCapabilities: capabilities,
+		Media:                     s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -733,12 +744,17 @@ func (s *Service) RotateSessionToken(ctx context.Context, tenantID, sessionID st
 		return nil, err
 	}
 
+	capabilities, err := s.ensureCollaborationCapabilities(ctx, *sessionRow)
+	if err != nil {
+		return nil, err
+	}
 	return &SessionView{
-		Session:      *sessionRow,
-		Tags:         tags,
-		CDPURL:       s.cdpURL(sessionID),
-		SessionToken: rawSessionToken,
-		Media:        s.sessionMediaView(*sessionRow),
+		Session:                   *sessionRow,
+		Tags:                      tags,
+		CDPURL:                    s.cdpURL(sessionID),
+		SessionToken:              rawSessionToken,
+		CollaborationCapabilities: capabilities,
+		Media:                     s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -1318,14 +1334,18 @@ func (s *Service) populateSessionCredentials(ctx context.Context, view *SessionV
 	}
 	rawSessionToken, err := s.loadSessionToken(ctx, view.Session.ID)
 	if err != nil {
-		if errors.Is(err, ErrSessionTokenMissing) {
-			view.CDPURL = s.cdpURL(view.Session.ID)
-			return nil
+		if !errors.Is(err, ErrSessionTokenMissing) {
+			return err
 		}
-		return err
+	} else {
+		view.SessionToken = rawSessionToken
 	}
 	view.CDPURL = s.cdpURL(view.Session.ID)
-	view.SessionToken = rawSessionToken
+	capabilities, err := s.ensureCollaborationCapabilities(ctx, view.Session)
+	if err != nil {
+		return err
+	}
+	view.CollaborationCapabilities = capabilities
 	return nil
 }
 
