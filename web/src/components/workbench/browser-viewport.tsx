@@ -62,6 +62,7 @@ export function BrowserViewport({
     clickCount: number;
   } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const cursorHintPointRef = useRef<ViewportPoint | null>(null);
   const lastClickRef = useRef<{
     targetId: string;
     button: MouseButton;
@@ -126,6 +127,9 @@ export function BrowserViewport({
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
   const collaborationHint = resolveCollaborationHint(control.collaboration);
   const cursorHint = disconnectedHint ?? collaborationHint;
+  const displayedCursorHintPoint = cursorHint
+    ? (cursorHintPointRef.current ?? cursorHintPoint)
+    : null;
   const followedParticipant = control.collaboration.followingClientId
     ? control.collaboration.participants.find(
         (participant) => participant.clientId === control.collaboration.followingClientId,
@@ -408,6 +412,7 @@ export function BrowserViewport({
   }
 
   function handlePointerLeave() {
+    cursorHintPointRef.current = null;
     setCursorHintPoint(null);
     if (!pointerCaptureRef.current) {
       releasePressedKeys();
@@ -817,10 +822,14 @@ export function BrowserViewport({
     if (!rect) {
       return;
     }
-    setCursorHintPoint({
+    const point = {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
-    });
+    };
+    cursorHintPointRef.current = point;
+    if (cursorHint) {
+      setCursorHintPoint(point);
+    }
   }
 
   const status = resolveViewportStatus(
@@ -953,10 +962,10 @@ export function BrowserViewport({
           </span>
         </div>
       ) : null}
-      {cursorHint && cursorHintPoint ? (
+      {cursorHint && displayedCursorHintPoint ? (
         <div
           className="pointer-events-none absolute z-20 max-w-64 translate-x-3 translate-y-3 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
-          style={{ left: cursorHintPoint.x, top: cursorHintPoint.y }}
+          style={{ left: displayedCursorHintPoint.x, top: displayedCursorHintPoint.y }}
         >
           {cursorHint}
         </div>
