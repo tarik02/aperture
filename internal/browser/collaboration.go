@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,42 +43,64 @@ type collaborationHub struct {
 }
 
 type collaborationClient struct {
-	hub      *collaborationHub
-	id       string
-	role     string
-	ownerID  uint64
-	socket   *websocket.Conn
-	writeMu  sync.Mutex
-	sequence uint64
+	hub               *collaborationHub
+	id                string
+	role              string
+	ownerID           uint64
+	socket            *websocket.Conn
+	writeMu           sync.Mutex
+	sequence          uint64
+	name              string
+	avatarHash        string
+	activeTargetID    string
+	followingClientID string
 }
 
 type collaborationClientMessage struct {
-	Version        int     `json:"version"`
-	Type           string  `json:"type"`
-	ClientID       string  `json:"clientId"`
-	TargetID       string  `json:"targetId"`
-	Sequence       uint64  `json:"sequence"`
-	X              float64 `json:"x"`
-	Y              float64 `json:"y"`
-	ButtonCode     uint32  `json:"buttonCode"`
-	Keycode        uint32  `json:"keycode"`
-	Text           string  `json:"text"`
-	Pressed        bool    `json:"pressed"`
-	Horizontal     float64 `json:"horizontal"`
-	Vertical       float64 `json:"vertical"`
-	StopHorizontal bool    `json:"stopHorizontal"`
-	StopVertical   bool    `json:"stopVertical"`
+	Version           int     `json:"version"`
+	Type              string  `json:"type"`
+	ClientID          string  `json:"clientId"`
+	TargetID          string  `json:"targetId"`
+	Sequence          uint64  `json:"sequence"`
+	X                 float64 `json:"x"`
+	Y                 float64 `json:"y"`
+	ButtonCode        uint32  `json:"buttonCode"`
+	Keycode           uint32  `json:"keycode"`
+	Text              string  `json:"text"`
+	Pressed           bool    `json:"pressed"`
+	Horizontal        float64 `json:"horizontal"`
+	Vertical          float64 `json:"vertical"`
+	StopHorizontal    bool    `json:"stopHorizontal"`
+	StopVertical      bool    `json:"stopVertical"`
+	Name              string  `json:"name"`
+	AvatarHash        string  `json:"avatarHash"`
+	FollowingClientID string  `json:"followingClientId"`
+}
+
+type collaborationParticipant struct {
+	ClientID          string                 `json:"clientId"`
+	Name              string                 `json:"name"`
+	AvatarHash        string                 `json:"avatarHash"`
+	Role              string                 `json:"role"`
+	ActiveTargetID    string                 `json:"activeTargetId,omitempty"`
+	FollowingClientID string                 `json:"followingClientId,omitempty"`
+	HoldingInput      bool                   `json:"holdingInput"`
+	LeaseMode         collaborationLeaseMode `json:"leaseMode,omitempty"`
 }
 
 type collaborationServerMessage struct {
-	Version        int                    `json:"version"`
-	Type           string                 `json:"type"`
-	ClientID       string                 `json:"clientId,omitempty"`
-	Role           string                 `json:"role,omitempty"`
-	HolderClientID string                 `json:"holderClientId,omitempty"`
-	Mode           collaborationLeaseMode `json:"mode,omitempty"`
-	Code           string                 `json:"code,omitempty"`
-	Message        string                 `json:"message,omitempty"`
+	Version        int                        `json:"version"`
+	Type           string                     `json:"type"`
+	ClientID       string                     `json:"clientId,omitempty"`
+	Role           string                     `json:"role,omitempty"`
+	HolderClientID string                     `json:"holderClientId,omitempty"`
+	Mode           collaborationLeaseMode     `json:"mode,omitempty"`
+	Code           string                     `json:"code,omitempty"`
+	Message        string                     `json:"message,omitempty"`
+	TargetID       string                     `json:"targetId,omitempty"`
+	X              float64                    `json:"x,omitempty"`
+	Y              float64                    `json:"y,omitempty"`
+	Participants   []collaborationParticipant `json:"participants,omitempty"`
 }
 
 func newCollaborationHub(runtime *wrapperRuntime) (*collaborationHub, error) {
@@ -132,11 +155,11 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 	socket.SetReadLimit(64 * 1024)
 
 	var hello collaborationClientMessage
-	if err := readCollaborationMessage(req.Context(), socket, &hello); err != nil || hello.Version != 1 || hello.Type != "hello" || !validCollaborationClientID(hello.ClientID) {
+	if err := readCollaborationMessage(req.Context(), socket, &hello); err != nil || hello.Version != 1 || hello.Type != "hello" || !validCollaborationClientID(hello.ClientID) || !validCollaborationName(hello.Name) || !validCollaborationAvatarHash(hello.AvatarHash) {
 		_ = socket.Close(websocket.StatusPolicyViolation, "valid hello required")
 		return
 	}
-	client, err := hub.addClient(hello.ClientID, role, socket)
+	client, err := hub.addClient(hello.ClientID, role, hello.Name, hello.AvatarHash, socket)
 	if err != nil {
 		_ = socket.Close(websocket.StatusTryAgainLater, err.Error())
 		return
@@ -146,6 +169,7 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	hub.sendLeaseState(client)
+	hub.broadcastPresence()
 
 	for {
 		var message collaborationClientMessage
@@ -173,7 +197,7 @@ func readCollaborationMessage(ctx context.Context, socket *websocket.Conn, targe
 	return nil
 }
 
-func (hub *collaborationHub) addClient(id, role string, socket *websocket.Conn) (*collaborationClient, error) {
+func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket *websocket.Conn) (*collaborationClient, error) {
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
 	if hub.closed {
@@ -186,7 +210,7 @@ func (hub *collaborationHub) addClient(id, role string, socket *websocket.Conn) 
 		return nil, errors.New("collaboration client id is already connected")
 	}
 	hub.nextOwner++
-	client := &collaborationClient{hub: hub, id: id, role: role, ownerID: hub.nextOwner, socket: socket}
+	client := &collaborationClient{hub: hub, id: id, role: role, ownerID: hub.nextOwner, socket: socket, name: name, avatarHash: avatarHash}
 	hub.clients[id] = client
 	return client, nil
 }
@@ -198,6 +222,11 @@ func (hub *collaborationHub) removeClient(client *collaborationClient) {
 		return
 	}
 	delete(hub.clients, client.id)
+	for _, participant := range hub.clients {
+		if participant.followingClientID == client.id {
+			participant.followingClientID = ""
+		}
+	}
 	holder := hub.holder == client
 	if holder {
 		hub.holder = nil
@@ -207,6 +236,8 @@ func (hub *collaborationHub) removeClient(client *collaborationClient) {
 	if holder {
 		_ = hub.controller.Release(client.ownerID)
 		hub.broadcastLeaseState()
+	} else {
+		hub.broadcastPresence()
 	}
 }
 
@@ -235,9 +266,76 @@ func (hub *collaborationHub) handleClientMessage(client *collaborationClient, me
 		return hub.submit(client, message, remoteinput.Event{Type: remoteinput.EventKeyboardKey, Keycode: message.Keycode, Pressed: message.Pressed})
 	case "input.keyboard.text":
 		return hub.submit(client, message, remoteinput.Event{Type: remoteinput.EventKeyboardText, Text: message.Text})
+	case "presence.active-target":
+		return hub.updateActiveTarget(client, message.TargetID)
+	case "presence.cursor":
+		return hub.updateCursor(client, message.TargetID, message.X, message.Y)
+	case "follow.set":
+		return hub.setFollowing(client, message.FollowingClientID)
 	default:
 		return errors.New("unknown collaboration message type")
 	}
+}
+
+func (hub *collaborationHub) updateActiveTarget(client *collaborationClient, targetID string) error {
+	if len(targetID) > 128 {
+		return errors.New("active target is invalid")
+	}
+	hub.mu.Lock()
+	client.activeTargetID = targetID
+	hub.mu.Unlock()
+	hub.broadcastPresence()
+	return nil
+}
+
+func (hub *collaborationHub) updateCursor(client *collaborationClient, targetID string, x, y float64) error {
+	if targetID == "" || x < 0 || x > 1 || y < 0 || y > 1 {
+		return errors.New("cursor position is invalid")
+	}
+	if _, ok := hub.readyTarget(targetID); !ok {
+		return errors.New("cursor target is unavailable")
+	}
+	message := collaborationServerMessage{Version: 1, Type: "presence.cursor", ClientID: client.id, TargetID: targetID, X: x, Y: y}
+	hub.mu.Lock()
+	followers := make([]*collaborationClient, 0)
+	for _, participant := range hub.clients {
+		if participant.followingClientID == client.id {
+			followers = append(followers, participant)
+		}
+	}
+	hub.mu.Unlock()
+	for _, follower := range followers {
+		_ = follower.write(message)
+	}
+	return nil
+}
+
+func (hub *collaborationHub) setFollowing(client *collaborationClient, followingClientID string) error {
+	hub.mu.Lock()
+	if followingClientID == "" {
+		client.followingClientID = ""
+		hub.mu.Unlock()
+		hub.broadcastPresence()
+		return nil
+	}
+	followed := hub.clients[followingClientID]
+	if followed == nil {
+		hub.mu.Unlock()
+		return errors.New("followed participant is unavailable")
+	}
+	for current := followed; current != nil; current = hub.clients[current.followingClientID] {
+		if current == client {
+			hub.mu.Unlock()
+			return errors.New("follow cycle is not allowed")
+		}
+		if current.followingClientID == "" {
+			break
+		}
+	}
+	client.followingClientID = followingClientID
+	hub.mu.Unlock()
+	hub.broadcastPresence()
+	return nil
 }
 
 func (hub *collaborationHub) claim(client *collaborationClient, targetID string, mode collaborationLeaseMode, force bool) error {
@@ -378,6 +476,38 @@ func (hub *collaborationHub) sendLeaseState(client *collaborationClient) {
 func (hub *collaborationHub) broadcastLeaseState() {
 	hub.mu.Lock()
 	message := hub.leaseStateLocked()
+	hub.mu.Unlock()
+	hub.broadcast(message)
+	hub.broadcastPresence()
+}
+
+func (hub *collaborationHub) broadcastPresence() {
+	hub.mu.Lock()
+	participants := make([]collaborationParticipant, 0, len(hub.clients))
+	for _, client := range hub.clients {
+		participant := collaborationParticipant{
+			ClientID:          client.id,
+			Name:              client.name,
+			AvatarHash:        client.avatarHash,
+			Role:              client.role,
+			ActiveTargetID:    client.activeTargetID,
+			FollowingClientID: client.followingClientID,
+			HoldingInput:      hub.holder == client,
+		}
+		if hub.holder == client {
+			participant.LeaseMode = hub.leaseMode
+		}
+		participants = append(participants, participant)
+	}
+	hub.mu.Unlock()
+	sort.Slice(participants, func(left, right int) bool {
+		return participants[left].ClientID < participants[right].ClientID
+	})
+	hub.broadcast(collaborationServerMessage{Version: 1, Type: "presence.state", Participants: participants})
+}
+
+func (hub *collaborationHub) broadcast(message collaborationServerMessage) {
+	hub.mu.Lock()
 	clients := make([]*collaborationClient, 0, len(hub.clients))
 	for _, client := range hub.clients {
 		clients = append(clients, client)
@@ -445,6 +575,23 @@ func validCollaborationClientID(value string) bool {
 			continue
 		}
 		return false
+	}
+	return true
+}
+
+func validCollaborationName(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && len(value) <= 48
+}
+
+func validCollaborationAvatarHash(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+			return false
+		}
 	}
 	return true
 }

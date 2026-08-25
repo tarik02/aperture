@@ -3,10 +3,29 @@ import { z } from "zod";
 import { resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import { evdevKeycodeByCode } from "#/lib/control/input-keycodes.ts";
 import type { ClientMessage } from "#/lib/control/messages.ts";
+import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
 export type CollaborationRole = "owner" | "editor" | "viewer";
 export type CollaborationLeaseMode = "implicit" | "explicit";
 export type CollaborationPhase = "idle" | "connecting" | "connected" | "disconnected";
+
+export type CollaborationParticipant = {
+  clientId: string;
+  name: string;
+  avatarHash: string;
+  role: CollaborationRole;
+  activeTargetId?: string;
+  followingClientId?: string;
+  holdingInput: boolean;
+  leaseMode?: CollaborationLeaseMode;
+};
+
+export type CollaborationCursor = {
+  clientId: string;
+  targetId: string;
+  x: number;
+  y: number;
+};
 
 type BrowserInputMessage = Extract<
   ClientMessage,
@@ -35,10 +54,16 @@ export type CollaborationControl = {
   hasControl: boolean;
   canRequestControl: boolean;
   lastError: string | null;
+  participants: CollaborationParticipant[];
+  cursors: ReadonlyMap<string, CollaborationCursor>;
+  followingClientId: string | null;
   claim: (targetId: string) => boolean;
   promote: () => boolean;
   release: () => boolean;
   take: (targetId: string) => boolean;
+  setActiveTarget: (targetId: string | null) => boolean;
+  follow: (clientId: string | null) => boolean;
+  sendCursor: (targetId: string, x: number, y: number, dimensions: InputDimensions) => boolean;
   sendInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
 };
 
@@ -51,6 +76,36 @@ type UseCollaborationControlOptions = {
 };
 
 const collaborationServerMessageSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      version: z.literal(1),
+      type: z.literal("presence.state"),
+      participants: z.array(
+        z
+          .object({
+            clientId: z.string(),
+            name: z.string(),
+            avatarHash: z.string(),
+            role: z.enum(["owner", "editor", "viewer"]),
+            activeTargetId: z.string().optional(),
+            followingClientId: z.string().optional(),
+            holdingInput: z.boolean(),
+            leaseMode: z.enum(["implicit", "explicit"]).optional(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      type: z.literal("presence.cursor"),
+      clientId: z.string(),
+      targetId: z.string(),
+      x: z.number().min(0).max(1).optional().default(0),
+      y: z.number().min(0).max(1).optional().default(0),
+    })
+    .strict(),
   z
     .object({
       version: z.literal(1),
@@ -80,6 +135,7 @@ const collaborationServerMessageSchema = z.discriminatedUnion("type", [
 const collaborationProtocol = "aperture-collaboration.v1";
 const heartbeatIntervalMs = 2_000;
 const reconnectDelayMs = 1_000;
+const cursorIntervalMs = 40;
 const pointerButtonCode = {
   left: 272,
   right: 273,
@@ -93,17 +149,26 @@ export function useCollaborationControl({
   role,
   enabled,
 }: UseCollaborationControlOptions): CollaborationControl {
+  const activeProfile = useTokenVaultStore(selectActiveProfile);
   const clientId = useMemo(loadCollaborationClientId, []);
+  const identity = useMemo(
+    () => collaborationIdentity(role, activeProfile?.tokenName ?? null),
+    [activeProfile?.tokenName, role],
+  );
   const [phase, setPhase] = useState<CollaborationPhase>("idle");
   const [holderClientId, setHolderClientId] = useState<string | null>(null);
   const [leaseMode, setLeaseMode] = useState<CollaborationLeaseMode | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<CollaborationParticipant[]>([]);
+  const [cursors, setCursors] = useState<ReadonlyMap<string, CollaborationCursor>>(() => new Map());
   const socketRef = useRef<WebSocket | null>(null);
   const sequenceRef = useRef(0);
   const claimPendingRef = useRef(false);
   const releasePendingRef = useRef(false);
   const textKeyCodesRef = useRef(new Set<string>());
   const holderClientIdRef = useRef<string | null>(null);
+  const followingClientIdRef = useRef<string | null>(null);
+  const lastCursorSentAtRef = useRef(0);
 
   holderClientIdRef.current = holderClientId;
 
@@ -115,6 +180,9 @@ export function useCollaborationControl({
       setHolderClientId(null);
       setLeaseMode(null);
       setLastError(null);
+      setParticipants([]);
+      setCursors(new Map());
+      followingClientIdRef.current = null;
       return;
     }
 
@@ -133,7 +201,15 @@ export function useCollaborationControl({
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
-        socket.send(JSON.stringify({ version: 1, type: "hello", clientId }));
+        socket.send(
+          JSON.stringify({
+            version: 1,
+            type: "hello",
+            clientId,
+            name: identity.name,
+            avatarHash: identity.avatarHash,
+          }),
+        );
       });
       socket.addEventListener("message", (event) => {
         const message = decodeServerMessage(event.data);
@@ -158,6 +234,33 @@ export function useCollaborationControl({
             }
             return;
           }
+          case "presence.state":
+            setLastError(null);
+            setParticipants(message.participants);
+            followingClientIdRef.current =
+              message.participants.find((participant) => participant.clientId === clientId)
+                ?.followingClientId ?? null;
+            setCursors((current) => {
+              const next = new Map<string, CollaborationCursor>();
+              const followedCursor = followingClientIdRef.current
+                ? current.get(followingClientIdRef.current)
+                : null;
+              if (followedCursor) {
+                next.set(followedCursor.clientId, followedCursor);
+              }
+              return next.size === current.size ? current : next;
+            });
+            return;
+          case "presence.cursor":
+            if (message.clientId !== followingClientIdRef.current) {
+              return;
+            }
+            setCursors((current) => {
+              const next = new Map(current);
+              next.set(message.clientId, message);
+              return next;
+            });
+            return;
           case "error":
             claimPendingRef.current = false;
             setLastError(message.message);
@@ -176,6 +279,9 @@ export function useCollaborationControl({
         textKeyCodesRef.current.clear();
         setHolderClientId(null);
         setLeaseMode(null);
+        setParticipants([]);
+        setCursors(new Map());
+        followingClientIdRef.current = null;
         if (!disposed) {
           setPhase("disconnected");
           reconnectTimer = window.setTimeout(connect, reconnectDelayMs);
@@ -195,7 +301,7 @@ export function useCollaborationControl({
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [clientId, credentials, enabled, sessionId, sessionToken]);
+  }, [clientId, credentials, enabled, identity, sessionId, sessionToken]);
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current;
@@ -240,6 +346,31 @@ export function useCollaborationControl({
       return send({ type: "input.take", targetId });
     },
     [role, send],
+  );
+  const setActiveTarget = useCallback(
+    (targetId: string | null) => send({ type: "presence.active-target", targetId: targetId ?? "" }),
+    [send],
+  );
+  const follow = useCallback(
+    (followingClientId: string | null) =>
+      send({ type: "follow.set", followingClientId: followingClientId ?? "" }),
+    [send],
+  );
+  const sendCursor = useCallback(
+    (targetId: string, x: number, y: number, dimensions: InputDimensions) => {
+      const now = performance.now();
+      if (now - lastCursorSentAtRef.current < cursorIntervalMs) {
+        return false;
+      }
+      lastCursorSentAtRef.current = now;
+      return send({
+        type: "presence.cursor",
+        targetId,
+        x: normalizedCoordinate(x, dimensions.width),
+        y: normalizedCoordinate(y, dimensions.height),
+      });
+    },
+    [send],
   );
 
   const sendInputEvent = useCallback(
@@ -374,6 +505,9 @@ export function useCollaborationControl({
   );
 
   const hasControl = holderClientId === clientId;
+  const followingClientId =
+    participants.find((participant) => participant.clientId === clientId)?.followingClientId ??
+    null;
   useEffect(() => {
     if (!hasControl) {
       return;
@@ -395,11 +529,68 @@ export function useCollaborationControl({
     hasControl,
     canRequestControl: role !== "viewer" && phase === "connected",
     lastError,
+    participants,
+    cursors,
+    followingClientId,
     claim,
     promote,
     release,
     take,
+    setActiveTarget,
+    follow,
+    sendCursor,
     sendInput,
+  };
+}
+
+const storedIdentitySchema = z
+  .object({
+    name: z.string().min(1).max(48),
+    avatarHash: z.string().regex(/^[0-9a-f]{32}$/),
+  })
+  .strict();
+
+function collaborationIdentity(role: CollaborationRole, accountName: string | null) {
+  const anonymous = loadAnonymousIdentity();
+  if (role !== "owner" || !accountName?.trim()) {
+    return anonymous;
+  }
+  return {
+    ...anonymous,
+    name: accountName.trim().slice(0, 48),
+  };
+}
+
+function loadAnonymousIdentity() {
+  const storageKey = "aperture.collaboration.identity";
+  try {
+    const stored = window.localStorage.getItem(storageKey);
+    if (stored) {
+      const parsed = storedIdentitySchema.safeParse(JSON.parse(stored) as unknown);
+      if (parsed.success) {
+        return parsed.data;
+      }
+    }
+    const created = createAnonymousIdentity();
+    window.localStorage.setItem(storageKey, JSON.stringify(created));
+    return created;
+  } catch {
+    return createAnonymousIdentity();
+  }
+}
+
+function createAnonymousIdentity() {
+  const adjectives = ["Amber", "Brisk", "Calm", "Clever", "Misty", "Quiet", "Swift", "Warm"];
+  const animals = ["Badger", "Falcon", "Fox", "Koala", "Otter", "Panda", "Raven", "Tiger"];
+  const random = new Uint8Array(18);
+  crypto.getRandomValues(random);
+  const adjective = adjectives[random[0]! % adjectives.length]!;
+  const animal = animals[random[1]! % animals.length]!;
+  return {
+    name: `${adjective} ${animal}`,
+    avatarHash: Array.from(random.slice(2), (value) => value.toString(16).padStart(2, "0")).join(
+      "",
+    ),
   };
 }
 

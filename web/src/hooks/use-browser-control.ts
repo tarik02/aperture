@@ -255,6 +255,24 @@ export function useBrowserControl({
   useSubscription(frame$);
   const activeTargetId = controlState.activeTargetId;
 
+  useEffect(() => {
+    if (collaboration.phase === "connected") {
+      collaboration.setActiveTarget(activeTargetId);
+    }
+  }, [activeTargetId, collaboration.phase, collaboration.setActiveTarget]);
+
+  useEffect(() => {
+    if (!collaboration.followingClientId) {
+      return;
+    }
+    const followed = collaboration.participants.find(
+      (participant) => participant.clientId === collaboration.followingClientId,
+    );
+    if (followed?.activeTargetId && followed.activeTargetId !== activeTargetId) {
+      pushMessage({ type: "targets.activate", targetId: followed.activeTargetId });
+    }
+  }, [activeTargetId, collaboration.followingClientId, collaboration.participants, pushMessage]);
+
   activeTargetIdRef.current = activeTargetId;
   targetsRef.current = targets;
   viewportRef.current = viewport;

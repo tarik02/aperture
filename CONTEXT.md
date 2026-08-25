@@ -24,6 +24,10 @@ _Avoid_: Share token, session token
 A rotatable session secret that permits observing and visual collaboration but never browser input.
 _Avoid_: Read-only session token, guest token
 
+**Follow relationship**:
+An ephemeral directed edge from one collaboration client to another. The follower adopts the followed client's selected target and highlights that client's cursor. Chains are allowed; cycles are rejected.
+_Avoid_: Screen share, control transfer
+
 ## Example dialogue
 
 Developer: "What should stopping a recording return?"
