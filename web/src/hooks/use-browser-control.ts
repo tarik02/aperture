@@ -298,7 +298,7 @@ export function useBrowserControl({
       if (isBrowserInputMessage(message)) {
         return collaboration.sendInput(message, inputDimensionsRef.current);
       }
-      if (!browserMessageAllowed(message, collaborationRole, collaboration.hasControl)) {
+      if (!browserMessageAllowed(message, collaborationRole)) {
         return false;
       }
       pushMessage(message);
@@ -939,11 +939,7 @@ function isBrowserInputMessage(message: ClientMessage): message is Extract<
   );
 }
 
-function browserMessageAllowed(
-  message: ClientMessage,
-  role: CollaborationRole,
-  hasControl: boolean,
-) {
+function browserMessageAllowed(message: ClientMessage, role: CollaborationRole) {
   switch (message.type) {
     case "targets.list":
     case "targets.activate":
@@ -958,7 +954,7 @@ function browserMessageAllowed(
     case "clipboard.paste":
       return false;
     default:
-      return role !== "viewer" && hasControl;
+      return role !== "viewer";
   }
 }
 function downloadBlob(blob: Blob, filename: string) {

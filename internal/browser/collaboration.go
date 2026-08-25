@@ -59,28 +59,29 @@ type collaborationClient struct {
 }
 
 type collaborationClientMessage struct {
-	Version           int     `json:"version"`
-	Type              string  `json:"type"`
-	ClientID          string  `json:"clientId"`
-	TargetID          string  `json:"targetId"`
-	Sequence          uint64  `json:"sequence"`
-	X                 float64 `json:"x"`
-	Y                 float64 `json:"y"`
-	ButtonCode        uint32  `json:"buttonCode"`
-	Keycode           uint32  `json:"keycode"`
-	Text              string  `json:"text"`
-	Pressed           bool    `json:"pressed"`
-	Horizontal        float64 `json:"horizontal"`
-	Vertical          float64 `json:"vertical"`
-	StopHorizontal    bool    `json:"stopHorizontal"`
-	StopVertical      bool    `json:"stopVertical"`
-	Name              string  `json:"name"`
-	AvatarHash        string  `json:"avatarHash"`
-	FollowingClientID string  `json:"followingClientId"`
-	StrokeID          string  `json:"strokeId"`
-	Color             string  `json:"color"`
-	Width             float64 `json:"width"`
-	Phase             string  `json:"phase"`
+	Version           int                    `json:"version"`
+	Type              string                 `json:"type"`
+	ClientID          string                 `json:"clientId"`
+	TargetID          string                 `json:"targetId"`
+	Mode              collaborationLeaseMode `json:"mode"`
+	Sequence          uint64                 `json:"sequence"`
+	X                 float64                `json:"x"`
+	Y                 float64                `json:"y"`
+	ButtonCode        uint32                 `json:"buttonCode"`
+	Keycode           uint32                 `json:"keycode"`
+	Text              string                 `json:"text"`
+	Pressed           bool                   `json:"pressed"`
+	Horizontal        float64                `json:"horizontal"`
+	Vertical          float64                `json:"vertical"`
+	StopHorizontal    bool                   `json:"stopHorizontal"`
+	StopVertical      bool                   `json:"stopVertical"`
+	Name              string                 `json:"name"`
+	AvatarHash        string                 `json:"avatarHash"`
+	FollowingClientID string                 `json:"followingClientId"`
+	StrokeID          string                 `json:"strokeId"`
+	Color             string                 `json:"color"`
+	Width             float64                `json:"width"`
+	Phase             string                 `json:"phase"`
 }
 
 type collaborationParticipant struct {
@@ -267,16 +268,13 @@ func (hub *collaborationHub) removeClient(client *collaborationClient) {
 func (hub *collaborationHub) handleClientMessage(client *collaborationClient, message collaborationClientMessage) error {
 	switch message.Type {
 	case "input.claim":
-		return hub.claim(client, message.TargetID, collaborationLeaseImplicit, false)
-	case "input.promote":
-		return hub.promote(client)
+		mode := message.Mode
+		if mode != collaborationLeaseImplicit && mode != collaborationLeaseExplicit {
+			return errors.New("invalid input lease mode")
+		}
+		return hub.claim(client, message.TargetID, mode)
 	case "input.release":
 		return hub.release(client)
-	case "input.take":
-		if client.role != "owner" {
-			return errors.New("only the owner can take control")
-		}
-		return hub.claim(client, message.TargetID, collaborationLeaseExplicit, true)
 	case "input.heartbeat":
 		return hub.heartbeat(client)
 	case "input.pointer.motion.absolute":
@@ -399,7 +397,7 @@ func (hub *collaborationHub) setFollowing(client *collaborationClient, following
 	return nil
 }
 
-func (hub *collaborationHub) claim(client *collaborationClient, targetID string, mode collaborationLeaseMode, force bool) error {
+func (hub *collaborationHub) claim(client *collaborationClient, targetID string, mode collaborationLeaseMode) error {
 	if client.role == "viewer" {
 		return errors.New("viewer input is disabled")
 	}
@@ -408,7 +406,18 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 		return remoteinput.ErrNotReady
 	}
 	hub.mu.Lock()
-	if hub.holder != nil && hub.holder != client && !force {
+	if hub.holder == client {
+		hub.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
+		if hub.leaseMode != collaborationLeaseExplicit {
+			hub.leaseMode = mode
+		}
+		hub.lastSeen = time.Now()
+		hub.mu.Unlock()
+		hub.broadcastLeaseState()
+		return nil
+	}
+	canPreemptImplicit := mode == collaborationLeaseExplicit && hub.leaseMode == collaborationLeaseImplicit
+	if hub.holder != nil && hub.holder != client && !canPreemptImplicit {
 		hub.mu.Unlock()
 		return remoteinput.ErrBusy
 	}
@@ -428,19 +437,6 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 	}
 	hub.holder = client
 	hub.leaseMode = mode
-	hub.lastSeen = time.Now()
-	hub.mu.Unlock()
-	hub.broadcastLeaseState()
-	return nil
-}
-
-func (hub *collaborationHub) promote(client *collaborationClient) error {
-	hub.mu.Lock()
-	if hub.holder != client {
-		hub.mu.Unlock()
-		return remoteinput.ErrNotOwner
-	}
-	hub.leaseMode = collaborationLeaseExplicit
 	hub.lastSeen = time.Now()
 	hub.mu.Unlock()
 	hub.broadcastLeaseState()
