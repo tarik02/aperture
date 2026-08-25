@@ -45,7 +45,7 @@ func (s *Server) validateCDPForwardAuth(ctx context.Context, sessionID, credenti
 		}
 		return "owner", nil
 	}
-	authorized, err := s.Sessions.AuthenticateCollaborationCapability(ctx, sessionID, credential)
+	authorized, err := s.Sessions.WakeCollaborationSession(ctx, sessionID, credential)
 	if err != nil {
 		return "", err
 	}
@@ -111,7 +111,7 @@ func (s *Server) authorizeLiveCapability(ctx context.Context, sessionID, authori
 		}
 		return "owner", nil
 	}
-	authorized, err := s.Sessions.AuthenticateCollaborationCapability(ctx, sessionID, authorization)
+	authorized, err := s.Sessions.WakeCollaborationSession(ctx, sessionID, authorization)
 	if err != nil {
 		return "", err
 	}

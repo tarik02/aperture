@@ -423,18 +423,7 @@ function collaborationProtocols(credentials: ApiCredentials, sessionToken?: stri
 }
 
 function loadCollaborationClientId() {
-  const storageKey = "aperture.collaboration.client-id";
-  try {
-    const stored = window.sessionStorage.getItem(storageKey);
-    if (stored) {
-      return stored;
-    }
-    const created = crypto.randomUUID();
-    window.sessionStorage.setItem(storageKey, created);
-    return created;
-  } catch {
-    return crypto.randomUUID();
-  }
+  return crypto.randomUUID();
 }
 
 function decodeServerMessage(value: unknown) {
