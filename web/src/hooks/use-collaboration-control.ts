@@ -224,6 +224,7 @@ export function useCollaborationControl({
 
     let disposed = false;
     let reconnectTimer: number | null = null;
+    let activeSocket: WebSocket | null = null;
 
     const connect = () => {
       if (disposed) {
@@ -234,9 +235,13 @@ export function useCollaborationControl({
         collaborationURL(sessionId),
         collaborationProtocols(credentials, sessionToken),
       );
+      activeSocket = socket;
       socketRef.current = socket;
 
       socket.addEventListener("open", () => {
+        if (disposed || socketRef.current !== socket) {
+          return;
+        }
         socket.send(
           JSON.stringify({
             version: 1,
@@ -248,6 +253,9 @@ export function useCollaborationControl({
         );
       });
       socket.addEventListener("message", (event) => {
+        if (disposed || socketRef.current !== socket) {
+          return;
+        }
         const message = decodeServerMessage(event.data);
         if (!message) {
           setLastError("The collaboration server sent an invalid message.");
@@ -323,9 +331,11 @@ export function useCollaborationControl({
         }
       });
       socket.addEventListener("close", () => {
-        if (socketRef.current === socket) {
-          socketRef.current = null;
+        if (disposed || socketRef.current !== socket) {
+          return;
         }
+        activeSocket = null;
+        socketRef.current = null;
         claimPendingRef.current = false;
         textKeyCodesRef.current.clear();
         setHolderClientId(null);
@@ -340,6 +350,9 @@ export function useCollaborationControl({
         }
       });
       socket.addEventListener("error", () => {
+        if (disposed || socketRef.current !== socket) {
+          return;
+        }
         setLastError("Collaboration connection failed.");
       });
     };
@@ -350,8 +363,12 @@ export function useCollaborationControl({
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);
       }
-      socketRef.current?.close();
-      socketRef.current = null;
+      const socket = activeSocket;
+      activeSocket = null;
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
+      socket?.close();
     };
   }, [clientId, credentials, enabled, identity, paintEventSubject, sessionId, sessionToken]);
 
