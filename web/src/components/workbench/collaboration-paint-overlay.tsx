@@ -17,7 +17,7 @@ type CollaborationPaintOverlayProps = {
 
 const paintColors = ["#f43f5e", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#8b5cf6"];
 const paintWidth = 4;
-const paintSendIntervalMs = 40;
+const paintSendIntervalMs = 20;
 const maximumPaintPoints = 2_048;
 const maximumPaintStrokes = 512;
 
@@ -97,8 +97,22 @@ export function CollaborationPaintOverlay({
         }
         context.beginPath();
         context.moveTo(first.x * width, first.y * height);
-        for (const point of stroke.points.slice(1)) {
-          context.lineTo(point.x * width, point.y * height);
+        for (let index = 1; index < stroke.points.length - 1; index += 1) {
+          const point = stroke.points[index];
+          const next = stroke.points[index + 1];
+          if (!point || !next) {
+            continue;
+          }
+          context.quadraticCurveTo(
+            point.x * width,
+            point.y * height,
+            ((point.x + next.x) / 2) * width,
+            ((point.y + next.y) / 2) * height,
+          );
+        }
+        const last = stroke.points[stroke.points.length - 1];
+        if (last) {
+          context.lineTo(last.x * width, last.y * height);
         }
         context.stroke();
       }
