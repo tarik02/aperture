@@ -17,7 +17,7 @@ type CollaborationPaintOverlayProps = {
 
 const paintColors = ["#f43f5e", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#8b5cf6"];
 const paintWidth = 4;
-const paintSendIntervalMs = 20;
+const paintSendIntervalMs = 24;
 const maximumPaintPoints = 2_048;
 const maximumPaintStrokes = 512;
 

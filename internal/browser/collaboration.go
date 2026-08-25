@@ -316,11 +316,12 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 		return errors.New("paint target is unavailable")
 	}
 	hub.mu.Lock()
-	if elapsed := time.Since(client.lastPaintAt); elapsed < 20*time.Millisecond {
+	now := time.Now()
+	if message.Phase == "move" && now.Sub(client.lastPaintAt) < 20*time.Millisecond {
 		hub.mu.Unlock()
 		return nil
 	}
-	client.lastPaintAt = time.Now()
+	client.lastPaintAt = now
 	hub.mu.Unlock()
 	hub.broadcast(collaborationServerMessage{
 		Version:  1,
