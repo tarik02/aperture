@@ -343,7 +343,7 @@ export function BrowserViewport({
       control.setCaptured(true);
     }
     if (!control.collaboration.hasControl) {
-      control.collaboration.claim(control.activeTargetId);
+      control.collaboration.claim(control.activeTargetId, "implicit");
     }
     containerRef.current?.focus();
     return control.activeTargetId;
@@ -373,7 +373,7 @@ export function BrowserViewport({
     }
     control.setCaptured(true);
     if (control.activeTargetId && !control.collaboration.hasControl) {
-      control.collaboration.claim(control.activeTargetId);
+      control.collaboration.claim(control.activeTargetId, "implicit");
     }
     containerRef.current?.focus();
   }
@@ -385,7 +385,7 @@ export function BrowserViewport({
     }
     control.setCaptured(true);
     if (!control.collaboration.hasControl) {
-      control.collaboration.claim(control.activeTargetId);
+      control.collaboration.claim(control.activeTargetId, "implicit");
     }
   }
 
@@ -831,7 +831,7 @@ export function BrowserViewport({
       onPointerMove={handlePointerMove}
       onFocus={() => {
         if (!inputDisabled && control.activeTargetId && !control.collaboration.hasControl) {
-          control.collaboration.claim(control.activeTargetId);
+          control.collaboration.claim(control.activeTargetId, "implicit");
         }
       }}
       onPointerEnter={handlePointerEnter}

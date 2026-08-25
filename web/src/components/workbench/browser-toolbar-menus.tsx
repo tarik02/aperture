@@ -6,6 +6,8 @@ import {
   Download,
   Gauge,
   Info,
+  Lock,
+  LockOpen,
   Maximize2,
   MoreVertical,
   Monitor,
@@ -333,6 +335,8 @@ function RestMenuItems({
 function InputControlMenuItem({ control }: { control: UseBrowserControlResult }) {
   const collaboration = control.collaboration;
   const targetId = control.activeTargetId;
+  const explicitControlClaimed =
+    collaboration.holderClientId !== null && collaboration.leaseMode === "explicit";
   let label = "Control offline";
   let disabled = collaboration.phase !== "connected" || !targetId;
   let action = () => undefined;
@@ -341,35 +345,30 @@ function InputControlMenuItem({ control }: { control: UseBrowserControlResult })
     label = "View only";
     disabled = true;
   } else if (collaboration.hasControl && collaboration.leaseMode === "explicit") {
-    label = "Unlock control";
+    label = "Release control";
     action = () => {
       collaboration.release();
     };
   } else if (collaboration.hasControl) {
-    label = "Lock control";
-    action = () => {
-      collaboration.promote();
-    };
-  } else if (collaboration.role === "owner") {
-    label = collaboration.holderClientId ? "Take control" : "Claim control";
+    label = "Claim control";
     action = () => {
       if (targetId) {
-        collaboration.take(targetId);
+        collaboration.claim(targetId, "explicit");
       }
     };
   } else {
-    label = collaboration.holderClientId ? "Control in use" : "Claim control";
-    disabled = disabled || collaboration.holderClientId !== null;
+    label = explicitControlClaimed ? "Control in use" : "Claim control";
+    disabled = disabled || explicitControlClaimed;
     action = () => {
       if (targetId) {
-        collaboration.claim(targetId);
+        collaboration.claim(targetId, "explicit");
       }
     };
   }
 
   return (
     <DropdownMenuItem disabled={disabled} onClick={action}>
-      <MousePointer2 />
+      {explicitControlClaimed ? <Lock /> : <LockOpen />}
       {label}
     </DropdownMenuItem>
   );
