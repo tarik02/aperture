@@ -40,10 +40,8 @@ export type CollaborationControl = {
   hasControl: boolean;
   canRequestControl: boolean;
   lastError: CollaborationError | null;
-  claim: (targetId: string) => boolean;
-  promote: () => boolean;
+  claim: (targetId: string, mode: CollaborationLeaseMode) => boolean;
   release: () => boolean;
-  take: (targetId: string) => boolean;
   sendInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
 };
 
@@ -183,6 +181,7 @@ export function useCollaborationControl({
           }
           case "error":
             claimPendingRef.current = false;
+            releasePendingRef.current = false;
             setLastError({ code: message.code, message: message.message });
             return;
           default: {
@@ -198,6 +197,7 @@ export function useCollaborationControl({
         activeSocket = null;
         socketRef.current = null;
         claimPendingRef.current = false;
+        releasePendingRef.current = false;
         textKeyCodesRef.current.clear();
         setHolderClientId(null);
         setLeaseMode(null);
@@ -237,45 +237,40 @@ export function useCollaborationControl({
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       return false;
     }
-    socket.send(JSON.stringify({ version: 1, ...message }));
-    return true;
+    try {
+      socket.send(JSON.stringify({ version: 1, ...message }));
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   const claim = useCallback(
-    (targetId: string) => {
+    (targetId: string, mode: CollaborationLeaseMode) => {
       if (role === "viewer") {
+        return false;
+      }
+      if (!send({ type: "input.claim", targetId, mode })) {
         return false;
       }
       releasePendingRef.current = false;
       claimPendingRef.current = true;
-      return send({ type: "input.claim", targetId });
+      return true;
     },
     [role, send],
   );
-  const promote = useCallback(() => send({ type: "input.promote" }), [send]);
   const release = useCallback(() => {
     if (releasePendingRef.current || holderClientIdRef.current !== clientId) {
+      return false;
+    }
+    if (!send({ type: "input.release" })) {
       return false;
     }
     releasePendingRef.current = true;
     claimPendingRef.current = false;
     textKeyCodesRef.current.clear();
-    holderClientIdRef.current = null;
-    setHolderClientId(null);
-    setLeaseMode(null);
-    return send({ type: "input.release" });
+    return true;
   }, [clientId, send]);
-  const take = useCallback(
-    (targetId: string) => {
-      if (role !== "owner") {
-        return false;
-      }
-      releasePendingRef.current = false;
-      claimPendingRef.current = true;
-      return send({ type: "input.take", targetId });
-    },
-    [role, send],
-  );
 
   const sendInputEvent = useCallback(
     (targetId: string, message: Record<string, unknown>) => {
@@ -431,9 +426,7 @@ export function useCollaborationControl({
     canRequestControl: role !== "viewer" && phase === "connected",
     lastError,
     claim,
-    promote,
     release,
-    take,
     sendInput,
   };
 }
