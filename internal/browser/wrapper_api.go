@@ -329,6 +329,7 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) 
 	}
 	collaborationRole := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
 	if collaborationRole != "" && collaborationRole != "owner" {
+		delete(status, "recordings")
 		writeWrapperJSON(w, http.StatusOK, status)
 		return
 	}
