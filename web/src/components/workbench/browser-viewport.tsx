@@ -118,6 +118,8 @@ export function BrowserViewport({
     renderHeight,
   );
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
+  const collaborationHint = resolveCollaborationHint(control.collaboration);
+  const cursorHint = disconnectedHint ?? collaborationHint;
 
   useEffect(() => {
     control.setInputDimensions({ width: inputWidth, height: inputHeight });
@@ -761,7 +763,7 @@ export function BrowserViewport({
   }
 
   function updateCursorHint(event: React.PointerEvent) {
-    if (!disconnectedHint) {
+    if (!cursorHint) {
       return;
     }
     const rect = containerRef.current?.getBoundingClientRect();
@@ -788,6 +790,7 @@ export function BrowserViewport({
     !isDisconnectedSocketError(control.lastError.message)
       ? control.lastError
       : null;
+  const visibleCollaborationError = collaborationHint ? null : control.collaboration.lastError;
 
   return (
     <div
@@ -876,17 +879,22 @@ export function BrowserViewport({
         <StatusBadge status={status} />
       </div>
       {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
-      {disconnectedHint && cursorHintPoint ? (
+      {cursorHint && cursorHintPoint ? (
         <div
           className="pointer-events-none absolute z-20 max-w-64 translate-x-3 translate-y-3 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
           style={{ left: cursorHintPoint.x, top: cursorHintPoint.y }}
         >
-          {disconnectedHint}
+          {cursorHint}
         </div>
       ) : null}
       {visibleLastError ? (
         <div className="pointer-events-none absolute bottom-2 left-2 max-w-[80%] rounded-md border border-destructive/40 bg-background/90 px-2 py-1 text-xs text-destructive">
           {visibleLastError.message}
+        </div>
+      ) : null}
+      {visibleCollaborationError ? (
+        <div className="pointer-events-none absolute bottom-2 left-2 max-w-[80%] rounded-md border border-destructive/40 bg-background/90 px-2 py-1 text-xs text-destructive">
+          {visibleCollaborationError.message}
         </div>
       ) : null}
       {control.mediaError ? (
@@ -943,6 +951,27 @@ function resolveDisconnectedHint(
   }
   if (phase === "disconnected" || phase === "error") {
     return "CDP disconnected";
+  }
+  return null;
+}
+
+function resolveCollaborationHint(
+  collaboration: UseBrowserControlResult["collaboration"],
+): string | null {
+  if (
+    collaboration.holderClientId !== null &&
+    collaboration.holderClientId !== collaboration.clientId
+  ) {
+    return "Input in use";
+  }
+  if (
+    collaboration.lastError?.code === "input_busy" ||
+    collaboration.lastError?.code === "input_not_owned"
+  ) {
+    return "Input in use";
+  }
+  if (collaboration.lastError?.code === "input_unavailable") {
+    return "Input unavailable";
   }
   return null;
 }
