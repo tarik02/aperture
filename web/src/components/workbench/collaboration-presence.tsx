@@ -87,23 +87,26 @@ function ParticipantButton({
     : following
       ? `${participant.name} · click to stop following`
       : `${participant.name} · click to follow`;
+  const trigger = local ? (
+    <span
+      className="inline-flex size-7 shrink-0 items-center justify-center rounded-full"
+      aria-label={label}
+    />
+  ) : (
+    <Button
+      type="button"
+      variant={following ? "secondary" : "ghost"}
+      size="icon-sm"
+      className="shrink-0 rounded-full p-0"
+      aria-label={label}
+      aria-pressed={following}
+      onClick={() => collaboration.follow(following ? null : participant.clientId)}
+    />
+  );
 
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            variant={following ? "secondary" : "ghost"}
-            size="icon-sm"
-            className="shrink-0 rounded-full p-0 disabled:opacity-100"
-            disabled={local}
-            aria-label={label}
-            aria-pressed={following}
-            onClick={() => collaboration.follow(following ? null : participant.clientId)}
-          />
-        }
-      >
+      <TooltipTrigger render={trigger}>
         <ParticipantAvatar participant={participant} following={following} />
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
