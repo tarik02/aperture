@@ -18,8 +18,8 @@ Options:
   --render-node PATH       DRM render node for .#dev-gpu
   -h, --help               Show this help
 
-Vite runs in the foreground. State and the initial system-admin token persist
-under .data/ in the current directory.
+Vite runs in the foreground. State persists in a worktree-specific Podman
+volume, and the initial system-admin token persists under .data/.
 EOF
 }
 
@@ -33,6 +33,9 @@ dev_frontend_container_port=3000
 dev_backend_container_port=8080
 dev_container_name=${PWD##*/}
 read -r dev_worktree_checksum _ < <(printf '%s\n' "$PWD" | cksum)
+read -r dev_worktree_hash _ < <(printf '%s\n' "$PWD" | sha256sum)
+dev_worktree_id=${dev_worktree_hash:0:16}
+dev_state_volume=aperture-dev-$dev_worktree_id
 dev_bind_octet_2=$((64 + dev_worktree_checksum % 64))
 dev_bind_octet_3=$(((dev_worktree_checksum >> 6) % 256))
 dev_bind_octet_4=$((1 + (dev_worktree_checksum >> 14) % 254))
@@ -202,16 +205,23 @@ dev_project_dir=$(realpath -- "$PWD")
 [[ -f $dev_traefik_template ]] || fail "Traefik config template is unavailable"
 [[ -f $dev_project_dir/web/package.json ]] || fail "run this command from the Aperture repository root"
 
-install -d -m 0700 -- "$PWD/.data" "$PWD/.data/store"
+install -d -m 0700 -- "$PWD/.data"
 dev_data_dir=$(realpath -- "$PWD/.data")
-dev_store_dir=$dev_data_dir/store
+dev_legacy_store_dir=$dev_data_dir/store
 dev_admin_token_file=$dev_data_dir/admin-token
+dev_image_cache_file=$dev_data_dir/image-cache
+dev_state_volume_file=$dev_data_dir/state-volume
 
 dev_temp_dir=$(mktemp -d -t aperture-dev.XXXXXXXXXX)
 dev_traefik_config=$dev_temp_dir/traefik.yaml
+dev_readiness_pid=
 cleanup() {
   exit_status=$?
   trap - EXIT
+  if [[ -n $dev_readiness_pid ]]; then
+    kill "$dev_readiness_pid" 2>/dev/null || true
+    wait "$dev_readiness_pid" 2>/dev/null || true
+  fi
   rm -f -- "$dev_traefik_config"
   rmdir -- "$dev_temp_dir" 2>/dev/null || true
   exit "$exit_status"
@@ -224,41 +234,119 @@ sed \
   "$dev_traefik_template" > "$dev_traefik_config"
 chmod 0644 "$dev_traefik_config"
 
-printf 'Loading %s...\n' "$dev_image_ref"
-skopeo --insecure-policy copy --quiet \
-  "docker-archive:$dev_image_archive" \
-  "containers-storage:$dev_image_ref"
-
-printf 'Provisioning the development database...\n'
-dev_provision_args=(
-  run
-  --rm
-  --userns "keep-id:uid=1000,gid=1000"
-  --user 1000:1000
-  --volume "$dev_data_dir:/provision"
-  --volume "$dev_store_dir:/var/lib/aperture"
-  --entrypoint aperture
-)
-if [[ -n $dev_env_file ]]; then
-  dev_provision_args+=(--env-file "$dev_env_file")
-fi
-dev_provision_args+=(--env "APERTURE_EXTERNAL_BASE_URL=http://$dev_bind_address:$dev_port")
-if [[ -n $dev_config_file ]]; then
-  dev_provision_args+=(--volume "$dev_config_file:/etc/aperture/aperture.toml:ro")
+dev_cached_image_archive=
+dev_cached_image_digest=
+if [[ -r $dev_image_cache_file ]]; then
+  {
+    IFS= read -r dev_cached_image_archive || true
+    IFS= read -r dev_cached_image_digest || true
+  } < "$dev_image_cache_file"
 fi
 
-podman "${dev_provision_args[@]}" "$dev_image_ref" \
-  --config /etc/aperture/aperture.toml admin provision \
-  --admin-token-file /provision/admin-token \
-  --default-tenant default
-[[ -s $dev_admin_token_file ]] || fail "provisioning did not create $dev_admin_token_file"
+if [[ $dev_cached_image_archive == "$dev_image_archive" ]] &&
+  [[ $dev_cached_image_digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  dev_image_digest=$dev_cached_image_digest
+else
+  printf 'Inspecting %s...\n' "$dev_image_ref"
+  dev_image_digest=$(skopeo inspect --format '{{.Digest}}' "docker-archive:$dev_image_archive")
+  [[ $dev_image_digest =~ ^sha256:[0-9a-f]{64}$ ]] || fail "could not determine the development image digest"
+fi
+
+dev_loaded_image_digest=$(podman image inspect --format '{{.Digest}}' "$dev_image_ref" 2>/dev/null || true)
+if [[ $dev_loaded_image_digest == "$dev_image_digest" ]]; then
+  printf 'Using cached %s\n' "$dev_image_ref"
+else
+  printf 'Loading %s...\n' "$dev_image_ref"
+  skopeo --insecure-policy copy --quiet \
+    "docker-archive:$dev_image_archive" \
+    "containers-storage:$dev_image_ref"
+fi
+printf '%s\n%s\n' "$dev_image_archive" "$dev_image_digest" > "$dev_image_cache_file"
+chmod 0600 "$dev_image_cache_file"
+
+dev_state_volume_created=0
+if ! podman volume exists "$dev_state_volume"; then
+  podman volume create \
+    --label "io.aperture.dev.worktree=$dev_project_dir" \
+    "$dev_state_volume" >/dev/null
+  dev_state_volume_created=1
+fi
+
+dev_state_volume_ready=0
+if (( dev_state_volume_created == 0 )) &&
+  [[ -r $dev_state_volume_file ]] &&
+  [[ $(<"$dev_state_volume_file") == "$dev_state_volume" ]] &&
+  [[ -s $dev_admin_token_file ]]; then
+  dev_state_volume_ready=1
+fi
+
+if (( dev_state_volume_ready == 0 )); then
+  if podman container exists "$dev_container_name"; then
+    printf 'Stopping %s before initializing its state volume...\n' "$dev_container_name"
+    podman stop --ignore --time 35 "$dev_container_name" >/dev/null
+  fi
+
+  if (( dev_state_volume_created == 1 )) &&
+    [[ -d $dev_legacy_store_dir ]] &&
+    [[ -n $(find "$dev_legacy_store_dir" -mindepth 1 -print -quit) ]]; then
+    printf 'Migrating development state from %s to %s...\n' "$dev_legacy_store_dir" "$dev_state_volume"
+    if ! podman run \
+      --rm \
+      --userns host \
+      --user 0:0 \
+      --volume "$dev_legacy_store_dir:/source:ro" \
+      --volume "$dev_state_volume:/target" \
+      --entrypoint /bin/cp \
+      "$dev_image_ref" \
+      -a /source/. /target/; then
+      podman volume rm "$dev_state_volume" >/dev/null 2>&1 || true
+      fail "could not migrate the development state"
+    fi
+  fi
+
+  printf 'Provisioning the development database...\n'
+  dev_provision_args=(
+    run
+    --rm
+    --userns host
+    --user 0:0
+    --volume "$dev_data_dir:/provision"
+    --volume "$dev_state_volume:/var/lib/aperture"
+    --entrypoint aperture
+  )
+  if [[ -n $dev_env_file ]]; then
+    dev_provision_args+=(--env-file "$dev_env_file")
+  fi
+  dev_provision_args+=(--env "APERTURE_EXTERNAL_BASE_URL=http://$dev_bind_address:$dev_port")
+  if [[ -n $dev_config_file ]]; then
+    dev_provision_args+=(--volume "$dev_config_file:/etc/aperture/aperture.toml:ro")
+  fi
+
+  podman "${dev_provision_args[@]}" "$dev_image_ref" \
+    --config /etc/aperture/aperture.toml admin provision \
+    --admin-token-file /provision/admin-token \
+    --default-tenant default
+  [[ -s $dev_admin_token_file ]] || fail "provisioning did not create $dev_admin_token_file"
+
+  podman run \
+    --rm \
+    --userns host \
+    --user 0:0 \
+    --volume "$dev_state_volume:/var/lib/aperture" \
+    --entrypoint /bin/chown \
+    "$dev_image_ref" \
+    -R 1000:1000 /var/lib/aperture
+
+  printf '%s\n' "$dev_state_volume" > "$dev_state_volume_file"
+  chmod 0600 "$dev_state_volume_file"
+fi
 
 dev_run_args=(
   run
   --rm
   --name "$dev_container_name"
   --replace
-  --userns "keep-id:uid=1000,gid=1000"
+  --userns host
   --user 0:0
   --network pasta
   --publish "$dev_bind_address:$dev_port:$dev_frontend_container_port/tcp"
@@ -268,7 +356,7 @@ dev_run_args=(
   --stop-timeout 35
   --tmpfs "/run/aperture:rw,nosuid,nodev,size=512m"
   --volume "$dev_project_dir:/workspace"
-  --volume "$dev_store_dir:/var/lib/aperture"
+  --volume "$dev_state_volume:/var/lib/aperture"
   --volume "$dev_traefik_config:/etc/aperture/traefik.yaml:ro"
   --health-cmd "curl -fsS http://127.0.0.1:$dev_frontend_container_port/api/health"
 )
@@ -277,6 +365,7 @@ if [[ -n $dev_env_file ]]; then
   dev_run_args+=(--env-file "$dev_env_file")
 fi
 dev_run_args+=(
+  --env APERTURE_CONFIG_SOURCE=
   --env "APERTURE_DEV_PROXY_TARGET=http://127.0.0.1:$dev_backend_container_port"
   --env "APERTURE_EXTERNAL_BASE_URL=http://$dev_bind_address:$dev_port"
   --env "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP=$dev_bind_address"
@@ -284,7 +373,10 @@ dev_run_args+=(
   --env "APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX=$dev_webrtc_udp_port_max"
 )
 if [[ -n $dev_config_file ]]; then
-  dev_run_args+=(--volume "$dev_config_file:/etc/aperture/aperture.toml:ro")
+  dev_run_args+=(
+    --env APERTURE_CONFIG_SOURCE=/run/aperture-config.toml
+    --volume "$dev_config_file:/run/aperture-config.toml:ro"
+  )
 fi
 if (( dev_gpu == 1 )); then
   dev_run_args+=(
@@ -303,11 +395,26 @@ if (( dev_gpu == 1 )); then
   fi
 fi
 
-printf 'Aperture will listen at http://%s:%s through containerized Vite\n' "$dev_bind_address" "$dev_port"
 printf 'Container: %s\n' "$dev_container_name"
+printf 'State volume: %s\n' "$dev_state_volume"
 printf 'Loopback address: %s\n' "$dev_bind_address"
 printf 'WebRTC UDP ports: %s-%s\n' "$dev_webrtc_udp_port_min" "$dev_webrtc_udp_port_max"
 printf 'System-admin token: %s\n' "$dev_admin_token_file"
-printf '\nhttp://%s:%s/\n\n' "$dev_bind_address" "$dev_port"
+
+dev_url="http://$dev_bind_address:$dev_port"
+printf 'Starting Aperture at %s through containerized Vite...\n' "$dev_url"
+(
+  until
+    curl --fail --silent --location --max-time 2 --output /dev/null "$dev_url/" &&
+      curl --fail --silent --max-time 10 --output /dev/null \
+        "$dev_url/@id/virtual:tanstack-start-dev-client-entry" &&
+      curl --fail --silent --max-time 2 --output /dev/null "$dev_url/api/health"
+  do
+    sleep 1
+  done
+
+  printf '\nAperture is ready: %s/\n\n' "$dev_url"
+) &
+dev_readiness_pid=$!
 
 podman "${dev_run_args[@]}" "$dev_image_ref"

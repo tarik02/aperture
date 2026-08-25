@@ -850,15 +850,14 @@
               export CI=true
               export PNPM_CONFIG_STORE_DIR=/workspace/.data/pnpm-store
 
-              s6-setuidgid aperture \
-                pnpm --dir /workspace \
-                  install --frozen-lockfile
-              exec s6-setuidgid aperture \
-                pnpm --dir /workspace/web dev \
-                  --host 0.0.0.0 \
-                  --port 3000 \
-                  --strictPort \
-                  --clearScreen false
+              pnpm --dir /workspace \
+                install --frozen-lockfile
+              pnpm --dir /workspace/web generate-routes
+              exec pnpm --dir /workspace/web dev \
+                --host 0.0.0.0 \
+                --port 3000 \
+                --strictPort \
+                --clearScreen false
             '';
             dockerRootfs = mkDockerRootfs {
               inherit
@@ -1098,6 +1097,8 @@
             inherit name;
             runtimeInputs = [
               pkgs.coreutils
+              pkgs.curl
+              pkgs.findutils
               pkgs.jq
               pkgs.passt
               pkgs.gnused
