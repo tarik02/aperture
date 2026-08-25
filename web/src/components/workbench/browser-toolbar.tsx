@@ -10,8 +10,6 @@ import {
   Pencil,
   RefreshCw,
   Square,
-  Lock,
-  Unlock,
   Wrench,
 } from "lucide-react";
 import { interval } from "rxjs";
@@ -222,7 +220,6 @@ export function BrowserToolbar({
           onOpenChange={onDevToolsOpenChange}
           onDockChange={onDevToolsDockChange}
         />
-        <InputControlButton control={control} />
         <BrowserMenus
           control={control}
           cdpUrl={cdpUrl}
@@ -239,68 +236,6 @@ export function BrowserToolbar({
         />
       </div>
     </div>
-  );
-}
-
-function InputControlButton({ control }: { control: UseBrowserControlResult }) {
-  const collaboration = control.collaboration;
-  const targetId = control.activeTargetId;
-  let label = "Control offline";
-  let disabled = collaboration.phase !== "connected" || !targetId;
-  let pressed = false;
-  let action = () => undefined;
-
-  if (collaboration.role === "viewer") {
-    label = "View only";
-    disabled = true;
-  } else if (collaboration.hasControl && collaboration.leaseMode === "explicit") {
-    label = "Unlock control";
-    pressed = true;
-    action = () => {
-      collaboration.release();
-    };
-  } else if (collaboration.hasControl) {
-    label = "Lock control";
-    action = () => {
-      collaboration.promote();
-    };
-  } else if (collaboration.role === "owner") {
-    label = collaboration.holderClientId ? "Take control" : "Claim control";
-    action = () => {
-      if (targetId) {
-        collaboration.take(targetId);
-      }
-    };
-  } else {
-    label = collaboration.holderClientId ? "Control in use" : "Claim control";
-    disabled = disabled || collaboration.holderClientId !== null;
-    action = () => {
-      if (targetId) {
-        collaboration.claim(targetId);
-      }
-    };
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            variant={pressed ? "secondary" : "ghost"}
-            size="icon-sm"
-            className="shrink-0"
-            disabled={disabled}
-            aria-label={label}
-            aria-pressed={pressed}
-            onClick={action}
-          />
-        }
-      >
-        {pressed ? <Unlock /> : <Lock />}
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
   );
 }
 
