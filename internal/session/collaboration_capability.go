@@ -102,6 +102,32 @@ func (s *Service) AuthenticateCollaborationCapability(ctx context.Context, route
 	return &CollaborationCapabilityAuth{SessionID: tokenSessionID, TenantID: capability.TenantID, Role: role, Session: sessionRow}, nil
 }
 
+// WakeCollaborationSession validates a collaboration capability and waits until its session is ready.
+func (s *Service) WakeCollaborationSession(ctx context.Context, routeSessionID, authorization string) (*CollaborationCapabilityAuth, error) {
+	routeSessionID = strings.TrimSpace(routeSessionID)
+	unlock := s.repo.LockSession(routeSessionID)
+	authorized, err := s.AuthenticateCollaborationCapability(ctx, routeSessionID, authorization)
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	release := s.acquireInhibitor(authorized.SessionID)
+	unlock()
+
+	sessionRow, err := s.ensureSessionRunning(ctx, authorized.Session)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	if err := s.touchConnected(ctx, sessionRow); err != nil {
+		release()
+		return nil, err
+	}
+	release()
+	authorized.Session = sessionRow
+	return authorized, nil
+}
+
 func (s *Service) authorizedCollaborationSession(ctx context.Context, sessionID, tenantID string) (*db.Session, error) {
 	sessionRow, err := s.repo.GetSessionByID(ctx, sessionID)
 	if err != nil {
@@ -144,6 +170,13 @@ func (s *Service) ensureCollaborationCapabilities(ctx context.Context, sessionRo
 			}
 			if err := s.repo.CreateSessionCollaborationCapability(ctx, capability); err != nil {
 				return CollaborationCapabilitiesView{}, err
+			}
+			capability, err = s.repo.GetSessionCollaborationCapability(ctx, sessionRow.ID, string(role))
+			if err != nil {
+				return CollaborationCapabilitiesView{}, err
+			}
+			if capability == nil {
+				return CollaborationCapabilitiesView{}, ErrInvalidState
 			}
 		}
 		switch role {

@@ -270,7 +270,7 @@ func (r *wrapperRuntime) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": r.values.SessionID, "gpuMode": r.values.GPUMode, "mediaCodec": r.values.MediaProducerCodec})
 }
 
-func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
+func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := map[string]any{
@@ -326,6 +326,11 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 	if r.targets != nil {
 		status["targets"] = r.targets.snapshots()
+	}
+	collaborationRole := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	if collaborationRole != "" && collaborationRole != "owner" {
+		writeWrapperJSON(w, http.StatusOK, status)
+		return
 	}
 	if r.values.SessionTokenPath != "" {
 		body, err := os.ReadFile(r.values.SessionTokenPath)
