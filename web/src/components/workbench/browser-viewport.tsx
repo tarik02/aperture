@@ -785,9 +785,6 @@ export function BrowserViewport({
   }
 
   function updateCursorHint(event: React.PointerEvent) {
-    if (!cursorHint) {
-      return;
-    }
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) {
       return;
