@@ -930,7 +930,12 @@ export function BrowserViewport({
         <CollaborationPaintOverlay
           collaboration={control.collaboration}
           targetId={control.activeTargetId}
-          enabled={paintingEnabled && control.collaboration.phase === "connected"}
+          enabled={
+            paintingEnabled &&
+            control.collaboration.phase === "connected" &&
+            !control.mediaSwitching &&
+            !mediaTransitioning
+          }
           left={displayMetrics.offsetX}
           top={displayMetrics.offsetY}
           width={displayMetrics.renderedWidth}

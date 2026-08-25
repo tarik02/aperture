@@ -55,6 +55,7 @@ type collaborationClient struct {
 	avatarHash        string
 	activeTargetID    string
 	followingClientID string
+	lastPaintAt       time.Time
 }
 
 type collaborationClientMessage struct {
@@ -301,6 +302,13 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 	if _, ok := hub.readyTarget(message.TargetID); !ok {
 		return errors.New("paint target is unavailable")
 	}
+	hub.mu.Lock()
+	if elapsed := time.Since(client.lastPaintAt); elapsed < 20*time.Millisecond {
+		hub.mu.Unlock()
+		return nil
+	}
+	client.lastPaintAt = time.Now()
+	hub.mu.Unlock()
 	hub.broadcast(collaborationServerMessage{
 		Version:  1,
 		Type:     "paint.point",

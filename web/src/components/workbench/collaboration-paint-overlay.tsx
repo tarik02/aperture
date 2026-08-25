@@ -207,7 +207,7 @@ export function CollaborationPaintOverlay({
     }
     const point = normalizedPointer(event);
     if (point) {
-      collaboration.sendCursor(targetId, point.x, point.y, { width: 1, height: 1 });
+      collaboration.sendCursor(targetId, point.x, point.y, { width: 2, height: 2 });
     }
     sendPoint(event, "start");
   }
@@ -216,7 +216,7 @@ export function CollaborationPaintOverlay({
     stopPointerEvent(event);
     const point = normalizedPointer(event);
     if (point) {
-      collaboration.sendCursor(targetId, point.x, point.y, { width: 1, height: 1 });
+      collaboration.sendCursor(targetId, point.x, point.y, { width: 2, height: 2 });
     }
     if (
       !activeStrokeIdRef.current ||
