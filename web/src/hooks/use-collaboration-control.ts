@@ -27,6 +27,11 @@ export type CollaborationCursor = {
   y: number;
 };
 
+export type CollaborationError = {
+  code: string;
+  message: string;
+};
+
 type BrowserInputMessage = Extract<
   ClientMessage,
   {
@@ -53,7 +58,7 @@ export type CollaborationControl = {
   leaseMode: CollaborationLeaseMode | null;
   hasControl: boolean;
   canRequestControl: boolean;
-  lastError: string | null;
+  lastError: CollaborationError | null;
   participants: CollaborationParticipant[];
   cursors: ReadonlyMap<string, CollaborationCursor>;
   followingClientId: string | null;
@@ -158,7 +163,7 @@ export function useCollaborationControl({
   const [phase, setPhase] = useState<CollaborationPhase>("idle");
   const [holderClientId, setHolderClientId] = useState<string | null>(null);
   const [leaseMode, setLeaseMode] = useState<CollaborationLeaseMode | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<CollaborationError | null>(null);
   const [participants, setParticipants] = useState<CollaborationParticipant[]>([]);
   const [cursors, setCursors] = useState<ReadonlyMap<string, CollaborationCursor>>(() => new Map());
   const socketRef = useRef<WebSocket | null>(null);
@@ -222,7 +227,10 @@ export function useCollaborationControl({
         }
         const message = decodeServerMessage(event.data);
         if (!message) {
-          setLastError("The collaboration server sent an invalid message.");
+          setLastError({
+            code: "invalid_server_message",
+            message: "The collaboration server sent an invalid message.",
+          });
           return;
         }
         switch (message.type) {
@@ -235,6 +243,13 @@ export function useCollaborationControl({
             holderClientIdRef.current = nextHolder;
             setHolderClientId(nextHolder);
             setLeaseMode(message.mode ?? null);
+            setLastError((current) =>
+              current?.code === "input_busy" ||
+              current?.code === "input_not_owned" ||
+              current?.code === "input_unavailable"
+                ? null
+                : current,
+            );
             releasePendingRef.current = false;
             if (nextHolder !== clientId) {
               claimPendingRef.current = false;
@@ -271,7 +286,7 @@ export function useCollaborationControl({
             return;
           case "error":
             claimPendingRef.current = false;
-            setLastError(message.message);
+            setLastError({ code: message.code, message: message.message });
             return;
           default: {
             const exhaustive: never = message;
@@ -301,7 +316,10 @@ export function useCollaborationControl({
         if (disposed || socketRef.current !== socket) {
           return;
         }
-        setLastError("Collaboration connection failed.");
+        setLastError({
+          code: "connection_failed",
+          message: "Collaboration connection failed.",
+        });
       });
     };
 

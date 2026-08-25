@@ -136,10 +136,9 @@ export function BrowserMenus({
           </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
             <RestMenuItems
+              control={control}
               cdpUrl={cdpUrl}
               shareUrls={shareUrls}
-              busy={busy}
-              onReconnect={onReconnect}
               onSessionDetails={onSessionDetails}
             />
             <DropdownMenuSeparator />
@@ -157,6 +156,8 @@ export function BrowserMenus({
               onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
+              busy={busy}
+              onReconnect={onReconnect}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -221,6 +222,8 @@ export function BrowserMenus({
               onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
+              busy={busy}
+              onReconnect={onReconnect}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -246,10 +249,9 @@ export function BrowserMenus({
           </Tooltip>
           <DropdownMenuContent align="end" className="w-48">
             <RestMenuItems
+              control={control}
               cdpUrl={cdpUrl}
               shareUrls={shareUrls}
-              busy={busy}
-              onReconnect={onReconnect}
               onSessionDetails={onSessionDetails}
             />
           </DropdownMenuContent>
@@ -260,20 +262,19 @@ export function BrowserMenus({
 }
 
 function RestMenuItems({
+  control,
   cdpUrl,
   shareUrls,
-  busy,
-  onReconnect,
   onSessionDetails,
 }: {
+  control: UseBrowserControlResult;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
-  busy: boolean;
-  onReconnect: () => void;
   onSessionDetails?: () => void;
 }) {
   return (
     <DropdownMenuGroup>
+      <InputControlMenuItem control={control} />
       {onSessionDetails ? (
         <DropdownMenuItem onClick={onSessionDetails}>
           <Info />
@@ -325,11 +326,52 @@ function RestMenuItems({
         <Share2 />
         Copy viewer URL
       </DropdownMenuItem>
-      <DropdownMenuItem disabled={busy} onClick={onReconnect}>
-        <RotateCcw />
-        Reconnect
-      </DropdownMenuItem>
     </DropdownMenuGroup>
+  );
+}
+
+function InputControlMenuItem({ control }: { control: UseBrowserControlResult }) {
+  const collaboration = control.collaboration;
+  const targetId = control.activeTargetId;
+  let label = "Control offline";
+  let disabled = collaboration.phase !== "connected" || !targetId;
+  let action = () => undefined;
+
+  if (collaboration.role === "viewer") {
+    label = "View only";
+    disabled = true;
+  } else if (collaboration.hasControl && collaboration.leaseMode === "explicit") {
+    label = "Unlock control";
+    action = () => {
+      collaboration.release();
+    };
+  } else if (collaboration.hasControl) {
+    label = "Lock control";
+    action = () => {
+      collaboration.promote();
+    };
+  } else if (collaboration.role === "owner") {
+    label = collaboration.holderClientId ? "Take control" : "Claim control";
+    action = () => {
+      if (targetId) {
+        collaboration.take(targetId);
+      }
+    };
+  } else {
+    label = collaboration.holderClientId ? "Control in use" : "Claim control";
+    disabled = disabled || collaboration.holderClientId !== null;
+    action = () => {
+      if (targetId) {
+        collaboration.claim(targetId);
+      }
+    };
+  }
+
+  return (
+    <DropdownMenuItem disabled={disabled} onClick={action}>
+      <MousePointer2 />
+      {label}
+    </DropdownMenuItem>
   );
 }
 
@@ -421,6 +463,8 @@ function ViewportStreamMenuItems({
   onPerformanceOverlayChange,
   localCursorEnabled,
   onLocalCursorChange,
+  busy,
+  onReconnect,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
@@ -428,6 +472,8 @@ function ViewportStreamMenuItems({
   onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
   onLocalCursorChange: (enabled: boolean) => void;
+  busy: boolean;
+  onReconnect: () => void;
 }) {
   const showStreamMenu =
     control.mediaPath === "webrtc-live" || control.mediaPath === "fallback-cdp";
@@ -456,6 +502,10 @@ function ViewportStreamMenuItems({
           Performance overlay
         </DropdownMenuCheckboxItem>
       ) : null}
+      <DropdownMenuItem disabled={busy} onClick={onReconnect}>
+        <RotateCcw />
+        Reconnect
+      </DropdownMenuItem>
     </DropdownMenuGroup>
   );
 }

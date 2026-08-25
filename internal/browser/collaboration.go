@@ -182,8 +182,21 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 			continue
 		}
 		if err := hub.handleClientMessage(client, message); err != nil {
-			client.writeError("request_rejected", err.Error())
+			client.writeError(collaborationErrorCode(err), err.Error())
 		}
+	}
+}
+
+func collaborationErrorCode(err error) string {
+	switch {
+	case errors.Is(err, remoteinput.ErrBusy):
+		return "input_busy"
+	case errors.Is(err, remoteinput.ErrNotOwner):
+		return "input_not_owned"
+	case errors.Is(err, remoteinput.ErrNotReady):
+		return "input_unavailable"
+	default:
+		return "request_rejected"
 	}
 }
 
@@ -345,7 +358,7 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 	}
 	target, ok := hub.readyTarget(targetID)
 	if !ok {
-		return errors.New("input target is unavailable")
+		return remoteinput.ErrNotReady
 	}
 	hub.mu.Lock()
 	if hub.holder != nil && hub.holder != client && !force {
