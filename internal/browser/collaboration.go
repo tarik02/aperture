@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 	remoteinput "github.com/tarik02/webdesktop/input"
@@ -581,7 +582,7 @@ func validCollaborationClientID(value string) bool {
 
 func validCollaborationName(value string) bool {
 	value = strings.TrimSpace(value)
-	return value != "" && len(value) <= 48
+	return value != "" && utf8.RuneCountInString(value) <= 48
 }
 
 func validCollaborationAvatarHash(value string) bool {

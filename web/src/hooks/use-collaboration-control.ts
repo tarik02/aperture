@@ -557,7 +557,7 @@ function collaborationIdentity(role: CollaborationRole, accountName: string | nu
   }
   return {
     ...anonymous,
-    name: accountName.trim().slice(0, 48),
+    name: [...accountName.trim()].slice(0, 48).join(""),
   };
 }
 
