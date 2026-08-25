@@ -75,6 +75,10 @@ type collaborationClientMessage struct {
 	Name              string  `json:"name"`
 	AvatarHash        string  `json:"avatarHash"`
 	FollowingClientID string  `json:"followingClientId"`
+	StrokeID          string  `json:"strokeId"`
+	Color             string  `json:"color"`
+	Width             float64 `json:"width"`
+	Phase             string  `json:"phase"`
 }
 
 type collaborationParticipant struct {
@@ -101,6 +105,10 @@ type collaborationServerMessage struct {
 	X              float64                    `json:"x,omitempty"`
 	Y              float64                    `json:"y,omitempty"`
 	Participants   []collaborationParticipant `json:"participants,omitempty"`
+	StrokeID       string                     `json:"strokeId,omitempty"`
+	Color          string                     `json:"color,omitempty"`
+	Width          float64                    `json:"width,omitempty"`
+	Phase          string                     `json:"phase,omitempty"`
 }
 
 func newCollaborationHub(runtime *wrapperRuntime) (*collaborationHub, error) {
@@ -272,9 +280,39 @@ func (hub *collaborationHub) handleClientMessage(client *collaborationClient, me
 		return hub.updateCursor(client, message.TargetID, message.X, message.Y)
 	case "follow.set":
 		return hub.setFollowing(client, message.FollowingClientID)
+	case "paint.point":
+		return hub.paintPoint(client, message)
 	default:
 		return errors.New("unknown collaboration message type")
 	}
+}
+
+func (hub *collaborationHub) paintPoint(client *collaborationClient, message collaborationClientMessage) error {
+	if !validPaintStrokeID(message.StrokeID) || !validPaintColor(message.Color) || message.Width < 1 || message.Width > 16 {
+		return errors.New("paint stroke is invalid")
+	}
+	if message.Phase != "start" && message.Phase != "move" && message.Phase != "end" {
+		return errors.New("paint phase is invalid")
+	}
+	if message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
+		return errors.New("paint point is invalid")
+	}
+	if _, ok := hub.readyTarget(message.TargetID); !ok {
+		return errors.New("paint target is unavailable")
+	}
+	hub.broadcast(collaborationServerMessage{
+		Version:  1,
+		Type:     "paint.point",
+		ClientID: client.id,
+		TargetID: message.TargetID,
+		StrokeID: message.StrokeID,
+		Color:    message.Color,
+		Width:    message.Width,
+		Phase:    message.Phase,
+		X:        message.X,
+		Y:        message.Y,
+	})
+	return nil
 }
 
 func (hub *collaborationHub) updateActiveTarget(client *collaborationClient, targetID string) error {
@@ -592,6 +630,23 @@ func validCollaborationAvatarHash(value string) bool {
 		if character < '0' || character > '9' && character < 'a' || character > 'f' {
 			return false
 		}
+	}
+	return true
+}
+
+func validPaintStrokeID(value string) bool {
+	return validCollaborationClientID(value)
+}
+
+func validPaintColor(value string) bool {
+	if len(value) != 7 || value[0] != '#' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if character >= '0' && character <= '9' || character >= 'a' && character <= 'f' || character >= 'A' && character <= 'F' {
+			continue
+		}
+		return false
 	}
 	return true
 }

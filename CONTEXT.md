@@ -28,6 +28,10 @@ _Avoid_: Read-only session token, guest token
 An ephemeral directed edge from one collaboration client to another. The follower adopts the followed client's selected target and highlights that client's cursor. Chains are allowed; cycles are rejected.
 _Avoid_: Screen share, control transfer
 
+**Overlay stroke**:
+An ephemeral visual mark attached to one browser target. Any collaboration client may create one, including clients using a viewer capability. It never becomes browser input or retained session state.
+_Avoid_: Annotation document, whiteboard object
+
 ## Example dialogue
 
 Developer: "What should stopping a recording return?"

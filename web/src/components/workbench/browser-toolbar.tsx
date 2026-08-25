@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Square,
   Lock,
+  Paintbrush,
   Unlock,
   Wrench,
 } from "lucide-react";
@@ -43,6 +44,8 @@ type BrowserToolbarProps = {
   onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
   onLocalCursorChange: (enabled: boolean) => void;
+  paintingEnabled: boolean;
+  onPaintingEnabledChange: (enabled: boolean) => void;
   devToolsOpen: boolean;
   devToolsTargetIds: ReadonlySet<string>;
   devToolsDock: DevToolsDock;
@@ -61,6 +64,8 @@ export function BrowserToolbar({
   onPerformanceOverlayChange,
   localCursorEnabled,
   onLocalCursorChange,
+  paintingEnabled,
+  onPaintingEnabledChange,
   devToolsOpen,
   devToolsTargetIds,
   devToolsDock,
@@ -140,6 +145,27 @@ export function BrowserToolbar({
           onReorder={control.reorderTargets}
         />
         <CollaborationPresence collaboration={control.collaboration} />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={paintingEnabled ? "secondary" : "ghost"}
+                size="icon-sm"
+                className="my-0.5 shrink-0"
+                disabled={!paintingEnabled && (!connected || !control.activeTargetId)}
+                aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+                aria-pressed={paintingEnabled}
+                onClick={() => onPaintingEnabledChange(!paintingEnabled)}
+              />
+            }
+          >
+            <Paintbrush />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+          </TooltipContent>
+        </Tooltip>
         <InputControlButton control={control} />
       </div>
       <div className="flex h-9 items-center gap-1 px-1.5">

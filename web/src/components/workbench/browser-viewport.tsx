@@ -17,12 +17,15 @@ import type {
 import type { ViewportPreset } from "#/lib/control/viewport.ts";
 import { cn } from "#/lib/utils.ts";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
+import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
 
 type BrowserViewportProps = {
   control: UseBrowserControlResult;
   viewport: ViewportPreset;
   performanceOverlayEnabled: boolean;
   localCursorEnabled: boolean;
+  paintingEnabled: boolean;
+  onPaintingEnabledChange: (enabled: boolean) => void;
 };
 
 type MouseButton = "left" | "middle" | "right" | "none";
@@ -41,6 +44,8 @@ export function BrowserViewport({
   viewport,
   performanceOverlayEnabled,
   localCursorEnabled,
+  paintingEnabled,
+  onPaintingEnabledChange,
 }: BrowserViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -85,6 +90,7 @@ export function BrowserViewport({
       presentedMedia?.stream !== control.mediaStream ||
       presentedMedia?.targetId !== control.activeTargetId);
   const inputDisabled =
+    paintingEnabled ||
     control.mediaSwitching ||
     mediaTransitioning ||
     control.collaboration.phase !== "connected" ||
@@ -300,6 +306,22 @@ export function BrowserViewport({
       releasePressedKeys();
     }
   }, [inputDisabled, releasePressedKeys]);
+
+  useEffect(() => {
+    if (!paintingEnabled) {
+      return;
+    }
+    control.setCaptured(false);
+    if (control.collaboration.hasControl && control.collaboration.leaseMode === "implicit") {
+      control.collaboration.release();
+    }
+  }, [
+    control.collaboration.hasControl,
+    control.collaboration.leaseMode,
+    control.collaboration.release,
+    control.setCaptured,
+    paintingEnabled,
+  ]);
 
   function mapPointer(event: { clientX: number; clientY: number }, clamp: boolean) {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -670,6 +692,12 @@ export function BrowserViewport({
   }
 
   function handleKeyDown(event: React.KeyboardEvent) {
+    if (event.key === "Escape" && paintingEnabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      onPaintingEnabledChange(false);
+      return;
+    }
     if (event.key === "Escape") {
       if (control.captured) {
         event.preventDefault();
@@ -898,6 +926,17 @@ export function BrowserViewport({
         <StatusBadge status={status} />
       </div>
       {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
+      {control.activeTargetId && (showingWebRTC || frameMetadata) ? (
+        <CollaborationPaintOverlay
+          collaboration={control.collaboration}
+          targetId={control.activeTargetId}
+          enabled={paintingEnabled && control.collaboration.phase === "connected"}
+          left={displayMetrics.offsetX}
+          top={displayMetrics.offsetY}
+          width={displayMetrics.renderedWidth}
+          height={displayMetrics.renderedHeight}
+        />
+      ) : null}
       {followedCursorPoint && followedParticipant ? (
         <div
           className="pointer-events-none absolute z-30 flex translate-x-[-2px] translate-y-[-2px] items-start text-primary drop-shadow-sm"

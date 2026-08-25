@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Subject, type Observable } from "rxjs";
 import { z } from "zod";
 import { resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import { evdevKeycodeByCode } from "#/lib/control/input-keycodes.ts";
@@ -26,6 +27,22 @@ export type CollaborationCursor = {
   x: number;
   y: number;
 };
+
+export type CollaborationPaintPhase = "start" | "move" | "end";
+
+export type CollaborationPaintPoint = {
+  targetId: string;
+  strokeId: string;
+  color: string;
+  width: number;
+  phase: CollaborationPaintPhase;
+  x: number;
+  y: number;
+};
+
+export type CollaborationPaintEvent =
+  | { type: "point"; message: CollaborationPaintPoint & { clientId: string } }
+  | { type: "clear" };
 
 type BrowserInputMessage = Extract<
   ClientMessage,
@@ -56,6 +73,7 @@ export type CollaborationControl = {
   lastError: string | null;
   participants: CollaborationParticipant[];
   cursors: ReadonlyMap<string, CollaborationCursor>;
+  paintEvents: Observable<CollaborationPaintEvent>;
   followingClientId: string | null;
   claim: (targetId: string) => boolean;
   promote: () => boolean;
@@ -64,6 +82,7 @@ export type CollaborationControl = {
   setActiveTarget: (targetId: string | null) => boolean;
   follow: (clientId: string | null) => boolean;
   sendCursor: (targetId: string, x: number, y: number, dimensions: InputDimensions) => boolean;
+  sendPaintPoint: (point: CollaborationPaintPoint) => boolean;
   sendInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
 };
 
@@ -109,6 +128,20 @@ const collaborationServerMessageSchema = z.discriminatedUnion("type", [
   z
     .object({
       version: z.literal(1),
+      type: z.literal("paint.point"),
+      clientId: z.string(),
+      targetId: z.string(),
+      strokeId: z.string(),
+      color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      width: z.number().min(1).max(16),
+      phase: z.enum(["start", "move", "end"]),
+      x: z.number().min(0).max(1).optional().default(0),
+      y: z.number().min(0).max(1).optional().default(0),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
       type: z.literal("welcome"),
       clientId: z.string(),
       role: z.enum(["owner", "editor", "viewer"]),
@@ -136,6 +169,7 @@ const collaborationProtocol = "aperture-collaboration.v1";
 const heartbeatIntervalMs = 2_000;
 const reconnectDelayMs = 1_000;
 const cursorIntervalMs = 40;
+export const collaborationPaintLifetimeMs = 7_000;
 const pointerButtonCode = {
   left: 272,
   right: 273,
@@ -151,6 +185,7 @@ export function useCollaborationControl({
 }: UseCollaborationControlOptions): CollaborationControl {
   const activeProfile = useTokenVaultStore(selectActiveProfile);
   const clientId = useMemo(loadCollaborationClientId, []);
+  const paintEventSubject = useMemo(() => new Subject<CollaborationPaintEvent>(), []);
   const identity = useMemo(
     () => collaborationIdentity(role, activeProfile?.tokenName ?? null),
     [activeProfile?.tokenName, role],
@@ -182,6 +217,7 @@ export function useCollaborationControl({
       setLastError(null);
       setParticipants([]);
       setCursors(new Map());
+      paintEventSubject.next({ type: "clear" });
       followingClientIdRef.current = null;
       return;
     }
@@ -261,6 +297,21 @@ export function useCollaborationControl({
               return next;
             });
             return;
+          case "paint.point":
+            paintEventSubject.next({
+              type: "point",
+              message: {
+                clientId: message.clientId,
+                targetId: message.targetId,
+                strokeId: message.strokeId,
+                color: message.color,
+                width: message.width,
+                phase: message.phase,
+                x: message.x,
+                y: message.y,
+              },
+            });
+            return;
           case "error":
             claimPendingRef.current = false;
             setLastError(message.message);
@@ -281,6 +332,7 @@ export function useCollaborationControl({
         setLeaseMode(null);
         setParticipants([]);
         setCursors(new Map());
+        paintEventSubject.next({ type: "clear" });
         followingClientIdRef.current = null;
         if (!disposed) {
           setPhase("disconnected");
@@ -301,7 +353,7 @@ export function useCollaborationControl({
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [clientId, credentials, enabled, identity, sessionId, sessionToken]);
+  }, [clientId, credentials, enabled, identity, paintEventSubject, sessionId, sessionToken]);
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current;
@@ -370,6 +422,10 @@ export function useCollaborationControl({
         y: normalizedCoordinate(y, dimensions.height),
       });
     },
+    [send],
+  );
+  const sendPaintPoint = useCallback(
+    (point: CollaborationPaintPoint) => send({ type: "paint.point", ...point }),
     [send],
   );
 
@@ -531,6 +587,7 @@ export function useCollaborationControl({
     lastError,
     participants,
     cursors,
+    paintEvents: paintEventSubject,
     followingClientId,
     claim,
     promote,
@@ -539,6 +596,7 @@ export function useCollaborationControl({
     setActiveTarget,
     follow,
     sendCursor,
+    sendPaintPoint,
     sendInput,
   };
 }
