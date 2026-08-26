@@ -382,6 +382,11 @@ func (hub *collaborationHub) updateActiveTarget(client *collaborationClient, tar
 	if len(targetID) > 128 {
 		return errors.New("active target is invalid")
 	}
+	if targetID != "" {
+		if _, ok := hub.readyTarget(targetID); !ok {
+			return errors.New("active target is unavailable")
+		}
+	}
 	hub.mu.Lock()
 	client.activeTargetID = targetID
 	hub.mu.Unlock()
@@ -434,6 +439,7 @@ func (client *collaborationClient) writePresenceUpdates(ctx context.Context) {
 			return
 		case message := <-client.presenceUpdates:
 			if client.write(message) != nil {
+				_ = client.socket.CloseNow()
 				return
 			}
 		}
@@ -463,6 +469,7 @@ func (client *collaborationClient) writeCursorUpdates(ctx context.Context) {
 			return
 		case message := <-client.cursorUpdates:
 			if client.write(message) != nil {
+				_ = client.socket.CloseNow()
 				return
 			}
 		}
