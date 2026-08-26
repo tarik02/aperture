@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -262,6 +263,9 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 	if err != nil {
 		return nil, err
 	}
+	if err := disconnectCollaborationCapabilityConsumers(ctx, sessionRow, role); err != nil {
+		return nil, err
+	}
 	if err := s.repo.ReplaceSessionCollaborationCapability(ctx, sessionID, string(role), hash, raw, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return nil, err
 	}
@@ -283,4 +287,32 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 		return nil, err
 	}
 	return view, nil
+}
+
+func disconnectCollaborationCapabilityConsumers(ctx context.Context, sessionRow *db.Session, role CollaborationRole) error {
+	if sessionRow.Status != db.SessionStatusRunning {
+		return nil
+	}
+	port, err := wrapperPort(sessionRow)
+	if err != nil {
+		return fmt.Errorf("disconnect %s collaboration clients: %w", role, err)
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d/collaboration/capability-rotated?role=%s", port, role),
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("disconnect %s collaboration clients: %w", role, err)
+	}
+	response, err := (&http.Client{Timeout: time.Second}).Do(request)
+	if err != nil {
+		return fmt.Errorf("disconnect %s collaboration clients: %w", role, err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("disconnect %s collaboration clients: unexpected wrapper status %s", role, response.Status)
+	}
+	return nil
 }
