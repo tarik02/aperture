@@ -426,11 +426,12 @@ func (hub *collaborationHub) updateCursor(client *collaborationClient, targetID 
 	if targetID == "" || x < 0 || x > 1 || y < 0 || y > 1 {
 		return errors.New("cursor position is invalid")
 	}
-	if !hub.knownTarget(targetID) {
-		return errors.New("cursor target is unavailable")
-	}
 	message := collaborationServerMessage{Version: 1, Type: "presence.cursor", ClientID: client.id, TargetID: targetID, X: x, Y: y}
 	hub.mu.Lock()
+	if client.activeTargetID != targetID {
+		hub.mu.Unlock()
+		return errors.New("cursor target is unavailable")
+	}
 	followers := make([]*collaborationClient, 0)
 	for _, participant := range hub.clients {
 		if participant.followingClientID == client.id {
