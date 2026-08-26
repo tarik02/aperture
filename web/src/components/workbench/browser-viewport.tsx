@@ -98,7 +98,7 @@ export function BrowserViewport({
     !control.mediaSwitching &&
     !mediaTransitioning;
   const inputDisabled =
-    paintOverlayEnabled ||
+    paintingEnabled ||
     control.mediaSwitching ||
     mediaTransitioning ||
     control.collaboration.phase !== "connected" ||
