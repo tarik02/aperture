@@ -144,6 +144,21 @@ func (r *Repository) ListSessionTokensForSessions(ctx context.Context, sessionID
 	return result, nil
 }
 
+// ListSessionCollaborationCapabilitiesForSessions returns sharing secrets for sessions.
+func (r *Repository) ListSessionCollaborationCapabilitiesForSessions(ctx context.Context, sessionIDs []string) ([]SessionCollaborationCapability, error) {
+	if len(sessionIDs) == 0 {
+		return []SessionCollaborationCapability{}, nil
+	}
+	capabilities := make([]SessionCollaborationCapability, 0, len(sessionIDs)*2)
+	if err := r.db.bun.NewSelect().
+		Model(&capabilities).
+		Where("session_id IN (?)", bun.List(sessionIDs)).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list session collaboration capabilities for sessions: %w", err)
+	}
+	return capabilities, nil
+}
+
 // ListSnapshotNamesByIDs returns snapshot names keyed by snapshot id.
 func (r *Repository) ListSnapshotNamesByIDs(ctx context.Context, snapshotIDs []string) (map[string]string, error) {
 	result := make(map[string]string, len(snapshotIDs))
