@@ -57,6 +57,7 @@ type collaborationClient struct {
 	ownerID           uint64
 	socket            *websocket.Conn
 	writeMu           sync.Mutex
+	presenceUpdates   chan collaborationServerMessage
 	cursorUpdates     chan collaborationServerMessage
 	sequence          uint64
 	name              string
@@ -190,10 +191,11 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	defer hub.removeClient(client)
-	go client.writeCursorUpdates(req.Context())
 	if err := client.write(collaborationServerMessage{Version: 1, Type: "welcome", ClientID: client.id, Role: client.role}); err != nil {
 		return
 	}
+	go client.writePresenceUpdates(req.Context())
+	go client.writeCursorUpdates(req.Context())
 	hub.sendLeaseState(client)
 	hub.broadcastPresence()
 
@@ -250,14 +252,15 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket
 	}
 	hub.nextOwner++
 	client := &collaborationClient{
-		hub:           hub,
-		id:            id,
-		role:          role,
-		ownerID:       hub.nextOwner,
-		socket:        socket,
-		cursorUpdates: make(chan collaborationServerMessage, 1),
-		name:          name,
-		avatarHash:    avatarHash,
+		hub:             hub,
+		id:              id,
+		role:            role,
+		ownerID:         hub.nextOwner,
+		socket:          socket,
+		presenceUpdates: make(chan collaborationServerMessage, 1),
+		cursorUpdates:   make(chan collaborationServerMessage, 1),
+		name:            name,
+		avatarHash:      avatarHash,
 	}
 	hub.clients[id] = client
 	return client, nil
@@ -406,6 +409,35 @@ func (hub *collaborationHub) updateCursor(client *collaborationClient, targetID 
 		follower.queueCursorUpdate(message)
 	}
 	return nil
+}
+
+func (client *collaborationClient) queuePresenceUpdate(message collaborationServerMessage) {
+	select {
+	case client.presenceUpdates <- message:
+		return
+	default:
+	}
+	select {
+	case <-client.presenceUpdates:
+	default:
+	}
+	select {
+	case client.presenceUpdates <- message:
+	default:
+	}
+}
+
+func (client *collaborationClient) writePresenceUpdates(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case message := <-client.presenceUpdates:
+			if client.write(message) != nil {
+				return
+			}
+		}
+	}
 }
 
 func (client *collaborationClient) queueCursorUpdate(message collaborationServerMessage) {
@@ -653,7 +685,9 @@ func (hub *collaborationHub) broadcastPresence() {
 
 	hub.mu.Lock()
 	participants := make([]collaborationParticipant, 0, len(hub.clients))
+	clients := make([]*collaborationClient, 0, len(hub.clients))
 	for _, client := range hub.clients {
+		clients = append(clients, client)
 		participant := collaborationParticipant{
 			ClientID:          client.id,
 			Name:              client.name,
@@ -672,7 +706,10 @@ func (hub *collaborationHub) broadcastPresence() {
 	sort.Slice(participants, func(left, right int) bool {
 		return participants[left].ClientID < participants[right].ClientID
 	})
-	hub.broadcast(collaborationServerMessage{Version: 1, Type: "presence.state", Participants: participants})
+	message := collaborationServerMessage{Version: 1, Type: "presence.state", Participants: participants}
+	for _, client := range clients {
+		client.queuePresenceUpdate(message)
+	}
 }
 
 func (hub *collaborationHub) broadcast(message collaborationServerMessage) {
