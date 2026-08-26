@@ -353,11 +353,12 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 	if message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
 		return errors.New("paint point is invalid")
 	}
-	if message.Phase == "start" && !hub.knownTarget(message.TargetID) {
-		return errors.New("paint target is unavailable")
-	}
 	hub.mu.Lock()
 	now := time.Now()
+	if message.Phase == "start" && client.activeTargetID != message.TargetID {
+		hub.mu.Unlock()
+		return errors.New("paint target is unavailable")
+	}
 	if message.Phase != "start" && (client.activePaintStroke != message.StrokeID || client.activePaintTarget != message.TargetID) {
 		hub.mu.Unlock()
 		return nil
