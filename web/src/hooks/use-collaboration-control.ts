@@ -718,7 +718,7 @@ function normalizedCoordinate(value: number, length: number) {
   if (length <= 1) {
     return 0;
   }
-  return Math.min(1, Math.max(0, value / (length - 1)));
+  return Math.min(1, Math.max(0, value / length));
 }
 
 function sendShortcut(
