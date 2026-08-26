@@ -256,6 +256,7 @@ func (session *liveSession) run(ctx context.Context) {
 			session.mu.Unlock()
 			if hasClients {
 				session.reconcileAndBroadcastTargets()
+				session.broadcastRecordings()
 			}
 		}
 	}
@@ -576,6 +577,7 @@ func (session *liveSession) applyActiveTargetChanges(changes []liveSessionTarget
 	if len(changed) == 0 {
 		return nil
 	}
+	defer session.broadcastRecordings()
 	for index := range changed {
 		changed[index].transport = changed[index].client.transport()
 	}

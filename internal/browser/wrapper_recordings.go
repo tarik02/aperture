@@ -264,6 +264,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "start_failed"
 		r.mu.Unlock()
+		session.broadcastRecordings()
 		return wrapperRecording{}, err
 	}
 	recording.cmd = cmd
@@ -271,6 +272,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	recording.Status = wrapperRecordingRunning
 	status := *recording
 	r.mu.Unlock()
+	session.broadcastRecordings()
 	return status, nil
 }
 
@@ -335,9 +337,6 @@ func (session *liveSession) stopClientRecordings(clientID string) {
 	for _, recordingID := range recordingIDs {
 		_, _ = session.stopRecording(recordingID, "client_disconnected")
 	}
-	if len(recordingIDs) > 0 {
-		session.broadcastRecordings()
-	}
 }
 
 func (session *liveSession) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
@@ -353,6 +352,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 		return wrapperRecording{}, errWrapperRecordingNotFound
 	}
 	r.mu.Unlock()
+	defer session.broadcastRecordings()
 	recording.operationMu.Lock()
 	defer recording.operationMu.Unlock()
 
@@ -457,6 +457,9 @@ func (session *liveSession) replaceRecordingTargets(ctx context.Context, target 
 		}
 	}
 	r.mu.Unlock()
+	if len(recordings) > 0 {
+		defer session.broadcastRecordings()
+	}
 	for _, recording := range recordings {
 		if err := session.rotateRecordingTarget(ctx, recording, target, target.TargetID); err != nil {
 			return err
@@ -571,6 +574,9 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 		recordings = append(recordings, recording)
 	}
 	r.mu.Unlock()
+	if len(recordings) > 0 {
+		defer session.broadcastRecordings()
+	}
 	for _, recording := range recordings {
 		recording.operationMu.Lock()
 		r.mu.Lock()

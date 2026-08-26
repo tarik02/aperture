@@ -199,7 +199,6 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		session.broadcastRecordings()
 		return liveSessionServerMessage{Recording: &recording}, nil
 	case "recording.stop", "recording.cancel":
 		if client.role != "owner" {
@@ -213,7 +212,6 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		session.broadcastRecordings()
 		return liveSessionServerMessage{Recording: &recording}, nil
 	default:
 		return liveSessionServerMessage{}, errors.New("unknown live session command")
@@ -285,15 +283,9 @@ func (session *liveSession) reconcileAndBroadcastTargetsLocked() {
 		return
 	}
 	available := make(map[string]struct{}, len(targets))
-	replacementTargetID := ""
-	session.runtime.mu.Lock()
-	hasTargetRegistry := session.runtime.targets != nil
-	session.runtime.mu.Unlock()
+	replacementTargetID := session.browser.firstSelectableTargetID(targets)
 	for _, target := range targets {
 		available[target.ID] = struct{}{}
-		if replacementTargetID == "" && (!hasTargetRegistry || target.Viewport != nil) {
-			replacementTargetID = target.ID
-		}
 	}
 
 	session.mu.Lock()
@@ -325,11 +317,6 @@ func (session *liveSession) reconcileAndBroadcastTargetsLocked() {
 }
 
 func (session *liveSession) broadcastRecordings() {
-	message := liveSessionServerMessage{
-		Version:    1,
-		Type:       "recordings.state",
-		Recordings: session.listRecordings(),
-	}
 	session.mu.Lock()
 	clients := make([]*liveSessionClient, 0, len(session.clients))
 	for _, client := range session.clients {
@@ -338,6 +325,14 @@ func (session *liveSession) broadcastRecordings() {
 		}
 	}
 	session.mu.Unlock()
+	if len(clients) == 0 {
+		return
+	}
+	message := liveSessionServerMessage{
+		Version:    1,
+		Type:       "recordings.state",
+		Recordings: session.listRecordings(),
+	}
 	for _, client := range clients {
 		client.queueStateUpdate(message)
 	}

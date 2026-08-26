@@ -240,8 +240,8 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 		recordings = session.listRecordings()
 	}
 	session.mu.Lock()
-	if client.activeTargetID == "" && len(targets) > 0 {
-		client.activeTargetID = targets[0].ID
+	if client.activeTargetID == "" {
+		client.activeTargetID = session.browser.firstSelectableTargetID(targets)
 	}
 	participants := session.participantsLocked()
 	holderClientID := ""

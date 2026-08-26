@@ -86,6 +86,18 @@ func (browser *liveSessionBrowser) targets() ([]liveSessionTarget, error) {
 	return targets, nil
 }
 
+func (browser *liveSessionBrowser) firstSelectableTargetID(targets []liveSessionTarget) string {
+	browser.runtime.mu.Lock()
+	hasTargetRegistry := browser.runtime.targets != nil
+	browser.runtime.mu.Unlock()
+	for _, target := range targets {
+		if !hasTargetRegistry || target.Viewport != nil {
+			return target.ID
+		}
+	}
+	return ""
+}
+
 func (browser *liveSessionBrowser) createTarget(rawURL string) (string, error) {
 	if strings.TrimSpace(rawURL) == "" {
 		rawURL = "about:blank"
