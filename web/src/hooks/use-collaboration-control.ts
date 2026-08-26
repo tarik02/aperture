@@ -523,8 +523,8 @@ export function useCollaborationControl({
           });
           sendInputEvent(message.targetId, {
             type: "input.pointer.scroll",
-            horizontal: message.deltaX * 0.1,
-            vertical: message.deltaY * 0.1,
+            horizontal: message.deltaX,
+            vertical: message.deltaY,
             stopHorizontal: false,
             stopVertical: false,
             modifiers: message.modifiers ?? 0,
