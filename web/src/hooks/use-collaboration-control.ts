@@ -262,10 +262,18 @@ export function useCollaborationControl({
                 ?.followingClientId ?? null;
             setCursors((current) => {
               const next = new Map<string, CollaborationCursor>();
-              const followedCursor = followingClientIdRef.current
-                ? current.get(followingClientIdRef.current)
+              const followedParticipant = followingClientIdRef.current
+                ? message.participants.find(
+                    (participant) => participant.clientId === followingClientIdRef.current,
+                  )
                 : null;
-              if (followedCursor) {
+              const followedCursor = followedParticipant
+                ? current.get(followedParticipant.clientId)
+                : null;
+              if (
+                followedCursor &&
+                followedCursor.targetId === followedParticipant?.activeTargetId
+              ) {
                 next.set(followedCursor.clientId, followedCursor);
               }
               return next.size === current.size ? current : next;
