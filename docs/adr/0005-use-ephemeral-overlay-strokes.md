@@ -4,7 +4,7 @@ status: accepted
 
 # Use ephemeral strokes for shared drawing
 
-Aperture will relay target-scoped overlay strokes through the session collaboration coordinator and discard them after delivery. It will not embed Excalidraw or maintain a shared drawing document. The requested interaction is temporary visual guidance over a live browser target, while a whiteboard model would add persistent scene state, editing tools, conflict handling, and a separate document lifecycle.
+Aperture will relay target-scoped overlay strokes through the live session and discard them after delivery. It will not embed Excalidraw or maintain a shared drawing document. The requested interaction is temporary visual guidance over a live browser target, while a whiteboard model would add persistent scene state, editing tools, conflict handling, and a separate document lifecycle.
 
 ## Consequences
 

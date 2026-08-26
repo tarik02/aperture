@@ -10,7 +10,7 @@ The earlier session token was too broad for collaboration because it exposed CDP
 
 ## Consequences
 
-- Editor capabilities permit media, collaboration state, and browser control through the coordinator.
+- Editor capabilities permit presentation, collaboration state, and browser control through the live session.
 - Viewer capabilities permit media, presence, follow, and annotations, but the server rejects browser input.
 - Rotating one capability disconnects clients using that role without affecting the other role or the owner.
 - Capability URLs remain session-scoped and place the secret in the URL fragment before moving it to session storage.
