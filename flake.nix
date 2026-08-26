@@ -591,7 +591,7 @@
             pname = "aperture";
             version = deployVersion;
             inherit src;
-            vendorHash = "sha256-JPemeh7V0CRyCxKHAzFYYV8cO3AA1xrlyN0svhJH3a0=";
+            vendorHash = "sha256-Q1AcM0G/REYEGw3BQzXmNy1+4FTp0nOFHZMr+MSeyh0=";
 
             subPackages = [
               "cmd/aperture"
@@ -768,7 +768,7 @@
           pname = "aperture-dev";
           version = sourceVersion;
           inherit src;
-          vendorHash = "sha256-JPemeh7V0CRyCxKHAzFYYV8cO3AA1xrlyN0svhJH3a0=";
+          vendorHash = "sha256-Q1AcM0G/REYEGw3BQzXmNy1+4FTp0nOFHZMr+MSeyh0=";
           subPackages = [ "cmd/aperture-dev" ];
           env.CGO_ENABLED = "0";
           doCheck = false;
