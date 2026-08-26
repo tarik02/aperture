@@ -363,27 +363,28 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 		hub.mu.Unlock()
 		return nil
 	}
-	if client.paintTokensAt.IsZero() {
-		client.paintTokens = collaborationPaintBurst
-	} else {
-		client.paintTokens += now.Sub(client.paintTokensAt).Seconds() * collaborationPaintRate
-		if client.paintTokens > collaborationPaintBurst {
-			client.paintTokens = collaborationPaintBurst
-		}
-	}
-	client.paintTokensAt = now
-	if client.paintTokens < 1 {
-		hub.mu.Unlock()
-		return nil
-	}
-	client.paintTokens--
-	switch message.Phase {
-	case "start":
-		client.activePaintStroke = message.StrokeID
-		client.activePaintTarget = message.TargetID
-	case "end":
+	if message.Phase == "end" {
 		client.activePaintStroke = ""
 		client.activePaintTarget = ""
+	} else {
+		if client.paintTokensAt.IsZero() {
+			client.paintTokens = collaborationPaintBurst
+		} else {
+			client.paintTokens += now.Sub(client.paintTokensAt).Seconds() * collaborationPaintRate
+			if client.paintTokens > collaborationPaintBurst {
+				client.paintTokens = collaborationPaintBurst
+			}
+		}
+		client.paintTokensAt = now
+		if client.paintTokens < 1 {
+			hub.mu.Unlock()
+			return nil
+		}
+		client.paintTokens--
+		if message.Phase == "start" {
+			client.activePaintStroke = message.StrokeID
+			client.activePaintTarget = message.TargetID
+		}
 	}
 	hub.mu.Unlock()
 	hub.broadcastPaint(collaborationServerMessage{

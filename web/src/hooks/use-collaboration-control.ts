@@ -206,6 +206,7 @@ export function useCollaborationControl({
   const releasePendingRef = useRef(false);
   const holderClientIdRef = useRef<string | null>(null);
   const followingClientIdRef = useRef<string | null>(null);
+  const participantsRef = useRef<CollaborationParticipant[]>([]);
   const lastCursorSentAtRef = useRef(0);
 
   holderClientIdRef.current = holderClientId;
@@ -219,6 +220,7 @@ export function useCollaborationControl({
       setLeaseMode(null);
       setLastError(null);
       setParticipants([]);
+      participantsRef.current = [];
       setCursors(new Map());
       paintEventSubject.next({ type: "clear" });
       followingClientIdRef.current = null;
@@ -292,6 +294,7 @@ export function useCollaborationControl({
           }
           case "presence.state":
             setLastError(null);
+            participantsRef.current = message.participants;
             setParticipants(message.participants);
             followingClientIdRef.current =
               message.participants.find((participant) => participant.clientId === clientId)
@@ -326,6 +329,13 @@ export function useCollaborationControl({
             });
             return;
           case "paint.point":
+            if (
+              !participantsRef.current.some(
+                (participant) => participant.clientId === message.clientId,
+              )
+            ) {
+              return;
+            }
             paintEventSubject.next({
               type: "point",
               message: {
@@ -361,6 +371,7 @@ export function useCollaborationControl({
         releasePendingRef.current = false;
         setHolderClientId(null);
         setLeaseMode(null);
+        participantsRef.current = [];
         setParticipants([]);
         setCursors(new Map());
         paintEventSubject.next({ type: "clear" });
