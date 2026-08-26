@@ -309,6 +309,9 @@ func (session *liveSession) reconcileAndBroadcastTargetsLocked() {
 			change.client.activeTargetID = ""
 		}
 		session.mu.Unlock()
+		for _, change := range changes {
+			session.stopViewerRecordings(change.client.id, "target_closed")
+		}
 	}
 	if len(changes) > 0 {
 		session.broadcastPresence()

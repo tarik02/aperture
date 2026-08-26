@@ -339,6 +339,23 @@ func (session *liveSession) stopClientRecordings(clientID string) {
 	}
 }
 
+func (session *liveSession) stopViewerRecordings(clientID, reason string) {
+	r := session.runtime
+	r.mu.Lock()
+	recordingIDs := make([]string, 0)
+	for _, recording := range session.recordings {
+		if recording.Mode == wrapperRecordingModeViewer &&
+			recording.clientID == clientID &&
+			(recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning) {
+			recordingIDs = append(recordingIDs, recording.ID)
+		}
+	}
+	r.mu.Unlock()
+	for _, recordingID := range recordingIDs {
+		_, _ = session.stopRecording(recordingID, reason)
+	}
+}
+
 func (session *liveSession) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
 	return session.stopRecordingForTarget(recordingID, "", reason)
 }
@@ -602,12 +619,12 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 	}
 }
 
-func (session *liveSession) stopTargetRecordings(targetID string) {
+func (session *liveSession) stopTabRecordings(targetID string) {
 	r := session.runtime
 	r.mu.Lock()
 	ids := make([]string, 0)
 	for _, recording := range session.recordings {
-		if recording.TargetID == targetID && recording.Status == wrapperRecordingRunning {
+		if recording.Mode == wrapperRecordingModeTab && recording.TargetID == targetID && recording.Status == wrapperRecordingRunning {
 			ids = append(ids, recording.ID)
 		}
 	}

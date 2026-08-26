@@ -96,7 +96,7 @@ func (r *wrapperRuntime) targetRestored(targetID string) {
 }
 
 func (r *wrapperRuntime) targetClosed(target wrapperTargetSnapshot) {
-	r.liveSession.stopTargetRecordings(target.TargetID)
+	r.liveSession.stopTabRecordings(target.TargetID)
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer != nil {
 		mediaProducer.media.RemoveTarget(target.TargetID)
