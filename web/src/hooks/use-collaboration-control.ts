@@ -416,6 +416,8 @@ export function useCollaborationControl({
     connect();
     return () => {
       disposed = true;
+      participantsRef.current = [];
+      paintEventSubject.next({ type: "clear" });
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);
       }
