@@ -145,45 +145,97 @@ func (s *Service) authorizedCollaborationSession(ctx context.Context, sessionID,
 	if sessionRow.TenantID != tenantID {
 		return nil, ErrSessionTokenInvalid
 	}
+	tenant, err := s.repo.GetTenantByID(ctx, sessionRow.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	if tenant == nil || tenant.DeletedAt != nil {
+		return nil, ErrSessionTokenInvalid
+	}
 	return sessionRow, nil
 }
 
 func (s *Service) ensureCollaborationCapabilities(ctx context.Context, sessionRow db.Session) (CollaborationCapabilitiesView, error) {
-	result := CollaborationCapabilitiesView{}
-	for _, role := range []CollaborationRole{CollaborationRoleEditor, CollaborationRoleViewer} {
-		capability, err := s.repo.GetSessionCollaborationCapability(ctx, sessionRow.ID, string(role))
-		if err != nil {
-			return CollaborationCapabilitiesView{}, err
-		}
-		if capability == nil {
+	capabilities, err := s.ensureCollaborationCapabilitiesForSessions(ctx, []db.Session{sessionRow})
+	if err != nil {
+		return CollaborationCapabilitiesView{}, err
+	}
+	result, ok := capabilities[sessionRow.ID]
+	if !ok {
+		return CollaborationCapabilitiesView{}, ErrInvalidState
+	}
+	return result, nil
+}
+
+func (s *Service) ensureCollaborationCapabilitiesForSessions(ctx context.Context, sessionRows []db.Session) (map[string]CollaborationCapabilitiesView, error) {
+	result := make(map[string]CollaborationCapabilitiesView, len(sessionRows))
+	if len(sessionRows) == 0 {
+		return result, nil
+	}
+	sessionIDs := make([]string, 0, len(sessionRows))
+	for _, sessionRow := range sessionRows {
+		sessionIDs = append(sessionIDs, sessionRow.ID)
+		result[sessionRow.ID] = CollaborationCapabilitiesView{}
+	}
+	capabilities, err := s.repo.ListSessionCollaborationCapabilitiesForSessions(ctx, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	type capabilityKey struct {
+		sessionID string
+		role      string
+	}
+	present := make(map[capabilityKey]struct{}, len(capabilities))
+	for _, capability := range capabilities {
+		present[capabilityKey{sessionID: capability.SessionID, role: capability.Role}] = struct{}{}
+	}
+	missing := make([]db.SessionCollaborationCapability, 0)
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	for _, sessionRow := range sessionRows {
+		for _, role := range []CollaborationRole{CollaborationRoleEditor, CollaborationRoleViewer} {
+			if _, ok := present[capabilityKey{sessionID: sessionRow.ID, role: string(role)}]; ok {
+				continue
+			}
 			raw, hash, err := GenerateCollaborationCapability(sessionRow.ID, role)
 			if err != nil {
-				return CollaborationCapabilitiesView{}, err
+				return nil, err
 			}
-			capability = &db.SessionCollaborationCapability{
+			missing = append(missing, db.SessionCollaborationCapability{
 				SessionID: sessionRow.ID,
 				Role:      string(role),
 				TenantID:  sessionRow.TenantID,
 				TokenHash: hash,
 				RawToken:  raw,
-				CreatedAt: s.now().UTC().Format(time.RFC3339Nano),
-			}
-			if err := s.repo.CreateSessionCollaborationCapability(ctx, capability); err != nil {
-				return CollaborationCapabilitiesView{}, err
-			}
-			capability, err = s.repo.GetSessionCollaborationCapability(ctx, sessionRow.ID, string(role))
-			if err != nil {
-				return CollaborationCapabilitiesView{}, err
-			}
-			if capability == nil {
-				return CollaborationCapabilitiesView{}, ErrInvalidState
-			}
+				CreatedAt: now,
+			})
 		}
-		switch role {
+	}
+	if len(missing) > 0 {
+		if err := s.repo.CreateSessionCollaborationCapabilities(ctx, missing); err != nil {
+			return nil, err
+		}
+		capabilities, err = s.repo.ListSessionCollaborationCapabilitiesForSessions(ctx, sessionIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, capability := range capabilities {
+		view, ok := result[capability.SessionID]
+		if !ok {
+			continue
+		}
+		switch CollaborationRole(capability.Role) {
 		case CollaborationRoleEditor:
-			result.Editor = capability.RawToken
+			view.Editor = capability.RawToken
 		case CollaborationRoleViewer:
-			result.Viewer = capability.RawToken
+			view.Viewer = capability.RawToken
+		}
+		result[capability.SessionID] = view
+	}
+	for _, sessionRow := range sessionRows {
+		view := result[sessionRow.ID]
+		if view.Editor == "" || view.Viewer == "" {
+			return nil, ErrInvalidState
 		}
 	}
 	return result, nil

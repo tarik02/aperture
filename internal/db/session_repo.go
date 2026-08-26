@@ -217,10 +217,13 @@ func (r *Repository) GetSessionCollaborationCapability(ctx context.Context, sess
 	return capability, nil
 }
 
-// CreateSessionCollaborationCapability inserts one role-scoped sharing secret.
-func (r *Repository) CreateSessionCollaborationCapability(ctx context.Context, capability *SessionCollaborationCapability) error {
-	if _, err := r.db.bun.NewInsert().Model(capability).On("CONFLICT (session_id, role) DO NOTHING").Exec(ctx); err != nil {
-		return fmt.Errorf("insert session collaboration capability: %w", err)
+// CreateSessionCollaborationCapabilities inserts role-scoped sharing secrets.
+func (r *Repository) CreateSessionCollaborationCapabilities(ctx context.Context, capabilities []SessionCollaborationCapability) error {
+	if len(capabilities) == 0 {
+		return nil
+	}
+	if _, err := r.db.bun.NewInsert().Model(&capabilities).On("CONFLICT (session_id, role) DO NOTHING").Exec(ctx); err != nil {
+		return fmt.Errorf("insert session collaboration capabilities: %w", err)
 	}
 	return nil
 }

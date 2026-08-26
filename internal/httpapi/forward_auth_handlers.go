@@ -100,7 +100,11 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 		return
 	}
 
-	writeLiveSessionForwardAuthSuccess(c, "account", "owner")
+	role := "owner"
+	if c.Param("access") == "read" {
+		role = "viewer"
+	}
+	writeLiveSessionForwardAuthSuccess(c, "account", role)
 }
 
 func (s *Server) authorizeLiveCapability(ctx context.Context, sessionID, authorization, access string) (string, error) {
