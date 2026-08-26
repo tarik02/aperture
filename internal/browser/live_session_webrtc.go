@@ -6,10 +6,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	rtc "github.com/tarik02/webdesktop/webrtc"
 )
+
+const liveSessionWebRTCHelloTimeout = 5 * time.Second
 
 type liveSessionWebRTCPeerMetadata struct {
 	session                   *liveSession
@@ -28,10 +31,12 @@ type liveSessionWebRTCTransport struct {
 	service  *rtc.Service
 	peerID   uint64
 
-	mu           sync.Mutex
-	reliableOpen bool
-	realtimeOpen bool
-	client       *liveSessionClient
+	mu            sync.Mutex
+	reliableOpen  bool
+	realtimeOpen  bool
+	helloReceived bool
+	helloTimer    *time.Timer
+	client        *liveSessionClient
 }
 
 type liveSessionWebRTCApplicationHandler struct {
@@ -69,11 +74,14 @@ func (handler *liveSessionWebRTCApplicationHandler) ApplicationMessageReceived(p
 	client := transport.client
 	reliableOpen := transport.reliableOpen
 	realtimeOpen := transport.realtimeOpen
-	transport.mu.Unlock()
 	if client == nil {
-		if channel != rtc.ApplicationChannelReliable || message.Type != "session.hello" || !reliableOpen || !realtimeOpen {
+		if channel != rtc.ApplicationChannelReliable || message.Type != "session.hello" || !reliableOpen || !realtimeOpen || transport.helloReceived {
+			transport.mu.Unlock()
 			return
 		}
+		transport.helloReceived = true
+		transport.helloTimer.Stop()
+		transport.mu.Unlock()
 		_, err = handler.session.attachWebRTCClient(transport, message)
 		if err != nil {
 			transport.close(err.Error())
@@ -81,6 +89,7 @@ func (handler *liveSessionWebRTCApplicationHandler) ApplicationMessageReceived(p
 		}
 		return
 	}
+	transport.mu.Unlock()
 	delivery := liveSessionDeliveryReliable
 	if channel == rtc.ApplicationChannelRealtime {
 		delivery = liveSessionDeliveryRealtime
@@ -115,11 +124,20 @@ func (handler *liveSessionWebRTCApplicationHandler) transport(peer rtc.PeerInfo)
 	metadata.mu.Lock()
 	defer metadata.mu.Unlock()
 	if metadata.transport == nil {
-		metadata.transport = &liveSessionWebRTCTransport{
+		transport := &liveSessionWebRTCTransport{
 			metadata: metadata,
 			service:  metadata.service,
 			peerID:   peer.ID,
 		}
+		transport.helloTimer = time.AfterFunc(liveSessionWebRTCHelloTimeout, func() {
+			transport.mu.Lock()
+			pending := !transport.helloReceived && transport.client == nil
+			transport.mu.Unlock()
+			if pending {
+				transport.close("session hello timed out")
+			}
+		})
+		metadata.transport = transport
 	}
 	return metadata.transport
 }

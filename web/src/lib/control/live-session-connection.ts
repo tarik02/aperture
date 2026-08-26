@@ -102,6 +102,7 @@ export class LiveSessionConnection {
   private realtimeCounter = 0;
   private inboundRealtimeCounter = 0;
   private candidateMessages: LiveSessionServerMessage[] = [];
+  private candidateFrame: ScreencastFrame | null = null;
   private readonly pendingCommands = new Map<string, PendingCommand>();
 
   constructor(options: LiveSessionConnectionOptions) {
@@ -124,6 +125,7 @@ export class LiveSessionConnection {
     this.candidate?.close();
     this.candidate = null;
     this.candidateMessages = [];
+    this.candidateFrame = null;
     this.active?.close();
     this.active = null;
     this.rejectPending("live session connection closed");
@@ -137,6 +139,7 @@ export class LiveSessionConnection {
     this.candidate?.close();
     this.candidate = null;
     this.candidateMessages = [];
+    this.candidateFrame = null;
     this.active?.close();
     this.active = null;
     this.rejectPending("live session transport replaced");
@@ -192,6 +195,8 @@ export class LiveSessionConnection {
       frame: (transport, frame) => {
         if (this.active === transport) {
           this.options.callbacks.onFrame(frame);
+        } else if (this.candidate === transport) {
+          this.candidateFrame = frame;
         }
       },
     };
@@ -222,6 +227,7 @@ export class LiveSessionConnection {
     }
     this.candidate = transport;
     this.candidateMessages = [];
+    this.candidateFrame = null;
     transport.connect();
     window.setTimeout(() => {
       if (this.candidate !== transport) {
@@ -230,6 +236,7 @@ export class LiveSessionConnection {
       transport.close();
       this.candidate = null;
       this.candidateMessages = [];
+      this.candidateFrame = null;
       if (this.active === null) {
         this.startWebSocket();
       } else {
@@ -250,6 +257,7 @@ export class LiveSessionConnection {
     });
     this.candidate = transport;
     this.candidateMessages = [];
+    this.candidateFrame = null;
     transport.connect();
   }
 
@@ -260,8 +268,10 @@ export class LiveSessionConnection {
     }
     const previous = this.active;
     const messages = this.candidateMessages;
+    const frame = this.candidateFrame;
     this.candidate = null;
     this.candidateMessages = [];
+    this.candidateFrame = null;
     this.active = transport;
     this.realtimeCounter = 0;
     this.inboundRealtimeCounter = 0;
@@ -273,6 +283,9 @@ export class LiveSessionConnection {
       this.options.callbacks.onStream(transport.mediaStream());
     } else {
       this.options.callbacks.onStream(null);
+      if (frame) {
+        this.options.callbacks.onFrame(frame);
+      }
     }
     for (const message of messages) {
       this.deliverMessage(message);
@@ -292,6 +305,7 @@ export class LiveSessionConnection {
     if (this.candidate === transport) {
       this.candidate = null;
       this.candidateMessages = [];
+      this.candidateFrame = null;
       transport.close();
       if (this.active === null) {
         if (transport.kind === "webrtc") {

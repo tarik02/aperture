@@ -861,6 +861,10 @@ func (session *liveSession) claim(client *liveSessionClient, targetID string, mo
 	session.holder = client
 	session.leaseMode = mode
 	session.lastSeen = time.Now()
+	if previousClient, ok := previous.(*liveSessionClient); ok {
+		clear(previousClient.pressedButtons)
+		clear(previousClient.pressedKeys)
+	}
 	session.mu.Unlock()
 	if previous != nil {
 		_ = session.input.release(previous.actorOwnerID())
