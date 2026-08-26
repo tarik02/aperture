@@ -17,6 +17,7 @@ const (
 	collaborationProtocol           = "aperture-collaboration.v1"
 	collaborationMaximumClients     = 20
 	collaborationMaximumMessageSize = 4 * 1024 * 1024
+	collaborationHelloTimeout       = 5 * time.Second
 	collaborationLeaseTimeout       = 5 * time.Second
 	collaborationWriteTimeout       = 5 * time.Second
 )
@@ -147,7 +148,10 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 	socket.SetReadLimit(collaborationMaximumMessageSize)
 
 	var hello collaborationClientMessage
-	if err := readCollaborationMessage(req.Context(), socket, &hello); err != nil || hello.Version != 1 || hello.Type != "hello" || !validCollaborationClientID(hello.ClientID) {
+	helloCtx, cancelHello := context.WithTimeout(req.Context(), collaborationHelloTimeout)
+	err = readCollaborationMessage(helloCtx, socket, &hello)
+	cancelHello()
+	if err != nil || hello.Version != 1 || hello.Type != "hello" || !validCollaborationClientID(hello.ClientID) {
 		_ = socket.Close(websocket.StatusPolicyViolation, "valid hello required")
 		return
 	}

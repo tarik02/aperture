@@ -106,7 +106,6 @@ export function useCollaborationControl({
   const sequenceRef = useRef(0);
   const claimPendingRef = useRef(false);
   const releasePendingRef = useRef(false);
-  const textKeyCodesRef = useRef(new Set<string>());
   const holderClientIdRef = useRef<string | null>(null);
 
   holderClientIdRef.current = holderClientId;
@@ -176,7 +175,6 @@ export function useCollaborationControl({
             releasePendingRef.current = false;
             if (nextHolder !== clientId) {
               claimPendingRef.current = false;
-              textKeyCodesRef.current.clear();
             }
             return;
           }
@@ -199,7 +197,6 @@ export function useCollaborationControl({
         socketRef.current = null;
         claimPendingRef.current = false;
         releasePendingRef.current = false;
-        textKeyCodesRef.current.clear();
         setHolderClientId(null);
         setLeaseMode(null);
         if (!disposed) {
@@ -269,7 +266,6 @@ export function useCollaborationControl({
     }
     releasePendingRef.current = true;
     claimPendingRef.current = false;
-    textKeyCodesRef.current.clear();
     return true;
   }, [clientId, send]);
 
@@ -373,22 +369,6 @@ export function useCollaborationControl({
                 })
               : false;
           }
-          if (message.action === "down" && message.text) {
-            if (message.code) {
-              textKeyCodesRef.current.add(message.code);
-            }
-            return sendInputEvent(message.targetId, {
-              type: "input.keyboard.text",
-              text: message.text,
-            });
-          }
-          if (
-            message.action === "up" &&
-            message.code &&
-            textKeyCodesRef.current.delete(message.code)
-          ) {
-            return true;
-          }
           const keycode = evdevKeycodeByCode[message.code ?? ""];
           const windowsVirtualKeyCode =
             message.windowsVirtualKeyCode ??
@@ -400,6 +380,7 @@ export function useCollaborationControl({
                 pressed: message.action === "down",
                 key: message.key,
                 code: message.code,
+                text: message.text,
                 unmodifiedText: message.unmodifiedText,
                 modifiers: message.modifiers ?? 0,
                 windowsVirtualKeyCode,
