@@ -215,7 +215,7 @@ export function BrowserToolbar({
           open={devToolsOpen}
           dock={devToolsDock}
           available={
-            collaborationRole !== "viewer" && connected && Boolean(cdpUrl && control.activeTargetId)
+            collaborationRole === "owner" && connected && Boolean(cdpUrl && control.activeTargetId)
           }
           onOpenChange={onDevToolsOpenChange}
           onDockChange={onDevToolsDockChange}

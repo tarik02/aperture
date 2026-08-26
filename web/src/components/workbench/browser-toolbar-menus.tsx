@@ -357,8 +357,9 @@ function InputControlMenuItem({ control }: { control: UseBrowserControlResult })
       }
     };
   } else {
-    label = explicitControlClaimed ? "Control in use" : "Claim control";
-    disabled = disabled || explicitControlClaimed;
+    const controlBlocked = explicitControlClaimed && collaboration.role !== "owner";
+    label = controlBlocked ? "Control in use" : "Claim control";
+    disabled = disabled || controlBlocked;
     action = () => {
       if (targetId) {
         collaboration.claim(targetId, "explicit");
