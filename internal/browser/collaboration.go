@@ -291,7 +291,7 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 		hub.lastSeen = time.Now()
 		hub.mu.Unlock()
 		if err := hub.bindInputTarget(client, targetID); err != nil {
-			hub.revoke(client)
+			hub.releaseInputAndRevoke(client)
 			return err
 		}
 		if !hub.clientHoldsInput(client) {
@@ -316,7 +316,7 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 		_ = hub.input.release(previous.ownerID)
 	}
 	if err := hub.bindInputTarget(client, targetID); err != nil {
-		hub.revoke(client)
+		hub.releaseInputAndRevoke(client)
 		return err
 	}
 	if !hub.clientHoldsInput(client) {
@@ -379,7 +379,7 @@ func (hub *collaborationHub) submit(client *collaborationClient, message collabo
 	}
 	hub.mu.Unlock()
 	if err := hub.bindInputTarget(client, message.TargetID); err != nil {
-		hub.revoke(client)
+		hub.releaseInputAndRevoke(client)
 		return err
 	}
 	hub.mu.Lock()
@@ -392,7 +392,7 @@ func (hub *collaborationHub) submit(client *collaborationClient, message collabo
 	hub.lastSeen = time.Now()
 	hub.mu.Unlock()
 	if err := hub.input.submit(client.ownerID, message); err != nil {
-		hub.revoke(client)
+		hub.releaseInputAndRevoke(client)
 		return err
 	}
 	return nil
@@ -402,6 +402,11 @@ func (hub *collaborationHub) bindInputTarget(client *collaborationClient, target
 	return hub.input.bind(client.ownerID, targetID, func() {
 		hub.revoke(client)
 	})
+}
+
+func (hub *collaborationHub) releaseInputAndRevoke(client *collaborationClient) {
+	_ = hub.input.release(client.ownerID)
+	hub.revoke(client)
 }
 
 func (hub *collaborationHub) clientHoldsInput(client *collaborationClient) bool {
