@@ -528,9 +528,11 @@ func (session *liveSession) updateActiveTarget(client *liveSessionClient, target
 	if !session.knownTarget(targetID) {
 		return errors.New("active target is unavailable")
 	}
-	session.recordingMu.Lock()
-	defer session.recordingMu.Unlock()
 	session.mu.Lock()
+	if session.clients[client.id] != client {
+		session.mu.Unlock()
+		return errors.New("session client is unavailable")
+	}
 	changes := session.activeTargetChangesLocked(client)
 	session.mu.Unlock()
 	if err := session.applyActiveTargetChanges(changes, targetID); err != nil {
@@ -568,12 +570,14 @@ func (session *liveSession) applyActiveTargetChanges(changes []liveSessionTarget
 	changed := changes[:0]
 	for _, change := range changes {
 		if change.previousTargetID != targetID {
-			change.transport = change.client.transport()
 			changed = append(changed, change)
 		}
 	}
 	if len(changed) == 0 {
 		return nil
+	}
+	for index := range changed {
+		changed[index].transport = changed[index].client.transport()
 	}
 
 	rotatedRecordings := 0
@@ -627,6 +631,28 @@ func (session *liveSession) applyActiveTargetChanges(changes []liveSessionTarget
 	}
 	session.mu.Unlock()
 	return nil
+}
+
+func (session *liveSession) lockTargetChanges() func() {
+	session.mu.Lock()
+	clients := make([]*liveSessionClient, 0, len(session.clients))
+	for _, client := range session.clients {
+		clients = append(clients, client)
+	}
+	session.mu.Unlock()
+	sort.Slice(clients, func(left, right int) bool {
+		return clients[left].id < clients[right].id
+	})
+	for _, client := range clients {
+		client.handoverMu.Lock()
+	}
+	session.recordingMu.Lock()
+	return func() {
+		session.recordingMu.Unlock()
+		for index := len(clients) - 1; index >= 0; index-- {
+			clients[index].handoverMu.Unlock()
+		}
+	}
 }
 
 func (session *liveSession) updateCursor(client *liveSessionClient, targetID string, x, y float64) error {
@@ -751,9 +777,11 @@ func (client *liveSessionClient) writePaintUpdates(ctx context.Context) {
 }
 
 func (session *liveSession) setFollowing(client *liveSessionClient, followingClientID string) error {
-	session.recordingMu.Lock()
-	defer session.recordingMu.Unlock()
 	session.mu.Lock()
+	if session.clients[client.id] != client {
+		session.mu.Unlock()
+		return errors.New("session client is unavailable")
+	}
 	if followingClientID == "" {
 		client.followingClientID = ""
 		session.mu.Unlock()

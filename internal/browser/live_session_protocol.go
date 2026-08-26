@@ -6,8 +6,13 @@ import (
 )
 
 func (session *liveSession) handleSessionMessage(client *liveSessionClient, transport liveSessionTransport, message liveSessionClientMessage, delivery liveSessionDelivery) {
-	client.handoverMu.Lock()
-	defer client.handoverMu.Unlock()
+	if liveSessionMessageChangesTargets(message.Type) {
+		unlock := session.lockTargetChanges()
+		defer unlock()
+	} else {
+		client.handoverMu.Lock()
+		defer client.handoverMu.Unlock()
+	}
 	if client.transport() != transport {
 		return
 	}
@@ -54,6 +59,15 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 
 	if err := session.handleClientMessage(client, message); err != nil {
 		writeLiveSessionTransportError(transport, liveSessionErrorCode(err), err.Error())
+	}
+}
+
+func liveSessionMessageChangesTargets(messageType string) bool {
+	switch messageType {
+	case "target.select", "target.create", "target.close", "follow.set":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -133,7 +147,7 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err := session.browser.closeTarget(message.TargetID); err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		session.reconcileAndBroadcastTargets()
+		session.reconcileAndBroadcastTargetsLocked()
 		return liveSessionServerMessage{TargetID: message.TargetID}, nil
 	case "page.navigate":
 		if err := requireBrowserMutation(client); err != nil {
@@ -260,6 +274,12 @@ func (session *liveSession) publishTargets(targets []liveSessionTarget) {
 }
 
 func (session *liveSession) reconcileAndBroadcastTargets() {
+	unlock := session.lockTargetChanges()
+	defer unlock()
+	session.reconcileAndBroadcastTargetsLocked()
+}
+
+func (session *liveSession) reconcileAndBroadcastTargetsLocked() {
 	targets, err := session.browser.targets()
 	if err != nil {
 		return
@@ -276,7 +296,6 @@ func (session *liveSession) reconcileAndBroadcastTargets() {
 		}
 	}
 
-	session.recordingMu.Lock()
 	session.mu.Lock()
 	changes := make([]liveSessionTargetChange, 0)
 	for _, client := range session.clients {
@@ -299,7 +318,6 @@ func (session *liveSession) reconcileAndBroadcastTargets() {
 		}
 		session.mu.Unlock()
 	}
-	session.recordingMu.Unlock()
 	if len(changes) > 0 {
 		session.broadcastPresence()
 	}

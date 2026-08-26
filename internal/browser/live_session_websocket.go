@@ -158,6 +158,9 @@ func (session *liveSession) activateTransportLocked(client *liveSessionClient, t
 	client.recovering = false
 	client.realtimeCounter = 0
 	client.outboundRealtimeCounter.Store(0)
+	if session.holder == client && session.leaseMode == liveSessionLeaseExplicit {
+		session.lastSeen = time.Now()
+	}
 	if client.recoveryTimer != nil {
 		client.recoveryTimer.Stop()
 		client.recoveryTimer = nil
