@@ -826,7 +826,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		stopProcess(pipeWire, pipeWireDone)
 		return err
 	}
-	multiTargetEnabled := compositorShell == apertureShellPath && values.CompositorBackend == "pipewire"
+	multiTargetEnabled := multiTargetCompositorEnabled(values)
 	if values.MediaProducerEnabled && !multiTargetEnabled {
 		stopProcess(compositor, compositorDone)
 		stopProcess(wirePlumber, wirePlumberDone)
