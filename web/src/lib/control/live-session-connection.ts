@@ -346,6 +346,14 @@ export class LiveSessionConnection {
   }
 
   private handleMessage(transport: SessionTransport, message: LiveSessionServerMessage) {
+    if (
+      message.type === "error" &&
+      message.code === "resume_rejected" &&
+      this.candidate === transport &&
+      this.active === null
+    ) {
+      this.identity = null;
+    }
     if (message.type === "session.snapshot") {
       this.identity = { clientId: message.clientId, resumeSecret: message.resumeSecret };
     }

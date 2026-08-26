@@ -50,6 +50,9 @@ func (session *liveSession) serveSessionWebSocketHTTP(w http.ResponseWriter, req
 
 	client, err := session.attachWebSocketClient(req, role, hello, transport)
 	if err != nil {
+		if errors.Is(err, errLiveSessionResumeRejected) {
+			writeLiveSessionTransportError(transport, "resume_rejected", err.Error())
+		}
 		_ = connection.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
@@ -97,14 +100,14 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 		return client, nil
 	}
 	if !validLiveSessionClientID(hello.ClientID) || hello.ResumeSecret == "" {
-		return nil, errors.New("session resume credentials are invalid")
+		return nil, errLiveSessionResumeRejected
 	}
 
 	session.mu.Lock()
 	client := session.clients[hello.ClientID]
 	if client == nil || client.resumeSecret != hello.ResumeSecret || client.role != role {
 		session.mu.Unlock()
-		return nil, errors.New("session resume credentials are invalid")
+		return nil, errLiveSessionResumeRejected
 	}
 	client.capabilityRole = collaborationCapabilityRole(req)
 	client.sessionTokenAuthenticated = sessionTokenAuthenticated(req)

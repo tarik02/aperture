@@ -84,6 +84,9 @@ func (handler *liveSessionWebRTCApplicationHandler) ApplicationMessageReceived(p
 		transport.mu.Unlock()
 		_, err = handler.session.attachWebRTCClient(transport, message)
 		if err != nil {
+			if errors.Is(err, errLiveSessionResumeRejected) {
+				writeLiveSessionTransportError(transport, "resume_rejected", err.Error())
+			}
 			transport.close(err.Error())
 			return
 		}
@@ -178,13 +181,13 @@ func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTrans
 		return client, nil
 	}
 	if !validLiveSessionClientID(hello.ClientID) || hello.ResumeSecret == "" {
-		return nil, errors.New("session resume credentials are invalid")
+		return nil, errLiveSessionResumeRejected
 	}
 	session.mu.Lock()
 	client := session.clients[hello.ClientID]
 	if client == nil || client.resumeSecret != hello.ResumeSecret || client.role != metadata.role {
 		session.mu.Unlock()
-		return nil, errors.New("session resume credentials are invalid")
+		return nil, errLiveSessionResumeRejected
 	}
 	client.capabilityRole = metadata.capabilityRole
 	client.sessionTokenAuthenticated = metadata.sessionTokenAuthenticated

@@ -33,6 +33,8 @@ const (
 
 type liveSessionLeaseMode string
 
+var errLiveSessionResumeRejected = errors.New("session resume credentials are invalid")
+
 const (
 	liveSessionLeaseImplicit liveSessionLeaseMode = "implicit"
 	liveSessionLeaseExplicit liveSessionLeaseMode = "explicit"
