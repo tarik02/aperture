@@ -325,6 +325,7 @@ func (hub *collaborationHub) handleClientMessage(client *collaborationClient, me
 }
 
 func (hub *collaborationHub) updateActiveTarget(client *collaborationClient, targetID string) error {
+	targetID = strings.TrimSpace(targetID)
 	if len(targetID) > 128 {
 		return errors.New("active target is invalid")
 	}
