@@ -57,6 +57,7 @@ type collaborationClient struct {
 	ownerID           uint64
 	socket            *websocket.Conn
 	writeMu           sync.Mutex
+	cursorUpdates     chan collaborationServerMessage
 	sequence          uint64
 	name              string
 	avatarHash        string
@@ -164,16 +165,22 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 	socket.SetReadLimit(64 * 1024)
 
 	var hello collaborationClientMessage
-	if err := readCollaborationMessage(req.Context(), socket, &hello); err != nil || hello.Version != 1 || hello.Type != "hello" || !validCollaborationClientID(hello.ClientID) || !validCollaborationName(hello.Name) || !validCollaborationAvatarHash(hello.AvatarHash) {
+	if err := readCollaborationMessage(req.Context(), socket, &hello); err != nil {
 		_ = socket.Close(websocket.StatusPolicyViolation, "valid hello required")
 		return
 	}
-	client, err := hub.addClient(hello.ClientID, role, hello.Name, hello.AvatarHash, socket)
+	name := strings.TrimSpace(hello.Name)
+	if hello.Version != 1 || hello.Type != "hello" || !validCollaborationClientID(hello.ClientID) || !validCollaborationName(name) || !validCollaborationAvatarHash(hello.AvatarHash) {
+		_ = socket.Close(websocket.StatusPolicyViolation, "valid hello required")
+		return
+	}
+	client, err := hub.addClient(hello.ClientID, role, name, hello.AvatarHash, socket)
 	if err != nil {
 		_ = socket.Close(websocket.StatusTryAgainLater, err.Error())
 		return
 	}
 	defer hub.removeClient(client)
+	go client.writeCursorUpdates(req.Context())
 	if err := client.write(collaborationServerMessage{Version: 1, Type: "welcome", ClientID: client.id, Role: client.role}); err != nil {
 		return
 	}
@@ -232,7 +239,16 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket
 		return nil, errors.New("collaboration client id is already connected")
 	}
 	hub.nextOwner++
-	client := &collaborationClient{hub: hub, id: id, role: role, ownerID: hub.nextOwner, socket: socket, name: name, avatarHash: avatarHash}
+	client := &collaborationClient{
+		hub:           hub,
+		id:            id,
+		role:          role,
+		ownerID:       hub.nextOwner,
+		socket:        socket,
+		cursorUpdates: make(chan collaborationServerMessage, 1),
+		name:          name,
+		avatarHash:    avatarHash,
+	}
 	hub.clients[id] = client
 	return client, nil
 }
@@ -324,9 +340,38 @@ func (hub *collaborationHub) updateCursor(client *collaborationClient, targetID 
 	}
 	hub.mu.Unlock()
 	for _, follower := range followers {
-		_ = follower.write(message)
+		follower.queueCursorUpdate(message)
 	}
 	return nil
+}
+
+func (client *collaborationClient) queueCursorUpdate(message collaborationServerMessage) {
+	select {
+	case client.cursorUpdates <- message:
+		return
+	default:
+	}
+	select {
+	case <-client.cursorUpdates:
+	default:
+	}
+	select {
+	case client.cursorUpdates <- message:
+	default:
+	}
+}
+
+func (client *collaborationClient) writeCursorUpdates(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case message := <-client.cursorUpdates:
+			if client.write(message) != nil {
+				return
+			}
+		}
+	}
 }
 
 func (hub *collaborationHub) setFollowing(client *collaborationClient, followingClientID string) error {
