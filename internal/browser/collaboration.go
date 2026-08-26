@@ -32,14 +32,15 @@ type collaborationHub struct {
 	controller *remoteinput.Controller
 	sender     *compositorInputSender
 
-	mu        sync.Mutex
-	inputMu   sync.Mutex
-	clients   map[string]*collaborationClient
-	holder    *collaborationClient
-	leaseMode collaborationLeaseMode
-	lastSeen  time.Time
-	nextOwner uint64
-	closed    bool
+	mu             sync.Mutex
+	inputMu        sync.Mutex
+	leaseUpdatesMu sync.Mutex
+	clients        map[string]*collaborationClient
+	holder         *collaborationClient
+	leaseMode      collaborationLeaseMode
+	lastSeen       time.Time
+	nextOwner      uint64
+	closed         bool
 
 	inputSurfaceID  uint64
 	inputGeneration uint64
@@ -48,13 +49,14 @@ type collaborationHub struct {
 }
 
 type collaborationClient struct {
-	hub      *collaborationHub
-	id       string
-	role     string
-	ownerID  uint64
-	socket   *websocket.Conn
-	writeMu  sync.Mutex
-	sequence uint64
+	hub          *collaborationHub
+	id           string
+	role         string
+	ownerID      uint64
+	socket       *websocket.Conn
+	writeMu      sync.Mutex
+	leaseUpdates chan collaborationServerMessage
+	sequence     uint64
 }
 
 type collaborationClientMessage struct {
@@ -152,6 +154,7 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 	if err := client.write(collaborationServerMessage{Version: 1, Type: "welcome", ClientID: client.id, Role: client.role}); err != nil {
 		return
 	}
+	go client.writeLeaseUpdates(req.Context())
 	hub.sendLeaseState(client)
 
 	for {
@@ -206,7 +209,14 @@ func (hub *collaborationHub) addClient(id, role string, socket *websocket.Conn) 
 		return nil, errors.New("collaboration client id is already connected")
 	}
 	hub.nextOwner++
-	client := &collaborationClient{hub: hub, id: id, role: role, ownerID: hub.nextOwner, socket: socket}
+	client := &collaborationClient{
+		hub:          hub,
+		id:           id,
+		role:         role,
+		ownerID:      hub.nextOwner,
+		socket:       socket,
+		leaseUpdates: make(chan collaborationServerMessage, 1),
+	}
 	hub.clients[id] = client
 	return client, nil
 }
@@ -425,13 +435,17 @@ func (hub *collaborationHub) expireLease() {
 }
 
 func (hub *collaborationHub) sendLeaseState(client *collaborationClient) {
+	hub.leaseUpdatesMu.Lock()
+	defer hub.leaseUpdatesMu.Unlock()
 	hub.mu.Lock()
 	message := hub.leaseStateLocked()
 	hub.mu.Unlock()
-	_ = client.write(message)
+	client.queueLeaseUpdate(message)
 }
 
 func (hub *collaborationHub) broadcastLeaseState() {
+	hub.leaseUpdatesMu.Lock()
+	defer hub.leaseUpdatesMu.Unlock()
 	hub.mu.Lock()
 	message := hub.leaseStateLocked()
 	clients := make([]*collaborationClient, 0, len(hub.clients))
@@ -440,7 +454,37 @@ func (hub *collaborationHub) broadcastLeaseState() {
 	}
 	hub.mu.Unlock()
 	for _, client := range clients {
-		_ = client.write(message)
+		client.queueLeaseUpdate(message)
+	}
+}
+
+func (client *collaborationClient) queueLeaseUpdate(message collaborationServerMessage) {
+	select {
+	case client.leaseUpdates <- message:
+		return
+	default:
+	}
+	select {
+	case <-client.leaseUpdates:
+	default:
+	}
+	select {
+	case client.leaseUpdates <- message:
+	default:
+	}
+}
+
+func (client *collaborationClient) writeLeaseUpdates(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case message := <-client.leaseUpdates:
+			if client.write(message) != nil {
+				_ = client.socket.CloseNow()
+				return
+			}
+		}
 	}
 }
 
