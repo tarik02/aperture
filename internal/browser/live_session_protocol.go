@@ -107,12 +107,8 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if !session.knownTarget(message.TargetID) {
 			return liveSessionServerMessage{}, errors.New("browser target is unavailable")
 		}
-		transport := client.transport()
-		if transport == nil {
+		if client.transport() == nil {
 			return liveSessionServerMessage{}, errors.New("session transport is recovering")
-		}
-		if err := transport.selectTarget(message.TargetID); err != nil {
-			return liveSessionServerMessage{}, err
 		}
 		if err := session.updateActiveTarget(client, message.TargetID); err != nil {
 			return liveSessionServerMessage{}, err
@@ -266,7 +262,9 @@ func (session *liveSession) broadcastRecordings() {
 	session.mu.Lock()
 	clients := make([]*liveSessionClient, 0, len(session.clients))
 	for _, client := range session.clients {
-		clients = append(clients, client)
+		if client.role == "owner" {
+			clients = append(clients, client)
+		}
 	}
 	session.mu.Unlock()
 	for _, client := range clients {

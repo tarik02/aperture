@@ -232,7 +232,10 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 	if err != nil {
 		return liveSessionServerMessage{}, err
 	}
-	recordings := session.listRecordings()
+	var recordings []wrapperRecording
+	if client.role == "owner" {
+		recordings = session.listRecordings()
+	}
 	session.mu.Lock()
 	if client.activeTargetID == "" && len(targets) > 0 {
 		client.activeTargetID = targets[0].ID

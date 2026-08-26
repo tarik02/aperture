@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -131,49 +132,49 @@ func (automation *liveSessionAutomation) actorOwnerID() uint64 { return automati
 func (automation *liveSessionAutomation) actorName() string    { return automation.name }
 
 type liveSessionClientMessage struct {
-	Version               int                  `json:"version"`
-	Type                  string               `json:"type"`
-	RequestID             string               `json:"requestId"`
-	ClientID              string               `json:"clientId"`
-	ResumeSecret          string               `json:"resumeSecret"`
-	TargetID              string               `json:"targetId"`
-	URL                   string               `json:"url"`
-	Mode                  string               `json:"mode"`
-	Sequence              uint64               `json:"sequence"`
-	X                     float64              `json:"x"`
-	Y                     float64              `json:"y"`
-	ButtonCode            uint32               `json:"buttonCode"`
-	Keycode               uint32               `json:"keycode"`
-	Text                  string               `json:"text"`
-	Key                   string               `json:"key"`
-	Code                  string               `json:"code"`
-	UnmodifiedText        string               `json:"unmodifiedText"`
-	Pressed               bool                 `json:"pressed"`
-	Width                 float64              `json:"width"`
-	Height                float64              `json:"height"`
-	ClickCount            int                  `json:"clickCount"`
-	Modifiers             int                  `json:"modifiers"`
-	WindowsVirtualKeyCode int                  `json:"windowsVirtualKeyCode"`
-	NativeVirtualKeyCode  int                  `json:"nativeVirtualKeyCode"`
-	Location              int                  `json:"location"`
-	AutoRepeat            bool                 `json:"autoRepeat"`
-	IsKeypad              bool                 `json:"isKeypad"`
-	Horizontal            float64              `json:"horizontal"`
-	Vertical              float64              `json:"vertical"`
-	StopHorizontal        bool                 `json:"stopHorizontal"`
-	StopVertical          bool                 `json:"stopVertical"`
-	Name                  string               `json:"name"`
-	AvatarHash            string               `json:"avatarHash"`
-	FollowingClientID     string               `json:"followingClientId"`
-	StrokeID              string               `json:"strokeId"`
-	Color                 string               `json:"color"`
-	Phase                 string               `json:"phase"`
-	DeviceScaleFactor     float64              `json:"deviceScaleFactor"`
-	RecordingID           string               `json:"recordingId"`
-	FPS                   int                  `json:"fps"`
-	BitrateKbps           int                  `json:"bitrateKbps"`
-	Codec                 string               `json:"codec"`
-	RealtimeCounter       uint64               `json:"realtimeCounter"`
+	Version               int     `json:"version"`
+	Type                  string  `json:"type"`
+	RequestID             string  `json:"requestId"`
+	ClientID              string  `json:"clientId"`
+	ResumeSecret          string  `json:"resumeSecret"`
+	TargetID              string  `json:"targetId"`
+	URL                   string  `json:"url"`
+	Mode                  string  `json:"mode"`
+	Sequence              uint64  `json:"sequence"`
+	X                     float64 `json:"x"`
+	Y                     float64 `json:"y"`
+	ButtonCode            uint32  `json:"buttonCode"`
+	Keycode               uint32  `json:"keycode"`
+	Text                  string  `json:"text"`
+	Key                   string  `json:"key"`
+	Code                  string  `json:"code"`
+	UnmodifiedText        string  `json:"unmodifiedText"`
+	Pressed               bool    `json:"pressed"`
+	Width                 float64 `json:"width"`
+	Height                float64 `json:"height"`
+	ClickCount            int     `json:"clickCount"`
+	Modifiers             int     `json:"modifiers"`
+	WindowsVirtualKeyCode int     `json:"windowsVirtualKeyCode"`
+	NativeVirtualKeyCode  int     `json:"nativeVirtualKeyCode"`
+	Location              int     `json:"location"`
+	AutoRepeat            bool    `json:"autoRepeat"`
+	IsKeypad              bool    `json:"isKeypad"`
+	Horizontal            float64 `json:"horizontal"`
+	Vertical              float64 `json:"vertical"`
+	StopHorizontal        bool    `json:"stopHorizontal"`
+	StopVertical          bool    `json:"stopVertical"`
+	Name                  string  `json:"name"`
+	AvatarHash            string  `json:"avatarHash"`
+	FollowingClientID     string  `json:"followingClientId"`
+	StrokeID              string  `json:"strokeId"`
+	Color                 string  `json:"color"`
+	Phase                 string  `json:"phase"`
+	DeviceScaleFactor     float64 `json:"deviceScaleFactor"`
+	RecordingID           string  `json:"recordingId"`
+	FPS                   int     `json:"fps"`
+	BitrateKbps           int     `json:"bitrateKbps"`
+	Codec                 string  `json:"codec"`
+	RealtimeCounter       uint64  `json:"realtimeCounter"`
 }
 
 type liveSessionParticipant struct {
@@ -204,8 +205,8 @@ type liveSessionServerMessage struct {
 	TargetID        string                   `json:"targetId,omitempty"`
 	ActiveTargetID  string                   `json:"activeTargetId,omitempty"`
 	Targets         []liveSessionTarget      `json:"targets,omitempty"`
-	X               float64                  `json:"x,omitempty"`
-	Y               float64                  `json:"y,omitempty"`
+	X               *float64                 `json:"x,omitempty"`
+	Y               *float64                 `json:"y,omitempty"`
 	Participants    []liveSessionParticipant `json:"participants,omitempty"`
 	StrokeID        string                   `json:"strokeId,omitempty"`
 	Color           string                   `json:"color,omitempty"`
@@ -490,6 +491,8 @@ func (session *liveSession) paintPoint(client *liveSessionClient, message liveSe
 		}
 	}
 	session.mu.Unlock()
+	x := message.X
+	y := message.Y
 	session.broadcastPaint(liveSessionServerMessage{
 		Version:  1,
 		Type:     "paint.point",
@@ -499,8 +502,8 @@ func (session *liveSession) paintPoint(client *liveSessionClient, message liveSe
 		Color:    message.Color,
 		Width:    message.Width,
 		Phase:    message.Phase,
-		X:        message.X,
-		Y:        message.Y,
+		X:        &x,
+		Y:        &y,
 	})
 	return nil
 }
@@ -519,51 +522,105 @@ func (session *liveSession) broadcastPaint(message liveSessionServerMessage) {
 
 func (session *liveSession) updateActiveTarget(client *liveSessionClient, targetID string) error {
 	targetID = strings.TrimSpace(targetID)
-	if len(targetID) > 128 {
+	if targetID == "" || len(targetID) > 128 {
 		return errors.New("active target is invalid")
 	}
-	if targetID != "" && !session.knownTarget(targetID) {
+	if !session.knownTarget(targetID) {
 		return errors.New("active target is unavailable")
 	}
 	session.recordingMu.Lock()
 	defer session.recordingMu.Unlock()
 	session.mu.Lock()
-	affected := []*liveSessionClient{client}
-	targetChanged := make(map[*liveSessionClient]bool)
-	for index := 0; index < len(affected); index++ {
-		followed := affected[index]
-		targetChanged[followed] = followed.activeTargetID != targetID
+	changes := []liveSessionTargetChange{{client: client, previousTargetID: client.activeTargetID}}
+	for index := 0; index < len(changes); index++ {
+		followed := changes[index].client
 		for _, participant := range session.clients {
 			if participant.followingClientID == followed.id {
-				affected = append(affected, participant)
+				changes = append(changes, liveSessionTargetChange{
+					client:           participant,
+					previousTargetID: participant.activeTargetID,
+				})
 			}
 		}
 	}
 	session.mu.Unlock()
-	if targetID != "" {
-		for _, participant := range affected[1:] {
-			if transport := participant.transport(); transport != nil {
-				if err := transport.selectTarget(targetID); err != nil {
-					return err
-				}
-			}
-		}
-		for _, participant := range affected {
-			if !targetChanged[participant] {
-				continue
-			}
-			if err := session.moveViewerRecordings(session.runtime.ctx, participant.id, targetID); err != nil {
-				return err
-			}
-		}
+	if err := session.applyActiveTargetChanges(changes, targetID); err != nil {
+		return err
 	}
-	session.mu.Lock()
-	for _, participant := range affected {
-		participant.activeTargetID = targetID
-	}
-	session.mu.Unlock()
 	session.broadcastTargets()
 	session.broadcastPresence()
+	return nil
+}
+
+type liveSessionTargetChange struct {
+	client           *liveSessionClient
+	previousTargetID string
+	transport        liveSessionTransport
+}
+
+// applyActiveTargetChanges runs while recordingMu prevents client and follow changes.
+func (session *liveSession) applyActiveTargetChanges(changes []liveSessionTargetChange, targetID string) error {
+	changed := changes[:0]
+	for _, change := range changes {
+		if change.previousTargetID != targetID {
+			change.transport = change.client.transport()
+			changed = append(changed, change)
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+
+	rotatedRecordings := 0
+	selectedTransports := 0
+	rollback := func(cause error) error {
+		rollbackErrors := []error{cause}
+		for index := selectedTransports - 1; index >= 0; index-- {
+			change := changed[index]
+			if change.transport == nil {
+				continue
+			}
+			if change.previousTargetID == "" {
+				change.transport.close("presentation rollback failed")
+				continue
+			}
+			if err := change.transport.selectTarget(change.previousTargetID); err != nil {
+				change.transport.close("presentation rollback failed")
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("restore presentation for client %s: %w", change.client.id, err))
+			}
+		}
+		for index := rotatedRecordings - 1; index >= 0; index-- {
+			change := changed[index]
+			if change.previousTargetID == "" {
+				continue
+			}
+			if err := session.moveViewerRecordings(session.runtime.ctx, change.client.id, change.previousTargetID); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("restore viewer recordings for client %s: %w", change.client.id, err))
+			}
+		}
+		return errors.Join(rollbackErrors...)
+	}
+
+	for _, change := range changed {
+		if err := session.moveViewerRecordings(session.runtime.ctx, change.client.id, targetID); err != nil {
+			return rollback(err)
+		}
+		rotatedRecordings++
+	}
+	for _, change := range changed {
+		if change.transport != nil {
+			if err := change.transport.selectTarget(targetID); err != nil {
+				return rollback(err)
+			}
+		}
+		selectedTransports++
+	}
+
+	session.mu.Lock()
+	for _, change := range changed {
+		change.client.activeTargetID = targetID
+	}
+	session.mu.Unlock()
 	return nil
 }
 
@@ -571,7 +628,7 @@ func (session *liveSession) updateCursor(client *liveSessionClient, targetID str
 	if targetID == "" || x < 0 || x > 1 || y < 0 || y > 1 {
 		return errors.New("cursor position is invalid")
 	}
-	message := liveSessionServerMessage{Version: 1, Type: "presence.cursor", ClientID: client.id, TargetID: targetID, X: x, Y: y}
+	message := liveSessionServerMessage{Version: 1, Type: "presence.cursor", ClientID: client.id, TargetID: targetID, X: &x, Y: &y}
 	session.mu.Lock()
 	if client.activeTargetID != targetID {
 		session.mu.Unlock()
@@ -713,26 +770,18 @@ func (session *liveSession) setFollowing(client *liveSessionClient, followingCli
 		}
 	}
 	targetID := followed.activeTargetID
+	previousTargetID := client.activeTargetID
 	session.mu.Unlock()
 	if targetID != "" {
-		if transport := client.transport(); transport != nil {
-			if err := transport.selectTarget(targetID); err != nil {
-				return err
-			}
-		}
-		if err := session.moveViewerRecordings(session.runtime.ctx, client.id, targetID); err != nil {
+		if err := session.applyActiveTargetChanges([]liveSessionTargetChange{{
+			client:           client,
+			previousTargetID: previousTargetID,
+		}}, targetID); err != nil {
 			return err
 		}
 	}
 	session.mu.Lock()
-	if session.clients[followingClientID] != followed {
-		session.mu.Unlock()
-		return errors.New("followed participant is unavailable")
-	}
 	client.followingClientID = followingClientID
-	if targetID != "" {
-		client.activeTargetID = targetID
-	}
 	session.mu.Unlock()
 	session.broadcastTargets()
 	session.broadcastPresence()
