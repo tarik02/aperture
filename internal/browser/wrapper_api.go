@@ -179,12 +179,16 @@ func (r *wrapperRuntime) disconnectConsumers() {
 	for _, client := range r.recordingClients {
 		recordingClients = append(recordingClients, client)
 	}
+	collaboration := r.collaboration
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
 	}
 	for _, client := range recordingClients {
 		client.cancel()
+	}
+	if collaboration != nil {
+		collaboration.disconnectOwners()
 	}
 }
 
@@ -203,7 +207,9 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	if err != nil {
 		return nil, nil, fmt.Errorf("create collaboration coordinator: %w", err)
 	}
+	r.mu.Lock()
 	r.collaboration = collaboration
+	r.mu.Unlock()
 	go collaboration.run(ctx)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
