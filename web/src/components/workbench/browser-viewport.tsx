@@ -90,8 +90,14 @@ export function BrowserViewport({
       control.mediaTargetId !== control.activeTargetId ||
       presentedMedia?.stream !== control.mediaStream ||
       presentedMedia?.targetId !== control.activeTargetId);
+  const paintOverlayEnabled =
+    paintingEnabled &&
+    (showingWebRTC || frameMetadata !== null) &&
+    control.collaboration.phase === "connected" &&
+    !control.mediaSwitching &&
+    !mediaTransitioning;
   const inputDisabled =
-    paintingEnabled ||
+    paintOverlayEnabled ||
     control.mediaSwitching ||
     mediaTransitioning ||
     control.collaboration.phase !== "connected" ||
@@ -943,13 +949,7 @@ export function BrowserViewport({
         <CollaborationPaintOverlay
           collaboration={control.collaboration}
           targetId={control.activeTargetId}
-          enabled={
-            paintingEnabled &&
-            (showingWebRTC || frameMetadata !== null) &&
-            control.collaboration.phase === "connected" &&
-            !control.mediaSwitching &&
-            !mediaTransitioning
-          }
+          enabled={paintOverlayEnabled}
           visible={showingWebRTC || frameMetadata !== null}
           left={displayMetrics.offsetX}
           top={displayMetrics.offsetY}

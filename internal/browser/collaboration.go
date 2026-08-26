@@ -20,6 +20,9 @@ const (
 	collaborationMaximumClients = 20
 	collaborationLeaseTimeout   = 5 * time.Second
 	collaborationWriteTimeout   = 5 * time.Second
+	collaborationPaintRate      = 50
+	collaborationPaintBurst     = 20
+	collaborationPaintQueueSize = 64
 )
 
 type collaborationLeaseMode string
@@ -59,12 +62,14 @@ type collaborationClient struct {
 	writeMu           sync.Mutex
 	presenceUpdates   chan collaborationServerMessage
 	cursorUpdates     chan collaborationServerMessage
+	paintUpdates      chan collaborationServerMessage
 	sequence          uint64
 	name              string
 	avatarHash        string
 	activeTargetID    string
 	followingClientID string
-	lastPaintAt       time.Time
+	paintTokens       float64
+	paintTokensAt     time.Time
 	activePaintStroke string
 }
 
@@ -196,6 +201,7 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 	}
 	go client.writePresenceUpdates(req.Context())
 	go client.writeCursorUpdates(req.Context())
+	go client.writePaintUpdates(req.Context())
 	hub.sendLeaseState(client)
 	hub.broadcastPresence()
 
@@ -259,6 +265,7 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket
 		socket:          socket,
 		presenceUpdates: make(chan collaborationServerMessage, 1),
 		cursorUpdates:   make(chan collaborationServerMessage, 1),
+		paintUpdates:    make(chan collaborationServerMessage, collaborationPaintQueueSize),
 		name:            name,
 		avatarHash:      avatarHash,
 	}
@@ -344,13 +351,9 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 	now := time.Now()
 	switch message.Phase {
 	case "start":
-		if now.Sub(client.lastPaintAt) < 20*time.Millisecond {
-			hub.mu.Unlock()
-			return nil
-		}
 		client.activePaintStroke = message.StrokeID
 	case "move":
-		if client.activePaintStroke != message.StrokeID || now.Sub(client.lastPaintAt) < 20*time.Millisecond {
+		if client.activePaintStroke != message.StrokeID {
 			hub.mu.Unlock()
 			return nil
 		}
@@ -361,9 +364,22 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 		}
 		client.activePaintStroke = ""
 	}
-	client.lastPaintAt = now
+	if client.paintTokensAt.IsZero() {
+		client.paintTokens = collaborationPaintBurst
+	} else {
+		client.paintTokens += now.Sub(client.paintTokensAt).Seconds() * collaborationPaintRate
+		if client.paintTokens > collaborationPaintBurst {
+			client.paintTokens = collaborationPaintBurst
+		}
+	}
+	client.paintTokensAt = now
+	if client.paintTokens < 1 {
+		hub.mu.Unlock()
+		return nil
+	}
+	client.paintTokens--
 	hub.mu.Unlock()
-	hub.broadcast(collaborationServerMessage{
+	hub.broadcastPaint(collaborationServerMessage{
 		Version:  1,
 		Type:     "paint.point",
 		ClientID: client.id,
@@ -376,6 +392,18 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 		Y:        message.Y,
 	})
 	return nil
+}
+
+func (hub *collaborationHub) broadcastPaint(message collaborationServerMessage) {
+	hub.mu.Lock()
+	clients := make([]*collaborationClient, 0, len(hub.clients))
+	for _, client := range hub.clients {
+		clients = append(clients, client)
+	}
+	hub.mu.Unlock()
+	for _, client := range clients {
+		client.queuePaintUpdate(message)
+	}
 }
 
 func (hub *collaborationHub) updateActiveTarget(client *collaborationClient, targetID string) error {
@@ -468,6 +496,28 @@ func (client *collaborationClient) writeCursorUpdates(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case message := <-client.cursorUpdates:
+			if client.write(message) != nil {
+				_ = client.socket.CloseNow()
+				return
+			}
+		}
+	}
+}
+
+func (client *collaborationClient) queuePaintUpdate(message collaborationServerMessage) {
+	select {
+	case client.paintUpdates <- message:
+	default:
+		_ = client.socket.CloseNow()
+	}
+}
+
+func (client *collaborationClient) writePaintUpdates(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case message := <-client.paintUpdates:
 			if client.write(message) != nil {
 				_ = client.socket.CloseNow()
 				return
