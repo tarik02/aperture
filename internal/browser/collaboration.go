@@ -34,13 +34,14 @@ type collaborationHub struct {
 	controller *remoteinput.Controller
 	sender     *compositorInputSender
 
-	mu        sync.Mutex
-	clients   map[string]*collaborationClient
-	holder    *collaborationClient
-	leaseMode collaborationLeaseMode
-	lastSeen  time.Time
-	nextOwner uint64
-	closed    bool
+	mu         sync.Mutex
+	presenceMu sync.Mutex
+	clients    map[string]*collaborationClient
+	holder     *collaborationClient
+	leaseMode  collaborationLeaseMode
+	lastSeen   time.Time
+	nextOwner  uint64
+	closed     bool
 }
 
 type collaborationClient struct {
@@ -416,8 +417,9 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 		hub.broadcastLeaseState()
 		return nil
 	}
-	canPreemptImplicit := mode == collaborationLeaseExplicit && hub.leaseMode == collaborationLeaseImplicit
-	if hub.holder != nil && hub.holder != client && !canPreemptImplicit {
+	ownerPreemptsEditor := client.role == "owner" && hub.holder != nil && hub.holder.role == "editor"
+	canPreempt := mode == collaborationLeaseExplicit && (hub.leaseMode == collaborationLeaseImplicit || ownerPreemptsEditor)
+	if hub.holder != nil && hub.holder != client && !canPreempt {
 		hub.mu.Unlock()
 		return remoteinput.ErrBusy
 	}
@@ -539,6 +541,9 @@ func (hub *collaborationHub) broadcastLeaseState() {
 }
 
 func (hub *collaborationHub) broadcastPresence() {
+	hub.presenceMu.Lock()
+	defer hub.presenceMu.Unlock()
+
 	hub.mu.Lock()
 	participants := make([]collaborationParticipant, 0, len(hub.clients))
 	for _, client := range hub.clients {

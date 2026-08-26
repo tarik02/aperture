@@ -178,6 +178,8 @@ func liveSessionForwardAuthScope(access string) (string, bool) {
 	switch access {
 	case "read":
 		return auth.ScopeSessionsRead, true
+	case "collaboration":
+		return auth.ScopeSessionsWrite, true
 	case "write":
 		return auth.ScopeSessionsWrite, true
 	case "owner":
