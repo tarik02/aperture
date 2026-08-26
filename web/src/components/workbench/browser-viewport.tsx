@@ -647,6 +647,9 @@ export function BrowserViewport({
         return;
       }
       const point = mapPointer(event, true);
+      if (!mapPointer(event, false)) {
+        control.collaboration.clearCursor();
+      }
       preventNativeDefault(event);
       if (point) {
         control.send({
