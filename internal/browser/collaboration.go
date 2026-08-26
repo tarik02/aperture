@@ -37,15 +37,16 @@ type collaborationHub struct {
 	controller *remoteinput.Controller
 	sender     *compositorInputSender
 
-	mu         sync.Mutex
-	inputMu    sync.Mutex
-	presenceMu sync.Mutex
-	clients    map[string]*collaborationClient
-	holder     *collaborationClient
-	leaseMode  collaborationLeaseMode
-	lastSeen   time.Time
-	nextOwner  uint64
-	closed     bool
+	mu             sync.Mutex
+	inputMu        sync.Mutex
+	leaseUpdatesMu sync.Mutex
+	presenceMu     sync.Mutex
+	clients        map[string]*collaborationClient
+	holder         *collaborationClient
+	leaseMode      collaborationLeaseMode
+	lastSeen       time.Time
+	nextOwner      uint64
+	closed         bool
 
 	inputSurfaceID  uint64
 	inputGeneration uint64
@@ -60,6 +61,7 @@ type collaborationClient struct {
 	ownerID           uint64
 	socket            *websocket.Conn
 	writeMu           sync.Mutex
+	leaseUpdates      chan collaborationServerMessage
 	presenceUpdates   chan collaborationServerMessage
 	cursorUpdates     chan collaborationServerMessage
 	paintUpdates      chan collaborationServerMessage
@@ -199,6 +201,7 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 	if err := client.write(collaborationServerMessage{Version: 1, Type: "welcome", ClientID: client.id, Role: client.role}); err != nil {
 		return
 	}
+	go client.writeLeaseUpdates(req.Context())
 	go client.writePresenceUpdates(req.Context())
 	go client.writeCursorUpdates(req.Context())
 	go client.writePaintUpdates(req.Context())
@@ -263,6 +266,7 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket
 		role:            role,
 		ownerID:         hub.nextOwner,
 		socket:          socket,
+		leaseUpdates:    make(chan collaborationServerMessage, 1),
 		presenceUpdates: make(chan collaborationServerMessage, 1),
 		cursorUpdates:   make(chan collaborationServerMessage, 1),
 		paintUpdates:    make(chan collaborationServerMessage, collaborationPaintQueueSize),
@@ -717,13 +721,17 @@ func (hub *collaborationHub) expireLease() {
 }
 
 func (hub *collaborationHub) sendLeaseState(client *collaborationClient) {
+	hub.leaseUpdatesMu.Lock()
+	defer hub.leaseUpdatesMu.Unlock()
 	hub.mu.Lock()
 	message := hub.leaseStateLocked()
 	hub.mu.Unlock()
-	_ = client.write(message)
+	client.queueLeaseUpdate(message)
 }
 
 func (hub *collaborationHub) broadcastLeaseState() {
+	hub.leaseUpdatesMu.Lock()
+	defer hub.leaseUpdatesMu.Unlock()
 	hub.mu.Lock()
 	message := hub.leaseStateLocked()
 	hub.mu.Unlock()
@@ -772,7 +780,37 @@ func (hub *collaborationHub) broadcast(message collaborationServerMessage) {
 	}
 	hub.mu.Unlock()
 	for _, client := range clients {
-		_ = client.write(message)
+		client.queueLeaseUpdate(message)
+	}
+}
+
+func (client *collaborationClient) queueLeaseUpdate(message collaborationServerMessage) {
+	select {
+	case client.leaseUpdates <- message:
+		return
+	default:
+	}
+	select {
+	case <-client.leaseUpdates:
+	default:
+	}
+	select {
+	case client.leaseUpdates <- message:
+	default:
+	}
+}
+
+func (client *collaborationClient) writeLeaseUpdates(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case message := <-client.leaseUpdates:
+			if client.write(message) != nil {
+				_ = client.socket.CloseNow()
+				return
+			}
+		}
 	}
 }
 
