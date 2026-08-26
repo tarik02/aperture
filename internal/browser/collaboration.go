@@ -353,6 +353,9 @@ func (hub *collaborationHub) handleClientMessage(client *collaborationClient, me
 }
 
 func (hub *collaborationHub) paintPoint(client *collaborationClient, message collaborationClientMessage) error {
+	if message.TargetID == "" {
+		return errors.New("paint target is unavailable")
+	}
 	if !validPaintStrokeID(message.StrokeID) || !validPaintColor(message.Color) || message.Width < 1 || message.Width > 16 {
 		return errors.New("paint stroke is invalid")
 	}
