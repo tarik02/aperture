@@ -58,7 +58,7 @@ http:
       rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/collaboration`)"
       service: aperture-wrapper-018f1234000070008000000000000001
       middlewares:
-        - aperture-live-session-forward-auth-018f1234000070008000000000000001-read
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-collaboration
         - aperture-strip-session-018f1234000070008000000000000001-collaboration
       priority: 100
       entryPoints:
@@ -117,6 +117,19 @@ http:
           Authorization: ""
           Cookie: ""
           Sec-WebSocket-Protocol: ""
+    aperture-live-session-forward-auth-018f1234000070008000000000000001-collaboration:
+      forwardAuth:
+        address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/collaboration"
+        authRequestHeaders:
+          - Authorization
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Tenant-Id
+        authResponseHeaders:
+          - Authorization
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Actor-Kind
+          - X-Aperture-Client-IP
+          - X-Aperture-Collaboration-Role
     aperture-live-session-forward-auth-018f1234000070008000000000000001-owner:
       forwardAuth:
         address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/owner"

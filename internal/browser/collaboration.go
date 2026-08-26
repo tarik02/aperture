@@ -369,8 +369,9 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 		hub.broadcastLeaseState()
 		return nil
 	}
-	canPreemptImplicit := mode == collaborationLeaseExplicit && hub.leaseMode == collaborationLeaseImplicit
-	if hub.holder != nil && hub.holder != client && !canPreemptImplicit {
+	ownerPreemptsEditor := client.role == "owner" && hub.holder != nil && hub.holder.role == "editor"
+	canPreempt := mode == collaborationLeaseExplicit && (hub.leaseMode == collaborationLeaseImplicit || ownerPreemptsEditor)
+	if hub.holder != nil && hub.holder != client && !canPreempt {
 		hub.mu.Unlock()
 		return remoteinput.ErrBusy
 	}

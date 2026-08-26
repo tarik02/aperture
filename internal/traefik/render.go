@@ -151,9 +151,11 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		}
 
 		readAuth := liveSessionForwardAuthMiddlewareName(session.ID, "read")
+		collaborationAuth := liveSessionForwardAuthMiddlewareName(session.ID, "collaboration")
 		writeAuth := liveSessionForwardAuthMiddlewareName(session.ID, "write")
 		ownerAuth := liveSessionForwardAuthMiddlewareName(session.ID, "owner")
 		doc.HTTP.Middlewares[readAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "read")
+		doc.HTTP.Middlewares[collaborationAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "collaboration")
 		doc.HTTP.Middlewares[writeAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "write")
 		doc.HTTP.Middlewares[ownerAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "owner")
 
@@ -222,7 +224,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			{
 				name:        collaborationRouterName(session.ID),
 				rule:        pathRouterRule(sessionBase + "/collaboration"),
-				auth:        readAuth,
+				auth:        collaborationAuth,
 				middlewares: []string{collaborationStrip},
 			},
 			{
