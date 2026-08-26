@@ -134,6 +134,7 @@ const cursorClearSchema = z
     version: z.literal(1),
     type: z.literal("presence.cursor.clear"),
     clientId: z.string(),
+    realtimeCounter: z.number().int().positive(),
   })
   .strict();
 
