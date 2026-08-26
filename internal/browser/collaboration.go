@@ -779,6 +779,20 @@ func (hub *collaborationHub) close() {
 	_ = hub.controller.Close()
 }
 
+func (hub *collaborationHub) disconnectOwners() {
+	hub.mu.Lock()
+	clients := make([]*collaborationClient, 0)
+	for _, client := range hub.clients {
+		if client.role == "owner" {
+			clients = append(clients, client)
+		}
+	}
+	hub.mu.Unlock()
+	for _, client := range clients {
+		_ = client.socket.CloseNow()
+	}
+}
+
 func validCollaborationClientID(value string) bool {
 	if len(value) < 8 || len(value) > 128 {
 		return false
