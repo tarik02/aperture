@@ -68,6 +68,7 @@ export type CollaborationControl = {
   setActiveTarget: (targetId: string | null) => boolean;
   follow: (clientId: string | null) => boolean;
   sendCursor: (targetId: string, x: number, y: number, dimensions: InputDimensions) => boolean;
+  clearCursor: () => boolean;
   sendInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
 };
 
@@ -108,6 +109,13 @@ const collaborationServerMessageSchema = z.discriminatedUnion("type", [
       targetId: z.string(),
       x: z.number().min(0).max(1).optional().default(0),
       y: z.number().min(0).max(1).optional().default(0),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      type: z.literal("presence.cursor.clear"),
+      clientId: z.string(),
     })
     .strict(),
   z
@@ -289,6 +297,16 @@ export function useCollaborationControl({
               return next;
             });
             return;
+          case "presence.cursor.clear":
+            setCursors((current) => {
+              if (!current.has(message.clientId)) {
+                return current;
+              }
+              const next = new Map(current);
+              next.delete(message.clientId);
+              return next;
+            });
+            return;
           case "error":
             claimPendingRef.current = false;
             releasePendingRef.current = false;
@@ -407,6 +425,7 @@ export function useCollaborationControl({
     },
     [send],
   );
+  const clearCursor = useCallback(() => send({ type: "presence.cursor.clear" }), [send]);
 
   const sendInputEvent = useCallback(
     (targetId: string, message: Record<string, unknown>) => {
@@ -585,6 +604,7 @@ export function useCollaborationControl({
     setActiveTarget,
     follow,
     sendCursor,
+    clearCursor,
     sendInput,
   };
 }

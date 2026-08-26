@@ -412,6 +412,7 @@ export function BrowserViewport({
   function handlePointerLeave() {
     cursorHintPointRef.current = null;
     setCursorHintPoint(null);
+    control.collaboration.clearCursor();
     if (!pointerCaptureRef.current) {
       releasePressedKeys();
       releaseImplicitControl();
