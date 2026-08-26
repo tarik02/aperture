@@ -156,8 +156,8 @@ func (input *collaborationCDPInput) submit(_ uint64, message collaborationClient
 			"y":         input.pointerY,
 			"button":    "none",
 			"buttons":   input.buttons,
-			"deltaX":    message.Horizontal * 10,
-			"deltaY":    message.Vertical * 10,
+			"deltaX":    message.Horizontal,
+			"deltaY":    message.Vertical,
 			"modifiers": message.Modifiers,
 		}, input.sessionID, nil)
 	case "input.keyboard.key":
