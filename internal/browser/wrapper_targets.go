@@ -786,6 +786,13 @@ func (registry *wrapperTargetRegistry) readyTarget(targetID string) (wrapperTarg
 	return target, exists && target.State == wrapperTargetReady
 }
 
+func (registry *wrapperTargetRegistry) hasTarget(targetID string) bool {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	_, exists := registry.targets[targetID]
+	return exists
+}
+
 func discoverCDPTargetWindows(ctx context.Context, port int) ([]cdpTargetWindow, error) {
 	discoveryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

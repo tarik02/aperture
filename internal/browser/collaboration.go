@@ -324,10 +324,8 @@ func (hub *collaborationHub) updateActiveTarget(client *collaborationClient, tar
 	if len(targetID) > 128 {
 		return errors.New("active target is invalid")
 	}
-	if targetID != "" {
-		if _, ok := hub.readyTarget(targetID); !ok {
-			return errors.New("active target is unavailable")
-		}
+	if targetID != "" && !hub.knownTarget(targetID) {
+		return errors.New("active target is unavailable")
 	}
 	hub.mu.Lock()
 	client.activeTargetID = targetID
@@ -597,6 +595,13 @@ func (hub *collaborationHub) readyTarget(targetID string) (wrapperTargetSnapshot
 		return wrapperTargetSnapshot{}, false
 	}
 	return registry.readyTarget(targetID)
+}
+
+func (hub *collaborationHub) knownTarget(targetID string) bool {
+	hub.runtime.mu.Lock()
+	registry := hub.runtime.targets
+	hub.runtime.mu.Unlock()
+	return registry != nil && strings.TrimSpace(targetID) != "" && registry.hasTarget(targetID)
 }
 
 func (hub *collaborationHub) expireLease() {
