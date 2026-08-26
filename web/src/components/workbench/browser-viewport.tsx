@@ -583,6 +583,10 @@ export function BrowserViewport({
       if (!point) {
         return;
       }
+      control.collaboration.sendCursor(targetId, point.x, point.y, {
+        width: inputWidth,
+        height: inputHeight,
+      });
       control.send({
         type: "input.mouse",
         targetId,
