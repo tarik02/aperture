@@ -26,7 +26,7 @@ const (
 	collaborationPaintClientBurst   = 20
 	collaborationPaintHubRate       = 100
 	collaborationPaintQueueSize     = 64
-	collaborationPaintHubBurst      = collaborationPaintQueueSize - collaborationMaximumClients
+	collaborationPaintHubBurst      = collaborationPaintQueueSize
 )
 
 type collaborationLeaseMode string
@@ -394,12 +394,16 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 			}
 		}
 		hub.paintTokensAt = now
-		if client.paintTokens < 1 || hub.paintTokens < 1 {
+		hubTokenCost := 1.0
+		if message.Phase == "start" {
+			hubTokenCost = 2
+		}
+		if client.paintTokens < 1 || hub.paintTokens < hubTokenCost {
 			hub.mu.Unlock()
 			return nil
 		}
 		client.paintTokens--
-		hub.paintTokens--
+		hub.paintTokens -= hubTokenCost
 		if message.Phase == "start" {
 			client.activePaintStroke = message.StrokeID
 			client.activePaintTarget = message.TargetID
