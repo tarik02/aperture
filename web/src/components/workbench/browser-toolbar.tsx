@@ -77,6 +77,8 @@ export function BrowserToolbar({
   const busy = control.phase === "connecting";
   const connected = control.phase === "connected";
   const browserMutationEnabled = connected && collaborationRole !== "viewer";
+  const drawingAvailable =
+    connected && control.collaboration.phase === "connected" && Boolean(control.activeTargetId);
   const loading = control.activeTarget?.loading ?? false;
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
@@ -198,7 +200,7 @@ export function BrowserToolbar({
                 variant={paintingEnabled ? "secondary" : "ghost"}
                 size="icon-sm"
                 className="shrink-0"
-                disabled={!paintingEnabled && (!connected || !control.activeTargetId)}
+                disabled={!paintingEnabled && !drawingAvailable}
                 aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
                 aria-pressed={paintingEnabled}
                 onClick={() => onPaintingEnabledChange(!paintingEnabled)}
