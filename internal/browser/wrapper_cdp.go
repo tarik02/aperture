@@ -16,6 +16,8 @@ import (
 	"github.com/coder/websocket"
 )
 
+const maximumRestrictedCDPConnections = 7
+
 func (r *wrapperRuntime) handleCDPProxy(w http.ResponseWriter, req *http.Request) {
 	if r.values.CDPPort <= 0 {
 		writeWrapperError(w, http.StatusServiceUnavailable, "browser cdp port is not available")
@@ -23,6 +25,21 @@ func (r *wrapperRuntime) handleCDPProxy(w http.ResponseWriter, req *http.Request
 	}
 	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
 	if role == "editor" || role == "viewer" {
+		r.mu.Lock()
+		if r.restrictedCDPConnections >= maximumRestrictedCDPConnections {
+			r.mu.Unlock()
+			writeWrapperError(w, http.StatusServiceUnavailable, "shared CDP connection limit reached")
+			return
+		}
+		r.restrictedCDPConnections++
+		r.cdpConnections++
+		r.mu.Unlock()
+		defer func() {
+			r.mu.Lock()
+			r.restrictedCDPConnections--
+			r.cdpConnections--
+			r.mu.Unlock()
+		}()
 		r.handleRestrictedCDPProxy(w, req, role)
 		return
 	}
