@@ -3,6 +3,7 @@ import { Subject, type Observable } from "rxjs";
 import { z } from "zod";
 import { resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import { evdevKeycodeByCode } from "#/lib/control/input-keycodes.ts";
+import { windowsVirtualKeyCodeForCodeOrKey } from "#/lib/control/keyboard.ts";
 import type { ClientMessage } from "#/lib/control/messages.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
@@ -484,6 +485,9 @@ export function useCollaborationControl({
               type: "input.pointer.motion.absolute",
               x,
               y,
+              width: dimensions.width,
+              height: dimensions.height,
+              modifiers: message.modifiers ?? 0,
             })
           ) {
             return false;
@@ -497,19 +501,27 @@ export function useCollaborationControl({
               type: "input.pointer.button",
               buttonCode,
               pressed: message.action === "down",
+              clickCount: message.clickCount ?? 1,
+              modifiers: message.modifiers ?? 0,
             });
           }
           const count = message.action === "doubleClick" ? 2 : 1;
           for (let index = 0; index < count; index += 1) {
+            const clickCount =
+              message.action === "doubleClick" ? index + 1 : (message.clickCount ?? 1);
             sendInputEvent(message.targetId, {
               type: "input.pointer.button",
               buttonCode,
               pressed: true,
+              clickCount,
+              modifiers: message.modifiers ?? 0,
             });
             sendInputEvent(message.targetId, {
               type: "input.pointer.button",
               buttonCode,
               pressed: false,
+              clickCount,
+              modifiers: message.modifiers ?? 0,
             });
           }
           return true;
@@ -519,6 +531,9 @@ export function useCollaborationControl({
             type: "input.pointer.motion.absolute",
             x: normalizedCoordinate(message.x, dimensions.width),
             y: normalizedCoordinate(message.y, dimensions.height),
+            width: dimensions.width,
+            height: dimensions.height,
+            modifiers: message.modifiers ?? 0,
           });
           sendInputEvent(message.targetId, {
             type: "input.pointer.scroll",
@@ -526,6 +541,7 @@ export function useCollaborationControl({
             vertical: message.deltaY * 0.1,
             stopHorizontal: false,
             stopVertical: false,
+            modifiers: message.modifiers ?? 0,
           });
           return sendInputEvent(message.targetId, {
             type: "input.pointer.scroll",
@@ -533,6 +549,7 @@ export function useCollaborationControl({
             vertical: 0,
             stopHorizontal: message.deltaX !== 0,
             stopVertical: message.deltaY !== 0,
+            modifiers: message.modifiers ?? 0,
           });
         case "input.key": {
           if (message.action === "char") {
@@ -560,11 +577,23 @@ export function useCollaborationControl({
             return true;
           }
           const keycode = evdevKeycodeByCode[message.code ?? ""];
+          const windowsVirtualKeyCode =
+            message.windowsVirtualKeyCode ??
+            windowsVirtualKeyCodeForCodeOrKey(message.code, message.key);
           return keycode
             ? sendInputEvent(message.targetId, {
                 type: "input.keyboard.key",
                 keycode,
                 pressed: message.action === "down",
+                key: message.key,
+                code: message.code,
+                unmodifiedText: message.unmodifiedText,
+                modifiers: message.modifiers ?? 0,
+                windowsVirtualKeyCode,
+                nativeVirtualKeyCode: message.nativeVirtualKeyCode ?? windowsVirtualKeyCode,
+                location: message.location ?? 0,
+                autoRepeat: message.autoRepeat ?? false,
+                isKeypad: message.isKeypad ?? false,
               })
             : false;
         }
@@ -731,24 +760,59 @@ function sendShortcut(
   if (!controlKeycode || !shortcutKeycode) {
     return false;
   }
+  const controlVirtualKeyCode = windowsVirtualKeyCodeForCodeOrKey("ControlLeft", "Control");
+  const shortcutKey = code === "KeyC" ? "c" : "x";
+  const shortcutVirtualKeyCode = windowsVirtualKeyCodeForCodeOrKey(code, shortcutKey);
   sendInputEvent(targetId, {
     type: "input.keyboard.key",
     keycode: controlKeycode,
     pressed: true,
+    key: "Control",
+    code: "ControlLeft",
+    modifiers: 2,
+    windowsVirtualKeyCode: controlVirtualKeyCode,
+    nativeVirtualKeyCode: controlVirtualKeyCode,
+    location: 1,
+    autoRepeat: false,
+    isKeypad: false,
   });
   sendInputEvent(targetId, {
     type: "input.keyboard.key",
     keycode: shortcutKeycode,
     pressed: true,
+    key: shortcutKey,
+    code,
+    modifiers: 2,
+    windowsVirtualKeyCode: shortcutVirtualKeyCode,
+    nativeVirtualKeyCode: shortcutVirtualKeyCode,
+    location: 0,
+    autoRepeat: false,
+    isKeypad: false,
   });
   sendInputEvent(targetId, {
     type: "input.keyboard.key",
     keycode: shortcutKeycode,
     pressed: false,
+    key: shortcutKey,
+    code,
+    modifiers: 2,
+    windowsVirtualKeyCode: shortcutVirtualKeyCode,
+    nativeVirtualKeyCode: shortcutVirtualKeyCode,
+    location: 0,
+    autoRepeat: false,
+    isKeypad: false,
   });
   return sendInputEvent(targetId, {
     type: "input.keyboard.key",
     keycode: controlKeycode,
     pressed: false,
+    key: "Control",
+    code: "ControlLeft",
+    modifiers: 0,
+    windowsVirtualKeyCode: controlVirtualKeyCode,
+    nativeVirtualKeyCode: controlVirtualKeyCode,
+    location: 1,
+    autoRepeat: false,
+    isKeypad: false,
   });
 }
