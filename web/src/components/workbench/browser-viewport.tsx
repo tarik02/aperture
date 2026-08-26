@@ -435,6 +435,8 @@ export function BrowserViewport({
         width: inputWidth,
         height: inputHeight,
       });
+    } else if (!point) {
+      control.collaboration.clearCursor();
     }
 
     if (inputDisabled) {
