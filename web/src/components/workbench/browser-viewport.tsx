@@ -950,7 +950,11 @@ export function BrowserViewport({
           collaboration={control.collaboration}
           targetId={control.activeTargetId}
           enabled={paintOverlayEnabled}
-          visible={showingWebRTC || frameMetadata !== null}
+          visible={
+            !control.mediaSwitching &&
+            !mediaTransitioning &&
+            (showingWebRTC || frameMetadata !== null)
+          }
           left={displayMetrics.offsetX}
           top={displayMetrics.offsetY}
           width={displayMetrics.renderedWidth}
