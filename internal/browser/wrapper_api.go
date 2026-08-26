@@ -35,18 +35,19 @@ type compositorViewport struct {
 }
 
 type wrapperRuntime struct {
-	values         RuntimeEnvValues
-	controlSocket  string
-	ctx            context.Context
-	mu             sync.Mutex
-	uploadMu       sync.Mutex
-	compositorPID  int
-	mediaProducer  *producer
-	targets        *wrapperTargetRegistry
-	viewers        map[*wrapperViewer]struct{}
-	activeRequests int
-	cdpConnections int
-	liveSession    *liveSession
+	values                       RuntimeEnvValues
+	controlSocket                string
+	ctx                          context.Context
+	mu                           sync.Mutex
+	uploadMu                     sync.Mutex
+	compositorPID                int
+	mediaProducer                *producer
+	targets                      *wrapperTargetRegistry
+	viewers                      map[*wrapperViewer]struct{}
+	revokedCapabilityGenerations map[string]map[string]struct{}
+	activeRequests               int
+	cdpConnections               int
+	liveSession                  *liveSession
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -128,10 +129,11 @@ type WrapperActivityStatus struct {
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
 	return &wrapperRuntime{
-		values:        values,
-		controlSocket: controlSocket,
-		ctx:           context.Background(),
-		viewers:       make(map[*wrapperViewer]struct{}),
+		values:                       values,
+		controlSocket:                controlSocket,
+		ctx:                          context.Background(),
+		viewers:                      make(map[*wrapperViewer]struct{}),
+		revokedCapabilityGenerations: make(map[string]map[string]struct{}),
 	}
 }
 
@@ -197,8 +199,14 @@ func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 	}
 }
 
-func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string) {
+func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role, generation string) {
 	r.mu.Lock()
+	revoked := r.revokedCapabilityGenerations[role]
+	if revoked == nil {
+		revoked = make(map[string]struct{})
+		r.revokedCapabilityGenerations[role] = revoked
+	}
+	revoked[generation] = struct{}{}
 	viewers := make([]*wrapperViewer, 0)
 	for viewer := range r.viewers {
 		if viewer.capabilityRole == role {
@@ -224,6 +232,30 @@ func collaborationCapabilityRole(req *http.Request) string {
 		return role
 	}
 	return ""
+}
+
+func collaborationCapabilityGeneration(req *http.Request) string {
+	if collaborationCapabilityRole(req) == "" {
+		return ""
+	}
+	return strings.TrimSpace(req.Header.Get("X-Aperture-Capability-Generation"))
+}
+
+func (r *wrapperRuntime) collaborationCapabilityGenerationAllowed(role, generation string) bool {
+	if role == "" {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	revoked := r.revokedCapabilityGenerations[role]
+	if len(revoked) == 0 {
+		return true
+	}
+	if generation == "" {
+		return false
+	}
+	_, denied := revoked[generation]
+	return !denied
 }
 
 func sessionTokenAuthenticated(req *http.Request) bool {
@@ -326,7 +358,12 @@ func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWri
 		writeWrapperError(w, http.StatusBadRequest, "invalid collaboration role")
 		return
 	}
-	r.disconnectCollaborationCapabilityConsumers(role)
+	generation := strings.TrimSpace(req.URL.Query().Get("generation"))
+	if generation == "" || len(generation) > 128 {
+		writeWrapperError(w, http.StatusBadRequest, "invalid collaboration capability generation")
+		return
+	}
+	r.disconnectCollaborationCapabilityConsumers(role, generation)
 	w.WriteHeader(http.StatusNoContent)
 }
 

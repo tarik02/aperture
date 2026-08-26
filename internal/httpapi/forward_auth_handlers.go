@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	forwardedActorKindHeader         = "X-Aperture-Actor-Kind"
-	forwardedClientIPHeader          = "X-Aperture-Client-IP"
-	forwardedCollaborationRoleHeader = "X-Aperture-Collaboration-Role"
+	forwardedActorKindHeader            = "X-Aperture-Actor-Kind"
+	forwardedClientIPHeader             = "X-Aperture-Client-IP"
+	forwardedCollaborationRoleHeader    = "X-Aperture-Collaboration-Role"
+	forwardedCapabilityGenerationHeader = "X-Aperture-Capability-Generation"
 )
 
 func (s *Server) sessionTokenForwardAuth(c *gin.Context) {
@@ -60,14 +61,14 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 	}
 
 	if authorization := liveSessionTokenAuthorization(c); authorization != "" {
-		role, err := s.authorizeLiveCapability(c.Request.Context(), c.Param("sessionId"), authorization, c.Param("access"))
+		role, generation, err := s.authorizeLiveCapability(c.Request.Context(), c.Param("sessionId"), authorization, c.Param("access"))
 		if err != nil {
 			status, _ := mapForwardAuthError(err)
 			c.Status(status)
 			return
 		}
 
-		writeLiveSessionForwardAuthSuccess(c, "session_capability", role)
+		writeLiveSessionForwardAuthSuccess(c, "session_capability", role, generation)
 		return
 	}
 
@@ -99,31 +100,31 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 	if (c.Param("access") == "read" || c.Param("access") == "session") && !auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite) {
 		role = "viewer"
 	}
-	writeLiveSessionForwardAuthSuccess(c, "account", role)
+	writeLiveSessionForwardAuthSuccess(c, "account", role, "")
 }
 
-func (s *Server) authorizeLiveCapability(ctx context.Context, sessionID, authorization, access string) (string, error) {
+func (s *Server) authorizeLiveCapability(ctx context.Context, sessionID, authorization, access string) (string, string, error) {
 	raw, _ := strings.CutPrefix(strings.TrimSpace(authorization), "Bearer ")
 	if strings.HasPrefix(raw, "aps_") {
 		if err := s.Sessions.ValidateSessionTokenForwardAuth(ctx, sessionID, authorization); err != nil {
-			return "", err
+			return "", "", err
 		}
-		return "owner", nil
+		return "owner", "", nil
 	}
 	authorized, err := s.Sessions.WakeCollaborationSession(ctx, sessionID, authorization)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if access == "write" && authorized.Role != session.CollaborationRoleEditor {
-		return "", auth.ErrScopeDenied
+		return "", "", auth.ErrScopeDenied
 	}
 	if access == "owner" {
-		return "", auth.ErrScopeDenied
+		return "", "", auth.ErrScopeDenied
 	}
-	return string(authorized.Role), nil
+	return string(authorized.Role), authorized.Generation, nil
 }
 
-func writeLiveSessionForwardAuthSuccess(c *gin.Context, actorKind, collaborationRole string) {
+func writeLiveSessionForwardAuthSuccess(c *gin.Context, actorKind, collaborationRole, capabilityGeneration string) {
 	protocols := make([]string, 0)
 	for _, protocol := range strings.Split(c.GetHeader("Sec-WebSocket-Protocol"), ",") {
 		protocol = strings.TrimSpace(protocol)
@@ -137,6 +138,9 @@ func writeLiveSessionForwardAuthSuccess(c *gin.Context, actorKind, collaboration
 	c.Writer.Header()["Sec-Websocket-Protocol"] = []string{strings.Join(protocols, ", ")}
 	c.Header(forwardedActorKindHeader, actorKind)
 	c.Header(forwardedCollaborationRoleHeader, collaborationRole)
+	if capabilityGeneration != "" {
+		c.Header(forwardedCapabilityGenerationHeader, capabilityGeneration)
+	}
 	clientIP := strings.TrimSpace(c.GetHeader("X-Real-Ip"))
 	if net.ParseIP(clientIP) == nil {
 		forwarded := strings.Split(c.GetHeader("X-Forwarded-For"), ",")

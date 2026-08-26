@@ -129,6 +129,7 @@ http:
           - Authorization
           - Sec-WebSocket-Protocol
           - X-Aperture-Actor-Kind
+          - X-Aperture-Capability-Generation
           - X-Aperture-Client-IP
           - X-Aperture-Collaboration-Role
     aperture-live-session-forward-auth-018f1234000070008000000000000001-read:
@@ -143,6 +144,7 @@ http:
           - Authorization
           - Sec-WebSocket-Protocol
           - X-Aperture-Actor-Kind
+          - X-Aperture-Capability-Generation
           - X-Aperture-Client-IP
           - X-Aperture-Collaboration-Role
     aperture-live-session-forward-auth-018f1234000070008000000000000001-session:
@@ -157,6 +159,7 @@ http:
           - Authorization
           - Sec-WebSocket-Protocol
           - X-Aperture-Actor-Kind
+          - X-Aperture-Capability-Generation
           - X-Aperture-Client-IP
           - X-Aperture-Collaboration-Role
     aperture-live-session-forward-auth-018f1234000070008000000000000001-write:
@@ -171,6 +174,7 @@ http:
           - Authorization
           - Sec-WebSocket-Protocol
           - X-Aperture-Actor-Kind
+          - X-Aperture-Capability-Generation
           - X-Aperture-Client-IP
           - X-Aperture-Collaboration-Role
     aperture-replace-path-018f1234000070008000000000000001-browsercursor:

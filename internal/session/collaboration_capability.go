@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -26,10 +27,11 @@ type CollaborationCapabilitiesView struct {
 }
 
 type CollaborationCapabilityAuth struct {
-	SessionID string
-	TenantID  string
-	Role      CollaborationRole
-	Session   *db.Session
+	SessionID  string
+	TenantID   string
+	Role       CollaborationRole
+	Generation string
+	Session    *db.Session
 }
 
 func collaborationCapabilityPrefix(role CollaborationRole) (string, error) {
@@ -100,7 +102,13 @@ func (s *Service) AuthenticateCollaborationCapability(ctx context.Context, route
 	if err != nil {
 		return nil, err
 	}
-	return &CollaborationCapabilityAuth{SessionID: tokenSessionID, TenantID: capability.TenantID, Role: role, Session: sessionRow}, nil
+	return &CollaborationCapabilityAuth{
+		SessionID:  tokenSessionID,
+		TenantID:   capability.TenantID,
+		Role:       role,
+		Generation: capability.TokenHash,
+		Session:    sessionRow,
+	}, nil
 }
 
 // WakeCollaborationSession validates a collaboration capability and waits until its session is ready.
@@ -263,7 +271,14 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 	if err != nil {
 		return nil, err
 	}
-	if err := disconnectCollaborationCapabilityConsumers(ctx, sessionRow, role); err != nil {
+	current, err := s.repo.GetSessionCollaborationCapability(ctx, sessionID, string(role))
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, ErrInvalidState
+	}
+	if err := disconnectCollaborationCapabilityConsumers(ctx, sessionRow, role, current.TokenHash); err != nil {
 		return nil, err
 	}
 	if err := s.repo.ReplaceSessionCollaborationCapability(ctx, sessionID, string(role), hash, raw, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
@@ -289,7 +304,7 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 	return view, nil
 }
 
-func disconnectCollaborationCapabilityConsumers(ctx context.Context, sessionRow *db.Session, role CollaborationRole) error {
+func disconnectCollaborationCapabilityConsumers(ctx context.Context, sessionRow *db.Session, role CollaborationRole, generation string) error {
 	if sessionRow.Status != db.SessionStatusRunning {
 		return nil
 	}
@@ -300,7 +315,12 @@ func disconnectCollaborationCapabilityConsumers(ctx context.Context, sessionRow 
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/collaboration/capability-rotated?role=%s", port, role),
+		fmt.Sprintf(
+			"http://127.0.0.1:%d/collaboration/capability-rotated?role=%s&generation=%s",
+			port,
+			role,
+			url.QueryEscape(generation),
+		),
 		nil,
 	)
 	if err != nil {

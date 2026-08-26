@@ -72,6 +72,10 @@ func (session *liveSession) serveSessionWebSocketHTTP(w http.ResponseWriter, req
 }
 
 func (session *liveSession) attachWebSocketClient(req *http.Request, role string, hello liveSessionClientMessage, transport *liveSessionWebSocketTransport) (*liveSessionClient, error) {
+	capabilityRole := collaborationCapabilityRole(req)
+	if !session.runtime.collaborationCapabilityGenerationAllowed(capabilityRole, collaborationCapabilityGeneration(req)) {
+		return nil, errors.New("collaboration capability is stale")
+	}
 	if hello.ClientID == "" && hello.ResumeSecret == "" {
 		name := strings.TrimSpace(hello.Name)
 		if !validLiveSessionName(name) || !validLiveSessionAvatarHash(hello.AvatarHash) {
@@ -86,7 +90,7 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 			role,
 			name,
 			hello.AvatarHash,
-			collaborationCapabilityRole(req),
+			capabilityRole,
 			sessionTokenAuthenticated(req),
 		)
 		if err != nil {
@@ -96,6 +100,10 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 		if err := session.activateTransport(client, transport, nil); err != nil {
 			session.removeClient(client)
 			return nil, err
+		}
+		if !session.runtime.collaborationCapabilityGenerationAllowed(capabilityRole, collaborationCapabilityGeneration(req)) {
+			session.removeClient(client)
+			return nil, errors.New("collaboration capability is stale")
 		}
 		return client, nil
 	}
@@ -109,7 +117,7 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 		session.mu.Unlock()
 		return nil, errLiveSessionResumeRejected
 	}
-	client.capabilityRole = collaborationCapabilityRole(req)
+	client.capabilityRole = capabilityRole
 	client.sessionTokenAuthenticated = sessionTokenAuthenticated(req)
 	session.mu.Unlock()
 	client.transportMu.RLock()
@@ -117,6 +125,10 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 	client.transportMu.RUnlock()
 	if err := session.activateTransport(client, transport, previous); err != nil {
 		return nil, err
+	}
+	if !session.runtime.collaborationCapabilityGenerationAllowed(capabilityRole, collaborationCapabilityGeneration(req)) {
+		session.removeClient(client)
+		return nil, errors.New("collaboration capability is stale")
 	}
 	return client, nil
 }

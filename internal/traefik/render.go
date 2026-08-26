@@ -347,6 +347,7 @@ func liveSessionForwardAuthMiddleware(activeURL, sessionID, access string) middl
 				"Authorization",
 				"Sec-WebSocket-Protocol",
 				"X-Aperture-Actor-Kind",
+				"X-Aperture-Capability-Generation",
 				"X-Aperture-Client-IP",
 				"X-Aperture-Collaboration-Role",
 			},

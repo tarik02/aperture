@@ -18,6 +18,7 @@ type liveSessionWebRTCPeerMetadata struct {
 	session                   *liveSession
 	role                      string
 	capabilityRole            string
+	capabilityGeneration      string
 	sessionTokenAuthenticated bool
 	cancel                    context.CancelFunc
 	service                   *rtc.Service
@@ -147,6 +148,9 @@ func (handler *liveSessionWebRTCApplicationHandler) transport(peer rtc.PeerInfo)
 
 func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTransport, hello liveSessionClientMessage) (*liveSessionClient, error) {
 	metadata := transport.metadata
+	if !session.runtime.collaborationCapabilityGenerationAllowed(metadata.capabilityRole, metadata.capabilityGeneration) {
+		return nil, errors.New("collaboration capability is stale")
+	}
 	if hello.ClientID == "" && hello.ResumeSecret == "" {
 		name := strings.TrimSpace(hello.Name)
 		if !validLiveSessionName(name) || !validLiveSessionAvatarHash(hello.AvatarHash) {
@@ -178,6 +182,10 @@ func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTrans
 			session.removeClient(client)
 			return nil, err
 		}
+		if !session.runtime.collaborationCapabilityGenerationAllowed(metadata.capabilityRole, metadata.capabilityGeneration) {
+			session.removeClient(client)
+			return nil, errors.New("collaboration capability is stale")
+		}
 		return client, nil
 	}
 	if !validLiveSessionClientID(hello.ClientID) || hello.ResumeSecret == "" {
@@ -201,6 +209,10 @@ func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTrans
 		transport.client = nil
 		transport.mu.Unlock()
 		return nil, err
+	}
+	if !session.runtime.collaborationCapabilityGenerationAllowed(metadata.capabilityRole, metadata.capabilityGeneration) {
+		session.removeClient(client)
+		return nil, errors.New("collaboration capability is stale")
 	}
 	return client, nil
 }
@@ -234,6 +246,7 @@ func newLiveSessionWebRTCPeerMetadata(session *liveSession, service *rtc.Service
 		session:                   session,
 		role:                      strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")),
 		capabilityRole:            collaborationCapabilityRole(req),
+		capabilityGeneration:      collaborationCapabilityGeneration(req),
 		sessionTokenAuthenticated: sessionTokenAuthenticated(req),
 		cancel:                    cancel,
 		service:                   service,
