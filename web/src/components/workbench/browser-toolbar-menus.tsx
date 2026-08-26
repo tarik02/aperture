@@ -480,7 +480,12 @@ function ViewportStreamMenuItems({
   return (
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
-      {showStreamMenu ? <StreamMenu control={control} /> : null}
+      {showStreamMenu ? (
+        <StreamMenu
+          control={control}
+          qualityUpdatesEnabled={control.collaboration.role !== "viewer"}
+        />
+      ) : null}
       <DropdownMenuCheckboxItem
         disabled={!connected || control.remoteCursorBusy}
         checked={control.remoteCursorEnabled}
@@ -510,9 +515,20 @@ function ViewportStreamMenuItems({
   );
 }
 
-function StreamMenu({ control }: { control: UseBrowserControlResult }) {
+function StreamMenu({
+  control,
+  qualityUpdatesEnabled,
+}: {
+  control: UseBrowserControlResult;
+  qualityUpdatesEnabled: boolean;
+}) {
   const settings = control.mediaStreamSettings;
-  const source = control.mediaPath === "fallback-cdp" ? "fallback-cdp" : settings?.profile;
+  const source =
+    control.mediaPath === "fallback-cdp"
+      ? "fallback-cdp"
+      : qualityUpdatesEnabled
+        ? settings?.profile
+        : "webrtc";
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -529,7 +545,7 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
               control.selectMediaStream({ kind: "fallback-cdp" });
               return;
             }
-            if (value === "webrtc-retry") {
+            if (value === "webrtc" || value === "webrtc-retry") {
               control.selectMediaStream({ kind: "webrtc-retry" });
               return;
             }
@@ -542,7 +558,14 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
             }
           }}
         >
-          {control.mediaVideoProfiles.length === 0 ? (
+          {!qualityUpdatesEnabled ? (
+            <DropdownMenuRadioItem value="webrtc">
+              <span className="flex min-w-0 flex-col">
+                <span>WebRTC</span>
+                <span className="text-xs text-muted-foreground">Live stream</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ) : control.mediaVideoProfiles.length === 0 ? (
             <DropdownMenuRadioItem value="webrtc-retry">
               <span className="flex min-w-0 flex-col">
                 <span>WebRTC</span>
@@ -550,14 +573,16 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
               </span>
             </DropdownMenuRadioItem>
           ) : null}
-          {control.mediaVideoProfiles.map((profile) => (
-            <DropdownMenuRadioItem key={profile.id} value={profile.id} disabled={!settings}>
-              <span className="flex min-w-0 flex-col">
-                <span>{profile.label}</span>
-                <span className="text-xs text-muted-foreground">{profile.codec} · WebRTC</span>
-              </span>
-            </DropdownMenuRadioItem>
-          ))}
+          {qualityUpdatesEnabled
+            ? control.mediaVideoProfiles.map((profile) => (
+                <DropdownMenuRadioItem key={profile.id} value={profile.id} disabled={!settings}>
+                  <span className="flex min-w-0 flex-col">
+                    <span>{profile.label}</span>
+                    <span className="text-xs text-muted-foreground">{profile.codec} · WebRTC</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              ))
+            : null}
           <DropdownMenuRadioItem value="fallback-cdp">
             <span className="flex min-w-0 flex-col">
               <span>CDP</span>
@@ -565,7 +590,7 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
             </span>
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
-        {control.mediaPath === "webrtc-live" && settings ? (
+        {qualityUpdatesEnabled && control.mediaPath === "webrtc-live" && settings ? (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Quality</DropdownMenuLabel>
