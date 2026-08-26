@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	collaborationProtocol       = "aperture-collaboration.v1"
-	collaborationMaximumClients = 20
-	collaborationLeaseTimeout   = 5 * time.Second
-	collaborationWriteTimeout   = 5 * time.Second
+	collaborationProtocol           = "aperture-collaboration.v1"
+	collaborationMaximumClients     = 20
+	collaborationMaximumMessageSize = 4 * 1024 * 1024
+	collaborationLeaseTimeout       = 5 * time.Second
+	collaborationWriteTimeout       = 5 * time.Second
 )
 
 type collaborationLeaseMode string
@@ -165,7 +166,7 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	defer func() { _ = socket.Close(websocket.StatusNormalClosure, "done") }()
-	socket.SetReadLimit(64 * 1024)
+	socket.SetReadLimit(collaborationMaximumMessageSize)
 
 	var hello collaborationClientMessage
 	if err := readCollaborationMessage(req.Context(), socket, &hello); err != nil {

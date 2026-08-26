@@ -942,7 +942,9 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		if stored, ok := tokensBySession[sessionRow.ID]; ok {
 			token = &stored
 		}
-		s.populateSessionCredentialsFromToken(&view, token)
+		if err := s.populateSessionCredentialsFromToken(ctx, &view, token); err != nil {
+			return db.PageResult[SessionView]{}, err
+		}
 		views = append(views, view)
 	}
 
@@ -1349,16 +1351,20 @@ func (s *Service) populateSessionCredentials(ctx context.Context, view *SessionV
 	return nil
 }
 
-func (s *Service) populateSessionCredentialsFromToken(view *SessionView, tokenRow *db.SessionToken) {
+func (s *Service) populateSessionCredentialsFromToken(ctx context.Context, view *SessionView, tokenRow *db.SessionToken) error {
 	if !retainedSessionAvailable(view.Session.Status) {
-		return
+		return nil
 	}
-	if tokenRow == nil || tokenRow.RawToken == nil || *tokenRow.RawToken == "" {
-		view.CDPURL = s.cdpURL(view.Session.ID)
-		return
+	if tokenRow != nil && tokenRow.RawToken != nil && *tokenRow.RawToken != "" {
+		view.SessionToken = *tokenRow.RawToken
 	}
 	view.CDPURL = s.cdpURL(view.Session.ID)
-	view.SessionToken = *tokenRow.RawToken
+	capabilities, err := s.ensureCollaborationCapabilities(ctx, view.Session)
+	if err != nil {
+		return err
+	}
+	view.CollaborationCapabilities = capabilities
+	return nil
 }
 
 func isExpired(expiresAt string, now time.Time) bool {
