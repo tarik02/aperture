@@ -24,6 +24,7 @@ const maximumPaintPoints = 2_048;
 const maximumPaintStrokes = 512;
 
 type PaintStroke = {
+  clientId: string;
   targetId: string;
   color: string;
   width: number;
@@ -64,24 +65,35 @@ export function CollaborationPaintOverlay({
     }
 
     let animationFrame: number | null = null;
+    const participantIds = new Set(
+      collaboration.participants.map((participant) => participant.clientId),
+    );
+    const disconnectedAt = Date.now();
+    for (const [key, stroke] of strokesRef.current) {
+      if (!stroke.ended && !participantIds.has(stroke.clientId)) {
+        strokesRef.current.set(key, { ...stroke, updatedAt: disconnectedAt, ended: true });
+      }
+    }
     const draw = () => {
       animationFrame = null;
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       context.clearRect(0, 0, width, height);
       const now = Date.now();
-      let visibleStrokeCount = 0;
+      let fadingStrokeCount = 0;
 
       for (const [key, stroke] of strokesRef.current) {
         const age = now - stroke.updatedAt;
-        if (age >= collaborationPaintLifetimeMs) {
+        if (stroke.ended && age >= collaborationPaintLifetimeMs) {
           strokesRef.current.delete(key);
           continue;
         }
-        visibleStrokeCount += 1;
+        if (stroke.ended) {
+          fadingStrokeCount += 1;
+        }
         if (stroke.targetId !== targetId || stroke.points.length === 0) {
           continue;
         }
-        const opacity = 1 - age / collaborationPaintLifetimeMs;
+        const opacity = stroke.ended ? 1 - age / collaborationPaintLifetimeMs : 1;
         context.globalAlpha = opacity;
         context.strokeStyle = stroke.color;
         context.fillStyle = stroke.color;
@@ -121,7 +133,7 @@ export function CollaborationPaintOverlay({
         context.stroke();
       }
       context.globalAlpha = 1;
-      if (visibleStrokeCount > 0) {
+      if (fadingStrokeCount > 0) {
         animationFrame = window.requestAnimationFrame(draw);
       }
     };
@@ -147,6 +159,14 @@ export function CollaborationPaintOverlay({
       ) {
         return;
       }
+      const updatedAt = Date.now();
+      if (message.phase === "start") {
+        for (const [candidateKey, stroke] of strokesRef.current) {
+          if (!stroke.ended && stroke.clientId === message.clientId) {
+            strokesRef.current.set(candidateKey, { ...stroke, updatedAt, ended: true });
+          }
+        }
+      }
       let points =
         message.phase === "start" || !existing
           ? [{ x: message.x, y: message.y }]
@@ -158,6 +178,9 @@ export function CollaborationPaintOverlay({
         let oldestKey: string | null = null;
         let oldestUpdatedAt = Number.POSITIVE_INFINITY;
         for (const [candidateKey, stroke] of strokesRef.current) {
+          if (!stroke.ended) {
+            continue;
+          }
           if (stroke.updatedAt < oldestUpdatedAt) {
             oldestKey = candidateKey;
             oldestUpdatedAt = stroke.updatedAt;
@@ -168,11 +191,12 @@ export function CollaborationPaintOverlay({
         }
       }
       strokesRef.current.set(key, {
+        clientId: message.clientId,
         targetId: message.targetId,
         color: message.color,
         width: message.width,
         points,
-        updatedAt: Date.now(),
+        updatedAt,
         ended: message.phase === "end",
       });
       requestDraw();
@@ -185,7 +209,7 @@ export function CollaborationPaintOverlay({
         window.cancelAnimationFrame(animationFrame);
       }
     };
-  }, [collaboration.paintEvents, height, targetId, width]);
+  }, [collaboration.paintEvents, collaboration.participants, height, targetId, width]);
 
   useEffect(() => {
     activeStrokeIdRef.current = null;
