@@ -44,6 +44,7 @@ export function CollaborationPaintOverlay({
 }: CollaborationPaintOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeStrokeIdRef = useRef<string | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
   const lastPointSentAtRef = useRef(0);
   const strokesRef = useRef(new Map<string, PaintStroke>());
   const color = colorForClient(collaboration.clientId);
@@ -188,6 +189,7 @@ export function CollaborationPaintOverlay({
 
   useEffect(() => {
     activeStrokeIdRef.current = null;
+    activePointerIdRef.current = null;
   }, [enabled, targetId]);
 
   function sendPoint(
@@ -212,11 +214,12 @@ export function CollaborationPaintOverlay({
 
   function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
     stopPointerEvent(event);
-    if (!event.isPrimary || event.button !== 0) {
+    if (!event.isPrimary || event.button !== 0 || activePointerIdRef.current !== null) {
       return;
     }
     event.currentTarget.focus();
     activeStrokeIdRef.current = crypto.randomUUID();
+    activePointerIdRef.current = event.pointerId;
     lastPointSentAtRef.current = performance.now();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -232,6 +235,9 @@ export function CollaborationPaintOverlay({
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
     stopPointerEvent(event);
+    if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) {
+      return;
+    }
     const point = normalizedPointer(event);
     if (point) {
       collaboration.sendCursor(targetId, point.x * width, point.y * height, { width, height });
@@ -248,11 +254,12 @@ export function CollaborationPaintOverlay({
 
   function finishStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
     stopPointerEvent(event);
-    if (!activeStrokeIdRef.current) {
+    if (!activeStrokeIdRef.current || activePointerIdRef.current !== event.pointerId) {
       return;
     }
     sendPoint(event, "end");
     activeStrokeIdRef.current = null;
+    activePointerIdRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
