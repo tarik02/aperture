@@ -134,10 +134,10 @@ func collaborationCDPRequestAllowed(role string, body []byte) (any, bool) {
 		return request.ID, false
 	}
 	switch request.Method {
-	case "Target.setDiscoverTargets", "Target.getTargets", "Target.attachToTarget", "Target.detachFromTarget", "Target.activateTarget",
-		"Page.enable", "Page.bringToFront", "Page.startScreencast", "Page.stopScreencast", "Page.screencastFrameAck":
+	case "Target.setDiscoverTargets", "Target.getTargets", "Target.attachToTarget", "Target.detachFromTarget",
+		"Page.enable", "Page.startScreencast", "Page.stopScreencast", "Page.screencastFrameAck":
 		return request.ID, true
-	case "Target.createTarget", "Target.closeTarget", "Page.navigate", "Page.reload", "Page.stopLoading", "Page.getNavigationHistory", "Page.navigateToHistoryEntry", "Emulation.setDeviceMetricsOverride":
+	case "Target.activateTarget", "Target.createTarget", "Target.closeTarget", "Page.bringToFront", "Page.navigate", "Page.reload", "Page.stopLoading", "Page.getNavigationHistory", "Page.navigateToHistoryEntry", "Emulation.setDeviceMetricsOverride":
 		return request.ID, role == "editor"
 	case "Runtime.evaluate":
 		var params struct {
