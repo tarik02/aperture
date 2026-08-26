@@ -62,6 +62,7 @@ export function BrowserViewport({
     clickCount: number;
   } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const implicitControlDesiredRef = useRef(false);
   const cursorHintPointRef = useRef<ViewportPoint | null>(null);
   const lastClickRef = useRef<{
     targetId: string;
@@ -316,15 +317,20 @@ export function BrowserViewport({
     if (inputDisabled) {
       dragCleanupRef.current?.();
       releasePressedKeys();
+      releaseImplicitControl();
     }
   }, [inputDisabled, releasePressedKeys]);
 
   useEffect(() => {
-    if (!paintingEnabled) {
-      return;
+    if (paintingEnabled) {
+      control.setCaptured(false);
+      implicitControlDesiredRef.current = false;
     }
-    control.setCaptured(false);
-    if (control.collaboration.hasControl && control.collaboration.leaseMode === "implicit") {
+    if (
+      control.collaboration.hasControl &&
+      control.collaboration.leaseMode === "implicit" &&
+      !implicitControlDesiredRef.current
+    ) {
       control.collaboration.release();
     }
   }, [
@@ -370,14 +376,20 @@ export function BrowserViewport({
     if (!control.captured) {
       control.setCaptured(true);
     }
-    if (!control.collaboration.hasControl) {
-      control.collaboration.claim(control.activeTargetId, "implicit");
-    }
+    requestImplicitControl(control.activeTargetId);
     containerRef.current?.focus();
     return control.activeTargetId;
   }
 
+  function requestImplicitControl(targetId: string) {
+    implicitControlDesiredRef.current = true;
+    if (!control.collaboration.hasControl) {
+      control.collaboration.claim(targetId, "implicit");
+    }
+  }
+
   function releaseImplicitControl() {
+    implicitControlDesiredRef.current = false;
     if (control.collaboration.hasControl && control.collaboration.leaseMode === "implicit") {
       control.collaboration.release();
     }
@@ -400,8 +412,8 @@ export function BrowserViewport({
       return;
     }
     control.setCaptured(true);
-    if (control.activeTargetId && !control.collaboration.hasControl) {
-      control.collaboration.claim(control.activeTargetId, "implicit");
+    if (control.activeTargetId) {
+      requestImplicitControl(control.activeTargetId);
     }
     containerRef.current?.focus();
   }
@@ -412,9 +424,7 @@ export function BrowserViewport({
       return;
     }
     control.setCaptured(true);
-    if (!control.collaboration.hasControl) {
-      control.collaboration.claim(control.activeTargetId, "implicit");
-    }
+    requestImplicitControl(control.activeTargetId);
   }
 
   function handlePointerLeave() {
@@ -868,8 +878,8 @@ export function BrowserViewport({
       onClick={handlePointerClick}
       onPointerMove={handlePointerMove}
       onFocus={() => {
-        if (!inputDisabled && control.activeTargetId && !control.collaboration.hasControl) {
-          control.collaboration.claim(control.activeTargetId, "implicit");
+        if (!inputDisabled && control.activeTargetId) {
+          requestImplicitControl(control.activeTargetId);
         }
       }}
       onPointerEnter={handlePointerEnter}
