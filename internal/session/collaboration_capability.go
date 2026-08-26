@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -282,7 +283,8 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 		return nil, err
 	}
 	if err := s.repo.ReplaceSessionCollaborationCapability(ctx, sessionID, string(role), hash, raw, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
-		return nil, err
+		restoreErr := restoreCollaborationCapabilityGeneration(context.WithoutCancel(ctx), sessionRow, role, current.TokenHash)
+		return nil, errors.Join(err, restoreErr)
 	}
 	switch role {
 	case CollaborationRoleEditor:
@@ -305,16 +307,30 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 }
 
 func disconnectCollaborationCapabilityConsumers(ctx context.Context, sessionRow *db.Session, role CollaborationRole, generation string) error {
+	return setCollaborationCapabilityGenerationRevoked(ctx, sessionRow, role, generation, true)
+}
+
+func restoreCollaborationCapabilityGeneration(ctx context.Context, sessionRow *db.Session, role CollaborationRole, generation string) error {
+	return setCollaborationCapabilityGenerationRevoked(ctx, sessionRow, role, generation, false)
+}
+
+func setCollaborationCapabilityGenerationRevoked(ctx context.Context, sessionRow *db.Session, role CollaborationRole, generation string, revoked bool) error {
 	if sessionRow.Status != db.SessionStatusRunning {
 		return nil
 	}
+	method := http.MethodPost
+	action := "revoke"
+	if !revoked {
+		method = http.MethodDelete
+		action = "restore"
+	}
 	port, err := wrapperPort(sessionRow)
 	if err != nil {
-		return fmt.Errorf("disconnect %s collaboration clients: %w", role, err)
+		return fmt.Errorf("%s %s collaboration capability generation: %w", action, role, err)
 	}
 	request, err := http.NewRequestWithContext(
 		ctx,
-		http.MethodPost,
+		method,
 		fmt.Sprintf(
 			"http://127.0.0.1:%d/collaboration/capability-rotated?role=%s&generation=%s",
 			port,
@@ -324,15 +340,15 @@ func disconnectCollaborationCapabilityConsumers(ctx context.Context, sessionRow 
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("disconnect %s collaboration clients: %w", role, err)
+		return fmt.Errorf("%s %s collaboration capability generation: %w", action, role, err)
 	}
 	response, err := (&http.Client{Timeout: time.Second}).Do(request)
 	if err != nil {
-		return fmt.Errorf("disconnect %s collaboration clients: %w", role, err)
+		return fmt.Errorf("%s %s collaboration capability generation: %w", action, role, err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("disconnect %s collaboration clients: unexpected wrapper status %s", role, response.Status)
+		return fmt.Errorf("%s %s collaboration capability generation: unexpected wrapper status %s", action, role, response.Status)
 	}
 	return nil
 }

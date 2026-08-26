@@ -223,6 +223,16 @@ func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role, genera
 	}
 }
 
+func (r *wrapperRuntime) restoreCollaborationCapabilityGeneration(role, generation string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	revoked := r.revokedCapabilityGenerations[role]
+	delete(revoked, generation)
+	if len(revoked) == 0 {
+		delete(r.revokedCapabilityGenerations, role)
+	}
+}
+
 func collaborationCapabilityRole(req *http.Request) string {
 	if strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) != "session_capability" {
 		return ""
@@ -349,7 +359,7 @@ func (r *wrapperRuntime) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
+	if req.Method != http.MethodPost && req.Method != http.MethodDelete {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
@@ -363,7 +373,11 @@ func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWri
 		writeWrapperError(w, http.StatusBadRequest, "invalid collaboration capability generation")
 		return
 	}
-	r.disconnectCollaborationCapabilityConsumers(role, generation)
+	if req.Method == http.MethodDelete {
+		r.restoreCollaborationCapabilityGeneration(role, generation)
+	} else {
+		r.disconnectCollaborationCapabilityConsumers(role, generation)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

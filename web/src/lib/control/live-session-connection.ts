@@ -269,6 +269,9 @@ export class LiveSessionConnection {
     const previous = this.active;
     const messages = this.candidateMessages;
     const frame = this.candidateFrame;
+    if (previous && previous !== transport) {
+      this.rejectPending("live session transport replaced");
+    }
     this.candidate = null;
     this.candidateMessages = [];
     this.candidateFrame = null;
