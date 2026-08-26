@@ -22,9 +22,11 @@ const (
 	collaborationHelloTimeout       = 5 * time.Second
 	collaborationLeaseTimeout       = 5 * time.Second
 	collaborationWriteTimeout       = 5 * time.Second
-	collaborationPaintRate          = 50
-	collaborationPaintBurst         = 20
+	collaborationPaintClientRate    = 50
+	collaborationPaintClientBurst   = 20
+	collaborationPaintHubRate       = 100
 	collaborationPaintQueueSize     = 64
+	collaborationPaintHubBurst      = collaborationPaintQueueSize - collaborationMaximumClients
 )
 
 type collaborationLeaseMode string
@@ -55,6 +57,8 @@ type collaborationHub struct {
 	lastSeen       time.Time
 	nextOwner      uint64
 	closed         bool
+	paintTokens    float64
+	paintTokensAt  time.Time
 }
 
 type collaborationClient struct {
@@ -373,19 +377,29 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 		client.activePaintTarget = ""
 	} else {
 		if client.paintTokensAt.IsZero() {
-			client.paintTokens = collaborationPaintBurst
+			client.paintTokens = collaborationPaintClientBurst
 		} else {
-			client.paintTokens += now.Sub(client.paintTokensAt).Seconds() * collaborationPaintRate
-			if client.paintTokens > collaborationPaintBurst {
-				client.paintTokens = collaborationPaintBurst
+			client.paintTokens += now.Sub(client.paintTokensAt).Seconds() * collaborationPaintClientRate
+			if client.paintTokens > collaborationPaintClientBurst {
+				client.paintTokens = collaborationPaintClientBurst
 			}
 		}
 		client.paintTokensAt = now
-		if client.paintTokens < 1 {
+		if hub.paintTokensAt.IsZero() {
+			hub.paintTokens = collaborationPaintHubBurst
+		} else {
+			hub.paintTokens += now.Sub(hub.paintTokensAt).Seconds() * collaborationPaintHubRate
+			if hub.paintTokens > collaborationPaintHubBurst {
+				hub.paintTokens = collaborationPaintHubBurst
+			}
+		}
+		hub.paintTokensAt = now
+		if client.paintTokens < 1 || hub.paintTokens < 1 {
 			hub.mu.Unlock()
 			return nil
 		}
 		client.paintTokens--
+		hub.paintTokens--
 		if message.Phase == "start" {
 			client.activePaintStroke = message.StrokeID
 			client.activePaintTarget = message.TargetID
