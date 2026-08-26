@@ -1,0 +1,780 @@
+import { z } from "zod";
+import { resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
+import type { ScreencastFrame } from "#/lib/control/messages.ts";
+import {
+  LIVE_SESSION_PROTOCOL,
+  liveSessionServerMessageSchema,
+  rasterFrameSchema,
+  type LiveSessionCommandResult,
+  type LiveSessionServerMessage,
+  type LiveSessionSnapshot,
+} from "#/lib/control/live-session-protocol.ts";
+
+type SessionIdentity = {
+  clientId: string;
+  resumeSecret: string;
+};
+
+type SessionHelloIdentity = {
+  name: string;
+  avatarHash: string;
+};
+
+type LiveSessionTransportKind = "webrtc" | "websocket";
+
+type LiveSessionConnectionCallbacks = {
+  onPhase: (phase: "connecting" | "connected" | "disconnected" | "error") => void;
+  onMessage: (message: LiveSessionServerMessage) => void;
+  onFrame: (frame: ScreencastFrame | null) => void;
+  onStream: (stream: MediaStream | null) => void;
+  onTransport: (transport: LiveSessionTransportKind | null) => void;
+  onError: (message: string) => void;
+};
+
+type LiveSessionConnectionOptions = {
+  sessionId: string;
+  credentials: ApiCredentials;
+  sessionToken?: string;
+  identity: SessionHelloIdentity;
+  iceServers: RTCIceServer[];
+  webrtcSupported: boolean;
+  callbacks: LiveSessionConnectionCallbacks;
+};
+
+type PendingCommand = {
+  resolve: (result: LiveSessionCommandResult) => void;
+  reject: (error: Error) => void;
+};
+
+type TransportCallbacks = {
+  hello: () => Record<string, unknown>;
+  message: (transport: SessionTransport, message: LiveSessionServerMessage) => void;
+  ready: (transport: SessionTransport) => void;
+  failed: (transport: SessionTransport, error: Error) => void;
+  frame: (transport: SessionTransport, frame: ScreencastFrame) => void;
+};
+
+interface SessionTransport {
+  readonly kind: LiveSessionTransportKind;
+  sendReliable(message: Record<string, unknown>): boolean;
+  sendRealtime(message: Record<string, unknown>): boolean;
+  close(): void;
+}
+
+const signalResponseSchema = z.discriminatedUnion("type", [
+  z.object({ version: z.literal(1), type: z.literal("answer"), sdp: z.string() }).strict(),
+  z
+    .object({
+      version: z.literal(1),
+      type: z.literal("ice-candidate"),
+      candidate: z
+        .object({
+          candidate: z.string(),
+          sdpMid: z.string().nullable().optional(),
+          sdpMLineIndex: z.number().int().nullable().optional(),
+          usernameFragment: z.string().nullable().optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      type: z.literal("error"),
+      error: z.object({ code: z.string(), message: z.string() }).strict(),
+    })
+    .strict(),
+]);
+
+const WEBRTC_DEADLINE_MS = 5_000;
+const WEBSOCKET_RETRY_MS = 500;
+const WEBRTC_RETRY_MAX_MS = 15_000;
+
+export class LiveSessionConnection {
+  private readonly options: LiveSessionConnectionOptions;
+  private active: SessionTransport | null = null;
+  private candidate: SessionTransport | null = null;
+  private identity: SessionIdentity | null = null;
+  private disposed = false;
+  private retryTimer: number | null = null;
+  private webrtcRetryMs = 1_000;
+  private nextRequestId = 0;
+  private realtimeCounter = 0;
+  private inboundRealtimeCounter = 0;
+  private candidateMessages: LiveSessionServerMessage[] = [];
+  private readonly pendingCommands = new Map<string, PendingCommand>();
+
+  constructor(options: LiveSessionConnectionOptions) {
+    this.options = options;
+  }
+
+  connect() {
+    this.disposed = false;
+    this.options.callbacks.onPhase("connecting");
+    if (this.options.webrtcSupported) {
+      this.startWebRTC(true);
+    } else {
+      this.startWebSocket();
+    }
+  }
+
+  close() {
+    this.disposed = true;
+    this.clearRetry();
+    this.candidate?.close();
+    this.candidate = null;
+    this.candidateMessages = [];
+    this.active?.close();
+    this.active = null;
+    this.rejectPending("live session connection closed");
+    this.options.callbacks.onFrame(null);
+    this.options.callbacks.onStream(null);
+    this.options.callbacks.onTransport(null);
+  }
+
+  reconnect() {
+    this.clearRetry();
+    this.candidate?.close();
+    this.candidate = null;
+    this.candidateMessages = [];
+    this.active?.close();
+    this.active = null;
+    this.rejectPending("live session transport replaced");
+    this.options.callbacks.onPhase("connecting");
+    if (this.options.webrtcSupported) {
+      this.startWebRTC(true);
+    } else {
+      this.startWebSocket();
+    }
+  }
+
+  sendReliable(message: Record<string, unknown>): boolean {
+    return this.active?.sendReliable({ version: 1, ...message }) ?? false;
+  }
+
+  sendRealtime(message: Record<string, unknown>): boolean {
+    this.realtimeCounter += 1;
+    return (
+      this.active?.sendRealtime({
+        version: 1,
+        realtimeCounter: this.realtimeCounter,
+        ...message,
+      }) ?? false
+    );
+  }
+
+  command(type: string, payload: Record<string, unknown> = {}): Promise<LiveSessionCommandResult> {
+    this.nextRequestId += 1;
+    const requestId = `request-${this.nextRequestId}`;
+    return new Promise((resolve, reject) => {
+      this.pendingCommands.set(requestId, { resolve, reject });
+      if (!this.sendReliable({ type, requestId, ...payload })) {
+        this.pendingCommands.delete(requestId);
+        reject(new Error("live session transport is unavailable"));
+      }
+    });
+  }
+
+  private hello() {
+    return {
+      version: 1,
+      type: "session.hello",
+      ...(this.identity ?? this.options.identity),
+    };
+  }
+
+  private transportCallbacks(): TransportCallbacks {
+    return {
+      hello: () => this.hello(),
+      message: (transport, message) => this.handleMessage(transport, message),
+      ready: (transport) => this.activate(transport),
+      failed: (transport, error) => this.transportFailed(transport, error),
+      frame: (transport, frame) => {
+        if (this.active === transport) {
+          this.options.callbacks.onFrame(frame);
+        }
+      },
+    };
+  }
+
+  private startWebRTC(initial: boolean) {
+    if (this.disposed || this.candidate) {
+      return;
+    }
+    let transport: WebRTCSessionTransport;
+    try {
+      transport = new WebRTCSessionTransport({
+        sessionId: this.options.sessionId,
+        credentials: this.options.credentials,
+        sessionToken: this.options.sessionToken,
+        iceServers: this.options.iceServers,
+        callbacks: this.transportCallbacks(),
+      });
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error("WebRTC setup failed");
+      this.options.callbacks.onError(error.message);
+      if (initial) {
+        this.startWebSocket();
+      } else {
+        this.scheduleWebRTCRetry();
+      }
+      return;
+    }
+    this.candidate = transport;
+    this.candidateMessages = [];
+    transport.connect();
+    window.setTimeout(() => {
+      if (this.candidate !== transport) {
+        return;
+      }
+      transport.close();
+      this.candidate = null;
+      this.candidateMessages = [];
+      if (initial && this.active === null) {
+        this.startWebSocket();
+      } else {
+        this.scheduleWebRTCRetry();
+      }
+    }, WEBRTC_DEADLINE_MS);
+  }
+
+  private startWebSocket() {
+    if (this.disposed || this.candidate) {
+      return;
+    }
+    const transport = new WebSocketSessionTransport({
+      sessionId: this.options.sessionId,
+      credentials: this.options.credentials,
+      sessionToken: this.options.sessionToken,
+      callbacks: this.transportCallbacks(),
+    });
+    this.candidate = transport;
+    this.candidateMessages = [];
+    transport.connect();
+  }
+
+  private activate(transport: SessionTransport) {
+    if (this.disposed || this.candidate !== transport) {
+      transport.close();
+      return;
+    }
+    const previous = this.active;
+    const messages = this.candidateMessages;
+    this.candidate = null;
+    this.candidateMessages = [];
+    this.active = transport;
+    this.realtimeCounter = 0;
+    this.inboundRealtimeCounter = 0;
+    this.webrtcRetryMs = 1_000;
+    this.options.callbacks.onPhase("connected");
+    this.options.callbacks.onTransport(transport.kind);
+    if (transport instanceof WebRTCSessionTransport) {
+      this.options.callbacks.onFrame(null);
+      this.options.callbacks.onStream(transport.mediaStream());
+    } else {
+      this.options.callbacks.onStream(null);
+    }
+    for (const message of messages) {
+      this.deliverMessage(message);
+    }
+    if (transport.kind === "websocket" && this.options.webrtcSupported) {
+      this.scheduleWebRTCRetry();
+    }
+    if (previous && previous !== transport) {
+      previous.close();
+    }
+  }
+
+  private transportFailed(transport: SessionTransport, error: Error) {
+    if (this.disposed) {
+      return;
+    }
+    if (this.candidate === transport) {
+      this.candidate = null;
+      this.candidateMessages = [];
+      transport.close();
+      if (this.active === null) {
+        if (transport.kind === "webrtc") {
+          this.startWebSocket();
+        } else {
+          this.options.callbacks.onPhase("disconnected");
+          this.options.callbacks.onError(error.message);
+          window.setTimeout(() => {
+            if (!this.disposed && this.active === null && this.candidate === null) {
+              this.startWebSocket();
+            }
+          }, WEBSOCKET_RETRY_MS);
+        }
+      } else {
+        this.scheduleWebRTCRetry();
+      }
+      return;
+    }
+    if (this.active !== transport) {
+      return;
+    }
+    this.active = null;
+    transport.close();
+    this.rejectPending("live session transport was lost");
+    this.options.callbacks.onPhase("disconnected");
+    this.options.callbacks.onError(error.message);
+    this.options.callbacks.onFrame(null);
+    this.options.callbacks.onStream(null);
+    this.options.callbacks.onTransport(null);
+    window.setTimeout(
+      () => {
+        if (!this.disposed && this.active === null && this.candidate === null) {
+          this.startWebSocket();
+        }
+      },
+      transport.kind === "webrtc" ? 0 : WEBSOCKET_RETRY_MS,
+    );
+  }
+
+  private handleMessage(transport: SessionTransport, message: LiveSessionServerMessage) {
+    if (message.type === "session.snapshot") {
+      this.identity = { clientId: message.clientId, resumeSecret: message.resumeSecret };
+    }
+    if (this.active !== transport) {
+      if (this.candidate !== transport) {
+        return;
+      }
+      this.candidateMessages.push(message);
+      if (message.type === "session.snapshot" && transport.kind === "websocket") {
+        this.activate(transport);
+      }
+      return;
+    }
+    this.deliverMessage(message);
+  }
+
+  private deliverMessage(message: LiveSessionServerMessage) {
+    if ("realtimeCounter" in message && message.realtimeCounter !== undefined) {
+      if (message.realtimeCounter <= this.inboundRealtimeCounter) {
+        return;
+      }
+      this.inboundRealtimeCounter = message.realtimeCounter;
+    }
+    if ("requestId" in message) {
+      const result = message;
+      const pending = this.pendingCommands.get(result.requestId);
+      if (pending) {
+        this.pendingCommands.delete(result.requestId);
+        if (result.ok) {
+          pending.resolve(result);
+        } else {
+          pending.reject(new Error(result.message ?? "live session command failed"));
+        }
+      }
+    }
+    this.options.callbacks.onMessage(message);
+  }
+
+  private scheduleWebRTCRetry() {
+    if (this.disposed || !this.options.webrtcSupported || this.retryTimer !== null) {
+      return;
+    }
+    const delay = this.webrtcRetryMs;
+    this.webrtcRetryMs = Math.min(WEBRTC_RETRY_MAX_MS, this.webrtcRetryMs * 2);
+    this.retryTimer = window.setTimeout(() => {
+      this.retryTimer = null;
+      this.startWebRTC(false);
+    }, delay);
+  }
+
+  private clearRetry() {
+    if (this.retryTimer !== null) {
+      window.clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+  }
+
+  private rejectPending(message: string) {
+    for (const pending of this.pendingCommands.values()) {
+      pending.reject(new Error(message));
+    }
+    this.pendingCommands.clear();
+  }
+}
+
+class WebSocketSessionTransport implements SessionTransport {
+  readonly kind = "websocket" as const;
+  private readonly socket: WebSocket;
+  private readonly callbacks: TransportCallbacks;
+  private readonly pendingRealtime = new Map<unknown, Record<string, unknown>>();
+  private realtimeFrame: number | null = null;
+  private closed = false;
+
+  constructor(options: {
+    sessionId: string;
+    credentials: ApiCredentials;
+    sessionToken?: string;
+    callbacks: TransportCallbacks;
+  }) {
+    this.callbacks = options.callbacks;
+    this.socket = new WebSocket(
+      sessionWebSocketURL(options.sessionId),
+      sessionProtocols(options.credentials, options.sessionToken),
+    );
+    this.socket.binaryType = "arraybuffer";
+  }
+
+  connect() {
+    this.socket.addEventListener("open", () => {
+      this.sendReliable(this.callbacks.hello());
+    });
+    this.socket.addEventListener("message", (event) => {
+      if (typeof event.data === "string") {
+        const message = decodeServerMessage(event.data);
+        if (message) {
+          this.callbacks.message(this, message);
+        }
+        return;
+      }
+      if (event.data instanceof ArrayBuffer) {
+        const frame = decodeRasterFrame(event.data);
+        if (frame) {
+          this.callbacks.frame(this, frame);
+        }
+      }
+    });
+    this.socket.addEventListener("close", () => {
+      if (!this.closed) {
+        this.callbacks.failed(this, new Error("WebSocket session transport closed"));
+      }
+    });
+    this.socket.addEventListener("error", () => {
+      if (!this.closed) {
+        this.callbacks.failed(this, new Error("WebSocket session transport failed"));
+      }
+    });
+  }
+
+  sendReliable(message: Record<string, unknown>) {
+    this.flushRealtime();
+    return this.sendNow(message);
+  }
+
+  sendRealtime(message: Record<string, unknown>) {
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    this.pendingRealtime.set(message.type, message);
+    if (this.realtimeFrame === null) {
+      this.realtimeFrame = window.requestAnimationFrame(() => {
+        this.realtimeFrame = null;
+        this.flushRealtime();
+      });
+    }
+    return true;
+  }
+
+  close() {
+    this.closed = true;
+    if (this.realtimeFrame !== null) {
+      window.cancelAnimationFrame(this.realtimeFrame);
+      this.realtimeFrame = null;
+    }
+    this.pendingRealtime.clear();
+    this.socket.close();
+  }
+
+  private flushRealtime() {
+    if (this.realtimeFrame !== null) {
+      window.cancelAnimationFrame(this.realtimeFrame);
+      this.realtimeFrame = null;
+    }
+    for (const message of this.pendingRealtime.values()) {
+      this.sendNow(message);
+    }
+    this.pendingRealtime.clear();
+  }
+
+  private sendNow(message: Record<string, unknown>) {
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    this.socket.send(JSON.stringify(message));
+    return true;
+  }
+}
+
+class WebRTCSessionTransport implements SessionTransport {
+  readonly kind = "webrtc" as const;
+  private readonly connection: RTCPeerConnection;
+  private readonly reliable: RTCDataChannel;
+  private readonly realtime: RTCDataChannel;
+  private readonly signal: WebSocket;
+  private readonly callbacks: TransportCallbacks;
+  private readonly pendingCandidates: RTCIceCandidateInit[] = [];
+  private reliableOpen = false;
+  private realtimeOpen = false;
+  private helloSent = false;
+  private snapshotReceived = false;
+  private stream: MediaStream | null = null;
+  private closed = false;
+
+  constructor(options: {
+    sessionId: string;
+    credentials: ApiCredentials;
+    sessionToken?: string;
+    iceServers: RTCIceServer[];
+    callbacks: TransportCallbacks;
+  }) {
+    this.callbacks = options.callbacks;
+    this.connection = new RTCPeerConnection({ iceServers: options.iceServers });
+    this.reliable = this.connection.createDataChannel("application", { ordered: true });
+    this.realtime = this.connection.createDataChannel("application-realtime", {
+      ordered: false,
+      maxRetransmits: 0,
+    });
+    this.connection.addTransceiver("video", { direction: "recvonly" });
+    this.signal = new WebSocket(
+      signalWebSocketURL(options.sessionId),
+      sessionProtocols(options.credentials, options.sessionToken),
+    );
+  }
+
+  connect() {
+    this.reliable.addEventListener("open", () => {
+      this.reliableOpen = true;
+      this.sendHello();
+    });
+    this.realtime.addEventListener("open", () => {
+      this.realtimeOpen = true;
+      this.sendHello();
+    });
+    this.reliable.addEventListener("message", (event) => this.handleApplicationMessage(event));
+    this.realtime.addEventListener("message", (event) => this.handleApplicationMessage(event));
+    for (const channel of [this.reliable, this.realtime]) {
+      channel.addEventListener("close", () => this.fail("WebRTC session channel closed"));
+      channel.addEventListener("error", () => this.fail("WebRTC session channel failed"));
+    }
+    this.connection.addEventListener("track", (event) => {
+      this.stream = event.streams[0] ?? new MediaStream([event.track]);
+      const ready = () => {
+        if (!this.stream) {
+          return;
+        }
+        this.maybeReady();
+      };
+      if (event.track.muted) {
+        event.track.addEventListener("unmute", ready, { once: true });
+      } else {
+        ready();
+      }
+    });
+    this.connection.addEventListener("icecandidate", (event) => {
+      if (event.candidate && this.signal.readyState === WebSocket.OPEN) {
+        this.signal.send(
+          JSON.stringify({
+            version: 1,
+            type: "ice-candidate",
+            candidate: event.candidate.toJSON(),
+          }),
+        );
+      }
+    });
+    this.connection.addEventListener("connectionstatechange", () => {
+      if (
+        this.connection.connectionState === "failed" ||
+        this.connection.connectionState === "closed"
+      ) {
+        this.fail(`WebRTC ${this.connection.connectionState}`);
+      }
+    });
+    this.signal.addEventListener("open", () => {
+      void this.connection
+        .createOffer()
+        .then((offer) => this.connection.setLocalDescription(offer))
+        .then(() => {
+          const description = this.connection.localDescription;
+          if (!description?.sdp) {
+            throw new Error("WebRTC offer is unavailable");
+          }
+          this.signal.send(JSON.stringify({ version: 1, type: "offer", sdp: description.sdp }));
+        })
+        .catch((cause: unknown) => {
+          this.fail(cause instanceof Error ? cause.message : "WebRTC negotiation failed");
+        });
+    });
+    this.signal.addEventListener("message", (event) => this.handleSignal(event));
+    this.signal.addEventListener("close", () => this.fail("WebRTC signaling closed"));
+    this.signal.addEventListener("error", () => this.fail("WebRTC signaling failed"));
+  }
+
+  sendReliable(message: Record<string, unknown>) {
+    if (this.reliable.readyState !== "open") {
+      return false;
+    }
+    this.reliable.send(JSON.stringify(message));
+    return true;
+  }
+
+  sendRealtime(message: Record<string, unknown>) {
+    if (this.realtime.readyState !== "open") {
+      return false;
+    }
+    this.realtime.send(JSON.stringify(message));
+    return true;
+  }
+
+  close() {
+    this.closed = true;
+    this.reliable.close();
+    this.realtime.close();
+    this.connection.close();
+    this.signal.close();
+  }
+
+  private sendHello() {
+    if (this.helloSent || !this.reliableOpen || !this.realtimeOpen) {
+      return;
+    }
+    this.helloSent = this.sendReliable(this.callbacks.hello());
+  }
+
+  private handleApplicationMessage(event: MessageEvent<unknown>) {
+    if (typeof event.data !== "string") {
+      return;
+    }
+    const message = decodeServerMessage(event.data);
+    if (!message) {
+      this.fail("WebRTC session message is invalid");
+      return;
+    }
+    this.callbacks.message(this, message);
+    if (message.type === "session.snapshot") {
+      this.snapshotReceived = true;
+      this.maybeReady();
+    }
+  }
+
+  private handleSignal(event: MessageEvent<unknown>) {
+    if (typeof event.data !== "string") {
+      this.fail("WebRTC signaling message is invalid");
+      return;
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(event.data);
+    } catch {
+      this.fail("WebRTC signaling message is invalid");
+      return;
+    }
+    const parsed = signalResponseSchema.safeParse(value);
+    if (!parsed.success) {
+      this.fail("WebRTC signaling message is invalid");
+      return;
+    }
+    if (parsed.data.type === "error") {
+      this.fail(parsed.data.error.message);
+      return;
+    }
+    if (parsed.data.type === "answer") {
+      void this.connection
+        .setRemoteDescription({ type: "answer", sdp: parsed.data.sdp })
+        .then(async () => {
+          for (const candidate of this.pendingCandidates.splice(0)) {
+            await this.connection.addIceCandidate(candidate);
+          }
+        })
+        .catch(() => this.fail("WebRTC answer is invalid"));
+      return;
+    }
+    if (!this.connection.remoteDescription) {
+      this.pendingCandidates.push(parsed.data.candidate);
+      return;
+    }
+    void this.connection
+      .addIceCandidate(parsed.data.candidate)
+      .catch(() => this.fail("WebRTC ICE candidate is invalid"));
+  }
+
+  private maybeReady() {
+    if (this.snapshotReceived && this.stream) {
+      this.callbacks.ready(this);
+    }
+  }
+
+  mediaStream() {
+    return this.stream;
+  }
+
+  private fail(message: string) {
+    if (!this.closed) {
+      this.callbacks.failed(this, new Error(message));
+    }
+  }
+}
+
+function decodeServerMessage(raw: string): LiveSessionServerMessage | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    const parsed = liveSessionServerMessageSchema.safeParse(value);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeRasterFrame(packet: ArrayBuffer): ScreencastFrame | null {
+  if (packet.byteLength < 4) {
+    return null;
+  }
+  const headerLength = new DataView(packet).getUint32(0);
+  if (headerLength === 0 || headerLength > packet.byteLength - 4) {
+    return null;
+  }
+  const headerBytes = new Uint8Array(packet, 4, headerLength);
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(headerBytes));
+  } catch {
+    return null;
+  }
+  const parsed = rasterFrameSchema.safeParse(value);
+  if (!parsed.success) {
+    return null;
+  }
+  const image = new Blob([new Uint8Array(packet, 4 + headerLength)], { type: "image/jpeg" });
+  return {
+    targetId: parsed.data.targetId,
+    frameId: parsed.data.frameId,
+    format: parsed.data.format,
+    data: image,
+    width: parsed.data.width,
+    height: parsed.data.height,
+    deviceScaleFactor: parsed.data.deviceScaleFactor,
+    scrollOffsetX: parsed.data.scrollOffsetX,
+    scrollOffsetY: parsed.data.scrollOffsetY,
+    timestamp: parsed.data.timestamp,
+    receivedAt: Date.now(),
+  };
+}
+
+function sessionWebSocketURL(sessionId: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/session`;
+}
+
+function signalWebSocketURL(sessionId: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/webrtc/signal`;
+}
+
+function sessionProtocols(credentials: ApiCredentials, sessionToken?: string) {
+  const protocols = [LIVE_SESSION_PROTOCOL];
+  if (sessionToken) {
+    protocols.push(`authorization.bearer.${sessionToken}`);
+  } else if (credentials.credentialType === "api_token") {
+    protocols.push(`authorization.bearer.${credentials.token}`);
+  }
+  const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
+  if (tenantId) {
+    protocols.push(`x-aperture-tenant-id.${tenantId}`);
+  }
+  return protocols;
+}
+
+export type { LiveSessionConnectionCallbacks, LiveSessionConnectionOptions, LiveSessionSnapshot };

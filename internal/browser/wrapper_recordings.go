@@ -118,16 +118,33 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 			writeWrapperError(w, http.StatusConflict, err.Error())
 			return
 		}
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(recording.Path)))
-		contentType := "video/webm"
-		if recording.Codec == "h264-va" {
-			contentType = "video/x-matroska"
+		serveWrapperRecording(w, req, recording)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "content" && req.Method == http.MethodGet {
+		recording, exists := session.recording(parts[0])
+		if !exists {
+			writeWrapperError(w, http.StatusNotFound, "recording not found")
+			return
 		}
-		w.Header().Set("Content-Type", contentType)
-		http.ServeFile(w, req, recording.Path)
+		if recording.Status != wrapperRecordingStopped {
+			writeWrapperError(w, http.StatusConflict, "recording is not ready for download")
+			return
+		}
+		serveWrapperRecording(w, req, recording)
 		return
 	}
 	w.WriteHeader(http.StatusMethodNotAllowed)
+}
+
+func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording wrapperRecording) {
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(recording.Path)))
+	contentType := "video/webm"
+	if recording.Codec == "h264-va" {
+		contentType = "video/x-matroska"
+	}
+	w.Header().Set("Content-Type", contentType)
+	http.ServeFile(w, req, recording.Path)
 }
 
 func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
@@ -153,15 +170,9 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	if registry == nil {
 		return wrapperRecording{}, errors.New("target registry is unavailable")
 	}
-	if request.Mode == wrapperRecordingModeViewer {
-		r.mu.Lock()
-		client := session.recordingClients[request.ClientID]
-		r.mu.Unlock()
-		if client == nil {
-			return wrapperRecording{}, errors.New("recording client is not connected")
-		}
-		client.mu.Lock()
-		defer client.mu.Unlock()
+	if request.ClientID != "" {
+		session.recordingMu.Lock()
+		defer session.recordingMu.Unlock()
 	}
 	fps := request.FPS
 	if fps <= 0 {
@@ -199,40 +210,26 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	segment := filepath.Join(segmentDir, "segment-0000"+filepath.Ext(path))
 
-	var target wrapperTargetSnapshot
-	for {
-		targetID := request.TargetID
-		r.mu.Lock()
-		client := session.recordingClients[request.ClientID]
-		if request.ClientID != "" && client == nil {
-			r.mu.Unlock()
+	targetID := request.TargetID
+	if request.ClientID != "" {
+		session.mu.Lock()
+		client := session.clients[request.ClientID]
+		if client != nil && request.Mode == wrapperRecordingModeViewer {
+			targetID = client.activeTargetID
+		}
+		session.mu.Unlock()
+		if client == nil {
 			_ = os.RemoveAll(segmentDir)
-			return wrapperRecording{}, errors.New("recording client is not connected")
+			return wrapperRecording{}, errors.New("session client is unavailable")
 		}
-		if request.Mode == wrapperRecordingModeViewer && client.targetID != "" {
-			targetID = client.targetID
-		}
-		r.mu.Unlock()
-
-		var exists bool
-		target, exists = registry.readyTarget(targetID)
-		if !exists {
-			_ = os.RemoveAll(segmentDir)
-			return wrapperRecording{}, errors.New("target is not ready")
-		}
-
-		r.mu.Lock()
-		client = session.recordingClients[request.ClientID]
-		if request.ClientID != "" && client == nil {
-			r.mu.Unlock()
-			_ = os.RemoveAll(segmentDir)
-			return wrapperRecording{}, errors.New("recording client is not connected")
-		}
-		if request.Mode != wrapperRecordingModeViewer || client.targetID == "" || client.targetID == target.TargetID {
-			break
-		}
-		r.mu.Unlock()
 	}
+	target, exists := registry.readyTarget(targetID)
+	if !exists {
+		_ = os.RemoveAll(segmentDir)
+		return wrapperRecording{}, errors.New("target is not ready")
+	}
+
+	r.mu.Lock()
 	active := 0
 	for _, recording := range session.recordings {
 		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
@@ -275,6 +272,72 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	status := *recording
 	r.mu.Unlock()
 	return status, nil
+}
+
+func (session *liveSession) moveViewerRecordings(ctx context.Context, clientID, targetID string) error {
+	r := session.runtime
+	type candidate struct {
+		recording *wrapperRecording
+		targetID  string
+	}
+	r.mu.Lock()
+	recordings := make([]candidate, 0)
+	for _, recording := range session.recordings {
+		if recording.Mode == wrapperRecordingModeViewer &&
+			recording.clientID == clientID &&
+			recording.Status == wrapperRecordingRunning {
+			recordings = append(recordings, candidate{recording: recording, targetID: recording.TargetID})
+		}
+	}
+	r.mu.Unlock()
+	if len(recordings) == 0 {
+		return nil
+	}
+	r.mu.Lock()
+	registry := r.targets
+	r.mu.Unlock()
+	if registry == nil {
+		return errors.New("target registry is unavailable")
+	}
+	target, exists := registry.readyTarget(targetID)
+	if !exists {
+		return errors.New("target is not ready")
+	}
+	rotated := make([]candidate, 0, len(recordings))
+	for _, current := range recordings {
+		if err := session.rotateRecordingTarget(ctx, current.recording, target, current.targetID); err != nil {
+			rollbackCtx, cancelRollback := context.WithTimeout(r.ctx, 10*time.Second)
+			defer cancelRollback()
+			for index := len(rotated) - 1; index >= 0; index-- {
+				previous, ready := registry.readyTarget(rotated[index].targetID)
+				if ready {
+					_ = session.rotateRecordingTarget(rollbackCtx, rotated[index].recording, previous, targetID)
+				}
+			}
+			return err
+		}
+		rotated = append(rotated, current)
+	}
+	return nil
+}
+
+func (session *liveSession) stopClientRecordings(clientID string) {
+	r := session.runtime
+	r.mu.Lock()
+	recordingIDs := make([]string, 0)
+	for _, recording := range session.recordings {
+		if recording.clientID == clientID &&
+			(recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning) {
+			recordingIDs = append(recordingIDs, recording.ID)
+		}
+	}
+	r.mu.Unlock()
+	for _, recordingID := range recordingIDs {
+		_, _ = session.stopRecording(recordingID, "client_disconnected")
+	}
+	if len(recordingIDs) > 0 {
+		session.broadcastRecordings()
+	}
 }
 
 func (session *liveSession) stopRecording(recordingID string, reason string) (wrapperRecording, error) {

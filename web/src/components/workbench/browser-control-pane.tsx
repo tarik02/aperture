@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
-import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
+import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 import { BrowserToolbar } from "#/components/workbench/browser-toolbar.tsx";
 import { BrowserViewport } from "#/components/workbench/browser-viewport.tsx";
 import {
@@ -33,7 +33,6 @@ export function BrowserControlPane({
   shareUrls,
   onSessionDetails,
 }: BrowserControlPaneProps) {
-  const [performanceOverlayEnabled, setPerformanceOverlayEnabled] = useState(false);
   const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
   const [paintingEnabled, setPaintingEnabled] = useState(false);
   const [devToolsTargetIds, setDevToolsTargetIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -112,8 +111,6 @@ export function BrowserControlPane({
         collaborationRole={collaborationRole}
         cdpUrl={cdpUrl}
         shareUrls={shareUrls}
-        performanceOverlayEnabled={performanceOverlayEnabled}
-        onPerformanceOverlayChange={setPerformanceOverlayEnabled}
         localCursorEnabled={localCursorEnabled}
         onLocalCursorChange={handleLocalCursorChange}
         paintingEnabled={paintingEnabled}
@@ -133,7 +130,6 @@ export function BrowserControlPane({
           <BrowserViewport
             control={control}
             viewport={control.viewport}
-            performanceOverlayEnabled={performanceOverlayEnabled}
             localCursorEnabled={localCursorEnabled}
             paintingEnabled={paintingEnabled}
             onPaintingEnabledChange={setPaintingEnabled}

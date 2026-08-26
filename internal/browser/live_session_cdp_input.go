@@ -2,16 +2,11 @@ package browser
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"net"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/coder/websocket"
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
@@ -19,20 +14,19 @@ const liveSessionCDPInputTimeout = 5 * time.Second
 
 type liveSessionCDPInput struct {
 	port        int
-	connection  *websocket.Conn
-	nextID      int64
+	connection  *liveSessionCDP
 	targetID    string
 	sessionID   string
 	pointerX    float64
 	pointerY    float64
 	buttons     int
-	pressedKeys map[string]collaborationClientMessage
+	pressedKeys map[string]liveSessionClientMessage
 }
 
 func newLiveSessionCDPInput(port int) *liveSessionCDPInput {
 	return &liveSessionCDPInput{
 		port:        port,
-		pressedKeys: make(map[string]collaborationClientMessage),
+		pressedKeys: make(map[string]liveSessionClientMessage),
 	}
 }
 
@@ -105,7 +99,7 @@ func (input *liveSessionCDPInput) hasTarget(targetID string) (bool, error) {
 	return false, nil
 }
 
-func (input *liveSessionCDPInput) submit(_ uint64, message collaborationClientMessage) (err error) {
+func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMessage) (err error) {
 	defer func() {
 		if err != nil {
 			input.closeConnection()
@@ -130,6 +124,11 @@ func (input *liveSessionCDPInput) submit(_ uint64, message collaborationClientMe
 			"modifiers": message.Modifiers,
 		}, input.sessionID, nil)
 	case "input.pointer.button":
+		if message.Width <= 0 || message.Height <= 0 || message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
+			return errors.New("pointer position is invalid")
+		}
+		input.pointerX = message.X * message.Width
+		input.pointerY = message.Y * message.Height
 		button, mask, ok := liveSessionCDPMouseButton(message.ButtonCode)
 		if !ok {
 			return errors.New("pointer button is invalid")
@@ -157,6 +156,11 @@ func (input *liveSessionCDPInput) submit(_ uint64, message collaborationClientMe
 			"modifiers":  message.Modifiers,
 		}, input.sessionID, nil)
 	case "input.pointer.scroll":
+		if message.Width <= 0 || message.Height <= 0 || message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
+			return errors.New("pointer position is invalid")
+		}
+		input.pointerX = message.X * message.Width
+		input.pointerY = message.Y * message.Height
 		if message.Horizontal == 0 && message.Vertical == 0 {
 			return nil
 		}
@@ -190,7 +194,7 @@ func (input *liveSessionCDPInput) submit(_ uint64, message collaborationClientMe
 	}
 }
 
-func (input *liveSessionCDPInput) dispatchKey(message collaborationClientMessage) error {
+func (input *liveSessionCDPInput) dispatchKey(message liveSessionClientMessage) error {
 	eventType := "rawKeyDown"
 	if !message.Pressed {
 		eventType = "keyUp"
@@ -279,32 +283,10 @@ func (input *liveSessionCDPInput) ensureConnection() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(input.port))+"/json/version", nil)
+	connection, err := connectLiveSessionCDP(ctx, input.port)
 	if err != nil {
 		return err
 	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return fmt.Errorf("discover CDP input endpoint: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("discover CDP input endpoint: status %d", response.StatusCode)
-	}
-	var version struct {
-		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&version); err != nil {
-		return fmt.Errorf("decode CDP input endpoint: %w", err)
-	}
-	if strings.TrimSpace(version.WebSocketDebuggerURL) == "" {
-		return errors.New("CDP input endpoint omitted websocket URL")
-	}
-	connection, _, err := websocket.Dial(ctx, version.WebSocketDebuggerURL, nil)
-	if err != nil {
-		return fmt.Errorf("connect CDP input endpoint: %w", err)
-	}
-	connection.SetReadLimit(cdpDiscoveryMessageLimit)
 	input.connection = connection
 	return nil
 }
@@ -315,47 +297,12 @@ func (input *liveSessionCDPInput) call(method string, params any, sessionID stri
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
-	input.nextID++
-	request := map[string]any{"id": input.nextID, "method": method, "params": params}
-	if sessionID != "" {
-		request["sessionId"] = sessionID
-	}
-	body, err := json.Marshal(request)
-	if err != nil {
-		return err
-	}
-	if err := input.connection.Write(ctx, websocket.MessageText, body); err != nil {
-		return err
-	}
-	for {
-		_, body, err := input.connection.Read(ctx)
-		if err != nil {
-			return err
-		}
-		var response struct {
-			ID     int64           `json:"id"`
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if err := json.Unmarshal(body, &response); err != nil || response.ID != input.nextID {
-			continue
-		}
-		if response.Error != nil {
-			return fmt.Errorf("CDP %s failed (%d): %s", method, response.Error.Code, response.Error.Message)
-		}
-		if result == nil {
-			return nil
-		}
-		return json.Unmarshal(response.Result, result)
-	}
+	return input.connection.call(ctx, method, params, sessionID, result)
 }
 
 func (input *liveSessionCDPInput) closeConnection() {
 	if input.connection != nil {
-		_ = input.connection.CloseNow()
+		input.connection.close()
 	}
 	input.connection = nil
 	input.targetID = ""
@@ -366,7 +313,7 @@ func (input *liveSessionCDPInput) closeConnection() {
 	clear(input.pressedKeys)
 }
 
-func liveSessionCDPKeyID(message collaborationClientMessage) string {
+func liveSessionCDPKeyID(message liveSessionClientMessage) string {
 	if message.Code != "" {
 		return "code:" + message.Code
 	}

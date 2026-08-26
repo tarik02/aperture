@@ -15,7 +15,7 @@ https://aperture.example/share/#token=apv_<session-id>_<secret>
 
 The share route moves the token into tab-scoped session storage and removes it from the address bar. It uses the session ID embedded in the token to connect to the existing session routes. Opening a share link never adopts or falls back to account credentials already stored in the browser.
 
-Rotating one collaboration capability invalidates new connections using that role without affecting the owner session token or the other collaboration role. Existing WebSockets remain connected until they close.
+Rotating one collaboration capability disconnects session clients using that role without affecting the owner session token or the other collaboration role. A resume secret cannot bypass the rotated capability.
 
 ## Capability authentication
 
@@ -33,25 +33,19 @@ authorization.bearer.ape_<session-id>_<secret>
 authorization.bearer.apv_<session-id>_<secret>
 ```
 
-No tenant header is required. The token's embedded session ID must match the routed `/sessions/:sessionId/...` path. Suspended sessions wake through the same activity path used by direct CDP access.
-
-Direct CDP discovery and WebSocket URLs use the capability in the existing path-token format. Collaboration CDP connections are filtered by role, and all `Input.*` methods are rejected:
-
-```text
-/sessions/<session-id>/cdp/<collaboration-capability>/
-```
+No tenant header is required. The token's embedded session ID must match the routed `/sessions/:sessionId/...` path. Suspended sessions wake through the normal live-session activity path. Editor and viewer capabilities never authorize raw CDP. Owner DevTools uses the owner session token separately.
 
 ## Presence and follow
 
 Each workbench connection appears in the participant list with a persistent local display name and Gravatar identicon. Account-backed owners use their account or token display name when it is available; shared links use a randomly assigned anonymous identity.
 
-Selecting another participant starts following them. The follower adopts that participant's active tab and highlights their cursor. Follow relationships may form chains, but the session coordinator rejects any update that would create a cycle. Presence, cursors, and follow relationships disappear when the session ends and are not written into the browser or recordings.
+Selecting another participant starts following them. The follower adopts that participant's selected browser target and highlights their cursor. Follow relationships may form chains, but the live session rejects any update that would create a cycle. Presence, cursors, and follow relationships disappear when the session ends and are not written into the browser or recordings.
 
 ## Shared drawing
 
 Owners, editors, and viewers can turn on drawing mode and mark the current target. Drawing mode captures pointer gestures for the overlay instead of sending them to the browser. Each stroke uses target-relative coordinates, so it stays aligned when participants use different viewer sizes.
 
-The session coordinator relays strokes to connected participants but does not store them. A stroke fades out seven seconds after its last point. Shared drawing does not change page content and does not appear in browser recordings.
+The live session relays strokes to connected participants but does not store them. A stroke fades out seven seconds after its last point. Shared drawing does not change page content and does not appear in browser recordings.
 
 ## Files
 

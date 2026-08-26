@@ -1,10 +1,8 @@
 import { Fragment, useEffect, useId, useState } from "react";
 import {
-  Activity,
   Circle,
   Copy,
   Download,
-  Gauge,
   Info,
   Lock,
   LockOpen,
@@ -45,32 +43,6 @@ import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { copyText } from "#/components/resources/copy-button.tsx";
 import { toast } from "sonner";
 
-const STREAM_PRESETS = [
-  {
-    id: "low",
-    label: "Low",
-    detail: "20 fps · max 800 kbps",
-    settings: { fps: 20, bitrateKbps: 800 },
-  },
-  {
-    id: "balanced",
-    label: "Balanced",
-    detail: "30 fps · max 3000 kbps",
-    settings: { fps: 30, bitrateKbps: 3000 },
-  },
-  {
-    id: "high",
-    label: "High",
-    detail: "60 fps · max 20000 kbps",
-    settings: { fps: 60, bitrateKbps: 20_000 },
-  },
-] as const;
-
-const STREAM_LIMITS = {
-  fps: { min: 1, max: 120 },
-  bitrateKbps: { min: 100, max: 50_000 },
-} as const;
-
 const VIEWPORT_LIMITS = {
   width: { min: 1, max: 16_384 },
   height: { min: 1, max: 16_384 },
@@ -83,8 +55,6 @@ export function BrowserMenus({
   shareUrls,
   busy,
   connected,
-  performanceOverlayEnabled,
-  onPerformanceOverlayChange,
   localCursorEnabled,
   onLocalCursorChange,
   onReconnect,
@@ -96,8 +66,6 @@ export function BrowserMenus({
   shareUrls: { editor: string; viewer: string } | null;
   busy: boolean;
   connected: boolean;
-  performanceOverlayEnabled: boolean;
-  onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
   onLocalCursorChange: (enabled: boolean) => void;
   onReconnect: () => void;
@@ -154,8 +122,6 @@ export function BrowserMenus({
             <ViewportStreamMenuItems
               control={control}
               connected={connected && control.collaboration.role !== "viewer"}
-              performanceOverlayEnabled={performanceOverlayEnabled}
-              onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
               busy={busy}
@@ -220,8 +186,6 @@ export function BrowserMenus({
             <ViewportStreamMenuItems
               control={control}
               connected={connected && control.collaboration.role !== "viewer"}
-              performanceOverlayEnabled={performanceOverlayEnabled}
-              onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
               busy={busy}
@@ -337,6 +301,7 @@ function InputControlMenuItem({ control }: { control: UseBrowserControlResult })
   const targetId = control.activeTargetId;
   const explicitControlClaimed =
     collaboration.holderClientId !== null && collaboration.leaseMode === "explicit";
+  const localControlClaimed = collaboration.hasControl && collaboration.leaseMode === "explicit";
   let label = "Control offline";
   let disabled = collaboration.phase !== "connected" || !targetId;
   let action = () => undefined;
@@ -357,7 +322,11 @@ function InputControlMenuItem({ control }: { control: UseBrowserControlResult })
       }
     };
   } else {
-    const controlBlocked = explicitControlClaimed && collaboration.role !== "owner";
+    const holder = collaboration.participants.find(
+      (participant) => participant.clientId === collaboration.holderClientId,
+    );
+    const canPreempt = collaboration.role === "owner" && holder?.role === "editor";
+    const controlBlocked = explicitControlClaimed && !canPreempt;
     label = controlBlocked ? "Control in use" : "Claim control";
     disabled = disabled || controlBlocked;
     action = () => {
@@ -369,7 +338,7 @@ function InputControlMenuItem({ control }: { control: UseBrowserControlResult })
 
   return (
     <DropdownMenuItem disabled={disabled} onClick={action}>
-      {explicitControlClaimed ? <Lock /> : <LockOpen />}
+      {localControlClaimed ? <Lock /> : <LockOpen />}
       {label}
     </DropdownMenuItem>
   );
@@ -459,8 +428,6 @@ function RecordingMenuItems({
 function ViewportStreamMenuItems({
   control,
   connected,
-  performanceOverlayEnabled,
-  onPerformanceOverlayChange,
   localCursorEnabled,
   onLocalCursorChange,
   busy,
@@ -468,24 +435,14 @@ function ViewportStreamMenuItems({
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
-  performanceOverlayEnabled: boolean;
-  onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
   onLocalCursorChange: (enabled: boolean) => void;
   busy: boolean;
   onReconnect: () => void;
 }) {
-  const showStreamMenu =
-    control.mediaPath === "webrtc-live" || control.mediaPath === "fallback-cdp";
   return (
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
-      {showStreamMenu ? (
-        <StreamMenu
-          control={control}
-          qualityUpdatesEnabled={control.collaboration.role !== "viewer"}
-        />
-      ) : null}
       <DropdownMenuCheckboxItem
         disabled={!connected || control.remoteCursorBusy}
         checked={control.remoteCursorEnabled}
@@ -498,126 +455,11 @@ function ViewportStreamMenuItems({
         <MousePointer2 />
         Local cursor
       </DropdownMenuCheckboxItem>
-      {control.mediaPath === "webrtc-live" ? (
-        <DropdownMenuCheckboxItem
-          checked={performanceOverlayEnabled}
-          onCheckedChange={onPerformanceOverlayChange}
-        >
-          <Activity />
-          Performance overlay
-        </DropdownMenuCheckboxItem>
-      ) : null}
       <DropdownMenuItem disabled={busy} onClick={onReconnect}>
         <RotateCcw />
         Reconnect
       </DropdownMenuItem>
     </DropdownMenuGroup>
-  );
-}
-
-function StreamMenu({
-  control,
-  qualityUpdatesEnabled,
-}: {
-  control: UseBrowserControlResult;
-  qualityUpdatesEnabled: boolean;
-}) {
-  const settings = control.mediaStreamSettings;
-  const source =
-    control.mediaPath === "fallback-cdp"
-      ? "fallback-cdp"
-      : qualityUpdatesEnabled
-        ? settings?.profile
-        : "webrtc";
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <Gauge />
-        Stream
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="w-64">
-        <DropdownMenuLabel>Stream</DropdownMenuLabel>
-        <DropdownMenuLabel>Source</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={source}
-          onValueChange={(value) => {
-            if (value === "fallback-cdp") {
-              control.selectMediaStream({ kind: "fallback-cdp" });
-              return;
-            }
-            if (value === "webrtc" || value === "webrtc-retry") {
-              control.selectMediaStream({ kind: "webrtc-retry" });
-              return;
-            }
-            const profile = control.mediaVideoProfiles.find((candidate) => candidate.id === value);
-            if (profile && settings) {
-              control.selectMediaStream({
-                kind: "webrtc",
-                settings: { ...settings, profile: profile.id },
-              });
-            }
-          }}
-        >
-          {!qualityUpdatesEnabled ? (
-            <DropdownMenuRadioItem value="webrtc">
-              <span className="flex min-w-0 flex-col">
-                <span>WebRTC</span>
-                <span className="text-xs text-muted-foreground">Live stream</span>
-              </span>
-            </DropdownMenuRadioItem>
-          ) : control.mediaVideoProfiles.length === 0 ? (
-            <DropdownMenuRadioItem value="webrtc-retry">
-              <span className="flex min-w-0 flex-col">
-                <span>WebRTC</span>
-                <span className="text-xs text-muted-foreground">Retry connection</span>
-              </span>
-            </DropdownMenuRadioItem>
-          ) : null}
-          {qualityUpdatesEnabled
-            ? control.mediaVideoProfiles.map((profile) => (
-                <DropdownMenuRadioItem key={profile.id} value={profile.id} disabled={!settings}>
-                  <span className="flex min-w-0 flex-col">
-                    <span>{profile.label}</span>
-                    <span className="text-xs text-muted-foreground">{profile.codec} · WebRTC</span>
-                  </span>
-                </DropdownMenuRadioItem>
-              ))
-            : null}
-          <DropdownMenuRadioItem value="fallback-cdp">
-            <span className="flex min-w-0 flex-col">
-              <span>CDP</span>
-              <span className="text-xs text-muted-foreground">JPEG screencast</span>
-            </span>
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-        {qualityUpdatesEnabled && control.mediaPath === "webrtc-live" && settings ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Quality</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={activeStreamPresetId(settings)}
-              onValueChange={(value) => {
-                const preset = STREAM_PRESETS.find((item) => item.id === value);
-                if (preset) {
-                  control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
-                }
-              }}
-            >
-              {STREAM_PRESETS.map((preset) => (
-                <DropdownMenuRadioItem key={preset.id} value={preset.id}>
-                  <span className="flex min-w-0 flex-col">
-                    <span>{preset.label}</span>
-                    <span className="text-xs text-muted-foreground">{preset.detail}</span>
-                  </span>
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <CustomStreamSettings settings={settings} onApply={control.setWebRTCStreamSettings} />
-          </>
-        ) : null}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
   );
 }
 
@@ -772,58 +614,6 @@ function CustomViewportSettings({
   );
 }
 
-function CustomStreamSettings({
-  settings,
-  onApply,
-}: {
-  settings: UseBrowserControlResult["mediaStreamSettings"];
-  onApply: UseBrowserControlResult["setWebRTCStreamSettings"];
-}) {
-  const [fps, setFps] = useState(String(settings?.fps ?? 60));
-  const [bitrateKbps, setBitrateKbps] = useState(String(settings?.bitrateKbps ?? 6000));
-
-  useEffect(() => {
-    if (settings) {
-      setFps(String(settings.fps));
-      setBitrateKbps(String(settings.bitrateKbps));
-    }
-  }, [settings]);
-
-  const nextSettings = parseStreamSettings({ fps, bitrateKbps });
-  const unchanged = settings
-    ? settings.fps === nextSettings?.fps && settings.bitrateKbps === nextSettings?.bitrateKbps
-    : false;
-
-  return (
-    <div
-      className="grid gap-2 px-2 py-1.5"
-      onClick={(event) => event.stopPropagation()}
-      onKeyDown={(event) => event.stopPropagation()}
-    >
-      <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
-      <div className="grid grid-cols-2 gap-2">
-        <StreamNumberField label="FPS" value={fps} onChange={setFps} />
-        <StreamNumberField label="Max Kbps" value={bitrateKbps} onChange={setBitrateKbps} />
-      </div>
-      <Button
-        type="button"
-        size="sm"
-        className="h-7"
-        disabled={!nextSettings || unchanged}
-        onClick={() => {
-          if (nextSettings) {
-            if (settings) {
-              onApply({ ...settings, ...nextSettings });
-            }
-          }
-        }}
-      >
-        Apply
-      </Button>
-    </div>
-  );
-}
-
 function StreamNumberField({
   label,
   value,
@@ -874,20 +664,6 @@ function ViewportScaleField({
       />
     </Field>
   );
-}
-
-function parseStreamSettings({ fps, bitrateKbps }: { fps: string; bitrateKbps: string }) {
-  if (!fps || !bitrateKbps) {
-    return null;
-  }
-  return {
-    fps: clampInteger(Number(fps), STREAM_LIMITS.fps.min, STREAM_LIMITS.fps.max),
-    bitrateKbps: clampInteger(
-      Number(bitrateKbps),
-      STREAM_LIMITS.bitrateKbps.min,
-      STREAM_LIMITS.bitrateKbps.max,
-    ),
-  };
 }
 
 function parseViewportSettings({
@@ -954,17 +730,6 @@ function activeViewportPresetId(viewport: UseBrowserControlResult["viewport"]) {
 function activeViewportScaleId(deviceScaleFactor: number) {
   const preset = VIEWPORT_DEVICE_SCALE_FACTORS.find((item) => item === deviceScaleFactor);
   return preset ? formatViewportScale(preset) : "";
-}
-
-function activeStreamPresetId(settings: UseBrowserControlResult["mediaStreamSettings"]) {
-  if (!settings) {
-    return "";
-  }
-  const preset = STREAM_PRESETS.find(
-    (item) =>
-      settings.fps === item.settings.fps && settings.bitrateKbps === item.settings.bitrateKbps,
-  );
-  return preset?.id ?? "";
 }
 
 function formatElapsed(startedAt: string, now: number): string {

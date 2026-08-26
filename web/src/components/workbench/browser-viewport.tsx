@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, AlertCircle, Loader2, MousePointer2, Unplug } from "lucide-react";
+import { AlertCircle, Loader2, MousePointer2, Unplug } from "lucide-react";
 import { interval } from "rxjs";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -22,7 +22,6 @@ import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-
 type BrowserViewportProps = {
   control: UseBrowserControlResult;
   viewport: ViewportPreset;
-  performanceOverlayEnabled: boolean;
   localCursorEnabled: boolean;
   paintingEnabled: boolean;
   onPaintingEnabledChange: (enabled: boolean) => void;
@@ -42,7 +41,6 @@ const MULTI_CLICK_DISTANCE = 5;
 export function BrowserViewport({
   control,
   viewport,
-  performanceOverlayEnabled,
   localCursorEnabled,
   paintingEnabled,
   onPaintingEnabledChange,
@@ -181,7 +179,9 @@ export function BrowserViewport({
     const subscription = control.frame$.subscribe((frame) => {
       frameRef.current = frame;
       if (!frame) {
-        imageRef.current?.removeAttribute("src");
+        if (imageRef.current) {
+          clearImageSource(imageRef.current);
+        }
         if (frameMetadataRef.current !== null) {
           frameMetadataRef.current = null;
           setFrameMetadata(null);
@@ -208,7 +208,12 @@ export function BrowserViewport({
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      if (imageRef.current) {
+        clearImageSource(imageRef.current);
+      }
+    };
   }, [control.frame$, showingWebRTC]);
 
   useEffect(() => {
@@ -961,7 +966,6 @@ export function BrowserViewport({
       <div className="pointer-events-none absolute right-2 bottom-2 flex items-center gap-1.5">
         <StatusBadge status={status} />
       </div>
-      {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
       {control.activeTargetId ? (
         <CollaborationPaintOverlay
           collaboration={control.collaboration}
@@ -1016,51 +1020,15 @@ export function BrowserViewport({
   );
 }
 
-function PerformanceOverlay({ control }: { control: UseBrowserControlResult }) {
-  const metrics = control.mediaMetrics;
-  const settings = control.mediaStreamSettings;
-  const rows = [
-    ["Target", settings ? `${settings.fps} fps / ${settings.bitrateKbps} kbps` : "n/a"],
-    ["Recv", formatKbps(metrics?.receivedBitrateKbps)],
-    ["FPS", formatNumber(metrics?.decodedFps, 1)],
-    ["Frame", formatFrameSize(metrics?.frameWidth, metrics?.frameHeight)],
-    ["Drop", formatNumber(metrics?.framesDropped, 0)],
-    ["Lost", formatNumber(metrics?.packetsLost, 0)],
-    ["Jitter", formatMs(metrics?.jitterMs)],
-    ["Buffer", formatMs(metrics?.jitterBufferDelayMs)],
-    ["RTT", formatMs(metrics?.roundTripTimeMs)],
-    ["Input", formatMs(metrics?.inputRttMs)],
-    ["Codec", metrics?.codec?.replace(/^video\//, "") ?? "n/a"],
-    ["Path", metrics?.candidatePair ?? "n/a"],
-  ];
-
-  return (
-    <div className="pointer-events-none absolute top-2 left-2 z-10 w-64 rounded-md border bg-background/90 p-2 text-xs shadow-md backdrop-blur">
-      <div className="mb-1.5 flex items-center gap-1.5 font-medium">
-        <Activity className="size-3.5" />
-        Performance
-      </div>
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
-        {rows.map(([label, value]) => (
-          <div key={label} className="contents">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="min-w-0 truncate text-right font-mono tabular-nums">{value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function resolveDisconnectedHint(
   phase: ControlConnectionPhase,
   lastError: ControlError | null,
 ): string | null {
   if (lastError && isDisconnectedSocketError(lastError.message)) {
-    return "CDP disconnected";
+    return "Session disconnected";
   }
   if (phase === "disconnected" || phase === "error") {
-    return "CDP disconnected";
+    return "Session disconnected";
   }
   return null;
 }
@@ -1087,29 +1055,24 @@ function resolveCollaborationHint(
 }
 
 function setImageFrame(image: HTMLImageElement, frame: ScreencastFrame): void {
-  const mime = frame.format === "png" ? "image/png" : "image/jpeg";
-  image.src = `data:${mime};base64,${frame.data}`;
-}
-
-function formatKbps(value: number | null | undefined) {
-  if (typeof value !== "number") {
-    return "n/a";
+  const previousSource = image.src;
+  if (frame.data instanceof Blob) {
+    image.src = URL.createObjectURL(frame.data);
+  } else {
+    const mime = frame.format === "png" ? "image/png" : "image/jpeg";
+    image.src = `data:${mime};base64,${frame.data}`;
   }
-  return value >= 1000 ? `${(value / 1000).toFixed(1)} Mbps` : `${Math.round(value)} kbps`;
+  if (previousSource.startsWith("blob:")) {
+    URL.revokeObjectURL(previousSource);
+  }
 }
 
-function formatNumber(value: number | null | undefined, fractionDigits: number) {
-  return typeof value === "number" ? value.toFixed(fractionDigits) : "n/a";
-}
-
-function formatMs(value: number | null | undefined) {
-  return typeof value === "number" ? `${Math.round(value)} ms` : "n/a";
-}
-
-function formatFrameSize(width: number | null | undefined, height: number | null | undefined) {
-  return typeof width === "number" && typeof height === "number"
-    ? `${Math.round(width)}x${Math.round(height)}`
-    : "n/a";
+function clearImageSource(image: HTMLImageElement): void {
+  const source = image.src;
+  image.removeAttribute("src");
+  if (source.startsWith("blob:")) {
+    URL.revokeObjectURL(source);
+  }
 }
 
 function isDisconnectedSocketError(message: string): boolean {
@@ -1165,18 +1128,14 @@ function ViewportPlaceholder({
   );
 }
 
-function StatusBadge({
-  status,
-}: {
-  status: "live" | "webrtc-live" | "fallback-cdp" | "stale" | "offline";
-}) {
-  if (status === "live" || status === "webrtc-live" || status === "fallback-cdp") {
+function StatusBadge({ status }: { status: "webrtc" | "websocket" | "stale" | "offline" }) {
+  if (status === "webrtc" || status === "websocket") {
     return (
       <Badge
         variant="secondary"
         className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
       >
-        {status === "webrtc-live" ? "webrtc" : status}
+        {status}
       </Badge>
     );
   }
@@ -1313,12 +1272,12 @@ function resolveViewportStatus(
   mediaPhase: UseBrowserControlResult["mediaPhase"],
   mediaPath: UseBrowserControlResult["mediaPath"],
   showingWebRTC: boolean,
-): "live" | "webrtc-live" | "fallback-cdp" | "stale" | "offline" {
+): "webrtc" | "websocket" | "stale" | "offline" {
   if (phase !== "connected") {
     return "offline";
   }
   if (mediaPhase === "live" && showingWebRTC) {
-    return "webrtc-live";
+    return "webrtc";
   }
   if (!hasFrame) {
     return "offline";
@@ -1326,5 +1285,5 @@ function resolveViewportStatus(
   if (frameStale) {
     return "stale";
   }
-  return mediaPath === "fallback-cdp" ? "fallback-cdp" : "live";
+  return mediaPath === "websocket-live" ? "websocket" : "webrtc";
 }

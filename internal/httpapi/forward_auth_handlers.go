@@ -39,17 +39,13 @@ func (s *Server) sessionTokenForwardAuth(c *gin.Context) {
 
 func (s *Server) validateCDPForwardAuth(ctx context.Context, sessionID, credential string) (string, error) {
 	raw, _ := strings.CutPrefix(strings.TrimSpace(credential), "Bearer ")
-	if strings.HasPrefix(raw, "aps_") {
-		if err := s.Sessions.ValidateSessionTokenForwardAuth(ctx, sessionID, credential); err != nil {
-			return "", err
-		}
-		return "owner", nil
+	if !strings.HasPrefix(raw, "aps_") {
+		return "", auth.ErrScopeDenied
 	}
-	authorized, err := s.Sessions.WakeCollaborationSession(ctx, sessionID, credential)
-	if err != nil {
+	if err := s.Sessions.ValidateSessionTokenForwardAuth(ctx, sessionID, credential); err != nil {
 		return "", err
 	}
-	return string(authorized.Role), nil
+	return "owner", nil
 }
 
 func (s *Server) liveSessionForwardAuth(c *gin.Context) {
@@ -79,7 +75,6 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 		c.Status(http.StatusUnauthorized)
 		return
 	}
-
 	principal, err := s.authenticate(c)
 	if err != nil {
 		WriteError(c, err)
@@ -101,7 +96,7 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 	}
 
 	role := "owner"
-	if c.Param("access") == "read" && !auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite) {
+	if (c.Param("access") == "read" || c.Param("access") == "session") && !auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite) {
 		role = "viewer"
 	}
 	writeLiveSessionForwardAuthSuccess(c, "account", role)
@@ -182,8 +177,8 @@ func liveSessionForwardAuthScope(access string) (string, bool) {
 	switch access {
 	case "read":
 		return auth.ScopeSessionsRead, true
-	case "collaboration":
-		return auth.ScopeSessionsWrite, true
+	case "session":
+		return auth.ScopeSessionsRead, true
 	case "write":
 		return auth.ScopeSessionsWrite, true
 	case "owner":
@@ -216,7 +211,7 @@ func sessionTokenFromForwardedURI(forwardedURI string) string {
 }
 
 func isSessionAccessToken(value string) bool {
-	return strings.HasPrefix(value, "aps_") || strings.HasPrefix(value, "ape_") || strings.HasPrefix(value, "apv_")
+	return strings.HasPrefix(value, "aps_")
 }
 
 func mapForwardAuthError(err error) (int, string) {

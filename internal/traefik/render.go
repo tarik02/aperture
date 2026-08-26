@@ -151,16 +151,16 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		}
 
 		readAuth := liveSessionForwardAuthMiddlewareName(session.ID, "read")
-		collaborationAuth := liveSessionForwardAuthMiddlewareName(session.ID, "collaboration")
+		sessionAuth := liveSessionForwardAuthMiddlewareName(session.ID, "session")
 		writeAuth := liveSessionForwardAuthMiddlewareName(session.ID, "write")
 		ownerAuth := liveSessionForwardAuthMiddlewareName(session.ID, "owner")
 		doc.HTTP.Middlewares[readAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "read")
-		doc.HTTP.Middlewares[collaborationAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "collaboration")
+		doc.HTTP.Middlewares[sessionAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "session")
 		doc.HTTP.Middlewares[writeAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "write")
 		doc.HTTP.Middlewares[ownerAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "owner")
 
 		webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
-		collaborationStrip := stripSessionPrefixMiddlewareName(session.ID, "collaboration")
+		sessionStrip := stripSessionPrefixMiddlewareName(session.ID, "session")
 		recordingsStrip := stripSessionPrefixMiddlewareName(session.ID, "recordings")
 		filesStrip := stripSessionPrefixMiddlewareName(session.ID, "files")
 		uploadsStrip := stripSessionPrefixMiddlewareName(session.ID, "uploads")
@@ -172,7 +172,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
-		doc.HTTP.Middlewares[collaborationStrip] = middlewareConfig{
+		doc.HTTP.Middlewares[sessionStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[recordingsStrip] = middlewareConfig{
@@ -222,10 +222,10 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				middlewares: []string{webrtcStrip},
 			},
 			{
-				name:        collaborationRouterName(session.ID),
-				rule:        pathRouterRule(sessionBase + "/collaboration"),
-				auth:        collaborationAuth,
-				middlewares: []string{collaborationStrip},
+				name:        liveSessionRouterName(session.ID),
+				rule:        pathRouterRule(sessionBase + "/session"),
+				auth:        sessionAuth,
+				middlewares: []string{sessionStrip},
 			},
 			{
 				name:        recordingsRouterName(session.ID),
@@ -361,6 +361,7 @@ func cdpForwardAuthRequestHeaders() []string {
 func liveSessionForwardAuthRequestHeaders() []string {
 	return []string{
 		"Authorization",
+		"Cookie",
 		"Sec-WebSocket-Protocol",
 		"X-Aperture-Tenant-Id",
 	}
@@ -382,14 +383,14 @@ func pathTreeRouterRule(routePath string) string {
 func cdpDiscoveryRouterRule(cdpBase string) string {
 	escaped := escapeTraefikPath(cdpBase)
 	return fmt.Sprintf(
-		"PathRegexp(`^%s/(?:aps|ape|apv)_`)",
+		"PathRegexp(`^%s/aps_`)",
 		escaped,
 	)
 }
 
 func cdpWebSocketRouterRule(cdpBase string) string {
 	return fmt.Sprintf(
-		"PathRegexp(`^%s/[^/]+/devtools/`)",
+		"PathRegexp(`^%s/aps_[^/]+/devtools/`)",
 		regexp.QuoteMeta(cdpBase),
 	)
 }
@@ -406,8 +407,8 @@ func webrtcRouterName(sessionID string) string {
 	return "aperture-webrtc-" + sanitizeName(sessionID)
 }
 
-func collaborationRouterName(sessionID string) string {
-	return "aperture-collaboration-" + sanitizeName(sessionID)
+func liveSessionRouterName(sessionID string) string {
+	return "aperture-live-session-" + sanitizeName(sessionID)
 }
 
 func recordingsRouterName(sessionID string) string {

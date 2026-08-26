@@ -17,7 +17,7 @@ export type ScreencastFrame = {
   targetId: string;
   frameId: number;
   format: ScreencastFormat;
-  data: string;
+  data: string | Blob;
   width: number;
   height: number;
   deviceScaleFactor: number;

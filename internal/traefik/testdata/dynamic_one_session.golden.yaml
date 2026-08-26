@@ -37,7 +37,7 @@ http:
       entryPoints:
         - web
     aperture-cdp-discovery-018f1234000070008000000000000001:
-      rule: "PathRegexp(`^/sessions/018f1234-0000-7000-8000-000000000001/cdp/(?:aps|ape|apv)_`)"
+      rule: "PathRegexp(`^/sessions/018f1234-0000-7000-8000-000000000001/cdp/aps_`)"
       service: aperture-wrapper-018f1234000070008000000000000001
       middlewares:
         - aperture-cdp-forward-auth-018f1234000070008000000000000001
@@ -45,7 +45,7 @@ http:
       entryPoints:
         - web
     aperture-cdp-websocket-018f1234000070008000000000000001:
-      rule: "PathRegexp(`^/sessions/018f1234-0000-7000-8000-000000000001/cdp/[^/]+/devtools/`)"
+      rule: "PathRegexp(`^/sessions/018f1234-0000-7000-8000-000000000001/cdp/aps_[^/]+/devtools/`)"
       service: aperture-cdp-018f1234000070008000000000000001
       middlewares:
         - aperture-cdp-forward-auth-018f1234000070008000000000000001
@@ -54,21 +54,21 @@ http:
       priority: 120
       entryPoints:
         - web
-    aperture-collaboration-018f1234000070008000000000000001:
-      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/collaboration`)"
-      service: aperture-wrapper-018f1234000070008000000000000001
-      middlewares:
-        - aperture-live-session-forward-auth-018f1234000070008000000000000001-collaboration
-        - aperture-strip-session-018f1234000070008000000000000001-collaboration
-      priority: 100
-      entryPoints:
-        - web
     aperture-files-018f1234000070008000000000000001:
       rule: "(Path(`/sessions/018f1234-0000-7000-8000-000000000001/files`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/files/`)) && !QueryRegexp(`token`, `^apf_`)"
       service: aperture-wrapper-018f1234000070008000000000000001
       middlewares:
         - aperture-live-session-forward-auth-018f1234000070008000000000000001-owner
         - aperture-strip-session-018f1234000070008000000000000001-files
+      priority: 100
+      entryPoints:
+        - web
+    aperture-live-session-018f1234000070008000000000000001:
+      rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/session`)"
+      service: aperture-wrapper-018f1234000070008000000000000001
+      middlewares:
+        - aperture-live-session-forward-auth-018f1234000070008000000000000001-session
+        - aperture-strip-session-018f1234000070008000000000000001-session
       priority: 100
       entryPoints:
         - web
@@ -117,24 +117,12 @@ http:
           Authorization: ""
           Cookie: ""
           Sec-WebSocket-Protocol: ""
-    aperture-live-session-forward-auth-018f1234000070008000000000000001-collaboration:
-      forwardAuth:
-        address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/collaboration"
-        authRequestHeaders:
-          - Authorization
-          - Sec-WebSocket-Protocol
-          - X-Aperture-Tenant-Id
-        authResponseHeaders:
-          - Authorization
-          - Sec-WebSocket-Protocol
-          - X-Aperture-Actor-Kind
-          - X-Aperture-Client-IP
-          - X-Aperture-Collaboration-Role
     aperture-live-session-forward-auth-018f1234000070008000000000000001-owner:
       forwardAuth:
         address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/owner"
         authRequestHeaders:
           - Authorization
+          - Cookie
           - Sec-WebSocket-Protocol
           - X-Aperture-Tenant-Id
         authResponseHeaders:
@@ -148,6 +136,21 @@ http:
         address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/read"
         authRequestHeaders:
           - Authorization
+          - Cookie
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Tenant-Id
+        authResponseHeaders:
+          - Authorization
+          - Sec-WebSocket-Protocol
+          - X-Aperture-Actor-Kind
+          - X-Aperture-Client-IP
+          - X-Aperture-Collaboration-Role
+    aperture-live-session-forward-auth-018f1234000070008000000000000001-session:
+      forwardAuth:
+        address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/session"
+        authRequestHeaders:
+          - Authorization
+          - Cookie
           - Sec-WebSocket-Protocol
           - X-Aperture-Tenant-Id
         authResponseHeaders:
@@ -161,6 +164,7 @@ http:
         address: "http://127.0.0.1:28080/internal/forward-auth/live-session/018f1234-0000-7000-8000-000000000001/write"
         authRequestHeaders:
           - Authorization
+          - Cookie
           - Sec-WebSocket-Protocol
           - X-Aperture-Tenant-Id
         authResponseHeaders:
@@ -181,15 +185,15 @@ http:
     aperture-replace-path-018f1234000070008000000000000001-browserviewport:
       replacePath:
         path: "/viewport"
-    aperture-strip-session-018f1234000070008000000000000001-collaboration:
-      stripPrefix:
-        prefixes:
-          - /sessions/018f1234-0000-7000-8000-000000000001
     aperture-strip-session-018f1234000070008000000000000001-files:
       stripPrefix:
         prefixes:
           - /sessions/018f1234-0000-7000-8000-000000000001
     aperture-strip-session-018f1234000070008000000000000001-recordings:
+      stripPrefix:
+        prefixes:
+          - /sessions/018f1234-0000-7000-8000-000000000001
+    aperture-strip-session-018f1234000070008000000000000001-session:
       stripPrefix:
         prefixes:
           - /sessions/018f1234-0000-7000-8000-000000000001

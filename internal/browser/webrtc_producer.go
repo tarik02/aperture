@@ -18,7 +18,6 @@ import (
 
 const (
 	mediaQualityOption        = "aperture"
-	signalingProtocol         = "aperture-webrtc.v1"
 	mediaMaximumPeers         = 8
 	mediaMaximumNonOwnerPeers = mediaMaximumPeers - 1
 )
@@ -39,7 +38,8 @@ type mediaProfile struct {
 	SDPFmtpLine string `json:"sdpFmtpLine"`
 }
 
-func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer, error) {
+func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
+	values := runtime.values
 	if values.mediaProbeCache == nil {
 		values.mediaProbeCache = newMediaProbeCache()
 	}
@@ -143,10 +143,11 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		ICEAdvertisedIPs:    advertisedIPs,
 		UDPPortMin:          uint16(values.MediaProducerUDPPortMin),
 		UDPPortMax:          uint16(values.MediaProducerUDPPortMax),
-		Subprotocols:        []string{signalingProtocol},
+		Subprotocols:        []string{liveSessionProtocol},
 		MaxPeers:            mediaMaximumPeers,
 		ReplaceExistingPeer: false,
 		AllowedOrigins:      []string{"*"},
+		ApplicationHandler:  &liveSessionWebRTCApplicationHandler{session: runtime.liveSession},
 	}, mediaSource, nil, nil, nil, logger.Named("webrtc"))
 	if err != nil {
 		mediaSource.Close()
@@ -243,8 +244,8 @@ func (p *producer) run(ctx context.Context) {
 	p.media.Close()
 }
 
-func (p *producer) Handler(allowQualityUpdates bool) http.Handler {
-	return p.webrtc.Handler(rtc.PeerOptions{AllowQualityUpdates: allowQualityUpdates})
+func (p *producer) Handler(allowQualityUpdates bool, metadata *liveSessionWebRTCPeerMetadata) http.Handler {
+	return p.webrtc.Handler(rtc.PeerOptions{AllowQualityUpdates: allowQualityUpdates, Metadata: metadata})
 }
 
 func (p *producer) Close() error {

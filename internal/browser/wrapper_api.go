@@ -35,20 +35,18 @@ type compositorViewport struct {
 }
 
 type wrapperRuntime struct {
-	values                   RuntimeEnvValues
-	controlSocket            string
-	ctx                      context.Context
-	mu                       sync.Mutex
-	uploadMu                 sync.Mutex
-	compositorPID            int
-	mediaProducer            *producer
-	targets                  *wrapperTargetRegistry
-	viewers                  map[*wrapperViewer]struct{}
-	activeRequests           int
-	cdpConnections           int
-	restrictedCDPConnections int
-	restrictedCDPClients     map[*restrictedCDPClient]struct{}
-	liveSession              *liveSession
+	values         RuntimeEnvValues
+	controlSocket  string
+	ctx            context.Context
+	mu             sync.Mutex
+	uploadMu       sync.Mutex
+	compositorPID  int
+	mediaProducer  *producer
+	targets        *wrapperTargetRegistry
+	viewers        map[*wrapperViewer]struct{}
+	activeRequests int
+	cdpConnections int
+	liveSession    *liveSession
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -130,11 +128,10 @@ type WrapperActivityStatus struct {
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
 	return &wrapperRuntime{
-		values:               values,
-		controlSocket:        controlSocket,
-		ctx:                  context.Background(),
-		viewers:              make(map[*wrapperViewer]struct{}),
-		restrictedCDPClients: make(map[*restrictedCDPClient]struct{}),
+		values:        values,
+		controlSocket: controlSocket,
+		ctx:           context.Background(),
+		viewers:       make(map[*wrapperViewer]struct{}),
 	}
 }
 
@@ -190,19 +187,10 @@ func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 			viewers = append(viewers, viewer)
 		}
 	}
-	recordingClients := make([]*wrapperRecordingClient, 0, len(r.liveSession.recordingClients))
-	for _, client := range r.liveSession.recordingClients {
-		if client.sessionTokenAuthenticated {
-			recordingClients = append(recordingClients, client)
-		}
-	}
 	liveSession := r.liveSession
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
-	}
-	for _, client := range recordingClients {
-		client.cancel()
 	}
 	if liveSession != nil {
 		liveSession.disconnectSessionTokenClients()
@@ -217,19 +205,10 @@ func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string)
 			viewers = append(viewers, viewer)
 		}
 	}
-	cdpClients := make([]*restrictedCDPClient, 0)
-	for client := range r.restrictedCDPClients {
-		if client.role == role {
-			cdpClients = append(cdpClients, client)
-		}
-	}
 	liveSession := r.liveSession
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
-	}
-	for _, client := range cdpClients {
-		client.cancel()
 	}
 	if liveSession != nil {
 		liveSession.disconnectCapabilityRoleClients(role)
@@ -281,7 +260,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
 	mux.HandleFunc("/devtools/", r.handleCDPProxy)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
-	mux.HandleFunc("/collaboration", liveSession.serveCollaborationHTTP)
+	mux.HandleFunc("/session", liveSession.serveSessionWebSocketHTTP)
 	mux.HandleFunc("/automation/lease", liveSession.serveAutomationLeaseHTTP)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/targets", r.handleTargets)
@@ -289,7 +268,6 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/cursor", r.handleCursor)
 	mux.HandleFunc("/quality", r.handleQuality)
 	mux.HandleFunc("/recordings", liveSession.handleRecordings)
-	mux.HandleFunc("/recordings/client", liveSession.handleRecordingClient)
 	mux.HandleFunc("/recordings/", liveSession.handleRecording)
 	mux.HandleFunc("/files", r.handleFiles)
 	mux.HandleFunc("/files/", r.handleFileDownload)
@@ -596,7 +574,8 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	defer r.releaseViewer(viewer)
-	mediaProducer.Handler(role == "owner" || role == "editor").ServeHTTP(w, req.WithContext(ctx))
+	metadata := newLiveSessionWebRTCPeerMetadata(r.liveSession, mediaProducer.webrtc, req, cancel)
+	mediaProducer.Handler(role == "owner" || role == "editor", metadata).ServeHTTP(w, req.WithContext(ctx))
 }
 
 func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {

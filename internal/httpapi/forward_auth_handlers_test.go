@@ -119,7 +119,7 @@ func TestLiveSessionForwardAuthAllowsWebSocketProtocolToken(t *testing.T) {
 	}
 
 	rec := env.doRaw(t, http.MethodGet, "/internal/forward-auth/live-session/"+created.Session.ID+"/write", map[string]string{
-		"Sec-WebSocket-Protocol": "aperture-webrtc.v1, authorization.bearer." + token.Raw,
+		"Sec-WebSocket-Protocol": "aperture-session.v1, authorization.bearer." + token.Raw,
 	}, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())

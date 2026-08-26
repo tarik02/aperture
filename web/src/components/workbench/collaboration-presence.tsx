@@ -3,10 +3,8 @@ import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "#/components/u
 import { Button } from "#/components/ui/button.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "#/components/ui/popover.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
-import type {
-  CollaborationControl,
-  CollaborationParticipant,
-} from "#/hooks/use-collaboration-control.ts";
+import type { CollaborationControl } from "#/hooks/use-live-session.ts";
+import type { CollaborationParticipant } from "#/lib/control/live-session-protocol.ts";
 import { cn } from "#/lib/utils.ts";
 
 const visibleParticipantCount = 5;
@@ -109,28 +107,32 @@ function ParticipantButton({
   collaboration: CollaborationControl;
 }) {
   const local = participant.clientId === collaboration.clientId;
+  const followable = participant.role !== "automation";
   const following = participant.clientId === collaboration.followingClientId;
   const label = local
     ? `${participant.name} (you)`
-    : following
-      ? `${participant.name} · click to stop following`
-      : `${participant.name} · click to follow`;
-  const trigger = local ? (
-    <span
-      className="inline-flex size-7 shrink-0 items-center justify-center rounded-full"
-      aria-label={label}
-    />
-  ) : (
-    <Button
-      type="button"
-      variant={following ? "secondary" : "ghost"}
-      size="icon-sm"
-      className="shrink-0 rounded-full p-0"
-      aria-label={label}
-      aria-pressed={following}
-      onClick={() => collaboration.follow(following ? null : participant.clientId)}
-    />
-  );
+    : !followable
+      ? participant.name
+      : following
+        ? `${participant.name} · click to stop following`
+        : `${participant.name} · click to follow`;
+  const trigger =
+    local || !followable ? (
+      <span
+        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full"
+        aria-label={label}
+      />
+    ) : (
+      <Button
+        type="button"
+        variant={following ? "secondary" : "ghost"}
+        size="icon-sm"
+        className="shrink-0 rounded-full p-0"
+        aria-label={label}
+        aria-pressed={following}
+        onClick={() => collaboration.follow(following ? null : participant.clientId)}
+      />
+    );
 
   return (
     <Tooltip>
