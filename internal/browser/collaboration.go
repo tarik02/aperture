@@ -153,7 +153,7 @@ type collaborationServerMessage struct {
 
 func newCollaborationHub(runtime *wrapperRuntime) (*collaborationHub, error) {
 	var input collaborationInput
-	if !runtime.values.CompositorEnabled {
+	if !multiTargetCompositorEnabled(runtime.values) {
 		input = newCollaborationCDPInput(runtime.values.CDPPort)
 	} else {
 		compositorInput, err := newCollaborationCompositorInput(runtime)
