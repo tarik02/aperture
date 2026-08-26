@@ -349,20 +349,9 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 	}
 	hub.mu.Lock()
 	now := time.Now()
-	switch message.Phase {
-	case "start":
-		client.activePaintStroke = message.StrokeID
-	case "move":
-		if client.activePaintStroke != message.StrokeID {
-			hub.mu.Unlock()
-			return nil
-		}
-	case "end":
-		if client.activePaintStroke != message.StrokeID {
-			hub.mu.Unlock()
-			return nil
-		}
-		client.activePaintStroke = ""
+	if message.Phase != "start" && client.activePaintStroke != message.StrokeID {
+		hub.mu.Unlock()
+		return nil
 	}
 	if client.paintTokensAt.IsZero() {
 		client.paintTokens = collaborationPaintBurst
@@ -378,6 +367,12 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 		return nil
 	}
 	client.paintTokens--
+	switch message.Phase {
+	case "start":
+		client.activePaintStroke = message.StrokeID
+	case "end":
+		client.activePaintStroke = ""
+	}
 	hub.mu.Unlock()
 	hub.broadcastPaint(collaborationServerMessage{
 		Version:  1,
