@@ -34,13 +34,14 @@ type collaborationHub struct {
 	controller *remoteinput.Controller
 	sender     *compositorInputSender
 
-	mu        sync.Mutex
-	clients   map[string]*collaborationClient
-	holder    *collaborationClient
-	leaseMode collaborationLeaseMode
-	lastSeen  time.Time
-	nextOwner uint64
-	closed    bool
+	mu         sync.Mutex
+	presenceMu sync.Mutex
+	clients    map[string]*collaborationClient
+	holder     *collaborationClient
+	leaseMode  collaborationLeaseMode
+	lastSeen   time.Time
+	nextOwner  uint64
+	closed     bool
 }
 
 type collaborationClient struct {
@@ -493,6 +494,9 @@ func (hub *collaborationHub) broadcastLeaseState() {
 }
 
 func (hub *collaborationHub) broadcastPresence() {
+	hub.presenceMu.Lock()
+	defer hub.presenceMu.Unlock()
+
 	hub.mu.Lock()
 	participants := make([]collaborationParticipant, 0, len(hub.clients))
 	for _, client := range hub.clients {
