@@ -473,6 +473,7 @@ class WebSocketSessionTransport implements SessionTransport {
     if (this.socket.readyState !== WebSocket.OPEN) {
       return false;
     }
+    this.pendingRealtime.delete(message.type);
     this.pendingRealtime.set(message.type, message);
     if (this.realtimeFrame === null) {
       this.realtimeFrame = window.requestAnimationFrame(() => {
@@ -526,6 +527,7 @@ class WebRTCSessionTransport implements SessionTransport {
   private helloSent = false;
   private snapshotReceived = false;
   private stream: MediaStream | null = null;
+  private streamReady = false;
   private closed = false;
 
   constructor(options: {
@@ -570,6 +572,7 @@ class WebRTCSessionTransport implements SessionTransport {
         if (!this.stream) {
           return;
         }
+        this.streamReady = true;
         this.maybeReady();
       };
       if (event.track.muted) {
@@ -706,7 +709,7 @@ class WebRTCSessionTransport implements SessionTransport {
   }
 
   private maybeReady() {
-    if (this.snapshotReceived && this.stream) {
+    if (this.snapshotReceived && this.stream && this.streamReady) {
       this.callbacks.ready(this);
     }
   }
