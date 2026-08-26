@@ -415,6 +415,7 @@ func (hub *collaborationHub) broadcastPaint(message collaborationServerMessage) 
 }
 
 func (hub *collaborationHub) updateActiveTarget(client *collaborationClient, targetID string) error {
+	targetID = strings.TrimSpace(targetID)
 	if len(targetID) > 128 {
 		return errors.New("active target is invalid")
 	}
