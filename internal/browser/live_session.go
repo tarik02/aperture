@@ -539,6 +539,9 @@ func (session *liveSession) updateActiveTarget(client *liveSessionClient, target
 	if err := session.applyActiveTargetChanges(changes, targetID); err != nil {
 		return err
 	}
+	session.mu.Lock()
+	client.followingClientID = ""
+	session.mu.Unlock()
 	session.broadcastTargets()
 	session.broadcastPresence()
 	return nil
