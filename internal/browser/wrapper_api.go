@@ -35,20 +35,21 @@ type compositorViewport struct {
 }
 
 type wrapperRuntime struct {
-	values           RuntimeEnvValues
-	controlSocket    string
-	ctx              context.Context
-	mu               sync.Mutex
-	uploadMu         sync.Mutex
-	compositorPID    int
-	recordings       map[string]*wrapperRecording
-	recordingClients map[string]*wrapperRecordingClient
-	mediaProducer    *producer
-	targets          *wrapperTargetRegistry
-	viewers          map[*wrapperViewer]struct{}
-	activeRequests   int
-	cdpConnections   int
-	collaboration    *collaborationHub
+	values                   RuntimeEnvValues
+	controlSocket            string
+	ctx                      context.Context
+	mu                       sync.Mutex
+	uploadMu                 sync.Mutex
+	compositorPID            int
+	recordings               map[string]*wrapperRecording
+	recordingClients         map[string]*wrapperRecordingClient
+	mediaProducer            *producer
+	targets                  *wrapperTargetRegistry
+	viewers                  map[*wrapperViewer]struct{}
+	activeRequests           int
+	cdpConnections           int
+	restrictedCDPConnections int
+	collaboration            *collaborationHub
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
