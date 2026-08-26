@@ -944,14 +944,14 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	for {
 		select {
 		case err := <-browserDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.liveSession.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(compositor, compositorDone)
 			stopProcess(wirePlumber, wirePlumberDone)
 			stopProcess(pipeWire, pipeWireDone)
 			return err
 		case err := <-compositorDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.liveSession.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(wirePlumber, wirePlumberDone)
@@ -961,7 +961,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("compositor exited before browser")
 		case err := <-wirePlumberDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.liveSession.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -971,7 +971,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("session WirePlumber exited before browser")
 		case err := <-pipeWireDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.liveSession.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -981,7 +981,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("session PipeWire exited before browser")
 		case err := <-wrapperDone:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.liveSession.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)
@@ -992,7 +992,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 			}
 			return fmt.Errorf("wrapper api exited")
 		case <-signals:
-			wrapper.stopAllRecordings("session_closed")
+			wrapper.liveSession.stopAllRecordings("session_closed")
 			stopMediaProducer(mediaProducer)
 			stopBrowserProcess(values.CDPPort, browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)

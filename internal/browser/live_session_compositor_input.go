@@ -7,7 +7,7 @@ import (
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
-type collaborationCompositorInput struct {
+type liveSessionCompositorInput struct {
 	runtime    *wrapperRuntime
 	controller *remoteinput.Controller
 	sender     *compositorInputSender
@@ -19,7 +19,7 @@ type collaborationCompositorInput struct {
 	textKeys   map[uint32]struct{}
 }
 
-func newCollaborationCompositorInput(runtime *wrapperRuntime) (*collaborationCompositorInput, error) {
+func newLiveSessionCompositorInput(runtime *wrapperRuntime) (*liveSessionCompositorInput, error) {
 	controller, err := remoteinput.New(remoteinput.Config{
 		Enabled:   true,
 		Locking:   true,
@@ -35,7 +35,7 @@ func newCollaborationCompositorInput(runtime *wrapperRuntime) (*collaborationCom
 		_ = controller.Close()
 		return nil, err
 	}
-	return &collaborationCompositorInput{
+	return &liveSessionCompositorInput{
 		runtime:    runtime,
 		controller: controller,
 		sender:     sender,
@@ -43,7 +43,7 @@ func newCollaborationCompositorInput(runtime *wrapperRuntime) (*collaborationCom
 	}, nil
 }
 
-func (input *collaborationCompositorInput) bind(ownerID uint64, targetID string, onRevoke func()) error {
+func (input *liveSessionCompositorInput) bind(ownerID uint64, targetID string, onRevoke func()) error {
 	target, ok := input.readyTarget(targetID)
 	if !ok {
 		return remoteinput.ErrNotReady
@@ -74,7 +74,7 @@ func (input *collaborationCompositorInput) bind(ownerID uint64, targetID string,
 	return nil
 }
 
-func (input *collaborationCompositorInput) submit(ownerID uint64, message collaborationClientMessage) error {
+func (input *liveSessionCompositorInput) submit(ownerID uint64, message collaborationClientMessage) error {
 	event := remoteinput.Event{Sequence: message.Sequence}
 	switch message.Type {
 	case "input.pointer.motion.absolute":
@@ -116,7 +116,7 @@ func (input *collaborationCompositorInput) submit(ownerID uint64, message collab
 	return input.controller.Submit(ownerID, event)
 }
 
-func (input *collaborationCompositorInput) hasTarget(targetID string) (bool, error) {
+func (input *liveSessionCompositorInput) hasTarget(targetID string) (bool, error) {
 	input.runtime.mu.Lock()
 	registry := input.runtime.targets
 	input.runtime.mu.Unlock()
@@ -126,17 +126,17 @@ func (input *collaborationCompositorInput) hasTarget(targetID string) (bool, err
 	return registry.hasLiveTarget(targetID), nil
 }
 
-func (input *collaborationCompositorInput) release(ownerID uint64) error {
+func (input *liveSessionCompositorInput) release(ownerID uint64) error {
 	err := input.controller.Release(ownerID)
 	clear(input.textKeys)
 	return err
 }
 
-func (input *collaborationCompositorInput) close() error {
+func (input *liveSessionCompositorInput) close() error {
 	return input.controller.Close()
 }
 
-func (input *collaborationCompositorInput) readyTarget(targetID string) (wrapperTargetSnapshot, bool) {
+func (input *liveSessionCompositorInput) readyTarget(targetID string) (wrapperTargetSnapshot, bool) {
 	input.runtime.mu.Lock()
 	registry := input.runtime.targets
 	input.runtime.mu.Unlock()

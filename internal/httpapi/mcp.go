@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -31,6 +33,8 @@ type mcpAuth struct {
 }
 
 type mcpContextKey struct{}
+
+var errAutomationInputBusy = errors.New("browser input is already controlled")
 
 func withMCPAuth(ctx context.Context, value mcpAuth) context.Context {
 	return context.WithValue(ctx, mcpContextKey{}, value)
@@ -679,12 +683,72 @@ func (s *Server) agentBrowserToolHandler(a mcpAuth, name string, pathBound bool)
 			return nil, mcpToolError("session_unavailable", err)
 		}
 		defer release()
+		releaseLease, err := acquireAutomationLease(ctx, port, view.SessionToken, automationActorName(a))
+		if err != nil {
+			code := "session_unavailable"
+			if errors.Is(err, errAutomationInputBusy) {
+				code = "input_busy"
+			}
+			return nil, mcpToolError(code, err)
+		}
+		defer releaseLease()
 		result, err := s.agentBrowser.Call(ctx, sessionID, fmt.Sprintf("http://127.0.0.1:%d", port), name, arguments)
 		if err != nil {
 			return nil, mcpToolError("agent_browser_error", err)
 		}
 		return result, nil
 	}
+}
+
+func automationActorName(value mcpAuth) string {
+	if value.principal != nil {
+		if name := strings.TrimSpace(value.principal.Name); name != "" {
+			return name
+		}
+	}
+	return "Session automation"
+}
+
+func acquireAutomationLease(ctx context.Context, port int, sessionToken string, name string) (func(), error) {
+	body, err := json.Marshal(automationLeaseRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	leaseCtx, cancel := context.WithCancel(ctx)
+	request, err := http.NewRequestWithContext(
+		leaseCtx,
+		http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d/automation/lease", port),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+sessionToken)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("acquire browser input: %w", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		defer func() { _ = response.Body.Close() }()
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		cancel()
+		if response.StatusCode == http.StatusConflict {
+			return nil, errAutomationInputBusy
+		}
+		return nil, fmt.Errorf("acquire browser input: status %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
+	}
+	return func() {
+		cancel()
+		_ = response.Body.Close()
+	}, nil
+}
+
+type automationLeaseRequest struct {
+	Name string `json:"name"`
 }
 
 func (s *Server) resolveProxySession(ctx context.Context, a mcpAuth, sessionID string) (*session.SessionView, error) {

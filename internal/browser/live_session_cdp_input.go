@@ -15,9 +15,9 @@ import (
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
-const collaborationCDPInputTimeout = 5 * time.Second
+const liveSessionCDPInputTimeout = 5 * time.Second
 
-type collaborationCDPInput struct {
+type liveSessionCDPInput struct {
 	port        int
 	connection  *websocket.Conn
 	nextID      int64
@@ -29,14 +29,14 @@ type collaborationCDPInput struct {
 	pressedKeys map[string]collaborationClientMessage
 }
 
-func newCollaborationCDPInput(port int) *collaborationCDPInput {
-	return &collaborationCDPInput{
+func newLiveSessionCDPInput(port int) *liveSessionCDPInput {
+	return &liveSessionCDPInput{
 		port:        port,
 		pressedKeys: make(map[string]collaborationClientMessage),
 	}
 }
 
-func (input *collaborationCDPInput) bind(_ uint64, targetID string, _ func()) error {
+func (input *liveSessionCDPInput) bind(_ uint64, targetID string, _ func()) error {
 	targetID = strings.TrimSpace(targetID)
 	if targetID == "" {
 		return remoteinput.ErrNotReady
@@ -82,7 +82,7 @@ func (input *collaborationCDPInput) bind(_ uint64, targetID string, _ func()) er
 	return nil
 }
 
-func (input *collaborationCDPInput) hasTarget(targetID string) (bool, error) {
+func (input *liveSessionCDPInput) hasTarget(targetID string) (bool, error) {
 	targetID = strings.TrimSpace(targetID)
 	if targetID == "" {
 		return false, nil
@@ -105,7 +105,7 @@ func (input *collaborationCDPInput) hasTarget(targetID string) (bool, error) {
 	return false, nil
 }
 
-func (input *collaborationCDPInput) submit(_ uint64, message collaborationClientMessage) (err error) {
+func (input *liveSessionCDPInput) submit(_ uint64, message collaborationClientMessage) (err error) {
 	defer func() {
 		if err != nil {
 			input.closeConnection()
@@ -130,7 +130,7 @@ func (input *collaborationCDPInput) submit(_ uint64, message collaborationClient
 			"modifiers": message.Modifiers,
 		}, input.sessionID, nil)
 	case "input.pointer.button":
-		button, mask, ok := collaborationCDPMouseButton(message.ButtonCode)
+		button, mask, ok := liveSessionCDPMouseButton(message.ButtonCode)
 		if !ok {
 			return errors.New("pointer button is invalid")
 		}
@@ -174,7 +174,7 @@ func (input *collaborationCDPInput) submit(_ uint64, message collaborationClient
 		if err := input.dispatchKey(message); err != nil {
 			return err
 		}
-		keyID := collaborationCDPKeyID(message)
+		keyID := liveSessionCDPKeyID(message)
 		if keyID != "" {
 			if message.Pressed {
 				input.pressedKeys[keyID] = message
@@ -190,7 +190,7 @@ func (input *collaborationCDPInput) submit(_ uint64, message collaborationClient
 	}
 }
 
-func (input *collaborationCDPInput) dispatchKey(message collaborationClientMessage) error {
+func (input *liveSessionCDPInput) dispatchKey(message collaborationClientMessage) error {
 	eventType := "rawKeyDown"
 	if !message.Pressed {
 		eventType = "keyUp"
@@ -223,7 +223,7 @@ func (input *collaborationCDPInput) dispatchKey(message collaborationClientMessa
 	return input.call("Input.dispatchKeyEvent", params, input.sessionID, nil)
 }
 
-func (input *collaborationCDPInput) release(_ uint64) error {
+func (input *liveSessionCDPInput) release(_ uint64) error {
 	if input.connection == nil || input.sessionID == "" {
 		clear(input.pressedKeys)
 		input.buttons = 0
@@ -268,16 +268,16 @@ func (input *collaborationCDPInput) release(_ uint64) error {
 	return nil
 }
 
-func (input *collaborationCDPInput) close() error {
+func (input *liveSessionCDPInput) close() error {
 	input.closeConnection()
 	return nil
 }
 
-func (input *collaborationCDPInput) ensureConnection() error {
+func (input *liveSessionCDPInput) ensureConnection() error {
 	if input.connection != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), collaborationCDPInputTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort("127.0.0.1", strconv.Itoa(input.port))+"/json/version", nil)
 	if err != nil {
@@ -309,11 +309,11 @@ func (input *collaborationCDPInput) ensureConnection() error {
 	return nil
 }
 
-func (input *collaborationCDPInput) call(method string, params any, sessionID string, result any) error {
+func (input *liveSessionCDPInput) call(method string, params any, sessionID string, result any) error {
 	if input.connection == nil {
 		return errors.New("CDP input connection is unavailable")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), collaborationCDPInputTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
 	input.nextID++
 	request := map[string]any{"id": input.nextID, "method": method, "params": params}
@@ -353,7 +353,7 @@ func (input *collaborationCDPInput) call(method string, params any, sessionID st
 	}
 }
 
-func (input *collaborationCDPInput) closeConnection() {
+func (input *liveSessionCDPInput) closeConnection() {
 	if input.connection != nil {
 		_ = input.connection.CloseNow()
 	}
@@ -366,7 +366,7 @@ func (input *collaborationCDPInput) closeConnection() {
 	clear(input.pressedKeys)
 }
 
-func collaborationCDPKeyID(message collaborationClientMessage) string {
+func liveSessionCDPKeyID(message collaborationClientMessage) string {
 	if message.Code != "" {
 		return "code:" + message.Code
 	}
@@ -379,7 +379,7 @@ func collaborationCDPKeyID(message collaborationClientMessage) string {
 	return ""
 }
 
-func collaborationCDPMouseButton(code uint32) (string, int, bool) {
+func liveSessionCDPMouseButton(code uint32) (string, int, bool) {
 	switch code {
 	case 272:
 		return "left", 1, true
