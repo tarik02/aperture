@@ -213,6 +213,7 @@ export function useBrowserControl({
               iceServers: nextIceServers,
               viewport: viewportRef.current,
               viewportUpdatesEnabled: collaborationRole !== "viewer",
+              targetActivationEnabled: collaborationRole !== "viewer",
               input$: message$,
               viewport$,
               streamSettings$,

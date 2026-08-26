@@ -34,6 +34,7 @@ export type BrowserControlConnectionOptions = {
   sessionId: string;
   credentials: ApiCredentials;
   sessionToken?: string;
+  targetActivationEnabled: boolean;
   input$: Observable<ClientMessage>;
 };
 
@@ -391,14 +392,18 @@ export function browserControlConnection$(
 ): Observable<ControlConnectionEvent> {
   return new Observable<ControlConnectionEvent>((subscriber) => {
     const connection = new BrowserControlConnectionRuntime({
-      onPhaseChange: (phase) => subscriber.next({ type: "phase", phase }),
-      onTargetsSnapshot: (activeTargetId, targets) =>
-        subscriber.next({ type: "targets-snapshot", activeTargetId, targets }),
-      onTargetChanged: (change, target) =>
-        subscriber.next({ type: "target-changed", change, target }),
-      onScreencastFrame: (frame) => subscriber.next({ type: "screencast-frame", frame }),
-      onScreencastStopped: (targetId) => subscriber.next({ type: "screencast-stopped", targetId }),
-      onError: (error) => subscriber.next({ type: "error", error }),
+      callbacks: {
+        onPhaseChange: (phase) => subscriber.next({ type: "phase", phase }),
+        onTargetsSnapshot: (activeTargetId, targets) =>
+          subscriber.next({ type: "targets-snapshot", activeTargetId, targets }),
+        onTargetChanged: (change, target) =>
+          subscriber.next({ type: "target-changed", change, target }),
+        onScreencastFrame: (frame) => subscriber.next({ type: "screencast-frame", frame }),
+        onScreencastStopped: (targetId) =>
+          subscriber.next({ type: "screencast-stopped", targetId }),
+        onError: (error) => subscriber.next({ type: "error", error }),
+      },
+      targetActivationEnabled: options.targetActivationEnabled,
     });
     const inputSubscription = options.input$.subscribe({
       next: (message) => connection.send(message),
@@ -416,6 +421,7 @@ export function browserControlConnection$(
 
 class BrowserControlConnectionRuntime {
   private callbacks: ControlConnectionCallbacks;
+  private targetActivationEnabled: boolean;
   private closed = false;
   private sessionId: string | null = null;
   private credentials: ApiCredentials | null = null;
@@ -434,8 +440,15 @@ class BrowserControlConnectionRuntime {
   private connectRetrySubscription = new Subscription();
   private delayedRefreshes = new Subscription();
 
-  constructor(callbacks: ControlConnectionCallbacks) {
+  constructor({
+    callbacks,
+    targetActivationEnabled,
+  }: {
+    callbacks: ControlConnectionCallbacks;
+    targetActivationEnabled: boolean;
+  }) {
     this.callbacks = callbacks;
+    this.targetActivationEnabled = targetActivationEnabled;
   }
 
   connect(sessionId: string, credentials: ApiCredentials, sessionToken?: string) {
@@ -962,7 +975,9 @@ class BrowserControlConnectionRuntime {
 
     try {
       await this.stopScreencast();
-      await this.browserSocket().call("Target.activateTarget", { targetId: resolvedTargetId });
+      if (this.targetActivationEnabled) {
+        await this.browserSocket().call("Target.activateTarget", { targetId: resolvedTargetId });
+      }
       const sessionId = await this.attachTarget(resolvedTargetId);
       this.pageTargetId = resolvedTargetId;
       this.pageSessionId = sessionId;
@@ -981,9 +996,11 @@ class BrowserControlConnectionRuntime {
 
       try {
         await this.browserSocket().call("Page.enable", undefined, sessionId);
-        await this.browserSocket()
-          .call("Page.bringToFront", undefined, sessionId)
-          .catch(() => undefined);
+        if (this.targetActivationEnabled) {
+          await this.browserSocket()
+            .call("Page.bringToFront", undefined, sessionId)
+            .catch(() => undefined);
+        }
         await this.browserSocket().call("Page.startScreencast", params, sessionId);
       } catch (error) {
         if (this.pageSessionId === sessionId) {

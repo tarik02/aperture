@@ -69,6 +69,7 @@ type ConnectOptions = {
   iceServers: RTCIceServer[];
   viewport: ViewportPreset;
   viewportUpdatesEnabled: boolean;
+  targetActivationEnabled: boolean;
 };
 
 type BrowserControlOptions = ConnectOptions & {
@@ -147,6 +148,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
           sessionId: options.sessionId,
           credentials: options.credentials,
           sessionToken: options.sessionToken,
+          targetActivationEnabled: options.targetActivationEnabled,
           input$: cdpInput$,
         }),
       ),
