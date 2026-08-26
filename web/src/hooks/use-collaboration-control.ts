@@ -216,10 +216,12 @@ export function useCollaborationControl({
   const followingClientIdRef = useRef<string | null>(null);
   const participantsRef = useRef<CollaborationParticipant[]>([]);
   const lastCursorSentAtRef = useRef(0);
+  const cursorVisibleRef = useRef(false);
 
   holderClientIdRef.current = holderClientId;
 
   useEffect(() => {
+    cursorVisibleRef.current = false;
     if (!enabled || !sessionId || !credentials) {
       socketRef.current?.close();
       socketRef.current = null;
@@ -394,6 +396,7 @@ export function useCollaborationControl({
         setCursors(new Map());
         paintEventSubject.next({ type: "clear" });
         followingClientIdRef.current = null;
+        cursorVisibleRef.current = false;
         if (!disposed) {
           setPhase("disconnected");
           reconnectTimer = window.setTimeout(connect, reconnectDelayMs);
@@ -464,7 +467,13 @@ export function useCollaborationControl({
     return true;
   }, [clientId, send]);
   const setActiveTarget = useCallback(
-    (targetId: string | null) => send({ type: "presence.active-target", targetId: targetId ?? "" }),
+    (targetId: string | null) => {
+      const sent = send({ type: "presence.active-target", targetId: targetId ?? "" });
+      if (sent) {
+        cursorVisibleRef.current = false;
+      }
+      return sent;
+    },
     [send],
   );
   const follow = useCallback(
@@ -479,12 +488,16 @@ export function useCollaborationControl({
         return false;
       }
       lastCursorSentAtRef.current = now;
-      return send({
+      const sent = send({
         type: "presence.cursor",
         targetId,
         x: normalizedCoordinate(x, dimensions.width),
         y: normalizedCoordinate(y, dimensions.height),
       });
+      if (sent) {
+        cursorVisibleRef.current = true;
+      }
+      return sent;
     },
     [send],
   );
@@ -492,7 +505,13 @@ export function useCollaborationControl({
     (point: CollaborationPaintPoint) => send({ type: "paint.point", ...point }),
     [send],
   );
-  const clearCursor = useCallback(() => send({ type: "presence.cursor.clear" }), [send]);
+  const clearCursor = useCallback(() => {
+    if (!cursorVisibleRef.current || !send({ type: "presence.cursor.clear" })) {
+      return false;
+    }
+    cursorVisibleRef.current = false;
+    return true;
+  }, [send]);
 
   const sendInputEvent = useCallback(
     (targetId: string, message: Record<string, unknown>) => {

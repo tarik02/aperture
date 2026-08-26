@@ -101,7 +101,7 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 	}
 
 	role := "owner"
-	if c.Param("access") == "read" {
+	if c.Param("access") == "read" && !auth.HasScope(principal.Scopes, auth.ScopeSessionsWrite) {
 		role = "viewer"
 	}
 	writeLiveSessionForwardAuthSuccess(c, "account", role)
