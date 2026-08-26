@@ -652,12 +652,12 @@ export function useBrowserControl({
   }, [controlState, reorderTargets]);
 
   useEffect(() => {
-    if (enabled && sessionId && credentials) {
+    if (enabled && sessionId && credentials && collaborationRole === "owner") {
       return;
     }
     setRecordings([]);
     setRecordingBusy(false);
-  }, [enabled, sessionId, credentials]);
+  }, [enabled, sessionId, credentials, collaborationRole]);
 
   useEffect(() => {
     setRemoteCursorEnabledState(true);
@@ -687,7 +687,7 @@ export function useBrowserControl({
   }, [enabled, sessionId, credentials, sessionToken]);
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || !sessionId || !credentials || collaborationRole !== "owner") {
       setRecordingClientConnected(false);
       recordingClientIdRef.current = null;
       return;
@@ -759,7 +759,7 @@ export function useBrowserControl({
       setRecordingClientConnected(false);
       socket?.close();
     };
-  }, [enabled, sessionId, credentials, sessionToken, recordingTenantId]);
+  }, [enabled, sessionId, credentials, sessionToken, recordingTenantId, collaborationRole]);
 
   useEffect(() => {
     const socket = recordingClientSocketRef.current;
@@ -770,7 +770,7 @@ export function useBrowserControl({
   }, [activeTargetId, controlState.mediaTargetId]);
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || !sessionId || !credentials || collaborationRole !== "owner") {
       return;
     }
     let active = true;
@@ -788,14 +788,20 @@ export function useBrowserControl({
     return () => {
       active = false;
     };
-  }, [enabled, sessionId, credentials, sessionToken]);
+  }, [enabled, sessionId, credentials, sessionToken, collaborationRole]);
 
   const recordingPollingActive = recordings.some(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials || !recordingPollingActive) {
+    if (
+      !enabled ||
+      !sessionId ||
+      !credentials ||
+      collaborationRole !== "owner" ||
+      !recordingPollingActive
+    ) {
       return;
     }
     let active = true;
@@ -813,7 +819,7 @@ export function useBrowserControl({
       active = false;
       subscription.unsubscribe();
     };
-  }, [enabled, sessionId, credentials, sessionToken, recordingPollingActive]);
+  }, [enabled, sessionId, credentials, sessionToken, collaborationRole, recordingPollingActive]);
 
   useEffect(() => {
     if (
