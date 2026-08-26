@@ -142,6 +142,7 @@ export function SessionWorkbench({
         </Empty>
       ) : selectedSession ? (
         <BrowserControlPane
+          key={selectedSession.id}
           control={control}
           guestMode={guestMode}
           collaborationRole={collaborationRole}
