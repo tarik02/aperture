@@ -35,6 +35,7 @@ type collaborationHub struct {
 	sender     *compositorInputSender
 
 	mu         sync.Mutex
+	inputMu    sync.Mutex
 	presenceMu sync.Mutex
 	clients    map[string]*collaborationClient
 	holder     *collaborationClient
@@ -42,6 +43,11 @@ type collaborationHub struct {
 	lastSeen   time.Time
 	nextOwner  uint64
 	closed     bool
+
+	inputSurfaceID  uint64
+	inputGeneration uint64
+	inputWidth      int
+	inputHeight     int
 }
 
 type collaborationClient struct {
@@ -359,9 +365,17 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 	if !ok {
 		return remoteinput.ErrNotReady
 	}
+	hub.inputMu.Lock()
+	defer hub.inputMu.Unlock()
 	hub.mu.Lock()
 	if hub.holder == client {
-		hub.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
+		if err := hub.bindInputTargetLocked(client, target); err != nil {
+			hub.holder = nil
+			hub.leaseMode = ""
+			hub.mu.Unlock()
+			hub.broadcastLeaseState()
+			return err
+		}
 		if hub.leaseMode != collaborationLeaseExplicit {
 			hub.leaseMode = mode
 		}
@@ -382,12 +396,9 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 		hub.leaseMode = ""
 		_ = hub.controller.Release(previous.ownerID)
 	}
-	hub.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
-	_, err := hub.controller.Acquire(client.ownerID, func(uint64, error) {
-		hub.revoke(client)
-	})
-	if err != nil {
+	if err := hub.bindInputTargetLocked(client, target); err != nil {
 		hub.mu.Unlock()
+		hub.broadcastLeaseState()
 		return err
 	}
 	hub.holder = client
@@ -437,6 +448,8 @@ func (hub *collaborationHub) submit(client *collaborationClient, message collabo
 	if !ok {
 		return remoteinput.ErrNotReady
 	}
+	hub.inputMu.Lock()
+	defer hub.inputMu.Unlock()
 	hub.mu.Lock()
 	if hub.holder != client {
 		hub.mu.Unlock()
@@ -446,12 +459,45 @@ func (hub *collaborationHub) submit(client *collaborationClient, message collabo
 		hub.mu.Unlock()
 		return errors.New("input sequence must increase")
 	}
+	if err := hub.bindInputTargetLocked(client, target); err != nil {
+		hub.holder = nil
+		hub.leaseMode = ""
+		hub.mu.Unlock()
+		hub.broadcastLeaseState()
+		return err
+	}
 	client.sequence = message.Sequence
 	hub.lastSeen = time.Now()
-	hub.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
 	hub.mu.Unlock()
 	event.Sequence = message.Sequence
 	return hub.controller.Submit(client.ownerID, event)
+}
+
+func (hub *collaborationHub) bindInputTargetLocked(client *collaborationClient, target wrapperTargetSnapshot) error {
+	targetUnchanged := hub.inputSurfaceID == target.SurfaceID &&
+		hub.inputGeneration == target.Generation &&
+		hub.inputWidth == target.Viewport.Width &&
+		hub.inputHeight == target.Viewport.Height
+	ownsInput := hub.controller.Owns(client.ownerID)
+	if targetUnchanged && ownsInput {
+		return nil
+	}
+	if ownsInput {
+		if err := hub.controller.Release(client.ownerID); err != nil {
+			return err
+		}
+	}
+	hub.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
+	if _, err := hub.controller.Acquire(client.ownerID, func(uint64, error) {
+		hub.revoke(client)
+	}); err != nil {
+		return err
+	}
+	hub.inputSurfaceID = target.SurfaceID
+	hub.inputGeneration = target.Generation
+	hub.inputWidth = target.Viewport.Width
+	hub.inputHeight = target.Viewport.Height
+	return nil
 }
 
 func (hub *collaborationHub) readyTarget(targetID string) (wrapperTargetSnapshot, bool) {
