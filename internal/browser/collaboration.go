@@ -81,6 +81,7 @@ type collaborationClient struct {
 	paintTokensAt             time.Time
 	activePaintStroke         string
 	activePaintTarget         string
+	capabilityRole            string
 	sessionTokenAuthenticated bool
 }
 
@@ -208,7 +209,15 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 		_ = socket.Close(websocket.StatusPolicyViolation, "valid hello required")
 		return
 	}
-	client, err := hub.addClient(hello.ClientID, role, name, hello.AvatarHash, sessionTokenAuthenticated(req), socket)
+	client, err := hub.addClient(
+		hello.ClientID,
+		role,
+		name,
+		hello.AvatarHash,
+		collaborationCapabilityRole(req),
+		sessionTokenAuthenticated(req),
+		socket,
+	)
 	if err != nil {
 		_ = socket.Close(websocket.StatusTryAgainLater, err.Error())
 		return
@@ -263,7 +272,7 @@ func readCollaborationMessage(ctx context.Context, socket *websocket.Conn, targe
 	return nil
 }
 
-func (hub *collaborationHub) addClient(id, role, name, avatarHash string, sessionTokenAuthenticated bool, socket *websocket.Conn) (*collaborationClient, error) {
+func (hub *collaborationHub) addClient(id, role, name, avatarHash, capabilityRole string, sessionTokenAuthenticated bool, socket *websocket.Conn) (*collaborationClient, error) {
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
 	if hub.closed {
@@ -288,6 +297,7 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash string, sessio
 		paintUpdates:              make(chan collaborationServerMessage, collaborationPaintQueueSize),
 		name:                      name,
 		avatarHash:                avatarHash,
+		capabilityRole:            capabilityRole,
 		sessionTokenAuthenticated: sessionTokenAuthenticated,
 	}
 	hub.clients[id] = client
@@ -918,6 +928,20 @@ func (hub *collaborationHub) disconnectSessionTokenClients() {
 	clients := make([]*collaborationClient, 0)
 	for _, client := range hub.clients {
 		if client.sessionTokenAuthenticated {
+			clients = append(clients, client)
+		}
+	}
+	hub.mu.Unlock()
+	for _, client := range clients {
+		_ = client.socket.CloseNow()
+	}
+}
+
+func (hub *collaborationHub) disconnectCapabilityRoleClients(role string) {
+	hub.mu.Lock()
+	clients := make([]*collaborationClient, 0)
+	for _, client := range hub.clients {
+		if client.capabilityRole == role {
 			clients = append(clients, client)
 		}
 	}

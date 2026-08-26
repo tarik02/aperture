@@ -49,6 +49,7 @@ type wrapperRuntime struct {
 	activeRequests           int
 	cdpConnections           int
 	restrictedCDPConnections int
+	restrictedCDPClients     map[*restrictedCDPClient]struct{}
 	collaboration            *collaborationHub
 }
 
@@ -116,6 +117,7 @@ func (r *wrapperRuntime) targetUnavailable(target wrapperTargetSnapshot) {
 type wrapperViewer struct {
 	cancel                    context.CancelFunc
 	role                      string
+	capabilityRole            string
 	sessionTokenAuthenticated bool
 }
 
@@ -130,12 +132,13 @@ type WrapperActivityStatus struct {
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
 	return &wrapperRuntime{
-		values:           values,
-		controlSocket:    controlSocket,
-		ctx:              context.Background(),
-		viewers:          make(map[*wrapperViewer]struct{}),
-		recordings:       make(map[string]*wrapperRecording),
-		recordingClients: make(map[string]*wrapperRecordingClient),
+		values:               values,
+		controlSocket:        controlSocket,
+		ctx:                  context.Background(),
+		viewers:              make(map[*wrapperViewer]struct{}),
+		recordings:           make(map[string]*wrapperRecording),
+		recordingClients:     make(map[string]*wrapperRecordingClient),
+		restrictedCDPClients: make(map[*restrictedCDPClient]struct{}),
 	}
 }
 
@@ -210,6 +213,44 @@ func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 	}
 }
 
+func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string) {
+	r.mu.Lock()
+	viewers := make([]*wrapperViewer, 0)
+	for viewer := range r.viewers {
+		if viewer.capabilityRole == role {
+			viewers = append(viewers, viewer)
+		}
+	}
+	cdpClients := make([]*restrictedCDPClient, 0)
+	for client := range r.restrictedCDPClients {
+		if client.role == role {
+			cdpClients = append(cdpClients, client)
+		}
+	}
+	collaboration := r.collaboration
+	r.mu.Unlock()
+	for _, viewer := range viewers {
+		viewer.cancel()
+	}
+	for _, client := range cdpClients {
+		client.cancel()
+	}
+	if collaboration != nil {
+		collaboration.disconnectCapabilityRoleClients(role)
+	}
+}
+
+func collaborationCapabilityRole(req *http.Request) string {
+	if strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) != "session_capability" {
+		return ""
+	}
+	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	if role == "editor" || role == "viewer" {
+		return role
+	}
+	return ""
+}
+
 func sessionTokenAuthenticated(req *http.Request) bool {
 	return strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) == "session_capability" &&
 		strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")) == "owner"
@@ -245,6 +286,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/devtools/", r.handleCDPProxy)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
 	mux.HandleFunc("/collaboration", collaboration.serveHTTP)
+	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/cursor", r.handleCursor)
@@ -297,6 +339,20 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 
 func (r *wrapperRuntime) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": r.values.SessionID, "gpuMode": r.values.GPUMode, "mediaCodec": r.values.MediaProducerCodec})
+}
+
+func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	role := strings.TrimSpace(req.URL.Query().Get("role"))
+	if role != "editor" && role != "viewer" {
+		writeWrapperError(w, http.StatusBadRequest, "invalid collaboration role")
+		return
+	}
+	r.disconnectCollaborationCapabilityConsumers(role)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) {
@@ -535,6 +591,7 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	viewer := &wrapperViewer{
 		cancel:                    cancel,
 		role:                      role,
+		capabilityRole:            collaborationCapabilityRole(req),
 		sessionTokenAuthenticated: sessionTokenAuthenticated(req),
 	}
 	if !r.claimViewer(viewer) {
