@@ -114,6 +114,7 @@ func (r *wrapperRuntime) targetUnavailable(target wrapperTargetSnapshot) {
 
 type wrapperViewer struct {
 	cancel context.CancelFunc
+	role   string
 }
 
 // WrapperActivityStatus reports live work that must inhibit idle suspension.
@@ -156,10 +157,22 @@ func (r *wrapperRuntime) currentMediaProducer() *producer {
 	return r.mediaProducer
 }
 
-func (r *wrapperRuntime) claimViewer(viewer *wrapperViewer) {
+func (r *wrapperRuntime) claimViewer(viewer *wrapperViewer) bool {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if viewer.role != "owner" {
+		nonOwnerViewers := 0
+		for current := range r.viewers {
+			if current.role != "owner" {
+				nonOwnerViewers++
+			}
+		}
+		if nonOwnerViewers >= mediaMaximumNonOwnerPeers {
+			return false
+		}
+	}
 	r.viewers[viewer] = struct{}{}
-	r.mu.Unlock()
+	return true
 }
 
 func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
@@ -508,10 +521,14 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	}
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
-	viewer := &wrapperViewer{cancel: cancel}
-	r.claimViewer(viewer)
+	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	viewer := &wrapperViewer{cancel: cancel, role: role}
+	if !r.claimViewer(viewer) {
+		writeWrapperError(w, http.StatusServiceUnavailable, "shared WebRTC connection limit reached")
+		return
+	}
 	defer r.releaseViewer(viewer)
-	mediaProducer.Handler().ServeHTTP(w, req.WithContext(ctx))
+	mediaProducer.Handler(role == "owner" || role == "editor").ServeHTTP(w, req.WithContext(ctx))
 }
 
 func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {

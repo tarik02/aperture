@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	mediaQualityOption = "aperture"
-	signalingProtocol  = "aperture-webrtc.v1"
+	mediaQualityOption        = "aperture"
+	signalingProtocol         = "aperture-webrtc.v1"
+	mediaMaximumPeers         = 8
+	mediaMaximumNonOwnerPeers = mediaMaximumPeers - 1
 )
 
 type producer struct {
@@ -142,7 +144,7 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		UDPPortMin:          uint16(values.MediaProducerUDPPortMin),
 		UDPPortMax:          uint16(values.MediaProducerUDPPortMax),
 		Subprotocols:        []string{signalingProtocol},
-		MaxPeers:            8,
+		MaxPeers:            mediaMaximumPeers,
 		ReplaceExistingPeer: false,
 		AllowedOrigins:      []string{"*"},
 	}, mediaSource, nil, nil, nil, logger.Named("webrtc"))
@@ -241,8 +243,8 @@ func (p *producer) run(ctx context.Context) {
 	p.media.Close()
 }
 
-func (p *producer) Handler() http.Handler {
-	return p.webrtc.Handler()
+func (p *producer) Handler(allowQualityUpdates bool) http.Handler {
+	return p.webrtc.Handler(rtc.PeerOptions{AllowQualityUpdates: allowQualityUpdates})
 }
 
 func (p *producer) Close() error {
