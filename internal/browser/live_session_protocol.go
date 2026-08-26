@@ -2,6 +2,7 @@ package browser
 
 import (
 	"errors"
+	"math"
 	"strings"
 )
 
@@ -106,6 +107,7 @@ func isLiveSessionCommand(messageType string) bool {
 		"page.reload",
 		"page.stop-loading",
 		"viewport.set",
+		"presentation.quality.set",
 		"recording.start",
 		"recording.stop",
 		"recording.cancel":
@@ -184,6 +186,38 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			int(message.Height),
 			message.DeviceScaleFactor,
 		)
+	case "presentation.quality.set":
+		if err := requireBrowserMutation(client); err != nil {
+			return liveSessionServerMessage{}, err
+		}
+		if message.Width < 1 || message.Width > 16384 || message.Width != math.Trunc(message.Width) {
+			return liveSessionServerMessage{}, errors.New("presentation width must be an integer between 1 and 16384")
+		}
+		if message.Height < 1 || message.Height > 16384 || message.Height != math.Trunc(message.Height) {
+			return liveSessionServerMessage{}, errors.New("presentation height must be an integer between 1 and 16384")
+		}
+		if message.FPS < 1 || message.FPS > 120 {
+			return liveSessionServerMessage{}, errors.New("video framerate must be between 1 and 120")
+		}
+		if message.BitrateKbps < 100 {
+			return liveSessionServerMessage{}, errors.New("video bitrate must be at least 100 Kbit/s")
+		}
+		mediaProducer := session.runtime.currentMediaProducer()
+		if mediaProducer == nil {
+			return liveSessionServerMessage{}, errors.New("WebRTC presentation is unavailable")
+		}
+		presentation, err := mediaProducer.updatePresentationQuality(
+			strings.TrimSpace(message.Profile),
+			int(message.Width),
+			int(message.Height),
+			message.FPS,
+			message.BitrateKbps,
+		)
+		if err != nil {
+			return liveSessionServerMessage{}, err
+		}
+		session.broadcastPresentation(presentation)
+		return liveSessionServerMessage{Presentation: &presentation}, nil
 	case "recording.start":
 		if client.role != "owner" {
 			return liveSessionServerMessage{}, errors.New("recording requires the owner role")
@@ -335,6 +369,23 @@ func (session *liveSession) broadcastRecordings() {
 		Version:    1,
 		Type:       "recordings.state",
 		Recordings: session.listRecordings(),
+	}
+	for _, client := range clients {
+		client.queueStateUpdate(message)
+	}
+}
+
+func (session *liveSession) broadcastPresentation(presentation liveSessionPresentation) {
+	session.mu.Lock()
+	clients := make([]*liveSessionClient, 0, len(session.clients))
+	for _, client := range session.clients {
+		clients = append(clients, client)
+	}
+	session.mu.Unlock()
+	message := liveSessionServerMessage{
+		Version:      1,
+		Type:         "presentation.state",
+		Presentation: &presentation,
 	}
 	for _, client := range clients {
 		client.queueStateUpdate(message)

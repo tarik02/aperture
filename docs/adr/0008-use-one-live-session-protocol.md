@@ -24,7 +24,9 @@ WebRTC peer capacity does not reduce the session-client limit. A client uses Web
 
 While WebSocket fallback is active, the client retries WebRTC in the background with capped backoff. A prepared WebRTC connection does not become the active session transport until its video is ready and it has received the handover snapshot; it then replaces WebSocket through the same atomic handover.
 
-Transport selection is automatic. The workbench reports WebRTC, WebSocket, and recovering states and may restart connection setup, but it does not expose a CDP fallback action or a persistent transport selector.
+Transport selection is automatic by default. The workbench also lets each session client choose WebRTC or WebSocket raster delivery without changing the protocol or restoring frontend CDP. Choosing WebSocket suppresses WebRTC upgrade retries until that client chooses WebRTC again. A failed explicit WebRTC switch keeps the active WebSocket transport.
+
+The compositor media producer exposes its available WebRTC encoder profiles and current frame rate and bitrate through live-session presentation state. Encoder profile and quality are shared because all WebRTC clients use the same producer; owners and editors may change them, while viewers may only choose their client-local delivery transport. A profile change moves the requesting client to WebSocket before updating the producer, then negotiates a fresh WebRTC transport. Other incompatible WebRTC clients fall back and reconnect through the normal transport-recovery path.
 
 The protocol does not expose a headful or headless execution mode. Sessions backed by CDP screencast or future headless execution differ here only by not offering WebRTC and therefore always using WebSocket. Modeling other headless behavior is outside this decision.
 

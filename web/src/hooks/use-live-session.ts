@@ -16,6 +16,8 @@ import {
   type CollaborationParticipant,
   type CollaborationPhase,
   type CollaborationRole,
+  type LiveSessionPresentation,
+  type LiveSessionPresentationQuality,
   type LiveSessionServerMessage,
 } from "#/lib/control/live-session-protocol.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
@@ -45,6 +47,11 @@ export type LiveSessionMediaSize = {
   canvasWidth: number;
   canvasHeight: number;
 };
+
+export type LiveSessionMediaSelection =
+  | { kind: "jpeg" }
+  | { kind: "webrtc"; quality: LiveSessionPresentationQuality }
+  | { kind: "webrtc-retry" };
 
 export type CollaborationControl = {
   phase: CollaborationPhase;
@@ -87,6 +94,7 @@ export type LiveSessionControl = {
   mediaStream: MediaStream | null;
   mediaSize: LiveSessionMediaSize | null;
   transport: "webrtc" | "websocket" | null;
+  presentation: LiveSessionPresentation | null;
   mediaSwitching: boolean;
   recordings: Recording[];
   collaboration: CollaborationControl;
@@ -97,6 +105,7 @@ export type LiveSessionControl = {
     type: string,
     payload?: Record<string, unknown>,
   ) => ReturnType<LiveSessionConnection["command"]>;
+  selectPresentation: (selection: LiveSessionMediaSelection) => Promise<void>;
   reconnect: () => void;
 };
 
@@ -134,6 +143,10 @@ export function useLiveSession({
   const lastCursorSentAtRef = useRef(0);
   const participantsRef = useRef<CollaborationParticipant[]>([]);
   const followingClientIdRef = useRef<string | null>(null);
+  const mediaSizeRef = useRef<LiveSessionMediaSize | null>(null);
+  const transportRef = useRef<LiveSessionControl["transport"]>(null);
+  const presentationRef = useRef<LiveSessionPresentation | null>(null);
+  const presentationSelectionRef = useRef<Promise<void> | null>(null);
 
   const [phase, setPhase] = useState<LiveSessionControl["phase"]>("idle");
   const [targets, setTargets] = useState<ControlTarget[]>([]);
@@ -141,7 +154,9 @@ export function useLiveSession({
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [mediaSize, setMediaSize] = useState<LiveSessionMediaSize | null>(null);
   const [transport, setTransport] = useState<LiveSessionControl["transport"]>(null);
-  const [mediaSwitching, setMediaSwitching] = useState(false);
+  const [targetSwitching, setTargetSwitching] = useState(false);
+  const [presentationSwitching, setPresentationSwitching] = useState(false);
+  const [presentation, setPresentation] = useState<LiveSessionPresentation | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [clientId, setClientId] = useState("");
   const [holderClientId, setHolderClientId] = useState<string | null>(null);
@@ -149,6 +164,10 @@ export function useLiveSession({
   const [participants, setParticipants] = useState<CollaborationParticipant[]>([]);
   const [cursors, setCursors] = useState<ReadonlyMap<string, CollaborationCursor>>(() => new Map());
   const [lastError, setLastError] = useState<CollaborationError | null>(null);
+
+  mediaSizeRef.current = mediaSize;
+  transportRef.current = transport;
+  presentationRef.current = presentation;
 
   const handleMessage = useCallback(
     (message: LiveSessionServerMessage) => {
@@ -177,6 +196,7 @@ export function useLiveSession({
           setActiveTargetId(message.activeTargetId ?? null);
           setMediaSize(resolveMediaSize(message.targets, message.activeTargetId));
           setRecordings(message.recordings);
+          setPresentation(message.presentation ?? null);
           setLastError(null);
           return;
         case "targets.state":
@@ -192,7 +212,7 @@ export function useLiveSession({
           );
           setActiveTargetId(message.activeTargetId ?? null);
           setMediaSize(resolveMediaSize(message.targets, message.activeTargetId));
-          setMediaSwitching(false);
+          setTargetSwitching(false);
           return;
         case "presence.state": {
           participantsRef.current = message.participants;
@@ -243,12 +263,18 @@ export function useLiveSession({
         case "recordings.state":
           setRecordings(message.recordings);
           return;
+        case "presentation.state":
+          setPresentation(message.presentation);
+          return;
         case "error":
           claimPendingRef.current = false;
           releasePendingRef.current = false;
           setLastError({ code: message.code, message: message.message });
           return;
         default:
+          if (message.presentation) {
+            setPresentation(message.presentation);
+          }
           if (!message.ok) {
             setLastError({
               code: message.code ?? "request_rejected",
@@ -270,6 +296,9 @@ export function useLiveSession({
       setMediaStream(null);
       setMediaSize(null);
       setTransport(null);
+      setPresentation(null);
+      setTargetSwitching(false);
+      setPresentationSwitching(false);
       setParticipants([]);
       setCursors(new Map());
       setRecordings([]);
@@ -331,7 +360,7 @@ export function useLiveSession({
       return false;
     }
     void connection.command(type, payload).catch((cause: unknown) => {
-      setMediaSwitching(false);
+      setTargetSwitching(false);
       setLastError({
         code: "request_rejected",
         message: cause instanceof Error ? cause.message : "Live session command failed.",
@@ -350,7 +379,7 @@ export function useLiveSession({
     if (!connection) {
       return false;
     }
-    setMediaSwitching(true);
+    setTargetSwitching(true);
     void connection
       .command("target.select", { targetId })
       .then(() => setActiveTargetId(targetId))
@@ -360,8 +389,79 @@ export function useLiveSession({
           message: cause instanceof Error ? cause.message : "Target selection failed.",
         });
       })
-      .finally(() => setMediaSwitching(false));
+      .finally(() => setTargetSwitching(false));
     return true;
+  }, []);
+
+  const selectPresentation = useCallback((selection: LiveSessionMediaSelection) => {
+    const connection = connectionRef.current;
+    if (!connection) {
+      return Promise.reject(new Error("live session transport is unavailable"));
+    }
+    if (presentationSelectionRef.current) {
+      return Promise.reject(new Error("another presentation update is already in progress"));
+    }
+    setPresentationSwitching(true);
+    const operation = (async () => {
+      let restoreWebRTC = false;
+      try {
+        switch (selection.kind) {
+          case "jpeg":
+            await connection.selectTransport("websocket");
+            return;
+          case "webrtc-retry":
+            await connection.selectTransport("webrtc");
+            return;
+          case "webrtc": {
+            const size = mediaSizeRef.current;
+            if (!size) {
+              throw new Error("presentation size is unavailable");
+            }
+            const profileChanged =
+              presentationRef.current?.quality.profile !== selection.quality.profile;
+            if (profileChanged && transportRef.current === "webrtc") {
+              await connection.selectTransport("websocket");
+              restoreWebRTC = true;
+            }
+            const result = await connection.command("presentation.quality.set", {
+              profile: selection.quality.profile,
+              width: size.canvasWidth,
+              height: size.canvasHeight,
+              fps: selection.quality.fps,
+              bitrateKbps: selection.quality.bitrateKbps,
+            });
+            restoreWebRTC = false;
+            if (result.presentation) {
+              setPresentation(result.presentation);
+            }
+            await connection.selectTransport("webrtc");
+            return;
+          }
+          default: {
+            const exhaustive: never = selection;
+            return exhaustive;
+          }
+        }
+      } catch (cause) {
+        if (restoreWebRTC) {
+          try {
+            await connection.selectTransport("webrtc");
+          } catch {
+            // Keep the quality update error as the reported failure.
+          }
+        }
+        const message = cause instanceof Error ? cause.message : "Presentation update failed.";
+        setLastError({ code: "presentation_update_failed", message });
+        throw cause;
+      }
+    })();
+    presentationSelectionRef.current = operation;
+    return operation.finally(() => {
+      if (presentationSelectionRef.current === operation) {
+        presentationSelectionRef.current = null;
+        setPresentationSwitching(false);
+      }
+    });
   }, []);
 
   const claim = useCallback(
@@ -601,12 +701,14 @@ export function useLiveSession({
     mediaStream,
     mediaSize,
     transport,
-    mediaSwitching,
+    presentation,
+    mediaSwitching: targetSwitching || presentationSwitching,
     recordings,
     sendBrowserInput,
     selectTarget,
     command,
     request,
+    selectPresentation,
     reconnect: () => connectionRef.current?.reconnect(),
     collaboration: {
       phase: phase === "error" ? "disconnected" : phase,

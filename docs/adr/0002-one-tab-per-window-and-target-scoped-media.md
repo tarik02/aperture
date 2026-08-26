@@ -102,7 +102,7 @@ Each managed window will receive an isolated virtual Weston output before it bec
 
 The compositor will place the target's top-level view and its related surface tree on the same output. This includes subsurfaces, `xdg_popup` menus, and transient dialogs associated with the top-level. Other Chromium windows, the compositor background, and unbound staging windows must not appear in that output.
 
-The requested viewport size and DPR are target properties. The media canvas is an immutable physical output that can contain several nearby viewport specifications. Stream encoding quality remains a consumer property and does not change the target's browser viewport.
+The requested viewport size and DPR are target properties. The media canvas is an immutable physical output that can contain several nearby viewport specifications. Stream encoding quality does not change the target's browser viewport. ADR 0008 makes the compositor encoder profile and quality shared live-session presentation state while keeping target selection and delivery transport client-local.
 
 The compositor control protocol will become target-aware. Surface lifecycle events, focus, viewport changes, and input routing will carry `surfaceId` internally. The wrapper translates public `targetId` commands through the registry.
 
