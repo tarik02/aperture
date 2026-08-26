@@ -21,10 +21,11 @@ const (
 )
 
 type wrapperRecordingClient struct {
-	id       string
-	targetID string
-	cancel   context.CancelFunc
-	mu       sync.Mutex
+	id                        string
+	targetID                  string
+	cancel                    context.CancelFunc
+	sessionTokenAuthenticated bool
+	mu                        sync.Mutex
 }
 
 type wrapperRecordingClientMessage struct {
@@ -55,7 +56,11 @@ func (r *wrapperRuntime) handleRecordingClient(w http.ResponseWriter, req *http.
 		return
 	}
 	ctx, cancel := context.WithCancel(r.ctx)
-	client := &wrapperRecordingClient{id: clientID, cancel: cancel}
+	client := &wrapperRecordingClient{
+		id:                        clientID,
+		cancel:                    cancel,
+		sessionTokenAuthenticated: sessionTokenAuthenticated(req),
+	}
 	if !r.claimRecordingClient(client) {
 		cancel()
 		_ = connection.Close(websocket.StatusPolicyViolation, "recording client is already connected")

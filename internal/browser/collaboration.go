@@ -55,20 +55,21 @@ type collaborationHub struct {
 }
 
 type collaborationClient struct {
-	hub               *collaborationHub
-	id                string
-	role              string
-	ownerID           uint64
-	socket            *websocket.Conn
-	writeMu           sync.Mutex
-	leaseUpdates      chan collaborationServerMessage
-	presenceUpdates   chan collaborationServerMessage
-	cursorUpdates     chan collaborationServerMessage
-	sequence          uint64
-	name              string
-	avatarHash        string
-	activeTargetID    string
-	followingClientID string
+	hub                       *collaborationHub
+	id                        string
+	role                      string
+	ownerID                   uint64
+	socket                    *websocket.Conn
+	writeMu                   sync.Mutex
+	leaseUpdates              chan collaborationServerMessage
+	presenceUpdates           chan collaborationServerMessage
+	cursorUpdates             chan collaborationServerMessage
+	sequence                  uint64
+	name                      string
+	avatarHash                string
+	activeTargetID            string
+	followingClientID         string
+	sessionTokenAuthenticated bool
 }
 
 type collaborationClientMessage struct {
@@ -188,7 +189,7 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 		_ = socket.Close(websocket.StatusPolicyViolation, "valid hello required")
 		return
 	}
-	client, err := hub.addClient(hello.ClientID, role, name, hello.AvatarHash, socket)
+	client, err := hub.addClient(hello.ClientID, role, name, hello.AvatarHash, sessionTokenAuthenticated(req), socket)
 	if err != nil {
 		_ = socket.Close(websocket.StatusTryAgainLater, err.Error())
 		return
@@ -242,7 +243,7 @@ func readCollaborationMessage(ctx context.Context, socket *websocket.Conn, targe
 	return nil
 }
 
-func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket *websocket.Conn) (*collaborationClient, error) {
+func (hub *collaborationHub) addClient(id, role, name, avatarHash string, sessionTokenAuthenticated bool, socket *websocket.Conn) (*collaborationClient, error) {
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
 	if hub.closed {
@@ -256,16 +257,17 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket
 	}
 	hub.nextOwner++
 	client := &collaborationClient{
-		hub:             hub,
-		id:              id,
-		role:            role,
-		ownerID:         hub.nextOwner,
-		socket:          socket,
-		leaseUpdates:    make(chan collaborationServerMessage, 1),
-		presenceUpdates: make(chan collaborationServerMessage, 1),
-		cursorUpdates:   make(chan collaborationServerMessage, 1),
-		name:            name,
-		avatarHash:      avatarHash,
+		hub:                       hub,
+		id:                        id,
+		role:                      role,
+		ownerID:                   hub.nextOwner,
+		socket:                    socket,
+		leaseUpdates:              make(chan collaborationServerMessage, 1),
+		presenceUpdates:           make(chan collaborationServerMessage, 1),
+		cursorUpdates:             make(chan collaborationServerMessage, 1),
+		name:                      name,
+		avatarHash:                avatarHash,
+		sessionTokenAuthenticated: sessionTokenAuthenticated,
 	}
 	hub.clients[id] = client
 	return client, nil
@@ -773,11 +775,11 @@ func (hub *collaborationHub) close() {
 	}
 }
 
-func (hub *collaborationHub) disconnectOwners() {
+func (hub *collaborationHub) disconnectSessionTokenClients() {
 	hub.mu.Lock()
 	clients := make([]*collaborationClient, 0)
 	for _, client := range hub.clients {
-		if client.role == "owner" {
+		if client.sessionTokenAuthenticated {
 			clients = append(clients, client)
 		}
 	}

@@ -114,8 +114,9 @@ func (r *wrapperRuntime) targetUnavailable(target wrapperTargetSnapshot) {
 }
 
 type wrapperViewer struct {
-	cancel context.CancelFunc
-	role   string
+	cancel                    context.CancelFunc
+	role                      string
+	sessionTokenAuthenticated bool
 }
 
 // WrapperActivityStatus reports live work that must inhibit idle suspension.
@@ -182,16 +183,19 @@ func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
 	delete(r.viewers, viewer)
 }
 
-func (r *wrapperRuntime) disconnectConsumers() {
+func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 	r.mu.Lock()
 	viewers := make([]*wrapperViewer, 0, len(r.viewers))
 	for viewer := range r.viewers {
-		viewers = append(viewers, viewer)
+		if viewer.sessionTokenAuthenticated {
+			viewers = append(viewers, viewer)
+		}
 	}
-	r.viewers = make(map[*wrapperViewer]struct{})
 	recordingClients := make([]*wrapperRecordingClient, 0, len(r.recordingClients))
 	for _, client := range r.recordingClients {
-		recordingClients = append(recordingClients, client)
+		if client.sessionTokenAuthenticated {
+			recordingClients = append(recordingClients, client)
+		}
 	}
 	collaboration := r.collaboration
 	r.mu.Unlock()
@@ -202,8 +206,13 @@ func (r *wrapperRuntime) disconnectConsumers() {
 		client.cancel()
 	}
 	if collaboration != nil {
-		collaboration.disconnectOwners()
+		collaboration.disconnectSessionTokenClients()
 	}
+}
+
+func sessionTokenAuthenticated(req *http.Request) bool {
+	return strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) == "session_capability" &&
+		strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")) == "owner"
 }
 
 func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error, error) {
@@ -523,7 +532,11 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
-	viewer := &wrapperViewer{cancel: cancel, role: role}
+	viewer := &wrapperViewer{
+		cancel:                    cancel,
+		role:                      role,
+		sessionTokenAuthenticated: sessionTokenAuthenticated(req),
+	}
 	if !r.claimViewer(viewer) {
 		writeWrapperError(w, http.StatusServiceUnavailable, "shared WebRTC connection limit reached")
 		return
