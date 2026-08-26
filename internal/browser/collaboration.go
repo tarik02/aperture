@@ -709,7 +709,7 @@ func (hub *collaborationHub) knownTarget(targetID string) bool {
 	hub.runtime.mu.Lock()
 	registry := hub.runtime.targets
 	hub.runtime.mu.Unlock()
-	return registry != nil && strings.TrimSpace(targetID) != "" && registry.hasTarget(targetID)
+	return registry != nil && strings.TrimSpace(targetID) != "" && registry.hasLiveTarget(targetID)
 }
 
 func (hub *collaborationHub) expireLease() {
