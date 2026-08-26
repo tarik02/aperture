@@ -35,19 +35,19 @@ type compositorViewport struct {
 }
 
 type wrapperRuntime struct {
-	values                       RuntimeEnvValues
-	controlSocket                string
-	ctx                          context.Context
-	mu                           sync.Mutex
-	uploadMu                     sync.Mutex
-	compositorPID                int
-	mediaProducer                *producer
-	targets                      *wrapperTargetRegistry
-	viewers                      map[*wrapperViewer]struct{}
-	revokedCapabilityGenerations map[string]map[string]struct{}
-	activeRequests               int
-	cdpConnections               int
-	liveSession                  *liveSession
+	values                   RuntimeEnvValues
+	controlSocket            string
+	ctx                      context.Context
+	mu                       sync.Mutex
+	uploadMu                 sync.Mutex
+	compositorPID            int
+	mediaProducer            *producer
+	targets                  *wrapperTargetRegistry
+	viewers                  map[*wrapperViewer]struct{}
+	revokedAccessGenerations map[string]map[string]struct{}
+	activeRequests           int
+	cdpConnections           int
+	liveSession              *liveSession
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -129,11 +129,11 @@ type WrapperActivityStatus struct {
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
 	return &wrapperRuntime{
-		values:                       values,
-		controlSocket:                controlSocket,
-		ctx:                          context.Background(),
-		viewers:                      make(map[*wrapperViewer]struct{}),
-		revokedCapabilityGenerations: make(map[string]map[string]struct{}),
+		values:                   values,
+		controlSocket:            controlSocket,
+		ctx:                      context.Background(),
+		viewers:                  make(map[*wrapperViewer]struct{}),
+		revokedAccessGenerations: make(map[string]map[string]struct{}),
 	}
 }
 
@@ -181,8 +181,9 @@ func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
 	delete(r.viewers, viewer)
 }
 
-func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
+func (r *wrapperRuntime) disconnectSessionTokenConsumers(generation string) {
 	r.mu.Lock()
+	r.revokeSessionAccessGenerationLocked("owner", generation)
 	viewers := make([]*wrapperViewer, 0, len(r.viewers))
 	for viewer := range r.viewers {
 		if viewer.sessionTokenAuthenticated {
@@ -201,12 +202,7 @@ func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 
 func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role, generation string) {
 	r.mu.Lock()
-	revoked := r.revokedCapabilityGenerations[role]
-	if revoked == nil {
-		revoked = make(map[string]struct{})
-		r.revokedCapabilityGenerations[role] = revoked
-	}
-	revoked[generation] = struct{}{}
+	r.revokeSessionAccessGenerationLocked(role, generation)
 	viewers := make([]*wrapperViewer, 0)
 	for viewer := range r.viewers {
 		if viewer.capabilityRole == role {
@@ -223,41 +219,58 @@ func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role, genera
 	}
 }
 
+func (r *wrapperRuntime) revokeSessionAccessGenerationLocked(role, generation string) {
+	revoked := r.revokedAccessGenerations[role]
+	if revoked == nil {
+		revoked = make(map[string]struct{})
+		r.revokedAccessGenerations[role] = revoked
+	}
+	revoked[generation] = struct{}{}
+}
+
 func (r *wrapperRuntime) restoreCollaborationCapabilityGeneration(role, generation string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	revoked := r.revokedCapabilityGenerations[role]
+	revoked := r.revokedAccessGenerations[role]
 	delete(revoked, generation)
 	if len(revoked) == 0 {
-		delete(r.revokedCapabilityGenerations, role)
+		delete(r.revokedAccessGenerations, role)
 	}
 }
 
-func collaborationCapabilityRole(req *http.Request) string {
+func sessionCapabilityRole(req *http.Request) string {
 	if strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) != "session_capability" {
 		return ""
 	}
 	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	if role == "owner" || role == "editor" || role == "viewer" {
+		return role
+	}
+	return ""
+}
+
+func collaborationCapabilityRole(req *http.Request) string {
+	role := sessionCapabilityRole(req)
 	if role == "editor" || role == "viewer" {
 		return role
 	}
 	return ""
 }
 
-func collaborationCapabilityGeneration(req *http.Request) string {
-	if collaborationCapabilityRole(req) == "" {
+func sessionCapabilityGeneration(req *http.Request) string {
+	if sessionCapabilityRole(req) == "" {
 		return ""
 	}
 	return strings.TrimSpace(req.Header.Get("X-Aperture-Capability-Generation"))
 }
 
-func (r *wrapperRuntime) collaborationCapabilityGenerationAllowed(role, generation string) bool {
+func (r *wrapperRuntime) sessionAccessGenerationAllowed(role, generation string) bool {
 	if role == "" {
 		return true
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	revoked := r.revokedCapabilityGenerations[role]
+	revoked := r.revokedAccessGenerations[role]
 	if len(revoked) == 0 {
 		return true
 	}
@@ -269,8 +282,7 @@ func (r *wrapperRuntime) collaborationCapabilityGenerationAllowed(role, generati
 }
 
 func sessionTokenAuthenticated(req *http.Request) bool {
-	return strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) == "session_capability" &&
-		strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")) == "owner"
+	return sessionCapabilityRole(req) == "owner"
 }
 
 func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error, error) {

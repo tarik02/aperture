@@ -107,7 +107,7 @@ func (s *Service) AuthenticateCollaborationCapability(ctx context.Context, route
 		SessionID:  tokenSessionID,
 		TenantID:   capability.TenantID,
 		Role:       role,
-		Generation: capability.TokenHash,
+		Generation: auth.CredentialFingerprint(rawToken),
 		Session:    sessionRow,
 	}, nil
 }
@@ -279,11 +279,12 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 	if current == nil {
 		return nil, ErrInvalidState
 	}
-	if err := disconnectCollaborationCapabilityConsumers(ctx, sessionRow, role, current.TokenHash); err != nil {
+	currentGeneration := auth.CredentialFingerprint(current.RawToken)
+	if err := disconnectCollaborationCapabilityConsumers(ctx, sessionRow, role, currentGeneration); err != nil {
 		return nil, err
 	}
 	if err := s.repo.ReplaceSessionCollaborationCapability(ctx, sessionID, string(role), hash, raw, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
-		restoreErr := restoreCollaborationCapabilityGeneration(context.WithoutCancel(ctx), sessionRow, role, current.TokenHash)
+		restoreErr := restoreCollaborationCapabilityGeneration(context.WithoutCancel(ctx), sessionRow, role, currentGeneration)
 		return nil, errors.Join(err, restoreErr)
 	}
 	switch role {

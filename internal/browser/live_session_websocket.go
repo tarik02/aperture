@@ -73,8 +73,10 @@ func (session *liveSession) serveSessionWebSocketHTTP(w http.ResponseWriter, req
 
 func (session *liveSession) attachWebSocketClient(req *http.Request, role string, hello liveSessionClientMessage, transport *liveSessionWebSocketTransport) (*liveSessionClient, error) {
 	capabilityRole := collaborationCapabilityRole(req)
-	if !session.runtime.collaborationCapabilityGenerationAllowed(capabilityRole, collaborationCapabilityGeneration(req)) {
-		return nil, errors.New("collaboration capability is stale")
+	generationRole := sessionCapabilityRole(req)
+	generation := sessionCapabilityGeneration(req)
+	if !session.runtime.sessionAccessGenerationAllowed(generationRole, generation) {
+		return nil, errors.New("session access capability is stale")
 	}
 	if hello.ClientID == "" && hello.ResumeSecret == "" {
 		name := strings.TrimSpace(hello.Name)
@@ -101,9 +103,9 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 			session.removeClient(client)
 			return nil, err
 		}
-		if !session.runtime.collaborationCapabilityGenerationAllowed(capabilityRole, collaborationCapabilityGeneration(req)) {
+		if !session.runtime.sessionAccessGenerationAllowed(generationRole, generation) {
 			session.removeClient(client)
-			return nil, errors.New("collaboration capability is stale")
+			return nil, errors.New("session access capability is stale")
 		}
 		return client, nil
 	}
@@ -126,9 +128,9 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 	if err := session.activateTransport(client, transport, previous); err != nil {
 		return nil, err
 	}
-	if !session.runtime.collaborationCapabilityGenerationAllowed(capabilityRole, collaborationCapabilityGeneration(req)) {
+	if !session.runtime.sessionAccessGenerationAllowed(generationRole, generation) {
 		session.removeClient(client)
-		return nil, errors.New("collaboration capability is stale")
+		return nil, errors.New("session access capability is stale")
 	}
 	return client, nil
 }

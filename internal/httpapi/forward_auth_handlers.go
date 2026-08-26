@@ -109,7 +109,7 @@ func (s *Server) authorizeLiveCapability(ctx context.Context, sessionID, authori
 		if err := s.Sessions.ValidateSessionTokenForwardAuth(ctx, sessionID, authorization); err != nil {
 			return "", "", err
 		}
-		return "owner", "", nil
+		return "owner", auth.CredentialFingerprint(raw), nil
 	}
 	authorized, err := s.Sessions.WakeCollaborationSession(ctx, sessionID, authorization)
 	if err != nil {

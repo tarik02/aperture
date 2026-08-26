@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aperture/aperture/internal/auth"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -59,8 +60,9 @@ func (r *wrapperRuntime) watchSessionToken(ctx context.Context) error {
 				}
 				nextToken := strings.TrimSpace(string(body))
 				if nextToken != "" && nextToken != currentToken {
+					previousGeneration := auth.CredentialFingerprint(currentToken)
 					currentToken = nextToken
-					r.disconnectSessionTokenConsumers()
+					r.disconnectSessionTokenConsumers(previousGeneration)
 				}
 			}
 		}

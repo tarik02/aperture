@@ -18,6 +18,7 @@ type liveSessionWebRTCPeerMetadata struct {
 	session                   *liveSession
 	role                      string
 	capabilityRole            string
+	capabilityGenerationRole  string
 	capabilityGeneration      string
 	sessionTokenAuthenticated bool
 	cancel                    context.CancelFunc
@@ -148,8 +149,8 @@ func (handler *liveSessionWebRTCApplicationHandler) transport(peer rtc.PeerInfo)
 
 func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTransport, hello liveSessionClientMessage) (*liveSessionClient, error) {
 	metadata := transport.metadata
-	if !session.runtime.collaborationCapabilityGenerationAllowed(metadata.capabilityRole, metadata.capabilityGeneration) {
-		return nil, errors.New("collaboration capability is stale")
+	if !session.runtime.sessionAccessGenerationAllowed(metadata.capabilityGenerationRole, metadata.capabilityGeneration) {
+		return nil, errors.New("session access capability is stale")
 	}
 	if hello.ClientID == "" && hello.ResumeSecret == "" {
 		name := strings.TrimSpace(hello.Name)
@@ -182,9 +183,9 @@ func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTrans
 			session.removeClient(client)
 			return nil, err
 		}
-		if !session.runtime.collaborationCapabilityGenerationAllowed(metadata.capabilityRole, metadata.capabilityGeneration) {
+		if !session.runtime.sessionAccessGenerationAllowed(metadata.capabilityGenerationRole, metadata.capabilityGeneration) {
 			session.removeClient(client)
-			return nil, errors.New("collaboration capability is stale")
+			return nil, errors.New("session access capability is stale")
 		}
 		return client, nil
 	}
@@ -210,9 +211,9 @@ func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTrans
 		transport.mu.Unlock()
 		return nil, err
 	}
-	if !session.runtime.collaborationCapabilityGenerationAllowed(metadata.capabilityRole, metadata.capabilityGeneration) {
+	if !session.runtime.sessionAccessGenerationAllowed(metadata.capabilityGenerationRole, metadata.capabilityGeneration) {
 		session.removeClient(client)
-		return nil, errors.New("collaboration capability is stale")
+		return nil, errors.New("session access capability is stale")
 	}
 	return client, nil
 }
@@ -246,7 +247,8 @@ func newLiveSessionWebRTCPeerMetadata(session *liveSession, service *rtc.Service
 		session:                   session,
 		role:                      strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")),
 		capabilityRole:            collaborationCapabilityRole(req),
-		capabilityGeneration:      collaborationCapabilityGeneration(req),
+		capabilityGenerationRole:  sessionCapabilityRole(req),
+		capabilityGeneration:      sessionCapabilityGeneration(req),
 		sessionTokenAuthenticated: sessionTokenAuthenticated(req),
 		cancel:                    cancel,
 		service:                   service,
