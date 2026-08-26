@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -18,6 +19,7 @@ type liveSessionRaster struct {
 	client    *liveSessionCDP
 	targetID  string
 	sessionID string
+	selection chan error
 	closed    bool
 }
 
@@ -41,11 +43,12 @@ func newLiveSessionRaster(session *liveSession, transport *liveSessionWebSocketT
 
 func (raster *liveSessionRaster) selectTarget(targetID string) error {
 	raster.mu.Lock()
-	defer raster.mu.Unlock()
 	if raster.closed {
+		raster.mu.Unlock()
 		return errors.New("WebSocket presentation is closed")
 	}
 	if raster.targetID == targetID && raster.sessionID != "" {
+		raster.mu.Unlock()
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(raster.session.runtime.ctx, liveSessionBrowserCommandTimeout)
@@ -53,12 +56,14 @@ func (raster *liveSessionRaster) selectTarget(targetID string) error {
 	if raster.client == nil {
 		client, err := connectLiveSessionCDP(ctx, raster.session.runtime.values.CDPPort)
 		if err != nil {
+			raster.mu.Unlock()
 			return err
 		}
 		raster.client = client
 		go raster.forward(client)
 	}
 	if err := raster.stopLocked(ctx); err != nil {
+		raster.mu.Unlock()
 		return err
 	}
 	var attached struct {
@@ -68,15 +73,20 @@ func (raster *liveSessionRaster) selectTarget(targetID string) error {
 		"targetId": targetID,
 		"flatten":  true,
 	}, "", &attached); err != nil {
+		raster.mu.Unlock()
 		return err
 	}
 	if attached.SessionID == "" {
+		raster.mu.Unlock()
 		return errors.New("browser omitted the raster target attachment ID")
 	}
 	raster.targetID = targetID
 	raster.sessionID = attached.SessionID
+	selection := make(chan error, 1)
+	raster.selection = selection
 	if err := raster.client.call(ctx, "Page.enable", map[string]any{}, attached.SessionID, nil); err != nil {
 		_ = raster.stopLocked(ctx)
+		raster.mu.Unlock()
 		return err
 	}
 	if err := raster.client.call(ctx, "Page.startScreencast", map[string]any{
@@ -84,9 +94,26 @@ func (raster *liveSessionRaster) selectTarget(targetID string) error {
 		"quality": 80,
 	}, attached.SessionID, nil); err != nil {
 		_ = raster.stopLocked(ctx)
+		raster.mu.Unlock()
 		return err
 	}
-	return nil
+	raster.mu.Unlock()
+	select {
+	case err := <-selection:
+		return err
+	case <-ctx.Done():
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), time.Second)
+		defer cancelCleanup()
+		raster.mu.Lock()
+		if raster.selection != selection {
+			raster.mu.Unlock()
+			return <-selection
+		}
+		raster.completeSelectionLocked(ctx.Err())
+		_ = raster.stopLocked(cleanupCtx)
+		raster.mu.Unlock()
+		return fmt.Errorf("WebSocket presentation did not produce a frame: %w", ctx.Err())
+	}
 }
 
 func (raster *liveSessionRaster) forward(client *liveSessionCDP) {
@@ -95,6 +122,9 @@ func (raster *liveSessionRaster) forward(client *liveSessionCDP) {
 		case <-client.done:
 			raster.mu.Lock()
 			active := !raster.closed && raster.client == client
+			if active {
+				raster.completeSelectionLocked(errors.New("WebSocket presentation source closed"))
+			}
 			raster.mu.Unlock()
 			if active {
 				raster.transport.closeNow()
@@ -131,6 +161,7 @@ func (raster *liveSessionRaster) forwardFrame(client *liveSessionCDP, event live
 	}
 	targetID := raster.targetID
 	sessionID := raster.sessionID
+	selection := raster.selection
 	raster.mu.Unlock()
 	image, err := base64.StdEncoding.DecodeString(frame.Data)
 	if err != nil {
@@ -157,9 +188,19 @@ func (raster *liveSessionRaster) forwardFrame(client *liveSessionCDP, event live
 	copy(packet[4:], header)
 	copy(packet[4+len(header):], image)
 	if err := raster.transport.sendBinary(packet); err != nil {
+		raster.mu.Lock()
+		if raster.selection == selection {
+			raster.completeSelectionLocked(err)
+		}
+		raster.mu.Unlock()
 		raster.transport.closeNow()
 		return
 	}
+	raster.mu.Lock()
+	if raster.client == client && raster.sessionID == sessionID && raster.selection == selection {
+		raster.completeSelectionLocked(nil)
+	}
+	raster.mu.Unlock()
 	ctx, cancel := context.WithTimeout(raster.session.runtime.ctx, liveSessionBrowserCommandTimeout)
 	defer cancel()
 	_ = client.call(ctx, "Page.screencastFrameAck", map[string]any{"sessionId": frame.SessionID}, sessionID, nil)
@@ -182,6 +223,7 @@ func (raster *liveSessionRaster) close() {
 }
 
 func (raster *liveSessionRaster) stopLocked(ctx context.Context) error {
+	raster.completeSelectionLocked(errors.New("WebSocket presentation selection was replaced"))
 	if raster.client == nil || raster.sessionID == "" {
 		raster.targetID = ""
 		raster.sessionID = ""
@@ -193,4 +235,12 @@ func (raster *liveSessionRaster) stopLocked(ctx context.Context) error {
 	stopErr := raster.client.call(ctx, "Page.stopScreencast", map[string]any{}, sessionID, nil)
 	detachErr := raster.client.call(ctx, "Target.detachFromTarget", map[string]any{"sessionId": sessionID}, "", nil)
 	return errors.Join(stopErr, detachErr)
+}
+
+func (raster *liveSessionRaster) completeSelectionLocked(err error) {
+	if raster.selection == nil {
+		return
+	}
+	raster.selection <- err
+	raster.selection = nil
 }

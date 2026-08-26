@@ -112,7 +112,7 @@ export class LiveSessionConnection {
     this.disposed = false;
     this.options.callbacks.onPhase("connecting");
     if (this.options.webrtcSupported) {
-      this.startWebRTC(true);
+      this.startWebRTC();
     } else {
       this.startWebSocket();
     }
@@ -142,7 +142,7 @@ export class LiveSessionConnection {
     this.rejectPending("live session transport replaced");
     this.options.callbacks.onPhase("connecting");
     if (this.options.webrtcSupported) {
-      this.startWebRTC(true);
+      this.startWebRTC();
     } else {
       this.startWebSocket();
     }
@@ -197,7 +197,7 @@ export class LiveSessionConnection {
     };
   }
 
-  private startWebRTC(initial: boolean) {
+  private startWebRTC() {
     if (this.disposed || this.candidate) {
       return;
     }
@@ -213,7 +213,7 @@ export class LiveSessionConnection {
     } catch (cause) {
       const error = cause instanceof Error ? cause : new Error("WebRTC setup failed");
       this.options.callbacks.onError(error.message);
-      if (initial) {
+      if (this.active === null) {
         this.startWebSocket();
       } else {
         this.scheduleWebRTCRetry();
@@ -230,7 +230,7 @@ export class LiveSessionConnection {
       transport.close();
       this.candidate = null;
       this.candidateMessages = [];
-      if (initial && this.active === null) {
+      if (this.active === null) {
         this.startWebSocket();
       } else {
         this.scheduleWebRTCRetry();
@@ -378,7 +378,7 @@ export class LiveSessionConnection {
     this.webrtcRetryMs = Math.min(WEBRTC_RETRY_MAX_MS, this.webrtcRetryMs * 2);
     this.retryTimer = window.setTimeout(() => {
       this.retryTimer = null;
-      this.startWebRTC(false);
+      this.startWebRTC();
     }, delay);
   }
 

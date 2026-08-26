@@ -277,9 +277,6 @@ export function useBrowserControl({
     async (url: string) => {
       try {
         const result = await live.request("target.create", { url });
-        if (result.targetId) {
-          live.selectTarget(result.targetId);
-        }
         return result.targetId ?? null;
       } catch (cause: unknown) {
         toast.error(errorMessage(cause, "Tab could not be created"));

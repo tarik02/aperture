@@ -255,7 +255,7 @@ func (session *liveSession) run(ctx context.Context) {
 			hasClients := len(session.clients) > 0
 			session.mu.Unlock()
 			if hasClients {
-				session.broadcastTargets()
+				session.reconcileAndBroadcastTargets()
 			}
 		}
 	}
@@ -531,6 +531,17 @@ func (session *liveSession) updateActiveTarget(client *liveSessionClient, target
 	session.recordingMu.Lock()
 	defer session.recordingMu.Unlock()
 	session.mu.Lock()
+	changes := session.activeTargetChangesLocked(client)
+	session.mu.Unlock()
+	if err := session.applyActiveTargetChanges(changes, targetID); err != nil {
+		return err
+	}
+	session.broadcastTargets()
+	session.broadcastPresence()
+	return nil
+}
+
+func (session *liveSession) activeTargetChangesLocked(client *liveSessionClient) []liveSessionTargetChange {
 	changes := []liveSessionTargetChange{{client: client, previousTargetID: client.activeTargetID}}
 	for index := 0; index < len(changes); index++ {
 		followed := changes[index].client
@@ -543,13 +554,7 @@ func (session *liveSession) updateActiveTarget(client *liveSessionClient, target
 			}
 		}
 	}
-	session.mu.Unlock()
-	if err := session.applyActiveTargetChanges(changes, targetID); err != nil {
-		return err
-	}
-	session.broadcastTargets()
-	session.broadcastPresence()
-	return nil
+	return changes
 }
 
 type liveSessionTargetChange struct {
@@ -770,13 +775,10 @@ func (session *liveSession) setFollowing(client *liveSessionClient, followingCli
 		}
 	}
 	targetID := followed.activeTargetID
-	previousTargetID := client.activeTargetID
+	changes := session.activeTargetChangesLocked(client)
 	session.mu.Unlock()
 	if targetID != "" {
-		if err := session.applyActiveTargetChanges([]liveSessionTargetChange{{
-			client:           client,
-			previousTargetID: previousTargetID,
-		}}, targetID); err != nil {
+		if err := session.applyActiveTargetChanges(changes, targetID); err != nil {
 			return err
 		}
 	}

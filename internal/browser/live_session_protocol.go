@@ -122,7 +122,9 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		session.broadcastTargets()
+		if err := session.updateActiveTarget(client, targetID); err != nil {
+			return liveSessionServerMessage{}, err
+		}
 		return liveSessionServerMessage{TargetID: targetID}, nil
 	case "target.close":
 		if err := requireBrowserMutation(client); err != nil {
@@ -131,7 +133,7 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err := session.browser.closeTarget(message.TargetID); err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		session.broadcastTargets()
+		session.reconcileAndBroadcastTargets()
 		return liveSessionServerMessage{TargetID: message.TargetID}, nil
 	case "page.navigate":
 		if err := requireBrowserMutation(client); err != nil {
@@ -233,6 +235,10 @@ func (session *liveSession) broadcastTargets() {
 	if err != nil {
 		return
 	}
+	session.publishTargets(targets)
+}
+
+func (session *liveSession) publishTargets(targets []liveSessionTarget) {
 	session.mu.Lock()
 	type targetRecipient struct {
 		client         *liveSessionClient
@@ -251,6 +257,53 @@ func (session *liveSession) broadcastTargets() {
 			ActiveTargetID: recipient.activeTargetID,
 		})
 	}
+}
+
+func (session *liveSession) reconcileAndBroadcastTargets() {
+	targets, err := session.browser.targets()
+	if err != nil {
+		return
+	}
+	available := make(map[string]struct{}, len(targets))
+	replacementTargetID := ""
+	session.runtime.mu.Lock()
+	hasTargetRegistry := session.runtime.targets != nil
+	session.runtime.mu.Unlock()
+	for _, target := range targets {
+		available[target.ID] = struct{}{}
+		if replacementTargetID == "" && (!hasTargetRegistry || target.Viewport != nil) {
+			replacementTargetID = target.ID
+		}
+	}
+
+	session.recordingMu.Lock()
+	session.mu.Lock()
+	changes := make([]liveSessionTargetChange, 0)
+	for _, client := range session.clients {
+		_, activeTargetAvailable := available[client.activeTargetID]
+		if client.activeTargetID == "" || !activeTargetAvailable {
+			changes = append(changes, liveSessionTargetChange{
+				client:           client,
+				previousTargetID: client.activeTargetID,
+			})
+		}
+	}
+	session.mu.Unlock()
+	if len(changes) > 0 && replacementTargetID != "" {
+		err = session.applyActiveTargetChanges(changes, replacementTargetID)
+	}
+	if len(changes) > 0 && (replacementTargetID == "" || err != nil) {
+		session.mu.Lock()
+		for _, change := range changes {
+			change.client.activeTargetID = ""
+		}
+		session.mu.Unlock()
+	}
+	session.recordingMu.Unlock()
+	if len(changes) > 0 {
+		session.broadcastPresence()
+	}
+	session.publishTargets(targets)
 }
 
 func (session *liveSession) broadcastRecordings() {

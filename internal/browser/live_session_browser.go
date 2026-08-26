@@ -99,15 +99,70 @@ func (browser *liveSessionBrowser) createTarget(rawURL string) (string, error) {
 	if result.TargetID == "" {
 		return "", errors.New("browser omitted the created target ID")
 	}
+	if err := browser.waitUntilTargetReady(result.TargetID); err != nil {
+		return "", err
+	}
 	return result.TargetID, nil
 }
 
 func (browser *liveSessionBrowser) closeTarget(targetID string) error {
 	err := browser.call("Target.closeTarget", map[string]any{"targetId": targetID}, "", nil)
-	if err == nil {
-		browser.removeObservedTarget(targetID)
+	if err != nil {
+		return err
 	}
-	return err
+	browser.removeObservedTarget(targetID)
+	return browser.waitUntilTargetClosed(targetID)
+}
+
+func (browser *liveSessionBrowser) waitUntilTargetReady(targetID string) error {
+	browser.runtime.mu.Lock()
+	registry := browser.runtime.targets
+	browser.runtime.mu.Unlock()
+	if registry == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionBrowserCommandTimeout)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, ready := registry.readyTarget(targetID); ready {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("created browser target did not become ready")
+		case <-ticker.C:
+		}
+	}
+}
+
+func (browser *liveSessionBrowser) waitUntilTargetClosed(targetID string) error {
+	ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionBrowserCommandTimeout)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		targets, err := browser.targets()
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, target := range targets {
+			if target.ID == targetID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("browser target did not close")
+		case <-ticker.C:
+		}
+	}
 }
 
 func (browser *liveSessionBrowser) navigate(targetID, rawURL string) error {
