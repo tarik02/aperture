@@ -272,6 +272,7 @@ export function useLiveSession({
       setTransport(null);
       setParticipants([]);
       setCursors(new Map());
+      setRecordings([]);
       frameSubject.next(null);
       paintSubject.next({ type: "clear" });
       return;
