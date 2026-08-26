@@ -4,11 +4,13 @@ import type {
   CollaborationPaintPoint,
 } from "#/hooks/use-collaboration-control.ts";
 import { collaborationPaintLifetimeMs } from "#/hooks/use-collaboration-control.ts";
+import { cn } from "#/lib/utils.ts";
 
 type CollaborationPaintOverlayProps = {
   collaboration: CollaborationControl;
   targetId: string;
   enabled: boolean;
+  visible: boolean;
   left: number;
   top: number;
   width: number;
@@ -34,6 +36,7 @@ export function CollaborationPaintOverlay({
   collaboration,
   targetId,
   enabled,
+  visible,
   left,
   top,
   width,
@@ -212,6 +215,7 @@ export function CollaborationPaintOverlay({
     if (!event.isPrimary || event.button !== 0) {
       return;
     }
+    event.currentTarget.focus();
     activeStrokeIdRef.current = crypto.randomUUID();
     lastPointSentAtRef.current = performance.now();
     try {
@@ -257,7 +261,12 @@ export function CollaborationPaintOverlay({
   return (
     <canvas
       ref={canvasRef}
-      className={`absolute z-20 touch-none ${enabled ? "cursor-crosshair" : "pointer-events-none"}`}
+      tabIndex={-1}
+      className={cn(
+        "absolute z-20 touch-none",
+        enabled ? "cursor-crosshair" : "pointer-events-none",
+        !visible && "invisible",
+      )}
       style={{ left, top, width, height }}
       aria-label="Shared drawing overlay"
       onPointerDown={handlePointerDown}

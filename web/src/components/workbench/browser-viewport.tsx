@@ -935,16 +935,18 @@ export function BrowserViewport({
         <StatusBadge status={status} />
       </div>
       {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
-      {control.activeTargetId && (showingWebRTC || frameMetadata) ? (
+      {control.activeTargetId ? (
         <CollaborationPaintOverlay
           collaboration={control.collaboration}
           targetId={control.activeTargetId}
           enabled={
             paintingEnabled &&
+            (showingWebRTC || frameMetadata !== null) &&
             control.collaboration.phase === "connected" &&
             !control.mediaSwitching &&
             !mediaTransitioning
           }
+          visible={showingWebRTC || frameMetadata !== null}
           left={displayMetrics.offsetX}
           top={displayMetrics.offsetY}
           width={displayMetrics.renderedWidth}

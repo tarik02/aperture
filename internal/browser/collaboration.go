@@ -57,6 +57,7 @@ type collaborationClient struct {
 	activeTargetID    string
 	followingClientID string
 	lastPaintAt       time.Time
+	activePaintStroke string
 }
 
 type collaborationClientMessage struct {
@@ -316,9 +317,24 @@ func (hub *collaborationHub) paintPoint(client *collaborationClient, message col
 	}
 	hub.mu.Lock()
 	now := time.Now()
-	if message.Phase == "move" && now.Sub(client.lastPaintAt) < 20*time.Millisecond {
-		hub.mu.Unlock()
-		return nil
+	switch message.Phase {
+	case "start":
+		if now.Sub(client.lastPaintAt) < 20*time.Millisecond {
+			hub.mu.Unlock()
+			return nil
+		}
+		client.activePaintStroke = message.StrokeID
+	case "move":
+		if client.activePaintStroke != message.StrokeID || now.Sub(client.lastPaintAt) < 20*time.Millisecond {
+			hub.mu.Unlock()
+			return nil
+		}
+	case "end":
+		if client.activePaintStroke != message.StrokeID {
+			hub.mu.Unlock()
+			return nil
+		}
+		client.activePaintStroke = ""
 	}
 	client.lastPaintAt = now
 	hub.mu.Unlock()
