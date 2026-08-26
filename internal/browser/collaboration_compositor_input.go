@@ -16,6 +16,7 @@ type collaborationCompositorInput struct {
 	generation uint64
 	width      int
 	height     int
+	textKeys   map[uint32]struct{}
 }
 
 func newCollaborationCompositorInput(runtime *wrapperRuntime) (*collaborationCompositorInput, error) {
@@ -38,6 +39,7 @@ func newCollaborationCompositorInput(runtime *wrapperRuntime) (*collaborationCom
 		runtime:    runtime,
 		controller: controller,
 		sender:     sender,
+		textKeys:   make(map[uint32]struct{}),
 	}, nil
 }
 
@@ -55,7 +57,7 @@ func (input *collaborationCompositorInput) bind(ownerID uint64, targetID string,
 		return nil
 	}
 	if ownsInput {
-		if err := input.controller.Release(ownerID); err != nil {
+		if err := input.release(ownerID); err != nil {
 			return err
 		}
 	}
@@ -90,6 +92,18 @@ func (input *collaborationCompositorInput) submit(ownerID uint64, message collab
 		event.StopHorizontal = message.StopHorizontal
 		event.StopVertical = message.StopVertical
 	case "input.keyboard.key":
+		if message.Pressed && message.Text != "" {
+			input.textKeys[message.Keycode] = struct{}{}
+			event.Type = remoteinput.EventKeyboardText
+			event.Text = message.Text
+			break
+		}
+		if !message.Pressed {
+			if _, textKey := input.textKeys[message.Keycode]; textKey {
+				delete(input.textKeys, message.Keycode)
+				return nil
+			}
+		}
 		event.Type = remoteinput.EventKeyboardKey
 		event.Keycode = message.Keycode
 		event.Pressed = message.Pressed
@@ -113,7 +127,9 @@ func (input *collaborationCompositorInput) hasTarget(targetID string) (bool, err
 }
 
 func (input *collaborationCompositorInput) release(ownerID uint64) error {
-	return input.controller.Release(ownerID)
+	err := input.controller.Release(ownerID)
+	clear(input.textKeys)
+	return err
 }
 
 func (input *collaborationCompositorInput) close() error {
