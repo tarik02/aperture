@@ -290,6 +290,7 @@ export function BrowserViewport({
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         releasePressedKeys();
+        releaseImplicitControl();
       }
     };
 
