@@ -87,6 +87,7 @@ export type CollaborationControl = {
   follow: (clientId: string | null) => boolean;
   sendCursor: (targetId: string, x: number, y: number, dimensions: InputDimensions) => boolean;
   sendPaintPoint: (point: CollaborationPaintPoint) => boolean;
+  clearCursor: () => boolean;
   sendInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
 };
 
@@ -141,6 +142,13 @@ const collaborationServerMessageSchema = z.discriminatedUnion("type", [
       phase: z.enum(["start", "move", "end"]),
       x: z.number().min(0).max(1).optional().default(0),
       y: z.number().min(0).max(1).optional().default(0),
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal(1),
+      type: z.literal("presence.cursor.clear"),
+      clientId: z.string(),
     })
     .strict(),
   z
@@ -350,6 +358,16 @@ export function useCollaborationControl({
               },
             });
             return;
+          case "presence.cursor.clear":
+            setCursors((current) => {
+              if (!current.has(message.clientId)) {
+                return current;
+              }
+              const next = new Map(current);
+              next.delete(message.clientId);
+              return next;
+            });
+            return;
           case "error":
             claimPendingRef.current = false;
             releasePendingRef.current = false;
@@ -474,6 +492,7 @@ export function useCollaborationControl({
     (point: CollaborationPaintPoint) => send({ type: "paint.point", ...point }),
     [send],
   );
+  const clearCursor = useCallback(() => send({ type: "presence.cursor.clear" }), [send]);
 
   const sendInputEvent = useCallback(
     (targetId: string, message: Record<string, unknown>) => {
@@ -654,6 +673,7 @@ export function useCollaborationControl({
     follow,
     sendCursor,
     sendPaintPoint,
+    clearCursor,
     sendInput,
   };
 }

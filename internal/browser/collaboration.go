@@ -334,6 +334,9 @@ func (hub *collaborationHub) handleClientMessage(client *collaborationClient, me
 		return hub.updateActiveTarget(client, message.TargetID)
 	case "presence.cursor":
 		return hub.updateCursor(client, message.TargetID, message.X, message.Y)
+	case "presence.cursor.clear":
+		hub.clearCursor(client)
+		return nil
 	case "follow.set":
 		return hub.setFollowing(client, message.FollowingClientID)
 	case "paint.point":
@@ -450,6 +453,21 @@ func (hub *collaborationHub) updateCursor(client *collaborationClient, targetID 
 		follower.queueCursorUpdate(message)
 	}
 	return nil
+}
+
+func (hub *collaborationHub) clearCursor(client *collaborationClient) {
+	message := collaborationServerMessage{Version: 1, Type: "presence.cursor.clear", ClientID: client.id}
+	hub.mu.Lock()
+	followers := make([]*collaborationClient, 0)
+	for _, participant := range hub.clients {
+		if participant.followingClientID == client.id {
+			followers = append(followers, participant)
+		}
+	}
+	hub.mu.Unlock()
+	for _, follower := range followers {
+		follower.queueCursorUpdate(message)
+	}
 }
 
 func (client *collaborationClient) queuePresenceUpdate(message collaborationServerMessage) {
