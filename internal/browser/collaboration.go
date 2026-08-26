@@ -30,10 +30,16 @@ const (
 	collaborationLeaseExplicit collaborationLeaseMode = "explicit"
 )
 
+type collaborationInput interface {
+	bind(ownerID uint64, targetID string, onRevoke func()) error
+	hasTarget(targetID string) (bool, error)
+	submit(ownerID uint64, message collaborationClientMessage) error
+	release(ownerID uint64) error
+	close() error
+}
+
 type collaborationHub struct {
-	runtime    *wrapperRuntime
-	controller *remoteinput.Controller
-	sender     *compositorInputSender
+	input collaborationInput
 
 	mu             sync.Mutex
 	inputMu        sync.Mutex
@@ -45,11 +51,6 @@ type collaborationHub struct {
 	lastSeen       time.Time
 	nextOwner      uint64
 	closed         bool
-
-	inputSurfaceID  uint64
-	inputGeneration uint64
-	inputWidth      int
-	inputHeight     int
 }
 
 type collaborationClient struct {
@@ -70,25 +71,37 @@ type collaborationClient struct {
 }
 
 type collaborationClientMessage struct {
-	Version           int                    `json:"version"`
-	Type              string                 `json:"type"`
-	ClientID          string                 `json:"clientId"`
-	TargetID          string                 `json:"targetId"`
-	Mode              collaborationLeaseMode `json:"mode"`
-	Sequence          uint64                 `json:"sequence"`
-	X                 float64                `json:"x"`
-	Y                 float64                `json:"y"`
-	ButtonCode        uint32                 `json:"buttonCode"`
-	Keycode           uint32                 `json:"keycode"`
-	Text              string                 `json:"text"`
-	Pressed           bool                   `json:"pressed"`
-	Horizontal        float64                `json:"horizontal"`
-	Vertical          float64                `json:"vertical"`
-	StopHorizontal    bool                   `json:"stopHorizontal"`
-	StopVertical      bool                   `json:"stopVertical"`
-	Name              string                 `json:"name"`
-	AvatarHash        string                 `json:"avatarHash"`
-	FollowingClientID string                 `json:"followingClientId"`
+	Version               int                    `json:"version"`
+	Type                  string                 `json:"type"`
+	ClientID              string                 `json:"clientId"`
+	TargetID              string                 `json:"targetId"`
+	Mode                  collaborationLeaseMode `json:"mode"`
+	Sequence              uint64                 `json:"sequence"`
+	X                     float64                `json:"x"`
+	Y                     float64                `json:"y"`
+	ButtonCode            uint32                 `json:"buttonCode"`
+	Keycode               uint32                 `json:"keycode"`
+	Text                  string                 `json:"text"`
+	Key                   string                 `json:"key"`
+	Code                  string                 `json:"code"`
+	UnmodifiedText        string                 `json:"unmodifiedText"`
+	Pressed               bool                   `json:"pressed"`
+	Width                 float64                `json:"width"`
+	Height                float64                `json:"height"`
+	ClickCount            int                    `json:"clickCount"`
+	Modifiers             int                    `json:"modifiers"`
+	WindowsVirtualKeyCode int                    `json:"windowsVirtualKeyCode"`
+	NativeVirtualKeyCode  int                    `json:"nativeVirtualKeyCode"`
+	Location              int                    `json:"location"`
+	AutoRepeat            bool                   `json:"autoRepeat"`
+	IsKeypad              bool                   `json:"isKeypad"`
+	Horizontal            float64                `json:"horizontal"`
+	Vertical              float64                `json:"vertical"`
+	StopHorizontal        bool                   `json:"stopHorizontal"`
+	StopVertical          bool                   `json:"stopVertical"`
+	Name                  string                 `json:"name"`
+	AvatarHash            string                 `json:"avatarHash"`
+	FollowingClientID     string                 `json:"followingClientId"`
 }
 
 type collaborationParticipant struct {
@@ -118,26 +131,19 @@ type collaborationServerMessage struct {
 }
 
 func newCollaborationHub(runtime *wrapperRuntime) (*collaborationHub, error) {
-	controller, err := remoteinput.New(remoteinput.Config{
-		Enabled:   true,
-		Locking:   true,
-		Pointer:   true,
-		Keyboard:  true,
-		QueueSize: 256,
-	})
-	if err != nil {
-		return nil, err
-	}
-	sender := newCompositorInputSender(runtime.controlSocket, runtime.values.CompositorWidth, runtime.values.CompositorHeight)
-	if err := controller.Attach(remoteinput.Authorization{Pointer: true, Keyboard: true}, sender); err != nil {
-		_ = controller.Close()
-		return nil, err
+	var input collaborationInput
+	if !runtime.values.CompositorEnabled {
+		input = newCollaborationCDPInput(runtime.values.CDPPort)
+	} else {
+		compositorInput, err := newCollaborationCompositorInput(runtime)
+		if err != nil {
+			return nil, err
+		}
+		input = compositorInput
 	}
 	return &collaborationHub{
-		runtime:    runtime,
-		controller: controller,
-		sender:     sender,
-		clients:    make(map[string]*collaborationClient),
+		input:   input,
+		clients: make(map[string]*collaborationClient),
 	}, nil
 }
 
@@ -262,6 +268,8 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash string, socket
 }
 
 func (hub *collaborationHub) removeClient(client *collaborationClient) {
+	hub.inputMu.Lock()
+	defer hub.inputMu.Unlock()
 	hub.mu.Lock()
 	if hub.clients[client.id] != client {
 		hub.mu.Unlock()
@@ -280,7 +288,7 @@ func (hub *collaborationHub) removeClient(client *collaborationClient) {
 	}
 	hub.mu.Unlock()
 	if holder {
-		_ = hub.controller.Release(client.ownerID)
+		_ = hub.input.release(client.ownerID)
 		hub.broadcastLeaseState()
 	} else {
 		hub.broadcastPresence()
@@ -299,16 +307,8 @@ func (hub *collaborationHub) handleClientMessage(client *collaborationClient, me
 		return hub.release(client)
 	case "input.heartbeat":
 		return hub.heartbeat(client)
-	case "input.pointer.motion.absolute":
-		return hub.submit(client, message, remoteinput.Event{Type: remoteinput.EventPointerAbsolute, X: message.X, Y: message.Y})
-	case "input.pointer.button":
-		return hub.submit(client, message, remoteinput.Event{Type: remoteinput.EventPointerButton, ButtonCode: message.ButtonCode, Pressed: message.Pressed})
-	case "input.pointer.scroll":
-		return hub.submit(client, message, remoteinput.Event{Type: remoteinput.EventPointerScroll, Horizontal: message.Horizontal, Vertical: message.Vertical, StopHorizontal: message.StopHorizontal, StopVertical: message.StopVertical})
-	case "input.keyboard.key":
-		return hub.submit(client, message, remoteinput.Event{Type: remoteinput.EventKeyboardKey, Keycode: message.Keycode, Pressed: message.Pressed})
-	case "input.keyboard.text":
-		return hub.submit(client, message, remoteinput.Event{Type: remoteinput.EventKeyboardText, Text: message.Text})
+	case "input.pointer.motion.absolute", "input.pointer.button", "input.pointer.scroll", "input.keyboard.key", "input.keyboard.text":
+		return hub.submit(client, message)
 	case "presence.active-target":
 		return hub.updateActiveTarget(client, message.TargetID)
 	case "presence.cursor":
@@ -338,7 +338,7 @@ func (hub *collaborationHub) updateCursor(client *collaborationClient, targetID 
 	if targetID == "" || x < 0 || x > 1 || y < 0 || y > 1 {
 		return errors.New("cursor position is invalid")
 	}
-	if _, ok := hub.readyTarget(targetID); !ok {
+	if !hub.knownTarget(targetID) {
 		return errors.New("cursor target is unavailable")
 	}
 	message := collaborationServerMessage{Version: 1, Type: "presence.cursor", ClientID: client.id, TargetID: targetID, X: x, Y: y}
@@ -448,26 +448,27 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 	if client.role == "viewer" {
 		return errors.New("viewer input is disabled")
 	}
-	target, ok := hub.readyTarget(targetID)
-	if !ok {
-		return remoteinput.ErrNotReady
-	}
 	hub.inputMu.Lock()
 	defer hub.inputMu.Unlock()
 	hub.mu.Lock()
+	if hub.closed || hub.clients[client.id] != client {
+		hub.mu.Unlock()
+		return remoteinput.ErrNotReady
+	}
 	if hub.holder == client {
-		if err := hub.bindInputTargetLocked(client, target); err != nil {
-			hub.holder = nil
-			hub.leaseMode = ""
-			hub.mu.Unlock()
-			hub.broadcastLeaseState()
-			return err
-		}
 		if hub.leaseMode != collaborationLeaseExplicit {
 			hub.leaseMode = mode
 		}
 		hub.lastSeen = time.Now()
 		hub.mu.Unlock()
+		if err := hub.bindInputTarget(client, targetID); err != nil {
+			hub.revoke(client)
+			return err
+		}
+		if !hub.clientHoldsInput(client) {
+			_ = hub.input.release(client.ownerID)
+			return remoteinput.ErrNotReady
+		}
 		hub.broadcastLeaseState()
 		return nil
 	}
@@ -478,20 +479,21 @@ func (hub *collaborationHub) claim(client *collaborationClient, targetID string,
 		return remoteinput.ErrBusy
 	}
 	previous := hub.holder
-	if previous != nil && previous != client {
-		hub.holder = nil
-		hub.leaseMode = ""
-		_ = hub.controller.Release(previous.ownerID)
-	}
-	if err := hub.bindInputTargetLocked(client, target); err != nil {
-		hub.mu.Unlock()
-		hub.broadcastLeaseState()
-		return err
-	}
 	hub.holder = client
 	hub.leaseMode = mode
 	hub.lastSeen = time.Now()
 	hub.mu.Unlock()
+	if previous != nil {
+		_ = hub.input.release(previous.ownerID)
+	}
+	if err := hub.bindInputTarget(client, targetID); err != nil {
+		hub.revoke(client)
+		return err
+	}
+	if !hub.clientHoldsInput(client) {
+		_ = hub.input.release(client.ownerID)
+		return remoteinput.ErrNotReady
+	}
 	hub.broadcastLeaseState()
 	return nil
 }
@@ -507,6 +509,8 @@ func (hub *collaborationHub) heartbeat(client *collaborationClient) error {
 }
 
 func (hub *collaborationHub) release(client *collaborationClient) error {
+	hub.inputMu.Lock()
+	defer hub.inputMu.Unlock()
 	hub.mu.Lock()
 	if hub.holder != client {
 		hub.mu.Unlock()
@@ -515,26 +519,24 @@ func (hub *collaborationHub) release(client *collaborationClient) error {
 	hub.holder = nil
 	hub.leaseMode = ""
 	hub.mu.Unlock()
-	err := hub.controller.Release(client.ownerID)
+	err := hub.input.release(client.ownerID)
 	hub.broadcastLeaseState()
 	return err
 }
 
 func (hub *collaborationHub) revoke(client *collaborationClient) {
 	hub.mu.Lock()
-	if hub.holder == client {
-		hub.holder = nil
-		hub.leaseMode = ""
+	if hub.holder != client {
+		hub.mu.Unlock()
+		return
 	}
+	hub.holder = nil
+	hub.leaseMode = ""
 	hub.mu.Unlock()
 	hub.broadcastLeaseState()
 }
 
-func (hub *collaborationHub) submit(client *collaborationClient, message collaborationClientMessage, event remoteinput.Event) error {
-	target, ok := hub.readyTarget(message.TargetID)
-	if !ok {
-		return remoteinput.ErrNotReady
-	}
+func (hub *collaborationHub) submit(client *collaborationClient, message collaborationClientMessage) error {
 	hub.inputMu.Lock()
 	defer hub.inputMu.Unlock()
 	hub.mu.Lock()
@@ -546,65 +548,49 @@ func (hub *collaborationHub) submit(client *collaborationClient, message collabo
 		hub.mu.Unlock()
 		return errors.New("input sequence must increase")
 	}
-	if err := hub.bindInputTargetLocked(client, target); err != nil {
-		hub.holder = nil
-		hub.leaseMode = ""
-		hub.mu.Unlock()
-		hub.broadcastLeaseState()
+	hub.mu.Unlock()
+	if err := hub.bindInputTarget(client, message.TargetID); err != nil {
+		hub.revoke(client)
 		return err
+	}
+	hub.mu.Lock()
+	if hub.holder != client {
+		hub.mu.Unlock()
+		_ = hub.input.release(client.ownerID)
+		return remoteinput.ErrNotOwner
 	}
 	client.sequence = message.Sequence
 	hub.lastSeen = time.Now()
 	hub.mu.Unlock()
-	event.Sequence = message.Sequence
-	return hub.controller.Submit(client.ownerID, event)
-}
-
-func (hub *collaborationHub) bindInputTargetLocked(client *collaborationClient, target wrapperTargetSnapshot) error {
-	targetUnchanged := hub.inputSurfaceID == target.SurfaceID &&
-		hub.inputGeneration == target.Generation &&
-		hub.inputWidth == target.Viewport.Width &&
-		hub.inputHeight == target.Viewport.Height
-	ownsInput := hub.controller.Owns(client.ownerID)
-	if targetUnchanged && ownsInput {
-		return nil
-	}
-	if ownsInput {
-		if err := hub.controller.Release(client.ownerID); err != nil {
-			return err
-		}
-	}
-	hub.sender.SetTarget(target.SurfaceID, target.Viewport.Width, target.Viewport.Height)
-	if _, err := hub.controller.Acquire(client.ownerID, func(uint64, error) {
+	if err := hub.input.submit(client.ownerID, message); err != nil {
 		hub.revoke(client)
-	}); err != nil {
 		return err
 	}
-	hub.inputSurfaceID = target.SurfaceID
-	hub.inputGeneration = target.Generation
-	hub.inputWidth = target.Viewport.Width
-	hub.inputHeight = target.Viewport.Height
 	return nil
 }
 
-func (hub *collaborationHub) readyTarget(targetID string) (wrapperTargetSnapshot, bool) {
-	hub.runtime.mu.Lock()
-	registry := hub.runtime.targets
-	hub.runtime.mu.Unlock()
-	if registry == nil || strings.TrimSpace(targetID) == "" {
-		return wrapperTargetSnapshot{}, false
-	}
-	return registry.readyTarget(targetID)
+func (hub *collaborationHub) bindInputTarget(client *collaborationClient, targetID string) error {
+	return hub.input.bind(client.ownerID, targetID, func() {
+		hub.revoke(client)
+	})
+}
+
+func (hub *collaborationHub) clientHoldsInput(client *collaborationClient) bool {
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	return hub.holder == client
 }
 
 func (hub *collaborationHub) knownTarget(targetID string) bool {
-	hub.runtime.mu.Lock()
-	registry := hub.runtime.targets
-	hub.runtime.mu.Unlock()
-	return registry != nil && strings.TrimSpace(targetID) != "" && registry.hasLiveTarget(targetID)
+	hub.inputMu.Lock()
+	defer hub.inputMu.Unlock()
+	known, err := hub.input.hasTarget(targetID)
+	return err == nil && known
 }
 
 func (hub *collaborationHub) expireLease() {
+	hub.inputMu.Lock()
+	defer hub.inputMu.Unlock()
 	hub.mu.Lock()
 	if hub.holder == nil || time.Since(hub.lastSeen) < collaborationLeaseTimeout {
 		hub.mu.Unlock()
@@ -614,7 +600,7 @@ func (hub *collaborationHub) expireLease() {
 	hub.holder = nil
 	hub.leaseMode = ""
 	hub.mu.Unlock()
-	_ = hub.controller.Release(holder.ownerID)
+	_ = hub.input.release(holder.ownerID)
 	hub.broadcastLeaseState()
 }
 
@@ -741,9 +727,11 @@ func mustJSON(value any) []byte {
 }
 
 func (hub *collaborationHub) close() {
+	hub.inputMu.Lock()
 	hub.mu.Lock()
 	if hub.closed {
 		hub.mu.Unlock()
+		hub.inputMu.Unlock()
 		return
 	}
 	hub.closed = true
@@ -754,10 +742,11 @@ func (hub *collaborationHub) close() {
 	hub.clients = make(map[string]*collaborationClient)
 	hub.holder = nil
 	hub.mu.Unlock()
+	_ = hub.input.close()
+	hub.inputMu.Unlock()
 	for _, client := range clients {
 		_ = client.socket.Close(websocket.StatusGoingAway, "collaboration stopped")
 	}
-	_ = hub.controller.Close()
 }
 
 func (hub *collaborationHub) disconnectOwners() {
