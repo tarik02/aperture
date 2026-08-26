@@ -18,6 +18,11 @@ import (
 
 const maximumRestrictedCDPConnections = 7
 
+type restrictedCDPClient struct {
+	role   string
+	cancel context.CancelFunc
+}
+
 func (r *wrapperRuntime) handleCDPProxy(w http.ResponseWriter, req *http.Request) {
 	if r.values.CDPPort <= 0 {
 		writeWrapperError(w, http.StatusServiceUnavailable, "browser cdp port is not available")
@@ -25,22 +30,28 @@ func (r *wrapperRuntime) handleCDPProxy(w http.ResponseWriter, req *http.Request
 	}
 	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
 	if role == "editor" || role == "viewer" {
+		ctx, cancel := context.WithCancel(req.Context())
+		client := &restrictedCDPClient{role: role, cancel: cancel}
 		r.mu.Lock()
 		if r.restrictedCDPConnections >= maximumRestrictedCDPConnections {
 			r.mu.Unlock()
+			cancel()
 			writeWrapperError(w, http.StatusServiceUnavailable, "shared CDP connection limit reached")
 			return
 		}
 		r.restrictedCDPConnections++
 		r.cdpConnections++
+		r.restrictedCDPClients[client] = struct{}{}
 		r.mu.Unlock()
 		defer func() {
+			cancel()
 			r.mu.Lock()
 			r.restrictedCDPConnections--
 			r.cdpConnections--
+			delete(r.restrictedCDPClients, client)
 			r.mu.Unlock()
 		}()
-		r.handleRestrictedCDPProxy(w, req, role)
+		r.handleRestrictedCDPProxy(w, req.WithContext(ctx), role)
 		return
 	}
 
