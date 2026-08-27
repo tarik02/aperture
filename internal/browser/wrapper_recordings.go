@@ -72,10 +72,10 @@ type wrapperRecordingRequest struct {
 	Path        string               `json:"path"`
 }
 
-func (r *wrapperRuntime) handleRecordings(w http.ResponseWriter, req *http.Request) {
+func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
-		writeWrapperJSON(w, http.StatusOK, r.listRecordings())
+		writeWrapperJSON(w, http.StatusOK, session.listRecordings())
 	case http.MethodPost:
 		var body wrapperRecordingRequest
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -85,7 +85,7 @@ func (r *wrapperRuntime) handleRecordings(w http.ResponseWriter, req *http.Reque
 		if req.Header.Get("X-Aperture-Actor-Kind") == "session_capability" {
 			body.Path = ""
 		}
-		recording, err := r.startRecording(body)
+		recording, err := session.startRecording(body)
 		if err != nil {
 			writeWrapperError(w, http.StatusConflict, err.Error())
 			return
@@ -96,11 +96,11 @@ func (r *wrapperRuntime) handleRecordings(w http.ResponseWriter, req *http.Reque
 	}
 }
 
-func (r *wrapperRuntime) handleRecording(w http.ResponseWriter, req *http.Request) {
+func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Request) {
 	path := strings.TrimPrefix(req.URL.Path, "/recordings/")
 	parts := strings.Split(path, "/")
 	if len(parts) == 1 && req.Method == http.MethodGet {
-		recording, exists := r.recording(parts[0])
+		recording, exists := session.recording(parts[0])
 		if !exists {
 			writeWrapperError(w, http.StatusNotFound, "recording not found")
 			return
@@ -109,7 +109,7 @@ func (r *wrapperRuntime) handleRecording(w http.ResponseWriter, req *http.Reques
 		return
 	}
 	if len(parts) == 2 && parts[1] == "stop" && req.Method == http.MethodPost {
-		recording, err := r.stopRecording(parts[0], "requested")
+		recording, err := session.stopRecording(parts[0], "requested")
 		if err != nil {
 			if errors.Is(err, errWrapperRecordingNotFound) {
 				writeWrapperError(w, http.StatusNotFound, err.Error())
@@ -130,7 +130,8 @@ func (r *wrapperRuntime) handleRecording(w http.ResponseWriter, req *http.Reques
 	w.WriteHeader(http.StatusMethodNotAllowed)
 }
 
-func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
+func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
+	r := session.runtime
 	if request.ClientID != "" {
 		parsedClientID, err := uuid.Parse(request.ClientID)
 		if err != nil || parsedClientID.String() != request.ClientID {
@@ -154,7 +155,7 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 	}
 	if request.Mode == wrapperRecordingModeViewer {
 		r.mu.Lock()
-		client := r.recordingClients[request.ClientID]
+		client := session.recordingClients[request.ClientID]
 		r.mu.Unlock()
 		if client == nil {
 			return wrapperRecording{}, errors.New("recording client is not connected")
@@ -202,7 +203,7 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 	for {
 		targetID := request.TargetID
 		r.mu.Lock()
-		client := r.recordingClients[request.ClientID]
+		client := session.recordingClients[request.ClientID]
 		if request.ClientID != "" && client == nil {
 			r.mu.Unlock()
 			_ = os.RemoveAll(segmentDir)
@@ -221,7 +222,7 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 		}
 
 		r.mu.Lock()
-		client = r.recordingClients[request.ClientID]
+		client = session.recordingClients[request.ClientID]
 		if request.ClientID != "" && client == nil {
 			r.mu.Unlock()
 			_ = os.RemoveAll(segmentDir)
@@ -233,7 +234,7 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 		r.mu.Unlock()
 	}
 	active := 0
-	for _, recording := range r.recordings {
+	for _, recording := range session.recordings {
 		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
 			active++
 		}
@@ -260,7 +261,7 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
 	}
-	r.recordings[id] = recording
+	session.recordings[id] = recording
 	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err != nil {
 		recording.Status = wrapperRecordingFailed
@@ -276,13 +277,14 @@ func (r *wrapperRuntime) startRecording(request wrapperRecordingRequest) (wrappe
 	return status, nil
 }
 
-func (r *wrapperRuntime) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
-	return r.stopRecordingForTarget(recordingID, "", reason)
+func (session *liveSession) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
+	return session.stopRecordingForTarget(recordingID, "", reason)
 }
 
-func (r *wrapperRuntime) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
+func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
+	r := session.runtime
 	r.mu.Lock()
-	recording := r.recordings[recordingID]
+	recording := session.recordings[recordingID]
 	if recording == nil {
 		r.mu.Unlock()
 		return wrapperRecording{}, errWrapperRecordingNotFound
@@ -292,7 +294,7 @@ func (r *wrapperRuntime) stopRecordingForTarget(recordingID string, targetID str
 	defer recording.operationMu.Unlock()
 
 	r.mu.Lock()
-	r.refreshRecordingLocked(recording)
+	session.refreshRecordingLocked(recording)
 	if targetID != "" && recording.TargetID != targetID {
 		status := *recording
 		r.mu.Unlock()
@@ -320,7 +322,7 @@ func (r *wrapperRuntime) stopRecordingForTarget(recordingID string, targetID str
 		r.mu.Unlock()
 		return status, err
 	}
-	if err := r.joinRecordingSegments(recording); err != nil {
+	if err := session.joinRecordingSegments(recording); err != nil {
 		r.mu.Lock()
 		recording.finalizing = false
 		recording.Status = wrapperRecordingFailed
@@ -381,30 +383,32 @@ func stopRecordingSegment(recording *wrapperRecording) error {
 	return stopErr
 }
 
-func (r *wrapperRuntime) replaceRecordingTargets(ctx context.Context, target wrapperTargetSnapshot) error {
+func (session *liveSession) replaceRecordingTargets(ctx context.Context, target wrapperTargetSnapshot) error {
+	r := session.runtime
 	r.mu.Lock()
 	recordings := make([]*wrapperRecording, 0)
-	for _, recording := range r.recordings {
-		r.refreshRecordingLocked(recording)
+	for _, recording := range session.recordings {
+		session.refreshRecordingLocked(recording)
 		if recording.TargetID == target.TargetID && recording.Status == wrapperRecordingRunning {
 			recordings = append(recordings, recording)
 		}
 	}
 	r.mu.Unlock()
 	for _, recording := range recordings {
-		if err := r.rotateRecordingTarget(ctx, recording, target, target.TargetID); err != nil {
+		if err := session.rotateRecordingTarget(ctx, recording, target, target.TargetID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *wrapperRuntime) rotateRecordingTarget(ctx context.Context, recording *wrapperRecording, target wrapperTargetSnapshot, expectedTargetID string) error {
+func (session *liveSession) rotateRecordingTarget(ctx context.Context, recording *wrapperRecording, target wrapperTargetSnapshot, expectedTargetID string) error {
+	r := session.runtime
 	recording.operationMu.Lock()
 	defer recording.operationMu.Unlock()
 
 	r.mu.Lock()
-	r.refreshRecordingLocked(recording)
+	session.refreshRecordingLocked(recording)
 	if recording.Status != wrapperRecordingRunning {
 		r.mu.Unlock()
 		return nil
@@ -493,10 +497,11 @@ func (r *wrapperRuntime) rotateRecordingTarget(ctx context.Context, recording *w
 	return nil
 }
 
-func (r *wrapperRuntime) failRecordingTargets(targetID string, generation uint64) {
+func (session *liveSession) failRecordingTargets(targetID string, generation uint64) {
+	r := session.runtime
 	r.mu.Lock()
 	recordings := make([]*wrapperRecording, 0)
-	for _, recording := range r.recordings {
+	for _, recording := range session.recordings {
 		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning {
 			continue
 		}
@@ -506,7 +511,7 @@ func (r *wrapperRuntime) failRecordingTargets(targetID string, generation uint64
 	for _, recording := range recordings {
 		recording.operationMu.Lock()
 		r.mu.Lock()
-		r.refreshRecordingLocked(recording)
+		session.refreshRecordingLocked(recording)
 		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning {
 			r.mu.Unlock()
 			recording.operationMu.Unlock()
@@ -528,36 +533,39 @@ func (r *wrapperRuntime) failRecordingTargets(targetID string, generation uint64
 	}
 }
 
-func (r *wrapperRuntime) stopTargetRecordings(targetID string) {
+func (session *liveSession) stopTargetRecordings(targetID string) {
+	r := session.runtime
 	r.mu.Lock()
 	ids := make([]string, 0)
-	for _, recording := range r.recordings {
+	for _, recording := range session.recordings {
 		if recording.TargetID == targetID && recording.Status == wrapperRecordingRunning {
 			ids = append(ids, recording.ID)
 		}
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		_, _ = r.stopRecordingForTarget(id, targetID, "target_closed")
+		_, _ = session.stopRecordingForTarget(id, targetID, "target_closed")
 	}
 }
 
-func (r *wrapperRuntime) stopAllRecordings(reason string) {
+func (session *liveSession) stopAllRecordings(reason string) {
+	r := session.runtime
 	r.mu.Lock()
 	ids := make([]string, 0)
-	for _, recording := range r.recordings {
-		r.refreshRecordingLocked(recording)
+	for _, recording := range session.recordings {
+		session.refreshRecordingLocked(recording)
 		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
 			ids = append(ids, recording.ID)
 		}
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		_, _ = r.stopRecording(id, reason)
+		_, _ = session.stopRecording(id, reason)
 	}
 }
 
-func (r *wrapperRuntime) joinRecordingSegments(recording *wrapperRecording) error {
+func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) error {
+	r := session.runtime
 	if len(recording.segments) == 1 {
 		if err := os.Rename(recording.segments[0], recording.Path); err != nil {
 			return fmt.Errorf("finalize recording: %w", err)
@@ -588,27 +596,29 @@ func (r *wrapperRuntime) joinRecordingSegments(recording *wrapperRecording) erro
 	return os.RemoveAll(recording.segmentDir)
 }
 
-func (r *wrapperRuntime) recording(recordingID string) (wrapperRecording, bool) {
+func (session *liveSession) recording(recordingID string) (wrapperRecording, bool) {
+	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	recording := r.recordings[recordingID]
+	recording := session.recordings[recordingID]
 	if recording == nil {
 		return wrapperRecording{}, false
 	}
-	r.refreshRecordingLocked(recording)
+	session.refreshRecordingLocked(recording)
 	return *recording, true
 }
 
-func (r *wrapperRuntime) listRecordings() []wrapperRecording {
+func (session *liveSession) listRecordings() []wrapperRecording {
+	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.listRecordingsLocked()
+	return session.listRecordingsLocked()
 }
 
-func (r *wrapperRuntime) listRecordingsLocked() []wrapperRecording {
-	recordings := make([]wrapperRecording, 0, len(r.recordings))
-	for _, recording := range r.recordings {
-		r.refreshRecordingLocked(recording)
+func (session *liveSession) listRecordingsLocked() []wrapperRecording {
+	recordings := make([]wrapperRecording, 0, len(session.recordings))
+	for _, recording := range session.recordings {
+		session.refreshRecordingLocked(recording)
 		recordings = append(recordings, *recording)
 	}
 	sort.Slice(recordings, func(left int, right int) bool {
@@ -617,10 +627,10 @@ func (r *wrapperRuntime) listRecordingsLocked() []wrapperRecording {
 	return recordings
 }
 
-func (r *wrapperRuntime) activeRecordingCountLocked() int {
+func (session *liveSession) activeRecordingCountLocked() int {
 	count := 0
-	for _, recording := range r.recordings {
-		r.refreshRecordingLocked(recording)
+	for _, recording := range session.recordings {
+		session.refreshRecordingLocked(recording)
 		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
 			count++
 		}
@@ -628,7 +638,7 @@ func (r *wrapperRuntime) activeRecordingCountLocked() int {
 	return count
 }
 
-func (r *wrapperRuntime) refreshRecordingLocked(recording *wrapperRecording) {
+func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) {
 	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing || recording.cmd == nil {
 		return
 	}

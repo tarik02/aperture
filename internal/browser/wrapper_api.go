@@ -41,8 +41,6 @@ type wrapperRuntime struct {
 	mu                       sync.Mutex
 	uploadMu                 sync.Mutex
 	compositorPID            int
-	recordings               map[string]*wrapperRecording
-	recordingClients         map[string]*wrapperRecordingClient
 	mediaProducer            *producer
 	targets                  *wrapperTargetRegistry
 	viewers                  map[*wrapperViewer]struct{}
@@ -50,7 +48,7 @@ type wrapperRuntime struct {
 	cdpConnections           int
 	restrictedCDPConnections int
 	restrictedCDPClients     map[*restrictedCDPClient]struct{}
-	collaboration            *collaborationHub
+	liveSession              *liveSession
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -61,10 +59,10 @@ func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
 }
 
 func (r *wrapperRuntime) targetReady(ctx context.Context, target wrapperTargetSnapshot, previous wrapperTargetSnapshot, hadPrevious bool) error {
-	if err := r.replaceRecordingTargets(ctx, target); err != nil {
+	if err := r.liveSession.replaceRecordingTargets(ctx, target); err != nil {
 		if hadPrevious {
-			if rollbackErr := r.replaceRecordingTargets(context.Background(), previous); rollbackErr != nil {
-				r.failRecordingTargets(previous.TargetID, previous.Generation)
+			if rollbackErr := r.liveSession.replaceRecordingTargets(context.Background(), previous); rollbackErr != nil {
+				r.liveSession.failRecordingTargets(previous.TargetID, previous.Generation)
 				return errors.Join(err, fmt.Errorf("roll back recording capture sources: %w", rollbackErr))
 			}
 		}
@@ -74,8 +72,8 @@ func (r *wrapperRuntime) targetReady(ctx context.Context, target wrapperTargetSn
 	if mediaProducer != nil {
 		if err := mediaProducer.media.SetTarget(ctx, target); err != nil {
 			if hadPrevious {
-				if rollbackErr := r.replaceRecordingTargets(context.Background(), previous); rollbackErr != nil {
-					r.failRecordingTargets(previous.TargetID, previous.Generation)
+				if rollbackErr := r.liveSession.replaceRecordingTargets(context.Background(), previous); rollbackErr != nil {
+					r.liveSession.failRecordingTargets(previous.TargetID, previous.Generation)
 					return errors.Join(err, fmt.Errorf("roll back recording capture sources: %w", rollbackErr))
 				}
 			}
@@ -100,7 +98,7 @@ func (r *wrapperRuntime) targetRestored(targetID string) {
 }
 
 func (r *wrapperRuntime) targetClosed(target wrapperTargetSnapshot) {
-	r.stopTargetRecordings(target.TargetID)
+	r.liveSession.stopTargetRecordings(target.TargetID)
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer != nil {
 		mediaProducer.media.RemoveTarget(target.TargetID)
@@ -136,8 +134,6 @@ func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRu
 		controlSocket:        controlSocket,
 		ctx:                  context.Background(),
 		viewers:              make(map[*wrapperViewer]struct{}),
-		recordings:           make(map[string]*wrapperRecording),
-		recordingClients:     make(map[string]*wrapperRecordingClient),
 		restrictedCDPClients: make(map[*restrictedCDPClient]struct{}),
 	}
 }
@@ -194,13 +190,13 @@ func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 			viewers = append(viewers, viewer)
 		}
 	}
-	recordingClients := make([]*wrapperRecordingClient, 0, len(r.recordingClients))
-	for _, client := range r.recordingClients {
+	recordingClients := make([]*wrapperRecordingClient, 0, len(r.liveSession.recordingClients))
+	for _, client := range r.liveSession.recordingClients {
 		if client.sessionTokenAuthenticated {
 			recordingClients = append(recordingClients, client)
 		}
 	}
-	collaboration := r.collaboration
+	liveSession := r.liveSession
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
@@ -208,8 +204,8 @@ func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 	for _, client := range recordingClients {
 		client.cancel()
 	}
-	if collaboration != nil {
-		collaboration.disconnectSessionTokenClients()
+	if liveSession != nil {
+		liveSession.disconnectSessionTokenClients()
 	}
 }
 
@@ -227,7 +223,7 @@ func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string)
 			cdpClients = append(cdpClients, client)
 		}
 	}
-	collaboration := r.collaboration
+	liveSession := r.liveSession
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
@@ -235,8 +231,8 @@ func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string)
 	for _, client := range cdpClients {
 		client.cancel()
 	}
-	if collaboration != nil {
-		collaboration.disconnectCapabilityRoleClients(role)
+	if liveSession != nil {
+		liveSession.disconnectCapabilityRoleClients(role)
 	}
 }
 
@@ -267,14 +263,14 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	if err := r.reconcilePendingUploads(); err != nil {
 		return nil, nil, fmt.Errorf("reconcile pending uploads: %w", err)
 	}
-	collaboration, err := newCollaborationHub(r)
+	liveSession, err := newLiveSession(r)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create collaboration coordinator: %w", err)
+		return nil, nil, fmt.Errorf("create live session: %w", err)
 	}
 	r.mu.Lock()
-	r.collaboration = collaboration
+	r.liveSession = liveSession
 	r.mu.Unlock()
-	go collaboration.run(ctx)
+	go liveSession.run(ctx)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)
@@ -285,15 +281,16 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
 	mux.HandleFunc("/devtools/", r.handleCDPProxy)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
-	mux.HandleFunc("/collaboration", collaboration.serveHTTP)
+	mux.HandleFunc("/collaboration", liveSession.serveCollaborationHTTP)
+	mux.HandleFunc("/automation/lease", liveSession.serveAutomationLeaseHTTP)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/cursor", r.handleCursor)
 	mux.HandleFunc("/quality", r.handleQuality)
-	mux.HandleFunc("/recordings", r.handleRecordings)
-	mux.HandleFunc("/recordings/client", r.handleRecordingClient)
-	mux.HandleFunc("/recordings/", r.handleRecording)
+	mux.HandleFunc("/recordings", liveSession.handleRecordings)
+	mux.HandleFunc("/recordings/client", liveSession.handleRecordingClient)
+	mux.HandleFunc("/recordings/", liveSession.handleRecording)
 	mux.HandleFunc("/files", r.handleFiles)
 	mux.HandleFunc("/files/", r.handleFileDownload)
 	mux.HandleFunc("/uploads", r.handleUploads)
@@ -368,7 +365,7 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) 
 		"activeRequests":  r.activeRequests,
 		"viewerConnected": len(r.viewers) > 0,
 		"cdpConnections":  r.cdpConnections,
-		"recordings":      r.listRecordingsLocked(),
+		"recordings":      r.liveSession.listRecordingsLocked(),
 	}
 	if r.mediaProducer != nil {
 		quality := r.mediaProducer.media.Quality()
@@ -440,11 +437,11 @@ func (r *wrapperRuntime) handleActivity(w http.ResponseWriter, _ *http.Request) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	writeWrapperJSON(w, http.StatusOK, WrapperActivityStatus{
-		Active:            r.activeRequests > 0 || r.activeRecordingCountLocked() > 0,
+		Active:            r.activeRequests > 0 || r.liveSession.activeRecordingCountLocked() > 0,
 		ActiveRequests:    r.activeRequests,
 		ViewerConnected:   len(r.viewers) > 0,
 		CDPConnections:    r.cdpConnections,
-		RecordingsRunning: r.activeRecordingCountLocked(),
+		RecordingsRunning: r.liveSession.activeRecordingCountLocked(),
 	})
 }
 

@@ -2,13 +2,31 @@ package browser
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+func (r *wrapperRuntime) authorizeAutomationLease(req *http.Request) bool {
+	provided, ok := strings.CutPrefix(strings.TrimSpace(req.Header.Get("Authorization")), "Bearer ")
+	if !ok || provided == "" {
+		return false
+	}
+	expected := strings.TrimSpace(r.values.SessionToken)
+	if r.values.SessionTokenPath != "" {
+		body, err := os.ReadFile(r.values.SessionTokenPath)
+		if err != nil {
+			return false
+		}
+		expected = strings.TrimSpace(string(body))
+	}
+	return expected != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+}
 
 func (r *wrapperRuntime) watchSessionToken(ctx context.Context) error {
 	if r.values.SessionTokenPath == "" {

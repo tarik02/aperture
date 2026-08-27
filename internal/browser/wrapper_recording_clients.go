@@ -34,7 +34,8 @@ type wrapperRecordingClientMessage struct {
 	TargetID string `json:"targetId"`
 }
 
-func (r *wrapperRuntime) handleRecordingClient(w http.ResponseWriter, req *http.Request) {
+func (session *liveSession) handleRecordingClient(w http.ResponseWriter, req *http.Request) {
+	r := session.runtime
 	if req.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -61,14 +62,14 @@ func (r *wrapperRuntime) handleRecordingClient(w http.ResponseWriter, req *http.
 		cancel:                    cancel,
 		sessionTokenAuthenticated: sessionTokenAuthenticated(req),
 	}
-	if !r.claimRecordingClient(client) {
+	if !session.claimRecordingClient(client) {
 		cancel()
 		_ = connection.Close(websocket.StatusPolicyViolation, "recording client is already connected")
 		return
 	}
 	defer func() {
 		cancel()
-		r.releaseRecordingClient(client)
+		session.releaseRecordingClient(client)
 		_ = connection.Close(websocket.StatusNormalClosure, "recording client disconnected")
 	}()
 	connection.SetReadLimit(recordingClientMessageByteLimit)
@@ -95,7 +96,7 @@ func (r *wrapperRuntime) handleRecordingClient(w http.ResponseWriter, req *http.
 			_ = connection.Close(websocket.StatusPolicyViolation, "invalid recording client message")
 			return
 		}
-		if err := r.selectRecordingClientTarget(ctx, client, message.TargetID); err != nil {
+		if err := session.selectRecordingClientTarget(ctx, client, message.TargetID); err != nil {
 			response, _ := json.Marshal(map[string]any{
 				"version":  1,
 				"type":     "target.select.result",
@@ -120,25 +121,27 @@ func (r *wrapperRuntime) handleRecordingClient(w http.ResponseWriter, req *http.
 	}
 }
 
-func (r *wrapperRuntime) claimRecordingClient(client *wrapperRecordingClient) bool {
+func (session *liveSession) claimRecordingClient(client *wrapperRecordingClient) bool {
+	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.recordingClients[client.id] != nil {
+	if session.recordingClients[client.id] != nil {
 		return false
 	}
-	r.recordingClients[client.id] = client
+	session.recordingClients[client.id] = client
 	return true
 }
 
-func (r *wrapperRuntime) releaseRecordingClient(client *wrapperRecordingClient) {
+func (session *liveSession) releaseRecordingClient(client *wrapperRecordingClient) {
+	r := session.runtime
 	r.mu.Lock()
-	if r.recordingClients[client.id] != client {
+	if session.recordingClients[client.id] != client {
 		r.mu.Unlock()
 		return
 	}
-	delete(r.recordingClients, client.id)
+	delete(session.recordingClients, client.id)
 	recordingIDs := make([]string, 0)
-	for _, recording := range r.recordings {
+	for _, recording := range session.recordings {
 		if recording.clientID == client.id &&
 			(recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning) {
 			recordingIDs = append(recordingIDs, recording.ID)
@@ -146,11 +149,12 @@ func (r *wrapperRuntime) releaseRecordingClient(client *wrapperRecordingClient) 
 	}
 	r.mu.Unlock()
 	for _, recordingID := range recordingIDs {
-		_, _ = r.stopRecording(recordingID, "client_disconnected")
+		_, _ = session.stopRecording(recordingID, "client_disconnected")
 	}
 }
 
-func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client *wrapperRecordingClient, targetID string) error {
+func (session *liveSession) selectRecordingClientTarget(ctx context.Context, client *wrapperRecordingClient, targetID string) error {
+	r := session.runtime
 	client.mu.Lock()
 	defer client.mu.Unlock()
 
@@ -165,7 +169,7 @@ func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client
 		return errors.New("target is not ready")
 	}
 	r.mu.Lock()
-	if r.recordingClients[client.id] != client {
+	if session.recordingClients[client.id] != client {
 		r.mu.Unlock()
 		return errors.New("recording client is disconnected")
 	}
@@ -176,7 +180,7 @@ func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client
 		targetID  string
 	}
 	recordings := make([]recordingTargetCandidate, 0)
-	for _, recording := range r.recordings {
+	for _, recording := range session.recordings {
 		if recording.Mode == wrapperRecordingModeViewer && recording.clientID == client.id && recording.Status == wrapperRecordingRunning {
 			recordings = append(recordings, recordingTargetCandidate{recording: recording, targetID: recording.TargetID})
 		}
@@ -184,9 +188,9 @@ func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client
 	r.mu.Unlock()
 	rotated := make([]recordingTargetCandidate, 0, len(recordings))
 	for _, candidate := range recordings {
-		if err := r.rotateRecordingTarget(ctx, candidate.recording, target, candidate.targetID); err != nil {
+		if err := session.rotateRecordingTarget(ctx, candidate.recording, target, candidate.targetID); err != nil {
 			r.mu.Lock()
-			if r.recordingClients[client.id] == client && client.targetID == targetID {
+			if session.recordingClients[client.id] == client && client.targetID == targetID {
 				client.targetID = previousClientTargetID
 			}
 			r.mu.Unlock()
@@ -198,7 +202,7 @@ func (r *wrapperRuntime) selectRecordingClientTarget(ctx context.Context, client
 					rollbackErr = errors.Join(rollbackErr, fmt.Errorf("roll back viewer recording %s: target is not ready", rotated[index].recording.ID))
 					continue
 				}
-				if rotateErr := r.rotateRecordingTarget(rollbackCtx, rotated[index].recording, previousTarget, targetID); rotateErr != nil {
+				if rotateErr := session.rotateRecordingTarget(rollbackCtx, rotated[index].recording, previousTarget, targetID); rotateErr != nil {
 					rollbackErr = errors.Join(rollbackErr, fmt.Errorf("roll back viewer recording %s: %w", rotated[index].recording.ID, rotateErr))
 				}
 			}
