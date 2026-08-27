@@ -207,6 +207,9 @@ export function useLiveSession({
           setLeaseMode(message.mode ?? null);
           claimPendingRef.current = false;
           releasePendingRef.current = false;
+          setLastError((current) =>
+            current?.code === "input_busy" || current?.code === "input_not_owned" ? null : current,
+          );
           return;
         case "presence.cursor":
           if (message.clientId !== followingClientIdRef.current) {
