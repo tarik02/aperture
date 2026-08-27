@@ -29,7 +29,7 @@ import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
-import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
+import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 import { CollaborationPresence } from "#/components/workbench/collaboration-presence.tsx";
 
 type BrowserToolbarProps = {
@@ -38,8 +38,6 @@ type BrowserToolbarProps = {
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
-  performanceOverlayEnabled: boolean;
-  onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
   onLocalCursorChange: (enabled: boolean) => void;
   paintingEnabled: boolean;
@@ -58,8 +56,6 @@ export function BrowserToolbar({
   collaborationRole,
   cdpUrl,
   shareUrls,
-  performanceOverlayEnabled,
-  onPerformanceOverlayChange,
   localCursorEnabled,
   onLocalCursorChange,
   paintingEnabled,
@@ -228,8 +224,6 @@ export function BrowserToolbar({
           shareUrls={shareUrls}
           busy={busy}
           connected={connected}
-          performanceOverlayEnabled={performanceOverlayEnabled}
-          onPerformanceOverlayChange={onPerformanceOverlayChange}
           localCursorEnabled={localCursorEnabled}
           onLocalCursorChange={onLocalCursorChange}
           onReconnect={() => control.reconnect()}

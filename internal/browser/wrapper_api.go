@@ -44,10 +44,9 @@ type wrapperRuntime struct {
 	mediaProducer            *producer
 	targets                  *wrapperTargetRegistry
 	viewers                  map[*wrapperViewer]struct{}
+	revokedAccessGenerations map[string]map[string]struct{}
 	activeRequests           int
 	cdpConnections           int
-	restrictedCDPConnections int
-	restrictedCDPClients     map[*restrictedCDPClient]struct{}
 	liveSession              *liveSession
 }
 
@@ -98,7 +97,7 @@ func (r *wrapperRuntime) targetRestored(targetID string) {
 }
 
 func (r *wrapperRuntime) targetClosed(target wrapperTargetSnapshot) {
-	r.liveSession.stopTargetRecordings(target.TargetID)
+	r.liveSession.stopTabRecordings(target.TargetID)
 	mediaProducer := r.currentMediaProducer()
 	if mediaProducer != nil {
 		mediaProducer.media.RemoveTarget(target.TargetID)
@@ -130,11 +129,11 @@ type WrapperActivityStatus struct {
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
 	return &wrapperRuntime{
-		values:               values,
-		controlSocket:        controlSocket,
-		ctx:                  context.Background(),
-		viewers:              make(map[*wrapperViewer]struct{}),
-		restrictedCDPClients: make(map[*restrictedCDPClient]struct{}),
+		values:                   values,
+		controlSocket:            controlSocket,
+		ctx:                      context.Background(),
+		viewers:                  make(map[*wrapperViewer]struct{}),
+		revokedAccessGenerations: make(map[string]map[string]struct{}),
 	}
 }
 
@@ -182,45 +181,32 @@ func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
 	delete(r.viewers, viewer)
 }
 
-func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
+func (r *wrapperRuntime) disconnectSessionTokenConsumers(generation string) {
 	r.mu.Lock()
+	r.revokeSessionAccessGenerationLocked("owner", generation)
 	viewers := make([]*wrapperViewer, 0, len(r.viewers))
 	for viewer := range r.viewers {
 		if viewer.sessionTokenAuthenticated {
 			viewers = append(viewers, viewer)
 		}
 	}
-	recordingClients := make([]*wrapperRecordingClient, 0, len(r.liveSession.recordingClients))
-	for _, client := range r.liveSession.recordingClients {
-		if client.sessionTokenAuthenticated {
-			recordingClients = append(recordingClients, client)
-		}
-	}
 	liveSession := r.liveSession
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
-	}
-	for _, client := range recordingClients {
-		client.cancel()
 	}
 	if liveSession != nil {
 		liveSession.disconnectSessionTokenClients()
 	}
 }
 
-func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string) {
+func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role, generation string) {
 	r.mu.Lock()
+	r.revokeSessionAccessGenerationLocked(role, generation)
 	viewers := make([]*wrapperViewer, 0)
 	for viewer := range r.viewers {
 		if viewer.capabilityRole == role {
 			viewers = append(viewers, viewer)
-		}
-	}
-	cdpClients := make([]*restrictedCDPClient, 0)
-	for client := range r.restrictedCDPClients {
-		if client.role == role {
-			cdpClients = append(cdpClients, client)
 		}
 	}
 	liveSession := r.liveSession
@@ -228,28 +214,75 @@ func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string)
 	for _, viewer := range viewers {
 		viewer.cancel()
 	}
-	for _, client := range cdpClients {
-		client.cancel()
-	}
 	if liveSession != nil {
 		liveSession.disconnectCapabilityRoleClients(role)
 	}
 }
 
-func collaborationCapabilityRole(req *http.Request) string {
+func (r *wrapperRuntime) revokeSessionAccessGenerationLocked(role, generation string) {
+	revoked := r.revokedAccessGenerations[role]
+	if revoked == nil {
+		revoked = make(map[string]struct{})
+		r.revokedAccessGenerations[role] = revoked
+	}
+	revoked[generation] = struct{}{}
+}
+
+func (r *wrapperRuntime) restoreCollaborationCapabilityGeneration(role, generation string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	revoked := r.revokedAccessGenerations[role]
+	delete(revoked, generation)
+	if len(revoked) == 0 {
+		delete(r.revokedAccessGenerations, role)
+	}
+}
+
+func sessionCapabilityRole(req *http.Request) string {
 	if strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) != "session_capability" {
 		return ""
 	}
 	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	if role == "owner" || role == "editor" || role == "viewer" {
+		return role
+	}
+	return ""
+}
+
+func collaborationCapabilityRole(req *http.Request) string {
+	role := sessionCapabilityRole(req)
 	if role == "editor" || role == "viewer" {
 		return role
 	}
 	return ""
 }
 
+func sessionCapabilityGeneration(req *http.Request) string {
+	if sessionCapabilityRole(req) == "" {
+		return ""
+	}
+	return strings.TrimSpace(req.Header.Get("X-Aperture-Capability-Generation"))
+}
+
+func (r *wrapperRuntime) sessionAccessGenerationAllowed(role, generation string) bool {
+	if role == "" {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	revoked := r.revokedAccessGenerations[role]
+	if len(revoked) == 0 {
+		return true
+	}
+	if generation == "" {
+		return false
+	}
+	_, denied := revoked[generation]
+	return !denied
+}
+
 func sessionTokenAuthenticated(req *http.Request) bool {
-	return strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) == "session_capability" &&
-		strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")) == "owner"
+	return sessionCapabilityRole(req) == "owner"
 }
 
 func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error, error) {
@@ -281,7 +314,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
 	mux.HandleFunc("/devtools/", r.handleCDPProxy)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
-	mux.HandleFunc("/collaboration", liveSession.serveCollaborationHTTP)
+	mux.HandleFunc("/session", liveSession.serveSessionWebSocketHTTP)
 	mux.HandleFunc("/automation/lease", liveSession.serveAutomationLeaseHTTP)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/targets", r.handleTargets)
@@ -289,7 +322,6 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/cursor", r.handleCursor)
 	mux.HandleFunc("/quality", r.handleQuality)
 	mux.HandleFunc("/recordings", liveSession.handleRecordings)
-	mux.HandleFunc("/recordings/client", liveSession.handleRecordingClient)
 	mux.HandleFunc("/recordings/", liveSession.handleRecording)
 	mux.HandleFunc("/files", r.handleFiles)
 	mux.HandleFunc("/files/", r.handleFileDownload)
@@ -339,7 +371,7 @@ func (r *wrapperRuntime) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
+	if req.Method != http.MethodPost && req.Method != http.MethodDelete {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
@@ -348,7 +380,16 @@ func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWri
 		writeWrapperError(w, http.StatusBadRequest, "invalid collaboration role")
 		return
 	}
-	r.disconnectCollaborationCapabilityConsumers(role)
+	generation := strings.TrimSpace(req.URL.Query().Get("generation"))
+	if generation == "" || len(generation) > 128 {
+		writeWrapperError(w, http.StatusBadRequest, "invalid collaboration capability generation")
+		return
+	}
+	if req.Method == http.MethodDelete {
+		r.restoreCollaborationCapabilityGeneration(role, generation)
+	} else {
+		r.disconnectCollaborationCapabilityConsumers(role, generation)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -596,7 +637,8 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	defer r.releaseViewer(viewer)
-	mediaProducer.Handler(role == "owner" || role == "editor").ServeHTTP(w, req.WithContext(ctx))
+	metadata := newLiveSessionWebRTCPeerMetadata(r.liveSession, mediaProducer.webrtc, req, cancel)
+	mediaProducer.Handler(role == "owner" || role == "editor", metadata).ServeHTTP(w, req.WithContext(ctx))
 }
 
 func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {

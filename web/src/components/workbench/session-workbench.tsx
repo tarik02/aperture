@@ -23,11 +23,10 @@ import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-cre
 import { AppWindow, Loader2 } from "lucide-react";
 import type { ApiCredentials } from "#/lib/api/client.ts";
 import type { Session } from "#/lib/api/schemas.ts";
-import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
+import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 
 type SessionWorkbenchProps = {
   sessionId: string;
-  forceCDPMedia?: boolean;
   capability?: {
     credentials: ApiCredentials;
     role: Exclude<CollaborationRole, "owner">;
@@ -37,11 +36,7 @@ type SessionWorkbenchProps = {
 
 const emptyIceServers: RTCIceServer[] = [];
 
-export function SessionWorkbench({
-  sessionId,
-  forceCDPMedia = false,
-  capability,
-}: SessionWorkbenchProps) {
+export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProps) {
   const profileCredentials = useApiCredentials();
   const credentials = capability?.credentials ?? profileCredentials;
   const scopes = useActiveScopes();
@@ -86,7 +81,6 @@ export function SessionWorkbench({
     sessionToken: selectedSession?.sessionToken,
     collaborationRole,
     enabled: canControl && tenantReady && canConnectSession,
-    forceCDPMedia,
     webrtcProducerSupported:
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
     webrtcIceServers: selectedSession?.media.iceServers ?? emptyIceServers,

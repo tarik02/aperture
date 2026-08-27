@@ -223,9 +223,9 @@ The start request declares one of two modes:
 
 A tab recording remains pinned when its owning frontend switches tabs. A viewer recording follows that frontend's confirmed media target. Both modes follow verified window rebindings and immutable output replacements, preserve their timeline, and insert a keyframe at each source change. If the selected target closes, Aperture finalizes the recording with `target_closed` as its stop reason.
 
-Each frontend opens `/sessions/{sessionId}/recordings/client?clientId={uuid}` with the `aperture-recording.v1` WebSocket subprotocol. The frontend sends its confirmed media target through this socket as `{"version":1,"type":"target.select","targetId":"TARGET_ID"}` and sends periodic heartbeats. The wrapper stores the client's current target and applies target updates only to viewer recordings owned by that client ID. Viewer recording creation rechecks that stored target while inserting the job, so a concurrent tab switch cannot be lost. A reconnect creates a new client ID. Closing the socket or missing the heartbeat deadline synchronously finalizes every recording owned by the old client with `client_disconnected`; finalized files remain in session storage.
+ADR 0008 supersedes the separate recording-client connection. The live session now owns the client's selected target and viewer-recording lifecycle.
 
-Frontend recording controls expose elapsed time, stop and download, and cancel. Cancel means stop without downloading the file. It still finalizes and saves the file. The frontend sends a one-byte range request to the live stop endpoint and ignores that response. The control-plane `POST /api/sessions/{sessionId}/recordings/{recordingId}/stop` endpoint provides the same finalize-without-transfer behavior for account-authenticated callers.
+ADR 0008 supersedes the frontend stop and download flow. The workbench stops through the live session protocol, then downloads the completed recording through its content route. The control-plane `POST /api/sessions/{sessionId}/recordings/{recordingId}/stop` endpoint remains available to account-authenticated callers.
 
 MCP has no frontend connection lifecycle. MCP starts only tab recordings and omits `clientId`; those recordings run until an explicit stop, target closure, or session shutdown.
 

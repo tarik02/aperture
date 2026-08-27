@@ -957,6 +957,20 @@ export const apiClient = {
     });
   },
 
+  downloadSessionRecording(
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    sessionToken?: string,
+  ) {
+    return requestBlob({
+      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/content`,
+      credentials,
+      bearerToken: sessionToken,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
   cancelSessionRecording(
     credentials: ApiCredentials,
     sessionId: string,

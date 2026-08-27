@@ -74,18 +74,40 @@ func (input *liveSessionCompositorInput) bind(ownerID uint64, targetID string, o
 	return nil
 }
 
-func (input *liveSessionCompositorInput) submit(ownerID uint64, message collaborationClientMessage) error {
-	event := remoteinput.Event{Sequence: message.Sequence}
+func (input *liveSessionCompositorInput) submit(ownerID uint64, message liveSessionClientMessage) error {
+	event := remoteinput.Event{Sequence: message.Sequence * 2}
 	switch message.Type {
 	case "input.pointer.motion.absolute":
 		event.Type = remoteinput.EventPointerAbsolute
 		event.X = message.X
 		event.Y = message.Y
 	case "input.pointer.button":
+		if message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
+			return errors.New("pointer position is invalid")
+		}
+		if err := input.controller.Submit(ownerID, remoteinput.Event{
+			Sequence: message.Sequence*2 - 1,
+			Type:     remoteinput.EventPointerAbsolute,
+			X:        message.X,
+			Y:        message.Y,
+		}); err != nil {
+			return err
+		}
 		event.Type = remoteinput.EventPointerButton
 		event.ButtonCode = message.ButtonCode
 		event.Pressed = message.Pressed
 	case "input.pointer.scroll":
+		if message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
+			return errors.New("pointer position is invalid")
+		}
+		if err := input.controller.Submit(ownerID, remoteinput.Event{
+			Sequence: message.Sequence*2 - 1,
+			Type:     remoteinput.EventPointerAbsolute,
+			X:        message.X,
+			Y:        message.Y,
+		}); err != nil {
+			return err
+		}
 		event.Type = remoteinput.EventPointerScroll
 		event.Horizontal = message.Horizontal
 		event.Vertical = message.Vertical

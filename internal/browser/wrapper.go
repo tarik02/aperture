@@ -930,7 +930,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	var mediaProducer *producer
 	if values.MediaProducerEnabled {
 		var err error
-		mediaProducer, err = newWebRTCProducer(values, controlSocket)
+		mediaProducer, err = newWebRTCProducer(wrapper)
 		if err != nil {
 			stopProcess(browserCmd, browserDone)
 			stopProcess(compositor, compositorDone)

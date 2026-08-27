@@ -13,7 +13,7 @@ import {
 import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 import { ApiRequestError } from "#/lib/api/errors.ts";
 import { queryKeys } from "#/lib/api/query-keys.ts";
-import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
+import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 
 const capabilityStorageKey = "aperture.share.session-token";
 

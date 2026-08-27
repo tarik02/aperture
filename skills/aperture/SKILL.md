@@ -288,16 +288,36 @@ Snapshot list filters:
 
 These public routes are forwarded to the running session wrapper:
 
+- `GET /sessions/:sessionId/session` — live-session WebSocket; editor and viewer capabilities allowed
 - `GET /sessions/:sessionId/browser/status` — `sessions:read`
 - `POST /sessions/:sessionId/browser/viewport` — `sessions:write`
-- `GET /sessions/:sessionId/webrtc/signal?role=viewer` — WebSocket, `sessions:write`
+- `GET /sessions/:sessionId/webrtc/signal` — WebRTC signaling WebSocket
 - `GET /sessions/:sessionId/recordings` — list recordings, `sessions:write`
 - `POST /sessions/:sessionId/recordings` — start a recording, `sessions:write`
 - `GET /sessions/:sessionId/recordings/:recordingId` — recording status, `sessions:write`
 - `POST /sessions/:sessionId/recordings/:recordingId/stop` — stop and download, `sessions:write`
-- `GET /sessions/:sessionId/recordings/client?clientId=:uuid` — recording client WebSocket, `sessions:write`
+- `GET /sessions/:sessionId/recordings/:recordingId/content` — download a stopped recording, `sessions:write`
 
 Use an authorized API bearer token and tenant header, or the bound `sessionToken`, for routed live-session requests.
+
+Interactive clients use the exact `aperture-session.v1` WebSocket subprotocol on both `/session` and `/webrtc/signal`. Editor and viewer capabilities are also accepted through the bearer subprotocol. A new session transport sends this reliable hello first:
+
+```json
+{
+  "version": 1,
+  "type": "session.hello",
+  "name": "Quiet Otter",
+  "avatarHash": "0123456789abcdef0123456789abcdef"
+}
+```
+
+The server responds with `session.snapshot`, including `clientId` and `resumeSecret`. A replacement transport sends those two values instead of `name` and `avatarHash`, together with normal session authorization. Resume credentials expire five seconds after transport loss.
+
+WebRTC clients create ordered `application` and unordered, zero-retransmit `application-realtime` data channels plus a receive-only video transceiver. The reliable channel carries the hello, snapshots, state, commands, results, input other than pointer motion, and stroke boundaries. The realtime channel carries pointer motion, cursor positions, and intermediate stroke points. Every realtime message has a positive transport-local `realtimeCounter`.
+
+The `/session` fallback carries the same JSON messages. Its presentation frames are binary packets containing a four-byte big-endian JSON-header length, the UTF-8 `presentation.frame` header, and raw JPEG bytes. Coalesce disposable realtime messages before writing them to this ordered socket.
+
+Reliable commands use a nonempty `requestId` and receive a matching typed `.result` message. Commands are `target.select`, `target.create`, `target.close`, `page.navigate`, `page.history-back`, `page.history-forward`, `page.reload`, `page.stop-loading`, `viewport.set`, `recording.start`, `recording.stop`, and `recording.cancel`. A transport failure fails outstanding commands. Use the replacement snapshot to reconcile state and wait for a new caller action instead of retrying them.
 
 Viewport body:
 
@@ -339,33 +359,9 @@ Supported codecs are `vp8` and `h264-va`. Omitted or non-positive FPS and bitrat
 
 Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `path`, `startedAt`, `fps`, `bitrateKbps`, and `codec`. Completed jobs may also include `stopReason`, `stoppedAt`, and `sizeBytes`. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
 
-The normal stop request finalizes the recording and serves the completed media attachment. Send `Range: bytes=0-0` to finalize it while transferring only one byte. Use `POST /api/sessions/:sessionId/recordings/:recordingId/stop` with `sessions:write` to finalize without media transfer and return the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`.
+The normal HTTP stop request finalizes the recording and serves the completed media attachment. Interactive workbenches start and stop through `aperture-session.v1`; after `recording.stop.result`, fetch `/content` to download without issuing a second stop. Use `POST /api/sessions/:sessionId/recordings/:recordingId/stop` with `sessions:write` to finalize without media transfer and return the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`.
 
-Recording clients connect to:
-
-```text
-wss://aperture.example.com/sessions/:sessionId/recordings/client?clientId=:uuid
-```
-
-Send these WebSocket subprotocols:
-
-- `aperture-recording.v1`
-- `authorization.bearer.$SESSION_TOKEN` or an authorized API token
-- `x-aperture-tenant-id.$TENANT_ID` when using a system-admin token
-
-The selected protocol is `aperture-recording.v1`. Select the client's confirmed media target with:
-
-```json
-{"version":1,"type":"target.select","targetId":"TARGET_ID"}
-```
-
-Keep the client alive with periodic heartbeats:
-
-```json
-{"version":1,"type":"heartbeat"}
-```
-
-The server acknowledges target changes with `target.select.result`. Closing the socket or missing the two-minute heartbeat deadline finalizes every recording owned by that client and leaves the files in session storage.
+Viewer recordings belong to a live session client and follow that client's selected browser target. They stop after the client's five-second transport recovery window expires. HTTP and MCP callers start tab recordings because they have no session-client lifecycle.
 
 MCP exposes `recording.start`, `recording.list`, `recording.status`, and `recording.stop`. MCP starts tab recordings only. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`.
 
@@ -382,21 +378,21 @@ Discovery responses contain rewritten WebSocket debugger URLs under the same tok
 
 Rotate a compromised session token with `POST /api/sessions/:sessionId/session-token/rotate`; previously issued live-session URLs then stop authorizing.
 
-## WebRTC Signaling
+## WebRTC signaling
 
 Connect to:
 
 ```text
-wss://aperture.example.com/sessions/:sessionId/webrtc/signal?role=viewer
+wss://aperture.example.com/sessions/:sessionId/webrtc/signal
 ```
 
 Send these WebSocket subprotocols:
 
-- `aperture-webrtc.v1`
+- `aperture-session.v1`
 - `authorization.bearer.$SESSION_TOKEN` or an authorized API token
 - `x-aperture-tenant-id.$TENANT_ID` when using a system-admin token
 
-The selected WebSocket protocol is `aperture-webrtc.v1`. Only the `viewer` role is accepted, and a new viewer replaces the previous viewer for that session.
+Send a version 1 SDP `offer`, then exchange `ice-candidate` messages. The server returns an `answer` or a typed signaling `error`. The authenticated role becomes the session client's role. WebRTC capacity never evicts an existing peer; use `/session` as the fallback when the peer cannot become usable within five seconds.
 
 ## Session Files
 
