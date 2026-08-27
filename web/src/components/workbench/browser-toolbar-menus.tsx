@@ -3,6 +3,7 @@ import {
   Circle,
   Copy,
   Download,
+  Gauge,
   Info,
   Lock,
   LockOpen,
@@ -15,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "#/components/ui/button.tsx";
-import { Field, FieldLabel } from "#/components/ui/field.tsx";
+import { Field, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import {
   DropdownMenu,
@@ -42,6 +43,32 @@ import {
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { copyText } from "#/components/resources/copy-button.tsx";
 import { toast } from "sonner";
+
+const STREAM_PRESETS = [
+  {
+    id: "low",
+    label: "Low",
+    detail: "20 fps · max 800 kbps",
+    settings: { fps: 20, bitrateKbps: 800 },
+  },
+  {
+    id: "balanced",
+    label: "Balanced",
+    detail: "30 fps · max 3000 kbps",
+    settings: { fps: 30, bitrateKbps: 3000 },
+  },
+  {
+    id: "high",
+    label: "High",
+    detail: "60 fps · max 20000 kbps",
+    settings: { fps: 60, bitrateKbps: 20_000 },
+  },
+] as const;
+
+const STREAM_LIMITS = {
+  fps: { min: 1, max: 120 },
+  bitrateKbps: { min: 100, max: 50_000 },
+} as const;
 
 const VIEWPORT_LIMITS = {
   width: { min: 1, max: 16_384 },
@@ -443,6 +470,12 @@ function ViewportStreamMenuItems({
   return (
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
+      {control.mediaVideoProfiles.length > 0 ? (
+        <StreamMenu
+          control={control}
+          qualityUpdatesEnabled={control.collaboration.role !== "viewer"}
+        />
+      ) : null}
       <DropdownMenuCheckboxItem
         disabled={!connected || control.remoteCursorBusy}
         checked={control.remoteCursorEnabled}
@@ -460,6 +493,119 @@ function ViewportStreamMenuItems({
         Reconnect
       </DropdownMenuItem>
     </DropdownMenuGroup>
+  );
+}
+
+function StreamMenu({
+  control,
+  qualityUpdatesEnabled,
+}: {
+  control: UseBrowserControlResult;
+  qualityUpdatesEnabled: boolean;
+}) {
+  const settings = control.mediaStreamSettings;
+  const source =
+    control.mediaPath === "websocket-live"
+      ? "jpeg"
+      : qualityUpdatesEnabled
+        ? settings?.profile
+        : "webrtc";
+  const disabled = control.mediaSwitching || control.phase !== "connected";
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <Gauge />
+        Stream
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-64">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Source</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={source}
+            onValueChange={(value) => {
+              if (value === "jpeg") {
+                control.selectMediaStream({ kind: "jpeg" });
+                return;
+              }
+              if (value === "webrtc") {
+                control.selectMediaStream({ kind: "webrtc-retry" });
+                return;
+              }
+              const profile = control.mediaVideoProfiles.find(
+                (candidate) => candidate.id === value,
+              );
+              if (profile && settings) {
+                control.selectMediaStream({
+                  kind: "webrtc",
+                  quality: { ...settings, profile: profile.id },
+                });
+              }
+            }}
+          >
+            {!qualityUpdatesEnabled ? (
+              <DropdownMenuRadioItem value="webrtc" disabled={disabled}>
+                <span className="flex min-w-0 flex-col">
+                  <span>WebRTC</span>
+                  <span className="text-xs text-muted-foreground">Live video</span>
+                </span>
+              </DropdownMenuRadioItem>
+            ) : null}
+            {qualityUpdatesEnabled
+              ? control.mediaVideoProfiles.map((profile) => (
+                  <DropdownMenuRadioItem
+                    key={profile.id}
+                    value={profile.id}
+                    disabled={disabled || !settings}
+                  >
+                    <span className="flex min-w-0 flex-col">
+                      <span>{profile.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {profile.codec} · WebRTC
+                      </span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))
+              : null}
+            <DropdownMenuRadioItem value="jpeg" disabled={disabled}>
+              <span className="flex min-w-0 flex-col">
+                <span>JPEG</span>
+                <span className="text-xs text-muted-foreground">WebSocket raster stream</span>
+              </span>
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          {qualityUpdatesEnabled && control.mediaPath === "webrtc-live" && settings ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Quality</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={activeStreamPresetId(settings)}
+                onValueChange={(value) => {
+                  const preset = STREAM_PRESETS.find((item) => item.id === value);
+                  if (preset) {
+                    control.setWebRTCStreamSettings({ ...settings, ...preset.settings });
+                  }
+                }}
+              >
+                {STREAM_PRESETS.map((preset) => (
+                  <DropdownMenuRadioItem key={preset.id} value={preset.id} disabled={disabled}>
+                    <span className="flex min-w-0 flex-col">
+                      <span>{preset.label}</span>
+                      <span className="text-xs text-muted-foreground">{preset.detail}</span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <CustomStreamSettings
+                settings={settings}
+                disabled={disabled}
+                onApply={control.setWebRTCStreamSettings}
+              />
+            </>
+          ) : null}
+        </DropdownMenuGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 
@@ -614,6 +760,55 @@ function CustomViewportSettings({
   );
 }
 
+function CustomStreamSettings({
+  settings,
+  disabled,
+  onApply,
+}: {
+  settings: NonNullable<UseBrowserControlResult["mediaStreamSettings"]>;
+  disabled: boolean;
+  onApply: UseBrowserControlResult["setWebRTCStreamSettings"];
+}) {
+  const [fps, setFps] = useState(String(settings.fps));
+  const [bitrateKbps, setBitrateKbps] = useState(String(settings.bitrateKbps));
+
+  useEffect(() => {
+    setFps(String(settings.fps));
+    setBitrateKbps(String(settings.bitrateKbps));
+  }, [settings]);
+
+  const nextSettings = parseStreamSettings({ fps, bitrateKbps });
+  const unchanged =
+    settings.fps === nextSettings?.fps && settings.bitrateKbps === nextSettings?.bitrateKbps;
+
+  return (
+    <FieldGroup
+      className="gap-2 px-2 py-1.5"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
+      <div className="grid grid-cols-2 gap-2">
+        <StreamNumberField label="FPS" value={fps} onChange={setFps} />
+        <StreamNumberField label="Max Kbps" value={bitrateKbps} onChange={setBitrateKbps} />
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        className="h-7 w-full"
+        disabled={disabled || !nextSettings || unchanged}
+        onClick={() => {
+          if (nextSettings) {
+            onApply({ ...settings, ...nextSettings });
+          }
+        }}
+      >
+        Apply
+      </Button>
+    </FieldGroup>
+  );
+}
+
 function StreamNumberField({
   label,
   value,
@@ -703,6 +898,20 @@ function parseViewportSettings({
   return createViewportPreset(nextWidth, nextHeight, nextScale);
 }
 
+function parseStreamSettings({ fps, bitrateKbps }: { fps: string; bitrateKbps: string }) {
+  if (!fps || !bitrateKbps) {
+    return null;
+  }
+  return {
+    fps: clampInteger(Number(fps), STREAM_LIMITS.fps.min, STREAM_LIMITS.fps.max),
+    bitrateKbps: clampInteger(
+      Number(bitrateKbps),
+      STREAM_LIMITS.bitrateKbps.min,
+      STREAM_LIMITS.bitrateKbps.max,
+    ),
+  };
+}
+
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
 }
@@ -730,6 +939,17 @@ function activeViewportPresetId(viewport: UseBrowserControlResult["viewport"]) {
 function activeViewportScaleId(deviceScaleFactor: number) {
   const preset = VIEWPORT_DEVICE_SCALE_FACTORS.find((item) => item === deviceScaleFactor);
   return preset ? formatViewportScale(preset) : "";
+}
+
+function activeStreamPresetId(settings: UseBrowserControlResult["mediaStreamSettings"]) {
+  if (!settings) {
+    return "";
+  }
+  const preset = STREAM_PRESETS.find(
+    (item) =>
+      settings.fps === item.settings.fps && settings.bitrateKbps === item.settings.bitrateKbps,
+  );
+  return preset?.id ?? "";
 }
 
 function formatElapsed(startedAt: string, now: number): string {

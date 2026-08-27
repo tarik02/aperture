@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { timer, type Observable } from "rxjs";
 import { toast } from "sonner";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { useLiveSession, type CollaborationControl } from "#/hooks/use-live-session.ts";
+import {
+  useLiveSession,
+  type CollaborationControl,
+  type LiveSessionMediaSelection,
+} from "#/hooks/use-live-session.ts";
 import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 import type { Recording } from "#/lib/api/schemas.ts";
 import type {
@@ -12,7 +16,11 @@ import type {
   ControlTarget,
   ScreencastFrame,
 } from "#/lib/control/messages.ts";
-import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
+import type {
+  CollaborationRole,
+  LiveSessionPresentation,
+  LiveSessionPresentationQuality,
+} from "#/lib/control/live-session-protocol.ts";
 import {
   createViewportPreset,
   DEFAULT_VIEWPORT,
@@ -45,6 +53,8 @@ export type UseBrowserControlResult = {
   frame$: Observable<ScreencastFrame | null>;
   mediaPhase: BrowserMediaPhase;
   mediaStream: MediaStream | null;
+  mediaStreamSettings: LiveSessionPresentationQuality | null;
+  mediaVideoProfiles: LiveSessionPresentation["profiles"];
   mediaSize: {
     width: number;
     height: number;
@@ -73,6 +83,8 @@ export type UseBrowserControlResult = {
   setBrowserViewportSize: (size: BrowserViewportSize) => void;
   setViewportAutoSync: (enabled: boolean) => void;
   setViewportToBrowserSize: () => void;
+  setWebRTCStreamSettings: (settings: LiveSessionPresentationQuality) => boolean;
+  selectMediaStream: (selection: LiveSessionMediaSelection) => boolean;
   send: (message: ClientMessage) => boolean;
   activateTarget: (targetId: string) => void;
   reorderTargets: (
@@ -477,6 +489,27 @@ export function useBrowserControl({
     [credentials, remoteCursorBusy, sessionId, sessionToken],
   );
 
+  const selectMediaStream = useCallback(
+    (selection: LiveSessionMediaSelection) => {
+      if (!enabled || !sessionId || !credentials || live.mediaSwitching) {
+        return false;
+      }
+      void live
+        .selectPresentation(selection)
+        .catch((cause: unknown) =>
+          toast.error(errorMessage(cause, "Presentation could not be updated")),
+        );
+      return true;
+    },
+    [credentials, enabled, live, sessionId],
+  );
+
+  const setWebRTCStreamSettings = useCallback(
+    (settings: LiveSessionPresentationQuality) =>
+      selectMediaStream({ kind: "webrtc", quality: settings }),
+    [selectMediaStream],
+  );
+
   const activeTarget = useMemo(
     () => targets.find((target) => target.id === live.activeTargetId) ?? null,
     [live.activeTargetId, targets],
@@ -500,6 +533,8 @@ export function useBrowserControl({
     frame$: live.frame$,
     mediaPhase,
     mediaStream: live.mediaStream,
+    mediaStreamSettings: live.presentation?.quality ?? null,
+    mediaVideoProfiles: live.presentation?.profiles ?? [],
     mediaSize: live.mediaSize,
     mediaError: null,
     mediaPath,
@@ -524,6 +559,8 @@ export function useBrowserControl({
     setBrowserViewportSize,
     setViewportAutoSync,
     setViewportToBrowserSize,
+    setWebRTCStreamSettings,
+    selectMediaStream,
     send,
     activateTarget,
     reorderTargets,

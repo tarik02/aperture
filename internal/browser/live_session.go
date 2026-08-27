@@ -62,6 +62,7 @@ type liveSession struct {
 
 	mu             sync.Mutex
 	inputMu        sync.Mutex
+	presentationMu sync.Mutex
 	recordingMu    sync.Mutex
 	leaseUpdatesMu sync.Mutex
 	presenceMu     sync.Mutex
@@ -173,6 +174,7 @@ type liveSessionClientMessage struct {
 	Phase                 string  `json:"phase"`
 	DeviceScaleFactor     float64 `json:"deviceScaleFactor"`
 	RecordingID           string  `json:"recordingId"`
+	Profile               string  `json:"profile"`
 	FPS                   int     `json:"fps"`
 	BitrateKbps           int     `json:"bitrateKbps"`
 	Codec                 string  `json:"codec"`
@@ -216,7 +218,20 @@ type liveSessionServerMessage struct {
 	Phase           string                   `json:"phase,omitempty"`
 	Recordings      []wrapperRecording       `json:"recordings,omitempty"`
 	Recording       *wrapperRecording        `json:"recording,omitempty"`
+	Presentation    *liveSessionPresentation `json:"presentation,omitempty"`
 	RealtimeCounter uint64                   `json:"realtimeCounter,omitempty"`
+}
+
+type liveSessionPresentation struct {
+	Quality  liveSessionPresentationQuality `json:"quality"`
+	Profiles []mediaProfile                 `json:"profiles"`
+}
+
+type liveSessionPresentationQuality struct {
+	Profile          string `json:"profile"`
+	FPS              int    `json:"fps"`
+	BitrateKbps      int    `json:"bitrateKbps"`
+	KeyframeInterval int    `json:"keyframeInterval"`
 }
 
 type automationLeaseRequest struct {

@@ -20,7 +20,7 @@ type SessionHelloIdentity = {
   avatarHash: string;
 };
 
-type LiveSessionTransportKind = "webrtc" | "websocket";
+export type LiveSessionTransportKind = "webrtc" | "websocket";
 
 type LiveSessionConnectionCallbacks = {
   onPhase: (phase: "connecting" | "connected" | "disconnected" | "error") => void;
@@ -43,6 +43,12 @@ type LiveSessionConnectionOptions = {
 
 type PendingCommand = {
   resolve: (result: LiveSessionCommandResult) => void;
+  reject: (error: Error) => void;
+};
+
+type TransportRequest = {
+  kind: LiveSessionTransportKind;
+  resolve: () => void;
   reject: (error: Error) => void;
 };
 
@@ -95,6 +101,8 @@ export class LiveSessionConnection {
   private active: SessionTransport | null = null;
   private candidate: SessionTransport | null = null;
   private identity: SessionIdentity | null = null;
+  private preferredTransport: LiveSessionTransportKind;
+  private transportRequest: TransportRequest | null = null;
   private disposed = false;
   private retryTimer: number | null = null;
   private webrtcRetryMs = 1_000;
@@ -107,16 +115,13 @@ export class LiveSessionConnection {
 
   constructor(options: LiveSessionConnectionOptions) {
     this.options = options;
+    this.preferredTransport = options.webrtcSupported ? "webrtc" : "websocket";
   }
 
   connect() {
     this.disposed = false;
     this.options.callbacks.onPhase("connecting");
-    if (this.options.webrtcSupported) {
-      this.startWebRTC();
-    } else {
-      this.startWebSocket();
-    }
+    this.startPreferredTransport();
   }
 
   close() {
@@ -128,6 +133,7 @@ export class LiveSessionConnection {
     this.candidateFrame = null;
     this.active?.close();
     this.active = null;
+    this.rejectTransportRequest("live session connection closed");
     this.rejectPending("live session connection closed");
     this.options.callbacks.onFrame(null);
     this.options.callbacks.onStream(null);
@@ -142,13 +148,38 @@ export class LiveSessionConnection {
     this.candidateFrame = null;
     this.active?.close();
     this.active = null;
+    this.rejectTransportRequest("live session transport replaced");
     this.rejectPending("live session transport replaced");
     this.options.callbacks.onPhase("connecting");
-    if (this.options.webrtcSupported) {
-      this.startWebRTC();
-    } else {
-      this.startWebSocket();
+    this.startPreferredTransport();
+  }
+
+  selectTransport(kind: LiveSessionTransportKind): Promise<void> {
+    if (kind === "webrtc" && !this.options.webrtcSupported) {
+      return Promise.reject(new Error("WebRTC presentation is unavailable"));
     }
+    this.preferredTransport = kind;
+    this.clearRetry();
+    if (this.candidate && this.candidate.kind !== kind) {
+      this.candidate.close();
+      this.candidate = null;
+      this.candidateMessages = [];
+      this.candidateFrame = null;
+    }
+    this.rejectTransportRequest("presentation selection was replaced");
+    if (this.active?.kind === kind) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      this.transportRequest = { kind, resolve, reject };
+      if (this.candidate === null) {
+        if (kind === "webrtc") {
+          this.startWebRTC();
+        } else {
+          this.startWebSocket();
+        }
+      }
+    });
   }
 
   sendReliable(message: Record<string, unknown>): boolean {
@@ -202,6 +233,14 @@ export class LiveSessionConnection {
     };
   }
 
+  private startPreferredTransport() {
+    if (this.preferredTransport === "webrtc" && this.options.webrtcSupported) {
+      this.startWebRTC();
+    } else {
+      this.startWebSocket();
+    }
+  }
+
   private startWebRTC() {
     if (this.disposed || this.candidate) {
       return;
@@ -217,12 +256,7 @@ export class LiveSessionConnection {
       });
     } catch (cause) {
       const error = cause instanceof Error ? cause : new Error("WebRTC setup failed");
-      this.options.callbacks.onError(error.message);
-      if (this.active === null) {
-        this.startWebSocket();
-      } else {
-        this.scheduleWebRTCRetry();
-      }
+      this.candidateFailed("webrtc", error);
       return;
     }
     this.candidate = transport;
@@ -237,11 +271,7 @@ export class LiveSessionConnection {
       this.candidate = null;
       this.candidateMessages = [];
       this.candidateFrame = null;
-      if (this.active === null) {
-        this.startWebSocket();
-      } else {
-        this.scheduleWebRTCRetry();
-      }
+      this.candidateFailed("webrtc", new Error("WebRTC presentation timed out"));
     }, WEBRTC_DEADLINE_MS);
   }
 
@@ -249,12 +279,19 @@ export class LiveSessionConnection {
     if (this.disposed || this.candidate) {
       return;
     }
-    const transport = new WebSocketSessionTransport({
-      sessionId: this.options.sessionId,
-      credentials: this.options.credentials,
-      sessionToken: this.options.sessionToken,
-      callbacks: this.transportCallbacks(),
-    });
+    let transport: WebSocketSessionTransport;
+    try {
+      transport = new WebSocketSessionTransport({
+        sessionId: this.options.sessionId,
+        credentials: this.options.credentials,
+        sessionToken: this.options.sessionToken,
+        callbacks: this.transportCallbacks(),
+      });
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error("WebSocket setup failed");
+      this.candidateFailed("websocket", error);
+      return;
+    }
     this.candidate = transport;
     this.candidateMessages = [];
     this.candidateFrame = null;
@@ -281,6 +318,11 @@ export class LiveSessionConnection {
     this.webrtcRetryMs = 1_000;
     this.options.callbacks.onPhase("connected");
     this.options.callbacks.onTransport(transport.kind);
+    if (this.transportRequest?.kind === transport.kind) {
+      const request = this.transportRequest;
+      this.transportRequest = null;
+      request.resolve();
+    }
     if (transport instanceof WebRTCSessionTransport) {
       this.options.callbacks.onFrame(null);
       this.options.callbacks.onStream(transport.mediaStream());
@@ -293,7 +335,11 @@ export class LiveSessionConnection {
     for (const message of messages) {
       this.deliverMessage(message);
     }
-    if (transport.kind === "websocket" && this.options.webrtcSupported) {
+    if (
+      transport.kind === "websocket" &&
+      this.preferredTransport === "webrtc" &&
+      this.options.webrtcSupported
+    ) {
       this.scheduleWebRTCRetry();
     }
     if (previous && previous !== transport) {
@@ -310,21 +356,7 @@ export class LiveSessionConnection {
       this.candidateMessages = [];
       this.candidateFrame = null;
       transport.close();
-      if (this.active === null) {
-        if (transport.kind === "webrtc") {
-          this.startWebSocket();
-        } else {
-          this.options.callbacks.onPhase("disconnected");
-          this.options.callbacks.onError(error.message);
-          window.setTimeout(() => {
-            if (!this.disposed && this.active === null && this.candidate === null) {
-              this.startWebSocket();
-            }
-          }, WEBSOCKET_RETRY_MS);
-        }
-      } else {
-        this.scheduleWebRTCRetry();
-      }
+      this.candidateFailed(transport.kind, error);
       return;
     }
     if (this.active !== transport) {
@@ -396,7 +428,13 @@ export class LiveSessionConnection {
   }
 
   private scheduleWebRTCRetry() {
-    if (this.disposed || !this.options.webrtcSupported || this.retryTimer !== null) {
+    if (
+      this.disposed ||
+      this.preferredTransport !== "webrtc" ||
+      !this.options.webrtcSupported ||
+      this.active?.kind === "webrtc" ||
+      this.retryTimer !== null
+    ) {
       return;
     }
     const delay = this.webrtcRetryMs;
@@ -419,6 +457,42 @@ export class LiveSessionConnection {
       pending.reject(new Error(message));
     }
     this.pendingCommands.clear();
+  }
+
+  private rejectTransportRequest(message: string) {
+    if (!this.transportRequest) {
+      return;
+    }
+    const request = this.transportRequest;
+    this.transportRequest = null;
+    request.reject(new Error(message));
+  }
+
+  private candidateFailed(kind: LiveSessionTransportKind, error: Error) {
+    const requested = this.transportRequest?.kind === kind;
+    if (requested) {
+      this.rejectTransportRequest(error.message);
+      if (this.active) {
+        this.preferredTransport = this.active.kind;
+      }
+    }
+    if (this.active) {
+      if (this.active.kind === "websocket") {
+        this.scheduleWebRTCRetry();
+      }
+      return;
+    }
+    if (kind === "webrtc") {
+      this.startWebSocket();
+      return;
+    }
+    this.options.callbacks.onPhase("disconnected");
+    this.options.callbacks.onError(error.message);
+    window.setTimeout(() => {
+      if (!this.disposed && this.active === null && this.candidate === null) {
+        this.startWebSocket();
+      }
+    }, WEBSOCKET_RETRY_MS);
   }
 }
 

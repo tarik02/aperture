@@ -587,7 +587,14 @@ func (r *wrapperRuntime) handleQuality(w http.ResponseWriter, req *http.Request)
 		writeWrapperError(w, http.StatusInternalServerError, fmt.Sprintf("default video option for profile %q is not configured", body.Profile))
 		return
 	}
-	if err := mediaProducer.media.UpdateQuality(option.Quality(body.Profile, profile.DefaultOption)); err != nil {
+	_, err := r.liveSession.updatePresentationQuality(
+		body.Profile,
+		option.Width,
+		option.Height,
+		option.Framerate,
+		option.BitrateKbps,
+	)
+	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
 	}

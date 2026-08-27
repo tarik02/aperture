@@ -47,6 +47,32 @@ export type CollaborationError = {
   message: string;
 };
 
+const presentationQualitySchema = z
+  .object({
+    profile: z.string(),
+    fps: z.number().int().min(1).max(120),
+    bitrateKbps: z.number().int().min(100),
+    keyframeInterval: z.number().int().positive(),
+  })
+  .strict();
+
+const presentationProfileSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    codec: z.string(),
+    mimeType: z.string(),
+    sdpFmtpLine: z.string(),
+  })
+  .strict();
+
+const presentationSchema = z
+  .object({
+    quality: presentationQualitySchema,
+    profiles: z.array(presentationProfileSchema),
+  })
+  .strict();
+
 const targetSchema = z
   .object({
     id: z.string(),
@@ -97,6 +123,7 @@ const snapshotSchema = z
     targets: z.array(targetSchema).optional().default([]),
     participants: z.array(participantSchema).optional().default([]),
     recordings: z.array(recordingSchema).optional().default([]),
+    presentation: presentationSchema.optional(),
   })
   .strict();
 
@@ -171,6 +198,14 @@ const recordingsStateSchema = z
   })
   .strict();
 
+const presentationStateSchema = z
+  .object({
+    version: z.literal(1),
+    type: z.literal("presentation.state"),
+    presentation: presentationSchema,
+  })
+  .strict();
+
 const errorSchema = z
   .object({
     version: z.literal(1),
@@ -190,6 +225,7 @@ const commandResultTypes = [
   "page.reload.result",
   "page.stop-loading.result",
   "viewport.set.result",
+  "presentation.quality.set.result",
   "recording.start.result",
   "recording.stop.result",
   "recording.cancel.result",
@@ -205,6 +241,7 @@ const commandResultSchema = z
     message: z.string().optional(),
     targetId: z.string().optional(),
     recording: recordingSchema.optional(),
+    presentation: presentationSchema.optional(),
   })
   .strict();
 
@@ -217,6 +254,7 @@ export const liveSessionServerMessageSchema = z.discriminatedUnion("type", [
   paintSchema,
   targetsStateSchema,
   recordingsStateSchema,
+  presentationStateSchema,
   errorSchema,
   commandResultSchema,
 ]);
@@ -225,6 +263,8 @@ export type LiveSessionServerMessage = z.infer<typeof liveSessionServerMessageSc
 export type LiveSessionSnapshot = z.infer<typeof snapshotSchema>;
 export type LiveSessionTarget = z.infer<typeof targetSchema>;
 export type LiveSessionCommandResult = z.infer<typeof commandResultSchema>;
+export type LiveSessionPresentation = z.infer<typeof presentationSchema>;
+export type LiveSessionPresentationQuality = z.infer<typeof presentationQualitySchema>;
 
 export const rasterFrameSchema = z
   .object({

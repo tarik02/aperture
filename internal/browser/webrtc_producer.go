@@ -23,11 +23,12 @@ const (
 )
 
 type producer struct {
-	cancel   context.CancelFunc
-	done     chan struct{}
-	media    *targetMediaSource
-	profiles []mediaProfile
-	webrtc   *rtc.Service
+	cancel           context.CancelFunc
+	done             chan struct{}
+	media            *targetMediaSource
+	profiles         []mediaProfile
+	keyframeInterval int
+	webrtc           *rtc.Service
 }
 
 type mediaProfile struct {
@@ -156,14 +157,60 @@ func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	result := &producer{
-		cancel:   cancel,
-		done:     make(chan struct{}),
-		media:    mediaSource,
-		profiles: availableProfiles,
-		webrtc:   webrtcService,
+		cancel:           cancel,
+		done:             make(chan struct{}),
+		media:            mediaSource,
+		profiles:         availableProfiles,
+		keyframeInterval: values.MediaProducerKeyframe,
+		webrtc:           webrtcService,
 	}
 	go result.run(ctx)
 	return result, nil
+}
+
+func (p *producer) presentation() liveSessionPresentation {
+	quality := p.media.Quality()
+	return liveSessionPresentation{
+		Quality: liveSessionPresentationQuality{
+			Profile:          quality.Profile,
+			FPS:              quality.Framerate,
+			BitrateKbps:      quality.BitrateKbps,
+			KeyframeInterval: p.keyframeInterval,
+		},
+		Profiles: p.profiles,
+	}
+}
+
+func (p *producer) updatePresentationQuality(profileName string, width, height, fps, bitrateKbps int) (liveSessionPresentation, error) {
+	profile, exists := p.media.config.Profiles[profileName]
+	if !exists {
+		return liveSessionPresentation{}, fmt.Errorf("video profile %q is not configured", profileName)
+	}
+	_, exists = profile.Options[profile.DefaultOption]
+	if !exists {
+		return liveSessionPresentation{}, fmt.Errorf("default video option for profile %q is not configured", profileName)
+	}
+	mediaWidth, mediaHeight := mediaDimensions(profile, width, height, fps)
+	effective, err := p.webrtc.UpdateQuality(rtc.Quality{
+		Profile:     profileName,
+		Option:      profile.DefaultOption,
+		Width:       mediaWidth,
+		Height:      mediaHeight,
+		Framerate:   fps,
+		BitrateKbps: bitrateKbps,
+	})
+	if err != nil {
+		return liveSessionPresentation{}, err
+	}
+	return liveSessionPresentation{
+		Quality: liveSessionPresentationQuality{
+			Profile:          effective.Profile,
+			FPS:              effective.Framerate,
+			BitrateKbps:      effective.BitrateKbps,
+			KeyframeInterval: p.keyframeInterval,
+		},
+		Profiles: p.profiles,
+	}, nil
 }
 
 func parseICEServers(raw string) ([]string, string, string, error) {

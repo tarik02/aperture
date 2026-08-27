@@ -18,6 +18,7 @@ _Avoid_: CDP target, tab
 
 **Presentation**:
 The live visual output of one browser target delivered to one session client. Selecting a presentation is client-local and neither focuses the browser nor retargets another client or recording.
+The session client chooses WebRTC or WebSocket raster delivery locally. The compositor encoder profile, frame rate, and bitrate are shared by all WebRTC presentations in the live session.
 _Avoid_: Active tab, screen share, media target
 
 **Session actor**:

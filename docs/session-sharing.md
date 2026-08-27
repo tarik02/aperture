@@ -47,6 +47,14 @@ Owners, editors, and viewers can turn on drawing mode and mark the current targe
 
 The live session relays strokes to connected participants but does not store them. A stroke fades out seven seconds after its last point. Shared drawing does not change page content and does not appear in browser recordings.
 
+## Presentation modes
+
+The workbench tries WebRTC first and falls back to JPEG frames over the live-session WebSocket when WebRTC is unavailable. Each session client can explicitly choose JPEG or switch back to WebRTC from the Stream menu. An explicit JPEG choice disables background WebRTC retries for that client until it selects WebRTC again.
+
+The server advertises only encoder profiles supported by its media setup. These may include VP8, hardware H.264, hardware H.264 High, and software H.264. Owners and editors can select an advertised profile, use the low, balanced, or high preset, or set a custom frame rate and maximum bitrate. The encoder profile and quality are shared across WebRTC clients, so a change is broadcast to the live session. Viewers can choose JPEG or WebRTC for their own presentation but cannot change the shared encoder settings.
+
+Changing to an incompatible profile first hands the requesting client to WebSocket, updates the shared encoder, and then negotiates a new WebRTC transport. Other WebRTC clients use the same fallback and recovery path. Both transports carry the same live-session protocol; JPEG delivery does not restore a frontend CDP connection.
+
 ## Files
 
 File requests use the existing session routing layer and are handled by the per-session wrapper:

@@ -256,6 +256,11 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 	if client.role == "owner" {
 		recordings = session.listRecordings()
 	}
+	var presentation *liveSessionPresentation
+	if mediaProducer := session.runtime.currentMediaProducer(); mediaProducer != nil {
+		current := mediaProducer.presentation()
+		presentation = &current
+	}
 	session.mu.Lock()
 	if client.activeTargetID == "" {
 		client.activeTargetID = session.browser.firstSelectableTargetID(targets)
@@ -278,6 +283,7 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 		Targets:        targets,
 		Participants:   participants,
 		Recordings:     recordings,
+		Presentation:   presentation,
 	}
 	session.mu.Unlock()
 	return message, nil
