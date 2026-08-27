@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: superseded by ADR-0008
 ---
 
 # Add an authenticated WebRTC fast path for collaboration

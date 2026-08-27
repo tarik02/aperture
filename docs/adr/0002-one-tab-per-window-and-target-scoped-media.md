@@ -1,6 +1,6 @@
 # ADR 0002: one tab per window and target-scoped media
 
-ADR 0003 supersedes this ADR's per-target input ownership decision. Media selection remains target-scoped and client-local.
+ADR 0003 supersedes this ADR's per-target input ownership decision. ADR 0008 supersedes its direct frontend CDP composition and separate recording-client connection. Browser-target identity, target-scoped media, and client-local presentation selection remain in effect.
 
 - Status: accepted
 - Date: 2026-07-31
