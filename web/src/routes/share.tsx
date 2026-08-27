@@ -87,13 +87,11 @@ function ShareRoute() {
     () =>
       capability.kind === "ready"
         ? {
-            credentialType: "api_token",
+            kind: "bearer",
             token: capability.token,
             authorityType: null,
             tenantId: null,
             selectedTenantId: null,
-            resourceMode: "all",
-            resourceGrants: [],
           }
         : null,
     [capability],

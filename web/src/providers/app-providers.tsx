@@ -2,7 +2,7 @@ import { HotkeysProvider } from "@tanstack/react-hotkeys";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useState } from "react";
-import { TokenVaultProvider } from "#/components/token-vault-provider.tsx";
+import { AuthSessionProvider } from "#/components/auth-session-provider.tsx";
 import { PwaRegistration } from "#/components/pwa-registration.tsx";
 import { Toaster } from "#/components/ui/sonner.tsx";
 import { TooltipProvider } from "#/components/ui/tooltip.tsx";
@@ -17,7 +17,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <HotkeysProvider>
           <TooltipProvider>
             <WindowControlsOverlayWatcher />
-            <TokenVaultProvider>{children}</TokenVaultProvider>
+            <AuthSessionProvider>{children}</AuthSessionProvider>
             <PwaRegistration />
             <Toaster richColors closeButton position="bottom-center" />
           </TooltipProvider>

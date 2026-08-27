@@ -901,7 +901,7 @@ function sessionProtocols(credentials: ApiCredentials, sessionToken?: string) {
   const protocols = [LIVE_SESSION_PROTOCOL];
   if (sessionToken) {
     protocols.push(`authorization.bearer.${sessionToken}`);
-  } else if (credentials.credentialType === "api_token") {
+  } else if (credentials.kind === "bearer") {
     protocols.push(`authorization.bearer.${credentials.token}`);
   }
   const tenantId = resolveTenantHeader(credentials, "tenant-scoped");

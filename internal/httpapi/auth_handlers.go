@@ -45,6 +45,9 @@ func (s *Server) authMe(c *gin.Context) {
 		return
 	}
 	resp.SelectedTenant = selectedTenant
+	if selectedTenant != nil && c.GetBool(webSessionAuthenticationContextKey) {
+		s.WebAuth.RememberSelectedTenant(c.Request.Context(), selectedTenant.ID)
+	}
 	if principal.Type == auth.PrincipalTypeUser && principal.UserID != nil {
 		tenants, err := s.Auth.UserTenants(c.Request.Context(), *principal.UserID)
 		if err != nil {

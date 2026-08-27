@@ -7,7 +7,7 @@ info:
 
     ## Authentication
 
-    Send `Authorization: Bearer <token>` or authenticate through an account browser session established by OIDC, passkey, or password. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Tenant API tokens may additionally restrict access to explicit session and snapshot IDs. Raw tokens are returned only on creation or rotation.
+    Send `Authorization: Bearer <token>` or authenticate through a browser session established by an API token, OIDC, passkey, or password. Bearer credentials take precedence when both are present. The health check is public. `system:admin` grants every scope. Tenant API tokens may additionally restrict access to explicit session and snapshot IDs. Raw tokens are returned only on creation or rotation.
 
     ## Tenant selection
 

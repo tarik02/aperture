@@ -3,7 +3,7 @@ import { startAuthentication } from "@simplewebauthn/browser";
 import { Fingerprint, Key, KeyRound, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button.tsx";
-import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
+import { DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
 import {
   Field,
   FieldError,
@@ -12,32 +12,24 @@ import {
   FieldSeparator,
 } from "#/components/ui/field.tsx";
 import { Input } from "#/components/ui/input.tsx";
-import { useTokenBootstrap } from "#/hooks/use-token-bootstrap.ts";
-import { fetchAuthMe } from "#/lib/auth-me.ts";
 import { apiClient } from "#/lib/api/client.ts";
 import { parseTokenId } from "#/lib/token-id.ts";
-import { useTokenVaultStore } from "#/stores/token-vault.ts";
-import { useTokenFormStore, type TokenFormMode } from "#/features/token/form/token-form.store.ts";
+import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import type { LoginMethods } from "#/lib/api/schemas.ts";
 
-type TokenFormProps = {
-  mode: TokenFormMode;
-  dismissible?: boolean;
+type LoginFormProps = {
   loginMethods?: LoginMethods["methods"];
   onDone: () => void;
 };
 
 type LoginFormMethod = "password" | "api_token";
 
-export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: TokenFormProps) {
-  const addProfile = useTokenVaultStore((state) => state.addProfile);
-  const upsertWebSession = useTokenVaultStore((state) => state.upsertWebSession);
-  const removeProfile = useTokenVaultStore((state) => state.removeProfile);
-  const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
-  const { bootstrapProfileById } = useTokenBootstrap();
-  const { rawToken, tokenError, submitting } = useTokenFormStore((state) => state.formData);
-  const setFormData = useTokenFormStore((state) => state.setFormData);
+export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
+  const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
   const [selectedLoginMethod, setSelectedLoginMethod] = useState<LoginFormMethod | null>(null);
+  const [rawToken, setRawToken] = useState("");
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [tokenSubmitting, setTokenSubmitting] = useState(false);
   const [passkeySubmitting, setPasskeySubmitting] = useState(false);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [passwordStep, setPasswordStep] = useState<"credentials" | "mfa">("credentials");
@@ -46,7 +38,7 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
   const [mfaCode, setMFACode] = useState("");
   const [mfaMethod, setMFAMethod] = useState<"totp" | "recovery">("totp");
 
-  const busy = passkeySubmitting || passwordSubmitting || submitting || bootstrapping;
+  const busy = passkeySubmitting || passwordSubmitting || tokenSubmitting;
   const methods = loginMethods ?? [];
   const selectedMethodIndex = selectedLoginMethod
     ? methods.findIndex((method) => method.type === selectedLoginMethod)
@@ -57,40 +49,31 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
 
   async function handleTokenLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFormData({ tokenError: null });
+    setTokenError(null);
 
     const trimmedToken = rawToken.trim();
     if (!trimmedToken) {
-      setFormData({ tokenError: "Token required" });
+      setTokenError("Token required");
       return;
     }
 
     if (!parseTokenId(trimmedToken)) {
-      setFormData({ tokenError: "Invalid token format" });
+      setTokenError("Invalid token format");
       return;
     }
 
-    setFormData({ submitting: true });
-    const createdProfileId = addProfile({
-      rawToken: trimmedToken,
-    });
-
-    if (!createdProfileId) {
-      setFormData({ tokenError: "Invalid token format", submitting: false });
-      return;
+    setTokenSubmitting(true);
+    try {
+      await apiClient.loginWithAPIToken(trimmedToken);
+      setAuthenticated(await apiClient.getAuthMe());
+      setRawToken("");
+      toast.success("Logged in");
+      onDone();
+    } catch (error) {
+      setTokenError(error instanceof Error ? error.message : "Token rejected");
+    } finally {
+      setTokenSubmitting(false);
     }
-
-    const bootstrapped = await bootstrapProfileById(createdProfileId);
-    setFormData({ submitting: false });
-
-    if (!bootstrapped) {
-      removeProfile(createdProfileId);
-      setFormData({ tokenError: "Token rejected" });
-      return;
-    }
-
-    toast.success(mode === "welcome" ? "Logged in" : "Token added");
-    onDone();
   }
 
   async function handlePasskeyLogin() {
@@ -99,7 +82,7 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
       const options = await apiClient.beginPasskeyLogin();
       const credential = await startAuthentication({ optionsJSON: options.publicKey });
       await apiClient.finishPasskeyLogin(credential);
-      upsertWebSession(await fetchAuthMe(null));
+      setAuthenticated(await apiClient.getAuthMe());
       toast.success("Logged in");
       onDone();
     } catch (error) {
@@ -123,7 +106,7 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
       } else {
         await apiClient.completePasswordMFA(mfaCode);
       }
-      upsertWebSession(await fetchAuthMe(null));
+      setAuthenticated(await apiClient.getAuthMe());
       setPasswordStep("credentials");
       setEmail("");
       setPassword("");
@@ -249,7 +232,7 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
               type="password"
               autoComplete="off"
               value={rawToken}
-              onChange={(event) => setFormData({ rawToken: event.target.value })}
+              onChange={(event) => setRawToken(event.target.value)}
               aria-invalid={tokenError ? true : undefined}
               disabled={busy}
             />
@@ -291,123 +274,86 @@ export function TokenForm({ mode, dismissible = true, loginMethods, onDone }: To
 
   return (
     <div>
-      {mode === "welcome" ? (
-        <DialogHeader className="text-center">
-          <DialogTitle>Login to Aperture</DialogTitle>
-        </DialogHeader>
-      ) : (
-        <DialogHeader>
-          <DialogTitle>Add token</DialogTitle>
-        </DialogHeader>
-      )}
-      {mode === "welcome" ? (
-        <FieldGroup className="pt-2">
-          {activeLoginControl}
-          {activeMethod && alternativeMethods.length > 0 ? (
-            <>
-              <FieldSeparator>or</FieldSeparator>
-              <div className="flex flex-col gap-2">
-                {alternativeMethods.map((method) => {
-                  switch (method.type) {
-                    case "password":
-                      return (
-                        <Button
-                          key={method.type}
-                          type="button"
-                          variant="outline"
-                          className="w-full"
-                          disabled={busy}
-                          onClick={() => setSelectedLoginMethod(method.type)}
-                        >
-                          <KeyRound data-icon="inline-start" />
-                          Use password
-                        </Button>
-                      );
-                    case "api_token":
-                      return (
-                        <Button
-                          key={method.type}
-                          type="button"
-                          variant="outline"
-                          className="w-full"
-                          disabled={busy}
-                          onClick={() => setSelectedLoginMethod(method.type)}
-                        >
-                          <Key data-icon="inline-start" />
-                          Use API token
-                        </Button>
-                      );
-                    case "passkey":
-                      return (
-                        <Button
-                          key={method.type}
-                          type="button"
-                          variant="outline"
-                          className="w-full"
-                          disabled={busy}
-                          onClick={() => void handlePasskeyLogin()}
-                        >
-                          <Fingerprint data-icon="inline-start" />
-                          Continue with a passkey
-                        </Button>
-                      );
-                    case "oidc":
-                      return (
-                        <Button
-                          key={`${method.type}:${method.id}`}
-                          type="button"
-                          variant="outline"
-                          className="w-full"
-                          disabled={busy}
-                          onClick={() => startOIDCLogin(method.loginUrl)}
-                        >
-                          <LogIn data-icon="inline-start" />
-                          {method.name}
-                        </Button>
-                      );
-                    default: {
-                      const exhaustive: never = method;
-                      return exhaustive;
-                    }
+      <DialogHeader className="text-center">
+        <DialogTitle>Login to Aperture</DialogTitle>
+      </DialogHeader>
+      <FieldGroup className="pt-2">
+        {activeLoginControl}
+        {activeMethod && alternativeMethods.length > 0 ? (
+          <>
+            <FieldSeparator>or</FieldSeparator>
+            <div className="flex flex-col gap-2">
+              {alternativeMethods.map((method) => {
+                switch (method.type) {
+                  case "password":
+                    return (
+                      <Button
+                        key={method.type}
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={busy}
+                        onClick={() => setSelectedLoginMethod(method.type)}
+                      >
+                        <KeyRound data-icon="inline-start" />
+                        Use password
+                      </Button>
+                    );
+                  case "api_token":
+                    return (
+                      <Button
+                        key={method.type}
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={busy}
+                        onClick={() => setSelectedLoginMethod(method.type)}
+                      >
+                        <Key data-icon="inline-start" />
+                        Use API token
+                      </Button>
+                    );
+                  case "passkey":
+                    return (
+                      <Button
+                        key={method.type}
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={busy}
+                        onClick={() => void handlePasskeyLogin()}
+                      >
+                        <Fingerprint data-icon="inline-start" />
+                        Continue with a passkey
+                      </Button>
+                    );
+                  case "oidc":
+                    return (
+                      <Button
+                        key={`${method.type}:${method.id}`}
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={busy}
+                        onClick={() => startOIDCLogin(method.loginUrl)}
+                      >
+                        <LogIn data-icon="inline-start" />
+                        {method.name}
+                      </Button>
+                    );
+                  default: {
+                    const exhaustive: never = method;
+                    return exhaustive;
                   }
-                })}
-              </div>
-            </>
-          ) : null}
-          {loginMethods && !activeMethod ? (
-            <p className="text-sm text-muted-foreground">No login methods are available.</p>
-          ) : null}
-        </FieldGroup>
-      ) : (
-        <form onSubmit={(event) => void handleTokenLogin(event)}>
-          <FieldGroup className="py-2">
-            <Field data-invalid={tokenError ? true : undefined}>
-              <FieldLabel htmlFor="token-raw">API token</FieldLabel>
-              <Input
-                id="token-raw"
-                name="token"
-                type="password"
-                autoComplete="off"
-                value={rawToken}
-                onChange={(event) => setFormData({ rawToken: event.target.value })}
-                aria-invalid={tokenError ? true : undefined}
-                disabled={busy}
-              />
-              <FieldError>{tokenError}</FieldError>
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            {dismissible ? (
-              <Button type="button" variant="outline" onClick={onDone} disabled={busy}>
-                Cancel
-              </Button>
-            ) : null}
-            <Button type="submit" disabled={busy}>
-              Add
-            </Button>
-          </DialogFooter>
-        </form>
-      )}
+                }
+              })}
+            </div>
+          </>
+        ) : null}
+        {loginMethods && !activeMethod ? (
+          <p className="text-sm text-muted-foreground">No login methods are available.</p>
+        ) : null}
+      </FieldGroup>
     </div>
   );
 }

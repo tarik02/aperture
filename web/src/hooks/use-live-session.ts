@@ -22,7 +22,7 @@ import {
   type LiveSessionServerMessage,
   type LiveSessionTarget,
 } from "#/lib/control/live-session-protocol.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
+import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 type InputDimensions = {
   width: number;
@@ -116,10 +116,10 @@ export function useLiveSession({
   webrtcSupported,
   iceServers,
 }: UseLiveSessionOptions): LiveSessionControl {
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
+  const principal = useAuthSessionStore(selectPrincipal);
   const identity = useMemo(
-    () => collaborationIdentity(role, activeProfile?.tokenName ?? null),
-    [activeProfile?.tokenName, role],
+    () => collaborationIdentity(role, principal?.name ?? null),
+    [principal?.name, role],
   );
   const frameSubject = useMemo(() => new BehaviorSubject<LiveSessionRasterFrame | null>(null), []);
   const paintSubject = useMemo(() => new Subject<CollaborationPaintEvent>(), []);

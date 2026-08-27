@@ -2,18 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient, type CreateSessionInput, type PromoteSessionInput } from "#/lib/api/client.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
 function useInvalidateSessions() {
   const queryClient = useQueryClient();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
-
   return () => {
-    void queryClient.invalidateQueries({ queryKey: ["sessions", profileId] });
-    void queryClient.invalidateQueries({ queryKey: ["session", profileId] });
-    void queryClient.invalidateQueries({ queryKey: ["sessions-bulk", profileId] });
-    void queryClient.invalidateQueries({ queryKey: ["events", profileId] });
+    void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    void queryClient.invalidateQueries({ queryKey: ["session"] });
+    void queryClient.invalidateQueries({ queryKey: ["sessions-bulk"] });
+    void queryClient.invalidateQueries({ queryKey: ["events"] });
   };
 }
 
@@ -76,15 +72,13 @@ export function usePromoteSessionMutation() {
   const credentials = useApiCredentials();
   const invalidateSessions = useInvalidateSessions();
   const queryClient = useQueryClient();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
 
   return useMutation({
     mutationFn: ({ sessionId, input }: { sessionId: string; input: PromoteSessionInput }) =>
       apiClient.promoteSession(credentials!, sessionId, input),
     onSuccess: () => {
       invalidateSessions();
-      void queryClient.invalidateQueries({ queryKey: ["snapshots", profileId] });
+      void queryClient.invalidateQueries({ queryKey: ["snapshots"] });
     },
     onError: (error) => toastMutationError(error, "Promote failed"),
   });

@@ -22,14 +22,13 @@ type PendingAction =
   | null;
 
 type PasskeyModalProps = {
-  profileId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-export function PasskeyModal({ profileId, open, onOpenChange }: PasskeyModalProps) {
+export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
   const queryClient = useQueryClient();
-  const passkeysQueryKey = queryKeys.passkeys(profileId);
+  const passkeysQueryKey = queryKeys.passkeys;
   const passkeys = useQuery({
     queryKey: passkeysQueryKey,
     queryFn: () => apiClient.listPasskeys(),

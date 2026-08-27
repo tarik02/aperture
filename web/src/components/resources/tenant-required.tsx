@@ -1,17 +1,17 @@
 import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
 import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
+import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 export function TenantRequiredNotice() {
   const credentials = useApiCredentials();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
+  const principal = useAuthSessionStore(selectPrincipal);
 
-  if (!activeProfile) {
+  if (!principal) {
     return null;
   }
 
-  if (activeProfile.authorityType === "tenant") {
+  if (principal.authorityType === "tenant") {
     return null;
   }
 

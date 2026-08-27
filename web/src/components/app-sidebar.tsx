@@ -1,14 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import { ThemeSwitcher } from "#/components/theme-switcher.tsx";
-import { TokenSwitcher } from "#/components/token-switcher.tsx";
+import { AuthMenu } from "#/components/auth-menu.tsx";
 import { RecentSessionsSidebarGroup } from "#/features/session/recent-sessions-sidebar-group.tsx";
 import { primaryNavItems } from "#/lib/navigation.ts";
-import {
-  isSystemAdminProfile,
-  selectActiveProfile,
-  useTokenVaultStore,
-} from "#/stores/token-vault.ts";
+import { selectIsSystemAdmin, useAuthSessionStore } from "#/stores/auth-session.ts";
 import {
   Sidebar,
   SidebarContent,
@@ -31,8 +27,7 @@ function isNavActive(pathname: string, to: string) {
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const isSystemAdmin = isSystemAdminProfile(activeProfile);
+  const isSystemAdmin = useAuthSessionStore(selectIsSystemAdmin);
   const navItems = primaryNavItems.filter((item) => !item.adminOnly || isSystemAdmin);
 
   return (
@@ -54,7 +49,7 @@ export function AppSidebar() {
             triggerClassName="h-8 w-full max-w-none justify-start group-data-[collapsible=icon]:gap-0"
             align="start"
           />
-          <TokenSwitcher />
+          <AuthMenu />
         </div>
       </SidebarHeader>
       <SidebarContent>

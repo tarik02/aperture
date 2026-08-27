@@ -2,16 +2,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "#/lib/api/client.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
 function useInvalidateSnapshots() {
   const queryClient = useQueryClient();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
-
   return () => {
-    void queryClient.invalidateQueries({ queryKey: ["snapshots", profileId] });
-    void queryClient.invalidateQueries({ queryKey: ["events", profileId] });
+    void queryClient.invalidateQueries({ queryKey: ["snapshots"] });
+    void queryClient.invalidateQueries({ queryKey: ["events"] });
   };
 }
 

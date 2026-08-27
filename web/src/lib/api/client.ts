@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { ApiRequestError, parseApiErrorBody } from "#/lib/api/errors.ts";
+import type { ApiErrorBody } from "#/lib/api/errors.ts";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 import {
   authMeSchema,
@@ -37,52 +38,65 @@ import {
   type BrowserMode,
 } from "#/lib/api/schemas.ts";
 import type { ResourceGrant, ResourceMode } from "#/lib/api/schemas.ts";
-import type { AuthorityType, TokenProfile } from "#/stores/token-vault.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
 
 type CredentialContext = {
-  authorityType: AuthorityType | null;
+  authorityType: "system_admin" | "tenant" | null;
   tenantId: string | null;
   selectedTenantId: string | null;
-  resourceMode: ResourceMode;
-  resourceGrants: ResourceGrant[];
 };
 
 export type ApiCredentials =
   | (CredentialContext & {
-      credentialType: "api_token";
+      kind: "bearer";
       token: string;
     })
   | (CredentialContext & {
-      credentialType: "web_session";
+      kind: "session";
     });
+
+const webSessionCredentials: ApiCredentials = {
+  kind: "session",
+  authorityType: null,
+  tenantId: null,
+  selectedTenantId: null,
+};
 
 export type TenantHeaderMode = "none" | "optional" | "tenant-scoped";
 
 type QueryValue = string | number | boolean | Array<string | number | boolean> | undefined | null;
+type SessionAuthenticationFailureHandler = () => void;
 
-export function credentialsFromProfile(profile: TokenProfile): ApiCredentials {
-  if (profile.credentialType === "web_session") {
-    return {
-      credentialType: "web_session",
-      authorityType: profile.authorityType,
-      tenantId: profile.tenantId,
-      selectedTenantId: profile.selectedTenantId,
-      resourceMode: profile.resourceMode,
-      resourceGrants: profile.resourceGrants,
-    };
+let sessionAuthenticationFailureHandler: SessionAuthenticationFailureHandler | null = null;
+
+export function setSessionAuthenticationFailureHandler(
+  handler: SessionAuthenticationFailureHandler,
+): () => void {
+  sessionAuthenticationFailureHandler = handler;
+  return () => {
+    if (sessionAuthenticationFailureHandler === handler) {
+      sessionAuthenticationFailureHandler = null;
+    }
+  };
+}
+
+function handleAuthenticationFailure(
+  error: ApiErrorBody["error"],
+  credentials: ApiCredentials | null | undefined,
+) {
+  if (credentials?.kind !== "session") {
+    return;
   }
 
-  return {
-    token: profile.rawToken,
-    credentialType: "api_token",
-    authorityType: profile.authorityType,
-    tenantId: profile.tenantId,
-    selectedTenantId: profile.selectedTenantId,
-    resourceMode: profile.resourceMode,
-    resourceGrants: profile.resourceGrants,
-  };
+  switch (error.code) {
+    case "authentication_required":
+    case "invalid_authentication_token":
+    case "authentication_token_expired":
+    case "authentication_token_revoked":
+    case "user_disabled":
+      sessionAuthenticationFailureHandler?.();
+  }
 }
 
 export function resolveTenantHeader(
@@ -94,10 +108,6 @@ export function resolveTenantHeader(
   }
 
   if (mode === "optional") {
-    return credentials.selectedTenantId ?? undefined;
-  }
-
-  if (credentials.credentialType === "web_session") {
     return credentials.selectedTenantId ?? undefined;
   }
 
@@ -168,7 +178,7 @@ function buildHeaders(
 
   if (bearerToken) {
     headers.Authorization = `Bearer ${bearerToken}`;
-  } else if (credentials?.credentialType === "api_token") {
+  } else if (credentials?.kind === "bearer") {
     headers.Authorization = `Bearer ${credentials.token.trim()}`;
   }
 
@@ -204,6 +214,7 @@ async function request<T extends z.ZodType>(options: RequestOptions<T>): Promise
   if (!response.ok) {
     const parsed = parseApiErrorBody(responseBody);
     if (parsed) {
+      handleAuthenticationFailure(parsed, credentials);
       throw new ApiRequestError(parsed.code, parsed.message, response.status);
     }
     throw new ApiRequestError("internal_error", "Request failed", response.status);
@@ -243,6 +254,7 @@ async function requestVoid(options: VoidRequestOptions): Promise<void> {
   const responseBody: unknown = await response.json().catch(() => null);
   const parsed = parseApiErrorBody(responseBody);
   if (parsed) {
+    handleAuthenticationFailure(parsed, credentials);
     throw new ApiRequestError(parsed.code, parsed.message, response.status);
   }
   throw new ApiRequestError("internal_error", "Request failed", response.status);
@@ -270,6 +282,7 @@ async function requestBlob(options: Omit<VoidRequestOptions, "body">): Promise<{
     const responseBody: unknown = await response.json().catch(() => null);
     const parsed = parseApiErrorBody(responseBody);
     if (parsed) {
+      handleAuthenticationFailure(parsed, credentials);
       throw new ApiRequestError(parsed.code, parsed.message, response.status);
     }
     throw new ApiRequestError("internal_error", "Request failed", response.status);
@@ -408,6 +421,7 @@ export const apiClient = {
     return request({
       path: "/auth/passkeys",
       schema: passkeysSchema,
+      credentials: webSessionCredentials,
     });
   },
 
@@ -416,6 +430,7 @@ export const apiClient = {
       method: "POST",
       path: "/auth/passkeys/registration/options",
       schema: passkeyRegistrationOptionsSchema,
+      credentials: webSessionCredentials,
       body: { name },
     });
   },
@@ -425,6 +440,7 @@ export const apiClient = {
       method: "POST",
       path: "/auth/passkeys/registration/finish",
       schema: passkeyMutationSchema,
+      credentials: webSessionCredentials,
       body: credential,
     });
   },
@@ -434,6 +450,7 @@ export const apiClient = {
       method: "PATCH",
       path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
       schema: passkeyMutationSchema,
+      credentials: webSessionCredentials,
       body: { name },
     });
   },
@@ -442,6 +459,7 @@ export const apiClient = {
     return requestVoid({
       method: "DELETE",
       path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
+      credentials: webSessionCredentials,
     });
   },
 
@@ -451,6 +469,14 @@ export const apiClient = {
       path: "/auth/password/login",
       schema: passwordLoginResponseSchema,
       body: { email, password },
+    });
+  },
+
+  loginWithAPIToken(token: string) {
+    return requestVoid({
+      method: "POST",
+      path: "/auth/token/login",
+      body: { token },
     });
   },
 
@@ -466,6 +492,7 @@ export const apiClient = {
     return request({
       path: "/auth/security",
       schema: securityStatusSchema,
+      credentials: webSessionCredentials,
     });
   },
 
@@ -473,6 +500,7 @@ export const apiClient = {
     return requestVoid({
       method: "PUT",
       path: "/auth/password",
+      credentials: webSessionCredentials,
       body: { currentPassword, newPassword },
     });
   },
@@ -490,6 +518,7 @@ export const apiClient = {
       method: "POST",
       path: "/auth/totp/enrollment/options",
       schema: totpEnrollmentSchema,
+      credentials: webSessionCredentials,
     });
   },
 
@@ -498,6 +527,7 @@ export const apiClient = {
       method: "POST",
       path: "/auth/totp/enrollment/finish",
       schema: recoveryCodesSchema,
+      credentials: webSessionCredentials,
       body: { code },
     });
   },
@@ -507,6 +537,7 @@ export const apiClient = {
       method: "POST",
       path: "/auth/totp/recovery-codes",
       schema: recoveryCodesSchema,
+      credentials: webSessionCredentials,
       body: { code },
     });
   },
@@ -515,6 +546,7 @@ export const apiClient = {
     return requestVoid({
       method: "POST",
       path: "/auth/totp/disable",
+      credentials: webSessionCredentials,
       body: { code },
     });
   },
@@ -523,6 +555,7 @@ export const apiClient = {
     return requestVoid({
       method: "POST",
       path: "/auth/logout",
+      credentials: webSessionCredentials,
     });
   },
 
@@ -533,11 +566,14 @@ export const apiClient = {
     });
   },
 
-  getAuthMe(credentials: ApiCredentials) {
+  getAuthMe(selectedTenantId: string | null = null) {
     return request({
       path: "/api/auth/me",
       schema: authMeSchema,
-      credentials,
+      credentials: {
+        ...webSessionCredentials,
+        selectedTenantId,
+      },
       tenantHeader: "optional",
     });
   },
