@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, AlertCircle, Loader2, Unplug } from "lucide-react";
+import { Activity, AlertCircle, Loader2, MousePointer2, Unplug } from "lucide-react";
 import { interval } from "rxjs";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -125,6 +125,21 @@ export function BrowserViewport({
   const displayedCursorHintPoint = cursorHint
     ? (cursorHintPointRef.current ?? cursorHintPoint)
     : null;
+  const followedParticipant = control.collaboration.followingClientId
+    ? control.collaboration.participants.find(
+        (participant) => participant.clientId === control.collaboration.followingClientId,
+      )
+    : null;
+  const followedCursor = followedParticipant
+    ? control.collaboration.cursors.get(followedParticipant.clientId)
+    : null;
+  const followedCursorPoint =
+    followedCursor?.targetId === control.activeTargetId
+      ? {
+          x: displayMetrics.offsetX + followedCursor.x * displayMetrics.renderedWidth,
+          y: displayMetrics.offsetY + followedCursor.y * displayMetrics.renderedHeight,
+        }
+      : null;
 
   useEffect(() => {
     control.setInputDimensions({ width: inputWidth, height: inputHeight });
@@ -398,6 +413,7 @@ export function BrowserViewport({
   function handlePointerLeave() {
     cursorHintPointRef.current = null;
     setCursorHintPoint(null);
+    control.collaboration.clearCursor();
     if (!pointerCaptureRef.current) {
       releasePressedKeys();
       releaseImplicitControl();
@@ -414,6 +430,16 @@ export function BrowserViewport({
   function handlePointerMove(event: React.PointerEvent) {
     updateCursorHint(event);
 
+    const point = mapPointer(event, false);
+    if (control.activeTargetId && point) {
+      control.collaboration.sendCursor(control.activeTargetId, point.x, point.y, {
+        width: inputWidth,
+        height: inputHeight,
+      });
+    } else if (!point) {
+      control.collaboration.clearCursor();
+    }
+
     if (inputDisabled) {
       return;
     }
@@ -426,7 +452,6 @@ export function BrowserViewport({
     if (!targetId) {
       return;
     }
-    const point = mapPointer(event, false);
     if (!point) {
       return;
     }
@@ -582,6 +607,10 @@ export function BrowserViewport({
       if (!point) {
         return;
       }
+      control.collaboration.sendCursor(targetId, point.x, point.y, {
+        width: inputWidth,
+        height: inputHeight,
+      });
       control.send({
         type: "input.mouse",
         targetId,
@@ -600,6 +629,9 @@ export function BrowserViewport({
         return;
       }
       const point = mapPointer(event, true);
+      if (!mapPointer(event, false)) {
+        control.collaboration.clearCursor();
+      }
       preventNativeDefault(event);
       if (point) {
         control.send({
@@ -906,6 +938,17 @@ export function BrowserViewport({
         <StatusBadge status={status} />
       </div>
       {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
+      {followedCursorPoint && followedParticipant ? (
+        <div
+          className="pointer-events-none absolute z-30 flex translate-x-[-2px] translate-y-[-2px] items-start text-primary drop-shadow-sm"
+          style={{ left: followedCursorPoint.x, top: followedCursorPoint.y }}
+        >
+          <MousePointer2 className="size-5 fill-primary stroke-background stroke-[1.5]" />
+          <span className="mt-4 -ml-1 rounded bg-primary px-1.5 py-0.5 text-[10px] leading-none font-medium whitespace-nowrap text-primary-foreground">
+            {followedParticipant.name}
+          </span>
+        </div>
+      ) : null}
       {cursorHint && displayedCursorHintPoint ? (
         <div
           className="pointer-events-none absolute z-20 max-w-64 translate-x-3 translate-y-3 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
@@ -920,7 +963,7 @@ export function BrowserViewport({
         </div>
       ) : null}
       {visibleCollaborationError ? (
-        <div className="pointer-events-none absolute bottom-2 left-2 max-w-[80%] rounded-md border border-destructive/40 bg-background/90 px-2 py-1 text-xs text-destructive">
+        <div className="pointer-events-none absolute bottom-10 left-2 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
           {visibleCollaborationError.message}
         </div>
       ) : null}

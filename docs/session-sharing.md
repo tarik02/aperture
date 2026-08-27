@@ -41,6 +41,12 @@ Direct CDP discovery and WebSocket URLs use the capability in the existing path-
 /sessions/<session-id>/cdp/<collaboration-capability>/
 ```
 
+## Presence and follow
+
+Each workbench connection appears in the participant list with a persistent local display name and Gravatar identicon. Account-backed owners use their account or token display name when it is available; shared links use a randomly assigned anonymous identity.
+
+Selecting another participant starts following them. The follower adopts that participant's active tab and highlights their cursor. Follow relationships may form chains, but the session coordinator rejects any update that would create a cycle. Presence, cursors, and follow relationships disappear when the session ends and are not written into the browser or recordings.
+
 ## Files
 
 File requests use the existing session routing layer and are handled by the per-session wrapper:

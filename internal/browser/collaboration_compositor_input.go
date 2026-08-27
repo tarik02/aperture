@@ -116,6 +116,16 @@ func (input *collaborationCompositorInput) submit(ownerID uint64, message collab
 	return input.controller.Submit(ownerID, event)
 }
 
+func (input *collaborationCompositorInput) hasTarget(targetID string) (bool, error) {
+	input.runtime.mu.Lock()
+	registry := input.runtime.targets
+	input.runtime.mu.Unlock()
+	if registry == nil || strings.TrimSpace(targetID) == "" {
+		return false, nil
+	}
+	return registry.hasLiveTarget(targetID), nil
+}
+
 func (input *collaborationCompositorInput) release(ownerID uint64) error {
 	err := input.controller.Release(ownerID)
 	clear(input.textKeys)

@@ -44,22 +44,9 @@ func (input *collaborationCDPInput) bind(_ uint64, targetID string, _ func()) er
 	if input.connection != nil && input.targetID == targetID && input.sessionID != "" {
 		return nil
 	}
-	if err := input.ensureConnection(); err != nil {
+	found, err := input.hasTarget(targetID)
+	if err != nil {
 		return err
-	}
-	var targets struct {
-		TargetInfos []cdpTargetInfo `json:"targetInfos"`
-	}
-	if err := input.call("Target.getTargets", map[string]any{}, "", &targets); err != nil {
-		input.closeConnection()
-		return err
-	}
-	found := false
-	for _, target := range targets.TargetInfos {
-		if target.TargetID == targetID && isUserCDPTarget(target) {
-			found = true
-			break
-		}
 	}
 	if !found {
 		return remoteinput.ErrNotReady
@@ -93,6 +80,29 @@ func (input *collaborationCDPInput) bind(_ uint64, targetID string, _ func()) er
 	input.buttons = 0
 	clear(input.pressedKeys)
 	return nil
+}
+
+func (input *collaborationCDPInput) hasTarget(targetID string) (bool, error) {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return false, nil
+	}
+	if err := input.ensureConnection(); err != nil {
+		return false, err
+	}
+	var targets struct {
+		TargetInfos []cdpTargetInfo `json:"targetInfos"`
+	}
+	if err := input.call("Target.getTargets", map[string]any{}, "", &targets); err != nil {
+		input.closeConnection()
+		return false, err
+	}
+	for _, target := range targets.TargetInfos {
+		if target.TargetID == targetID && isUserCDPTarget(target) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (input *collaborationCDPInput) submit(_ uint64, message collaborationClientMessage) (err error) {

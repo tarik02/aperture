@@ -29,6 +29,7 @@ import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
 import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
+import { CollaborationPresence } from "#/components/workbench/collaboration-presence.tsx";
 
 type BrowserToolbarProps = {
   control: UseBrowserControlResult;
@@ -135,6 +136,7 @@ export function BrowserToolbar({
           onReload={control.reload}
           onReorder={control.reorderTargets}
         />
+        <CollaborationPresence collaboration={control.collaboration} />
       </div>
       <div className="flex h-9 items-center gap-1 px-1.5">
         <div className="flex shrink-0 items-center gap-0.5">
