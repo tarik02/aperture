@@ -859,6 +859,20 @@ export const apiClient = {
     });
   },
 
+  rotateCollaborationCapability(
+    credentials: ApiCredentials,
+    sessionId: string,
+    role: "editor" | "viewer",
+  ) {
+    return request({
+      method: "POST",
+      path: `/api/sessions/${sessionId}/collaboration-capabilities/${role}/rotate`,
+      schema: sessionMutationResponseSchema,
+      credentials,
+      tenantHeader: "tenant-scoped",
+    });
+  },
+
   promoteSession(credentials: ApiCredentials, sessionId: string, input: PromoteSessionInput) {
     return request({
       method: "POST",

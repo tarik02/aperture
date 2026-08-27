@@ -58,6 +58,18 @@ type RuntimeEnvValues struct {
 	mediaProbeCache            *mediaProbeCache
 }
 
+func multiTargetCompositorEnabled(values RuntimeEnvValues) bool {
+	if !values.CompositorEnabled || strings.TrimSpace(values.CompositorBackend) != "pipewire" {
+		return false
+	}
+	switch strings.TrimSpace(values.CompositorShell) {
+	case "aperture", "aperture-weston-shell.so":
+		return true
+	default:
+		return false
+	}
+}
+
 // RenderRuntimeEnv renders a systemd EnvironmentFile body.
 func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	if strings.TrimSpace(values.SessionID) == "" {

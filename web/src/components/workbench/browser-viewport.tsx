@@ -57,6 +57,8 @@ export function BrowserViewport({
     clickCount: number;
   } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const implicitControlDesiredRef = useRef(false);
+  const cursorHintPointRef = useRef<ViewportPoint | null>(null);
   const lastClickRef = useRef<{
     targetId: string;
     button: MouseButton;
@@ -84,7 +86,11 @@ export function BrowserViewport({
       control.mediaTargetId !== control.activeTargetId ||
       presentedMedia?.stream !== control.mediaStream ||
       presentedMedia?.targetId !== control.activeTargetId);
-  const inputDisabled = control.mediaSwitching || mediaTransitioning;
+  const inputDisabled =
+    control.mediaSwitching ||
+    mediaTransitioning ||
+    control.collaboration.phase !== "connected" ||
+    control.collaboration.role === "viewer";
   const displayedMediaSize =
     mediaTransitioning && presentedMedia ? presentedMedia.size : control.mediaSize;
   const renderWidth = showingWebRTC
@@ -114,6 +120,15 @@ export function BrowserViewport({
     renderHeight,
   );
   const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
+  const collaborationHint = resolveCollaborationHint(control.collaboration);
+  const cursorHint = disconnectedHint ?? collaborationHint;
+  const displayedCursorHintPoint = cursorHint
+    ? (cursorHintPointRef.current ?? cursorHintPoint)
+    : null;
+
+  useEffect(() => {
+    control.setInputDimensions({ width: inputWidth, height: inputHeight });
+  }, [control.setInputDimensions, inputHeight, inputWidth]);
 
   const releasePressedKeys = useCallback(() => {
     const pressedKeys = [...pressedKeysRef.current.entries()].reverse();
@@ -253,10 +268,14 @@ export function BrowserViewport({
   }, [releasePressedKeys]);
 
   useEffect(() => {
-    const handleWindowBlur = () => releasePressedKeys();
+    const handleWindowBlur = () => {
+      releasePressedKeys();
+      releaseImplicitControl();
+    };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         releasePressedKeys();
+        releaseImplicitControl();
       }
     };
 
@@ -266,14 +285,29 @@ export function BrowserViewport({
       window.removeEventListener("blur", handleWindowBlur);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [releasePressedKeys]);
+  }, [releasePressedKeys, control.collaboration]);
 
   useEffect(() => {
     if (inputDisabled) {
       dragCleanupRef.current?.();
       releasePressedKeys();
+      releaseImplicitControl();
     }
   }, [inputDisabled, releasePressedKeys]);
+
+  useEffect(() => {
+    if (
+      control.collaboration.hasControl &&
+      control.collaboration.leaseMode === "implicit" &&
+      !implicitControlDesiredRef.current
+    ) {
+      control.collaboration.release();
+    }
+  }, [
+    control.collaboration.hasControl,
+    control.collaboration.leaseMode,
+    control.collaboration.release,
+  ]);
 
   function mapPointer(event: { clientX: number; clientY: number }, clamp: boolean) {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -310,8 +344,23 @@ export function BrowserViewport({
     if (!control.captured) {
       control.setCaptured(true);
     }
+    requestImplicitControl(control.activeTargetId);
     containerRef.current?.focus();
     return control.activeTargetId;
+  }
+
+  function requestImplicitControl(targetId: string) {
+    implicitControlDesiredRef.current = true;
+    if (!control.collaboration.hasControl) {
+      control.collaboration.claim(targetId, "implicit");
+    }
+  }
+
+  function releaseImplicitControl() {
+    implicitControlDesiredRef.current = false;
+    if (control.collaboration.hasControl && control.collaboration.leaseMode === "implicit") {
+      control.collaboration.release();
+    }
   }
 
   function preventViewportDefault(event: React.SyntheticEvent) {
@@ -331,7 +380,29 @@ export function BrowserViewport({
       return;
     }
     control.setCaptured(true);
+    if (control.activeTargetId) {
+      requestImplicitControl(control.activeTargetId);
+    }
     containerRef.current?.focus();
+  }
+
+  function handlePointerEnter(event: React.PointerEvent) {
+    updateCursorHint(event);
+    if (inputDisabled || !control.activeTargetId) {
+      return;
+    }
+    control.setCaptured(true);
+    requestImplicitControl(control.activeTargetId);
+  }
+
+  function handlePointerLeave() {
+    cursorHintPointRef.current = null;
+    setCursorHintPoint(null);
+    if (!pointerCaptureRef.current) {
+      releasePressedKeys();
+      releaseImplicitControl();
+      control.setCaptured(false);
+    }
   }
 
   function handlePointerClick() {
@@ -610,6 +681,7 @@ export function BrowserViewport({
         event.preventDefault();
         event.stopPropagation();
         control.setCaptured(false);
+        releaseImplicitControl();
       }
       return;
     }
@@ -712,20 +784,23 @@ export function BrowserViewport({
       return;
     }
     releasePressedKeys();
+    releaseImplicitControl();
+    control.setCaptured(false);
   }
 
   function updateCursorHint(event: React.PointerEvent) {
-    if (!disconnectedHint) {
-      return;
-    }
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) {
       return;
     }
-    setCursorHintPoint({
+    const point = {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
-    });
+    };
+    cursorHintPointRef.current = point;
+    if (cursorHint) {
+      setCursorHintPoint(point);
+    }
   }
 
   const status = resolveViewportStatus(
@@ -742,6 +817,7 @@ export function BrowserViewport({
     !isDisconnectedSocketError(control.lastError.message)
       ? control.lastError
       : null;
+  const visibleCollaborationError = collaborationHint ? null : control.collaboration.lastError;
 
   return (
     <div
@@ -752,8 +828,13 @@ export function BrowserViewport({
       onBlur={handleBlur}
       onClick={handlePointerClick}
       onPointerMove={handlePointerMove}
-      onPointerEnter={updateCursorHint}
-      onPointerLeave={() => setCursorHintPoint(null)}
+      onFocus={() => {
+        if (!inputDisabled && control.activeTargetId) {
+          requestImplicitControl(control.activeTargetId);
+        }
+      }}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
@@ -825,17 +906,22 @@ export function BrowserViewport({
         <StatusBadge status={status} />
       </div>
       {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
-      {disconnectedHint && cursorHintPoint ? (
+      {cursorHint && displayedCursorHintPoint ? (
         <div
           className="pointer-events-none absolute z-20 max-w-64 translate-x-3 translate-y-3 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
-          style={{ left: cursorHintPoint.x, top: cursorHintPoint.y }}
+          style={{ left: displayedCursorHintPoint.x, top: displayedCursorHintPoint.y }}
         >
-          {disconnectedHint}
+          {cursorHint}
         </div>
       ) : null}
       {visibleLastError ? (
         <div className="pointer-events-none absolute bottom-2 left-2 max-w-[80%] rounded-md border border-destructive/40 bg-background/90 px-2 py-1 text-xs text-destructive">
           {visibleLastError.message}
+        </div>
+      ) : null}
+      {visibleCollaborationError ? (
+        <div className="pointer-events-none absolute bottom-2 left-2 max-w-[80%] rounded-md border border-destructive/40 bg-background/90 px-2 py-1 text-xs text-destructive">
+          {visibleCollaborationError.message}
         </div>
       ) : null}
       {control.mediaError ? (
@@ -892,6 +978,27 @@ function resolveDisconnectedHint(
   }
   if (phase === "disconnected" || phase === "error") {
     return "CDP disconnected";
+  }
+  return null;
+}
+
+function resolveCollaborationHint(
+  collaboration: UseBrowserControlResult["collaboration"],
+): string | null {
+  if (
+    collaboration.holderClientId !== null &&
+    collaboration.holderClientId !== collaboration.clientId
+  ) {
+    return "Input in use";
+  }
+  if (
+    collaboration.lastError?.code === "input_busy" ||
+    collaboration.lastError?.code === "input_not_owned"
+  ) {
+    return "Input in use";
+  }
+  if (collaboration.lastError?.code === "input_unavailable") {
+    return "Input unavailable";
   }
   return null;
 }

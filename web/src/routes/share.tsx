@@ -13,6 +13,7 @@ import {
 import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 import { ApiRequestError } from "#/lib/api/errors.ts";
 import { queryKeys } from "#/lib/api/query-keys.ts";
+import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
 
 const capabilityStorageKey = "aperture.share.session-token";
 
@@ -20,7 +21,13 @@ type CapabilityState =
   | { kind: "loading" }
   | { kind: "missing" }
   | { kind: "invalid" }
-  | { kind: "ready"; token: string; sessionId: string; revision: number };
+  | {
+      kind: "ready";
+      token: string;
+      sessionId: string;
+      role: Exclude<CollaborationRole, "owner">;
+      revision: number;
+    };
 
 export const Route = createFileRoute("/share")({
   component: ShareRoute,
@@ -44,15 +51,15 @@ function ShareRoute() {
           setCapability({ kind: "invalid" });
           return;
         }
-        const sessionId = parseCapabilitySessionId(fragmentToken);
-        if (!sessionId) {
+        const parsed = parseCapability(fragmentToken);
+        if (!parsed) {
           window.sessionStorage.removeItem(capabilityStorageKey);
           setCapability({ kind: "invalid" });
           return;
         }
         window.sessionStorage.setItem(capabilityStorageKey, fragmentToken);
         revision += 1;
-        setCapability({ kind: "ready", token: fragmentToken, sessionId, revision });
+        setCapability({ kind: "ready", token: fragmentToken, ...parsed, revision });
         return;
       }
 
@@ -61,14 +68,14 @@ function ShareRoute() {
         setCapability({ kind: "missing" });
         return;
       }
-      const sessionId = parseCapabilitySessionId(storedToken);
-      if (!sessionId) {
+      const parsed = parseCapability(storedToken);
+      if (!parsed) {
         window.sessionStorage.removeItem(capabilityStorageKey);
         setCapability({ kind: "invalid" });
         return;
       }
       revision += 1;
-      setCapability({ kind: "ready", token: storedToken, sessionId, revision });
+      setCapability({ kind: "ready", token: storedToken, ...parsed, revision });
     };
 
     loadCapability();
@@ -148,6 +155,7 @@ function ShareRoute() {
       sessionId={capability.sessionId}
       capability={{
         credentials,
+        role: capability.role,
         session: {
           id: capability.sessionId,
           status: "running",
@@ -180,10 +188,11 @@ function ShareState({
   );
 }
 
-function parseCapabilitySessionId(token: string): string | null {
+function parseCapability(token: string): { sessionId: string; role: "editor" | "viewer" } | null {
   const sessionId = token.slice(4, 40);
-  if (!token.startsWith("aps_") || token[40] !== "_" || !sessionId || !token.slice(41)) {
+  const role = token.startsWith("ape_") ? "editor" : token.startsWith("apv_") ? "viewer" : null;
+  if (!role || token[40] !== "_" || !sessionId || !token.slice(41)) {
     return null;
   }
-  return sessionId;
+  return { sessionId, role };
 }

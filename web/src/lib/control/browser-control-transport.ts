@@ -68,6 +68,8 @@ type ConnectOptions = {
   webrtcPreferred: boolean;
   iceServers: RTCIceServer[];
   viewport: ViewportPreset;
+  viewportUpdatesEnabled: boolean;
+  targetActivationEnabled: boolean;
 };
 
 type BrowserControlOptions = ConnectOptions & {
@@ -112,7 +114,6 @@ const initialCdpState: CdpControlState = {
   activeTargetId: null,
   lastError: null,
 };
-const WEBRTC_WHEEL_DELTA_SCALE = 0.1;
 
 export const initialBrowserControlState: BrowserControlState = browserState(
   false,
@@ -147,6 +148,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
           sessionId: options.sessionId,
           credentials: options.credentials,
           sessionToken: options.sessionToken,
+          targetActivationEnabled: options.targetActivationEnabled,
           input$: cdpInput$,
         }),
       ),
@@ -178,7 +180,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
               sessionToken: options.sessionToken,
               iceServers: options.iceServers,
               input$: webRTCInput$,
-              inputEnabled$: fallbackSelected$.pipe(map((selected) => !selected)),
+              inputEnabled$: of(false),
               targetId$: cdpState$.pipe(
                 map((state) => state.activeTargetId),
                 distinctUntilChanged(),
@@ -205,6 +207,7 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       fallbackSelected$,
     ]).pipe(
       map(([viewport, cdp, media, fallbackSelected]): WebRTCViewportRequest | null =>
+        options.viewportUpdatesEnabled &&
         options.webrtcPreferred &&
         !fallbackSelected &&
         media.phase !== "failed" &&
@@ -274,7 +277,11 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
     );
     const viewportToCdp$ = combineLatest([viewport$, cdpState$, fallbackSelected$]).pipe(
       map(([viewport, cdp, fallbackSelected]) =>
-        viewportCommand(options.webrtcPreferred && !fallbackSelected, viewport, cdp),
+        viewportCommand(
+          !options.viewportUpdatesEnabled || (options.webrtcPreferred && !fallbackSelected),
+          viewport,
+          cdp,
+        ),
       ),
       distinctUntilChanged(sameViewportCommand),
       filter(isViewportCommand),
@@ -282,20 +289,10 @@ export function browserControl$(options: BrowserControlOptions): Observable<Brow
       ignoreElements(),
     );
     const routedInput$ = options.input$.pipe(
-      withLatestFrom(media$, fallbackSelected$),
-      tap(([message, media, fallbackSelected]) => {
-        if (isInputMessage(message)) {
-          if (!fallbackSelected && shouldUseWebRTCInput(media, message.targetId)) {
-            webRTCInput$.next(scaleWebRTCInput(message));
-            return;
-          }
-          if (!fallbackSelected && options.webrtcPreferred && media.phase !== "failed") {
-            return;
-          }
+      tap((message) => {
+        if (!isInputMessage(message)) {
           cdpInput$.next(message);
-          return;
         }
-        cdpInput$.next(message);
       }),
       ignoreElements(),
     );
@@ -421,26 +418,6 @@ function isViewportCommand(command: ViewportCommand | null): command is Viewport
   return command !== null;
 }
 
-function shouldUseWebRTCInput(media: WebRTCMediaState, targetId: string): boolean {
-  return (
-    media.phase === "live" &&
-    Boolean(media.stream) &&
-    media.inputReady &&
-    !media.targetSwitching &&
-    media.selectedTarget?.targetId === targetId
-  );
-}
-
-function scaleWebRTCInput(message: WebRTCInputMessage): WebRTCInputMessage {
-  return message.type === "input.wheel"
-    ? {
-        ...message,
-        deltaX: message.deltaX * WEBRTC_WHEEL_DELTA_SCALE,
-        deltaY: message.deltaY * WEBRTC_WHEEL_DELTA_SCALE,
-      }
-    : message;
-}
-
 function screencastStartCommand(
   state: BrowserControlState,
   viewport: ViewportPreset,
@@ -469,9 +446,14 @@ function shouldStartFallbackScreencast(
   return state.mediaPhase === "live" && !state.mediaStream;
 }
 
-function isInputMessage(message: ClientMessage): message is WebRTCInputMessage {
+function isInputMessage(message: ClientMessage): boolean {
   return (
-    message.type === "input.mouse" || message.type === "input.wheel" || message.type === "input.key"
+    message.type === "input.mouse" ||
+    message.type === "input.wheel" ||
+    message.type === "input.key" ||
+    message.type === "clipboard.copy" ||
+    message.type === "clipboard.cut" ||
+    message.type === "clipboard.paste"
   );
 }
 

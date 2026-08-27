@@ -10,6 +10,7 @@ import (
 
 	"github.com/aperture/aperture/internal/auth"
 	generated "github.com/aperture/aperture/internal/httpapi/openapi"
+	"github.com/aperture/aperture/internal/session"
 	"github.com/gin-gonic/gin"
 )
 
@@ -492,6 +493,24 @@ func (s openAPIServer) RotateSessionToken(ctx context.Context, _ generated.Rotat
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) RotateCollaborationCapability(ctx context.Context, request generated.RotateCollaborationCapabilityRequestObject) (generated.RotateCollaborationCapabilityResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	var role session.CollaborationRole
+	switch request.Role {
+	case generated.Editor:
+		role = session.CollaborationRoleEditor
+	case generated.Viewer:
+		role = session.CollaborationRoleViewer
+	default:
+		return nil, validationError("invalid collaboration role")
+	}
+	s.server.rotateCollaborationCapability(c, role)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) PromoteSession(ctx context.Context, _ generated.PromoteSessionRequestObject) (generated.PromoteSessionResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -751,6 +770,10 @@ func (openAPIPassthroughResponse) VisitCreateSessionFileDownloadURLResponse(http
 }
 
 func (openAPIPassthroughResponse) VisitRotateSessionTokenResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitRotateCollaborationCapabilityResponse(http.ResponseWriter) error {
 	return nil
 }
 

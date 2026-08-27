@@ -35,19 +35,22 @@ type compositorViewport struct {
 }
 
 type wrapperRuntime struct {
-	values           RuntimeEnvValues
-	controlSocket    string
-	ctx              context.Context
-	mu               sync.Mutex
-	uploadMu         sync.Mutex
-	compositorPID    int
-	recordings       map[string]*wrapperRecording
-	recordingClients map[string]*wrapperRecordingClient
-	mediaProducer    *producer
-	targets          *wrapperTargetRegistry
-	viewers          map[*wrapperViewer]struct{}
-	activeRequests   int
-	cdpConnections   int
+	values                   RuntimeEnvValues
+	controlSocket            string
+	ctx                      context.Context
+	mu                       sync.Mutex
+	uploadMu                 sync.Mutex
+	compositorPID            int
+	recordings               map[string]*wrapperRecording
+	recordingClients         map[string]*wrapperRecordingClient
+	mediaProducer            *producer
+	targets                  *wrapperTargetRegistry
+	viewers                  map[*wrapperViewer]struct{}
+	activeRequests           int
+	cdpConnections           int
+	restrictedCDPConnections int
+	restrictedCDPClients     map[*restrictedCDPClient]struct{}
+	collaboration            *collaborationHub
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -112,7 +115,10 @@ func (r *wrapperRuntime) targetUnavailable(target wrapperTargetSnapshot) {
 }
 
 type wrapperViewer struct {
-	cancel context.CancelFunc
+	cancel                    context.CancelFunc
+	role                      string
+	capabilityRole            string
+	sessionTokenAuthenticated bool
 }
 
 // WrapperActivityStatus reports live work that must inhibit idle suspension.
@@ -126,12 +132,13 @@ type WrapperActivityStatus struct {
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
 	return &wrapperRuntime{
-		values:           values,
-		controlSocket:    controlSocket,
-		ctx:              context.Background(),
-		viewers:          make(map[*wrapperViewer]struct{}),
-		recordings:       make(map[string]*wrapperRecording),
-		recordingClients: make(map[string]*wrapperRecordingClient),
+		values:               values,
+		controlSocket:        controlSocket,
+		ctx:                  context.Background(),
+		viewers:              make(map[*wrapperViewer]struct{}),
+		recordings:           make(map[string]*wrapperRecording),
+		recordingClients:     make(map[string]*wrapperRecordingClient),
+		restrictedCDPClients: make(map[*restrictedCDPClient]struct{}),
 	}
 }
 
@@ -155,10 +162,22 @@ func (r *wrapperRuntime) currentMediaProducer() *producer {
 	return r.mediaProducer
 }
 
-func (r *wrapperRuntime) claimViewer(viewer *wrapperViewer) {
+func (r *wrapperRuntime) claimViewer(viewer *wrapperViewer) bool {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if viewer.role != "owner" {
+		nonOwnerViewers := 0
+		for current := range r.viewers {
+			if current.role != "owner" {
+				nonOwnerViewers++
+			}
+		}
+		if nonOwnerViewers >= mediaMaximumNonOwnerPeers {
+			return false
+		}
+	}
 	r.viewers[viewer] = struct{}{}
-	r.mu.Unlock()
+	return true
 }
 
 func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
@@ -167,17 +186,21 @@ func (r *wrapperRuntime) releaseViewer(viewer *wrapperViewer) {
 	delete(r.viewers, viewer)
 }
 
-func (r *wrapperRuntime) disconnectConsumers() {
+func (r *wrapperRuntime) disconnectSessionTokenConsumers() {
 	r.mu.Lock()
 	viewers := make([]*wrapperViewer, 0, len(r.viewers))
 	for viewer := range r.viewers {
-		viewers = append(viewers, viewer)
+		if viewer.sessionTokenAuthenticated {
+			viewers = append(viewers, viewer)
+		}
 	}
-	r.viewers = make(map[*wrapperViewer]struct{})
 	recordingClients := make([]*wrapperRecordingClient, 0, len(r.recordingClients))
 	for _, client := range r.recordingClients {
-		recordingClients = append(recordingClients, client)
+		if client.sessionTokenAuthenticated {
+			recordingClients = append(recordingClients, client)
+		}
 	}
+	collaboration := r.collaboration
 	r.mu.Unlock()
 	for _, viewer := range viewers {
 		viewer.cancel()
@@ -185,6 +208,52 @@ func (r *wrapperRuntime) disconnectConsumers() {
 	for _, client := range recordingClients {
 		client.cancel()
 	}
+	if collaboration != nil {
+		collaboration.disconnectSessionTokenClients()
+	}
+}
+
+func (r *wrapperRuntime) disconnectCollaborationCapabilityConsumers(role string) {
+	r.mu.Lock()
+	viewers := make([]*wrapperViewer, 0)
+	for viewer := range r.viewers {
+		if viewer.capabilityRole == role {
+			viewers = append(viewers, viewer)
+		}
+	}
+	cdpClients := make([]*restrictedCDPClient, 0)
+	for client := range r.restrictedCDPClients {
+		if client.role == role {
+			cdpClients = append(cdpClients, client)
+		}
+	}
+	collaboration := r.collaboration
+	r.mu.Unlock()
+	for _, viewer := range viewers {
+		viewer.cancel()
+	}
+	for _, client := range cdpClients {
+		client.cancel()
+	}
+	if collaboration != nil {
+		collaboration.disconnectCapabilityRoleClients(role)
+	}
+}
+
+func collaborationCapabilityRole(req *http.Request) string {
+	if strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) != "session_capability" {
+		return ""
+	}
+	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	if role == "editor" || role == "viewer" {
+		return role
+	}
+	return ""
+}
+
+func sessionTokenAuthenticated(req *http.Request) bool {
+	return strings.TrimSpace(req.Header.Get("X-Aperture-Actor-Kind")) == "session_capability" &&
+		strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")) == "owner"
 }
 
 func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error, error) {
@@ -198,6 +267,14 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	if err := r.reconcilePendingUploads(); err != nil {
 		return nil, nil, fmt.Errorf("reconcile pending uploads: %w", err)
 	}
+	collaboration, err := newCollaborationHub(r)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create collaboration coordinator: %w", err)
+	}
+	r.mu.Lock()
+	r.collaboration = collaboration
+	r.mu.Unlock()
+	go collaboration.run(ctx)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)
@@ -208,6 +285,8 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
 	mux.HandleFunc("/devtools/", r.handleCDPProxy)
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
+	mux.HandleFunc("/collaboration", collaboration.serveHTTP)
+	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/cursor", r.handleCursor)
@@ -262,7 +341,21 @@ func (r *wrapperRuntime) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"status": "ok", "sessionId": r.values.SessionID, "gpuMode": r.values.GPUMode, "mediaCodec": r.values.MediaProducerCodec})
 }
 
-func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
+func (r *wrapperRuntime) handleCollaborationCapabilityRotated(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	role := strings.TrimSpace(req.URL.Query().Get("role"))
+	if role != "editor" && role != "viewer" {
+		writeWrapperError(w, http.StatusBadRequest, "invalid collaboration role")
+		return
+	}
+	r.disconnectCollaborationCapabilityConsumers(role)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := map[string]any{
@@ -318,6 +411,12 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 	if r.targets != nil {
 		status["targets"] = r.targets.snapshots()
+	}
+	collaborationRole := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	if collaborationRole != "" && collaborationRole != "owner" {
+		delete(status, "recordings")
+		writeWrapperJSON(w, http.StatusOK, status)
+		return
 	}
 	if r.values.SessionTokenPath != "" {
 		body, err := os.ReadFile(r.values.SessionTokenPath)
@@ -488,10 +587,19 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	}
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
-	viewer := &wrapperViewer{cancel: cancel}
-	r.claimViewer(viewer)
+	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	viewer := &wrapperViewer{
+		cancel:                    cancel,
+		role:                      role,
+		capabilityRole:            collaborationCapabilityRole(req),
+		sessionTokenAuthenticated: sessionTokenAuthenticated(req),
+	}
+	if !r.claimViewer(viewer) {
+		writeWrapperError(w, http.StatusServiceUnavailable, "shared WebRTC connection limit reached")
+		return
+	}
 	defer r.releaseViewer(viewer)
-	mediaProducer.Handler().ServeHTTP(w, req.WithContext(ctx))
+	mediaProducer.Handler(role == "owner" || role == "editor").ServeHTTP(w, req.WithContext(ctx))
 }
 
 func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {

@@ -47,11 +47,17 @@ import type {
 } from "#/lib/control/webrtc-media-transport.ts";
 import { apiClient, resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
 import type { Recording } from "#/lib/api/schemas.ts";
+import {
+  useCollaborationControl,
+  type CollaborationControl,
+  type CollaborationRole,
+} from "#/hooks/use-collaboration-control.ts";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
   credentials?: ApiCredentials;
   sessionToken?: string;
+  collaborationRole?: CollaborationRole;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: RTCIceServer[];
@@ -89,7 +95,9 @@ export type UseBrowserControlResult = {
   recordingClientConnected: boolean;
   remoteCursorEnabled: boolean;
   remoteCursorBusy: boolean;
+  collaboration: CollaborationControl;
   setCaptured: (captured: boolean) => void;
+  setInputDimensions: (size: BrowserViewportSize) => void;
   setViewport: (viewport: ViewportPreset) => void;
   setBrowserViewportSize: (size: BrowserViewportSize) => void;
   setViewportAutoSync: (enabled: boolean) => void;
@@ -125,6 +133,7 @@ export function useBrowserControl({
   sessionId,
   credentials: credentialsOverride,
   sessionToken,
+  collaborationRole = "owner",
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
@@ -152,6 +161,7 @@ export function useBrowserControl({
     existingTargetIds: ReadonlySet<string>;
   } | null>(null);
   const viewportRef = useRef(viewport);
+  const inputDimensionsRef = useRef<BrowserViewportSize>(DEFAULT_VIEWPORT);
   const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
   const viewportAutoSyncRef = useRef(false);
   const controlEnabledRef = useRef(false);
@@ -161,6 +171,13 @@ export function useBrowserControl({
   const webrtcPreferred = Boolean(
     enabled && sessionId && credentials && webrtcProducerSupported && !forceCDPMedia,
   );
+  const collaboration = useCollaborationControl({
+    sessionId,
+    credentials,
+    sessionToken,
+    role: collaborationRole,
+    enabled: Boolean(enabled && sessionId && credentials),
+  });
   const recordingTenantId = credentials
     ? resolveTenantHeader(credentials, "tenant-scoped")
     : undefined;
@@ -195,6 +212,8 @@ export function useBrowserControl({
               webrtcPreferred: nextWebrtcPreferred,
               iceServers: nextIceServers,
               viewport: viewportRef.current,
+              viewportUpdatesEnabled: collaborationRole !== "viewer",
+              targetActivationEnabled: collaborationRole !== "viewer",
               input$: message$,
               viewport$,
               streamSettings$,
@@ -206,7 +225,15 @@ export function useBrowserControl({
         ),
         share(),
       ),
-    [enabled, sessionId, credentials, sessionToken, webrtcPreferred, webrtcIceServers],
+    [
+      enabled,
+      sessionId,
+      credentials,
+      sessionToken,
+      webrtcPreferred,
+      webrtcIceServers,
+      collaborationRole,
+    ],
   );
   const controlState$ = useMemo(
     () =>
@@ -251,11 +278,21 @@ export function useBrowserControl({
       if (!controlEnabledRef.current) {
         return false;
       }
+      if (isBrowserInputMessage(message)) {
+        return collaboration.sendInput(message, inputDimensionsRef.current);
+      }
+      if (!browserMessageAllowed(message, collaborationRole)) {
+        return false;
+      }
       pushMessage(message);
       return true;
     },
-    [pushMessage],
+    [collaboration, collaborationRole, pushMessage],
   );
+
+  const setInputDimensions = useCallback((size: BrowserViewportSize) => {
+    inputDimensionsRef.current = size;
+  }, []);
 
   const sendForActive = useCallback(
     (build: (targetId: string) => ClientMessage) => {
@@ -616,12 +653,12 @@ export function useBrowserControl({
   }, [controlState, reorderTargets]);
 
   useEffect(() => {
-    if (enabled && sessionId && credentials) {
+    if (enabled && sessionId && credentials && collaborationRole === "owner") {
       return;
     }
     setRecordings([]);
     setRecordingBusy(false);
-  }, [enabled, sessionId, credentials]);
+  }, [enabled, sessionId, credentials, collaborationRole]);
 
   useEffect(() => {
     setRemoteCursorEnabledState(true);
@@ -651,7 +688,7 @@ export function useBrowserControl({
   }, [enabled, sessionId, credentials, sessionToken]);
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || !sessionId || !credentials || collaborationRole !== "owner") {
       setRecordingClientConnected(false);
       recordingClientIdRef.current = null;
       return;
@@ -723,7 +760,7 @@ export function useBrowserControl({
       setRecordingClientConnected(false);
       socket?.close();
     };
-  }, [enabled, sessionId, credentials, sessionToken, recordingTenantId]);
+  }, [enabled, sessionId, credentials, sessionToken, recordingTenantId, collaborationRole]);
 
   useEffect(() => {
     const socket = recordingClientSocketRef.current;
@@ -734,7 +771,7 @@ export function useBrowserControl({
   }, [activeTargetId, controlState.mediaTargetId]);
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || !sessionId || !credentials || collaborationRole !== "owner") {
       return;
     }
     let active = true;
@@ -752,14 +789,20 @@ export function useBrowserControl({
     return () => {
       active = false;
     };
-  }, [enabled, sessionId, credentials, sessionToken]);
+  }, [enabled, sessionId, credentials, sessionToken, collaborationRole]);
 
   const recordingPollingActive = recordings.some(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
 
   useEffect(() => {
-    if (!enabled || !sessionId || !credentials || !recordingPollingActive) {
+    if (
+      !enabled ||
+      !sessionId ||
+      !credentials ||
+      collaborationRole !== "owner" ||
+      !recordingPollingActive
+    ) {
       return;
     }
     let active = true;
@@ -777,7 +820,7 @@ export function useBrowserControl({
       active = false;
       subscription.unsubscribe();
     };
-  }, [enabled, sessionId, credentials, sessionToken, recordingPollingActive]);
+  }, [enabled, sessionId, credentials, sessionToken, collaborationRole, recordingPollingActive]);
 
   useEffect(() => {
     if (
@@ -834,7 +877,9 @@ export function useBrowserControl({
     recordingClientConnected,
     remoteCursorEnabled,
     remoteCursorBusy,
+    collaboration,
     setCaptured,
+    setInputDimensions,
     setViewport: applyViewport,
     setBrowserViewportSize,
     setViewportAutoSync,
@@ -861,6 +906,46 @@ export function useBrowserControl({
   };
 }
 
+function isBrowserInputMessage(message: ClientMessage): message is Extract<
+  ClientMessage,
+  {
+    type:
+      | "input.mouse"
+      | "input.wheel"
+      | "input.key"
+      | "clipboard.copy"
+      | "clipboard.cut"
+      | "clipboard.paste";
+  }
+> {
+  return (
+    message.type === "input.mouse" ||
+    message.type === "input.wheel" ||
+    message.type === "input.key" ||
+    message.type === "clipboard.copy" ||
+    message.type === "clipboard.cut" ||
+    message.type === "clipboard.paste"
+  );
+}
+
+function browserMessageAllowed(message: ClientMessage, role: CollaborationRole) {
+  switch (message.type) {
+    case "targets.list":
+    case "targets.activate":
+    case "screencast.start":
+    case "screencast.stop":
+      return true;
+    case "input.mouse":
+    case "input.wheel":
+    case "input.key":
+    case "clipboard.copy":
+    case "clipboard.cut":
+    case "clipboard.paste":
+      return false;
+    default:
+      return role !== "viewer";
+  }
+}
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

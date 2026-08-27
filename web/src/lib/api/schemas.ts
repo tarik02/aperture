@@ -304,6 +304,12 @@ export const sessionSchema = z.object({
   tags: z.record(z.string(), z.string()).optional(),
   cdpUrl: z.string().optional(),
   sessionToken: z.string().optional(),
+  collaboration: z
+    .object({
+      editorToken: z.string(),
+      viewerToken: z.string(),
+    })
+    .optional(),
 });
 
 export const snapshotSchema = z.object({

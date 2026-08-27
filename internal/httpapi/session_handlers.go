@@ -37,9 +37,27 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 	}
 	if view.SessionToken != "" {
 		resp.SessionToken = view.SessionToken
-
+	}
+	if view.CollaborationCapabilities.Editor != "" && view.CollaborationCapabilities.Viewer != "" {
+		resp.Collaboration = &sessionCollaborationCapabilities{
+			EditorToken: view.CollaborationCapabilities.Editor,
+			ViewerToken: view.CollaborationCapabilities.Viewer,
+		}
 	}
 	return resp
+}
+
+func (s *Server) rotateCollaborationCapability(c *gin.Context, role session.CollaborationRole) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+	view, err := s.Sessions.RotateCollaborationCapability(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), role)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, sessionMutationResponse{Session: toSessionResponse(view)})
 }
 
 func toICEServerResponses(servers []config.WebRTCICEServer) []iceServerResponse {

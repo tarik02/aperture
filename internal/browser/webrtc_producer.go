@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	mediaQualityOption = "aperture"
-	signalingProtocol  = "aperture-webrtc.v1"
+	mediaQualityOption        = "aperture"
+	signalingProtocol         = "aperture-webrtc.v1"
+	mediaMaximumPeers         = 8
+	mediaMaximumNonOwnerPeers = mediaMaximumPeers - 1
 )
 
 type producer struct {
@@ -27,7 +29,6 @@ type producer struct {
 	media    *targetMediaSource
 	profiles []mediaProfile
 	webrtc   *rtc.Service
-	input    *targetInputController
 }
 
 type mediaProfile struct {
@@ -126,16 +127,8 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 	}
 	mediaSource := newTargetMediaSource(mediaConfig, logger.Named("media"))
 
-	inputController := &targetInputController{
-		controlSocket: controlSocket,
-		targets:       mediaSource,
-		inputs:        make(map[string]*targetInput),
-		owners:        make(map[uint64]string),
-	}
-
 	iceServers, iceUsername, iceCredential, err := parseICEServers(values.MediaProducerICEServers)
 	if err != nil {
-		_ = inputController.Close()
 		mediaSource.Close()
 		return nil, err
 	}
@@ -151,12 +144,11 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		UDPPortMin:          uint16(values.MediaProducerUDPPortMin),
 		UDPPortMax:          uint16(values.MediaProducerUDPPortMax),
 		Subprotocols:        []string{signalingProtocol},
-		MaxPeers:            8,
+		MaxPeers:            mediaMaximumPeers,
 		ReplaceExistingPeer: false,
 		AllowedOrigins:      []string{"*"},
-	}, mediaSource, nil, inputController, nil, logger.Named("webrtc"))
+	}, mediaSource, nil, nil, nil, logger.Named("webrtc"))
 	if err != nil {
-		_ = inputController.Close()
 		mediaSource.Close()
 		return nil, fmt.Errorf("create webdesktop WebRTC service: %w", err)
 	}
@@ -168,7 +160,6 @@ func newWebRTCProducer(values RuntimeEnvValues, controlSocket string) (*producer
 		media:    mediaSource,
 		profiles: availableProfiles,
 		webrtc:   webrtcService,
-		input:    inputController,
 	}
 	go result.run(ctx)
 	return result, nil
@@ -252,13 +243,13 @@ func (p *producer) run(ctx context.Context) {
 	p.media.Close()
 }
 
-func (p *producer) Handler() http.Handler {
-	return p.webrtc.Handler()
+func (p *producer) Handler(allowQualityUpdates bool) http.Handler {
+	return p.webrtc.Handler(rtc.PeerOptions{AllowQualityUpdates: allowQualityUpdates})
 }
 
 func (p *producer) Close() error {
 	p.cancel()
 	<-p.done
 	p.media.Close()
-	return p.input.Close()
+	return nil
 }

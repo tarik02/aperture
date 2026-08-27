@@ -29,6 +29,7 @@ type BrowserTabStripProps = {
   recordingTargetIds: ReadonlySet<string>;
   devToolsTargetIds: ReadonlySet<string>;
   disabled?: boolean;
+  mutationDisabled?: boolean;
   onActivate: (targetId: string) => void;
   onCreate: () => void;
   onDuplicate: (target: ControlTarget) => void;
@@ -54,6 +55,7 @@ export function BrowserTabStrip({
   recordingTargetIds,
   devToolsTargetIds,
   disabled,
+  mutationDisabled,
   onActivate,
   onCreate,
   onDuplicate,
@@ -65,7 +67,7 @@ export function BrowserTabStrip({
     return (
       <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2 text-xs text-muted-foreground">
         <span>No tabs</span>
-        <NewTabButton disabled={disabled} onCreate={onCreate} />
+        <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
       </div>
     );
   }
@@ -83,6 +85,7 @@ export function BrowserTabStrip({
               recording={recordingTargetIds.has(target.id)}
               devToolsOpen={devToolsTargetIds.has(target.id)}
               disabled={disabled}
+              mutationDisabled={mutationDisabled}
               onActivate={onActivate}
               onDuplicate={onDuplicate}
               onClose={onClose}
@@ -95,7 +98,7 @@ export function BrowserTabStrip({
             />
           );
         })}
-        <NewTabButton disabled={disabled} onCreate={onCreate} />
+        <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
       </div>
     </ScrollArea>
   );
@@ -107,6 +110,7 @@ function BrowserTab({
   recording,
   devToolsOpen,
   disabled,
+  mutationDisabled,
   onActivate,
   onDuplicate,
   onClose,
@@ -120,6 +124,7 @@ function BrowserTab({
   recording: boolean;
   devToolsOpen: boolean;
   disabled?: boolean;
+  mutationDisabled?: boolean;
   onActivate: (targetId: string) => void;
   onDuplicate: (target: ControlTarget) => void;
   onClose: (targetId: string) => void;
@@ -199,7 +204,7 @@ function BrowserTab({
               }
             }}
             onAuxClick={(event) => {
-              if (event.button === 1 && !disabled) {
+              if (event.button === 1 && !disabled && !mutationDisabled) {
                 event.preventDefault();
                 onClose(target.id);
               }
@@ -250,7 +255,7 @@ function BrowserTab({
                 size="icon-xs"
                 className="shrink-0 opacity-55 hover:opacity-100 group-hover:opacity-100"
                 aria-label="Close tab"
-                disabled={disabled}
+                disabled={disabled || mutationDisabled}
                 onClick={() => onClose(target.id)}
               />
             }
@@ -262,10 +267,16 @@ function BrowserTab({
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-48">
         <ContextMenuGroup>
-          <ContextMenuItem disabled={disabled} onClick={() => onReload(target.id)}>
+          <ContextMenuItem
+            disabled={disabled || mutationDisabled}
+            onClick={() => onReload(target.id)}
+          >
             Reload
           </ContextMenuItem>
-          <ContextMenuItem disabled={disabled} onClick={() => onDuplicate(target)}>
+          <ContextMenuItem
+            disabled={disabled || mutationDisabled}
+            onClick={() => onDuplicate(target)}
+          >
             Duplicate
           </ContextMenuItem>
           <ContextMenuItem
@@ -280,11 +291,14 @@ function BrowserTab({
         </ContextMenuGroup>
         <ContextMenuSeparator />
         <ContextMenuGroup>
-          <ContextMenuItem disabled={disabled} onClick={() => onClose(target.id)}>
+          <ContextMenuItem
+            disabled={disabled || mutationDisabled}
+            onClick={() => onClose(target.id)}
+          >
             Close
           </ContextMenuItem>
           <ContextMenuItem
-            disabled={disabled || closeOtherTargetIds.length === 0}
+            disabled={disabled || mutationDisabled || closeOtherTargetIds.length === 0}
             onClick={() => {
               for (const targetId of closeOtherTargetIds) {
                 onClose(targetId);
@@ -294,7 +308,7 @@ function BrowserTab({
             Close other tabs
           </ContextMenuItem>
           <ContextMenuItem
-            disabled={disabled || closeRightTargetIds.length === 0}
+            disabled={disabled || mutationDisabled || closeRightTargetIds.length === 0}
             onClick={() => {
               for (const targetId of closeRightTargetIds) {
                 onClose(targetId);

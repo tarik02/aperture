@@ -6,6 +6,8 @@ import {
   Download,
   Gauge,
   Info,
+  Lock,
+  LockOpen,
   Maximize2,
   MoreVertical,
   Monitor,
@@ -78,7 +80,7 @@ const VIEWPORT_LIMITS = {
 export function BrowserMenus({
   control,
   cdpUrl,
-  shareUrl,
+  shareUrls,
   busy,
   connected,
   performanceOverlayEnabled,
@@ -91,7 +93,7 @@ export function BrowserMenus({
 }: {
   control: UseBrowserControlResult;
   cdpUrl: string | null;
-  shareUrl: string | null;
+  shareUrls: { editor: string; viewer: string } | null;
   busy: boolean;
   connected: boolean;
   performanceOverlayEnabled: boolean;
@@ -136,27 +138,28 @@ export function BrowserMenus({
           </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
             <RestMenuItems
+              control={control}
               cdpUrl={cdpUrl}
-              shareUrl={shareUrl}
-              busy={busy}
-              onReconnect={onReconnect}
+              shareUrls={shareUrls}
               onSessionDetails={onSessionDetails}
             />
             <DropdownMenuSeparator />
             <RecordingMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role === "owner"}
               runningRecordings={runningRecordings}
               now={now}
             />
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role !== "viewer"}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
+              busy={busy}
+              onReconnect={onReconnect}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -187,7 +190,7 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-72">
             <RecordingMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role === "owner"}
               runningRecordings={runningRecordings}
               now={now}
             />
@@ -216,11 +219,13 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-56">
             <ViewportStreamMenuItems
               control={control}
-              connected={connected}
+              connected={connected && control.collaboration.role !== "viewer"}
               performanceOverlayEnabled={performanceOverlayEnabled}
               onPerformanceOverlayChange={onPerformanceOverlayChange}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
+              busy={busy}
+              onReconnect={onReconnect}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -246,10 +251,9 @@ export function BrowserMenus({
           </Tooltip>
           <DropdownMenuContent align="end" className="w-48">
             <RestMenuItems
+              control={control}
               cdpUrl={cdpUrl}
-              shareUrl={shareUrl}
-              busy={busy}
-              onReconnect={onReconnect}
+              shareUrls={shareUrls}
               onSessionDetails={onSessionDetails}
             />
           </DropdownMenuContent>
@@ -260,20 +264,19 @@ export function BrowserMenus({
 }
 
 function RestMenuItems({
+  control,
   cdpUrl,
-  shareUrl,
-  busy,
-  onReconnect,
+  shareUrls,
   onSessionDetails,
 }: {
+  control: UseBrowserControlResult;
   cdpUrl: string | null;
-  shareUrl: string | null;
-  busy: boolean;
-  onReconnect: () => void;
+  shareUrls: { editor: string; viewer: string } | null;
   onSessionDetails?: () => void;
 }) {
   return (
     <DropdownMenuGroup>
+      <InputControlMenuItem control={control} />
       {onSessionDetails ? (
         <DropdownMenuItem onClick={onSessionDetails}>
           <Info />
@@ -296,25 +299,79 @@ function RestMenuItems({
         Copy CDP URL
       </DropdownMenuItem>
       <DropdownMenuItem
-        disabled={!shareUrl}
+        disabled={!shareUrls}
         onClick={() => {
-          if (!shareUrl) {
+          if (!shareUrls) {
             return;
           }
-          void copyText(shareUrl).then(
-            () => toast.success("Share URL copied"),
+          void copyText(shareUrls.editor).then(
+            () => toast.success("Editor URL copied"),
             () => toast.error("Copy failed"),
           );
         }}
       >
         <Share2 />
-        Copy share URL
+        Copy editor URL
       </DropdownMenuItem>
-      <DropdownMenuItem disabled={busy} onClick={onReconnect}>
-        <RotateCcw />
-        Reconnect
+      <DropdownMenuItem
+        disabled={!shareUrls}
+        onClick={() => {
+          if (!shareUrls) {
+            return;
+          }
+          void copyText(shareUrls.viewer).then(
+            () => toast.success("Viewer URL copied"),
+            () => toast.error("Copy failed"),
+          );
+        }}
+      >
+        <Share2 />
+        Copy viewer URL
       </DropdownMenuItem>
     </DropdownMenuGroup>
+  );
+}
+
+function InputControlMenuItem({ control }: { control: UseBrowserControlResult }) {
+  const collaboration = control.collaboration;
+  const targetId = control.activeTargetId;
+  const explicitControlClaimed =
+    collaboration.holderClientId !== null && collaboration.leaseMode === "explicit";
+  let label = "Control offline";
+  let disabled = collaboration.phase !== "connected" || !targetId;
+  let action = () => undefined;
+
+  if (collaboration.role === "viewer") {
+    label = "View only";
+    disabled = true;
+  } else if (collaboration.hasControl && collaboration.leaseMode === "explicit") {
+    label = "Release control";
+    action = () => {
+      collaboration.release();
+    };
+  } else if (collaboration.hasControl) {
+    label = "Claim control";
+    action = () => {
+      if (targetId) {
+        collaboration.claim(targetId, "explicit");
+      }
+    };
+  } else {
+    const controlBlocked = explicitControlClaimed && collaboration.role !== "owner";
+    label = controlBlocked ? "Control in use" : "Claim control";
+    disabled = disabled || controlBlocked;
+    action = () => {
+      if (targetId) {
+        collaboration.claim(targetId, "explicit");
+      }
+    };
+  }
+
+  return (
+    <DropdownMenuItem disabled={disabled} onClick={action}>
+      {explicitControlClaimed ? <Lock /> : <LockOpen />}
+      {label}
+    </DropdownMenuItem>
   );
 }
 
@@ -406,6 +463,8 @@ function ViewportStreamMenuItems({
   onPerformanceOverlayChange,
   localCursorEnabled,
   onLocalCursorChange,
+  busy,
+  onReconnect,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
@@ -413,13 +472,20 @@ function ViewportStreamMenuItems({
   onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
   onLocalCursorChange: (enabled: boolean) => void;
+  busy: boolean;
+  onReconnect: () => void;
 }) {
   const showStreamMenu =
     control.mediaPath === "webrtc-live" || control.mediaPath === "fallback-cdp";
   return (
     <DropdownMenuGroup>
       <ViewportMenu control={control} connected={connected} />
-      {showStreamMenu ? <StreamMenu control={control} /> : null}
+      {showStreamMenu ? (
+        <StreamMenu
+          control={control}
+          qualityUpdatesEnabled={control.collaboration.role !== "viewer"}
+        />
+      ) : null}
       <DropdownMenuCheckboxItem
         disabled={!connected || control.remoteCursorBusy}
         checked={control.remoteCursorEnabled}
@@ -441,13 +507,28 @@ function ViewportStreamMenuItems({
           Performance overlay
         </DropdownMenuCheckboxItem>
       ) : null}
+      <DropdownMenuItem disabled={busy} onClick={onReconnect}>
+        <RotateCcw />
+        Reconnect
+      </DropdownMenuItem>
     </DropdownMenuGroup>
   );
 }
 
-function StreamMenu({ control }: { control: UseBrowserControlResult }) {
+function StreamMenu({
+  control,
+  qualityUpdatesEnabled,
+}: {
+  control: UseBrowserControlResult;
+  qualityUpdatesEnabled: boolean;
+}) {
   const settings = control.mediaStreamSettings;
-  const source = control.mediaPath === "fallback-cdp" ? "fallback-cdp" : settings?.profile;
+  const source =
+    control.mediaPath === "fallback-cdp"
+      ? "fallback-cdp"
+      : qualityUpdatesEnabled
+        ? settings?.profile
+        : "webrtc";
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -464,7 +545,7 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
               control.selectMediaStream({ kind: "fallback-cdp" });
               return;
             }
-            if (value === "webrtc-retry") {
+            if (value === "webrtc" || value === "webrtc-retry") {
               control.selectMediaStream({ kind: "webrtc-retry" });
               return;
             }
@@ -477,7 +558,14 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
             }
           }}
         >
-          {control.mediaVideoProfiles.length === 0 ? (
+          {!qualityUpdatesEnabled ? (
+            <DropdownMenuRadioItem value="webrtc">
+              <span className="flex min-w-0 flex-col">
+                <span>WebRTC</span>
+                <span className="text-xs text-muted-foreground">Live stream</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ) : control.mediaVideoProfiles.length === 0 ? (
             <DropdownMenuRadioItem value="webrtc-retry">
               <span className="flex min-w-0 flex-col">
                 <span>WebRTC</span>
@@ -485,14 +573,16 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
               </span>
             </DropdownMenuRadioItem>
           ) : null}
-          {control.mediaVideoProfiles.map((profile) => (
-            <DropdownMenuRadioItem key={profile.id} value={profile.id} disabled={!settings}>
-              <span className="flex min-w-0 flex-col">
-                <span>{profile.label}</span>
-                <span className="text-xs text-muted-foreground">{profile.codec} · WebRTC</span>
-              </span>
-            </DropdownMenuRadioItem>
-          ))}
+          {qualityUpdatesEnabled
+            ? control.mediaVideoProfiles.map((profile) => (
+                <DropdownMenuRadioItem key={profile.id} value={profile.id} disabled={!settings}>
+                  <span className="flex min-w-0 flex-col">
+                    <span>{profile.label}</span>
+                    <span className="text-xs text-muted-foreground">{profile.codec} · WebRTC</span>
+                  </span>
+                </DropdownMenuRadioItem>
+              ))
+            : null}
           <DropdownMenuRadioItem value="fallback-cdp">
             <span className="flex min-w-0 flex-col">
               <span>CDP</span>
@@ -500,7 +590,7 @@ function StreamMenu({ control }: { control: UseBrowserControlResult }) {
             </span>
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
-        {control.mediaPath === "webrtc-live" && settings ? (
+        {qualityUpdatesEnabled && control.mediaPath === "webrtc-live" && settings ? (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Quality</DropdownMenuLabel>

@@ -200,6 +200,58 @@ func (r *Repository) GetSessionToken(ctx context.Context, sessionID string) (*Se
 	return token, nil
 }
 
+// GetSessionCollaborationCapability returns one role-scoped sharing secret.
+func (r *Repository) GetSessionCollaborationCapability(ctx context.Context, sessionID, role string) (*SessionCollaborationCapability, error) {
+	capability := new(SessionCollaborationCapability)
+	err := r.db.bun.NewSelect().
+		Model(capability).
+		Where("session_id = ?", sessionID).
+		Where("role = ?", role).
+		Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select session collaboration capability: %w", err)
+	}
+	return capability, nil
+}
+
+// CreateSessionCollaborationCapabilities inserts role-scoped sharing secrets.
+func (r *Repository) CreateSessionCollaborationCapabilities(ctx context.Context, capabilities []SessionCollaborationCapability) error {
+	if len(capabilities) == 0 {
+		return nil
+	}
+	if _, err := r.db.bun.NewInsert().Model(&capabilities).On("CONFLICT (session_id, role) DO NOTHING").Exec(ctx); err != nil {
+		return fmt.Errorf("insert session collaboration capabilities: %w", err)
+	}
+	return nil
+}
+
+// ReplaceSessionCollaborationCapability rotates one role-scoped sharing secret.
+func (r *Repository) ReplaceSessionCollaborationCapability(ctx context.Context, sessionID, role, tokenHash, rawToken, createdAt string) error {
+	result, err := r.db.bun.NewUpdate().
+		Model((*SessionCollaborationCapability)(nil)).
+		Set("token_hash = ?", tokenHash).
+		Set("raw_token = ?", rawToken).
+		Set("created_at = ?", createdAt).
+		Set("revoked_at = NULL").
+		Where("session_id = ?", sessionID).
+		Where("role = ?", role).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("replace session collaboration capability: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("replace session collaboration capability rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // ReplaceSessionTags replaces all tags for a session.
 func (r *Repository) ReplaceSessionTags(ctx context.Context, sessionID string, tags []SessionTag) error {
 	return r.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {

@@ -2,6 +2,7 @@ package browser
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -10,11 +11,47 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/coder/websocket"
 )
+
+const maximumRestrictedCDPConnections = 7
+
+type restrictedCDPClient struct {
+	role   string
+	cancel context.CancelFunc
+}
 
 func (r *wrapperRuntime) handleCDPProxy(w http.ResponseWriter, req *http.Request) {
 	if r.values.CDPPort <= 0 {
 		writeWrapperError(w, http.StatusServiceUnavailable, "browser cdp port is not available")
+		return
+	}
+	role := strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role"))
+	if role == "editor" || role == "viewer" {
+		ctx, cancel := context.WithCancel(req.Context())
+		client := &restrictedCDPClient{role: role, cancel: cancel}
+		r.mu.Lock()
+		if r.restrictedCDPConnections >= maximumRestrictedCDPConnections {
+			r.mu.Unlock()
+			cancel()
+			writeWrapperError(w, http.StatusServiceUnavailable, "shared CDP connection limit reached")
+			return
+		}
+		r.restrictedCDPConnections++
+		r.cdpConnections++
+		r.restrictedCDPClients[client] = struct{}{}
+		r.mu.Unlock()
+		defer func() {
+			cancel()
+			r.mu.Lock()
+			r.restrictedCDPConnections--
+			r.cdpConnections--
+			delete(r.restrictedCDPClients, client)
+			r.mu.Unlock()
+		}()
+		r.handleRestrictedCDPProxy(w, req.WithContext(ctx), role)
 		return
 	}
 
@@ -38,6 +75,111 @@ func (r *wrapperRuntime) handleCDPProxy(w http.ResponseWriter, req *http.Request
 	proxy.ServeHTTP(w, req)
 }
 
+func (r *wrapperRuntime) handleRestrictedCDPProxy(w http.ResponseWriter, req *http.Request, role string) {
+	client, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		return
+	}
+	defer func() { _ = client.Close(websocket.StatusNormalClosure, "done") }()
+	upstreamURL := url.URL{
+		Scheme:   "ws",
+		Host:     net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)),
+		Path:     req.URL.Path,
+		RawQuery: req.URL.RawQuery,
+	}
+	upstream, _, err := websocket.Dial(req.Context(), upstreamURL.String(), nil)
+	if err != nil {
+		_ = client.Close(websocket.StatusInternalError, "browser CDP unavailable")
+		return
+	}
+	defer func() { _ = upstream.Close(websocket.StatusNormalClosure, "done") }()
+	client.SetReadLimit(cdpDiscoveryMessageLimit)
+	upstream.SetReadLimit(cdpDiscoveryMessageLimit)
+
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+	var clientWrite sync.Mutex
+	errors := make(chan error, 2)
+	go func() {
+		for {
+			messageType, body, err := upstream.Read(ctx)
+			if err != nil {
+				errors <- err
+				return
+			}
+			clientWrite.Lock()
+			err = client.Write(ctx, messageType, body)
+			clientWrite.Unlock()
+			if err != nil {
+				errors <- err
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			messageType, body, err := client.Read(ctx)
+			if err != nil {
+				errors <- err
+				return
+			}
+			requestID, allowed := collaborationCDPRequestAllowed(role, body)
+			if !allowed {
+				if requestID != nil {
+					response, _ := json.Marshal(map[string]any{
+						"id":    requestID,
+						"error": map[string]any{"code": -32000, "message": "CDP method is not allowed by this collaboration capability"},
+					})
+					clientWrite.Lock()
+					err = client.Write(ctx, websocket.MessageText, response)
+					clientWrite.Unlock()
+					if err != nil {
+						errors <- err
+						return
+					}
+				}
+				continue
+			}
+			if err := upstream.Write(ctx, messageType, body); err != nil {
+				errors <- err
+				return
+			}
+		}
+	}()
+	<-errors
+}
+
+func collaborationCDPRequestAllowed(role string, body []byte) (any, bool) {
+	var request struct {
+		ID     any             `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil || request.Method == "" {
+		return request.ID, false
+	}
+	if strings.HasPrefix(request.Method, "Input.") {
+		return request.ID, false
+	}
+	switch request.Method {
+	case "Target.setDiscoverTargets", "Target.getTargets", "Target.attachToTarget", "Target.detachFromTarget",
+		"Page.enable", "Page.startScreencast", "Page.stopScreencast", "Page.screencastFrameAck":
+		return request.ID, true
+	case "Target.activateTarget", "Target.createTarget", "Target.closeTarget", "Page.bringToFront", "Page.navigate", "Page.reload", "Page.stopLoading", "Page.getNavigationHistory", "Page.navigateToHistoryEntry", "Emulation.setDeviceMetricsOverride":
+		return request.ID, role == "editor"
+	case "Runtime.evaluate":
+		var params struct {
+			Expression string `json:"expression"`
+		}
+		if json.Unmarshal(request.Params, &params) != nil {
+			return request.ID, false
+		}
+		return request.ID, params.Expression == "document.readyState" || params.Expression == "({ focused: document.hasFocus(), visible: document.visibilityState === 'visible' })"
+	default:
+		return request.ID, false
+	}
+}
+
 func (r *wrapperRuntime) handleCDPDiscovery(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -50,6 +192,10 @@ func (r *wrapperRuntime) handleCDPDiscovery(w http.ResponseWriter, req *http.Req
 	targetPath, publicBasePath := wrapperCDPDiscoveryRoute(req.URL.Path, req.Header.Get("X-Forwarded-Uri"))
 	if targetPath == "" || !isWrapperCDPDiscoveryPath(targetPath) {
 		http.NotFound(w, req)
+		return
+	}
+	if strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")) == "viewer" && strings.HasPrefix(targetPath, "/json/new") {
+		writeWrapperError(w, http.StatusForbidden, "viewer cannot create browser targets")
 		return
 	}
 
@@ -92,7 +238,7 @@ func wrapperCDPDiscoveryRoute(path, forwardedURI string) (string, string) {
 	}
 
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(parts) < 4 || parts[0] != "sessions" || parts[2] != "cdp" || !strings.HasPrefix(parts[3], "aps_") {
+	if len(parts) < 4 || parts[0] != "sessions" || parts[2] != "cdp" || !isWrapperSessionAccessToken(parts[3]) {
 		return "", ""
 	}
 	basePath := "/" + strings.Join(parts[:4], "/")
@@ -185,15 +331,19 @@ func publicCDPBasePathFromForwardedURI(forwardedURI string) string {
 			continue
 		}
 		baseParts := parts[:index]
-		if len(baseParts) < 4 || baseParts[0] != "sessions" || baseParts[2] != "cdp" || !strings.HasPrefix(baseParts[3], "aps_") {
+		if len(baseParts) < 4 || baseParts[0] != "sessions" || baseParts[2] != "cdp" || !isWrapperSessionAccessToken(baseParts[3]) {
 			return ""
 		}
 		return "/" + strings.Join(baseParts, "/")
 	}
-	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && strings.HasPrefix(parts[3], "aps_") {
+	if len(parts) >= 4 && parts[0] == "sessions" && parts[2] == "cdp" && isWrapperSessionAccessToken(parts[3]) {
 		return "/" + strings.Join(parts[:4], "/")
 	}
 	return ""
+}
+
+func isWrapperSessionAccessToken(value string) bool {
+	return strings.HasPrefix(value, "aps_") || strings.HasPrefix(value, "ape_") || strings.HasPrefix(value, "apv_")
 }
 
 func publicCDPWebSocketURL(req *http.Request, basePath, rawTargetURL string) string {

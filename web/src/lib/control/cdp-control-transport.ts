@@ -23,6 +23,7 @@ export type CdpControlOptions = {
   sessionId: string;
   credentials: ApiCredentials;
   sessionToken?: string;
+  targetActivationEnabled: boolean;
   input$: Observable<ClientMessage>;
 };
 

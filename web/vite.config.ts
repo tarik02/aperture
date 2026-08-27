@@ -32,7 +32,6 @@ const config = defineConfig({
           },
           "/sessions": {
             target: devProxyTarget,
-            changeOrigin: true,
             ws: true,
           },
         },

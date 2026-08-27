@@ -23,12 +23,14 @@ import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-cre
 import { AppWindow, Loader2 } from "lucide-react";
 import type { ApiCredentials } from "#/lib/api/client.ts";
 import type { Session } from "#/lib/api/schemas.ts";
+import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
 
 type SessionWorkbenchProps = {
   sessionId: string;
   forceCDPMedia?: boolean;
   capability?: {
     credentials: ApiCredentials;
+    role: Exclude<CollaborationRole, "owner">;
     session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "sessionToken">;
   };
 };
@@ -44,6 +46,7 @@ export function SessionWorkbench({
   const credentials = capability?.credentials ?? profileCredentials;
   const scopes = useActiveScopes();
   const guestMode = capability !== undefined;
+  const collaborationRole = capability?.role ?? "owner";
   const canControl = guestMode || hasScope(scopes, "sessions:write");
   const tenantReady = guestMode || isTenantScopedQueryReady(credentials);
   const recordRecentSession = useRecentSessionsStore((state) => state.recordSession);
@@ -67,19 +70,21 @@ export function SessionWorkbench({
     url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.sessionToken)}`;
     return url.toString();
   }, [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl]);
-  const shareUrl = useMemo(() => {
-    if (!publicOrigin || !selectedSession?.sessionToken) {
+  const shareUrls = useMemo(() => {
+    if (!publicOrigin || !ownerSession?.collaboration) {
       return null;
     }
-    const url = new URL("/share/", publicOrigin);
-    url.hash = new URLSearchParams({ token: selectedSession.sessionToken }).toString();
-    return url.toString();
-  }, [publicOrigin, selectedSession?.sessionToken]);
+    return {
+      editor: shareURL(publicOrigin, ownerSession.collaboration.editorToken),
+      viewer: shareURL(publicOrigin, ownerSession.collaboration.viewerToken),
+    };
+  }, [ownerSession?.collaboration, publicOrigin]);
 
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
     credentials: capability?.credentials,
     sessionToken: selectedSession?.sessionToken,
+    collaborationRole,
     enabled: canControl && tenantReady && canConnectSession,
     forceCDPMedia,
     webrtcProducerSupported:
@@ -139,8 +144,9 @@ export function SessionWorkbench({
         <BrowserControlPane
           control={control}
           guestMode={guestMode}
+          collaborationRole={collaborationRole}
           cdpUrl={cdpUrl}
-          shareUrl={shareUrl}
+          shareUrls={shareUrls}
           onSessionDetails={guestMode ? undefined : () => setDetailSection("details")}
         />
       ) : (
@@ -170,4 +176,10 @@ export function SessionWorkbench({
       ) : null}
     </div>
   );
+}
+
+function shareURL(origin: string, token: string) {
+  const url = new URL("/share/", origin);
+  url.hash = new URLSearchParams({ token }).toString();
+  return url.toString();
 }

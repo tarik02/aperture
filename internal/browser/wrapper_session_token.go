@@ -42,7 +42,7 @@ func (r *wrapperRuntime) watchSessionToken(ctx context.Context) error {
 				nextToken := strings.TrimSpace(string(body))
 				if nextToken != "" && nextToken != currentToken {
 					currentToken = nextToken
-					r.disconnectConsumers()
+					r.disconnectSessionTokenConsumers()
 				}
 			}
 		}

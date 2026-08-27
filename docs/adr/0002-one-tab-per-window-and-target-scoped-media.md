@@ -1,5 +1,7 @@
 # ADR 0002: one tab per window and target-scoped media
 
+ADR 0003 supersedes this ADR's per-target input ownership decision. Media selection remains target-scoped and client-local.
+
 - Status: accepted
 - Date: 2026-07-31
 

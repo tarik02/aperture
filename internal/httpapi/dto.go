@@ -313,23 +313,29 @@ func (r createSessionRequest) Validate() error {
 }
 
 type sessionResponse struct {
-	ID               string            `json:"id"`
-	TenantID         string            `json:"tenantId"`
-	BaseSnapshotName *string           `json:"baseSnapshotName,omitempty"`
-	Label            *string           `json:"label,omitempty"`
-	Status           string            `json:"status"`
-	BrowserChannel   string            `json:"browserChannel,omitempty"`
-	Media            sessionMedia      `json:"media"`
-	CreatedAt        string            `json:"createdAt"`
-	StartedAt        *string           `json:"startedAt,omitempty"`
-	StoppedAt        *string           `json:"stoppedAt,omitempty"`
-	DeletedAt        *string           `json:"deletedAt"`
-	ExpiresAt        string            `json:"expiresAt"`
-	LastConnectedAt  *string           `json:"lastConnectedAt,omitempty"`
-	SuspendedAt      *string           `json:"suspendedAt,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
-	CDPURL           string            `json:"cdpUrl,omitempty"`
-	SessionToken     string            `json:"sessionToken,omitempty"`
+	ID               string                            `json:"id"`
+	TenantID         string                            `json:"tenantId"`
+	BaseSnapshotName *string                           `json:"baseSnapshotName,omitempty"`
+	Label            *string                           `json:"label,omitempty"`
+	Status           string                            `json:"status"`
+	BrowserChannel   string                            `json:"browserChannel,omitempty"`
+	Media            sessionMedia                      `json:"media"`
+	CreatedAt        string                            `json:"createdAt"`
+	StartedAt        *string                           `json:"startedAt,omitempty"`
+	StoppedAt        *string                           `json:"stoppedAt,omitempty"`
+	DeletedAt        *string                           `json:"deletedAt"`
+	ExpiresAt        string                            `json:"expiresAt"`
+	LastConnectedAt  *string                           `json:"lastConnectedAt,omitempty"`
+	SuspendedAt      *string                           `json:"suspendedAt,omitempty"`
+	Tags             map[string]string                 `json:"tags,omitempty"`
+	CDPURL           string                            `json:"cdpUrl,omitempty"`
+	SessionToken     string                            `json:"sessionToken,omitempty"`
+	Collaboration    *sessionCollaborationCapabilities `json:"collaboration,omitempty"`
+}
+
+type sessionCollaborationCapabilities struct {
+	EditorToken string `json:"editorToken"`
+	ViewerToken string `json:"viewerToken"`
 }
 
 type sessionMedia struct {

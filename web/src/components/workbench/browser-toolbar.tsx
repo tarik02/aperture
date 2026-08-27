@@ -28,12 +28,14 @@ import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
+import type { CollaborationRole } from "#/hooks/use-collaboration-control.ts";
 
 type BrowserToolbarProps = {
   control: UseBrowserControlResult;
   guestMode: boolean;
+  collaborationRole: CollaborationRole;
   cdpUrl: string | null;
-  shareUrl: string | null;
+  shareUrls: { editor: string; viewer: string } | null;
   performanceOverlayEnabled: boolean;
   onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
@@ -49,8 +51,9 @@ type BrowserToolbarProps = {
 export function BrowserToolbar({
   control,
   guestMode,
+  collaborationRole,
   cdpUrl,
-  shareUrl,
+  shareUrls,
   performanceOverlayEnabled,
   onPerformanceOverlayChange,
   localCursorEnabled,
@@ -67,6 +70,7 @@ export function BrowserToolbar({
   const displayUrl = control.activeTarget?.url ?? "";
   const busy = control.phase === "connecting";
   const connected = control.phase === "connected";
+  const browserMutationEnabled = connected && collaborationRole !== "viewer";
   const loading = control.activeTarget?.loading ?? false;
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
@@ -123,6 +127,7 @@ export function BrowserToolbar({
           recordingTargetIds={recordingTargetIds}
           devToolsTargetIds={devToolsTargetIds}
           disabled={!connected}
+          mutationDisabled={!browserMutationEnabled}
           onActivate={control.activateTarget}
           onCreate={() => control.createTarget("about:blank")}
           onDuplicate={control.duplicateTarget}
@@ -133,19 +138,23 @@ export function BrowserToolbar({
       </div>
       <div className="flex h-9 items-center gap-1 px-1.5">
         <div className="flex shrink-0 items-center gap-0.5">
-          <ToolbarButton label="Back" disabled={!connected} onClick={() => control.historyBack()}>
+          <ToolbarButton
+            label="Back"
+            disabled={!browserMutationEnabled}
+            onClick={() => control.historyBack()}
+          >
             <ArrowLeft />
           </ToolbarButton>
           <ToolbarButton
             label="Forward"
-            disabled={!connected}
+            disabled={!browserMutationEnabled}
             onClick={() => control.historyForward()}
           >
             <ArrowRight />
           </ToolbarButton>
           <ToolbarButton
             label={loading ? "Stop loading" : "Reload"}
-            disabled={!connected}
+            disabled={!browserMutationEnabled}
             onClick={() => {
               if (loading) {
                 control.stopLoading();
@@ -170,21 +179,23 @@ export function BrowserToolbar({
             }}
             placeholder="URL"
             className="h-7 px-2 font-mono text-xs text-muted-foreground transition-colors focus-visible:text-foreground"
-            disabled={!connected}
+            disabled={!browserMutationEnabled}
           />
         </InputGroup>
         {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
         <DevToolsButton
           open={devToolsOpen}
           dock={devToolsDock}
-          available={connected && Boolean(cdpUrl && control.activeTargetId)}
+          available={
+            collaborationRole === "owner" && connected && Boolean(cdpUrl && control.activeTargetId)
+          }
           onOpenChange={onDevToolsOpenChange}
           onDockChange={onDevToolsDockChange}
         />
         <BrowserMenus
           control={control}
           cdpUrl={cdpUrl}
-          shareUrl={shareUrl}
+          shareUrls={shareUrls}
           busy={busy}
           connected={connected}
           performanceOverlayEnabled={performanceOverlayEnabled}
