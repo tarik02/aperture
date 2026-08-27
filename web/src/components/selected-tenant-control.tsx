@@ -1,5 +1,8 @@
+import { useState } from "react";
+import { toast } from "sonner";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
+import { apiClient } from "#/lib/api/client.ts";
+import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { cn } from "#/lib/utils.ts";
 
 type SelectedTenantControlProps = {
@@ -11,32 +14,41 @@ export function SelectedTenantControl({
   triggerClassName,
   align = "end",
 }: SelectedTenantControlProps) {
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const setSelectedTenant = useTokenVaultStore((state) => state.setSelectedTenant);
-  const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
+  const auth = useAuthSessionStore(selectAuth);
+  const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
+  const [switching, setSwitching] = useState(false);
 
   if (
-    !activeProfile ||
-    (activeProfile.authorityType !== "system_admin" &&
-      (activeProfile.credentialType !== "web_session" ||
-        activeProfile.availableTenants.length === 0))
+    !auth ||
+    (auth.principal.authorityType !== "system_admin" && auth.availableTenants.length === 0)
   ) {
     return null;
   }
 
-  const profileId = activeProfile.id;
+  async function selectTenant(tenantId: string) {
+    setSwitching(true);
+    try {
+      setAuthenticated(await apiClient.getAuthMe(tenantId));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Tenant switch failed");
+    } finally {
+      setSwitching(false);
+    }
+  }
 
   return (
     <TenantCombobox
-      value={activeProfile.selectedTenantId}
-      selectedLabel={activeProfile.selectedTenantDisplayName}
-      onSelect={(tenant) => setSelectedTenant(profileId, tenant.id, tenant.displayName)}
-      disabled={bootstrapping}
+      value={auth.selectedTenant?.id ?? null}
+      selectedLabel={auth.selectedTenant?.displayName ?? null}
+      onSelect={(tenant) => void selectTenant(tenant.id)}
+      disabled={switching}
       placeholder="Tenant"
       triggerClassName={cn("h-7 max-w-56", triggerClassName)}
       align={align}
       options={
-        activeProfile.credentialType === "web_session" ? activeProfile.availableTenants : undefined
+        auth.principal.type === "user" && auth.principal.authorityType !== "system_admin"
+          ? auth.availableTenants
+          : undefined
       }
     />
   );

@@ -20,11 +20,3 @@ export function parseTokenId(rawToken: string): string | null {
 
   return tokenId;
 }
-
-export function maskTokenId(tokenId: string): string {
-  if (tokenId.length <= 8) {
-    return tokenId;
-  }
-
-  return `${tokenId.slice(0, 4)}…${tokenId.slice(-4)}`;
-}

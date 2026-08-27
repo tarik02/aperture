@@ -1,8 +1,8 @@
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
+import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 export function useActiveScopes(): string[] {
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  return activeProfile?.scopes ?? [];
+  const principal = useAuthSessionStore(selectPrincipal);
+  return principal?.scopes ?? [];
 }
 
 export function hasScope(scopes: string[], required: string): boolean {

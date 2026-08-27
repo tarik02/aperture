@@ -1,17 +1,21 @@
 import { useMemo } from "react";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
-import { credentialsFromProfile, type ApiCredentials } from "#/lib/api/client.ts";
+import type { ApiCredentials } from "#/lib/api/client.ts";
+import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 export function useApiCredentials(): ApiCredentials | null {
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
+  const auth = useAuthSessionStore(selectAuth);
 
   return useMemo(() => {
-    if (!activeProfile || !activeProfile.authorityType || bootstrapping) {
+    if (!auth) {
       return null;
     }
-    return credentialsFromProfile(activeProfile);
-  }, [activeProfile, bootstrapping]);
+    return {
+      kind: "session",
+      authorityType: auth.principal.authorityType,
+      tenantId: auth.principal.tenantId,
+      selectedTenantId: auth.selectedTenant?.id ?? null,
+    };
+  }, [auth]);
 }
 
 export function isTenantScopedQueryReady(credentials: ApiCredentials | null): boolean {

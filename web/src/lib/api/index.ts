@@ -1,12 +1,7 @@
 export { ApiRequestError, apiErrorSchema, parseApiErrorBody } from "#/lib/api/errors.ts";
 export type { ApiErrorBody } from "#/lib/api/errors.ts";
 
-export {
-  apiClient,
-  credentialsFromProfile,
-  resolveTenantHeader,
-  TENANT_HEADER,
-} from "#/lib/api/client.ts";
+export { apiClient, resolveTenantHeader, TENANT_HEADER } from "#/lib/api/client.ts";
 export type {
   ApiCredentials,
   SessionsListParams,

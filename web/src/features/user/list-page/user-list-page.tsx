@@ -33,7 +33,7 @@ import { useUsersInfiniteQuery } from "#/features/user/user.queries.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import type { UserDisabledFilterValue } from "#/lib/api/query-keys.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { useTokenVaultStore } from "#/stores/token-vault.ts";
+import { useAuthSessionStore } from "#/stores/auth-session.ts";
 
 const STATUS_OPTIONS = [
   { value: "active", label: "Active" },
@@ -55,8 +55,7 @@ const USER_SKELETON_COLUMNS = [
 
 export function UserListPage() {
   const credentials = useApiCredentials();
-  const hydrated = useTokenVaultStore((state) => state.hydrated);
-  const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
+  const authStatus = useAuthSessionStore((state) => state.status);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<UserDisabledFilterValue>("active");
   const [createOpen, setCreateOpen] = useState(false);
@@ -69,7 +68,7 @@ export function UserListPage() {
   );
   const query = useUsersInfiniteQuery(filters);
 
-  if (hydrated && !bootstrapping && credentials?.authorityType !== "system_admin") {
+  if (authStatus !== "loading" && credentials?.authorityType !== "system_admin") {
     return <Navigate to="/" />;
   }
 

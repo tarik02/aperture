@@ -14,9 +14,8 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
 import { Input } from "#/components/ui/input.tsx";
 import { Skeleton } from "#/components/ui/skeleton.tsx";
-import { fetchAuthMe } from "#/lib/auth-me.ts";
 import { apiClient } from "#/lib/api/client.ts";
-import { useTokenVaultStore } from "#/stores/token-vault.ts";
+import { useAuthSessionStore } from "#/stores/auth-session.ts";
 
 const invitationStorageKey = "aperture.user-invitation";
 
@@ -28,7 +27,7 @@ export const Route = createFileRoute("/invite")({
 
 function InviteRoute() {
   const navigate = useNavigate();
-  const upsertWebSession = useTokenVaultStore((state) => state.upsertWebSession);
+  const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
   const [invitation, setInvitation] = useState<InvitationState>({ kind: "loading" });
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -74,7 +73,7 @@ function InviteRoute() {
     try {
       await apiClient.acceptUserInvitation(invitation.token, password);
       window.sessionStorage.removeItem(invitationStorageKey);
-      upsertWebSession(await fetchAuthMe(null));
+      setAuthenticated(await apiClient.getAuthMe());
       await navigate({ to: "/-/sessions" });
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Password update failed");

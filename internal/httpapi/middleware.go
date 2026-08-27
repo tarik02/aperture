@@ -24,7 +24,11 @@ import (
 	"go.uber.org/zap"
 )
 
-const inactiveHandoffTimeout = 15 * time.Second
+const (
+	inactiveHandoffTimeout             = 15 * time.Second
+	selectedTenantContextKey           = "selectedTenantId"
+	webSessionAuthenticationContextKey = "webSessionAuthentication"
+)
 
 // Server holds HTTP handler dependencies.
 type Server struct {
@@ -143,7 +147,15 @@ func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 	if err == nil {
 		principal, err = s.Auth.Authenticate(c.Request.Context(), rawToken)
 	} else if s.WebAuth != nil {
-		principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenantID(c))
+		selectedTenant := selectedTenantID(c)
+		if selectedTenant == "" {
+			selectedTenant = s.WebAuth.SelectedTenantID(c.Request.Context())
+		}
+		principal, err = s.WebAuth.Authenticate(c.Request.Context(), selectedTenant)
+		if err == nil {
+			c.Set(selectedTenantContextKey, selectedTenant)
+			c.Set(webSessionAuthenticationContextKey, true)
+		}
 	}
 	if err != nil {
 		return auth.Principal{}, err
@@ -226,6 +238,9 @@ func bindJSON(c *gin.Context, dst validatableRequest) error {
 }
 
 func selectedTenantID(c *gin.Context) string {
+	if tenantID := c.GetString(selectedTenantContextKey); tenantID != "" {
+		return tenantID
+	}
 	if header := strings.TrimSpace(c.GetHeader(auth.TenantHeader)); header != "" {
 		return header
 	}
