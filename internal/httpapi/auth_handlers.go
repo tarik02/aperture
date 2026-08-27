@@ -92,17 +92,10 @@ func (s *Server) resolveSelectedTenant(c *gin.Context, principal auth.Principal)
 	return &mapped, nil
 }
 
-func (s *Server) listBrowserChannels(c *gin.Context) {
+func (s *Server) listBrowserConfigurations(c *gin.Context) {
 	if s.Channels == nil {
-		WriteError(c, errChannelsUnavailable)
+		WriteError(c, errBrowserConfigurationsUnavailable)
 		return
 	}
-
-	names := s.Channels.Names()
-	channels := make([]browserChannelResponse, 0, len(names))
-	for _, name := range names {
-		channels = append(channels, browserChannelResponse{Name: name})
-	}
-
-	c.JSON(http.StatusOK, browserChannelsResponse{Channels: channels})
+	c.JSON(http.StatusOK, browserConfigurationsResponse{Configurations: s.Channels.Configurations()})
 }

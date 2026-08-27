@@ -48,9 +48,7 @@ export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGr
                     <span data-sidebar-collapse-label className="flex min-w-0 flex-col">
                       <span className="truncate">{title}</span>
                       <span className="truncate text-xs font-normal text-sidebar-foreground/60">
-                        {session.browserChannel
-                          ? `${session.status} · ${session.browserChannel}`
-                          : session.status}
+                        {session.status} · {session.browser.channel} · {session.browser.mode}
                       </span>
                     </span>
                   </SidebarMenuButton>

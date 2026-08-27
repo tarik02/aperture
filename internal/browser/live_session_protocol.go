@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
 func (session *liveSession) handleSessionMessage(client *liveSessionClient, transport liveSessionTransport, message liveSessionClientMessage, delivery liveSessionDelivery) {
@@ -65,6 +67,9 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 	}
 
 	if err := session.handleClientMessage(client, message); err != nil {
+		if delivery == liveSessionDeliveryRealtime && errors.Is(err, remoteinput.ErrNotOwner) {
+			return
+		}
 		writeLiveSessionTransportError(transport, liveSessionErrorCode(err), err.Error())
 	}
 }

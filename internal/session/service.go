@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -94,6 +94,7 @@ type CreateInput struct {
 	BaseSnapshotName *string
 	Label            *string
 	BrowserChannel   string
+	BrowserMode      string
 	BrowserArgs      []string
 	Tags             map[string]string
 }
@@ -105,28 +106,32 @@ type SessionView struct {
 	BaseSnapshotName          *string
 	CDPURL                    string
 	SessionToken              string
+	Capabilities              browser.Capabilities
+	WebRTCICEServers          []config.WebRTCICEServer
 	CollaborationCapabilities CollaborationCapabilitiesView
-	Media                     SessionMediaView
-}
-
-// SessionMediaView describes the media transport capability for a session.
-type SessionMediaView struct {
-	Mode           string
-	WebRTCProducer bool
-	ICEServers     []config.WebRTCICEServer
 }
 
 // Create creates and starts a browser session.
 func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, error) {
+	if input.BrowserArgs == nil {
+		input.BrowserArgs = []string{}
+	}
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
 		return nil, err
 	}
 
-	channel, err := s.channels.Resolve(input.BrowserChannel)
+	mode := strings.ToLower(strings.TrimSpace(input.BrowserMode))
+	if mode == "" {
+		mode = browser.BrowserModeHeaded
+	}
+	plan, err := s.channels.ResolveLaunchPlan(input.BrowserChannel, mode)
 	if err != nil {
-		if errors.Is(err, browser.ErrInvalidChannel) || errors.Is(err, browser.ErrUnknownChannel) {
-			return nil, ErrInvalidChannel
+		if errors.Is(err, browser.ErrInvalidChannel) || errors.Is(err, browser.ErrUnknownChannel) || errors.Is(err, browser.ErrInvalidBrowserMode) || errors.Is(err, browser.ErrBrowserConfigurationUnavailable) {
+			return nil, ErrInvalidConfiguration
 		}
+		return nil, err
+	}
+	if err := browser.ValidateBrowserArgs(plan.Channel.DefaultArgs); err != nil {
 		return nil, err
 	}
 
@@ -180,7 +185,8 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		DownloadsPath:   layout.Downloads,
 		CachePath:       layout.Cache,
 		ArtifactsPath:   layout.Artifacts,
-		BrowserChannel:  channel.Name,
+		BrowserChannel:  plan.Channel.Name,
+		BrowserMode:     plan.Mode,
 		BrowserArgsJSON: string(argsJSON),
 		CreatedAt:       nowText,
 		ExpiresAt:       expiresAt.Format(time.RFC3339Nano),
@@ -225,55 +231,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		return nil, err
 	}
 
-	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
-	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-	internalAPIURL := s.cfg.DeployBlueURL
-	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
-		internalAPIURL = s.cfg.DeployGreenURL
-	}
-
-	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:        sessionID,
-		ExternalBaseURL:  s.cfg.ExternalBaseURL,
-		SessionToken:     rawSessionToken,
-		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:   internalAPIURL,
-
-		MergedUserDataDir:          layout.Merged,
-		UpperDir:                   layout.Upper,
-		DownloadsDir:               layout.Downloads,
-		RecordingsDir:              layout.Recordings,
-		CacheDir:                   layout.Cache,
-		ArtifactsDir:               layout.Artifacts,
-		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
-		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
-		CDPPort:                    port,
-		WrapperPort:                wrapperPort,
-		BrowserExecutable:          channel.Executable,
-		BrowserDefaultArgs:         channel.DefaultArgs,
-		BrowserExtraArgs:           input.BrowserArgs,
-		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		GPUMode:                    s.cfg.GPUMode,
-		CompositorEnabled:          compositorEnabled,
-		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:            s.cfg.WebRTCCompositorShell,
-		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
-		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
-		MediaProducerAdvertisedIP:  s.cfg.WebRTCMediaProducerAdvertisedIP,
-		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
-		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
-		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
-		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
-		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
-		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
-	}
+	runtimeEnv := s.runtimeEnvValues(sessionRow, layout, plan, input.BrowserArgs, port, wrapperPort, rawSessionToken)
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
 		return nil, err
@@ -322,8 +280,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		BaseSnapshotName:          baseSnapshotName,
 		CDPURL:                    s.cdpURL(sessionID),
 		SessionToken:              rawSessionToken,
+		Capabilities:              s.sessionCapabilities(*sessionRow),
+		WebRTCICEServers:          s.sessionWebRTCICEServers(*sessionRow),
 		CollaborationCapabilities: capabilities,
-		Media:                     s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -355,7 +314,8 @@ func (s *Service) Get(ctx context.Context, tenantID, sessionID string) (*Session
 		Session:          *sessionRow,
 		Tags:             tags,
 		BaseSnapshotName: baseSnapshotName,
-		Media:            s.sessionMediaView(*sessionRow),
+		Capabilities:     s.sessionCapabilities(*sessionRow),
+		WebRTCICEServers: s.sessionWebRTCICEServers(*sessionRow),
 	}
 	if err := s.populateSessionCredentials(ctx, &view); err != nil {
 		return nil, err
@@ -412,7 +372,8 @@ func (s *Service) GetByIDs(ctx context.Context, tenantID string, sessionIDs []st
 			Session:          sessionRow,
 			Tags:             tagsBySession[sessionRow.ID],
 			BaseSnapshotName: baseSnapshotName,
-			Media:            s.sessionMediaView(sessionRow),
+			Capabilities:     s.sessionCapabilities(sessionRow),
+			WebRTCICEServers: s.sessionWebRTCICEServers(sessionRow),
 		}
 		if err := s.populateSessionCredentials(ctx, &view); err != nil {
 			return nil, err
@@ -519,9 +480,10 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 	view := &SessionView{
-		Session: *sessionRow,
-		Tags:    tags,
-		Media:   s.sessionMediaView(*sessionRow),
+		Session:          *sessionRow,
+		Tags:             tags,
+		Capabilities:     s.sessionCapabilities(*sessionRow),
+		WebRTCICEServers: s.sessionWebRTCICEServers(*sessionRow),
 	}
 	if err := s.populateSessionCredentials(ctx, view); err != nil {
 		return nil, err
@@ -568,7 +530,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
 	}
 
-	channel, err := s.channels.Resolve(sessionRow.BrowserChannel)
+	plan, err := s.channels.ResolveLaunchPlan(sessionRow.BrowserChannel, sessionRow.BrowserMode)
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
@@ -591,12 +553,6 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
-	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
-	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-	internalAPIURL := s.cfg.DeployBlueURL
-	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
-		internalAPIURL = s.cfg.DeployGreenURL
-	}
 	rawSessionToken, err := s.ensureSessionToken(ctx, sessionRow)
 
 	if err != nil {
@@ -604,48 +560,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
-	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:        sessionID,
-		ExternalBaseURL:  s.cfg.ExternalBaseURL,
-		SessionToken:     rawSessionToken,
-		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:   internalAPIURL,
-
-		MergedUserDataDir:          layout.Merged,
-		UpperDir:                   layout.Upper,
-		DownloadsDir:               layout.Downloads,
-		RecordingsDir:              layout.Recordings,
-		CacheDir:                   layout.Cache,
-		ArtifactsDir:               layout.Artifacts,
-		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
-		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
-		CDPPort:                    port,
-		WrapperPort:                wrapperPort,
-		BrowserExecutable:          channel.Executable,
-		BrowserDefaultArgs:         channel.DefaultArgs,
-		BrowserExtraArgs:           browserArgs,
-		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		GPUMode:                    s.cfg.GPUMode,
-		CompositorEnabled:          compositorEnabled,
-		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:            s.cfg.WebRTCCompositorShell,
-		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
-		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
-		MediaProducerAdvertisedIP:  s.cfg.WebRTCMediaProducerAdvertisedIP,
-		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
-		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
-		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
-		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
-		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
-		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
-	}
+	runtimeEnv := s.runtimeEnvValues(sessionRow, layout, plan, browserArgs, port, wrapperPort, rawSessionToken)
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
@@ -694,8 +609,9 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		Tags:                      tags,
 		CDPURL:                    s.cdpURL(sessionID),
 		SessionToken:              rawSessionToken,
+		Capabilities:              s.sessionCapabilities(*sessionRow),
+		WebRTCICEServers:          s.sessionWebRTCICEServers(*sessionRow),
 		CollaborationCapabilities: capabilities,
-		Media:                     s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -753,8 +669,9 @@ func (s *Service) RotateSessionToken(ctx context.Context, tenantID, sessionID st
 		Tags:                      tags,
 		CDPURL:                    s.cdpURL(sessionID),
 		SessionToken:              rawSessionToken,
+		Capabilities:              s.sessionCapabilities(*sessionRow),
+		WebRTCICEServers:          s.sessionWebRTCICEServers(*sessionRow),
 		CollaborationCapabilities: capabilities,
-		Media:                     s.sessionMediaView(*sessionRow),
 	}, nil
 }
 
@@ -862,7 +779,8 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 		Session:          *sessionRow,
 		Tags:             tagMap,
 		BaseSnapshotName: baseSnapshotName,
-		Media:            s.sessionMediaView(*sessionRow),
+		Capabilities:     s.sessionCapabilities(*sessionRow),
+		WebRTCICEServers: s.sessionWebRTCICEServers(*sessionRow),
 	}
 	if err := s.populateSessionCredentials(ctx, &view); err != nil {
 		return nil, err
@@ -944,7 +862,8 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 			Session:          sessionRow,
 			Tags:             tagsBySession[sessionRow.ID],
 			BaseSnapshotName: baseSnapshotName,
-			Media:            s.sessionMediaView(sessionRow),
+			Capabilities:     s.sessionCapabilities(sessionRow),
+			WebRTCICEServers: s.sessionWebRTCICEServers(sessionRow),
 		}
 		var token *db.SessionToken
 		if stored, ok := tokensBySession[sessionRow.ID]; ok {
@@ -1096,49 +1015,37 @@ func (s *Service) unmountOverlay(ctx context.Context, sessionID string) error {
 	return s.overlay.Unmount(ctx, sessionID)
 }
 
-func (s *Service) effectiveWebRTCMediaMode() string {
-	switch strings.ToLower(strings.TrimSpace(s.cfg.WebRTCMediaMode)) {
-	case config.WebRTCMediaModeCDP:
-		return config.WebRTCMediaModeCDP
-	default:
-		return config.WebRTCMediaModeAuto
+func (s *Service) sessionCapabilities(sessionRow db.Session) browser.Capabilities {
+	if sessionRow.Status == db.SessionStatusRunning && sessionRow.RuntimeEnvPath != nil {
+		body, err := os.ReadFile(*sessionRow.RuntimeEnvPath)
+		if err == nil {
+			values, err := browser.ParseRuntimeEnv(body)
+			if err == nil {
+				return browser.CapabilitiesFromRuntime(values)
+			}
+		}
 	}
-}
-
-func (s *Service) webrtcCompositorRuntimeEnabled() bool {
-	return s.effectiveWebRTCMediaMode() == config.WebRTCMediaModeAuto && s.cfg.WebRTCCompositorEnabled
-}
-
-func (s *Service) webrtcMediaProducerRuntimeEnabled() bool {
-	return s.webrtcCompositorRuntimeEnabled() && s.cfg.WebRTCMediaProducerEnabled
-}
-
-func (s *Service) sessionMediaView(sessionRow db.Session) SessionMediaView {
-	view := SessionMediaView{Mode: s.effectiveWebRTCMediaMode()}
-	if view.Mode != config.WebRTCMediaModeAuto ||
-		!mediaViewAvailable(sessionRow.Status) {
-		return view
-	}
-	if sessionRow.Status == db.SessionStatusSuspended {
-		view.WebRTCProducer = s.webrtcMediaProducerRuntimeEnabled()
-		view.ICEServers = append([]config.WebRTCICEServer(nil), s.cfg.WebRTCICEServers...)
-		return view
-	}
-	if sessionRow.RuntimeEnvPath == nil {
-		return view
-	}
-
-	body, err := os.ReadFile(*sessionRow.RuntimeEnvPath)
+	plan, err := s.channels.ResolveLaunchPlan(sessionRow.BrowserChannel, sessionRow.BrowserMode)
 	if err != nil {
-		return view
+		return browser.Capabilities{
+			State:    browser.CapabilityStateUnavailable,
+			LiveView: browser.LiveViewCapability{Transports: []string{}},
+		}
 	}
-	values, err := browser.ParseRuntimeEnv(body)
-	if err != nil {
-		return view
+	capabilities := plan.Capabilities
+	capabilities.State = browser.CapabilityStateProspective
+	return capabilities
+}
+
+func (s *Service) sessionWebRTCICEServers(sessionRow db.Session) []config.WebRTCICEServer {
+	if !retainedSessionAvailable(sessionRow.Status) {
+		return nil
 	}
-	view.WebRTCProducer = values.CompositorEnabled && values.MediaProducerEnabled
-	view.ICEServers = append([]config.WebRTCICEServer(nil), s.cfg.WebRTCICEServers...)
-	return view
+	capabilities := s.sessionCapabilities(sessionRow)
+	if !slices.Contains(capabilities.LiveView.Transports, browser.LiveViewTransportWebRTC) {
+		return nil
+	}
+	return append([]config.WebRTCICEServer(nil), s.cfg.WebRTCICEServers...)
 }
 
 func mediaProducerICEServers(cfg config.Config) string {

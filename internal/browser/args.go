@@ -11,20 +11,35 @@ var ErrDeniedBrowserArg = errors.New("browser argument conflicts with supervisor
 var ErrDeniedCompositorBrowserArg = errors.New("browser argument conflicts with compositor mode")
 
 var deniedBrowserArgs = map[string]struct{}{
-	"--user-data-dir":                 {},
-	"--remote-debugging-address":      {},
-	"--remote-debugging-port":         {},
-	"--remote-allow-origins":          {},
-	"--disk-cache-dir":                {},
-	"--media-cache-dir":               {},
-	"--download-default-directory":    {},
-	"--disable-download-notification": {},
-	"--disable-crashpad":              {},
-	"--disable-crashpad-for-testing":  {},
-	"--disable-crash-reporter":        {},
-	"--disable-extensions":            {},
-	"--disable-extensions-except":     {},
-	"--load-extension":                {},
+	"--user-data-dir":                    {},
+	"--remote-debugging-address":         {},
+	"--remote-debugging-port":            {},
+	"--remote-allow-origins":             {},
+	"--disk-cache-dir":                   {},
+	"--media-cache-dir":                  {},
+	"--download-default-directory":       {},
+	"--disable-download-notification":    {},
+	"--disable-crashpad":                 {},
+	"--disable-crashpad-for-testing":     {},
+	"--disable-crash-reporter":           {},
+	"--disable-extensions":               {},
+	"--disable-extensions-except":        {},
+	"--load-extension":                   {},
+	"--headless":                         {},
+	"--incognito":                        {},
+	"--guest":                            {},
+	"--profile-directory":                {},
+	"--ozone-platform":                   {},
+	"--use-angle":                        {},
+	"--use-gl":                           {},
+	"--disable-accelerated-2d-canvas":    {},
+	"--disable-accelerated-video-decode": {},
+	"--disable-gpu":                      {},
+	"--disable-gpu-compositing":          {},
+	"--disable-gpu-rasterization":        {},
+	"--disable-software-rasterizer":      {},
+	"--disable-webgl":                    {},
+	"--disable-webgpu":                   {},
 }
 
 var deniedCompositorBrowserArgs = map[string]struct{}{
@@ -43,22 +58,6 @@ var deniedCompositorBrowserArgs = map[string]struct{}{
 	"--window-size":                      {},
 }
 
-var deniedBrowserArgPrefixes = []string{
-	"--user-data-dir=",
-	"--remote-debugging-address=",
-	"--remote-debugging-port=",
-	"--remote-allow-origins=",
-	"--disk-cache-dir=",
-	"--media-cache-dir=",
-	"--download-default-directory=",
-	"--disable-crashpad=",
-	"--disable-crashpad-for-testing=",
-	"--disable-crash-reporter=",
-	"--disable-extensions=",
-	"--disable-extensions-except=",
-	"--load-extension=",
-}
-
 // ValidateBrowserArgs rejects args that conflict with supervisor-owned Chromium behavior.
 func ValidateBrowserArgs(args []string) error {
 	for _, arg := range args {
@@ -66,13 +65,9 @@ func ValidateBrowserArgs(args []string) error {
 		if trimmed == "" {
 			continue
 		}
-		if _, denied := deniedBrowserArgs[trimmed]; denied {
+		name, _, _ := strings.Cut(trimmed, "=")
+		if _, denied := deniedBrowserArgs[name]; denied {
 			return fmt.Errorf("%w: %q", ErrDeniedBrowserArg, trimmed)
-		}
-		for _, prefix := range deniedBrowserArgPrefixes {
-			if strings.HasPrefix(trimmed, prefix) {
-				return fmt.Errorf("%w: %q", ErrDeniedBrowserArg, trimmed)
-			}
 		}
 	}
 	return nil

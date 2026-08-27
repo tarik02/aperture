@@ -32,6 +32,8 @@ type UseBrowserControlOptions = {
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: RTCIceServer[];
+  recordingSupported?: boolean;
+  remoteCursorSupported?: boolean;
 };
 
 type BrowserViewportSize = {
@@ -67,8 +69,10 @@ export type UseBrowserControlResult = {
   viewportAutoSync: boolean;
   captured: boolean;
   recordings: Recording[];
+  recordingSupported: boolean;
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
+  remoteCursorSupported: boolean;
   collaboration: CollaborationControl;
   setCaptured: (captured: boolean) => void;
   setInputDimensions: (size: BrowserViewportSize) => void;
@@ -110,6 +114,8 @@ export function useBrowserControl({
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
+  recordingSupported = false,
+  remoteCursorSupported = false,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const profileCredentials = useApiCredentials();
   const credentials = credentialsOverride ?? profileCredentials;
@@ -351,7 +357,7 @@ export function useBrowserControl({
   const startRecording = useCallback(
     (mode: "tab" | "viewer") => {
       const targetId = activeTargetIdRef.current;
-      if (!targetId || collaborationRole !== "owner" || recordingBusy) {
+      if (!recordingSupported || !targetId || collaborationRole !== "owner" || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
@@ -360,7 +366,7 @@ export function useBrowserControl({
         .catch((cause: unknown) => toast.error(errorMessage(cause, "Recording failed to start")))
         .finally(() => setRecordingBusy(false));
     },
-    [collaborationRole, live, recordingBusy],
+    [collaborationRole, live, recordingBusy, recordingSupported],
   );
 
   const stopRecording = useCallback(
@@ -472,8 +478,10 @@ export function useBrowserControl({
     viewportAutoSync,
     captured,
     recordings: live.recordings,
+    recordingSupported,
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
+    remoteCursorSupported,
     collaboration: live.collaboration,
     setCaptured,
     setInputDimensions: (size) => {

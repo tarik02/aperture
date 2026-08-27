@@ -5,6 +5,7 @@ import {
   liveSessionServerMessageSchema,
   rasterFrameSchema,
   type LiveSessionCommandResult,
+  type CollaborationRole,
   type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
   type LiveSessionSnapshot,
@@ -33,6 +34,7 @@ type LiveSessionConnectionCallbacks = {
 
 type LiveSessionConnectionOptions = {
   sessionId: string;
+  role: CollaborationRole;
   credentials: ApiCredentials;
   sessionToken?: string;
   identity: SessionHelloIdentity;
@@ -40,6 +42,15 @@ type LiveSessionConnectionOptions = {
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
 };
+
+const sessionIdentitySchema = z
+  .object({
+    clientId: z.string().uuid(),
+    resumeSecret: z.string().min(1),
+  })
+  .strict();
+
+const sessionIdentityCache = new Map<string, SessionIdentity>();
 
 type PendingCommand = {
   resolve: (result: LiveSessionCommandResult) => void;
@@ -100,7 +111,7 @@ export class LiveSessionConnection {
   private readonly options: LiveSessionConnectionOptions;
   private active: SessionTransport | null = null;
   private candidate: SessionTransport | null = null;
-  private identity: SessionIdentity | null = null;
+  private identity: SessionIdentity | null;
   private preferredTransport: LiveSessionTransportKind;
   private transportRequest: TransportRequest | null = null;
   private disposed = false;
@@ -115,6 +126,7 @@ export class LiveSessionConnection {
 
   constructor(options: LiveSessionConnectionOptions) {
     this.options = options;
+    this.identity = loadSessionIdentity(options.sessionId, options.role, options.identity);
     this.preferredTransport = options.webrtcSupported ? "webrtc" : "websocket";
   }
 
@@ -386,9 +398,16 @@ export class LiveSessionConnection {
       this.active === null
     ) {
       this.identity = null;
+      clearSessionIdentity(this.options.sessionId, this.options.role, this.options.identity);
     }
     if (message.type === "session.snapshot") {
       this.identity = { clientId: message.clientId, resumeSecret: message.resumeSecret };
+      storeSessionIdentity(
+        this.options.sessionId,
+        this.options.role,
+        this.options.identity,
+        this.identity,
+      );
     }
     if (this.active !== transport) {
       if (this.candidate !== transport) {
@@ -499,6 +518,8 @@ class WebSocketSessionTransport implements SessionTransport {
   private readonly socket: WebSocket;
   private readonly callbacks: TransportCallbacks;
   private readonly pendingRealtime = new Map<unknown, Record<string, unknown>>();
+  private pendingRasterPacket: Blob | null = null;
+  private decodingRasterPacket = false;
   private realtimeFrame: number | null = null;
   private closed = false;
 
@@ -513,7 +534,7 @@ class WebSocketSessionTransport implements SessionTransport {
       sessionWebSocketURL(options.sessionId),
       sessionProtocols(options.credentials, options.sessionToken),
     );
-    this.socket.binaryType = "arraybuffer";
+    this.socket.binaryType = "blob";
   }
 
   connect() {
@@ -528,11 +549,9 @@ class WebSocketSessionTransport implements SessionTransport {
         }
         return;
       }
-      if (event.data instanceof ArrayBuffer) {
-        const frame = decodeRasterFrame(event.data);
-        if (frame) {
-          this.callbacks.frame(this, frame);
-        }
+      if (event.data instanceof Blob) {
+        this.pendingRasterPacket = event.data;
+        void this.decodeRasterPacket();
       }
     });
     this.socket.addEventListener("close", () => {
@@ -569,12 +588,36 @@ class WebSocketSessionTransport implements SessionTransport {
 
   close() {
     this.closed = true;
+    this.pendingRasterPacket = null;
     if (this.realtimeFrame !== null) {
       window.cancelAnimationFrame(this.realtimeFrame);
       this.realtimeFrame = null;
     }
     this.pendingRealtime.clear();
     this.socket.close();
+  }
+
+  private async decodeRasterPacket() {
+    if (this.decodingRasterPacket || this.pendingRasterPacket === null) {
+      return;
+    }
+    const packet = this.pendingRasterPacket;
+    this.pendingRasterPacket = null;
+    this.decodingRasterPacket = true;
+    let frame: LiveSessionRasterFrame | null = null;
+    try {
+      frame = await decodeRasterFrame(packet);
+    } catch {
+      // Ignore malformed or unreadable binary packets.
+    }
+    this.decodingRasterPacket = false;
+    if (this.closed) {
+      return;
+    }
+    if (frame) {
+      this.callbacks.frame(this, frame);
+    }
+    void this.decodeRasterPacket();
   }
 
   private flushRealtime() {
@@ -818,18 +861,17 @@ function decodeServerMessage(raw: string): LiveSessionServerMessage | null {
   }
 }
 
-function decodeRasterFrame(packet: ArrayBuffer): LiveSessionRasterFrame | null {
-  if (packet.byteLength < 4) {
+async function decodeRasterFrame(packet: Blob): Promise<LiveSessionRasterFrame | null> {
+  if (packet.size < 4) {
     return null;
   }
-  const headerLength = new DataView(packet).getUint32(0);
-  if (headerLength === 0 || headerLength > packet.byteLength - 4) {
+  const headerLength = new DataView(await packet.slice(0, 4).arrayBuffer()).getUint32(0);
+  if (headerLength === 0 || headerLength > packet.size - 4) {
     return null;
   }
-  const headerBytes = new Uint8Array(packet, 4, headerLength);
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder().decode(headerBytes));
+    value = JSON.parse(await packet.slice(4, 4 + headerLength).text());
   } catch {
     return null;
   }
@@ -837,13 +879,11 @@ function decodeRasterFrame(packet: ArrayBuffer): LiveSessionRasterFrame | null {
   if (!parsed.success) {
     return null;
   }
-  const image = new Blob([new Uint8Array(packet, 4 + headerLength)], { type: "image/jpeg" });
   return {
     targetId: parsed.data.targetId,
-    data: image,
+    data: packet.slice(4 + headerLength, packet.size, "image/jpeg"),
     width: parsed.data.width,
     height: parsed.data.height,
-    receivedAt: Date.now(),
   };
 }
 
@@ -869,6 +909,75 @@ function sessionProtocols(credentials: ApiCredentials, sessionToken?: string) {
     protocols.push(`x-aperture-tenant-id.${tenantId}`);
   }
   return protocols;
+}
+
+function sessionIdentityStorageKey(
+  sessionId: string,
+  role: CollaborationRole,
+  identity: SessionHelloIdentity,
+) {
+  return `aperture.live-session.resume:${sessionId}:${role}:${identity.avatarHash}:${encodeURIComponent(identity.name)}`;
+}
+
+function loadSessionIdentity(
+  sessionId: string,
+  role: CollaborationRole,
+  identity: SessionHelloIdentity,
+): SessionIdentity | null {
+  const key = sessionIdentityStorageKey(sessionId, role, identity);
+  const cached = sessionIdentityCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const navigation = window.performance.getEntriesByType("navigation").at(0);
+  if (!(navigation instanceof PerformanceNavigationTiming) || navigation.type !== "reload") {
+    return null;
+  }
+  try {
+    const stored = window.sessionStorage.getItem(key);
+    if (!stored) {
+      return null;
+    }
+    const value: unknown = JSON.parse(stored);
+    const parsed = sessionIdentitySchema.safeParse(value);
+    if (!parsed.success) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    sessionIdentityCache.set(key, parsed.data);
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function storeSessionIdentity(
+  sessionId: string,
+  role: CollaborationRole,
+  helloIdentity: SessionHelloIdentity,
+  identity: SessionIdentity,
+) {
+  const key = sessionIdentityStorageKey(sessionId, role, helloIdentity);
+  sessionIdentityCache.set(key, identity);
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(identity));
+  } catch {
+    // The in-memory identity still covers transport handovers and route remounts.
+  }
+}
+
+function clearSessionIdentity(
+  sessionId: string,
+  role: CollaborationRole,
+  identity: SessionHelloIdentity,
+) {
+  const key = sessionIdentityStorageKey(sessionId, role, identity);
+  sessionIdentityCache.delete(key);
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // The rejected identity is already absent from memory.
+  }
 }
 
 export type { LiveSessionConnectionCallbacks, LiveSessionConnectionOptions, LiveSessionSnapshot };

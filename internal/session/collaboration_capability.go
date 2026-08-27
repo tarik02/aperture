@@ -297,7 +297,13 @@ func (s *Service) RotateCollaborationCapability(ctx context.Context, tenantID, s
 	if err != nil {
 		return nil, err
 	}
-	view := &SessionView{Session: *sessionRow, Tags: tags, Media: s.sessionMediaView(*sessionRow), CollaborationCapabilities: capabilities}
+	view := &SessionView{
+		Session:                   *sessionRow,
+		Tags:                      tags,
+		Capabilities:              s.sessionCapabilities(*sessionRow),
+		WebRTCICEServers:          s.sessionWebRTCICEServers(*sessionRow),
+		CollaborationCapabilities: capabilities,
+	}
 	if err := s.populateSessionCredentials(ctx, view); err != nil {
 		return nil, err
 	}

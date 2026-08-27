@@ -14,7 +14,7 @@ function resolveTenantKey(credentials: ApiCredentials | null): string | null {
     : credentials.selectedTenantId;
 }
 
-export function useBrowserChannelsQuery() {
+export function useBrowserConfigurationsQuery() {
   const credentials = useApiCredentials();
   const activeProfile = useTokenVaultStore(selectActiveProfile);
   const profileId = activeProfile?.id ?? "none";
@@ -22,8 +22,8 @@ export function useBrowserChannelsQuery() {
   const enabled = isTenantScopedQueryReady(credentials);
 
   return useQuery({
-    queryKey: queryKeys.browserChannels(profileId, tenantKey),
-    queryFn: () => apiClient.getBrowserChannels(credentials!),
+    queryKey: queryKeys.browserConfigurations(profileId, tenantKey),
+    queryFn: () => apiClient.getBrowserConfigurations(credentials!),
     enabled,
     staleTime: 60_000,
   });

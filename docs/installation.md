@@ -51,6 +51,7 @@ agent_browser_idle_timeout: 5m
 tool_output_max_bytes: 16777216
 signed_file_url_ttl: 15m
 signed_file_url_max_ttl: 24h
+browser_modes: [headless]
 login_methods: [password, api_token, passkey, oidc]
 web_session_lifetime: 720h
 web_session_idle_timeout: 24h
@@ -151,8 +152,7 @@ services.aperture = {
 
   settings = {
     log_level = "info";
-    webrtc_media_mode = "auto";
-    webrtc_compositor_enabled = true;
+    browser_modes = [ "headless" ];
   };
 
   environmentFile = "/home/alice/.config/aperture/aperture.env";

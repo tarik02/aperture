@@ -30,7 +30,7 @@ type SessionWorkbenchProps = {
   capability?: {
     credentials: ApiCredentials;
     role: Exclude<CollaborationRole, "owner">;
-    session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "sessionToken">;
+    session: Pick<Session, "id" | "status" | "capabilities" | "connection">;
   };
 };
 
@@ -57,14 +57,18 @@ export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProp
     selectedSession?.status === "running" || selectedSession?.status === "suspended",
   );
   const cdpUrl = useMemo(() => {
-    if (!selectedSession?.cdpUrl || !selectedSession.sessionToken || !publicOrigin) {
+    if (guestMode) {
       return null;
     }
-    const sourceUrl = new URL(selectedSession.cdpUrl, publicOrigin);
+    const connection = selectedSession?.connection;
+    if (!connection?.cdpUrl || !connection.sessionToken || !publicOrigin) {
+      return null;
+    }
+    const sourceUrl = new URL(connection.cdpUrl, publicOrigin);
     const url = new URL(publicOrigin);
-    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.sessionToken)}`;
+    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(connection.sessionToken)}`;
     return url.toString();
-  }, [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl]);
+  }, [guestMode, publicOrigin, selectedSession?.connection]);
   const shareUrls = useMemo(() => {
     if (!publicOrigin || !ownerSession?.collaboration) {
       return null;
@@ -78,12 +82,14 @@ export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProp
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
     credentials: capability?.credentials,
-    sessionToken: selectedSession?.sessionToken,
+    sessionToken: selectedSession?.connection.sessionToken,
     collaborationRole,
     enabled: canControl && tenantReady && canConnectSession,
     webrtcProducerSupported:
-      selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
-    webrtcIceServers: selectedSession?.media.iceServers ?? emptyIceServers,
+      selectedSession?.capabilities.liveView.transports.includes("webrtc") ?? false,
+    webrtcIceServers: selectedSession?.connection.webrtc?.iceServers ?? emptyIceServers,
+    recordingSupported: selectedSession?.capabilities.recording !== undefined,
+    remoteCursorSupported: selectedSession?.capabilities.remoteCursor ?? false,
   });
 
   useEffect(() => {

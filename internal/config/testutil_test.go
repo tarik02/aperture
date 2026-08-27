@@ -34,11 +34,14 @@ func validTestConfig(t *testing.T) Config {
 		ChannelRegistry: map[string]ChannelConfig{
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
-		ExternalBaseURL:       "https://browser.example.test",
-		CdpRouteBasePath:      "/cdp",
-		LoginMethods:          []string{LoginMethodPassword},
-		WebSessionLifetime:    30 * 24 * time.Hour,
-		WebSessionIdleTimeout: 24 * time.Hour,
-		LogLevel:              "info",
+		AllowedBrowserModes:    []string{BrowserModeHeadless},
+		ExternalBaseURL:        "https://browser.example.test",
+		CdpRouteBasePath:       "/cdp",
+		LoginMethods:           []string{LoginMethodPassword},
+		WebSessionLifetime:     30 * 24 * time.Hour,
+		WebSessionIdleTimeout:  24 * time.Hour,
+		WebRTCCompositorWidth:  1280,
+		WebRTCCompositorHeight: 720,
+		LogLevel:               "info",
 	}
 }

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, MousePointer2, Unplug } from "lucide-react";
-import { interval } from "rxjs";
+import { Loader2, MousePointer2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
 import {
@@ -26,6 +25,11 @@ type BrowserViewportProps = {
 type MouseButton = "left" | "middle" | "right" | "none";
 type ViewportPoint = { x: number; y: number };
 type FrameMetadata = Pick<LiveSessionRasterFrame, "width" | "height">;
+type RasterFrameDecoder = {
+  decoding: boolean;
+  generation: number;
+  pending: LiveSessionRasterFrame | null;
+};
 type PressedKey = {
   targetId: string;
   input: ReturnType<typeof keyboardInputMessage>;
@@ -44,9 +48,12 @@ export function BrowserViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const frameRef = useRef<LiveSessionRasterFrame | null>(null);
+  const rasterDecoderRef = useRef<RasterFrameDecoder>({
+    decoding: false,
+    generation: 0,
+    pending: null,
+  });
   const frameMetadataRef = useRef<FrameMetadata | null>(null);
-  const frameStaleRef = useRef(false);
   const pressedKeysRef = useRef(new Map<string, PressedKey>());
   const releasedKeysRef = useRef(new Set<string>());
   const pointerCaptureRef = useRef<{
@@ -67,7 +74,6 @@ export function BrowserViewport({
   } | null>(null);
   const [cursorHintPoint, setCursorHintPoint] = useState<ViewportPoint | null>(null);
   const [frameMetadata, setFrameMetadata] = useState<FrameMetadata | null>(null);
-  const [frameStale, setFrameStale] = useState(false);
   const [presentedMedia, setPresentedMedia] = useState<{
     stream: MediaStream;
     targetId: string;
@@ -173,24 +179,23 @@ export function BrowserViewport({
 
   useEffect(() => {
     const subscription = control.frame$.subscribe((frame) => {
-      frameRef.current = frame;
       if (!frame) {
         if (imageRef.current) {
-          clearImageSource(imageRef.current);
+          resetImageFrames(imageRef.current, rasterDecoderRef.current);
+        } else {
+          resetRasterFrameDecoder(rasterDecoderRef.current);
         }
         if (frameMetadataRef.current !== null) {
           frameMetadataRef.current = null;
           setFrameMetadata(null);
         }
-        if (frameStaleRef.current) {
-          frameStaleRef.current = false;
-          setFrameStale(false);
-        }
         return;
       }
 
       if (imageRef.current && !showingWebRTC) {
-        setImageFrame(imageRef.current, frame);
+        enqueueImageFrame(imageRef.current, rasterDecoderRef.current, frame);
+      } else {
+        rasterDecoderRef.current.pending = frame;
       }
       const currentMetadata = frameMetadataRef.current;
       if (currentMetadata?.width !== frame.width || currentMetadata?.height !== frame.height) {
@@ -198,33 +203,25 @@ export function BrowserViewport({
         frameMetadataRef.current = nextMetadata;
         setFrameMetadata(nextMetadata);
       }
-      if (frameStaleRef.current) {
-        frameStaleRef.current = false;
-        setFrameStale(false);
-      }
     });
 
     return () => {
       subscription.unsubscribe();
       if (imageRef.current) {
-        clearImageSource(imageRef.current);
+        resetImageFrames(imageRef.current, rasterDecoderRef.current);
+      } else {
+        resetRasterFrameDecoder(rasterDecoderRef.current);
       }
     };
   }, [control.frame$, showingWebRTC]);
 
   useEffect(() => {
-    const subscription = interval(500).subscribe(() => {
-      const frame = frameRef.current;
-      const nextStale = frame !== null && Date.now() - frame.receivedAt > 3000;
-      if (nextStale === frameStaleRef.current) {
-        return;
-      }
-      frameStaleRef.current = nextStale;
-      setFrameStale(nextStale);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [control.frame$]);
+    const image = imageRef.current;
+    if (showingWebRTC || !image) {
+      return;
+    }
+    decodeNextImageFrame(image, rasterDecoderRef.current);
+  }, [frameMetadata, showingWebRTC]);
 
   useEffect(() => {
     if (!videoRef.current) {
@@ -863,12 +860,14 @@ export function BrowserViewport({
   const status = resolveViewportStatus(
     control.phase,
     frameMetadata !== null,
-    frameStale,
     control.mediaPhase,
     control.mediaPath,
     showingWebRTC,
   );
-  const visibleCollaborationError = collaborationHint ? null : control.collaboration.lastError;
+  const visibleCollaborationError =
+    collaborationHint || isInputOwnershipError(control.collaboration.lastError)
+      ? null
+      : control.collaboration.lastError;
 
   return (
     <div
@@ -1016,6 +1015,9 @@ function resolveCollaborationHint(
   ) {
     return "Input in use";
   }
+  if (collaboration.hasControl) {
+    return null;
+  }
   if (
     collaboration.lastError?.code === "input_busy" ||
     collaboration.lastError?.code === "input_not_owned"
@@ -1028,20 +1030,70 @@ function resolveCollaborationHint(
   return null;
 }
 
-function setImageFrame(image: HTMLImageElement, frame: LiveSessionRasterFrame): void {
+function isInputOwnershipError(error: UseBrowserControlResult["collaboration"]["lastError"]) {
+  return error?.code === "input_busy" || error?.code === "input_not_owned";
+}
+
+function enqueueImageFrame(
+  image: HTMLImageElement,
+  decoder: RasterFrameDecoder,
+  frame: LiveSessionRasterFrame,
+): void {
+  decoder.pending = frame;
+  decodeNextImageFrame(image, decoder);
+}
+
+function decodeNextImageFrame(image: HTMLImageElement, decoder: RasterFrameDecoder): void {
+  if (decoder.decoding || decoder.pending === null) {
+    return;
+  }
+  const frame = decoder.pending;
+  const generation = decoder.generation;
+  decoder.pending = null;
+  decoder.decoding = true;
+  void setImageFrame(image, frame).then(() => {
+    if (decoder.generation !== generation) {
+      return;
+    }
+    decoder.decoding = false;
+    decodeNextImageFrame(image, decoder);
+  });
+}
+
+async function setImageFrame(
+  image: HTMLImageElement,
+  frame: LiveSessionRasterFrame,
+): Promise<void> {
   const previousSource = image.src;
-  image.src = URL.createObjectURL(frame.data);
-  if (previousSource.startsWith("blob:")) {
-    URL.revokeObjectURL(previousSource);
+  const source = URL.createObjectURL(frame.data);
+  image.src = source;
+  try {
+    await image.decode();
+  } catch {
+    // A newer transport or target may replace the image while decoding.
+  } finally {
+    if (previousSource.startsWith("blob:")) {
+      URL.revokeObjectURL(previousSource);
+    }
+    if (image.src !== source) {
+      URL.revokeObjectURL(source);
+    }
   }
 }
 
-function clearImageSource(image: HTMLImageElement): void {
+function resetImageFrames(image: HTMLImageElement, decoder: RasterFrameDecoder): void {
+  resetRasterFrameDecoder(decoder);
   const source = image.src;
   image.removeAttribute("src");
   if (source.startsWith("blob:")) {
     URL.revokeObjectURL(source);
   }
+}
+
+function resetRasterFrameDecoder(decoder: RasterFrameDecoder): void {
+  decoder.generation += 1;
+  decoder.decoding = false;
+  decoder.pending = null;
 }
 
 function ViewportPlaceholder({
@@ -1093,7 +1145,7 @@ function ViewportPlaceholder({
   );
 }
 
-function StatusBadge({ status }: { status: "webrtc" | "websocket" | "stale" | "offline" }) {
+function StatusBadge({ status }: { status: "webrtc" | "websocket" | "offline" }) {
   if (status === "webrtc" || status === "websocket") {
     return (
       <Badge
@@ -1101,17 +1153,6 @@ function StatusBadge({ status }: { status: "webrtc" | "websocket" | "stale" | "o
         className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
       >
         {status}
-      </Badge>
-    );
-  }
-  if (status === "stale") {
-    return (
-      <Badge
-        variant="secondary"
-        className="gap-1 bg-amber-500/15 text-amber-800 dark:text-amber-300"
-      >
-        <AlertCircle />
-        stale
       </Badge>
     );
   }
@@ -1233,11 +1274,10 @@ async function pasteClipboard(control: UseBrowserControlResult) {
 function resolveViewportStatus(
   phase: UseBrowserControlResult["phase"],
   hasFrame: boolean,
-  frameStale: boolean,
   mediaPhase: UseBrowserControlResult["mediaPhase"],
   mediaPath: UseBrowserControlResult["mediaPath"],
   showingWebRTC: boolean,
-): "webrtc" | "websocket" | "stale" | "offline" {
+): "webrtc" | "websocket" | "offline" {
   if (phase !== "connected") {
     return "offline";
   }
@@ -1246,9 +1286,6 @@ function resolveViewportStatus(
   }
   if (!hasFrame) {
     return "offline";
-  }
-  if (frameStale) {
-    return "stale";
   }
   return mediaPath === "websocket-live" ? "websocket" : "webrtc";
 }
