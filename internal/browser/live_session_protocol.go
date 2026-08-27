@@ -10,6 +10,15 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 	if liveSessionMessageChangesTargets(message.Type) {
 		unlock := session.lockTargetChanges()
 		defer unlock()
+	} else if message.Type == "presentation.quality.set" {
+		// A quality update may close incompatible WebRTC peers. Admit the command under
+		// the handover lock, but do not retain that lock while updates are serialized.
+		client.handoverMu.Lock()
+		active := client.transport() == transport
+		client.handoverMu.Unlock()
+		if !active {
+			return
+		}
 	} else {
 		client.handoverMu.Lock()
 		defer client.handoverMu.Unlock()
@@ -202,11 +211,7 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if message.BitrateKbps < 100 {
 			return liveSessionServerMessage{}, errors.New("video bitrate must be at least 100 Kbit/s")
 		}
-		mediaProducer := session.runtime.currentMediaProducer()
-		if mediaProducer == nil {
-			return liveSessionServerMessage{}, errors.New("WebRTC presentation is unavailable")
-		}
-		presentation, err := mediaProducer.updatePresentationQuality(
+		presentation, err := session.updatePresentationQuality(
 			strings.TrimSpace(message.Profile),
 			int(message.Width),
 			int(message.Height),
@@ -216,7 +221,6 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		session.broadcastPresentation(presentation)
 		return liveSessionServerMessage{Presentation: &presentation}, nil
 	case "recording.start":
 		if client.role != "owner" {
@@ -390,6 +394,21 @@ func (session *liveSession) broadcastPresentation(presentation liveSessionPresen
 	for _, client := range clients {
 		client.queueStateUpdate(message)
 	}
+}
+
+func (session *liveSession) updatePresentationQuality(profileName string, width, height, fps, bitrateKbps int) (liveSessionPresentation, error) {
+	session.presentationMu.Lock()
+	defer session.presentationMu.Unlock()
+	mediaProducer := session.runtime.currentMediaProducer()
+	if mediaProducer == nil {
+		return liveSessionPresentation{}, errors.New("WebRTC presentation is unavailable")
+	}
+	presentation, err := mediaProducer.updatePresentationQuality(profileName, width, height, fps, bitrateKbps)
+	if err != nil {
+		return liveSessionPresentation{}, err
+	}
+	session.broadcastPresentation(presentation)
+	return presentation, nil
 }
 
 func requireBrowserMutation(client *liveSessionClient) error {

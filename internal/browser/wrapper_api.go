@@ -587,7 +587,7 @@ func (r *wrapperRuntime) handleQuality(w http.ResponseWriter, req *http.Request)
 		writeWrapperError(w, http.StatusInternalServerError, fmt.Sprintf("default video option for profile %q is not configured", body.Profile))
 		return
 	}
-	presentation, err := mediaProducer.updatePresentationQuality(
+	_, err := r.liveSession.updatePresentationQuality(
 		body.Profile,
 		option.Width,
 		option.Height,
@@ -598,7 +598,6 @@ func (r *wrapperRuntime) handleQuality(w http.ResponseWriter, req *http.Request)
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	r.liveSession.broadcastPresentation(presentation)
 	quality := mediaProducer.media.Quality()
 	writeWrapperJSON(w, http.StatusOK, map[string]any{
 		"profile":     quality.Profile,

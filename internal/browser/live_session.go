@@ -62,6 +62,7 @@ type liveSession struct {
 
 	mu             sync.Mutex
 	inputMu        sync.Mutex
+	presentationMu sync.Mutex
 	recordingMu    sync.Mutex
 	leaseUpdatesMu sync.Mutex
 	presenceMu     sync.Mutex
