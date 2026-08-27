@@ -9,11 +9,7 @@ import {
   shouldForwardBrowserShortcut,
 } from "#/lib/control/keyboard.ts";
 import { computeRenderMetrics } from "#/lib/control/viewport.ts";
-import type {
-  ControlConnectionPhase,
-  ControlError,
-  ScreencastFrame,
-} from "#/lib/control/messages.ts";
+import type { LiveSessionRasterFrame } from "#/lib/control/live-session-protocol.ts";
 import type { ViewportPreset } from "#/lib/control/viewport.ts";
 import { cn } from "#/lib/utils.ts";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
@@ -29,7 +25,7 @@ type BrowserViewportProps = {
 
 type MouseButton = "left" | "middle" | "right" | "none";
 type ViewportPoint = { x: number; y: number };
-type FrameMetadata = Pick<ScreencastFrame, "width" | "height">;
+type FrameMetadata = Pick<LiveSessionRasterFrame, "width" | "height">;
 type PressedKey = {
   targetId: string;
   input: ReturnType<typeof keyboardInputMessage>;
@@ -48,7 +44,7 @@ export function BrowserViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const frameRef = useRef<ScreencastFrame | null>(null);
+  const frameRef = useRef<LiveSessionRasterFrame | null>(null);
   const frameMetadataRef = useRef<FrameMetadata | null>(null);
   const frameStaleRef = useRef(false);
   const pressedKeysRef = useRef(new Map<string, PressedKey>());
@@ -129,7 +125,7 @@ export function BrowserViewport({
     renderWidth,
     renderHeight,
   );
-  const disconnectedHint = resolveDisconnectedHint(control.phase, control.lastError);
+  const disconnectedHint = resolveDisconnectedHint(control.phase);
   const collaborationHint = resolveCollaborationHint(control.collaboration);
   const cursorHint = disconnectedHint ?? collaborationHint;
   const displayedCursorHintPoint = cursorHint
@@ -160,7 +156,7 @@ export function BrowserViewport({
     pressedKeysRef.current.clear();
 
     for (const [keyId, pressedKey] of pressedKeys) {
-      const sent = control.send({
+      const sent = control.sendInput({
         type: "input.key",
         targetId: pressedKey.targetId,
         action: "up",
@@ -173,7 +169,7 @@ export function BrowserViewport({
         releasedKeysRef.current.add(keyId);
       }
     }
-  }, [control.send]);
+  }, [control.sendInput]);
 
   useEffect(() => {
     const subscription = control.frame$.subscribe((frame) => {
@@ -479,7 +475,7 @@ export function BrowserViewport({
       return;
     }
     preventViewportDefault(event);
-    control.send({
+    control.sendInput({
       type: "input.mouse",
       targetId,
       action: "move",
@@ -532,7 +528,7 @@ export function BrowserViewport({
       clickCount,
       element,
     });
-    control.send({
+    control.sendInput({
       type: "input.mouse",
       targetId,
       action: "down",
@@ -562,7 +558,7 @@ export function BrowserViewport({
       return;
     }
     preventViewportDefault(event);
-    control.send({
+    control.sendInput({
       type: "input.mouse",
       targetId,
       action: "up",
@@ -595,7 +591,7 @@ export function BrowserViewport({
       return;
     }
     preventViewportDefault(event);
-    control.send({
+    control.sendInput({
       type: "input.mouse",
       targetId: capturedPointer.targetId,
       action: "up",
@@ -634,7 +630,7 @@ export function BrowserViewport({
         width: inputWidth,
         height: inputHeight,
       });
-      control.send({
+      control.sendInput({
         type: "input.mouse",
         targetId,
         action: "move",
@@ -657,7 +653,7 @@ export function BrowserViewport({
       }
       preventNativeDefault(event);
       if (point) {
-        control.send({
+        control.sendInput({
           type: "input.mouse",
           targetId,
           action: "up",
@@ -719,7 +715,7 @@ export function BrowserViewport({
     }
     preventViewportDefault(event);
     const wheelScale = wheelDeltaScale(event.deltaMode, inputHeight);
-    control.send({
+    control.sendInput({
       type: "input.wheel",
       targetId,
       x: point.x,
@@ -768,11 +764,11 @@ export function BrowserViewport({
 
     const clipboardShortcut = resolveClipboardShortcut(event.nativeEvent);
     if (clipboardShortcut === "copy") {
-      control.send({ type: "clipboard.copy", targetId });
+      control.sendInput({ type: "clipboard.copy", targetId });
       return;
     }
     if (clipboardShortcut === "cut") {
-      control.send({ type: "clipboard.cut", targetId });
+      control.sendInput({ type: "clipboard.cut", targetId });
       return;
     }
     if (clipboardShortcut === "paste") {
@@ -785,7 +781,7 @@ export function BrowserViewport({
     }
 
     const input = keyboardInputMessage(event.nativeEvent, "down");
-    const sent = control.send({
+    const sent = control.sendInput({
       type: "input.key",
       targetId,
       action: "down",
@@ -829,7 +825,7 @@ export function BrowserViewport({
       return;
     }
 
-    const sent = control.send({
+    const sent = control.sendInput({
       type: "input.key",
       targetId,
       action: "up",
@@ -872,12 +868,6 @@ export function BrowserViewport({
     control.mediaPath,
     showingWebRTC,
   );
-  const visibleLastError =
-    control.lastError &&
-    control.phase === "connected" &&
-    !isDisconnectedSocketError(control.lastError.message)
-      ? control.lastError
-      : null;
   const visibleCollaborationError = collaborationHint ? null : control.collaboration.lastError;
 
   return (
@@ -1001,32 +991,16 @@ export function BrowserViewport({
           {cursorHint}
         </div>
       ) : null}
-      {visibleLastError ? (
-        <div className="pointer-events-none absolute bottom-2 left-2 max-w-[80%] rounded-md border border-destructive/40 bg-background/90 px-2 py-1 text-xs text-destructive">
-          {visibleLastError.message}
-        </div>
-      ) : null}
       {visibleCollaborationError ? (
         <div className="pointer-events-none absolute bottom-10 left-2 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
           {visibleCollaborationError.message}
-        </div>
-      ) : null}
-      {control.mediaError ? (
-        <div className="pointer-events-none absolute right-2 bottom-10 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
-          {control.mediaError}
         </div>
       ) : null}
     </div>
   );
 }
 
-function resolveDisconnectedHint(
-  phase: ControlConnectionPhase,
-  lastError: ControlError | null,
-): string | null {
-  if (lastError && isDisconnectedSocketError(lastError.message)) {
-    return "Session disconnected";
-  }
+function resolveDisconnectedHint(phase: UseBrowserControlResult["phase"]): string | null {
   if (phase === "disconnected" || phase === "error") {
     return "Session disconnected";
   }
@@ -1054,14 +1028,9 @@ function resolveCollaborationHint(
   return null;
 }
 
-function setImageFrame(image: HTMLImageElement, frame: ScreencastFrame): void {
+function setImageFrame(image: HTMLImageElement, frame: LiveSessionRasterFrame): void {
   const previousSource = image.src;
-  if (frame.data instanceof Blob) {
-    image.src = URL.createObjectURL(frame.data);
-  } else {
-    const mime = frame.format === "png" ? "image/png" : "image/jpeg";
-    image.src = `data:${mime};base64,${frame.data}`;
-  }
+  image.src = URL.createObjectURL(frame.data);
   if (previousSource.startsWith("blob:")) {
     URL.revokeObjectURL(previousSource);
   }
@@ -1075,16 +1044,12 @@ function clearImageSource(image: HTMLImageElement): void {
   }
 }
 
-function isDisconnectedSocketError(message: string): boolean {
-  return /^CDP (browser )?socket (is not open|closed|failed)$/.test(message);
-}
-
 function ViewportPlaceholder({
   phase,
   mediaPhase,
   switching,
 }: {
-  phase: ControlConnectionPhase;
+  phase: UseBrowserControlResult["phase"];
   mediaPhase: UseBrowserControlResult["mediaPhase"];
   switching: boolean;
 }) {
@@ -1258,7 +1223,7 @@ async function pasteClipboard(control: UseBrowserControlResult) {
     return;
   }
 
-  control.send({
+  control.sendInput({
     type: "clipboard.paste",
     targetId: control.activeTargetId,
     items: [{ mimeType: "text/plain", data: text }],
@@ -1266,7 +1231,7 @@ async function pasteClipboard(control: UseBrowserControlResult) {
 }
 
 function resolveViewportStatus(
-  phase: ControlConnectionPhase,
+  phase: UseBrowserControlResult["phase"],
   hasFrame: boolean,
   frameStale: boolean,
   mediaPhase: UseBrowserControlResult["mediaPhase"],

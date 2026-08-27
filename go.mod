@@ -18,7 +18,7 @@ require (
 	github.com/pquerna/otp v1.5.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/tarik02/webdesktop v0.0.0-nightly.2.7de839c81a04.0.20260826150817-3fe30c14db11
+	github.com/tarik02/webdesktop v0.0.0-nightly.2.7de839c81a04.0.20260827071345-8d24b9256c76
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
 	github.com/uptrace/bun/driver/sqliteshim v1.2.18

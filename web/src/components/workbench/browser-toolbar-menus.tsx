@@ -382,11 +382,8 @@ function RecordingMenuItems({
   runningRecordings: UseBrowserControlResult["recordings"];
   now: number;
 }) {
-  const canStart =
-    connected &&
-    control.recordingClientConnected &&
-    Boolean(control.activeTargetId) &&
-    !control.recordingBusy;
+  const recordingAvailable = connected && control.collaboration.role === "owner";
+  const canStart = recordingAvailable && Boolean(control.activeTargetId) && !control.recordingBusy;
   return (
     <>
       <DropdownMenuGroup>
@@ -398,17 +395,12 @@ function RecordingMenuItems({
             <span className="text-xs text-muted-foreground">Stay pinned to this target</span>
           </span>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={!canStart || !control.recordingClientConnected}
-          onClick={() => control.startRecording("viewer")}
-        >
+        <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("viewer")}>
           <Monitor />
           <span className="flex min-w-0 flex-col">
             <span>Record this viewer</span>
             <span className="text-xs text-muted-foreground">
-              {control.recordingClientConnected
-                ? "Follow tab switches"
-                : "Viewer connection unavailable"}
+              {recordingAvailable ? "Follow tab switches" : "Owner connection required"}
             </span>
           </span>
         </DropdownMenuItem>
@@ -477,7 +469,7 @@ function ViewportStreamMenuItems({
         />
       ) : null}
       <DropdownMenuCheckboxItem
-        disabled={!connected || control.remoteCursorBusy}
+        disabled={!connected || control.collaboration.role === "viewer"}
         checked={control.remoteCursorEnabled}
         onCheckedChange={control.setRemoteCursorEnabled}
       >

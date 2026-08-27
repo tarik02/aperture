@@ -8,14 +8,12 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
@@ -75,6 +73,7 @@ type liveSession struct {
 	paintTokens    float64
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
+	cursorVisible  bool
 }
 
 type liveSessionClient struct {
@@ -135,7 +134,6 @@ func (automation *liveSessionAutomation) actorOwnerID() uint64 { return automati
 func (automation *liveSessionAutomation) actorName() string    { return automation.name }
 
 type liveSessionClientMessage struct {
-	Version               int     `json:"version"`
 	Type                  string  `json:"type"`
 	RequestID             string  `json:"requestId"`
 	ClientID              string  `json:"clientId"`
@@ -179,6 +177,7 @@ type liveSessionClientMessage struct {
 	BitrateKbps           int     `json:"bitrateKbps"`
 	Codec                 string  `json:"codec"`
 	RealtimeCounter       uint64  `json:"realtimeCounter"`
+	Visible               *bool   `json:"visible"`
 }
 
 type liveSessionParticipant struct {
@@ -194,7 +193,6 @@ type liveSessionParticipant struct {
 }
 
 type liveSessionServerMessage struct {
-	Version         int                      `json:"version"`
 	Type            string                   `json:"type"`
 	RequestID       string                   `json:"requestId,omitempty"`
 	OK              *bool                    `json:"ok,omitempty"`
@@ -223,8 +221,9 @@ type liveSessionServerMessage struct {
 }
 
 type liveSessionPresentation struct {
-	Quality  liveSessionPresentationQuality `json:"quality"`
-	Profiles []mediaProfile                 `json:"profiles"`
+	Quality       *liveSessionPresentationQuality `json:"quality,omitempty"`
+	Profiles      []mediaProfile                  `json:"profiles"`
+	CursorVisible bool                            `json:"cursorVisible"`
 }
 
 type liveSessionPresentationQuality struct {
@@ -250,11 +249,12 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		input = compositorInput
 	}
 	return &liveSession{
-		runtime:    runtime,
-		input:      input,
-		browser:    newLiveSessionBrowser(runtime),
-		clients:    make(map[string]*liveSessionClient),
-		recordings: make(map[string]*wrapperRecording),
+		runtime:       runtime,
+		input:         input,
+		browser:       newLiveSessionBrowser(runtime),
+		clients:       make(map[string]*liveSessionClient),
+		recordings:    make(map[string]*wrapperRecording),
+		cursorVisible: true,
 	}, nil
 }
 
@@ -448,96 +448,6 @@ func (session *liveSession) handleClientMessage(client *liveSessionClient, messa
 	}
 }
 
-func (session *liveSession) paintPoint(client *liveSessionClient, message liveSessionClientMessage) error {
-	if message.TargetID == "" {
-		return errors.New("paint target is unavailable")
-	}
-	if !validPaintStrokeID(message.StrokeID) || !validPaintColor(message.Color) || message.Width < 1 || message.Width > 16 {
-		return errors.New("paint stroke is invalid")
-	}
-	if message.Phase != "start" && message.Phase != "move" && message.Phase != "end" {
-		return errors.New("paint phase is invalid")
-	}
-	if message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
-		return errors.New("paint point is invalid")
-	}
-	session.mu.Lock()
-	now := time.Now()
-	if message.Phase == "start" && client.activeTargetID != message.TargetID {
-		session.mu.Unlock()
-		return errors.New("paint target is unavailable")
-	}
-	if message.Phase != "start" && (client.activePaintStroke != message.StrokeID || client.activePaintTarget != message.TargetID) {
-		session.mu.Unlock()
-		return nil
-	}
-	if message.Phase == "end" {
-		client.activePaintStroke = ""
-		client.activePaintTarget = ""
-	} else {
-		if client.paintTokensAt.IsZero() {
-			client.paintTokens = liveSessionClientPaintBurst
-		} else {
-			client.paintTokens += now.Sub(client.paintTokensAt).Seconds() * liveSessionClientPaintRate
-			if client.paintTokens > liveSessionClientPaintBurst {
-				client.paintTokens = liveSessionClientPaintBurst
-			}
-		}
-		client.paintTokensAt = now
-		if session.paintTokensAt.IsZero() {
-			session.paintTokens = liveSessionPaintBurst
-		} else {
-			session.paintTokens += now.Sub(session.paintTokensAt).Seconds() * liveSessionPaintRate
-			if session.paintTokens > liveSessionPaintBurst {
-				session.paintTokens = liveSessionPaintBurst
-			}
-		}
-		session.paintTokensAt = now
-		hubTokenCost := 1.0
-		if message.Phase == "start" {
-			hubTokenCost = 2
-		}
-		if client.paintTokens < 1 || session.paintTokens < hubTokenCost {
-			session.mu.Unlock()
-			return nil
-		}
-		client.paintTokens--
-		session.paintTokens -= hubTokenCost
-		if message.Phase == "start" {
-			client.activePaintStroke = message.StrokeID
-			client.activePaintTarget = message.TargetID
-		}
-	}
-	session.mu.Unlock()
-	x := message.X
-	y := message.Y
-	session.broadcastPaint(liveSessionServerMessage{
-		Version:  1,
-		Type:     "paint.point",
-		ClientID: client.id,
-		TargetID: message.TargetID,
-		StrokeID: message.StrokeID,
-		Color:    message.Color,
-		Width:    message.Width,
-		Phase:    message.Phase,
-		X:        &x,
-		Y:        &y,
-	})
-	return nil
-}
-
-func (session *liveSession) broadcastPaint(message liveSessionServerMessage) {
-	session.mu.Lock()
-	clients := make([]*liveSessionClient, 0, len(session.clients))
-	for _, client := range session.clients {
-		clients = append(clients, client)
-	}
-	session.mu.Unlock()
-	for _, client := range clients {
-		client.queuePaintUpdate(message)
-	}
-}
-
 func (session *liveSession) updateActiveTarget(client *liveSessionClient, targetID string) error {
 	targetID = strings.TrimSpace(targetID)
 	if targetID == "" || len(targetID) > 128 {
@@ -677,428 +587,6 @@ func (session *liveSession) lockTargetChanges() func() {
 	}
 }
 
-func (session *liveSession) updateCursor(client *liveSessionClient, targetID string, x, y float64) error {
-	if targetID == "" || x < 0 || x > 1 || y < 0 || y > 1 {
-		return errors.New("cursor position is invalid")
-	}
-	message := liveSessionServerMessage{Version: 1, Type: "presence.cursor", ClientID: client.id, TargetID: targetID, X: &x, Y: &y}
-	session.mu.Lock()
-	if client.activeTargetID != targetID {
-		session.mu.Unlock()
-		return errors.New("cursor target is unavailable")
-	}
-	followers := make([]*liveSessionClient, 0)
-	for _, participant := range session.clients {
-		if participant.followingClientID == client.id {
-			followers = append(followers, participant)
-		}
-	}
-	session.mu.Unlock()
-	for _, follower := range followers {
-		follower.queueCursorUpdate(message)
-	}
-	return nil
-}
-
-func (session *liveSession) clearCursor(client *liveSessionClient) {
-	message := liveSessionServerMessage{Version: 1, Type: "presence.cursor.clear", ClientID: client.id}
-	session.mu.Lock()
-	followers := make([]*liveSessionClient, 0)
-	for _, participant := range session.clients {
-		if participant.followingClientID == client.id {
-			followers = append(followers, participant)
-		}
-	}
-	session.mu.Unlock()
-	for _, follower := range followers {
-		follower.queueCursorUpdate(message)
-	}
-}
-
-func (client *liveSessionClient) queuePresenceUpdate(message liveSessionServerMessage) {
-	select {
-	case client.presenceUpdates <- message:
-		return
-	default:
-	}
-	select {
-	case <-client.presenceUpdates:
-	default:
-	}
-	select {
-	case client.presenceUpdates <- message:
-	default:
-	}
-}
-
-func (client *liveSessionClient) writePresenceUpdates(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case message := <-client.presenceUpdates:
-			if client.write(message) != nil {
-				continue
-			}
-		}
-	}
-}
-
-func (client *liveSessionClient) queueCursorUpdate(message liveSessionServerMessage) {
-	select {
-	case client.cursorUpdates <- message:
-		return
-	default:
-	}
-	select {
-	case <-client.cursorUpdates:
-	default:
-	}
-	select {
-	case client.cursorUpdates <- message:
-	default:
-	}
-}
-
-func (client *liveSessionClient) writeCursorUpdates(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case message := <-client.cursorUpdates:
-			if client.writeDelivery(liveSessionDeliveryRealtime, message) != nil {
-				continue
-			}
-		}
-	}
-}
-
-func (client *liveSessionClient) queuePaintUpdate(message liveSessionServerMessage) {
-	select {
-	case client.paintUpdates <- message:
-	default:
-		client.requestTransportClose("session write queue is full")
-	}
-}
-
-func (client *liveSessionClient) writePaintUpdates(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case message := <-client.paintUpdates:
-			delivery := liveSessionDeliveryReliable
-			if message.Phase == "move" {
-				delivery = liveSessionDeliveryRealtime
-			}
-			if client.writeDelivery(delivery, message) != nil {
-				continue
-			}
-		}
-	}
-}
-
-func (session *liveSession) setFollowing(client *liveSessionClient, followingClientID string) error {
-	session.mu.Lock()
-	if session.clients[client.id] != client {
-		session.mu.Unlock()
-		return errors.New("session client is unavailable")
-	}
-	if followingClientID == "" {
-		client.followingClientID = ""
-		session.mu.Unlock()
-		session.broadcastPresence()
-		return nil
-	}
-	followed := session.clients[followingClientID]
-	if followed == nil {
-		session.mu.Unlock()
-		return errors.New("followed participant is unavailable")
-	}
-	for current := followed; current != nil; current = session.clients[current.followingClientID] {
-		if current == client {
-			session.mu.Unlock()
-			return errors.New("follow cycle is not allowed")
-		}
-		if current.followingClientID == "" {
-			break
-		}
-	}
-	targetID := followed.activeTargetID
-	changes := session.activeTargetChangesLocked(client)
-	session.mu.Unlock()
-	if targetID != "" {
-		if err := session.applyActiveTargetChanges(changes, targetID); err != nil {
-			return err
-		}
-	}
-	session.mu.Lock()
-	client.followingClientID = followingClientID
-	session.mu.Unlock()
-	session.broadcastTargets()
-	session.broadcastPresence()
-	return nil
-}
-
-func (session *liveSession) claim(client *liveSessionClient, targetID string, mode liveSessionLeaseMode) error {
-	if client.role == "viewer" {
-		return errors.New("viewer input is disabled")
-	}
-	session.inputMu.Lock()
-	defer session.inputMu.Unlock()
-	session.mu.Lock()
-	if session.closed || session.clients[client.id] != client {
-		session.mu.Unlock()
-		return remoteinput.ErrNotReady
-	}
-	if session.holder == client {
-		if session.leaseMode != liveSessionLeaseExplicit {
-			session.leaseMode = mode
-		}
-		session.lastSeen = time.Now()
-		session.mu.Unlock()
-		if err := session.bindInputTarget(client, targetID); err != nil {
-			session.releaseInputAndRevoke(client)
-			return err
-		}
-		if !session.clientHoldsInput(client) {
-			_ = session.input.release(client.ownerID)
-			return remoteinput.ErrNotReady
-		}
-		session.broadcastLeaseState()
-		return nil
-	}
-	ownerPreemptsEditor := client.role == "owner" && session.holder != nil && session.holder.actorRole() == "editor"
-	canPreempt := mode == liveSessionLeaseExplicit && (session.leaseMode == liveSessionLeaseImplicit || ownerPreemptsEditor)
-	if session.holder != nil && session.holder != client && !canPreempt {
-		session.mu.Unlock()
-		return remoteinput.ErrBusy
-	}
-	previous := session.holder
-	session.holder = client
-	session.leaseMode = mode
-	session.lastSeen = time.Now()
-	if previousClient, ok := previous.(*liveSessionClient); ok {
-		clear(previousClient.pressedButtons)
-		clear(previousClient.pressedKeys)
-	}
-	session.mu.Unlock()
-	if previous != nil {
-		_ = session.input.release(previous.actorOwnerID())
-	}
-	if err := session.bindInputTarget(client, targetID); err != nil {
-		session.releaseInputAndRevoke(client)
-		return err
-	}
-	if !session.clientHoldsInput(client) {
-		_ = session.input.release(client.ownerID)
-		return remoteinput.ErrNotReady
-	}
-	session.broadcastLeaseState()
-	return nil
-}
-
-func (session *liveSession) heartbeat(client *liveSessionClient) error {
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	if session.holder != client {
-		return remoteinput.ErrNotOwner
-	}
-	session.lastSeen = time.Now()
-	return nil
-}
-
-func (session *liveSession) release(client *liveSessionClient) error {
-	session.inputMu.Lock()
-	defer session.inputMu.Unlock()
-	session.mu.Lock()
-	if session.holder != client {
-		session.mu.Unlock()
-		return remoteinput.ErrNotOwner
-	}
-	session.holder = nil
-	session.leaseMode = ""
-	clear(client.pressedButtons)
-	clear(client.pressedKeys)
-	session.mu.Unlock()
-	err := session.input.release(client.ownerID)
-	session.broadcastLeaseState()
-	return err
-}
-
-func (session *liveSession) revoke(client *liveSessionClient) {
-	session.mu.Lock()
-	if session.holder != client {
-		session.mu.Unlock()
-		return
-	}
-	session.holder = nil
-	session.leaseMode = ""
-	session.mu.Unlock()
-	session.broadcastLeaseState()
-}
-
-func (session *liveSession) submit(client *liveSessionClient, message liveSessionClientMessage) error {
-	session.inputMu.Lock()
-	defer session.inputMu.Unlock()
-	session.mu.Lock()
-	if session.holder != client {
-		session.mu.Unlock()
-		return remoteinput.ErrNotOwner
-	}
-	session.mu.Unlock()
-	if err := session.bindInputTarget(client, message.TargetID); err != nil {
-		session.releaseInputAndRevoke(client)
-		return err
-	}
-	session.mu.Lock()
-	if session.holder != client {
-		session.mu.Unlock()
-		_ = session.input.release(client.ownerID)
-		return remoteinput.ErrNotOwner
-	}
-	client.sequence++
-	message.Sequence = client.sequence
-	session.lastSeen = time.Now()
-	session.mu.Unlock()
-	if err := session.input.submit(client.ownerID, message); err != nil {
-		session.releaseInputAndRevoke(client)
-		return err
-	}
-	session.mu.Lock()
-	switch message.Type {
-	case "input.pointer.button":
-		if message.Pressed {
-			client.pressedButtons[message.ButtonCode] = struct{}{}
-		} else {
-			delete(client.pressedButtons, message.ButtonCode)
-		}
-	case "input.keyboard.key":
-		keyID := liveSessionInputKeyID(message)
-		if message.Pressed {
-			client.pressedKeys[keyID] = struct{}{}
-		} else {
-			delete(client.pressedKeys, keyID)
-		}
-	}
-	session.mu.Unlock()
-	return nil
-}
-
-func liveSessionInputKeyID(message liveSessionClientMessage) string {
-	if message.Code != "" {
-		return "code:" + message.Code
-	}
-	if message.Keycode != 0 {
-		return "keycode:" + strconv.FormatUint(uint64(message.Keycode), 10)
-	}
-	return "key:" + message.Key
-}
-
-func (session *liveSession) bindInputTarget(client *liveSessionClient, targetID string) error {
-	return session.input.bind(client.ownerID, targetID, func() {
-		session.revoke(client)
-	})
-}
-
-func (session *liveSession) releaseInputAndRevoke(client *liveSessionClient) {
-	_ = session.input.release(client.ownerID)
-	session.revoke(client)
-}
-
-func (session *liveSession) clientHoldsInput(client *liveSessionClient) bool {
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	return session.holder == client
-}
-
-func (session *liveSession) knownTarget(targetID string) bool {
-	session.inputMu.Lock()
-	defer session.inputMu.Unlock()
-	known, err := session.input.hasTarget(targetID)
-	return err == nil && known
-}
-
-func (session *liveSession) expireLease() {
-	session.inputMu.Lock()
-	defer session.inputMu.Unlock()
-	session.mu.Lock()
-	if session.holder == nil || time.Since(session.lastSeen) < liveSessionLeaseTimeout {
-		session.mu.Unlock()
-		return
-	}
-	if _, interactive := session.holder.(*liveSessionClient); !interactive {
-		session.mu.Unlock()
-		return
-	}
-	holder := session.holder
-	session.holder = nil
-	session.leaseMode = ""
-	session.mu.Unlock()
-	_ = session.input.release(holder.actorOwnerID())
-	session.broadcastLeaseState()
-}
-
-func (session *liveSession) broadcastLeaseState() {
-	session.leaseUpdatesMu.Lock()
-	defer session.leaseUpdatesMu.Unlock()
-	session.mu.Lock()
-	message := session.leaseStateLocked()
-	session.mu.Unlock()
-	session.broadcast(message)
-	session.broadcastPresence()
-}
-
-func (session *liveSession) broadcastPresence() {
-	session.presenceMu.Lock()
-	defer session.presenceMu.Unlock()
-
-	session.mu.Lock()
-	participants := session.participantsLocked()
-	clients := make([]*liveSessionClient, 0, len(session.clients))
-	for _, client := range session.clients {
-		clients = append(clients, client)
-	}
-	session.mu.Unlock()
-	message := liveSessionServerMessage{Version: 1, Type: "presence.state", Participants: participants}
-	for _, client := range clients {
-		client.queuePresenceUpdate(message)
-	}
-}
-
-func (session *liveSession) participantsLocked() []liveSessionParticipant {
-	participants := make([]liveSessionParticipant, 0, len(session.clients)+1)
-	for _, client := range session.clients {
-		participant := liveSessionParticipant{
-			ClientID:          client.id,
-			Name:              client.name,
-			AvatarHash:        client.avatarHash,
-			Role:              client.role,
-			ActiveTargetID:    client.activeTargetID,
-			FollowingClientID: client.followingClientID,
-			HoldingInput:      session.holder == client,
-			Recovering:        client.recovering,
-		}
-		if session.holder == client {
-			participant.LeaseMode = session.leaseMode
-		}
-		participants = append(participants, participant)
-	}
-	if automation, ok := session.holder.(*liveSessionAutomation); ok {
-		participants = append(participants, liveSessionParticipant{
-			ClientID:     automation.actorID(),
-			Name:         automation.actorName(),
-			Role:         automation.actorRole(),
-			HoldingInput: true,
-			LeaseMode:    session.leaseMode,
-		})
-	}
-	sort.Slice(participants, func(left, right int) bool {
-		return participants[left].ClientID < participants[right].ClientID
-	})
-	return participants
-}
-
 func (session *liveSession) broadcast(message liveSessionServerMessage) {
 	session.mu.Lock()
 	clients := make([]*liveSessionClient, 0, len(session.clients))
@@ -1162,60 +650,11 @@ func (client *liveSessionClient) writeLeaseUpdates(ctx context.Context) {
 }
 
 func (session *liveSession) leaseStateLocked() liveSessionServerMessage {
-	message := liveSessionServerMessage{Version: 1, Type: "input.state", Mode: session.leaseMode}
+	message := liveSessionServerMessage{Type: "input.state", Mode: session.leaseMode}
 	if session.holder != nil {
 		message.HolderClientID = session.holder.actorID()
 	}
 	return message
-}
-
-func (session *liveSession) acquireAutomation(name string) (*liveSessionAutomation, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "Session automation"
-	}
-	if !validLiveSessionName(name) {
-		return nil, errors.New("automation actor name is invalid")
-	}
-
-	session.inputMu.Lock()
-	defer session.inputMu.Unlock()
-	session.mu.Lock()
-	if session.closed {
-		session.mu.Unlock()
-		return nil, remoteinput.ErrNotReady
-	}
-	if session.holder != nil {
-		session.mu.Unlock()
-		return nil, remoteinput.ErrBusy
-	}
-	session.nextOwner++
-	automation := &liveSessionAutomation{
-		id:      "automation-" + uuid.NewString(),
-		name:    name,
-		ownerID: session.nextOwner,
-	}
-	session.holder = automation
-	session.leaseMode = liveSessionLeaseExplicit
-	session.lastSeen = time.Time{}
-	session.mu.Unlock()
-	session.broadcastLeaseState()
-	return automation, nil
-}
-
-func (session *liveSession) releaseAutomation(automation *liveSessionAutomation) {
-	session.inputMu.Lock()
-	session.mu.Lock()
-	if session.holder != automation {
-		session.mu.Unlock()
-		session.inputMu.Unlock()
-		return
-	}
-	session.holder = nil
-	session.leaseMode = ""
-	session.mu.Unlock()
-	session.inputMu.Unlock()
-	session.broadcastLeaseState()
 }
 
 func (client *liveSessionClient) write(message liveSessionServerMessage) error {

@@ -1,6 +1,6 @@
-import type { ClientMessage } from "#/lib/control/messages.ts";
+import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 
-type KeyboardInputMessage = Extract<ClientMessage, { type: "input.key" }>;
+type KeyboardInputMessage = Extract<BrowserInputMessage, { type: "input.key" }>;
 
 const CODE_TO_WINDOWS_VIRTUAL_KEY: Record<string, number> = {
   Backspace: 8,

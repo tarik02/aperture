@@ -166,7 +166,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		uploadsStrip := stripSessionPrefixMiddlewareName(session.ID, "uploads")
 		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
 		cursorReplace := replacePathMiddlewareName(session.ID, "browser-cursor")
-		qualityReplace := replacePathMiddlewareName(session.ID, "browser-quality")
 		statusReplace := replacePathMiddlewareName(session.ID, "browser-status")
 
 		doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
@@ -189,9 +188,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		}
 		doc.HTTP.Middlewares[cursorReplace] = middlewareConfig{
 			ReplacePath: &replacePathConfig{Path: "/cursor"},
-		}
-		doc.HTTP.Middlewares[qualityReplace] = middlewareConfig{
-			ReplacePath: &replacePathConfig{Path: "/quality"},
 		}
 		doc.HTTP.Middlewares[statusReplace] = middlewareConfig{
 			ReplacePath: &replacePathConfig{Path: "/status"},
@@ -244,12 +240,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				rule:        pathRouterRule(sessionBase + "/browser/cursor"),
 				auth:        writeAuth,
 				middlewares: []string{cursorReplace},
-			},
-			{
-				name:        browserQualityRouterName(session.ID),
-				rule:        pathRouterRule(sessionBase + "/browser/quality"),
-				auth:        writeAuth,
-				middlewares: []string{qualityReplace},
 			},
 			{
 				name:        browserStatusRouterName(session.ID),
@@ -422,10 +412,6 @@ func browserViewportRouterName(sessionID string) string {
 
 func browserCursorRouterName(sessionID string) string {
 	return "aperture-browser-cursor-" + sanitizeName(sessionID)
-}
-
-func browserQualityRouterName(sessionID string) string {
-	return "aperture-browser-quality-" + sanitizeName(sessionID)
 }
 
 func browserStatusRouterName(sessionID string) string {

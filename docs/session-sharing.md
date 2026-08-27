@@ -53,6 +53,8 @@ The workbench tries WebRTC first and falls back to JPEG frames over the live-ses
 
 The server advertises only encoder profiles supported by its media setup. These may include VP8, hardware H.264, hardware H.264 High, and software H.264. Owners and editors can select an advertised profile, use the low, balanced, or high preset, or set a custom frame rate and maximum bitrate. The encoder profile and quality are shared across WebRTC clients, so a change is broadcast to the live session. Viewers can choose JPEG or WebRTC for their own presentation but cannot change the shared encoder settings.
 
+Remote cursor visibility is also shared presentation state. Owners and editors may change it; public HTTP and MCP cursor controls update the same state and broadcast the result to connected clients.
+
 Changing to an incompatible profile first hands the requesting client to WebSocket, updates the shared encoder, and then negotiates a new WebRTC transport. Other WebRTC clients use the same fallback and recovery path. Both transports carry the same live-session protocol; JPEG delivery does not restore a frontend CDP connection.
 
 ## Files

@@ -24,17 +24,10 @@ type liveSessionRaster struct {
 }
 
 type liveSessionRasterFrame struct {
-	Version           int     `json:"version"`
-	Type              string  `json:"type"`
-	TargetID          string  `json:"targetId"`
-	FrameID           int64   `json:"frameId"`
-	Format            string  `json:"format"`
-	Width             float64 `json:"width"`
-	Height            float64 `json:"height"`
-	DeviceScaleFactor float64 `json:"deviceScaleFactor"`
-	ScrollOffsetX     float64 `json:"scrollOffsetX"`
-	ScrollOffsetY     float64 `json:"scrollOffsetY"`
-	Timestamp         float64 `json:"timestamp,omitempty"`
+	Type     string  `json:"type"`
+	TargetID string  `json:"targetId"`
+	Width    float64 `json:"width"`
+	Height   float64 `json:"height"`
 }
 
 func newLiveSessionRaster(session *liveSession, transport *liveSessionWebSocketTransport) *liveSessionRaster {
@@ -143,12 +136,8 @@ func (raster *liveSessionRaster) forwardFrame(client *liveSessionCDP, event live
 		Data      string `json:"data"`
 		SessionID int64  `json:"sessionId"`
 		Metadata  struct {
-			DeviceWidth   float64 `json:"deviceWidth"`
-			DeviceHeight  float64 `json:"deviceHeight"`
-			PageScale     float64 `json:"pageScaleFactor"`
-			ScrollOffsetX float64 `json:"scrollOffsetX"`
-			ScrollOffsetY float64 `json:"scrollOffsetY"`
-			Timestamp     float64 `json:"timestamp"`
+			DeviceWidth  float64 `json:"deviceWidth"`
+			DeviceHeight float64 `json:"deviceHeight"`
 		} `json:"metadata"`
 	}
 	if err := json.Unmarshal(event.Params, &frame); err != nil {
@@ -168,17 +157,10 @@ func (raster *liveSessionRaster) forwardFrame(client *liveSessionCDP, event live
 		return
 	}
 	header, err := json.Marshal(liveSessionRasterFrame{
-		Version:           1,
-		Type:              "presentation.frame",
-		TargetID:          targetID,
-		FrameID:           frame.SessionID,
-		Format:            "jpeg",
-		Width:             frame.Metadata.DeviceWidth,
-		Height:            frame.Metadata.DeviceHeight,
-		DeviceScaleFactor: frame.Metadata.PageScale,
-		ScrollOffsetX:     frame.Metadata.ScrollOffsetX,
-		ScrollOffsetY:     frame.Metadata.ScrollOffsetY,
-		Timestamp:         frame.Metadata.Timestamp,
+		Type:     "presentation.frame",
+		TargetID: targetID,
+		Width:    frame.Metadata.DeviceWidth,
+		Height:   frame.Metadata.DeviceHeight,
 	})
 	if err != nil || len(header) > int(^uint32(0)) {
 		return

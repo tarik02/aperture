@@ -320,7 +320,6 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/cursor", r.handleCursor)
-	mux.HandleFunc("/quality", r.handleQuality)
 	mux.HandleFunc("/recordings", liveSession.handleRecordings)
 	mux.HandleFunc("/recordings/", liveSession.handleRecording)
 	mux.HandleFunc("/files", r.handleFiles)
@@ -521,20 +520,9 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 }
 
 func (r *wrapperRuntime) handleCursor(w http.ResponseWriter, req *http.Request) {
-	visible := false
+	visible := r.liveSession.presentation().CursorVisible
 	switch req.Method {
 	case http.MethodGet:
-		response, err := sendCompositorControlCommand(req.Context(), r.controlSocket, "cursor-status\n")
-		if err != nil {
-			writeWrapperError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		var value int
-		if _, err := fmt.Sscanf(response, "ok %d", &value); err != nil || (value != 0 && value != 1) {
-			writeWrapperError(w, http.StatusBadGateway, "invalid compositor cursor response")
-			return
-		}
-		visible = value == 1
 	case http.MethodPut:
 		var body struct {
 			Visible *bool `json:"visible"`
@@ -543,70 +531,18 @@ func (r *wrapperRuntime) handleCursor(w http.ResponseWriter, req *http.Request) 
 			writeWrapperError(w, http.StatusBadRequest, "invalid cursor request")
 			return
 		}
-		visible = *body.Visible
-		value := 0
-		if visible {
-			value = 1
-		}
-		if _, err := sendCompositorControlCommand(req.Context(), r.controlSocket, fmt.Sprintf("cursor-visible %d\n", value)); err != nil {
+		presentation, err := r.liveSession.updateCursorVisibility(req.Context(), *body.Visible)
+		if err != nil {
 			writeWrapperError(w, http.StatusBadGateway, err.Error())
 			return
 		}
+		visible = presentation.CursorVisible
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
 	writeWrapperJSON(w, http.StatusOK, map[string]bool{"visible": visible})
-}
-
-func (r *wrapperRuntime) handleQuality(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Profile string `json:"profile"`
-	}
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		writeWrapperError(w, http.StatusBadRequest, "invalid media quality request")
-		return
-	}
-	mediaProducer := r.currentMediaProducer()
-	if mediaProducer == nil {
-		writeWrapperError(w, http.StatusConflict, "media producer is not enabled")
-		return
-	}
-	profile, exists := mediaProducer.media.Profile(body.Profile)
-	if !exists {
-		writeWrapperError(w, http.StatusBadRequest, fmt.Sprintf("video profile %q is not configured", body.Profile))
-		return
-	}
-	option, exists := profile.Options[profile.DefaultOption]
-	if !exists {
-		writeWrapperError(w, http.StatusInternalServerError, fmt.Sprintf("default video option for profile %q is not configured", body.Profile))
-		return
-	}
-	_, err := r.liveSession.updatePresentationQuality(
-		body.Profile,
-		option.Width,
-		option.Height,
-		option.Framerate,
-		option.BitrateKbps,
-	)
-	if err != nil {
-		writeWrapperError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	quality := mediaProducer.media.Quality()
-	writeWrapperJSON(w, http.StatusOK, map[string]any{
-		"profile":     quality.Profile,
-		"option":      quality.Option,
-		"width":       quality.Width,
-		"height":      quality.Height,
-		"framerate":   quality.Framerate,
-		"bitrateKbps": quality.BitrateKbps,
-	})
 }
 
 func (r *wrapperRuntime) handleTargets(w http.ResponseWriter, req *http.Request) {
@@ -645,7 +581,7 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	}
 	defer r.releaseViewer(viewer)
 	metadata := newLiveSessionWebRTCPeerMetadata(r.liveSession, mediaProducer.webrtc, req, cancel)
-	mediaProducer.Handler(role == "owner" || role == "editor", metadata).ServeHTTP(w, req.WithContext(ctx))
+	mediaProducer.Handler(metadata).ServeHTTP(w, req.WithContext(ctx))
 }
 
 func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {

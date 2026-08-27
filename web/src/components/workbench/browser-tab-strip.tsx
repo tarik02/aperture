@@ -18,13 +18,13 @@ import { ScrollArea } from "#/components/ui/scroll-area.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
 import { copyText } from "#/components/resources/copy-button.tsx";
 import { cn } from "#/lib/utils.ts";
-import type { ControlTarget } from "#/lib/control/messages.ts";
+import type { LiveSessionTarget } from "#/lib/control/live-session-protocol.ts";
 import { toast } from "sonner";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
 
 type BrowserTabStripProps = {
-  targets: ControlTarget[];
+  targets: LiveSessionTarget[];
   activeTargetId: string | null;
   recordingTargetIds: ReadonlySet<string>;
   devToolsTargetIds: ReadonlySet<string>;
@@ -32,7 +32,7 @@ type BrowserTabStripProps = {
   mutationDisabled?: boolean;
   onActivate: (targetId: string) => void;
   onCreate: () => void;
-  onDuplicate: (target: ControlTarget) => void;
+  onDuplicate: (target: LiveSessionTarget) => void;
   onClose: (targetId: string) => void;
   onReload: (targetId: string) => void;
   onReorder: (
@@ -119,14 +119,14 @@ function BrowserTab({
   closeOtherTargetIds,
   closeRightTargetIds,
 }: {
-  target: ControlTarget;
+  target: LiveSessionTarget;
   active: boolean;
   recording: boolean;
   devToolsOpen: boolean;
   disabled?: boolean;
   mutationDisabled?: boolean;
   onActivate: (targetId: string) => void;
-  onDuplicate: (target: ControlTarget) => void;
+  onDuplicate: (target: LiveSessionTarget) => void;
   onClose: (targetId: string) => void;
   onReload: (targetId: string) => void;
   onReorder: (

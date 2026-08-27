@@ -5,21 +5,18 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import {
   useLiveSession,
   type CollaborationControl,
+  type LiveSessionControl,
   type LiveSessionMediaSelection,
 } from "#/hooks/use-live-session.ts";
 import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
 import type { Recording } from "#/lib/api/schemas.ts";
-import type {
-  ClientMessage,
-  ControlConnectionPhase,
-  ControlError,
-  ControlTarget,
-  ScreencastFrame,
-} from "#/lib/control/messages.ts";
+import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 import type {
   CollaborationRole,
   LiveSessionPresentation,
   LiveSessionPresentationQuality,
+  LiveSessionRasterFrame,
+  LiveSessionTarget,
 } from "#/lib/control/live-session-protocol.ts";
 import {
   createViewportPreset,
@@ -46,11 +43,11 @@ export type BrowserMediaPath = "webrtc-live" | "websocket-live";
 export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
 export type UseBrowserControlResult = {
-  phase: ControlConnectionPhase;
-  targets: ControlTarget[];
+  phase: LiveSessionControl["phase"];
+  targets: LiveSessionTarget[];
   activeTargetId: string | null;
-  activeTarget: ControlTarget | null;
-  frame$: Observable<ScreencastFrame | null>;
+  activeTarget: LiveSessionTarget | null;
+  frame$: Observable<LiveSessionRasterFrame | null>;
   mediaPhase: BrowserMediaPhase;
   mediaStream: MediaStream | null;
   mediaStreamSettings: LiveSessionPresentationQuality | null;
@@ -62,20 +59,16 @@ export type UseBrowserControlResult = {
     canvasWidth: number;
     canvasHeight: number;
   } | null;
-  mediaError: string | null;
   mediaPath: BrowserMediaPath;
   mediaTargetId: string | null;
   mediaSwitching: boolean;
-  lastError: ControlError | null;
   viewport: ViewportPreset;
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
   captured: boolean;
   recordings: Recording[];
   recordingBusy: boolean;
-  recordingClientConnected: boolean;
   remoteCursorEnabled: boolean;
-  remoteCursorBusy: boolean;
   collaboration: CollaborationControl;
   setCaptured: (captured: boolean) => void;
   setInputDimensions: (size: BrowserViewportSize) => void;
@@ -85,7 +78,7 @@ export type UseBrowserControlResult = {
   setViewportToBrowserSize: () => void;
   setWebRTCStreamSettings: (settings: LiveSessionPresentationQuality) => boolean;
   selectMediaStream: (selection: LiveSessionMediaSelection) => boolean;
-  send: (message: ClientMessage) => boolean;
+  sendInput: (message: BrowserInputMessage) => boolean;
   activateTarget: (targetId: string) => void;
   reorderTargets: (
     sourceTargetId: string,
@@ -93,14 +86,13 @@ export type UseBrowserControlResult = {
     placement: "before" | "after",
   ) => void;
   createTarget: (url?: string) => void;
-  duplicateTarget: (target: ControlTarget) => void;
+  duplicateTarget: (target: LiveSessionTarget) => void;
   closeTarget: (targetId: string) => void;
   navigate: (url: string) => void;
   reload: (targetId: string) => void;
   stopLoading: () => void;
   historyBack: () => void;
   historyForward: () => void;
-  startScreencast: () => void;
   startRecording: (mode: "tab" | "viewer") => void;
   stopRecording: (recordingId: string) => void;
   cancelRecording: (recordingId: string) => void;
@@ -130,7 +122,7 @@ export function useBrowserControl({
     webrtcSupported: webrtcProducerSupported,
     iceServers: webrtcIceServers,
   });
-  const [targets, setTargets] = useState<ControlTarget[]>([]);
+  const [targets, setTargets] = useState<LiveSessionTarget[]>([]);
   const [viewport, setViewportState] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
@@ -138,8 +130,6 @@ export function useBrowserControl({
   const [viewportAutoSync, setViewportAutoSyncState] = useState(false);
   const [captured, setCaptured] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
-  const [remoteCursorEnabled, setRemoteCursorEnabledState] = useState(true);
-  const [remoteCursorBusy, setRemoteCursorBusy] = useState(false);
   const activeTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
   const inputDimensionsRef = useRef<BrowserViewportSize>(DEFAULT_VIEWPORT);
@@ -173,83 +163,14 @@ export function useBrowserControl({
     setViewportState(createBrowserViewport(live.mediaSize, live.mediaSize.deviceScaleFactor));
   }, [live.mediaSize]);
 
-  useEffect(() => {
-    setRemoteCursorEnabledState(true);
-    if (!enabled || !sessionId || !credentials) {
-      setRemoteCursorBusy(false);
-      return;
-    }
-    let active = true;
-    setRemoteCursorBusy(true);
-    void apiClient
-      .getBrowserCursor(credentials, sessionId, sessionToken)
-      .then((cursor) => {
-        if (active) {
-          setRemoteCursorEnabledState(cursor.visible);
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (active) {
-          setRemoteCursorBusy(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [credentials, enabled, sessionId, sessionToken]);
-
-  const send = useCallback(
-    (message: ClientMessage): boolean => {
+  const sendInput = useCallback(
+    (message: BrowserInputMessage): boolean => {
       if (!enabled || !sessionId || !credentials) {
         return false;
       }
-      if (isBrowserInputMessage(message)) {
-        return live.sendBrowserInput(message, inputDimensionsRef.current);
-      }
-      switch (message.type) {
-        case "targets.activate":
-          return live.selectTarget(message.targetId);
-        case "targets.create":
-          return live.command("target.create", message.url ? { url: message.url } : {});
-        case "targets.close":
-          return live.command("target.close", { targetId: message.targetId });
-        case "page.navigate":
-          return live.command("page.navigate", { targetId: message.targetId, url: message.url });
-        case "page.historyBack":
-          return live.command("page.history-back", { targetId: message.targetId });
-        case "page.historyForward":
-          return live.command("page.history-forward", { targetId: message.targetId });
-        case "page.reload":
-          return live.command("page.reload", { targetId: message.targetId });
-        case "page.stopLoading":
-          return live.command("page.stop-loading", { targetId: message.targetId });
-        case "viewport.set":
-          return live.command("viewport.set", {
-            targetId: message.targetId,
-            width: message.width,
-            height: message.height,
-            deviceScaleFactor: message.deviceScaleFactor ?? 1,
-          });
-        case "targets.list":
-        case "screencast.start":
-        case "screencast.stop":
-          return false;
-        default: {
-          const exhaustive: never = message;
-          return exhaustive;
-        }
-      }
+      return live.sendBrowserInput(message, inputDimensionsRef.current);
     },
     [credentials, enabled, live, sessionId],
-  );
-
-  const sendForActive = useCallback(
-    (build: (targetId: string) => ClientMessage) => {
-      const targetId = activeTargetIdRef.current;
-      return targetId ? send(build(targetId)) : false;
-    },
-    [send],
   );
 
   const activateTarget = useCallback(
@@ -306,7 +227,7 @@ export function useBrowserControl({
   );
 
   const duplicateTarget = useCallback(
-    (target: ControlTarget) => {
+    (target: LiveSessionTarget) => {
       void createAndSelectTarget(target.url || "about:blank").then((targetId) => {
         if (targetId) {
           reorderTargets(targetId, target.id, "after");
@@ -325,9 +246,12 @@ export function useBrowserControl({
 
   const navigate = useCallback(
     (url: string) => {
-      sendForActive((targetId) => ({ type: "page.navigate", targetId, url }));
+      const targetId = activeTargetIdRef.current;
+      if (targetId) {
+        live.command("page.navigate", { targetId, url });
+      }
     },
-    [sendForActive],
+    [live],
   );
 
   const reload = useCallback(
@@ -338,16 +262,25 @@ export function useBrowserControl({
   );
 
   const stopLoading = useCallback(() => {
-    sendForActive((targetId) => ({ type: "page.stopLoading", targetId }));
-  }, [sendForActive]);
+    const targetId = activeTargetIdRef.current;
+    if (targetId) {
+      live.command("page.stop-loading", { targetId });
+    }
+  }, [live]);
 
   const historyBack = useCallback(() => {
-    sendForActive((targetId) => ({ type: "page.historyBack", targetId }));
-  }, [sendForActive]);
+    const targetId = activeTargetIdRef.current;
+    if (targetId) {
+      live.command("page.history-back", { targetId });
+    }
+  }, [live]);
 
   const historyForward = useCallback(() => {
-    sendForActive((targetId) => ({ type: "page.historyForward", targetId }));
-  }, [sendForActive]);
+    const targetId = activeTargetIdRef.current;
+    if (targetId) {
+      live.command("page.history-forward", { targetId });
+    }
+  }, [live]);
 
   const commitViewport = useCallback(
     (preset: ViewportPreset) => {
@@ -474,19 +407,14 @@ export function useBrowserControl({
 
   const setRemoteCursorEnabled = useCallback(
     (visible: boolean) => {
-      if (!sessionId || !credentials || remoteCursorBusy) {
+      if (!sessionId || !credentials) {
         return;
       }
-      setRemoteCursorBusy(true);
-      void apiClient
-        .setBrowserCursor(credentials, sessionId, visible, sessionToken)
-        .then((cursor) => setRemoteCursorEnabledState(cursor.visible))
-        .catch((cause: unknown) => {
-          toast.error(errorMessage(cause, "Remote cursor could not be updated"));
-        })
-        .finally(() => setRemoteCursorBusy(false));
+      void live.request("presentation.cursor.set", { visible }).catch((cause: unknown) => {
+        toast.error(errorMessage(cause, "Remote cursor could not be updated"));
+      });
     },
-    [credentials, remoteCursorBusy, sessionId, sessionToken],
+    [credentials, live, sessionId],
   );
 
   const selectMediaStream = useCallback(
@@ -536,20 +464,16 @@ export function useBrowserControl({
     mediaStreamSettings: live.presentation?.quality ?? null,
     mediaVideoProfiles: live.presentation?.profiles ?? [],
     mediaSize: live.mediaSize,
-    mediaError: null,
     mediaPath,
     mediaTargetId: live.activeTargetId,
     mediaSwitching: live.mediaSwitching,
-    lastError: null,
     viewport,
     browserViewportSize,
     viewportAutoSync,
     captured,
     recordings: live.recordings,
     recordingBusy,
-    recordingClientConnected: collaborationRole === "owner" && live.phase === "connected",
-    remoteCursorEnabled,
-    remoteCursorBusy,
+    remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
     collaboration: live.collaboration,
     setCaptured,
     setInputDimensions: (size) => {
@@ -561,7 +485,7 @@ export function useBrowserControl({
     setViewportToBrowserSize,
     setWebRTCStreamSettings,
     selectMediaStream,
-    send,
+    sendInput,
     activateTarget,
     reorderTargets,
     createTarget,
@@ -572,7 +496,6 @@ export function useBrowserControl({
     stopLoading,
     historyBack,
     historyForward,
-    startScreencast: live.reconnect,
     startRecording,
     stopRecording,
     cancelRecording,
@@ -581,35 +504,13 @@ export function useBrowserControl({
   };
 }
 
-function isBrowserInputMessage(message: ClientMessage): message is Extract<
-  ClientMessage,
-  {
-    type:
-      | "input.mouse"
-      | "input.wheel"
-      | "input.key"
-      | "clipboard.copy"
-      | "clipboard.cut"
-      | "clipboard.paste";
-  }
-> {
-  return (
-    message.type === "input.mouse" ||
-    message.type === "input.wheel" ||
-    message.type === "input.key" ||
-    message.type === "clipboard.copy" ||
-    message.type === "clipboard.cut" ||
-    message.type === "clipboard.paste"
-  );
-}
-
 function mergeTargetsInCurrentOrder(
-  currentTargets: ControlTarget[],
-  nextTargets: ControlTarget[],
-): ControlTarget[] {
+  currentTargets: LiveSessionTarget[],
+  nextTargets: LiveSessionTarget[],
+): LiveSessionTarget[] {
   const nextById = new Map(nextTargets.map((target) => [target.id, target]));
   const seen = new Set<string>();
-  const ordered: ControlTarget[] = [];
+  const ordered: LiveSessionTarget[] = [];
   for (const currentTarget of currentTargets) {
     const nextTarget = nextById.get(currentTarget.id);
     if (nextTarget) {

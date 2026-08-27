@@ -171,7 +171,7 @@ func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
 func (p *producer) presentation() liveSessionPresentation {
 	quality := p.media.Quality()
 	return liveSessionPresentation{
-		Quality: liveSessionPresentationQuality{
+		Quality: &liveSessionPresentationQuality{
 			Profile:          quality.Profile,
 			FPS:              quality.Framerate,
 			BitrateKbps:      quality.BitrateKbps,
@@ -203,7 +203,7 @@ func (p *producer) updatePresentationQuality(profileName string, width, height, 
 		return liveSessionPresentation{}, err
 	}
 	return liveSessionPresentation{
-		Quality: liveSessionPresentationQuality{
+		Quality: &liveSessionPresentationQuality{
 			Profile:          effective.Profile,
 			FPS:              effective.Framerate,
 			BitrateKbps:      effective.BitrateKbps,
@@ -291,8 +291,8 @@ func (p *producer) run(ctx context.Context) {
 	p.media.Close()
 }
 
-func (p *producer) Handler(allowQualityUpdates bool, metadata *liveSessionWebRTCPeerMetadata) http.Handler {
-	return p.webrtc.Handler(rtc.PeerOptions{AllowQualityUpdates: allowQualityUpdates, Metadata: metadata})
+func (p *producer) Handler(metadata *liveSessionWebRTCPeerMetadata) http.Handler {
+	return p.webrtc.Handler(rtc.PeerOptions{ApplicationChannelsOnly: true, Metadata: metadata})
 }
 
 func (p *producer) Close() error {

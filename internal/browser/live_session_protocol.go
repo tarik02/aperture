@@ -1,7 +1,9 @@
 package browser
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 )
@@ -10,8 +12,8 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 	if liveSessionMessageChangesTargets(message.Type) {
 		unlock := session.lockTargetChanges()
 		defer unlock()
-	} else if message.Type == "presentation.quality.set" {
-		// A quality update may close incompatible WebRTC peers. Admit the command under
+	} else if message.Type == "presentation.quality.set" || message.Type == "presentation.cursor.set" {
+		// A presentation update may close incompatible WebRTC peers. Admit the command under
 		// the handover lock, but do not retain that lock while updates are serialized.
 		client.handoverMu.Lock()
 		active := client.transport() == transport
@@ -24,10 +26,6 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 		defer client.handoverMu.Unlock()
 	}
 	if client.transport() != transport {
-		return
-	}
-	if message.Version != 1 {
-		writeLiveSessionTransportError(transport, "invalid_version", "unsupported live session protocol version")
 		return
 	}
 	expectedDelivery, known := liveSessionMessageDelivery(message)
@@ -59,7 +57,6 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 			session.writeCommandError(transport, message, err)
 			return
 		}
-		result.Version = 1
 		result.Type = message.Type + ".result"
 		result.RequestID = message.RequestID
 		result.OK = liveSessionBool(true)
@@ -117,6 +114,7 @@ func isLiveSessionCommand(messageType string) bool {
 		"page.stop-loading",
 		"viewport.set",
 		"presentation.quality.set",
+		"presentation.cursor.set",
 		"recording.start",
 		"recording.stop",
 		"recording.cancel":
@@ -222,6 +220,18 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			return liveSessionServerMessage{}, err
 		}
 		return liveSessionServerMessage{Presentation: &presentation}, nil
+	case "presentation.cursor.set":
+		if err := requireBrowserMutation(client); err != nil {
+			return liveSessionServerMessage{}, err
+		}
+		if message.Visible == nil {
+			return liveSessionServerMessage{}, errors.New("cursor visibility is required")
+		}
+		presentation, err := session.updateCursorVisibility(session.runtime.ctx, *message.Visible)
+		if err != nil {
+			return liveSessionServerMessage{}, err
+		}
+		return liveSessionServerMessage{Presentation: &presentation}, nil
 	case "recording.start":
 		if client.role != "owner" {
 			return liveSessionServerMessage{}, errors.New("recording requires the owner role")
@@ -258,7 +268,6 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 
 func (session *liveSession) writeCommandError(transport liveSessionTransport, request liveSessionClientMessage, err error) {
 	_ = transport.send(liveSessionDeliveryReliable, mustJSON(liveSessionServerMessage{
-		Version:   1,
 		Type:      request.Type + ".result",
 		RequestID: request.RequestID,
 		OK:        liveSessionBool(false),
@@ -269,7 +278,6 @@ func (session *liveSession) writeCommandError(transport liveSessionTransport, re
 
 func writeLiveSessionTransportError(transport liveSessionTransport, code, message string) {
 	_ = transport.send(liveSessionDeliveryReliable, mustJSON(liveSessionServerMessage{
-		Version: 1,
 		Type:    "error",
 		Code:    code,
 		Message: message,
@@ -301,7 +309,6 @@ func (session *liveSession) publishTargets(targets []liveSessionTarget) {
 	session.mu.Unlock()
 	for _, recipient := range clients {
 		recipient.client.queueStateUpdate(liveSessionServerMessage{
-			Version:        1,
 			Type:           "targets.state",
 			Targets:        targets,
 			ActiveTargetID: recipient.activeTargetID,
@@ -370,7 +377,6 @@ func (session *liveSession) broadcastRecordings() {
 		return
 	}
 	message := liveSessionServerMessage{
-		Version:    1,
 		Type:       "recordings.state",
 		Recordings: session.listRecordings(),
 	}
@@ -387,7 +393,6 @@ func (session *liveSession) broadcastPresentation(presentation liveSessionPresen
 	}
 	session.mu.Unlock()
 	message := liveSessionServerMessage{
-		Version:      1,
 		Type:         "presentation.state",
 		Presentation: &presentation,
 	}
@@ -407,6 +412,38 @@ func (session *liveSession) updatePresentationQuality(profileName string, width,
 	if err != nil {
 		return liveSessionPresentation{}, err
 	}
+	presentation.CursorVisible = session.cursorVisible
+	session.broadcastPresentation(presentation)
+	return presentation, nil
+}
+
+func (session *liveSession) presentation() liveSessionPresentation {
+	session.presentationMu.Lock()
+	defer session.presentationMu.Unlock()
+	return session.presentationLocked()
+}
+
+func (session *liveSession) presentationLocked() liveSessionPresentation {
+	presentation := liveSessionPresentation{Profiles: []mediaProfile{}, CursorVisible: session.cursorVisible}
+	if mediaProducer := session.runtime.currentMediaProducer(); mediaProducer != nil {
+		presentation = mediaProducer.presentation()
+		presentation.CursorVisible = session.cursorVisible
+	}
+	return presentation
+}
+
+func (session *liveSession) updateCursorVisibility(ctx context.Context, visible bool) (liveSessionPresentation, error) {
+	session.presentationMu.Lock()
+	defer session.presentationMu.Unlock()
+	value := 0
+	if visible {
+		value = 1
+	}
+	if _, err := sendCompositorControlCommand(ctx, session.runtime.controlSocket, fmt.Sprintf("cursor-visible %d\n", value)); err != nil {
+		return liveSessionPresentation{}, err
+	}
+	session.cursorVisible = visible
+	presentation := session.presentationLocked()
 	session.broadcastPresentation(presentation)
 	return presentation, nil
 }
