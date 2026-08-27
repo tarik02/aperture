@@ -22,6 +22,11 @@ const (
 	collaborationHelloTimeout       = 5 * time.Second
 	collaborationLeaseTimeout       = 5 * time.Second
 	collaborationWriteTimeout       = 5 * time.Second
+	collaborationPaintClientRate    = 50
+	collaborationPaintClientBurst   = 20
+	collaborationPaintHubRate       = 100
+	collaborationPaintQueueSize     = 64
+	collaborationPaintHubBurst      = collaborationPaintQueueSize
 )
 
 type collaborationLeaseMode string
@@ -52,6 +57,8 @@ type collaborationHub struct {
 	lastSeen       time.Time
 	nextOwner      uint64
 	closed         bool
+	paintTokens    float64
+	paintTokensAt  time.Time
 }
 
 type collaborationClient struct {
@@ -64,11 +71,16 @@ type collaborationClient struct {
 	leaseUpdates              chan collaborationServerMessage
 	presenceUpdates           chan collaborationServerMessage
 	cursorUpdates             chan collaborationServerMessage
+	paintUpdates              chan collaborationServerMessage
 	sequence                  uint64
 	name                      string
 	avatarHash                string
 	activeTargetID            string
 	followingClientID         string
+	paintTokens               float64
+	paintTokensAt             time.Time
+	activePaintStroke         string
+	activePaintTarget         string
 	capabilityRole            string
 	sessionTokenAuthenticated bool
 }
@@ -105,6 +117,9 @@ type collaborationClientMessage struct {
 	Name                  string                 `json:"name"`
 	AvatarHash            string                 `json:"avatarHash"`
 	FollowingClientID     string                 `json:"followingClientId"`
+	StrokeID              string                 `json:"strokeId"`
+	Color                 string                 `json:"color"`
+	Phase                 string                 `json:"phase"`
 }
 
 type collaborationParticipant struct {
@@ -131,6 +146,10 @@ type collaborationServerMessage struct {
 	X              float64                    `json:"x,omitempty"`
 	Y              float64                    `json:"y,omitempty"`
 	Participants   []collaborationParticipant `json:"participants,omitempty"`
+	StrokeID       string                     `json:"strokeId,omitempty"`
+	Color          string                     `json:"color,omitempty"`
+	Width          float64                    `json:"width,omitempty"`
+	Phase          string                     `json:"phase,omitempty"`
 }
 
 func newCollaborationHub(runtime *wrapperRuntime) (*collaborationHub, error) {
@@ -210,6 +229,7 @@ func (hub *collaborationHub) serveHTTP(w http.ResponseWriter, req *http.Request)
 	go client.writeLeaseUpdates(req.Context())
 	go client.writePresenceUpdates(req.Context())
 	go client.writeCursorUpdates(req.Context())
+	go client.writePaintUpdates(req.Context())
 	hub.sendLeaseState(client)
 	hub.broadcastPresence()
 
@@ -274,6 +294,7 @@ func (hub *collaborationHub) addClient(id, role, name, avatarHash, capabilityRol
 		leaseUpdates:              make(chan collaborationServerMessage, 1),
 		presenceUpdates:           make(chan collaborationServerMessage, 1),
 		cursorUpdates:             make(chan collaborationServerMessage, 1),
+		paintUpdates:              make(chan collaborationServerMessage, collaborationPaintQueueSize),
 		name:                      name,
 		avatarHash:                avatarHash,
 		capabilityRole:            capabilityRole,
@@ -334,8 +355,98 @@ func (hub *collaborationHub) handleClientMessage(client *collaborationClient, me
 		return nil
 	case "follow.set":
 		return hub.setFollowing(client, message.FollowingClientID)
+	case "paint.point":
+		return hub.paintPoint(client, message)
 	default:
 		return errors.New("unknown collaboration message type")
+	}
+}
+
+func (hub *collaborationHub) paintPoint(client *collaborationClient, message collaborationClientMessage) error {
+	if message.TargetID == "" {
+		return errors.New("paint target is unavailable")
+	}
+	if !validPaintStrokeID(message.StrokeID) || !validPaintColor(message.Color) || message.Width < 1 || message.Width > 16 {
+		return errors.New("paint stroke is invalid")
+	}
+	if message.Phase != "start" && message.Phase != "move" && message.Phase != "end" {
+		return errors.New("paint phase is invalid")
+	}
+	if message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
+		return errors.New("paint point is invalid")
+	}
+	hub.mu.Lock()
+	now := time.Now()
+	if message.Phase == "start" && client.activeTargetID != message.TargetID {
+		hub.mu.Unlock()
+		return errors.New("paint target is unavailable")
+	}
+	if message.Phase != "start" && (client.activePaintStroke != message.StrokeID || client.activePaintTarget != message.TargetID) {
+		hub.mu.Unlock()
+		return nil
+	}
+	if message.Phase == "end" {
+		client.activePaintStroke = ""
+		client.activePaintTarget = ""
+	} else {
+		if client.paintTokensAt.IsZero() {
+			client.paintTokens = collaborationPaintClientBurst
+		} else {
+			client.paintTokens += now.Sub(client.paintTokensAt).Seconds() * collaborationPaintClientRate
+			if client.paintTokens > collaborationPaintClientBurst {
+				client.paintTokens = collaborationPaintClientBurst
+			}
+		}
+		client.paintTokensAt = now
+		if hub.paintTokensAt.IsZero() {
+			hub.paintTokens = collaborationPaintHubBurst
+		} else {
+			hub.paintTokens += now.Sub(hub.paintTokensAt).Seconds() * collaborationPaintHubRate
+			if hub.paintTokens > collaborationPaintHubBurst {
+				hub.paintTokens = collaborationPaintHubBurst
+			}
+		}
+		hub.paintTokensAt = now
+		hubTokenCost := 1.0
+		if message.Phase == "start" {
+			hubTokenCost = 2
+		}
+		if client.paintTokens < 1 || hub.paintTokens < hubTokenCost {
+			hub.mu.Unlock()
+			return nil
+		}
+		client.paintTokens--
+		hub.paintTokens -= hubTokenCost
+		if message.Phase == "start" {
+			client.activePaintStroke = message.StrokeID
+			client.activePaintTarget = message.TargetID
+		}
+	}
+	hub.mu.Unlock()
+	hub.broadcastPaint(collaborationServerMessage{
+		Version:  1,
+		Type:     "paint.point",
+		ClientID: client.id,
+		TargetID: message.TargetID,
+		StrokeID: message.StrokeID,
+		Color:    message.Color,
+		Width:    message.Width,
+		Phase:    message.Phase,
+		X:        message.X,
+		Y:        message.Y,
+	})
+	return nil
+}
+
+func (hub *collaborationHub) broadcastPaint(message collaborationServerMessage) {
+	hub.mu.Lock()
+	clients := make([]*collaborationClient, 0, len(hub.clients))
+	for _, client := range hub.clients {
+		clients = append(clients, client)
+	}
+	hub.mu.Unlock()
+	for _, client := range clients {
+		client.queuePaintUpdate(message)
 	}
 }
 
@@ -444,6 +555,28 @@ func (client *collaborationClient) writeCursorUpdates(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case message := <-client.cursorUpdates:
+			if client.write(message) != nil {
+				_ = client.socket.CloseNow()
+				return
+			}
+		}
+	}
+}
+
+func (client *collaborationClient) queuePaintUpdate(message collaborationServerMessage) {
+	select {
+	case client.paintUpdates <- message:
+	default:
+		_ = client.socket.CloseNow()
+	}
+}
+
+func (client *collaborationClient) writePaintUpdates(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case message := <-client.paintUpdates:
 			if client.write(message) != nil {
 				_ = client.socket.CloseNow()
 				return
@@ -844,6 +977,23 @@ func validCollaborationAvatarHash(value string) bool {
 		if character < '0' || character > '9' && character < 'a' || character > 'f' {
 			return false
 		}
+	}
+	return true
+}
+
+func validPaintStrokeID(value string) bool {
+	return validCollaborationClientID(value)
+}
+
+func validPaintColor(value string) bool {
+	if len(value) != 7 || value[0] != '#' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if character >= '0' && character <= '9' || character >= 'a' && character <= 'f' || character >= 'A' && character <= 'F' {
+			continue
+		}
+		return false
 	}
 	return true
 }

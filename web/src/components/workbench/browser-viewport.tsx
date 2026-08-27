@@ -17,12 +17,15 @@ import type {
 import type { ViewportPreset } from "#/lib/control/viewport.ts";
 import { cn } from "#/lib/utils.ts";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
+import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
 
 type BrowserViewportProps = {
   control: UseBrowserControlResult;
   viewport: ViewportPreset;
   performanceOverlayEnabled: boolean;
   localCursorEnabled: boolean;
+  paintingEnabled: boolean;
+  onPaintingEnabledChange: (enabled: boolean) => void;
 };
 
 type MouseButton = "left" | "middle" | "right" | "none";
@@ -41,6 +44,8 @@ export function BrowserViewport({
   viewport,
   performanceOverlayEnabled,
   localCursorEnabled,
+  paintingEnabled,
+  onPaintingEnabledChange,
 }: BrowserViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -86,7 +91,14 @@ export function BrowserViewport({
       control.mediaTargetId !== control.activeTargetId ||
       presentedMedia?.stream !== control.mediaStream ||
       presentedMedia?.targetId !== control.activeTargetId);
+  const paintOverlayEnabled =
+    paintingEnabled &&
+    (showingWebRTC || frameMetadata !== null) &&
+    control.collaboration.phase === "connected" &&
+    !control.mediaSwitching &&
+    !mediaTransitioning;
   const inputDisabled =
+    paintingEnabled ||
     control.mediaSwitching ||
     mediaTransitioning ||
     control.collaboration.phase !== "connected" ||
@@ -311,6 +323,10 @@ export function BrowserViewport({
   }, [inputDisabled, releasePressedKeys]);
 
   useEffect(() => {
+    if (paintingEnabled) {
+      control.setCaptured(false);
+      implicitControlDesiredRef.current = false;
+    }
     if (
       control.collaboration.hasControl &&
       control.collaboration.leaseMode === "implicit" &&
@@ -322,6 +338,8 @@ export function BrowserViewport({
     control.collaboration.hasControl,
     control.collaboration.leaseMode,
     control.collaboration.release,
+    control.setCaptured,
+    paintingEnabled,
   ]);
 
   function mapPointer(event: { clientX: number; clientY: number }, clamp: boolean) {
@@ -708,6 +726,12 @@ export function BrowserViewport({
   }
 
   function handleKeyDown(event: React.KeyboardEvent) {
+    if (event.key === "Escape" && paintingEnabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      onPaintingEnabledChange(false);
+      return;
+    }
     if (event.key === "Escape") {
       if (control.captured) {
         event.preventDefault();
@@ -938,6 +962,22 @@ export function BrowserViewport({
         <StatusBadge status={status} />
       </div>
       {performanceOverlayEnabled && showingWebRTC ? <PerformanceOverlay control={control} /> : null}
+      {control.activeTargetId ? (
+        <CollaborationPaintOverlay
+          collaboration={control.collaboration}
+          targetId={control.activeTargetId}
+          enabled={paintOverlayEnabled}
+          visible={
+            !control.mediaSwitching &&
+            !mediaTransitioning &&
+            (showingWebRTC || frameMetadata !== null)
+          }
+          left={displayMetrics.offsetX}
+          top={displayMetrics.offsetY}
+          width={displayMetrics.renderedWidth}
+          height={displayMetrics.renderedHeight}
+        />
+      ) : null}
       {followedCursorPoint && followedParticipant ? (
         <div
           className="pointer-events-none absolute z-30 flex translate-x-[-2px] translate-y-[-2px] items-start text-primary drop-shadow-sm"

@@ -35,6 +35,7 @@ export function BrowserControlPane({
 }: BrowserControlPaneProps) {
   const [performanceOverlayEnabled, setPerformanceOverlayEnabled] = useState(false);
   const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
+  const [paintingEnabled, setPaintingEnabled] = useState(false);
   const [devToolsTargetIds, setDevToolsTargetIds] = useState<ReadonlySet<string>>(() => new Set());
   const [devToolsDock, setDevToolsDock] = useState<DevToolsDock>("bottom");
   const devToolsPanelRef = usePanelRef();
@@ -115,6 +116,8 @@ export function BrowserControlPane({
         onPerformanceOverlayChange={setPerformanceOverlayEnabled}
         localCursorEnabled={localCursorEnabled}
         onLocalCursorChange={handleLocalCursorChange}
+        paintingEnabled={paintingEnabled}
+        onPaintingEnabledChange={setPaintingEnabled}
         devToolsOpen={devToolsOpen}
         devToolsTargetIds={devToolsTargetIds}
         devToolsDock={devToolsDock}
@@ -132,6 +135,8 @@ export function BrowserControlPane({
             viewport={control.viewport}
             performanceOverlayEnabled={performanceOverlayEnabled}
             localCursorEnabled={localCursorEnabled}
+            paintingEnabled={paintingEnabled}
+            onPaintingEnabledChange={setPaintingEnabled}
           />
         </ResizablePanel>
         <ResizableHandle withHandle disabled={!devToolsOpen} hidden={!devToolsOpen} />

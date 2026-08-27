@@ -47,6 +47,12 @@ Each workbench connection appears in the participant list with a persistent loca
 
 Selecting another participant starts following them. The follower adopts that participant's active tab and highlights their cursor. Follow relationships may form chains, but the session coordinator rejects any update that would create a cycle. Presence, cursors, and follow relationships disappear when the session ends and are not written into the browser or recordings.
 
+## Shared drawing
+
+Owners, editors, and viewers can turn on drawing mode and mark the current target. Drawing mode captures pointer gestures for the overlay instead of sending them to the browser. Each stroke uses target-relative coordinates, so it stays aligned when participants use different viewer sizes.
+
+The session coordinator relays strokes to connected participants but does not store them. A stroke fades out seven seconds after its last point. Shared drawing does not change page content and does not appear in browser recordings.
+
 ## Files
 
 File requests use the existing session routing layer and are handled by the per-session wrapper:

@@ -7,6 +7,7 @@ import {
   PanelBottom,
   PanelLeftIcon,
   PanelRight,
+  Pencil,
   RefreshCw,
   Square,
   Wrench,
@@ -41,6 +42,8 @@ type BrowserToolbarProps = {
   onPerformanceOverlayChange: (enabled: boolean) => void;
   localCursorEnabled: boolean;
   onLocalCursorChange: (enabled: boolean) => void;
+  paintingEnabled: boolean;
+  onPaintingEnabledChange: (enabled: boolean) => void;
   devToolsOpen: boolean;
   devToolsTargetIds: ReadonlySet<string>;
   devToolsDock: DevToolsDock;
@@ -59,6 +62,8 @@ export function BrowserToolbar({
   onPerformanceOverlayChange,
   localCursorEnabled,
   onLocalCursorChange,
+  paintingEnabled,
+  onPaintingEnabledChange,
   devToolsOpen,
   devToolsTargetIds,
   devToolsDock,
@@ -72,6 +77,8 @@ export function BrowserToolbar({
   const busy = control.phase === "connecting";
   const connected = control.phase === "connected";
   const browserMutationEnabled = connected && collaborationRole !== "viewer";
+  const drawingAvailable =
+    connected && control.collaboration.phase === "connected" && Boolean(control.activeTargetId);
   const loading = control.activeTarget?.loading ?? false;
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
@@ -185,6 +192,27 @@ export function BrowserToolbar({
           />
         </InputGroup>
         {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={paintingEnabled ? "secondary" : "ghost"}
+                size="icon-sm"
+                className="shrink-0"
+                disabled={!paintingEnabled && !drawingAvailable}
+                aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+                aria-pressed={paintingEnabled}
+                onClick={() => onPaintingEnabledChange(!paintingEnabled)}
+              />
+            }
+          >
+            <Pencil />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+          </TooltipContent>
+        </Tooltip>
         <DevToolsButton
           open={devToolsOpen}
           dock={devToolsDock}
