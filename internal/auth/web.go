@@ -24,7 +24,9 @@ import (
 
 const (
 	webSessionUserIDKey       = "user_id"
+	webSessionAPITokenIDKey   = "api_token_id"
 	webSessionAuthMethodKey   = "auth_method"
+	webSessionTenantIDKey     = "tenant_id"
 	webSessionOIDCProviderKey = "oidc_provider"
 	webSessionOIDCStateKey    = "oidc_state"
 	webSessionOIDCNonceKey    = "oidc_nonce"
@@ -230,8 +232,29 @@ func (s *WebService) CompleteOIDC(ctx context.Context, providerID, state, code s
 	return user, returnTo, nil
 }
 
-// Authenticate resolves the user stored in the current browser session.
+// LoginWithAPIToken authenticates an API token and establishes a browser session.
+func (s *WebService) LoginWithAPIToken(ctx context.Context, rawToken string) error {
+	principal, err := s.auth.Authenticate(ctx, rawToken)
+	if err != nil {
+		return err
+	}
+	if err := s.sessions.RenewToken(ctx); err != nil {
+		return fmt.Errorf("renew authenticated web session: %w", err)
+	}
+	if err := s.sessions.Clear(ctx); err != nil {
+		return fmt.Errorf("clear authentication flow session: %w", err)
+	}
+	s.sessions.Put(ctx, webSessionAPITokenIDKey, principal.TokenID)
+	s.sessions.Put(ctx, webSessionAuthMethodKey, AuthMethodAPIToken)
+	return nil
+}
+
+// Authenticate resolves the principal stored in the current browser session.
 func (s *WebService) Authenticate(ctx context.Context, selectedTenantID string) (Principal, error) {
+	tokenID := s.sessions.GetString(ctx, webSessionAPITokenIDKey)
+	if tokenID != "" {
+		return s.auth.authenticateAPITokenByID(ctx, tokenID)
+	}
 	userID := s.sessions.GetString(ctx, webSessionUserIDKey)
 	if userID == "" {
 		return Principal{}, ErrTokenMissing
@@ -240,14 +263,38 @@ func (s *WebService) Authenticate(ctx context.Context, selectedTenantID string) 
 	return s.auth.AuthenticateUser(ctx, userID, selectedTenantID, authMethod)
 }
 
-// Logout destroys the current browser session and returns its user id and authentication method.
-func (s *WebService) Logout(ctx context.Context) (string, string, error) {
+// SelectedTenantID returns the tenant selected for the current browser session.
+func (s *WebService) SelectedTenantID(ctx context.Context) string {
+	return s.sessions.GetString(ctx, webSessionTenantIDKey)
+}
+
+// RememberSelectedTenant stores a validated tenant selection in the current browser session.
+func (s *WebService) RememberSelectedTenant(ctx context.Context, tenantID string) {
+	s.sessions.Put(ctx, webSessionTenantIDKey, tenantID)
+}
+
+// Logout destroys the current browser session and returns its identity.
+func (s *WebService) Logout(ctx context.Context) (Principal, error) {
 	userID := s.sessions.GetString(ctx, webSessionUserIDKey)
+	tokenID := s.sessions.GetString(ctx, webSessionAPITokenIDKey)
 	authMethod := s.sessions.GetString(ctx, webSessionAuthMethodKey)
 	if err := s.sessions.Destroy(ctx); err != nil {
-		return "", "", fmt.Errorf("destroy web session: %w", err)
+		return Principal{}, fmt.Errorf("destroy web session: %w", err)
 	}
-	return userID, authMethod, nil
+	if tokenID != "" {
+		return Principal{
+			Type:       PrincipalTypeAPIToken,
+			ID:         tokenID,
+			TokenID:    tokenID,
+			AuthMethod: authMethod,
+		}, nil
+	}
+	return Principal{
+		Type:       PrincipalTypeUser,
+		ID:         userID,
+		UserID:     &userID,
+		AuthMethod: authMethod,
+	}, nil
 }
 
 func (s *WebService) establishAuthenticatedSession(ctx context.Context, user *db.User, authMethod string) error {

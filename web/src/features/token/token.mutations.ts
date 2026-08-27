@@ -6,7 +6,6 @@ import {
 } from "#/lib/api/client.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
 export type CreateTokenMutationInput =
   | { kind: "admin"; input: CreateAdminTokenInput }
@@ -14,11 +13,8 @@ export type CreateTokenMutationInput =
 
 function useInvalidateTokens() {
   const queryClient = useQueryClient();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
-
   return () => {
-    void queryClient.invalidateQueries({ queryKey: ["tokens", profileId] });
+    void queryClient.invalidateQueries({ queryKey: ["tokens"] });
   };
 }
 

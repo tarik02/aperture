@@ -60,14 +60,13 @@ func (s *Server) completeOIDC(c *gin.Context) {
 }
 
 func (s *Server) logoutWebSession(c *gin.Context) {
-	userID, authMethod, err := s.WebAuth.Logout(c.Request.Context())
+	principal, err := s.WebAuth.Logout(c.Request.Context())
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	if userID != "" {
-		principal := auth.Principal{Type: auth.PrincipalTypeUser, ID: userID, UserID: &userID, AuthMethod: authMethod}
-		if err := s.Auth.RecordAudit(c.Request.Context(), principal, auth.AuditInput{Action: "user.logged_out", ResourceType: "user", ResourceID: &userID}); err != nil {
+	if principal.Type == auth.PrincipalTypeUser && principal.ID != "" {
+		if err := s.Auth.RecordAudit(c.Request.Context(), principal, auth.AuditInput{Action: "user.logged_out", ResourceType: "user", ResourceID: &principal.ID}); err != nil {
 			WriteError(c, err)
 			return
 		}

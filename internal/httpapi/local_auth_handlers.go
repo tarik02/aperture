@@ -15,6 +15,17 @@ type passwordLoginRequest struct {
 	Password string `json:"password"`
 }
 
+type apiTokenLoginRequest struct {
+	Token string `json:"token"`
+}
+
+func (r apiTokenLoginRequest) Validate() error {
+	if strings.TrimSpace(r.Token) == "" {
+		return validationError("token is required")
+	}
+	return nil
+}
+
 func (r passwordLoginRequest) Validate() error {
 	if strings.TrimSpace(r.Email) == "" || r.Password == "" {
 		return validationError("email and password are required")
@@ -90,6 +101,20 @@ func (s *Server) loginWithPassword(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, passwordLoginResponse{MFARequired: result.MFARequired})
+}
+
+func (s *Server) loginWithAPIToken(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
+	var request apiTokenLoginRequest
+	if err := bindJSON(c, &request); err != nil {
+		WriteError(c, err)
+		return
+	}
+	if err := s.WebAuth.LoginWithAPIToken(c.Request.Context(), request.Token); err != nil {
+		WriteError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) completePasswordMFA(c *gin.Context) {

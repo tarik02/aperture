@@ -38,6 +38,7 @@ import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import type { ApiCredentials } from "#/lib/api/client.ts";
+import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { flattenInfinitePages } from "#/lib/api/pagination.ts";
 import { adminScopeOptions, tenantScopeOptions, type ScopeOption } from "#/lib/scopes.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
@@ -56,6 +57,7 @@ const RESOURCE_MODE_OPTIONS = [
 
 export function TokenCreateForm() {
   const credentials = useApiCredentials();
+  const principal = useAuthSessionStore(selectPrincipal);
   const mutation = useCreateTokenMutation();
   const isAdmin = credentials?.authorityType === "system_admin";
 
@@ -77,7 +79,7 @@ export function TokenCreateForm() {
   } = draft;
 
   const availableScopes = isAdmin ? adminScopeOptions : tenantScopeOptions;
-  const resourceRestrictedByParent = credentials?.resourceMode === "allowlist";
+  const resourceRestrictedByParent = principal?.resourceMode === "allowlist";
   const effectiveResourceMode = isAdmin && authorityType === "system_admin" ? "all" : resourceMode;
   const resourceTenantId = isAdmin
     ? tenantId.trim() || null

@@ -111,8 +111,8 @@ export function useBrowserControl({
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
 }: UseBrowserControlOptions): UseBrowserControlResult {
-  const profileCredentials = useApiCredentials();
-  const credentials = credentialsOverride ?? profileCredentials;
+  const sessionCredentials = useApiCredentials();
+  const credentials = credentialsOverride ?? sessionCredentials;
   const live = useLiveSession({
     sessionId,
     credentials,

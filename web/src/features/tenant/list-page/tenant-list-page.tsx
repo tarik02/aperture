@@ -1,6 +1,7 @@
 import { Navigate } from "@tanstack/react-router";
 import { Building2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo } from "react";
+import { toast } from "sonner";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TenantFormModal } from "#/features/tenant/form-modal/tenant-form-modal.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
@@ -39,11 +40,12 @@ import {
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { formatTimestamp } from "#/lib/format.ts";
+import { apiClient } from "#/lib/api/client.ts";
 import type { Tenant } from "#/lib/api/schemas.ts";
 import { useTenantFormStore } from "#/features/tenant/form/tenant-form.store.ts";
 import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-form-modal.store.ts";
 import { useTenantListPageStore } from "#/features/tenant/list-page/tenant-list-page.store.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
+import { useAuthSessionStore } from "#/stores/auth-session.ts";
 
 const TENANT_SKELETON_COLUMNS = [
   {
@@ -63,10 +65,8 @@ const TENANT_SKELETON_COLUMNS = [
 
 export function TenantListPage() {
   const credentials = useApiCredentials();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const setSelectedTenant = useTokenVaultStore((state) => state.setSelectedTenant);
-  const hydrated = useTokenVaultStore((state) => state.hydrated);
-  const bootstrapping = useTokenVaultStore((state) => state.bootstrapping);
+  const authStatus = useAuthSessionStore((state) => state.status);
+  const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
 
   const deleted = useTenantListPageStore((state) => state.deleted);
   const setDeleted = useTenantListPageStore((state) => state.setDeleted);
@@ -89,15 +89,16 @@ export function TenantListPage() {
   const deleteMutation = useDeleteTenantMutation();
   const restoreMutation = useRestoreTenantMutation();
 
-  if (hydrated && !bootstrapping && credentials?.authorityType !== "system_admin") {
+  if (authStatus !== "loading" && credentials?.authorityType !== "system_admin") {
     return <Navigate to="/" />;
   }
 
-  function selectTenant(tenant: Tenant) {
-    if (!activeProfile) {
-      return;
+  async function selectTenant(tenant: Tenant) {
+    try {
+      setAuthenticated(await apiClient.getAuthMe(tenant.id));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Tenant switch failed");
     }
-    setSelectedTenant(activeProfile.id, tenant.id, tenant.displayName);
   }
 
   async function handleConfirmAction() {
@@ -269,7 +270,7 @@ export function TenantListPage() {
                         <MoreHorizontal />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => selectTenant(tenant)}>
+                        <DropdownMenuItem onClick={() => void selectTenant(tenant)}>
                           <Building2 />
                           Select
                         </DropdownMenuItem>

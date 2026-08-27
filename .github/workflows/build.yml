@@ -33,7 +33,9 @@ jobs:
           use-flakehub: false
 
       - name: Verify frontend dependency hash
-        run: nix build --rebuild .#aperture.pnpmDeps --no-link --print-build-logs
+        run: |
+          nix build .#aperture.pnpmDeps --no-link --print-build-logs
+          nix build --rebuild .#aperture.pnpmDeps --no-link --print-build-logs
 
       - name: Build and check
         run: nix flake check --print-build-logs

@@ -86,6 +86,22 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 		return Principal{}, ErrTokenInvalid
 	}
 
+	return s.authenticateAPIToken(ctx, row)
+}
+
+func (s *Service) authenticateAPITokenByID(ctx context.Context, tokenID string) (Principal, error) {
+	row, err := s.repo.GetAPITokenByID(ctx, tokenID)
+	if err != nil {
+		return Principal{}, fmt.Errorf("load api token: %w", err)
+	}
+	if row == nil {
+		return Principal{}, ErrTokenInvalid
+	}
+
+	return s.authenticateAPIToken(ctx, row)
+}
+
+func (s *Service) authenticateAPIToken(ctx context.Context, row *db.APIToken) (Principal, error) {
 	now := s.now().UTC()
 	if IsRevoked(row.RevokedAt) {
 		return Principal{}, ErrTokenRevoked

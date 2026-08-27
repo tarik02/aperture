@@ -3,7 +3,6 @@ import { apiClient } from "#/lib/api/client.ts";
 import { defaultListLimit, getNextPageParam, listQueryDefaults } from "#/lib/api/pagination.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type SnapshotsFilters } from "#/lib/api/query-keys.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 import type { ApiCredentials } from "#/lib/api/client.ts";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
@@ -21,13 +20,11 @@ export function useSnapshotsInfiniteQuery(
 ) {
   const activeCredentials = useApiCredentials();
   const credentials = options.credentials === undefined ? activeCredentials : options.credentials;
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
   const tenantKey = resolveTenantKey(credentials);
   const enabled = isTenantScopedQueryReady(credentials) && options.enabled !== false;
 
   return useInfiniteQuery({
-    queryKey: queryKeys.snapshots(profileId, tenantKey, filters),
+    queryKey: queryKeys.snapshots(tenantKey, filters),
     queryFn: ({ pageParam }) =>
       apiClient.listSnapshots(credentials!, {
         limit: filters.limit ?? defaultListLimit,

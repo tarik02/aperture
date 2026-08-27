@@ -57,6 +57,7 @@ import { formatTimestamp } from "#/lib/format.ts";
 import { adminScopeOptions, scopeLabel, scopePriority, tenantScopeOptions } from "#/lib/scopes.ts";
 import type { TokenRevokedFilterValue, TokensFilters } from "#/lib/api/query-keys.ts";
 import type { ApiToken, ResourceGrant } from "#/lib/api/schemas.ts";
+import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
 import {
@@ -100,6 +101,7 @@ const TOKEN_SKELETON_COLUMNS = [
 
 export function TokenListPage() {
   const credentials = useApiCredentials();
+  const principal = useAuthSessionStore(selectPrincipal);
   const scopes = useActiveScopes();
   const isAdmin = credentials?.authorityType === "system_admin";
   const canCreate = isAdmin ? hasScope(scopes, "system:admin") : hasScope(scopes, "tenant:write");
@@ -211,7 +213,7 @@ export function TokenListPage() {
             onClick={() => {
               initCreateTokenForm(
                 credentials?.selectedTenantId ?? "",
-                credentials?.resourceMode ?? "all",
+                principal?.resourceMode ?? "all",
               );
               openCreateTokenModal();
             }}

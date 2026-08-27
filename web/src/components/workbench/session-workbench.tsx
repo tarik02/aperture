@@ -37,8 +37,8 @@ type SessionWorkbenchProps = {
 const emptyIceServers: RTCIceServer[] = [];
 
 export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProps) {
-  const profileCredentials = useApiCredentials();
-  const credentials = capability?.credentials ?? profileCredentials;
+  const sessionCredentials = useApiCredentials();
+  const credentials = capability?.credentials ?? sessionCredentials;
   const scopes = useActiveScopes();
   const guestMode = capability !== undefined;
   const collaborationRole = capability?.role ?? "owner";

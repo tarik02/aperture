@@ -3,7 +3,6 @@ import { apiClient } from "#/lib/api/client.ts";
 import { defaultListLimit, getNextPageParam, listQueryDefaults } from "#/lib/api/pagination.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type SessionsFilters } from "#/lib/api/query-keys.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 import type { ApiCredentials } from "#/lib/api/client.ts";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
@@ -21,13 +20,11 @@ export function useSessionsInfiniteQuery(
 ) {
   const activeCredentials = useApiCredentials();
   const credentials = options.credentials === undefined ? activeCredentials : options.credentials;
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
   const tenantKey = resolveTenantKey(credentials);
   const enabled = isTenantScopedQueryReady(credentials) && options.enabled !== false;
 
   return useInfiniteQuery({
-    queryKey: queryKeys.sessions(profileId, tenantKey, filters),
+    queryKey: queryKeys.sessions(tenantKey, filters),
     queryFn: ({ pageParam }) =>
       apiClient.listSessions(credentials!, {
         limit: filters.limit ?? defaultListLimit,
@@ -45,13 +42,11 @@ export function useSessionsInfiniteQuery(
 
 export function useSessionsBulkQuery(sessionIds: string[]) {
   const credentials = useApiCredentials();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
   const tenantKey = resolveTenantKey(credentials);
   const enabled = sessionIds.length > 0 && isTenantScopedQueryReady(credentials);
 
   return useQuery({
-    queryKey: queryKeys.sessionsBulk(profileId, tenantKey, sessionIds),
+    queryKey: queryKeys.sessionsBulk(tenantKey, sessionIds),
     queryFn: () => apiClient.getSessionsBulk(credentials!, sessionIds),
     enabled,
     select: (response) => response.sessions,
@@ -60,12 +55,10 @@ export function useSessionsBulkQuery(sessionIds: string[]) {
 
 export function useSessionQuery(sessionId: string | undefined) {
   const credentials = useApiCredentials();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
   const tenantKey = resolveTenantKey(credentials);
 
   return useQuery({
-    queryKey: queryKeys.session(profileId, tenantKey, sessionId ?? "none"),
+    queryKey: queryKeys.session(tenantKey, sessionId ?? "none"),
     queryFn: () => {
       if (!credentials || !sessionId) {
         throw new Error("Session credentials unavailable");

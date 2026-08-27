@@ -29,14 +29,13 @@ type PendingAction =
   | null;
 
 type SecurityModalProps = {
-  profileId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-export function SecurityModal({ profileId, open, onOpenChange }: SecurityModalProps) {
+export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
   const queryClient = useQueryClient();
-  const securityStatusQueryKey = queryKeys.securityStatus(profileId);
+  const securityStatusQueryKey = queryKeys.securityStatus;
   const status = useQuery({
     queryKey: securityStatusQueryKey,
     queryFn: () => apiClient.getSecurityStatus(),

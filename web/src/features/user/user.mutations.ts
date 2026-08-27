@@ -2,28 +2,21 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { apiClient, type UserInput } from "#/lib/api/client.ts";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
-import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
 
 function useInvalidateUsers() {
   const queryClient = useQueryClient();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
-
   return (userId?: string) => {
-    void queryClient.invalidateQueries({ queryKey: ["users", profileId] });
+    void queryClient.invalidateQueries({ queryKey: ["users"] });
     if (userId) {
-      void queryClient.invalidateQueries({ queryKey: ["user", profileId, userId] });
+      void queryClient.invalidateQueries({ queryKey: ["user", userId] });
     }
   };
 }
 
 function useInvalidateMemberships() {
   const queryClient = useQueryClient();
-  const activeProfile = useTokenVaultStore(selectActiveProfile);
-  const profileId = activeProfile?.id ?? "none";
-
   return (userId: string) => {
-    void queryClient.invalidateQueries({ queryKey: ["user-memberships", profileId, userId] });
+    void queryClient.invalidateQueries({ queryKey: ["user-memberships", userId] });
   };
 }
 

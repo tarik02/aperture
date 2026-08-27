@@ -3,7 +3,9 @@ package httpapi
 import (
 	"io/fs"
 	"net/http"
+	"slices"
 
+	"github.com/aperture/aperture/internal/config"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -28,6 +30,9 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
 	router.GET("/auth/login-methods", server.listLoginMethods)
 	if server.WebAuth != nil {
+		if slices.Contains(server.Config.LoginMethods, config.LoginMethodAPIToken) {
+			router.POST("/auth/token/login", server.loginWithAPIToken)
+		}
 		router.GET("/auth/oidc/:providerId/login", server.beginOIDC)
 		router.GET("/auth/oidc/:providerId/callback", server.completeOIDC)
 		router.POST("/auth/password/login", server.loginWithPassword)
