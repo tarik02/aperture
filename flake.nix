@@ -606,7 +606,7 @@
               pnpm = pnpmLatest;
               fetcherVersion = 4;
               pnpmWorkspaces = [ "@aperture/web" ];
-              hash = "sha256-yShV8HD3slablReSJTZOvcv7sOQKET4n1U4UWG+P5t0=";
+              hash = "sha256-R/mB960YAi6iuEpF0Ohd/Q0f5t3w3yCJ4/GoBcDKYRE=";
             };
 
             nativeBuildInputs = [
