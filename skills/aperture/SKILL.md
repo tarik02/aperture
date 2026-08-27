@@ -304,7 +304,6 @@ Interactive clients use the exact `aperture-session.v1` WebSocket subprotocol on
 
 ```json
 {
-  "version": 1,
   "type": "session.hello",
   "name": "Quiet Otter",
   "avatarHash": "0123456789abcdef0123456789abcdef"
@@ -317,7 +316,7 @@ WebRTC clients create ordered `application` and unordered, zero-retransmit `appl
 
 The `/session` fallback carries the same JSON messages. Its presentation frames are binary packets containing a four-byte big-endian JSON-header length, the UTF-8 `presentation.frame` header, and raw JPEG bytes. Coalesce disposable realtime messages before writing them to this ordered socket.
 
-Reliable commands use a nonempty `requestId` and receive a matching typed `.result` message. Commands are `target.select`, `target.create`, `target.close`, `page.navigate`, `page.history-back`, `page.history-forward`, `page.reload`, `page.stop-loading`, `viewport.set`, `recording.start`, `recording.stop`, and `recording.cancel`. A transport failure fails outstanding commands. Use the replacement snapshot to reconcile state and wait for a new caller action instead of retrying them.
+Reliable commands use a nonempty `requestId` and receive a matching typed `.result` message. Commands are `target.select`, `target.create`, `target.close`, `page.navigate`, `page.history-back`, `page.history-forward`, `page.reload`, `page.stop-loading`, `viewport.set`, `presentation.quality.set`, `presentation.cursor.set`, `recording.start`, `recording.stop`, and `recording.cancel`. A transport failure fails outstanding commands. Use the replacement snapshot to reconcile state and wait for a new caller action instead of retrying them.
 
 Viewport body:
 

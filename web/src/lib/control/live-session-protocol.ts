@@ -68,8 +68,9 @@ const presentationProfileSchema = z
 
 const presentationSchema = z
   .object({
-    quality: presentationQualitySchema,
+    quality: presentationQualitySchema.optional(),
     profiles: z.array(presentationProfileSchema),
+    cursorVisible: z.boolean(),
   })
   .strict();
 
@@ -111,7 +112,6 @@ const participantSchema = z
 
 const snapshotSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("session.snapshot"),
     clientId: z.string(),
     resumeSecret: z.string(),
@@ -123,13 +123,12 @@ const snapshotSchema = z
     targets: z.array(targetSchema).optional().default([]),
     participants: z.array(participantSchema).optional().default([]),
     recordings: z.array(recordingSchema).optional().default([]),
-    presentation: presentationSchema.optional(),
+    presentation: presentationSchema,
   })
   .strict();
 
 const presenceStateSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("presence.state"),
     participants: z.array(participantSchema).optional().default([]),
   })
@@ -137,7 +136,6 @@ const presenceStateSchema = z
 
 const inputStateSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("input.state"),
     holderClientId: z.string().optional(),
     mode: z.enum(["implicit", "explicit"]).optional(),
@@ -146,7 +144,6 @@ const inputStateSchema = z
 
 const cursorSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("presence.cursor"),
     clientId: z.string(),
     targetId: z.string(),
@@ -158,7 +155,6 @@ const cursorSchema = z
 
 const cursorClearSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("presence.cursor.clear"),
     clientId: z.string(),
     realtimeCounter: z.number().int().positive(),
@@ -167,7 +163,6 @@ const cursorClearSchema = z
 
 const paintSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("paint.point"),
     clientId: z.string(),
     targetId: z.string(),
@@ -183,7 +178,6 @@ const paintSchema = z
 
 const targetsStateSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("targets.state"),
     activeTargetId: z.string().optional(),
     targets: z.array(targetSchema).optional().default([]),
@@ -192,7 +186,6 @@ const targetsStateSchema = z
 
 const recordingsStateSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("recordings.state"),
     recordings: z.array(recordingSchema).optional().default([]),
   })
@@ -200,7 +193,6 @@ const recordingsStateSchema = z
 
 const presentationStateSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("presentation.state"),
     presentation: presentationSchema,
   })
@@ -208,7 +200,6 @@ const presentationStateSchema = z
 
 const errorSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("error"),
     code: z.string(),
     message: z.string(),
@@ -226,6 +217,7 @@ const commandResultTypes = [
   "page.stop-loading.result",
   "viewport.set.result",
   "presentation.quality.set.result",
+  "presentation.cursor.set.result",
   "recording.start.result",
   "recording.stop.result",
   "recording.cancel.result",
@@ -233,7 +225,6 @@ const commandResultTypes = [
 
 const commandResultSchema = z
   .object({
-    version: z.literal(1),
     type: z.enum(commandResultTypes),
     requestId: z.string(),
     ok: z.boolean(),
@@ -268,16 +259,14 @@ export type LiveSessionPresentationQuality = z.infer<typeof presentationQualityS
 
 export const rasterFrameSchema = z
   .object({
-    version: z.literal(1),
     type: z.literal("presentation.frame"),
     targetId: z.string(),
-    frameId: z.number().int(),
-    format: z.literal("jpeg"),
     width: z.number().positive(),
     height: z.number().positive(),
-    deviceScaleFactor: z.number().positive(),
-    scrollOffsetX: z.number(),
-    scrollOffsetY: z.number(),
-    timestamp: z.number().optional(),
   })
   .strict();
+
+export type LiveSessionRasterFrame = Omit<z.infer<typeof rasterFrameSchema>, "type"> & {
+  data: Blob;
+  receivedAt: number;
+};

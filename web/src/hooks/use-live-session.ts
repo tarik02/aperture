@@ -3,10 +3,10 @@ import { Subject, type Observable } from "rxjs";
 import { z } from "zod";
 import type { ApiCredentials } from "#/lib/api/client.ts";
 import type { Recording } from "#/lib/api/schemas.ts";
+import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 import { evdevKeycodeByCode } from "#/lib/control/input-keycodes.ts";
 import { windowsVirtualKeyCodeForCodeOrKey } from "#/lib/control/keyboard.ts";
 import { LiveSessionConnection } from "#/lib/control/live-session-connection.ts";
-import type { ClientMessage, ControlTarget, ScreencastFrame } from "#/lib/control/messages.ts";
 import {
   type CollaborationCursor,
   type CollaborationError,
@@ -18,22 +18,11 @@ import {
   type CollaborationRole,
   type LiveSessionPresentation,
   type LiveSessionPresentationQuality,
+  type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
+  type LiveSessionTarget,
 } from "#/lib/control/live-session-protocol.ts";
 import { selectActiveProfile, useTokenVaultStore } from "#/stores/token-vault.ts";
-
-type BrowserInputMessage = Extract<
-  ClientMessage,
-  {
-    type:
-      | "input.mouse"
-      | "input.wheel"
-      | "input.key"
-      | "clipboard.copy"
-      | "clipboard.cut"
-      | "clipboard.paste";
-  }
->;
 
 type InputDimensions = {
   width: number;
@@ -88,9 +77,9 @@ type UseLiveSessionOptions = {
 
 export type LiveSessionControl = {
   phase: "idle" | "connecting" | "connected" | "disconnected" | "error";
-  targets: ControlTarget[];
+  targets: LiveSessionTarget[];
   activeTargetId: string | null;
-  frame$: Observable<ScreencastFrame | null>;
+  frame$: Observable<LiveSessionRasterFrame | null>;
   mediaStream: MediaStream | null;
   mediaSize: LiveSessionMediaSize | null;
   transport: "webrtc" | "websocket" | null;
@@ -132,7 +121,7 @@ export function useLiveSession({
     () => collaborationIdentity(role, activeProfile?.tokenName ?? null),
     [activeProfile?.tokenName, role],
   );
-  const frameSubject = useMemo(() => new Subject<ScreencastFrame | null>(), []);
+  const frameSubject = useMemo(() => new Subject<LiveSessionRasterFrame | null>(), []);
   const paintSubject = useMemo(() => new Subject<CollaborationPaintEvent>(), []);
   const connectionRef = useRef<LiveSessionConnection | null>(null);
   const holderClientIdRef = useRef<string | null>(null);
@@ -149,7 +138,7 @@ export function useLiveSession({
   const presentationSelectionRef = useRef<Promise<void> | null>(null);
 
   const [phase, setPhase] = useState<LiveSessionControl["phase"]>("idle");
-  const [targets, setTargets] = useState<ControlTarget[]>([]);
+  const [targets, setTargets] = useState<LiveSessionTarget[]>([]);
   const [activeTargetId, setActiveTargetId] = useState<string | null>(null);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [mediaSize, setMediaSize] = useState<LiveSessionMediaSize | null>(null);
@@ -183,16 +172,7 @@ export function useLiveSession({
           followingClientIdRef.current =
             message.participants.find((participant) => participant.clientId === message.clientId)
               ?.followingClientId ?? null;
-          setTargets(
-            message.targets.map((target) => ({
-              id: target.id,
-              type: target.type,
-              title: target.title,
-              url: target.url,
-              loading: target.loading,
-              attached: target.id === message.activeTargetId,
-            })),
-          );
+          setTargets(message.targets);
           setActiveTargetId(message.activeTargetId ?? null);
           setMediaSize(resolveMediaSize(message.targets, message.activeTargetId));
           setRecordings(message.recordings);
@@ -200,16 +180,7 @@ export function useLiveSession({
           setLastError(null);
           return;
         case "targets.state":
-          setTargets(
-            message.targets.map((target) => ({
-              id: target.id,
-              type: target.type,
-              title: target.title,
-              url: target.url,
-              loading: target.loading,
-              attached: target.id === message.activeTargetId,
-            })),
-          );
+          setTargets(message.targets);
           setActiveTargetId(message.activeTargetId ?? null);
           setMediaSize(resolveMediaSize(message.targets, message.activeTargetId));
           setTargetSwitching(false);
@@ -418,7 +389,7 @@ export function useLiveSession({
               throw new Error("presentation size is unavailable");
             }
             const profileChanged =
-              presentationRef.current?.quality.profile !== selection.quality.profile;
+              presentationRef.current?.quality?.profile !== selection.quality.profile;
             if (profileChanged && transportRef.current === "webrtc") {
               await connection.selectTransport("websocket");
               restoreWebRTC = true;

@@ -8,7 +8,6 @@ import {
   browserChannelsSchema,
   createSessionResponseSchema,
   createTokenResponseSchema,
-  cursorVisibilitySchema,
   eventsPageSchema,
   healthSchema,
   loginMethodsSchema,
@@ -18,8 +17,6 @@ import {
   passkeysSchema,
   passwordLoginResponseSchema,
   promoteSessionResponseSchema,
-  recordingSchema,
-  recordingsSchema,
   recoveryCodesSchema,
   securityStatusSchema,
   sessionSchema,
@@ -357,12 +354,6 @@ export type UpdateSnapshotInput = {
   description: string | null;
 };
 
-export type StartSessionRecordingInput = {
-  mode: "tab" | "viewer";
-  targetId: string;
-  clientId: string;
-};
-
 export type CreateAdminTokenInput = {
   name: string;
   authorityType: "system_admin" | "tenant";
@@ -564,49 +555,6 @@ export const apiClient = {
       schema: browserStatusSchema,
       credentials,
       bearerToken: sessionToken,
-    });
-  },
-
-  getBrowserCursor(credentials: ApiCredentials, sessionId: string, sessionToken?: string) {
-    return request({
-      path: `/sessions/${encodeURIComponent(sessionId)}/browser/cursor`,
-      schema: cursorVisibilitySchema,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-    });
-  },
-
-  setBrowserCursor(
-    credentials: ApiCredentials,
-    sessionId: string,
-    visible: boolean,
-    sessionToken?: string,
-  ) {
-    return request({
-      method: "PUT",
-      path: `/sessions/${encodeURIComponent(sessionId)}/browser/cursor`,
-      schema: cursorVisibilitySchema,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-      body: { visible },
-    });
-  },
-
-  setBrowserMediaProfile(
-    credentials: ApiCredentials,
-    sessionId: string,
-    profile: string,
-    sessionToken?: string,
-  ) {
-    return requestVoid({
-      method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/browser/quality`,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-      body: { profile },
     });
   },
 
@@ -900,63 +848,6 @@ export const apiClient = {
     });
   },
 
-  listSessionRecordings(credentials: ApiCredentials, sessionId: string, sessionToken?: string) {
-    return request({
-      path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
-      schema: recordingsSchema,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-    });
-  },
-
-  startSessionRecording(
-    credentials: ApiCredentials,
-    sessionId: string,
-    input: StartSessionRecordingInput,
-    sessionToken?: string,
-  ) {
-    return request({
-      method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/recordings`,
-      schema: recordingSchema,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-      body: input,
-    });
-  },
-
-  getSessionRecording(
-    credentials: ApiCredentials,
-    sessionId: string,
-    recordingId: string,
-    sessionToken?: string,
-  ) {
-    return request({
-      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}`,
-      schema: recordingSchema,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-    });
-  },
-
-  stopSessionRecording(
-    credentials: ApiCredentials,
-    sessionId: string,
-    recordingId: string,
-    sessionToken?: string,
-  ) {
-    return requestBlob({
-      method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-    });
-  },
-
   downloadSessionRecording(
     credentials: ApiCredentials,
     sessionId: string,
@@ -968,22 +859,6 @@ export const apiClient = {
       credentials,
       bearerToken: sessionToken,
       tenantHeader: "tenant-scoped",
-    });
-  },
-
-  cancelSessionRecording(
-    credentials: ApiCredentials,
-    sessionId: string,
-    recordingId: string,
-    sessionToken?: string,
-  ) {
-    return requestVoid({
-      method: "POST",
-      path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/stop`,
-      credentials,
-      bearerToken: sessionToken,
-      tenantHeader: "tenant-scoped",
-      headers: { Range: "bytes=0-0" },
     });
   },
 

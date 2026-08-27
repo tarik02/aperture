@@ -43,7 +43,7 @@ func (session *liveSession) serveSessionWebSocketHTTP(w http.ResponseWriter, req
 	helloCtx, cancelHello := context.WithTimeout(req.Context(), liveSessionHelloTimeout)
 	hello, err := readLiveSessionMessage(helloCtx, connection)
 	cancelHello()
-	if err != nil || hello.Version != 1 || hello.Type != "session.hello" {
+	if err != nil || hello.Type != "session.hello" {
 		_ = connection.Close(websocket.StatusPolicyViolation, "valid session hello required")
 		return
 	}
@@ -256,11 +256,7 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 	if client.role == "owner" {
 		recordings = session.listRecordings()
 	}
-	var presentation *liveSessionPresentation
-	if mediaProducer := session.runtime.currentMediaProducer(); mediaProducer != nil {
-		current := mediaProducer.presentation()
-		presentation = &current
-	}
+	presentation := session.presentation()
 	session.mu.Lock()
 	if client.activeTargetID == "" {
 		client.activeTargetID = session.browser.firstSelectableTargetID(targets)
@@ -271,7 +267,6 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 		holderClientID = session.holder.actorID()
 	}
 	message := liveSessionServerMessage{
-		Version:        1,
 		Type:           "session.snapshot",
 		ClientID:       client.id,
 		ResumeSecret:   client.resumeSecret,
@@ -283,7 +278,7 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 		Targets:        targets,
 		Participants:   participants,
 		Recordings:     recordings,
-		Presentation:   presentation,
+		Presentation:   &presentation,
 	}
 	session.mu.Unlock()
 	return message, nil

@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
-import type { ScreencastFrame } from "#/lib/control/messages.ts";
 import {
   LIVE_SESSION_PROTOCOL,
   liveSessionServerMessageSchema,
   rasterFrameSchema,
   type LiveSessionCommandResult,
+  type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
   type LiveSessionSnapshot,
 } from "#/lib/control/live-session-protocol.ts";
@@ -25,7 +25,7 @@ export type LiveSessionTransportKind = "webrtc" | "websocket";
 type LiveSessionConnectionCallbacks = {
   onPhase: (phase: "connecting" | "connected" | "disconnected" | "error") => void;
   onMessage: (message: LiveSessionServerMessage) => void;
-  onFrame: (frame: ScreencastFrame | null) => void;
+  onFrame: (frame: LiveSessionRasterFrame | null) => void;
   onStream: (stream: MediaStream | null) => void;
   onTransport: (transport: LiveSessionTransportKind | null) => void;
   onError: (message: string) => void;
@@ -57,7 +57,7 @@ type TransportCallbacks = {
   message: (transport: SessionTransport, message: LiveSessionServerMessage) => void;
   ready: (transport: SessionTransport) => void;
   failed: (transport: SessionTransport, error: Error) => void;
-  frame: (transport: SessionTransport, frame: ScreencastFrame) => void;
+  frame: (transport: SessionTransport, frame: LiveSessionRasterFrame) => void;
 };
 
 interface SessionTransport {
@@ -110,7 +110,7 @@ export class LiveSessionConnection {
   private realtimeCounter = 0;
   private inboundRealtimeCounter = 0;
   private candidateMessages: LiveSessionServerMessage[] = [];
-  private candidateFrame: ScreencastFrame | null = null;
+  private candidateFrame: LiveSessionRasterFrame | null = null;
   private readonly pendingCommands = new Map<string, PendingCommand>();
 
   constructor(options: LiveSessionConnectionOptions) {
@@ -183,14 +183,13 @@ export class LiveSessionConnection {
   }
 
   sendReliable(message: Record<string, unknown>): boolean {
-    return this.active?.sendReliable({ version: 1, ...message }) ?? false;
+    return this.active?.sendReliable(message) ?? false;
   }
 
   sendRealtime(message: Record<string, unknown>): boolean {
     this.realtimeCounter += 1;
     return (
       this.active?.sendRealtime({
-        version: 1,
         realtimeCounter: this.realtimeCounter,
         ...message,
       }) ?? false
@@ -211,7 +210,6 @@ export class LiveSessionConnection {
 
   private hello() {
     return {
-      version: 1,
       type: "session.hello",
       ...(this.identity ?? this.options.identity),
     };
@@ -820,7 +818,7 @@ function decodeServerMessage(raw: string): LiveSessionServerMessage | null {
   }
 }
 
-function decodeRasterFrame(packet: ArrayBuffer): ScreencastFrame | null {
+function decodeRasterFrame(packet: ArrayBuffer): LiveSessionRasterFrame | null {
   if (packet.byteLength < 4) {
     return null;
   }
@@ -842,15 +840,9 @@ function decodeRasterFrame(packet: ArrayBuffer): ScreencastFrame | null {
   const image = new Blob([new Uint8Array(packet, 4 + headerLength)], { type: "image/jpeg" });
   return {
     targetId: parsed.data.targetId,
-    frameId: parsed.data.frameId,
-    format: parsed.data.format,
     data: image,
     width: parsed.data.width,
     height: parsed.data.height,
-    deviceScaleFactor: parsed.data.deviceScaleFactor,
-    scrollOffsetX: parsed.data.scrollOffsetX,
-    scrollOffsetY: parsed.data.scrollOffsetY,
-    timestamp: parsed.data.timestamp,
     receivedAt: Date.now(),
   };
 }
