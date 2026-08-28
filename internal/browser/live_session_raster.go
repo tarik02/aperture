@@ -134,24 +134,29 @@ func (raster *liveSessionRaster) forward(client *browserCDPClient) {
 	for {
 		select {
 		case <-client.done:
-			raster.mu.Lock()
-			active := !raster.closed && raster.client == client
-			if active {
-				raster.completeSelectionLocked(errors.New("WebSocket presentation source closed"))
-			}
-			raster.mu.Unlock()
-			if active {
-				raster.transport.closeNow()
-			}
+			raster.sourceClosed(client)
 			return
 		case event, ok := <-client.events:
 			if !ok {
+				raster.sourceClosed(client)
 				return
 			}
 			if event.Method == "Page.screencastFrame" {
 				raster.forwardFrame(client, event)
 			}
 		}
+	}
+}
+
+func (raster *liveSessionRaster) sourceClosed(client *browserCDPClient) {
+	raster.mu.Lock()
+	active := !raster.closed && raster.client == client
+	if active {
+		raster.completeSelectionLocked(errors.New("WebSocket presentation source closed"))
+	}
+	raster.mu.Unlock()
+	if active {
+		raster.transport.closeNow()
 	}
 }
 
