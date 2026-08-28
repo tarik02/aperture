@@ -13,8 +13,10 @@ import (
 )
 
 func toSessionResponse(view *session.SessionView) sessionResponse {
-	browserArgs := make([]string, 0)
-	_ = json.Unmarshal([]byte(view.Session.BrowserArgsJSON), &browserArgs)
+	var browserArgs []string
+	if err := json.Unmarshal([]byte(view.Session.BrowserArgsJSON), &browserArgs); err != nil || browserArgs == nil {
+		browserArgs = []string{}
+	}
 	resp := sessionResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
