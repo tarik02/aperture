@@ -21,7 +21,12 @@ import (
 	"github.com/go-gst/go-gst/gst/app"
 )
 
-const cdpRecordingFrameQueueCapacity = 3
+const (
+	cdpRecordingFrameQueueCapacity = 3
+	cdpRecordingMaxFramePixels     = 4096 * 4096
+)
+
+var errCDPRecordingFrameTooLarge = errors.New("CDP screencast frame exceeds the recording pixel limit")
 
 type wrapperCDPRecordingOptions struct {
 	Format  string `json:"format"`
@@ -303,7 +308,6 @@ func (segment *cdpRecordingSegment) encode(ctx context.Context, frames <-chan cd
 			if err := pipeline.Push(pending, pending.capturedAt.Sub(partStartedAt), duration); err != nil {
 				return err
 			}
-			segment.readyOnce.Do(func() { close(segment.ready) })
 			havePending = false
 		}
 		if err := pipeline.Finish(); err != nil {
@@ -316,6 +320,9 @@ func (segment *cdpRecordingSegment) encode(ctx context.Context, frames <-chan cd
 	for frame := range frames {
 		decoded, err := decodeCDPRecordingFrame(frame)
 		if err != nil {
+			if errors.Is(err, errCDPRecordingFrameTooLarge) {
+				return err
+			}
 			segment.counter(0, 1)
 			continue
 		}
@@ -334,6 +341,7 @@ func (segment *cdpRecordingSegment) encode(ctx context.Context, frames <-chan cd
 			partStartedAt = decoded.capturedAt
 			pending = decoded
 			havePending = true
+			segment.readyOnce.Do(func() { close(segment.ready) })
 			continue
 		}
 		if havePending {
@@ -344,7 +352,6 @@ func (segment *cdpRecordingSegment) encode(ctx context.Context, frames <-chan cd
 			if err := pipeline.Push(pending, pending.capturedAt.Sub(partStartedAt), duration); err != nil {
 				return err
 			}
-			segment.readyOnce.Do(func() { close(segment.ready) })
 		}
 		pending = decoded
 		havePending = true
@@ -359,6 +366,13 @@ func (segment *cdpRecordingSegment) encode(ctx context.Context, frames <-chan cd
 }
 
 func decodeCDPRecordingFrame(frame cdpRecordingFrame) (decodedCDPRecordingFrame, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(frame.body))
+	if err != nil {
+		return decodedCDPRecordingFrame{}, fmt.Errorf("decode CDP screencast frame configuration: %w", err)
+	}
+	if err := validateCDPRecordingFrameDimensions(config.Width, config.Height); err != nil {
+		return decodedCDPRecordingFrame{}, err
+	}
 	decoded, _, err := image.Decode(bytes.NewReader(frame.body))
 	if err != nil {
 		return decodedCDPRecordingFrame{}, fmt.Errorf("decode CDP screencast frame: %w", err)
@@ -366,8 +380,11 @@ func decodeCDPRecordingFrame(frame cdpRecordingFrame) (decodedCDPRecordingFrame,
 	bounds := decoded.Bounds()
 	width := bounds.Dx()
 	height := bounds.Dy()
-	if width <= 0 || height <= 0 {
-		return decodedCDPRecordingFrame{}, errors.New("CDP screencast frame has invalid dimensions")
+	if err := validateCDPRecordingFrameDimensions(width, height); err != nil {
+		return decodedCDPRecordingFrame{}, err
+	}
+	if width != config.Width || height != config.Height {
+		return decodedCDPRecordingFrame{}, errors.New("CDP screencast frame dimensions changed while decoding")
 	}
 	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(rgba, rgba.Bounds(), decoded, bounds.Min, draw.Src)
@@ -377,6 +394,16 @@ func decodeCDPRecordingFrame(frame cdpRecordingFrame) (decodedCDPRecordingFrame,
 		height:     height,
 		capturedAt: frame.capturedAt,
 	}, nil
+}
+
+func validateCDPRecordingFrameDimensions(width int, height int) error {
+	if width <= 0 || height <= 0 {
+		return errors.New("CDP screencast frame has invalid dimensions")
+	}
+	if width > cdpRecordingMaxFramePixels/height {
+		return fmt.Errorf("%w: %dx%d exceeds %d pixels", errCDPRecordingFrameTooLarge, width, height, cdpRecordingMaxFramePixels)
+	}
+	return nil
 }
 
 func initCDPGStreamer(values RuntimeEnvValues) error {
