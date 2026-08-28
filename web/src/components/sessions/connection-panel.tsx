@@ -53,13 +53,13 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
     [cdpUrl, currentSession.sessionToken],
   );
   const shareLink = useMemo(() => {
-    if (!publicOrigin || !currentSession.sessionToken) {
+    if (!publicOrigin || !currentSession.collaboration?.viewerToken) {
       return null;
     }
     const url = new URL("/share/", publicOrigin);
-    url.hash = new URLSearchParams({ token: currentSession.sessionToken }).toString();
+    url.hash = new URLSearchParams({ token: currentSession.collaboration.viewerToken }).toString();
     return url.toString();
-  }, [currentSession.sessionToken, publicOrigin]);
+  }, [currentSession.collaboration?.viewerToken, publicOrigin]);
   const canOpen = currentSession.status === "running" || currentSession.status === "suspended";
 
   useEffect(() => {
