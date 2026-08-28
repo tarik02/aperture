@@ -499,6 +499,8 @@ class WebSocketSessionTransport implements SessionTransport {
   private readonly socket: WebSocket;
   private readonly callbacks: TransportCallbacks;
   private readonly pendingRealtime = new Map<unknown, Record<string, unknown>>();
+  private pendingRasterPacket: Blob | null = null;
+  private decodingRasterPacket = false;
   private realtimeFrame: number | null = null;
   private closed = false;
 
@@ -513,7 +515,7 @@ class WebSocketSessionTransport implements SessionTransport {
       sessionWebSocketURL(options.sessionId),
       sessionProtocols(options.credentials, options.sessionToken),
     );
-    this.socket.binaryType = "arraybuffer";
+    this.socket.binaryType = "blob";
   }
 
   connect() {
@@ -528,11 +530,9 @@ class WebSocketSessionTransport implements SessionTransport {
         }
         return;
       }
-      if (event.data instanceof ArrayBuffer) {
-        const frame = decodeRasterFrame(event.data);
-        if (frame) {
-          this.callbacks.frame(this, frame);
-        }
+      if (event.data instanceof Blob) {
+        this.pendingRasterPacket = event.data;
+        void this.decodeRasterPacket();
       }
     });
     this.socket.addEventListener("close", () => {
@@ -569,12 +569,36 @@ class WebSocketSessionTransport implements SessionTransport {
 
   close() {
     this.closed = true;
+    this.pendingRasterPacket = null;
     if (this.realtimeFrame !== null) {
       window.cancelAnimationFrame(this.realtimeFrame);
       this.realtimeFrame = null;
     }
     this.pendingRealtime.clear();
     this.socket.close();
+  }
+
+  private async decodeRasterPacket() {
+    if (this.decodingRasterPacket || this.pendingRasterPacket === null) {
+      return;
+    }
+    const packet = this.pendingRasterPacket;
+    this.pendingRasterPacket = null;
+    this.decodingRasterPacket = true;
+    let frame: LiveSessionRasterFrame | null = null;
+    try {
+      frame = await decodeRasterFrame(packet);
+    } catch {
+      // Ignore malformed or unreadable binary packets.
+    }
+    this.decodingRasterPacket = false;
+    if (this.closed) {
+      return;
+    }
+    if (frame) {
+      this.callbacks.frame(this, frame);
+    }
+    void this.decodeRasterPacket();
   }
 
   private flushRealtime() {
@@ -818,18 +842,17 @@ function decodeServerMessage(raw: string): LiveSessionServerMessage | null {
   }
 }
 
-function decodeRasterFrame(packet: ArrayBuffer): LiveSessionRasterFrame | null {
-  if (packet.byteLength < 4) {
+async function decodeRasterFrame(packet: Blob): Promise<LiveSessionRasterFrame | null> {
+  if (packet.size < 4) {
     return null;
   }
-  const headerLength = new DataView(packet).getUint32(0);
-  if (headerLength === 0 || headerLength > packet.byteLength - 4) {
+  const headerLength = new DataView(await packet.slice(0, 4).arrayBuffer()).getUint32(0);
+  if (headerLength === 0 || headerLength > packet.size - 4) {
     return null;
   }
-  const headerBytes = new Uint8Array(packet, 4, headerLength);
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder().decode(headerBytes));
+    value = JSON.parse(await packet.slice(4, 4 + headerLength).text());
   } catch {
     return null;
   }
@@ -837,13 +860,11 @@ function decodeRasterFrame(packet: ArrayBuffer): LiveSessionRasterFrame | null {
   if (!parsed.success) {
     return null;
   }
-  const image = new Blob([new Uint8Array(packet, 4 + headerLength)], { type: "image/jpeg" });
   return {
     targetId: parsed.data.targetId,
-    data: image,
+    data: packet.slice(4 + headerLength, packet.size, "image/jpeg"),
     width: parsed.data.width,
     height: parsed.data.height,
-    receivedAt: Date.now(),
   };
 }
 

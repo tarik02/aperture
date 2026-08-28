@@ -268,5 +268,4 @@ export const rasterFrameSchema = z
 
 export type LiveSessionRasterFrame = Omit<z.infer<typeof rasterFrameSchema>, "type"> & {
   data: Blob;
-  receivedAt: number;
 };
