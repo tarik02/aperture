@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, MousePointer2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "#/components/ui/badge.tsx";
@@ -26,7 +26,7 @@ type MouseButton = "left" | "middle" | "right" | "none";
 type ViewportPoint = { x: number; y: number };
 type FrameMetadata = Pick<LiveSessionRasterFrame, "width" | "height">;
 type RasterFrameDecoder = {
-  decoding: boolean;
+  decodingFrame: LiveSessionRasterFrame | null;
   generation: number;
   pending: LiveSessionRasterFrame | null;
 };
@@ -49,7 +49,7 @@ export function BrowserViewport({
   const imageRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const rasterDecoderRef = useRef<RasterFrameDecoder>({
-    decoding: false,
+    decodingFrame: null,
     generation: 0,
     pending: null,
   });
@@ -191,6 +191,9 @@ export function BrowserViewport({
         }
         return;
       }
+      if (frame.targetId !== control.activeTargetId) {
+        return;
+      }
 
       if (imageRef.current && !showingWebRTC) {
         enqueueImageFrame(imageRef.current, rasterDecoderRef.current, frame);
@@ -213,7 +216,36 @@ export function BrowserViewport({
         resetRasterFrameDecoder(rasterDecoderRef.current);
       }
     };
-  }, [control.frame$, showingWebRTC]);
+  }, [control.activeTargetId, control.frame$, showingWebRTC]);
+
+  useLayoutEffect(() => {
+    const decoder = rasterDecoderRef.current;
+    const targetId = control.activeTargetId;
+    const targetFrame =
+      decoder.pending?.targetId === targetId
+        ? decoder.pending
+        : decoder.decodingFrame?.targetId === targetId
+          ? decoder.decodingFrame
+          : null;
+    const image = imageRef.current;
+    if (image) {
+      resetImageFrames(image, decoder);
+    } else {
+      resetRasterFrameDecoder(decoder);
+    }
+    if (targetFrame) {
+      decoder.pending = targetFrame;
+      const nextMetadata = { width: targetFrame.width, height: targetFrame.height };
+      frameMetadataRef.current = nextMetadata;
+      setFrameMetadata(nextMetadata);
+      if (image) {
+        decodeNextImageFrame(image, decoder);
+      }
+    } else if (frameMetadataRef.current !== null) {
+      frameMetadataRef.current = null;
+      setFrameMetadata(null);
+    }
+  }, [control.activeTargetId]);
 
   useEffect(() => {
     const image = imageRef.current;
@@ -1044,18 +1076,18 @@ function enqueueImageFrame(
 }
 
 function decodeNextImageFrame(image: HTMLImageElement, decoder: RasterFrameDecoder): void {
-  if (decoder.decoding || decoder.pending === null) {
+  if (decoder.decodingFrame !== null || decoder.pending === null) {
     return;
   }
   const frame = decoder.pending;
   const generation = decoder.generation;
   decoder.pending = null;
-  decoder.decoding = true;
+  decoder.decodingFrame = frame;
   void setImageFrame(image, frame).then(() => {
     if (decoder.generation !== generation) {
       return;
     }
-    decoder.decoding = false;
+    decoder.decodingFrame = null;
     decodeNextImageFrame(image, decoder);
   });
 }
@@ -1092,7 +1124,7 @@ function resetImageFrames(image: HTMLImageElement, decoder: RasterFrameDecoder):
 
 function resetRasterFrameDecoder(decoder: RasterFrameDecoder): void {
   decoder.generation += 1;
-  decoder.decoding = false;
+  decoder.decodingFrame = null;
   decoder.pending = null;
 }
 
