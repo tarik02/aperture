@@ -257,12 +257,12 @@ export function SessionListPage() {
     setCopyingShareSessionId(session.id);
     try {
       const detailedSession = await apiClient.getSession(credentials, session.id);
-      if (!detailedSession.connection.sessionToken) {
-        throw new Error("Session token unavailable");
+      if (!detailedSession.collaboration?.viewerToken) {
+        throw new Error("Viewer capability unavailable");
       }
       const shareUrl = new URL("/share/", window.location.origin);
       shareUrl.hash = new URLSearchParams({
-        token: detailedSession.connection.sessionToken,
+        token: detailedSession.collaboration.viewerToken,
       }).toString();
       await copyText(shareUrl.toString());
       toast.success("Share URL copied");
