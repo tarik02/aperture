@@ -115,14 +115,23 @@ func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMess
 		}
 		input.pointerX = message.X * message.Width
 		input.pointerY = message.Y * message.Height
-		return input.call("Input.dispatchMouseEvent", map[string]any{
+		button := "none"
+		switch {
+		case input.buttons&1 != 0:
+			button = "left"
+		case input.buttons&2 != 0:
+			button = "right"
+		case input.buttons&4 != 0:
+			button = "middle"
+		}
+		return input.send("Input.dispatchMouseEvent", map[string]any{
 			"type":      "mouseMoved",
 			"x":         input.pointerX,
 			"y":         input.pointerY,
-			"button":    "none",
+			"button":    button,
 			"buttons":   input.buttons,
 			"modifiers": message.Modifiers,
-		}, input.sessionID, nil)
+		}, input.sessionID)
 	case "input.pointer.button":
 		if message.Width <= 0 || message.Height <= 0 || message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
 			return errors.New("pointer position is invalid")
@@ -164,7 +173,7 @@ func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMess
 		if message.Horizontal == 0 && message.Vertical == 0 {
 			return nil
 		}
-		return input.call("Input.dispatchMouseEvent", map[string]any{
+		return input.send("Input.dispatchMouseEvent", map[string]any{
 			"type":      "mouseWheel",
 			"x":         input.pointerX,
 			"y":         input.pointerY,
@@ -173,7 +182,7 @@ func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMess
 			"deltaX":    message.Horizontal,
 			"deltaY":    message.Vertical,
 			"modifiers": message.Modifiers,
-		}, input.sessionID, nil)
+		}, input.sessionID)
 	case "input.keyboard.key":
 		if err := input.dispatchKey(message); err != nil {
 			return err
@@ -298,6 +307,15 @@ func (input *liveSessionCDPInput) call(method string, params any, sessionID stri
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
 	return input.connection.call(ctx, method, params, sessionID, result)
+}
+
+func (input *liveSessionCDPInput) send(method string, params any, sessionID string) error {
+	if input.connection == nil {
+		return errors.New("CDP input connection is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
+	defer cancel()
+	return input.connection.send(ctx, method, params, sessionID)
 }
 
 func (input *liveSessionCDPInput) closeConnection() {

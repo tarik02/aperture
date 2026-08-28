@@ -166,6 +166,30 @@ func (client *liveSessionCDP) call(ctx context.Context, method string, params an
 	}
 }
 
+func (client *liveSessionCDP) send(ctx context.Context, method string, params any, sessionID string) error {
+	client.mu.Lock()
+	if client.closed {
+		client.mu.Unlock()
+		return errors.New("browser CDP connection is closed")
+	}
+	client.nextID++
+	id := client.nextID
+	client.mu.Unlock()
+
+	request := map[string]any{"id": id, "method": method, "params": params}
+	if sessionID != "" {
+		request["sessionId"] = sessionID
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	client.writeMu.Lock()
+	err = client.connection.Write(ctx, websocket.MessageText, body)
+	client.writeMu.Unlock()
+	return err
+}
+
 func (client *liveSessionCDP) removePending(id int64) {
 	client.mu.Lock()
 	delete(client.pending, id)
