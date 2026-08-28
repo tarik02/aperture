@@ -235,7 +235,7 @@ func (segment *cdpRecordingSegment) run(ctx context.Context, started chan<- erro
 				segment.counter(0, 1)
 				continue
 			}
-			if err := client.Send(ctx, attached.SessionID, "Page.screencastFrameAck", map[string]any{"sessionId": params.SessionID}); err != nil {
+			if err := client.SendBestEffort(ctx, attached.SessionID, "Page.screencastFrameAck", map[string]any{"sessionId": params.SessionID}); err != nil {
 				captureErr = err
 				capturing = false
 				continue

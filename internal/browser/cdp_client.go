@@ -32,19 +32,28 @@ type browserCDPEnvelope struct {
 	Error     *browserCDPError `json:"error"`
 }
 
+type browserCDPResponseMode uint8
+
+const (
+	browserCDPWaitForResponse browserCDPResponseMode = iota
+	browserCDPReportAsyncErrors
+	browserCDPIgnoreResponse
+)
+
 type browserCDPClient struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	connection *websocket.Conn
 	readEvents bool
 
-	mu       sync.Mutex
-	nextID   int64
-	asyncErr error
-	pending  map[int64]chan browserCDPEnvelope
-	writeMu  sync.Mutex
-	events   chan browserCDPEnvelope
-	done     chan error
+	mu            sync.Mutex
+	nextID        int64
+	asyncErr      error
+	asyncRequests map[int64]struct{}
+	pending       map[int64]chan browserCDPEnvelope
+	writeMu       sync.Mutex
+	events        chan browserCDPEnvelope
+	done          chan error
 }
 
 func newBrowserCDPCommandClient(ctx context.Context, port int) (*browserCDPClient, error) {
@@ -72,13 +81,14 @@ func connectBrowserCDP(ctx context.Context, port int, readEvents bool) (*browser
 	}
 	connection.SetReadLimit(readLimit)
 	client := &browserCDPClient{
-		ctx:        clientCtx,
-		cancel:     cancel,
-		connection: connection,
-		readEvents: readEvents,
-		pending:    make(map[int64]chan browserCDPEnvelope),
-		events:     make(chan browserCDPEnvelope, 64),
-		done:       make(chan error, 1),
+		ctx:           clientCtx,
+		cancel:        cancel,
+		connection:    connection,
+		readEvents:    readEvents,
+		asyncRequests: make(map[int64]struct{}),
+		pending:       make(map[int64]chan browserCDPEnvelope),
+		events:        make(chan browserCDPEnvelope, 64),
+		done:          make(chan error, 1),
 	}
 	go client.readLoop()
 	return client, nil
@@ -90,6 +100,7 @@ func (client *browserCDPClient) readLoop() {
 		client.mu.Lock()
 		pending := client.pending
 		client.pending = make(map[int64]chan browserCDPEnvelope)
+		clear(client.asyncRequests)
 		client.mu.Unlock()
 		for _, response := range pending {
 			close(response)
@@ -114,8 +125,10 @@ func (client *browserCDPClient) readLoop() {
 		if envelope.ID != 0 {
 			client.mu.Lock()
 			response := client.pending[envelope.ID]
+			_, asynchronous := client.asyncRequests[envelope.ID]
 			delete(client.pending, envelope.ID)
-			if response == nil && envelope.Error != nil && client.asyncErr == nil {
+			delete(client.asyncRequests, envelope.ID)
+			if asynchronous && envelope.Error != nil && client.asyncErr == nil {
 				client.asyncErr = fmt.Errorf("asynchronous CDP command failed (%d): %s", envelope.Error.Code, envelope.Error.Message)
 			}
 			client.mu.Unlock()
@@ -136,7 +149,7 @@ func (client *browserCDPClient) readLoop() {
 }
 
 func (client *browserCDPClient) Call(ctx context.Context, sessionID string, method string, params any, result any) error {
-	requestID, response, err := client.send(ctx, sessionID, method, params, true)
+	requestID, response, err := client.send(ctx, sessionID, method, params, browserCDPWaitForResponse)
 	if err != nil {
 		return err
 	}
@@ -164,11 +177,16 @@ func (client *browserCDPClient) Call(ctx context.Context, sessionID string, meth
 }
 
 func (client *browserCDPClient) Send(ctx context.Context, sessionID string, method string, params any) error {
-	_, _, err := client.send(ctx, sessionID, method, params, false)
+	_, _, err := client.send(ctx, sessionID, method, params, browserCDPReportAsyncErrors)
 	return err
 }
 
-func (client *browserCDPClient) send(ctx context.Context, sessionID string, method string, params any, wait bool) (int64, <-chan browserCDPEnvelope, error) {
+func (client *browserCDPClient) SendBestEffort(ctx context.Context, sessionID string, method string, params any) error {
+	_, _, err := client.send(ctx, sessionID, method, params, browserCDPIgnoreResponse)
+	return err
+}
+
+func (client *browserCDPClient) send(ctx context.Context, sessionID string, method string, params any, responseMode browserCDPResponseMode) (int64, <-chan browserCDPEnvelope, error) {
 	client.mu.Lock()
 	if client.asyncErr != nil {
 		err := client.asyncErr
@@ -178,9 +196,13 @@ func (client *browserCDPClient) send(ctx context.Context, sessionID string, meth
 	client.nextID++
 	requestID := client.nextID
 	var response chan browserCDPEnvelope
-	if wait {
+	switch responseMode {
+	case browserCDPWaitForResponse:
 		response = make(chan browserCDPEnvelope, 1)
 		client.pending[requestID] = response
+	case browserCDPReportAsyncErrors:
+		client.asyncRequests[requestID] = struct{}{}
+	case browserCDPIgnoreResponse:
 	}
 	client.mu.Unlock()
 
@@ -194,22 +216,23 @@ func (client *browserCDPClient) send(ctx context.Context, sessionID string, meth
 	}
 	body, err := json.Marshal(request)
 	if err != nil {
-		client.removePending(requestID)
+		client.removeRequest(requestID)
 		return 0, nil, err
 	}
 	client.writeMu.Lock()
 	err = client.connection.Write(ctx, websocket.MessageText, body)
 	client.writeMu.Unlock()
 	if err != nil {
-		client.removePending(requestID)
+		client.removeRequest(requestID)
 		return 0, nil, err
 	}
 	return requestID, response, nil
 }
 
-func (client *browserCDPClient) removePending(requestID int64) {
+func (client *browserCDPClient) removeRequest(requestID int64) {
 	client.mu.Lock()
 	delete(client.pending, requestID)
+	delete(client.asyncRequests, requestID)
 	client.mu.Unlock()
 }
 
