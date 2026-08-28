@@ -32,13 +32,14 @@ type liveSessionCDPEvent struct {
 type liveSessionCDP struct {
 	connection *websocket.Conn
 
-	mu      sync.Mutex
-	writeMu sync.Mutex
-	nextID  int64
-	closed  bool
-	pending map[int64]chan liveSessionCDPResponse
-	events  chan liveSessionCDPEvent
-	done    chan struct{}
+	mu       sync.Mutex
+	writeMu  sync.Mutex
+	nextID   int64
+	closed   bool
+	asyncErr error
+	pending  map[int64]chan liveSessionCDPResponse
+	events   chan liveSessionCDPEvent
+	done     chan struct{}
 }
 
 func connectLiveSessionCDP(ctx context.Context, port int) (*liveSessionCDP, error) {
@@ -103,6 +104,9 @@ func (client *liveSessionCDP) read() {
 			client.mu.Lock()
 			waiter := client.pending[envelope.ID]
 			delete(client.pending, envelope.ID)
+			if waiter == nil && envelope.Error != nil && client.asyncErr == nil {
+				client.asyncErr = fmt.Errorf("asynchronous CDP command failed (%d): %s", envelope.Error.Code, envelope.Error.Message)
+			}
 			client.mu.Unlock()
 			if waiter != nil {
 				waiter <- liveSessionCDPResponse{ID: envelope.ID, Result: envelope.Result, Error: envelope.Error}
@@ -124,6 +128,11 @@ func (client *liveSessionCDP) call(ctx context.Context, method string, params an
 	if client.closed {
 		client.mu.Unlock()
 		return errors.New("browser CDP connection is closed")
+	}
+	if client.asyncErr != nil {
+		err := client.asyncErr
+		client.mu.Unlock()
+		return err
 	}
 	client.nextID++
 	id := client.nextID
@@ -171,6 +180,11 @@ func (client *liveSessionCDP) send(ctx context.Context, method string, params an
 	if client.closed {
 		client.mu.Unlock()
 		return errors.New("browser CDP connection is closed")
+	}
+	if client.asyncErr != nil {
+		err := client.asyncErr
+		client.mu.Unlock()
+		return err
 	}
 	client.nextID++
 	id := client.nextID
