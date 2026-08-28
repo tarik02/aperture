@@ -134,6 +134,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	if err := browser.ValidateBrowserArgs(plan.Channel.DefaultArgs); err != nil {
 		return nil, err
 	}
+	if plan.CompositorEnabled {
+		if err := browser.ValidateCompositorBrowserArgs(input.BrowserArgs); err != nil {
+			return nil, err
+		}
+	}
 
 	var baseSnapshotID *string
 	var baseSnapshotName *string
