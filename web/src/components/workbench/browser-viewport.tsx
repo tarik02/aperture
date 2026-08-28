@@ -868,7 +868,10 @@ export function BrowserViewport({
     control.mediaPath,
     showingWebRTC,
   );
-  const visibleCollaborationError = collaborationHint ? null : control.collaboration.lastError;
+  const visibleCollaborationError =
+    collaborationHint || isInputOwnershipError(control.collaboration.lastError)
+      ? null
+      : control.collaboration.lastError;
 
   return (
     <div
@@ -1016,6 +1019,9 @@ function resolveCollaborationHint(
   ) {
     return "Input in use";
   }
+  if (collaboration.hasControl) {
+    return null;
+  }
   if (
     collaboration.lastError?.code === "input_busy" ||
     collaboration.lastError?.code === "input_not_owned"
@@ -1026,6 +1032,10 @@ function resolveCollaborationHint(
     return "Input unavailable";
   }
   return null;
+}
+
+function isInputOwnershipError(error: UseBrowserControlResult["collaboration"]["lastError"]) {
+  return error?.code === "input_busy" || error?.code === "input_not_owned";
 }
 
 function setImageFrame(image: HTMLImageElement, frame: LiveSessionRasterFrame): void {
