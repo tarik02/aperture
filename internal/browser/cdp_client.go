@@ -39,12 +39,13 @@ type browserCDPClient struct {
 	connection *websocket.Conn
 	readEvents bool
 
-	mu      sync.Mutex
-	nextID  int64
-	pending map[int64]chan browserCDPEnvelope
-	writeMu sync.Mutex
-	events  chan browserCDPEnvelope
-	done    chan error
+	mu       sync.Mutex
+	nextID   int64
+	asyncErr error
+	pending  map[int64]chan browserCDPEnvelope
+	writeMu  sync.Mutex
+	events   chan browserCDPEnvelope
+	done     chan error
 }
 
 func newBrowserCDPCommandClient(ctx context.Context, port int) (*browserCDPClient, error) {
@@ -115,6 +116,9 @@ func (client *browserCDPClient) readLoop() {
 			client.mu.Lock()
 			response := client.pending[envelope.ID]
 			delete(client.pending, envelope.ID)
+			if response == nil && envelope.Error != nil && client.asyncErr == nil {
+				client.asyncErr = fmt.Errorf("asynchronous CDP command failed (%d): %s", envelope.Error.Code, envelope.Error.Message)
+			}
 			client.mu.Unlock()
 			if response != nil {
 				response <- envelope
@@ -167,6 +171,11 @@ func (client *browserCDPClient) Send(ctx context.Context, sessionID string, meth
 
 func (client *browserCDPClient) send(ctx context.Context, sessionID string, method string, params any, wait bool) (int64, <-chan browserCDPEnvelope, error) {
 	client.mu.Lock()
+	if client.asyncErr != nil {
+		err := client.asyncErr
+		client.mu.Unlock()
+		return 0, nil, err
+	}
 	client.nextID++
 	requestID := client.nextID
 	var response chan browserCDPEnvelope
