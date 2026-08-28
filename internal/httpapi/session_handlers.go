@@ -1,27 +1,37 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/gin-gonic/gin"
 )
 
 func toSessionResponse(view *session.SessionView) sessionResponse {
+	var browserArgs []string
+	if err := json.Unmarshal([]byte(view.Session.BrowserArgsJSON), &browserArgs); err != nil || browserArgs == nil {
+		browserArgs = []string{}
+	}
 	resp := sessionResponse{
 		ID:               view.Session.ID,
 		TenantID:         view.Session.TenantID,
 		BaseSnapshotName: view.BaseSnapshotName,
 		Label:            view.Session.Label,
 		Status:           view.Session.Status,
-		BrowserChannel:   view.Session.BrowserChannel,
-		Media: sessionMedia{
-			Mode:           view.Media.Mode,
-			WebRTCProducer: view.Media.WebRTCProducer,
-			ICEServers:     toICEServerResponses(view.Media.ICEServers),
+		Browser: sessionBrowserConfig{
+			Channel: view.Session.BrowserChannel,
+			Mode:    view.Session.BrowserMode,
+			Args:    browserArgs,
+		},
+		Capabilities: view.Capabilities,
+		Connection: sessionConnection{
+			CDPURL:       view.CDPURL,
+			SessionToken: view.SessionToken,
 		},
 		CreatedAt:       view.Session.CreatedAt,
 		StartedAt:       view.Session.StartedAt,
@@ -32,11 +42,13 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 		SuspendedAt:     view.Session.SuspendedAt,
 		Tags:            view.Tags,
 	}
-	if view.CDPURL != "" {
-		resp.CDPURL = view.CDPURL
-	}
-	if view.SessionToken != "" {
-		resp.SessionToken = view.SessionToken
+	if resp.Connection.CDPURL != "" {
+		for _, transport := range view.Capabilities.LiveView.Transports {
+			if transport == browser.LiveViewTransportWebRTC {
+				resp.Connection.WebRTC = &sessionWebRTCConnection{ICEServers: toICEServerResponses(view.WebRTCICEServers)}
+				break
+			}
+		}
 	}
 	if view.CollaborationCapabilities.Editor != "" && view.CollaborationCapabilities.Viewer != "" {
 		resp.Collaboration = &sessionCollaborationCapabilities{
@@ -104,6 +116,7 @@ func (s *Server) createSession(c *gin.Context) {
 		BaseSnapshotName: req.BaseSnapshotName,
 		Label:            req.Label,
 		BrowserChannel:   req.Browser.Channel,
+		BrowserMode:      req.Browser.Mode,
 		BrowserArgs:      req.Browser.Args,
 		Tags:             req.Tags,
 	})
@@ -113,9 +126,7 @@ func (s *Server) createSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, createSessionResponse{
-		Session:      toSessionResponse(view),
-		CDPURL:       view.CDPURL,
-		SessionToken: view.SessionToken,
+		Session: toSessionResponse(view),
 	})
 }
 
@@ -187,9 +198,7 @@ func (s *Server) suspendSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:      toSessionResponse(view),
-		CDPURL:       view.CDPURL,
-		SessionToken: view.SessionToken,
+		Session: toSessionResponse(view),
 	})
 }
 
@@ -206,8 +215,6 @@ func (s *Server) reopenSession(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, sessionMutationResponse{
-		Session:      toSessionResponse(view),
-		CDPURL:       view.CDPURL,
-		SessionToken: view.SessionToken,
+		Session: toSessionResponse(view),
 	})
 }

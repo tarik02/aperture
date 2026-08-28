@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ type RunningSession struct {
 	ID          string
 	CDPPort     int
 	WrapperPort int
+	WebRTC      bool
 }
 
 // RenderEdgeConfig renders deploy-owned Traefik edge routes.
@@ -159,7 +161,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		doc.HTTP.Middlewares[writeAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "write")
 		doc.HTTP.Middlewares[ownerAuth] = liveSessionForwardAuthMiddleware(activeURL, session.ID, "owner")
 
-		webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
 		sessionStrip := stripSessionPrefixMiddlewareName(session.ID, "session")
 		recordingsStrip := stripSessionPrefixMiddlewareName(session.ID, "recordings")
 		filesStrip := stripSessionPrefixMiddlewareName(session.ID, "files")
@@ -168,9 +169,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		cursorReplace := replacePathMiddlewareName(session.ID, "browser-cursor")
 		statusReplace := replacePathMiddlewareName(session.ID, "browser-status")
 
-		doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
-			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
-		}
 		doc.HTTP.Middlewares[sessionStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
@@ -205,18 +203,13 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			}
 		}
 
-		for _, route := range []struct {
+		type sessionRoute struct {
 			name        string
 			rule        string
 			auth        string
 			middlewares []string
-		}{
-			{
-				name:        webrtcRouterName(session.ID),
-				rule:        pathPrefixRouterRule(sessionBase + "/webrtc/"),
-				auth:        readAuth,
-				middlewares: []string{webrtcStrip},
-			},
+		}
+		routes := []sessionRoute{
 			{
 				name:        liveSessionRouterName(session.ID),
 				rule:        pathRouterRule(sessionBase + "/session"),
@@ -259,7 +252,23 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				auth:        ownerAuth,
 				middlewares: []string{uploadsStrip},
 			},
-		} {
+		}
+		if session.WebRTC {
+			webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
+			doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
+				StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
+			}
+			routes = append(routes,
+				sessionRoute{
+					name:        webrtcRouterName(session.ID),
+					rule:        pathPrefixRouterRule(sessionBase + "/webrtc/"),
+					auth:        readAuth,
+					middlewares: []string{webrtcStrip},
+				},
+			)
+		}
+
+		for _, route := range routes {
 			doc.HTTP.Routers[route.name] = routerConfig{
 				Rule:        route.rule,
 				Service:     wrapperService,
@@ -749,6 +758,7 @@ func RunningSessionsFromDB(sessions []db.Session) []RunningSession {
 				values, err := browser.ParseRuntimeEnv(body)
 				if err == nil {
 					view.WrapperPort = values.WrapperPort
+					view.WebRTC = slices.Contains(browser.CapabilitiesFromRuntime(values).LiveView.Transports, browser.LiveViewTransportWebRTC)
 				}
 			}
 		}

@@ -96,14 +96,21 @@ func Validate(cfg Config) error {
 	if captureProofDir := strings.TrimSpace(cfg.WebRTCCaptureProofExtensionDir); captureProofDir != "" && !filepath.IsAbs(captureProofDir) {
 		errs = append(errs, errors.New("webrtc_capture_proof_extension_dir must be an absolute path"))
 	}
-	mediaMode := strings.ToLower(strings.TrimSpace(cfg.WebRTCMediaMode))
-	if mediaMode == "" {
-		mediaMode = WebRTCMediaModeAuto
+	if len(cfg.AllowedBrowserModes) == 0 {
+		errs = append(errs, errors.New("browser_modes must not be empty"))
 	}
-	switch mediaMode {
-	case WebRTCMediaModeAuto, WebRTCMediaModeCDP:
-	default:
-		errs = append(errs, errors.New("webrtc_media_mode must be auto or cdp"))
+	seenBrowserModes := make(map[string]struct{}, len(cfg.AllowedBrowserModes))
+	for _, value := range cfg.AllowedBrowserModes {
+		mode := strings.ToLower(strings.TrimSpace(value))
+		switch mode {
+		case BrowserModeHeaded, BrowserModeHeadless:
+			if _, exists := seenBrowserModes[mode]; exists {
+				errs = append(errs, fmt.Errorf("browser_modes contains duplicate mode %q", mode))
+			}
+			seenBrowserModes[mode] = struct{}{}
+		default:
+			errs = append(errs, fmt.Errorf("browser_modes contains unsupported mode %q", value))
+		}
 	}
 	gpuMode := strings.ToLower(strings.TrimSpace(cfg.GPUMode))
 	if gpuMode == "" {
@@ -114,8 +121,7 @@ func Validate(cfg Config) error {
 	default:
 		errs = append(errs, errors.New("gpu_mode must be auto, software, or hardware"))
 	}
-	webRTCRuntimeEnabled := mediaMode == WebRTCMediaModeAuto
-	if webRTCRuntimeEnabled && cfg.WebRTCCompositorEnabled {
+	if cfg.WebRTCCompositorEnabled {
 		if executable := strings.TrimSpace(cfg.WebRTCCompositorExecutable); executable == "" {
 			errs = append(errs, errors.New("webrtc_compositor_executable is required when webrtc_compositor_enabled is true"))
 		} else if !filepath.IsAbs(executable) {
@@ -140,32 +146,35 @@ func Validate(cfg Config) error {
 		default:
 			errs = append(errs, errors.New("webrtc_compositor_shell must be kiosk, desktop, or lua-shell when webrtc_compositor_enabled is true"))
 		}
-		if cfg.WebRTCCompositorWidth <= 0 {
-			errs = append(errs, errors.New("webrtc_compositor_width must be positive when webrtc_compositor_enabled is true"))
-		}
-		if cfg.WebRTCCompositorHeight <= 0 {
-			errs = append(errs, errors.New("webrtc_compositor_height must be positive when webrtc_compositor_enabled is true"))
+	}
+	if cfg.WebRTCCompositorWidth <= 0 {
+		errs = append(errs, errors.New("webrtc_compositor_width must be positive"))
+	}
+	if cfg.WebRTCCompositorHeight <= 0 {
+		errs = append(errs, errors.New("webrtc_compositor_height must be positive"))
+	}
+	mediaExecutable := strings.TrimSpace(cfg.WebRTCMediaProducerGSTExecutable)
+	mediaEncodingEnabled := cfg.WebRTCMediaProducerEnabled || mediaExecutable != ""
+	if mediaExecutable != "" && !filepath.IsAbs(mediaExecutable) {
+		errs = append(errs, errors.New("webrtc_media_producer_gst_executable must be an absolute path"))
+	}
+	if pluginPath := strings.TrimSpace(cfg.WebRTCMediaProducerPluginPath); pluginPath != "" {
+		for _, entry := range filepath.SplitList(pluginPath) {
+			if strings.TrimSpace(entry) == "" {
+				continue
+			}
+			if !filepath.IsAbs(entry) {
+				errs = append(errs, errors.New("webrtc_media_producer_plugin_path entries must be absolute paths"))
+				break
+			}
 		}
 	}
-	if webRTCRuntimeEnabled && cfg.WebRTCMediaProducerEnabled {
+	if cfg.WebRTCMediaProducerEnabled {
 		if !cfg.WebRTCCompositorEnabled {
 			errs = append(errs, errors.New("webrtc_media_producer_enabled requires webrtc_compositor_enabled"))
 		}
-		if executable := strings.TrimSpace(cfg.WebRTCMediaProducerGSTExecutable); executable == "" {
+		if mediaExecutable == "" {
 			errs = append(errs, errors.New("webrtc_media_producer_gst_executable is required when webrtc_media_producer_enabled is true"))
-		} else if !filepath.IsAbs(executable) {
-			errs = append(errs, errors.New("webrtc_media_producer_gst_executable must be an absolute path"))
-		}
-		if pluginPath := strings.TrimSpace(cfg.WebRTCMediaProducerPluginPath); pluginPath != "" {
-			for _, entry := range filepath.SplitList(pluginPath) {
-				if strings.TrimSpace(entry) == "" {
-					continue
-				}
-				if !filepath.IsAbs(entry) {
-					errs = append(errs, errors.New("webrtc_media_producer_plugin_path entries must be absolute paths"))
-					break
-				}
-			}
 		}
 		if strings.TrimSpace(cfg.WebRTCMediaProducerTarget) == "" {
 			errs = append(errs, errors.New("webrtc_media_producer_target is required when webrtc_media_producer_enabled is true"))
@@ -173,6 +182,16 @@ func Validate(cfg Config) error {
 		if advertisedIP := strings.TrimSpace(cfg.WebRTCMediaProducerAdvertisedIP); advertisedIP != "" && net.ParseIP(advertisedIP) == nil {
 			errs = append(errs, errors.New("webrtc_media_producer_advertised_ip must be an IP address"))
 		}
+		if cfg.WebRTCMediaProducerUDPPortMin <= 0 || cfg.WebRTCMediaProducerUDPPortMin > 65535 {
+			errs = append(errs, errors.New("webrtc_media_producer_udp_port_min must be between 1 and 65535"))
+		}
+		if cfg.WebRTCMediaProducerUDPPortMax <= 0 || cfg.WebRTCMediaProducerUDPPortMax > 65535 {
+			errs = append(errs, errors.New("webrtc_media_producer_udp_port_max must be between 1 and 65535"))
+		} else if cfg.WebRTCMediaProducerUDPPortMax < cfg.WebRTCMediaProducerUDPPortMin {
+			errs = append(errs, errors.New("webrtc_media_producer_udp_port_max must be greater than or equal to webrtc_media_producer_udp_port_min"))
+		}
+	}
+	if mediaEncodingEnabled {
 		switch strings.ToLower(strings.TrimSpace(cfg.WebRTCMediaProducerCodec)) {
 		case WebRTCMediaProducerCodecAuto, WebRTCMediaProducerCodecVP8, WebRTCMediaProducerCodecH264:
 		default:
@@ -189,14 +208,6 @@ func Validate(cfg Config) error {
 		}
 		if cfg.WebRTCMediaProducerKeyframe <= 0 {
 			errs = append(errs, errors.New("webrtc_media_producer_keyframe_interval must be positive"))
-		}
-		if cfg.WebRTCMediaProducerUDPPortMin <= 0 || cfg.WebRTCMediaProducerUDPPortMin > 65535 {
-			errs = append(errs, errors.New("webrtc_media_producer_udp_port_min must be between 1 and 65535"))
-		}
-		if cfg.WebRTCMediaProducerUDPPortMax <= 0 || cfg.WebRTCMediaProducerUDPPortMax > 65535 {
-			errs = append(errs, errors.New("webrtc_media_producer_udp_port_max must be between 1 and 65535"))
-		} else if cfg.WebRTCMediaProducerUDPPortMax < cfg.WebRTCMediaProducerUDPPortMin {
-			errs = append(errs, errors.New("webrtc_media_producer_udp_port_max must be greater than or equal to webrtc_media_producer_udp_port_min"))
 		}
 	}
 	for index, server := range cfg.WebRTCICEServers {

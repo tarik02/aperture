@@ -215,6 +215,7 @@ type Session struct {
 	RuntimeEnvPath  *string `bun:"runtime_env_path"`
 	CurrentCDPPort  *int    `bun:"current_cdp_port"`
 	BrowserChannel  string  `bun:"browser_channel,notnull"`
+	BrowserMode     string  `bun:"browser_mode,notnull"`
 	BrowserArgsJSON string  `bun:"browser_args_json,notnull"`
 	CreatedAt       string  `bun:"created_at,notnull"`
 	StartedAt       *string `bun:"started_at"`

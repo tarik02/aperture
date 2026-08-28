@@ -1,6 +1,6 @@
 ---
 name: aperture
-description: Operate an Aperture instance through its public HTTP, WebSocket, and MCP APIs. Use for authentication, tenant and token administration, browser channels, session lifecycle, snapshots, events, MCP tools, CDP discovery/proxying, WebRTC signaling, viewport control, target-scoped recording, and session files.
+description: Operate an Aperture instance through its public HTTP, WebSocket, and MCP APIs. Use for authentication, tenant and token administration, browser configurations, session lifecycle, snapshots, events, MCP tools, CDP discovery/proxying, WebRTC signaling, viewport control, target-scoped recording, and session files.
 ---
 
 # Aperture API
@@ -86,7 +86,7 @@ Pass `limit` and `cursor` to paginated endpoints. Treat cursors as opaque.
 
 - `GET /api/health` — unauthenticated health check; `status` is `ok` when healthy
 - `GET /api/auth/me` — authenticated principal and selected tenant
-- `GET /api/browser/channels` — available browser channel names; requires `sessions:read`
+- `GET /api/browser/configurations` — launchable browser channel and mode pairs with prospective capabilities; requires `sessions:read`
 - `GET /api/events` — paginated tenant events; requires `sessions:read`
 
 Event filters:
@@ -176,7 +176,7 @@ Agent-browser tools are selected when the MCP connection is established with the
 The default is `core,tabs,mobile,network`. Profiles are validated at connection time and remain fixed for that connection. Open a new connection to change profiles. Browser calls wake the target session for the call duration; connecting and listing tools do not wake it.
 `agent_browser_close` is excluded because Aperture owns the browser session lifecycle. Use `sessions.suspend` or `sessions.delete` instead.
 
-Native tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.reopen`, `sessions.replace_tags`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `snapshots.update`, `snapshots.delete`, `snapshots.replace_tags`, `snapshots.restore`, `events.list`, `session_files.list`, `session_files.create_download_url`, `recording.start`, `recording.list`, `recording.status`, `recording.stop`, `browser.channels`, `tenant.get`, `tenant.update`, `tenants.list`, `tenants.create`, `tenants.update`, `tenants.delete`, `tenants.restore`, `tokens.list`, `tokens.create`, and `tokens.revoke`.
+Native tool names include `sessions.create`, `sessions.create_from_snapshot`, `sessions.list`, `sessions.get`, `sessions.bulk_get`, `sessions.status`, `sessions.connection`, `sessions.suspend`, `sessions.reopen`, `sessions.replace_tags`, `sessions.delete`, `sessions.promote`, `sessions.session_token_rotate`, `snapshots.list`, `snapshots.get`, `snapshots.update`, `snapshots.delete`, `snapshots.replace_tags`, `snapshots.restore`, `events.list`, `session_files.list`, `session_files.create_download_url`, `recording.start`, `recording.list`, `recording.status`, `recording.stop`, `browser.configurations`, `tenant.get`, `tenant.update`, `tenants.list`, `tenants.create`, `tenants.update`, `tenants.delete`, `tenants.restore`, `tokens.list`, `tokens.create`, and `tokens.revoke`.
 
 MCP tool output is capped at `tool_output_max_bytes` (16 MiB by default). Set `mcp_enabled = false` to make both MCP routes return `404`.
 
@@ -215,6 +215,7 @@ Create request:
   "baseSnapshotName": "optional snapshot name",
   "browser": {
     "channel": "chromium",
+    "mode": "headless",
     "args": []
   },
   "tags": {
@@ -223,7 +224,7 @@ Create request:
 }
 ```
 
-`browser.channel` is required. Use `GET /api/browser/channels` rather than assuming a channel name.
+`browser.channel` is required. `browser.mode` is `headed` or `headless` and defaults to `headed` when omitted. Use `GET /api/browser/configurations` to select a launchable pair rather than assuming either field.
 
 A restricted token may create a blank session or use a granted base snapshot. New sessions and promoted snapshots do not extend its allowlist automatically. The returned `sessionToken` still authorizes the new session. Force promotion may replace an existing deleted snapshot tombstone only when that snapshot is granted.
 
@@ -235,20 +236,33 @@ Create returns `201`:
     "id": "...",
     "tenantId": "...",
     "status": "running",
-    "media": {
-      "mode": "auto",
-      "webrtcProducer": true,
-      "iceServers": []
+    "browser": {
+      "channel": "chromium",
+      "mode": "headless",
+      "args": []
     },
-    "cdpUrl": "https://aperture.example.com/sessions/.../cdp",
-    "sessionToken": "..."
-  },
-  "cdpUrl": "https://aperture.example.com/sessions/.../cdp",
-  "sessionToken": "..."
+    "capabilities": {
+      "state": "active",
+      "liveView": {"transports": ["cdp"]},
+      "recording": {
+        "mechanism": "cdp",
+        "scope": "page",
+        "modes": ["tab", "viewer"],
+        "audio": false,
+        "codecs": [{"codec": "vp8", "mediaType": "video/webm"}],
+        "concurrencyLimit": 4,
+        "cdp": {"formats": ["jpeg", "png"], "defaultFormat": "jpeg", "defaultQuality": 80}
+      }
+    },
+    "connection": {
+      "cdpUrl": "https://aperture.example.com/sessions/.../cdp",
+      "sessionToken": "..."
+    }
+  }
 }
 ```
 
-Session reads may include `cdpUrl` and `sessionToken` while retained live access is available. Suspend, reopen, and session-token rotation return `{ "session": {...}, "cdpUrl": "...", "sessionToken": "..." }`; other mutations return `{ "session": {...} }`.
+Capability state is `active` for a running launch, `prospective` for a configuration that can currently launch, and `unavailable` when the persisted browser choice no longer resolves. Connection data is populated only for usable runtime routes. Create, suspend, reopen, session-token rotation, and other session mutations return `{ "session": {...} }`.
 
 Promotion body:
 
@@ -291,7 +305,7 @@ These public routes are forwarded to the running session wrapper:
 - `GET /sessions/:sessionId/session` — live-session WebSocket; editor and viewer capabilities allowed
 - `GET /sessions/:sessionId/browser/status` — `sessions:read`
 - `POST /sessions/:sessionId/browser/viewport` — `sessions:write`
-- `GET /sessions/:sessionId/webrtc/signal` — WebRTC signaling WebSocket
+- `GET /sessions/:sessionId/webrtc/signal` — WebRTC signaling WebSocket; use it only when `capabilities.liveView.transports` contains `webrtc`
 - `GET /sessions/:sessionId/recordings` — list recordings, `sessions:write`
 - `POST /sessions/:sessionId/recordings` — start a recording, `sessions:write`
 - `GET /sessions/:sessionId/recordings/:recordingId` — recording status, `sessions:write`
@@ -356,17 +370,19 @@ Viewer recording body:
 
 Supported codecs are `vp8` and `h264-va`. Omitted or non-positive FPS and bitrate values use instance defaults. Omit `path` to generate a file in the session's `recordings` directory. A supplied path must be absolute and inside that directory; session tokens cannot override the generated path.
 
-Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `path`, `startedAt`, `fps`, `bitrateKbps`, and `codec`. Completed jobs may also include `stopReason`, `stoppedAt`, and `sizeBytes`. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
+When the recording capability reports `mechanism: "cdp"`, capture is page-scoped and video-only. The request may add `"cdp":{"format":"jpeg","quality":80}`. Format is `jpeg` or `png`; quality from 1 to 100 applies only to JPEG. VP8 downloads use WebM, while `h264-va` downloads use Matroska.
+
+Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `path`, `startedAt`, `fps`, `bitrateKbps`, and `codec`. CDP jobs also report their `cdp` controls plus `acceptedFrames` and `droppedFrames`. Completed jobs may include `stopReason`, `stoppedAt`, and `sizeBytes`. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
 
 The normal HTTP stop request finalizes the recording and serves the completed media attachment. Interactive workbenches start and stop through `aperture-session.v1`; after `recording.stop.result`, fetch `/content` to download without issuing a second stop. Use `POST /api/sessions/:sessionId/recordings/:recordingId/stop` with `sessions:write` to finalize without media transfer and return the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`.
 
 Viewer recordings belong to a live session client and follow that client's selected browser target. They stop after the client's five-second transport recovery window expires. HTTP and MCP callers start tab recordings because they have no session-client lifecycle.
 
-MCP exposes `recording.start`, `recording.list`, `recording.status`, and `recording.stop`. MCP starts tab recordings only. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`.
+MCP exposes `recording.start`, `recording.list`, `recording.status`, and `recording.stop`. MCP starts tab recordings only. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId`, optional `fps`, `bitrateKbps`, and `codec`, plus optional CDP controls when that mechanism is active. Status and stop take `recordingId`.
 
 ## CDP Proxy
 
-CDP uses the session-specific `sessionToken`, not the Aperture API bearer token. Append the token as the next path segment after the returned `cdpUrl`:
+CDP uses `session.connection.sessionToken`, not the Aperture API bearer token. Append it as the next path segment after `session.connection.cdpUrl`:
 
 ```bash
 curl -fsS "$CDP_URL/$SESSION_TOKEN/json/version"

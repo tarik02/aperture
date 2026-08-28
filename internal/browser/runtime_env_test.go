@@ -20,6 +20,8 @@ func TestRenderRuntimeEnv(t *testing.T) {
 		CDPPort:            9222,
 		WrapperPort:        9223,
 		BrowserExecutable:  "/usr/bin/chromium",
+		ViewportWidth:      1280,
+		ViewportHeight:     720,
 		BrowserDefaultArgs: []string{"--no-first-run"},
 		BrowserExtraArgs:   []string{"--disable-sync"},
 	}
@@ -64,6 +66,8 @@ func TestRenderRuntimeEnvEncodesComplexArgVectors(t *testing.T) {
 		CDPPort:           9555,
 		WrapperPort:       9556,
 		BrowserExecutable: "/usr/bin/chromium",
+		ViewportWidth:     1280,
+		ViewportHeight:    720,
 		BrowserDefaultArgs: []string{
 			"--flag with spaces",
 			`--quoted="value"`,
@@ -119,6 +123,8 @@ func TestRenderRuntimeEnvQuotesSpecialCharacters(t *testing.T) {
 		CDPPort:           9333,
 		WrapperPort:       9334,
 		BrowserExecutable: "/usr/bin/chromium",
+		ViewportWidth:     1280,
+		ViewportHeight:    720,
 		BrowserExtraArgs:  []string{`--foo="bar"`},
 	}
 
@@ -152,6 +158,8 @@ func TestWriteRuntimeEnvAtomic(t *testing.T) {
 		CDPPort:           9444,
 		WrapperPort:       9445,
 		BrowserExecutable: "/usr/bin/chromium",
+		ViewportWidth:     1280,
+		ViewportHeight:    720,
 	}
 
 	if err := WriteRuntimeEnv(path, values); err != nil {

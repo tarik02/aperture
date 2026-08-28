@@ -23,6 +23,22 @@ const wrapperRecordingCapacity = 4
 
 var errWrapperRecordingNotFound = errors.New("recording not found")
 
+func cleanupPartialRecordings(recordingsDir string) error {
+	entries, err := os.ReadDir(recordingsDir)
+	if err != nil {
+		return fmt.Errorf("read recordings directory: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".recording-") {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(recordingsDir, entry.Name())); err != nil {
+			return fmt.Errorf("remove partial recording %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
 type wrapperRecordingStatus string
 
 type wrapperRecordingMode string
@@ -38,23 +54,27 @@ const (
 )
 
 type wrapperRecording struct {
-	ID                string                 `json:"recordingId"`
-	Mode              wrapperRecordingMode   `json:"mode"`
-	TargetID          string                 `json:"targetId"`
-	CaptureGeneration uint64                 `json:"captureGeneration"`
-	Status            wrapperRecordingStatus `json:"status"`
-	StopReason        string                 `json:"stopReason,omitempty"`
-	Path              string                 `json:"path"`
-	StartedAt         time.Time              `json:"startedAt"`
-	StoppedAt         *time.Time             `json:"stoppedAt,omitempty"`
-	SizeBytes         int64                  `json:"sizeBytes,omitempty"`
-	FPS               int                    `json:"fps"`
-	BitrateKbps       int                    `json:"bitrateKbps"`
-	Codec             string                 `json:"codec"`
+	ID                string                      `json:"recordingId"`
+	Mode              wrapperRecordingMode        `json:"mode"`
+	TargetID          string                      `json:"targetId"`
+	CaptureGeneration uint64                      `json:"captureGeneration"`
+	Status            wrapperRecordingStatus      `json:"status"`
+	StopReason        string                      `json:"stopReason,omitempty"`
+	Path              string                      `json:"path"`
+	StartedAt         time.Time                   `json:"startedAt"`
+	StoppedAt         *time.Time                  `json:"stoppedAt,omitempty"`
+	SizeBytes         int64                       `json:"sizeBytes,omitempty"`
+	FPS               int                         `json:"fps"`
+	BitrateKbps       int                         `json:"bitrateKbps"`
+	Codec             string                      `json:"codec"`
+	CDP               *wrapperCDPRecordingOptions `json:"cdp,omitempty"`
+	AcceptedFrames    uint64                      `json:"acceptedFrames,omitempty"`
+	DroppedFrames     uint64                      `json:"droppedFrames,omitempty"`
 	segmentDir        string
 	segments          []string
 	cmd               *exec.Cmd
 	done              <-chan error
+	cdpSegment        *cdpRecordingSegment
 	viewport          compositorViewport
 	finalizing        bool
 	replacing         bool
@@ -63,13 +83,14 @@ type wrapperRecording struct {
 }
 
 type wrapperRecordingRequest struct {
-	Mode        wrapperRecordingMode `json:"mode"`
-	TargetID    string               `json:"targetId"`
-	ClientID    string               `json:"clientId"`
-	FPS         int                  `json:"fps"`
-	BitrateKbps int                  `json:"bitrateKbps"`
-	Codec       string               `json:"codec"`
-	Path        string               `json:"path"`
+	Mode        wrapperRecordingMode        `json:"mode"`
+	TargetID    string                      `json:"targetId"`
+	ClientID    string                      `json:"clientId"`
+	FPS         int                         `json:"fps"`
+	BitrateKbps int                         `json:"bitrateKbps"`
+	Codec       string                      `json:"codec"`
+	Path        string                      `json:"path"`
+	CDP         *wrapperCDPRecordingOptions `json:"cdp"`
 }
 
 func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Request) {
@@ -149,6 +170,12 @@ func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording w
 
 func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
 	r := session.runtime
+	if r.values.RecordingMechanism == "" {
+		return wrapperRecording{}, errors.New("recording is unavailable")
+	}
+	if strings.TrimSpace(request.TargetID) == "" {
+		return wrapperRecording{}, errors.New("targetId is required")
+	}
 	if request.ClientID != "" {
 		parsedClientID, err := uuid.Parse(request.ClientID)
 		if err != nil || parsedClientID.String() != request.ClientID {
@@ -188,7 +215,19 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	if bitrateKbps <= 0 {
 		bitrateKbps = 6000
 	}
-	codec := normalizeWrapperCodec(request.Codec, r.values.MediaProducerCodec)
+	codec, err := resolveWrapperRecordingCodec(request.Codec, r.values.MediaProducerCodec, r.values.GPUMode)
+	if err != nil {
+		return wrapperRecording{}, err
+	}
+	var cdpOptions wrapperCDPRecordingOptions
+	if r.values.RecordingMechanism == RecordingMechanismCDP {
+		cdpOptions, err = normalizeCDPRecordingOptions(request.CDP)
+		if err != nil {
+			return wrapperRecording{}, err
+		}
+	} else if request.CDP != nil {
+		return wrapperRecording{}, errors.New("cdp options require the CDP recording mechanism")
+	}
 	id := uuid.NewString()
 	path := strings.TrimSpace(request.Path)
 	if path == "" {
@@ -258,17 +297,39 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
 	}
+	if r.values.RecordingMechanism == RecordingMechanismCDP {
+		recording.CDP = &cdpOptions
+	}
 	session.recordings[id] = recording
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	if r.values.RecordingMechanism == RecordingMechanismCDP {
+		recording.cdpSegment, err = startCDPRecordingSegment(
+			r.ctx,
+			r.values,
+			target.TargetID,
+			segment,
+			fps,
+			bitrateKbps,
+			codec,
+			cdpOptions,
+			func(accepted uint64, dropped uint64) {
+				r.mu.Lock()
+				recording.AcceptedFrames += accepted
+				recording.DroppedFrames += dropped
+				r.mu.Unlock()
+			},
+		)
+	} else {
+		recording.cmd, recording.done, err = startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	}
 	if err != nil {
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "start_failed"
 		r.mu.Unlock()
+		_ = os.RemoveAll(segmentDir)
+		_ = os.Remove(path)
 		session.broadcastRecordings()
 		return wrapperRecording{}, err
 	}
-	recording.cmd = cmd
-	recording.done = done
 	recording.Status = wrapperRecordingRunning
 	status := *recording
 	r.mu.Unlock()
@@ -400,6 +461,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 		recording.StopReason = "pipeline_failed"
 		status := *recording
 		r.mu.Unlock()
+		session.removePartialRecording(recording)
 		return status, err
 	}
 	if err := session.joinRecordingSegments(recording); err != nil {
@@ -409,6 +471,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 		recording.StopReason = "finalize_failed"
 		status := *recording
 		r.mu.Unlock()
+		session.removePartialRecording(recording)
 		return status, err
 	}
 	r.mu.Lock()
@@ -424,6 +487,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 		recording.Status = wrapperRecordingFailed
 		status := *recording
 		r.mu.Unlock()
+		session.removePartialRecording(recording)
 		return status, errors.New("recording is empty")
 	}
 	status := *recording
@@ -432,6 +496,13 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 }
 
 func stopRecordingSegment(recording *wrapperRecording) error {
+	if recording.cdpSegment != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := recording.cdpSegment.Stop(stopCtx)
+		recording.cdpSegment = nil
+		return err
+	}
 	if recording.cmd == nil || recording.cmd.Process == nil {
 		return nil
 	}
@@ -439,6 +510,7 @@ func stopRecordingSegment(recording *wrapperRecording) error {
 	case err := <-recording.done:
 		recording.cmd = nil
 		recording.done = nil
+		recording.cdpSegment = nil
 		if err != nil {
 			return fmt.Errorf("recording pipeline stopped: %w", err)
 		}
@@ -513,6 +585,10 @@ func (session *liveSession) rotateRecordingTarget(ctx context.Context, recording
 	fps := recording.FPS
 	bitrateKbps := recording.BitrateKbps
 	codec := recording.Codec
+	var cdpOptions wrapperCDPRecordingOptions
+	if recording.CDP != nil {
+		cdpOptions = *recording.CDP
+	}
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
@@ -520,59 +596,99 @@ func (session *liveSession) rotateRecordingTarget(ctx context.Context, recording
 		r.mu.Unlock()
 	}()
 
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
-	if err == nil {
-		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		for waitCtx.Err() == nil {
-			if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
-				break
-			}
+	var cmd *exec.Cmd
+	var done <-chan error
+	var cdpSegment *cdpRecordingSegment
+	var err error
+	if r.values.RecordingMechanism == RecordingMechanismCDP {
+		cdpSegment, err = startCDPRecordingSegment(
+			r.ctx,
+			r.values,
+			target.TargetID,
+			segment,
+			fps,
+			bitrateKbps,
+			codec,
+			cdpOptions,
+			func(accepted uint64, dropped uint64) {
+				r.mu.Lock()
+				recording.AcceptedFrames += accepted
+				recording.DroppedFrames += dropped
+				r.mu.Unlock()
+			},
+		)
+		if err == nil {
+			waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			select {
-			case pipelineErr := <-done:
-				cmd = nil
-				done = nil
-				if pipelineErr != nil {
-					err = fmt.Errorf("replacement recording pipeline exited before producing data: %w", pipelineErr)
-				} else {
-					err = errors.New("replacement recording pipeline exited before producing data")
+			case <-cdpSegment.Ready():
+			case <-cdpSegment.Done():
+				err = cdpSegment.Err()
+				if err == nil {
+					err = errors.New("replacement CDP recording exited before producing data")
 				}
-			default:
-			}
-			if err != nil {
-				break
-			}
-			timer := time.NewTimer(25 * time.Millisecond)
-			select {
 			case <-waitCtx.Done():
-				timer.Stop()
-			case <-timer.C:
+				err = fmt.Errorf("replacement CDP recording did not produce data: %w", waitCtx.Err())
 			}
+			cancel()
 		}
-		if err == nil && waitCtx.Err() != nil {
-			err = fmt.Errorf("replacement recording pipeline did not produce data: %w", waitCtx.Err())
+	} else {
+		cmd, done, err = startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+		if err == nil {
+			waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			for waitCtx.Err() == nil {
+				if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
+					break
+				}
+				select {
+				case pipelineErr := <-done:
+					cmd = nil
+					done = nil
+					if pipelineErr != nil {
+						err = fmt.Errorf("replacement recording pipeline exited before producing data: %w", pipelineErr)
+					} else {
+						err = errors.New("replacement recording pipeline exited before producing data")
+					}
+				default:
+				}
+				if err != nil {
+					break
+				}
+				timer := time.NewTimer(25 * time.Millisecond)
+				select {
+				case <-waitCtx.Done():
+					timer.Stop()
+				case <-timer.C:
+				}
+			}
+			if err == nil && waitCtx.Err() != nil {
+				err = fmt.Errorf("replacement recording pipeline did not produce data: %w", waitCtx.Err())
+			}
+			cancel()
 		}
-		cancel()
 	}
 	if err != nil {
-		if cmd != nil {
-			replacement := &wrapperRecording{cmd: cmd, done: done}
+		if cmd != nil || cdpSegment != nil {
+			replacement := &wrapperRecording{cmd: cmd, done: done, cdpSegment: cdpSegment}
 			_ = stopRecordingSegment(replacement)
 		}
+		_ = os.Remove(segment)
 		return err
 	}
 	if err := stopRecordingSegment(recording); err != nil {
-		replacement := &wrapperRecording{cmd: cmd, done: done}
+		replacement := &wrapperRecording{cmd: cmd, done: done, cdpSegment: cdpSegment}
 		_ = stopRecordingSegment(replacement)
 		r.mu.Lock()
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "replacement_failed"
 		r.mu.Unlock()
+		session.removePartialRecording(recording)
 		return err
 	}
 	r.mu.Lock()
 	recording.segments = append(recording.segments, segment)
 	recording.cmd = cmd
 	recording.done = done
+	recording.cdpSegment = cdpSegment
 	recording.TargetID = target.TargetID
 	recording.CaptureGeneration = target.Generation
 	recording.viewport = target.Viewport
@@ -616,6 +732,7 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 		recording.replacing = false
 		r.mu.Unlock()
 		recording.operationMu.Unlock()
+		session.removePartialRecording(recording)
 	}
 }
 
@@ -650,36 +767,86 @@ func (session *liveSession) stopAllRecordings(reason string) {
 	}
 }
 
+func (session *liveSession) discardAllRecordings(reason string) {
+	r := session.runtime
+	r.mu.Lock()
+	recordings := make([]*wrapperRecording, 0)
+	for _, recording := range session.recordings {
+		session.refreshRecordingLocked(recording)
+		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
+			recordings = append(recordings, recording)
+		}
+	}
+	r.mu.Unlock()
+	for _, recording := range recordings {
+		recording.operationMu.Lock()
+		if recording.cdpSegment != nil {
+			recording.cdpSegment.Abort()
+			recording.cdpSegment = nil
+		} else if recording.cmd != nil && recording.cmd.Process != nil {
+			_ = recording.cmd.Process.Kill()
+			if recording.done != nil {
+				<-recording.done
+			}
+			recording.cmd = nil
+			recording.done = nil
+		}
+		session.removePartialRecording(recording)
+		r.mu.Lock()
+		stoppedAt := time.Now().UTC()
+		recording.StoppedAt = &stoppedAt
+		recording.Status = wrapperRecordingFailed
+		recording.StopReason = reason
+		r.mu.Unlock()
+		recording.operationMu.Unlock()
+	}
+}
+
+func (session *liveSession) removePartialRecording(recording *wrapperRecording) {
+	_ = os.Remove(recording.Path)
+	_ = os.RemoveAll(recording.segmentDir)
+}
+
 func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) error {
 	r := session.runtime
-	if len(recording.segments) == 1 {
-		if err := os.Rename(recording.segments[0], recording.Path); err != nil {
+	if err := joinRecordingFiles(r.ctx, r.values, recording.Codec, recording.segments, recording.Path); err != nil {
+		return err
+	}
+	return os.RemoveAll(recording.segmentDir)
+}
+
+func joinRecordingFiles(ctx context.Context, values RuntimeEnvValues, codec string, segments []string, path string) error {
+	if len(segments) == 0 {
+		return errors.New("recording has no segments")
+	}
+	if len(segments) == 1 {
+		if err := os.Rename(segments[0], path); err != nil {
 			return fmt.Errorf("finalize recording: %w", err)
 		}
-		return os.RemoveAll(recording.segmentDir)
+		return nil
 	}
 	mux := "webmmux"
 	parser := ""
-	if recording.Codec == "h264-va" {
+	if codec == "h264-va" {
 		parser = "h264parse"
 		mux = "matroskamux"
 	}
-	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + recording.Path, "sync=false"}
-	for _, segment := range recording.segments {
+	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + path, "sync=false"}
+	for _, segment := range segments {
 		args = append(args, "filesrc", "location="+segment, "!", "matroskademux", "!", "queue", "!")
 		if parser != "" {
 			args = append(args, parser, "!")
 		}
 		args = append(args, "join.")
 	}
-	cmd := exec.CommandContext(r.ctx, r.values.MediaProducerGSTExecutable, args...)
-	cmd.Env = wrapperMediaProcessEnv(r.values.MediaProducerPluginPath)
+	cmd := exec.CommandContext(ctx, values.MediaProducerGSTExecutable, args...)
+	cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("join recording segments: %w", err)
 	}
-	return os.RemoveAll(recording.segmentDir)
+	return nil
 }
 
 func (session *liveSession) recording(recordingID string) (wrapperRecording, bool) {
@@ -725,18 +892,31 @@ func (session *liveSession) activeRecordingCountLocked() int {
 }
 
 func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) {
-	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing || recording.cmd == nil {
+	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing {
 		return
 	}
-	select {
-	case <-recording.done:
-	default:
+	if recording.cdpSegment != nil {
+		select {
+		case <-recording.cdpSegment.Done():
+		default:
+			return
+		}
+		recording.cdpSegment = nil
+		recording.StopReason = "encoder_exited"
+	} else if recording.cmd != nil {
+		select {
+		case <-recording.done:
+		default:
+			return
+		}
+		recording.cmd = nil
+		recording.done = nil
+		recording.StopReason = "pipeline_exited"
+	} else {
 		return
 	}
-	recording.cmd = nil
-	recording.done = nil
 	recording.Status = wrapperRecordingFailed
-	recording.StopReason = "pipeline_exited"
 	stoppedAt := time.Now().UTC()
 	recording.StoppedAt = &stoppedAt
+	session.removePartialRecording(recording)
 }

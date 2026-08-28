@@ -13,14 +13,14 @@ function resolveTenantKey(credentials: ApiCredentials | null): string | null {
     : credentials.selectedTenantId;
 }
 
-export function useBrowserChannelsQuery() {
+export function useBrowserConfigurationsQuery() {
   const credentials = useApiCredentials();
   const tenantKey = resolveTenantKey(credentials);
   const enabled = isTenantScopedQueryReady(credentials);
 
   return useQuery({
-    queryKey: queryKeys.browserChannels(tenantKey),
-    queryFn: () => apiClient.getBrowserChannels(credentials!),
+    queryKey: queryKeys.browserConfigurations(tenantKey),
+    queryFn: () => apiClient.getBrowserConfigurations(credentials!),
     enabled,
     staleTime: 60_000,
   });

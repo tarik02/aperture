@@ -283,6 +283,7 @@ export function useLiveSession({
 
     const connection = new LiveSessionConnection({
       sessionId,
+      role,
       credentials,
       sessionToken,
       identity,
@@ -315,6 +316,7 @@ export function useLiveSession({
     iceServers,
     identity,
     paintSubject,
+    role,
     sessionId,
     sessionToken,
     webrtcSupported,

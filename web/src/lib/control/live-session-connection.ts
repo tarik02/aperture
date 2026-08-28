@@ -5,6 +5,7 @@ import {
   liveSessionServerMessageSchema,
   rasterFrameSchema,
   type LiveSessionCommandResult,
+  type CollaborationRole,
   type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
   type LiveSessionSnapshot,
@@ -33,6 +34,7 @@ type LiveSessionConnectionCallbacks = {
 
 type LiveSessionConnectionOptions = {
   sessionId: string;
+  role: CollaborationRole;
   credentials: ApiCredentials;
   sessionToken?: string;
   identity: SessionHelloIdentity;
@@ -40,6 +42,15 @@ type LiveSessionConnectionOptions = {
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
 };
+
+const sessionIdentitySchema = z
+  .object({
+    clientId: z.string().uuid(),
+    resumeSecret: z.string().min(1),
+  })
+  .strict();
+
+const sessionIdentityCache = new Map<string, SessionIdentity>();
 
 type PendingCommand = {
   resolve: (result: LiveSessionCommandResult) => void;
@@ -100,7 +111,7 @@ export class LiveSessionConnection {
   private readonly options: LiveSessionConnectionOptions;
   private active: SessionTransport | null = null;
   private candidate: SessionTransport | null = null;
-  private identity: SessionIdentity | null = null;
+  private identity: SessionIdentity | null;
   private preferredTransport: LiveSessionTransportKind;
   private transportRequest: TransportRequest | null = null;
   private disposed = false;
@@ -115,6 +126,7 @@ export class LiveSessionConnection {
 
   constructor(options: LiveSessionConnectionOptions) {
     this.options = options;
+    this.identity = loadSessionIdentity(options.sessionId, options.role, options.identity);
     this.preferredTransport = options.webrtcSupported ? "webrtc" : "websocket";
   }
 
@@ -386,9 +398,16 @@ export class LiveSessionConnection {
       this.active === null
     ) {
       this.identity = null;
+      clearSessionIdentity(this.options.sessionId, this.options.role, this.options.identity);
     }
     if (message.type === "session.snapshot") {
       this.identity = { clientId: message.clientId, resumeSecret: message.resumeSecret };
+      storeSessionIdentity(
+        this.options.sessionId,
+        this.options.role,
+        this.options.identity,
+        this.identity,
+      );
     }
     if (this.active !== transport) {
       if (this.candidate !== transport) {
@@ -890,6 +909,75 @@ function sessionProtocols(credentials: ApiCredentials, sessionToken?: string) {
     protocols.push(`x-aperture-tenant-id.${tenantId}`);
   }
   return protocols;
+}
+
+function sessionIdentityStorageKey(
+  sessionId: string,
+  role: CollaborationRole,
+  identity: SessionHelloIdentity,
+) {
+  return `aperture.live-session.resume:${sessionId}:${role}:${identity.avatarHash}:${encodeURIComponent(identity.name)}`;
+}
+
+function loadSessionIdentity(
+  sessionId: string,
+  role: CollaborationRole,
+  identity: SessionHelloIdentity,
+): SessionIdentity | null {
+  const key = sessionIdentityStorageKey(sessionId, role, identity);
+  const cached = sessionIdentityCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const navigation = window.performance.getEntriesByType("navigation").at(0);
+  if (!(navigation instanceof PerformanceNavigationTiming) || navigation.type !== "reload") {
+    return null;
+  }
+  try {
+    const stored = window.sessionStorage.getItem(key);
+    if (!stored) {
+      return null;
+    }
+    const value: unknown = JSON.parse(stored);
+    const parsed = sessionIdentitySchema.safeParse(value);
+    if (!parsed.success) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    sessionIdentityCache.set(key, parsed.data);
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function storeSessionIdentity(
+  sessionId: string,
+  role: CollaborationRole,
+  helloIdentity: SessionHelloIdentity,
+  identity: SessionIdentity,
+) {
+  const key = sessionIdentityStorageKey(sessionId, role, helloIdentity);
+  sessionIdentityCache.set(key, identity);
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(identity));
+  } catch {
+    // The in-memory identity still covers transport handovers and route remounts.
+  }
+}
+
+function clearSessionIdentity(
+  sessionId: string,
+  role: CollaborationRole,
+  identity: SessionHelloIdentity,
+) {
+  const key = sessionIdentityStorageKey(sessionId, role, identity);
+  sessionIdentityCache.delete(key);
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // The rejected identity is already absent from memory.
+  }
 }
 
 export type { LiveSessionConnectionCallbacks, LiveSessionConnectionOptions, LiveSessionSnapshot };

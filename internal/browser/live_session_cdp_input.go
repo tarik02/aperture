@@ -14,7 +14,7 @@ const liveSessionCDPInputTimeout = 5 * time.Second
 
 type liveSessionCDPInput struct {
 	port        int
-	connection  *liveSessionCDP
+	connection  *browserCDPClient
 	targetID    string
 	sessionID   string
 	pointerX    float64
@@ -292,7 +292,7 @@ func (input *liveSessionCDPInput) ensureConnection() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
-	connection, err := connectLiveSessionCDP(ctx, input.port)
+	connection, err := newBrowserCDPCommandClient(ctx, input.port)
 	if err != nil {
 		return err
 	}
@@ -306,7 +306,7 @@ func (input *liveSessionCDPInput) call(method string, params any, sessionID stri
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
-	return input.connection.call(ctx, method, params, sessionID, result)
+	return input.connection.Call(ctx, sessionID, method, params, result)
 }
 
 func (input *liveSessionCDPInput) send(method string, params any, sessionID string) error {
@@ -315,12 +315,12 @@ func (input *liveSessionCDPInput) send(method string, params any, sessionID stri
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
-	return input.connection.send(ctx, method, params, sessionID)
+	return input.connection.Send(ctx, sessionID, method, params)
 }
 
 func (input *liveSessionCDPInput) closeConnection() {
 	if input.connection != nil {
-		input.connection.close()
+		input.connection.Close()
 	}
 	input.connection = nil
 	input.targetID = ""
