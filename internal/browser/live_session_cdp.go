@@ -37,6 +37,7 @@ type liveSessionCDP struct {
 	nextID   int64
 	closed   bool
 	asyncErr error
+	async    map[int64]struct{}
 	pending  map[int64]chan liveSessionCDPResponse
 	events   chan liveSessionCDPEvent
 	done     chan struct{}
@@ -71,6 +72,7 @@ func connectLiveSessionCDP(ctx context.Context, port int) (*liveSessionCDP, erro
 	connection.SetReadLimit(cdpDiscoveryMessageLimit)
 	client := &liveSessionCDP{
 		connection: connection,
+		async:      make(map[int64]struct{}),
 		pending:    make(map[int64]chan liveSessionCDPResponse),
 		events:     make(chan liveSessionCDPEvent, 64),
 		done:       make(chan struct{}),
@@ -103,8 +105,10 @@ func (client *liveSessionCDP) read() {
 		if envelope.ID != 0 {
 			client.mu.Lock()
 			waiter := client.pending[envelope.ID]
+			_, asynchronous := client.async[envelope.ID]
 			delete(client.pending, envelope.ID)
-			if waiter == nil && envelope.Error != nil && client.asyncErr == nil {
+			delete(client.async, envelope.ID)
+			if asynchronous && envelope.Error != nil && client.asyncErr == nil {
 				client.asyncErr = fmt.Errorf("asynchronous CDP command failed (%d): %s", envelope.Error.Code, envelope.Error.Message)
 			}
 			client.mu.Unlock()
@@ -188,6 +192,7 @@ func (client *liveSessionCDP) send(ctx context.Context, method string, params an
 	}
 	client.nextID++
 	id := client.nextID
+	client.async[id] = struct{}{}
 	client.mu.Unlock()
 
 	request := map[string]any{"id": id, "method": method, "params": params}
@@ -196,12 +201,22 @@ func (client *liveSessionCDP) send(ctx context.Context, method string, params an
 	}
 	body, err := json.Marshal(request)
 	if err != nil {
+		client.removeAsync(id)
 		return err
 	}
 	client.writeMu.Lock()
 	err = client.connection.Write(ctx, websocket.MessageText, body)
 	client.writeMu.Unlock()
+	if err != nil {
+		client.removeAsync(id)
+	}
 	return err
+}
+
+func (client *liveSessionCDP) removeAsync(id int64) {
+	client.mu.Lock()
+	delete(client.async, id)
+	client.mu.Unlock()
 }
 
 func (client *liveSessionCDP) removePending(id int64) {
@@ -217,6 +232,7 @@ func (client *liveSessionCDP) finish() {
 		return
 	}
 	client.closed = true
+	clear(client.async)
 	clear(client.pending)
 	close(client.done)
 	client.mu.Unlock()
