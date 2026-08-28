@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Subject, type Observable } from "rxjs";
+import { BehaviorSubject, Subject, type Observable } from "rxjs";
 import { z } from "zod";
 import type { ApiCredentials } from "#/lib/api/client.ts";
 import type { Recording } from "#/lib/api/schemas.ts";
@@ -121,7 +121,7 @@ export function useLiveSession({
     () => collaborationIdentity(role, principal?.name ?? null),
     [principal?.name, role],
   );
-  const frameSubject = useMemo(() => new Subject<LiveSessionRasterFrame | null>(), []);
+  const frameSubject = useMemo(() => new BehaviorSubject<LiveSessionRasterFrame | null>(null), []);
   const paintSubject = useMemo(() => new Subject<CollaborationPaintEvent>(), []);
   const connectionRef = useRef<LiveSessionConnection | null>(null);
   const holderClientIdRef = useRef<string | null>(null);
