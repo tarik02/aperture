@@ -180,6 +180,14 @@ func (client *liveSessionCDP) call(ctx context.Context, method string, params an
 }
 
 func (client *liveSessionCDP) send(ctx context.Context, method string, params any, sessionID string) error {
+	return client.sendAsync(ctx, method, params, sessionID, true)
+}
+
+func (client *liveSessionCDP) sendBestEffort(ctx context.Context, method string, params any, sessionID string) error {
+	return client.sendAsync(ctx, method, params, sessionID, false)
+}
+
+func (client *liveSessionCDP) sendAsync(ctx context.Context, method string, params any, sessionID string, reportErrors bool) error {
 	client.mu.Lock()
 	if client.closed {
 		client.mu.Unlock()
@@ -192,7 +200,9 @@ func (client *liveSessionCDP) send(ctx context.Context, method string, params an
 	}
 	client.nextID++
 	id := client.nextID
-	client.async[id] = struct{}{}
+	if reportErrors {
+		client.async[id] = struct{}{}
+	}
 	client.mu.Unlock()
 
 	request := map[string]any{"id": id, "method": method, "params": params}
@@ -201,13 +211,15 @@ func (client *liveSessionCDP) send(ctx context.Context, method string, params an
 	}
 	body, err := json.Marshal(request)
 	if err != nil {
-		client.removeAsync(id)
+		if reportErrors {
+			client.removeAsync(id)
+		}
 		return err
 	}
 	client.writeMu.Lock()
 	err = client.connection.Write(ctx, websocket.MessageText, body)
 	client.writeMu.Unlock()
-	if err != nil {
+	if err != nil && reportErrors {
 		client.removeAsync(id)
 	}
 	return err

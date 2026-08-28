@@ -274,7 +274,7 @@ func (raster *liveSessionRaster) acknowledgeCDPFrame(client *liveSessionCDP, sou
 	raster.mu.Unlock()
 	ctx, cancel := context.WithTimeout(raster.session.runtime.ctx, liveSessionBrowserCommandTimeout)
 	defer cancel()
-	if err := client.send(
+	if err := client.sendBestEffort(
 		ctx,
 		"Page.screencastFrameAck",
 		map[string]any{"sessionId": source.cdpFrameID},
