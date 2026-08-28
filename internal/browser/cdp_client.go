@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/coder/websocket"
 )
@@ -254,34 +253,4 @@ func browserCDPWebSocketURL(ctx context.Context, port int) (string, error) {
 		return "", errors.New("invalid browser CDP endpoint path")
 	}
 	return parsed.String(), nil
-}
-
-func setTargetDeviceMetrics(ctx context.Context, port int, targetID string, viewport compositorViewport) error {
-	client, err := newBrowserCDPCommandClient(ctx, port)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	var attached struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := client.Call(ctx, "", "Target.attachToTarget", map[string]any{
-		"targetId": targetID,
-		"flatten":  true,
-	}, &attached); err != nil {
-		return err
-	}
-	defer func() {
-		detachCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = client.Call(detachCtx, "", "Target.detachFromTarget", map[string]any{"sessionId": attached.SessionID}, nil)
-	}()
-	return client.Call(ctx, attached.SessionID, "Emulation.setDeviceMetricsOverride", map[string]any{
-		"width":             viewport.Width,
-		"height":            viewport.Height,
-		"deviceScaleFactor": viewport.DeviceScaleFactor,
-		"mobile":            false,
-		"screenWidth":       viewport.Width,
-		"screenHeight":      viewport.Height,
-	}, nil)
 }

@@ -54,14 +54,17 @@ type wrapperTargetRegistry struct {
 	compositorPID   int
 	viewport        compositorViewport
 
-	mu             sync.Mutex
-	reconcile      sync.Mutex
-	resizeMu       sync.Mutex
-	windows        map[int64]wrapperWindowBinding
-	targets        map[string]wrapperTargetSnapshot
-	retiredOutputs map[string]struct{}
-	resizes        map[string]*wrapperTargetResizeQueue
-	listener       net.Listener
+	mu              sync.Mutex
+	reconcile       sync.Mutex
+	resizeMu        sync.Mutex
+	headlessMu      sync.Mutex
+	windows         map[int64]wrapperWindowBinding
+	targets         map[string]wrapperTargetSnapshot
+	retiredOutputs  map[string]struct{}
+	resizes         map[string]*wrapperTargetResizeQueue
+	headlessClient  *browserCDPClient
+	headlessTargets map[string]string
+	listener        net.Listener
 }
 
 type wrapperTargetResizeResult struct {
@@ -106,6 +109,7 @@ func newWrapperTargetRegistry(runtime *wrapperRuntime, controlSocket string, ext
 		targets:         make(map[string]wrapperTargetSnapshot),
 		retiredOutputs:  make(map[string]struct{}),
 		resizes:         make(map[string]*wrapperTargetResizeQueue),
+		headlessTargets: make(map[string]string),
 	}
 }
 
@@ -125,6 +129,7 @@ func (registry *wrapperTargetRegistry) Serve(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
+		registry.closeHeadlessCDP()
 	}()
 	go registry.reconcileLoop(ctx)
 	go func() {
@@ -384,6 +389,8 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 		if registry.runtime.values.CompositorEnabled {
 			_, _ = sendCompositorControlCommand(ctx, registry.controlSocket, fmt.Sprintf("surface-unbind %d\n", target.SurfaceID))
 			registry.retireOutput(ctx, target.CaptureID)
+		} else {
+			registry.forgetHeadlessTarget(target.TargetID)
 		}
 	}
 	return nil
@@ -492,6 +499,13 @@ func (registry *wrapperTargetRegistry) ensureHeadlessTarget(ctx context.Context,
 	registry.mu.Lock()
 	existing, exists := registry.targets[discovered.Target.TargetID]
 	if exists && existing.WindowID == binding.WindowID && existing.State == wrapperTargetReady {
+		if !registry.headlessTargetAttached(existing.TargetID) {
+			registry.mu.Unlock()
+			if err := registry.setHeadlessTargetDeviceMetrics(ctx, existing.TargetID, existing.Viewport); err != nil {
+				return err
+			}
+			registry.mu.Lock()
+		}
 		existing.Title = discovered.Target.Title
 		existing.URL = discovered.Target.URL
 		registry.targets[existing.TargetID] = existing
@@ -506,7 +520,7 @@ func (registry *wrapperTargetRegistry) ensureHeadlessTarget(ctx context.Context,
 	}
 	registry.mu.Unlock()
 
-	if err := setTargetDeviceMetrics(ctx, registry.cdpPort, discovered.Target.TargetID, viewport); err != nil {
+	if err := registry.setHeadlessTargetDeviceMetrics(ctx, discovered.Target.TargetID, viewport); err != nil {
 		return err
 	}
 	next := wrapperTargetSnapshot{
@@ -725,7 +739,7 @@ func (registry *wrapperTargetRegistry) applyHeadlessTargetResize(ctx context.Con
 		registry.runtime.targetRestored(existing.TargetID)
 	}()
 
-	if err := setTargetDeviceMetrics(ctx, registry.cdpPort, existing.TargetID, viewport); err != nil {
+	if err := registry.setHeadlessTargetDeviceMetrics(ctx, existing.TargetID, viewport); err != nil {
 		return wrapperTargetSnapshot{}, err
 	}
 	next := existing
@@ -734,7 +748,7 @@ func (registry *wrapperTargetRegistry) applyHeadlessTargetResize(ctx context.Con
 	next.State = wrapperTargetPending
 	if err := registry.runtime.targetReady(ctx, next, existing, true); err != nil {
 		rollbackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = setTargetDeviceMetrics(rollbackCtx, registry.cdpPort, existing.TargetID, existing.Viewport)
+		_ = registry.setHeadlessTargetDeviceMetrics(rollbackCtx, existing.TargetID, existing.Viewport)
 		cancel()
 		return wrapperTargetSnapshot{}, err
 	}
@@ -744,6 +758,92 @@ func (registry *wrapperTargetRegistry) applyHeadlessTargetResize(ctx context.Con
 	registry.mu.Unlock()
 	restored = true
 	return next, nil
+}
+
+func (registry *wrapperTargetRegistry) headlessTargetAttached(targetID string) bool {
+	registry.headlessMu.Lock()
+	defer registry.headlessMu.Unlock()
+	if registry.headlessClient == nil || registry.headlessTargets[targetID] == "" {
+		return false
+	}
+	select {
+	case <-registry.headlessClient.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func (registry *wrapperTargetRegistry) setHeadlessTargetDeviceMetrics(ctx context.Context, targetID string, viewport compositorViewport) error {
+	registry.headlessMu.Lock()
+	defer registry.headlessMu.Unlock()
+	if registry.headlessClient != nil {
+		select {
+		case <-registry.headlessClient.done:
+			registry.headlessClient.Close()
+			registry.headlessClient = nil
+			clear(registry.headlessTargets)
+		default:
+		}
+	}
+	if registry.headlessClient == nil {
+		client, err := newBrowserCDPCommandClient(ctx, registry.cdpPort)
+		if err != nil {
+			return err
+		}
+		registry.headlessClient = client
+	}
+	sessionID := registry.headlessTargets[targetID]
+	if sessionID == "" {
+		var attached struct {
+			SessionID string `json:"sessionId"`
+		}
+		if err := registry.headlessClient.Call(ctx, "", "Target.attachToTarget", map[string]any{
+			"targetId": targetID,
+			"flatten":  true,
+		}, &attached); err != nil {
+			registry.closeHeadlessCDPLocked()
+			return err
+		}
+		if attached.SessionID == "" {
+			registry.closeHeadlessCDPLocked()
+			return errors.New("browser omitted the headless target attachment ID")
+		}
+		sessionID = attached.SessionID
+		registry.headlessTargets[targetID] = sessionID
+	}
+	if err := registry.headlessClient.Call(ctx, sessionID, "Emulation.setDeviceMetricsOverride", map[string]any{
+		"width":             viewport.Width,
+		"height":            viewport.Height,
+		"deviceScaleFactor": viewport.DeviceScaleFactor,
+		"mobile":            false,
+		"screenWidth":       viewport.Width,
+		"screenHeight":      viewport.Height,
+	}, nil); err != nil {
+		registry.closeHeadlessCDPLocked()
+		return err
+	}
+	return nil
+}
+
+func (registry *wrapperTargetRegistry) forgetHeadlessTarget(targetID string) {
+	registry.headlessMu.Lock()
+	delete(registry.headlessTargets, targetID)
+	registry.headlessMu.Unlock()
+}
+
+func (registry *wrapperTargetRegistry) closeHeadlessCDP() {
+	registry.headlessMu.Lock()
+	defer registry.headlessMu.Unlock()
+	registry.closeHeadlessCDPLocked()
+}
+
+func (registry *wrapperTargetRegistry) closeHeadlessCDPLocked() {
+	if registry.headlessClient != nil {
+		registry.headlessClient.Close()
+		registry.headlessClient = nil
+	}
+	clear(registry.headlessTargets)
 }
 
 type createdWrapperOutput struct {
