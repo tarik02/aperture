@@ -9,6 +9,11 @@ import (
 	"github.com/google/renameio/v2"
 )
 
+const (
+	contentSettingAllow = 1
+	contentSettingBlock = 2
+)
+
 // WriteProfilePreferences updates Chromium Default/Preferences for supervised sessions.
 func WriteProfilePreferences(mergedUserDataDir, downloadsDir string) error {
 	if mergedUserDataDir == "" {
@@ -56,7 +61,16 @@ func WriteProfilePreferences(mergedUserDataDir, downloadsDir string) error {
 			contentSettings[key] = value
 		}
 	}
-	contentSettings["notifications"] = 2
+	contentSettings["automatic_downloads"] = contentSettingAllow
+	contentSettings["clipboard"] = contentSettingAllow
+	contentSettings["idle_detection"] = contentSettingAllow
+	contentSettings["local_fonts"] = contentSettingAllow
+	contentSettings["local_network"] = contentSettingAllow
+	contentSettings["local_network_access"] = contentSettingAllow
+	contentSettings["loopback_network"] = contentSettingAllow
+	contentSettings["popups"] = contentSettingAllow
+	contentSettings["window_management"] = contentSettingAllow
+	contentSettings["notifications"] = contentSettingBlock
 	profile["default_content_setting_values"] = contentSettings
 	prefs["profile"] = profile
 
