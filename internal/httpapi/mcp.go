@@ -678,12 +678,16 @@ func (s *Server) agentBrowserToolHandler(a mcpAuth, name string, pathBound bool)
 		if err != nil {
 			return nil, err
 		}
-		port, release, err := s.Sessions.AcquireCDPPort(ctx, view.Session.TenantID, sessionID)
+		cdpPort, release, err := s.Sessions.AcquireCDPPort(ctx, view.Session.TenantID, sessionID)
 		if err != nil {
 			return nil, mcpToolError("session_unavailable", err)
 		}
 		defer release()
-		releaseLease, err := acquireAutomationLease(ctx, port, view.SessionToken, automationActorName(a))
+		wrapperPort, err := s.Sessions.RunningWrapperPort(ctx, view.Session.TenantID, sessionID)
+		if err != nil {
+			return nil, mcpToolError("session_unavailable", err)
+		}
+		releaseLease, err := acquireAutomationLease(ctx, wrapperPort, view.SessionToken, automationActorName(a))
 		if err != nil {
 			code := "session_unavailable"
 			if errors.Is(err, errAutomationInputBusy) {
@@ -692,7 +696,7 @@ func (s *Server) agentBrowserToolHandler(a mcpAuth, name string, pathBound bool)
 			return nil, mcpToolError(code, err)
 		}
 		defer releaseLease()
-		result, err := s.agentBrowser.Call(ctx, sessionID, fmt.Sprintf("http://127.0.0.1:%d", port), name, arguments)
+		result, err := s.agentBrowser.Call(ctx, sessionID, fmt.Sprintf("http://127.0.0.1:%d", cdpPort), name, arguments)
 		if err != nil {
 			return nil, mcpToolError("agent_browser_error", err)
 		}
