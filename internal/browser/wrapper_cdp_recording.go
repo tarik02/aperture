@@ -442,10 +442,7 @@ func newCDPRecordingPipeline(values RuntimeEnvValues, path string, width int, he
 	}
 	source := app.SrcFromElement(sourceElement)
 	source.SetCaps(gst.NewCapsFromString(fmt.Sprintf("video/x-raw,format=RGBA,width=%d,height=%d,framerate=0/1", width, height)))
-	if err := source.SetProperty("format", gst.FormatTime); err != nil {
-		_ = pipeline.SetState(gst.StateNull)
-		return nil, err
-	}
+	source.SetFormat(gst.FormatTime)
 	output, err := pipeline.GetElementByName("output")
 	if err != nil {
 		_ = pipeline.SetState(gst.StateNull)

@@ -901,6 +901,9 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 		default:
 			return
 		}
+		if err := recording.cdpSegment.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "browser-session-wrapper: CDP recording %s failed: %v\n", recording.ID, err)
+		}
 		recording.cdpSegment = nil
 		recording.StopReason = "encoder_exited"
 	} else if recording.cmd != nil {

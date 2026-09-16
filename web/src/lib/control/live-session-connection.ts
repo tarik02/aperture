@@ -50,7 +50,12 @@ const sessionIdentitySchema = z
   })
   .strict();
 
-const sessionIdentityCache = new Map<string, SessionIdentity>();
+const sessionIdentityCache: Map<string, SessionIdentity> =
+  import.meta.hot?.data.sessionIdentityCache ?? new Map<string, SessionIdentity>();
+
+if (import.meta.hot) {
+  import.meta.hot.data.sessionIdentityCache = sessionIdentityCache;
+}
 
 type PendingCommand = {
   resolve: (result: LiveSessionCommandResult) => void;

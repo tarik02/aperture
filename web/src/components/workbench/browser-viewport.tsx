@@ -742,7 +742,7 @@ export function BrowserViewport({
     if (!point) {
       return;
     }
-    preventViewportDefault(event);
+    event.stopPropagation();
     const wheelScale = wheelDeltaScale(event.deltaMode, inputHeight);
     control.sendInput({
       type: "input.wheel",
@@ -1049,12 +1049,6 @@ function resolveCollaborationHint(
   }
   if (collaboration.hasControl) {
     return null;
-  }
-  if (
-    collaboration.lastError?.code === "input_busy" ||
-    collaboration.lastError?.code === "input_not_owned"
-  ) {
-    return "Input in use";
   }
   if (collaboration.lastError?.code === "input_unavailable") {
     return "Input unavailable";
