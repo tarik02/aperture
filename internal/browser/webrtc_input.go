@@ -10,6 +10,8 @@ import (
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
+const westonAxisStepDistance = 10
+
 type compositorInputSender struct {
 	controlSocket string
 	done          chan struct{}
@@ -140,6 +142,8 @@ func (s *compositorInputSender) Scroll(horizontal float64, vertical float64, _ b
 	if surfaceID == 0 {
 		return errors.New("compositor input target is unavailable")
 	}
+	horizontal /= westonAxisStepDistance
+	vertical /= westonAxisStepDistance
 	command := fmt.Sprintf("axis %d %.3f %.3f\n", surfaceID, horizontal, vertical)
 	if pointerSet {
 		command = fmt.Sprintf("axis-at %d %.3f %.3f %.3f %.3f\n", surfaceID, pointerX*float64(width), pointerY*float64(height), horizontal, vertical)
