@@ -24,6 +24,8 @@ import (
 const (
 	cdpRecordingFrameQueueCapacity = 3
 	cdpRecordingMaxFramePixels     = 4096 * 4096
+	cdpRecordingStartTimeout       = 10 * time.Second
+	cdpRecordingAbortTimeout       = 10 * time.Second
 )
 
 var errCDPRecordingFrameTooLarge = errors.New("CDP screencast frame exceeds the recording pixel limit")
@@ -160,7 +162,10 @@ func (segment *cdpRecordingSegment) run(ctx context.Context, started chan<- erro
 		close(segment.done)
 	}()
 
-	client, err := newBrowserCDPEventClient(ctx, segment.values.CDPPort)
+	startCtx, cancelStart := context.WithTimeout(ctx, cdpRecordingStartTimeout)
+	defer cancelStart()
+
+	client, err := newBrowserCDPEventClient(startCtx, segment.values.CDPPort)
 	if err != nil {
 		runErr = err
 		started <- err
@@ -170,7 +175,7 @@ func (segment *cdpRecordingSegment) run(ctx context.Context, started chan<- erro
 	var attached struct {
 		SessionID string `json:"sessionId"`
 	}
-	if err := client.Call(ctx, "", "Target.attachToTarget", map[string]any{
+	if err := client.Call(startCtx, "", "Target.attachToTarget", map[string]any{
 		"targetId": segment.targetID,
 		"flatten":  true,
 	}, &attached); err != nil {
@@ -182,7 +187,7 @@ func (segment *cdpRecordingSegment) run(ctx context.Context, started chan<- erro
 	if segment.options.Format == "jpeg" {
 		startParams["quality"] = segment.options.Quality
 	}
-	if err := client.Call(ctx, attached.SessionID, "Page.startScreencast", startParams, nil); err != nil {
+	if err := client.Call(startCtx, attached.SessionID, "Page.startScreencast", startParams, nil); err != nil {
 		runErr = err
 		started <- err
 		return
@@ -514,7 +519,14 @@ func (segment *cdpRecordingSegment) Stop(ctx context.Context) error {
 func (segment *cdpRecordingSegment) Abort() {
 	segment.abortOnce.Do(func() { close(segment.abort) })
 	segment.cancel()
-	<-segment.done
+	timer := time.NewTimer(cdpRecordingAbortTimeout)
+	defer timer.Stop()
+	select {
+	case <-segment.done:
+	case <-timer.C:
+		// A wedged encoder keeps the pipeline blocked in Push; abandon it rather
+		// than blocking wrapper shutdown and every caller holding operationMu.
+	}
 }
 
 func cdpRecordingPartPath(path string, index int) string {

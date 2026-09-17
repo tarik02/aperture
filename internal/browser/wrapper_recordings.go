@@ -25,6 +25,9 @@ var errWrapperRecordingNotFound = errors.New("recording not found")
 
 func cleanupPartialRecordings(recordingsDir string) error {
 	entries, err := os.ReadDir(recordingsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("read recordings directory: %w", err)
 	}
@@ -242,6 +245,13 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	if err := paths.ValidateTrustedPath(r.values.RecordingsDir, path); err != nil {
 		return wrapperRecording{}, fmt.Errorf("recording path must be inside recordings root: %w", err)
+	}
+	// Finalizing renames onto this path and failures delete it, so a caller-supplied
+	// path must never point at an existing file.
+	if _, err := os.Lstat(path); err == nil {
+		return wrapperRecording{}, errors.New("recording path already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return wrapperRecording{}, fmt.Errorf("inspect recording path: %w", err)
 	}
 	segmentDir := filepath.Join(r.values.RecordingsDir, ".recording-"+id)
 	if err := os.MkdirAll(segmentDir, 0o700); err != nil {
@@ -499,7 +509,11 @@ func stopRecordingSegment(recording *wrapperRecording) error {
 	if recording.cdpSegment != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		err := recording.cdpSegment.Stop(stopCtx)
+		segment := recording.cdpSegment
+		err := segment.Stop(stopCtx)
+		if err != nil {
+			segment.Abort()
+		}
 		recording.cdpSegment = nil
 		return err
 	}
