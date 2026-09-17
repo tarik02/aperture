@@ -69,6 +69,8 @@ func TestReconcileWritesCDPRoutableSessionRoutes(t *testing.T) {
 		CDPPort:           cdpPort,
 		WrapperPort:       9333,
 		BrowserExecutable: "/usr/bin/chromium",
+		ViewportWidth:     1280,
+		ViewportHeight:    720,
 	}); err != nil {
 		t.Fatalf("write runtime env: %v", err)
 	}

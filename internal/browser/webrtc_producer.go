@@ -83,7 +83,7 @@ func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
 			continue
 		}
 		profile := defaultProfiles[candidate.name]
-		mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
+		mediaWidth, mediaHeight := mediaDimensions(profile, values.ViewportWidth, values.ViewportHeight, values.MediaProducerFPS)
 		profile.DefaultOption = mediaQualityOption
 		profile.Options = map[string]media.QualityOption{
 			mediaQualityOption: {
@@ -107,7 +107,7 @@ func newWebRTCProducer(runtime *wrapperRuntime) (*producer, error) {
 	if !exists {
 		return nil, fmt.Errorf("selected media producer profile %q is unavailable", profileName)
 	}
-	mediaWidth, mediaHeight := mediaDimensions(profile, values.CompositorWidth, values.CompositorHeight, values.MediaProducerFPS)
+	mediaWidth, mediaHeight := mediaDimensions(profile, values.ViewportWidth, values.ViewportHeight, values.MediaProducerFPS)
 
 	logger := zap.NewNop()
 	mediaConfig := media.Config{

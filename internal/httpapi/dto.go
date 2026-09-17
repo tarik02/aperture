@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/ids"
 )
 
@@ -250,12 +251,8 @@ type healthResponse struct {
 	ActiveColor string `json:"activeColor"`
 }
 
-type browserChannelResponse struct {
-	Name string `json:"name"`
-}
-
-type browserChannelsResponse struct {
-	Channels []browserChannelResponse `json:"channels"`
+type browserConfigurationsResponse struct {
+	Configurations []browser.BrowserConfiguration `json:"configurations"`
 }
 
 type tokenResponse struct {
@@ -291,12 +288,16 @@ const (
 
 type sessionBrowserConfig struct {
 	Channel string   `json:"channel"`
+	Mode    string   `json:"mode"`
 	Args    []string `json:"args"`
 }
 
 func (r sessionBrowserConfig) Validate() error {
 	if strings.TrimSpace(r.Channel) == "" {
 		return validationError("browser.channel is required")
+	}
+	if mode := strings.TrimSpace(r.Mode); mode != "" && mode != browser.BrowserModeHeaded && mode != browser.BrowserModeHeadless {
+		return validationError("browser.mode must be headed or headless")
 	}
 	return nil
 }
@@ -318,8 +319,9 @@ type sessionResponse struct {
 	BaseSnapshotName *string                           `json:"baseSnapshotName,omitempty"`
 	Label            *string                           `json:"label,omitempty"`
 	Status           string                            `json:"status"`
-	BrowserChannel   string                            `json:"browserChannel,omitempty"`
-	Media            sessionMedia                      `json:"media"`
+	Browser          sessionBrowserConfig              `json:"browser"`
+	Capabilities     browser.Capabilities              `json:"capabilities"`
+	Connection       sessionConnection                 `json:"connection"`
 	CreatedAt        string                            `json:"createdAt"`
 	StartedAt        *string                           `json:"startedAt,omitempty"`
 	StoppedAt        *string                           `json:"stoppedAt,omitempty"`
@@ -328,8 +330,6 @@ type sessionResponse struct {
 	LastConnectedAt  *string                           `json:"lastConnectedAt,omitempty"`
 	SuspendedAt      *string                           `json:"suspendedAt,omitempty"`
 	Tags             map[string]string                 `json:"tags,omitempty"`
-	CDPURL           string                            `json:"cdpUrl,omitempty"`
-	SessionToken     string                            `json:"sessionToken,omitempty"`
 	Collaboration    *sessionCollaborationCapabilities `json:"collaboration,omitempty"`
 }
 
@@ -338,10 +338,14 @@ type sessionCollaborationCapabilities struct {
 	ViewerToken string `json:"viewerToken"`
 }
 
-type sessionMedia struct {
-	Mode           string              `json:"mode"`
-	WebRTCProducer bool                `json:"webrtcProducer"`
-	ICEServers     []iceServerResponse `json:"iceServers,omitempty"`
+type sessionConnection struct {
+	CDPURL       string                   `json:"cdpUrl,omitempty"`
+	SessionToken string                   `json:"sessionToken,omitempty"`
+	WebRTC       *sessionWebRTCConnection `json:"webrtc,omitempty"`
+}
+
+type sessionWebRTCConnection struct {
+	ICEServers []iceServerResponse `json:"iceServers"`
 }
 
 type iceServerResponse struct {
@@ -378,15 +382,11 @@ type sessionBulkResponse struct {
 }
 
 type createSessionResponse struct {
-	Session      sessionResponse `json:"session"`
-	CDPURL       string          `json:"cdpUrl"`
-	SessionToken string          `json:"sessionToken"`
+	Session sessionResponse `json:"session"`
 }
 
 type sessionMutationResponse struct {
-	Session      sessionResponse `json:"session"`
-	CDPURL       string          `json:"cdpUrl,omitempty"`
-	SessionToken string          `json:"sessionToken,omitempty"`
+	Session sessionResponse `json:"session"`
 }
 
 type createSessionFileDownloadURLRequest struct {

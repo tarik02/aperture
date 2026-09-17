@@ -157,9 +157,11 @@ function ShareRoute() {
         session: {
           id: capability.sessionId,
           status: "running",
-          media: statusQuery.data.media,
-          cdpUrl: statusQuery.data.cdpUrl,
-          sessionToken: capability.token,
+          capabilities: statusQuery.data.capabilities,
+          connection: {
+            ...statusQuery.data.connection,
+            sessionToken: capability.token,
+          },
         },
       }}
     />

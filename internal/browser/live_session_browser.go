@@ -25,10 +25,10 @@ type liveSessionBrowser struct {
 	runtime *wrapperRuntime
 
 	mu     sync.Mutex
-	client *liveSessionCDP
+	client *browserCDPClient
 
 	stateMu         sync.Mutex
-	observedClient  *liveSessionCDP
+	observedClient  *browserCDPClient
 	observedTargets map[string]string
 	targetBySession map[string]string
 	attaching       map[string]struct{}
@@ -269,22 +269,22 @@ func (browser *liveSessionBrowser) call(method string, params any, sessionID str
 	ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionBrowserCommandTimeout)
 	defer cancel()
 	if browser.client == nil {
-		client, err := connectLiveSessionCDP(ctx, browser.runtime.values.CDPPort)
+		client, err := newBrowserCDPEventClient(ctx, browser.runtime.values.CDPPort)
 		if err != nil {
 			return err
 		}
 		browser.client = client
 		browser.startObserving(client)
-		if err := client.call(ctx, "Target.setDiscoverTargets", map[string]any{"discover": true}, "", nil); err != nil {
+		if err := client.Call(ctx, "", "Target.setDiscoverTargets", map[string]any{"discover": true}, nil); err != nil {
 			browser.stopObserving(client)
-			client.close()
+			client.Close()
 			browser.client = nil
 			return err
 		}
 	}
-	if err := browser.client.call(ctx, method, params, sessionID, result); err != nil {
+	if err := browser.client.Call(ctx, sessionID, method, params, result); err != nil {
 		browser.stopObserving(browser.client)
-		browser.client.close()
+		browser.client.Close()
 		browser.client = nil
 		return err
 	}
@@ -296,12 +296,12 @@ func (browser *liveSessionBrowser) close() {
 	defer browser.mu.Unlock()
 	if browser.client != nil {
 		browser.stopObserving(browser.client)
-		browser.client.close()
+		browser.client.Close()
 		browser.client = nil
 	}
 }
 
-func (browser *liveSessionBrowser) startObserving(client *liveSessionCDP) {
+func (browser *liveSessionBrowser) startObserving(client *browserCDPClient) {
 	browser.stateMu.Lock()
 	browser.observedClient = client
 	clear(browser.observedTargets)
@@ -312,7 +312,7 @@ func (browser *liveSessionBrowser) startObserving(client *liveSessionCDP) {
 	go browser.observe(client)
 }
 
-func (browser *liveSessionBrowser) stopObserving(client *liveSessionCDP) {
+func (browser *liveSessionBrowser) stopObserving(client *browserCDPClient) {
 	browser.stateMu.Lock()
 	defer browser.stateMu.Unlock()
 	if browser.observedClient != client {
@@ -325,19 +325,22 @@ func (browser *liveSessionBrowser) stopObserving(client *liveSessionCDP) {
 	clear(browser.loading)
 }
 
-func (browser *liveSessionBrowser) observe(client *liveSessionCDP) {
+func (browser *liveSessionBrowser) observe(client *browserCDPClient) {
 	defer browser.stopObserving(client)
 	for {
 		select {
 		case <-client.done:
 			return
-		case event := <-client.events:
+		case event, ok := <-client.events:
+			if !ok {
+				return
+			}
 			browser.observeEvent(client, event)
 		}
 	}
 }
 
-func (browser *liveSessionBrowser) observeEvent(client *liveSessionCDP, event liveSessionCDPEvent) {
+func (browser *liveSessionBrowser) observeEvent(client *browserCDPClient, event browserCDPEnvelope) {
 	switch event.Method {
 	case "Target.targetCreated", "Target.targetInfoChanged":
 		var params struct {
@@ -367,7 +370,7 @@ func (browser *liveSessionBrowser) observeEvent(client *liveSessionCDP, event li
 	}
 }
 
-func (browser *liveSessionBrowser) observeTarget(client *liveSessionCDP, targetID string) {
+func (browser *liveSessionBrowser) observeTarget(client *browserCDPClient, targetID string) {
 	if strings.TrimSpace(targetID) == "" {
 		return
 	}
@@ -388,12 +391,12 @@ func (browser *liveSessionBrowser) observeTarget(client *liveSessionCDP, targetI
 	var attached struct {
 		SessionID string `json:"sessionId"`
 	}
-	err := client.call(ctx, "Target.attachToTarget", map[string]any{
+	err := client.Call(ctx, "", "Target.attachToTarget", map[string]any{
 		"targetId": targetID,
 		"flatten":  true,
-	}, "", &attached)
+	}, &attached)
 	if err == nil && attached.SessionID != "" {
-		err = client.call(ctx, "Page.enable", map[string]any{}, attached.SessionID, nil)
+		err = client.Call(ctx, attached.SessionID, "Page.enable", map[string]any{}, nil)
 	}
 
 	browser.stateMu.Lock()
@@ -407,7 +410,7 @@ func (browser *liveSessionBrowser) observeTarget(client *liveSessionCDP, targetI
 	}
 	browser.stateMu.Unlock()
 	if attached.SessionID != "" {
-		_ = client.call(ctx, "Target.detachFromTarget", map[string]any{"sessionId": attached.SessionID}, "", nil)
+		_ = client.Call(ctx, "", "Target.detachFromTarget", map[string]any{"sessionId": attached.SessionID}, nil)
 	}
 }
 

@@ -31,6 +31,7 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 	if requestedCodec == "" {
 		requestedCodec = mediaCodecAuto
 	}
+	mediaEncodingEnabled := values.MediaProducerEnabled || values.RecordingMechanism != ""
 
 	var renderNode string
 	var renderErr error
@@ -56,7 +57,7 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 		values.GPUMode = gpuModeHardware
 		values.RenderNode = renderNode
 		if requestedCodec == mediaCodecAuto {
-			if !values.MediaProducerEnabled || probeMediaCodec(values, mediaCodecH264) == nil {
+			if !mediaEncodingEnabled || probeMediaCodec(values, mediaCodecH264) == nil {
 				values.MediaProducerCodec = mediaCodecH264
 			} else {
 				values.MediaProducerCodec = mediaCodecVP8
@@ -82,7 +83,7 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 				values.GPUMode = gpuModeSoftware
 			}
 		case mediaCodecAuto:
-			if renderErr == nil && (!values.MediaProducerEnabled || probeMediaCodec(values, mediaCodecH264) == nil) {
+			if renderErr == nil && (!mediaEncodingEnabled || probeMediaCodec(values, mediaCodecH264) == nil) {
 				values.GPUMode = gpuModeHardware
 				values.RenderNode = renderNode
 				values.MediaProducerCodec = mediaCodecH264
@@ -97,7 +98,7 @@ func resolveGPU(values RuntimeEnvValues) (RuntimeEnvValues, error) {
 		return RuntimeEnvValues{}, fmt.Errorf("unsupported gpu mode %q", requestedMode)
 	}
 
-	if values.MediaProducerEnabled {
+	if mediaEncodingEnabled {
 		if err := probeMediaCodec(values, values.MediaProducerCodec); err != nil {
 			return RuntimeEnvValues{}, err
 		}
@@ -133,12 +134,33 @@ func probeMediaCodec(values RuntimeEnvValues, codec string) error {
 	if cache == nil {
 		cache = newMediaProbeCache()
 	}
-	elements := []string{"pipewiresrc", "queue", "videorate", "udpsink"}
+	elements := []string{"queue"}
+	if values.RecordingMechanism == RecordingMechanismCDP {
+		elements = append(elements, "appsrc", "videocrop", "filesink", "concat", "matroskademux")
+	}
+	if values.RecordingMechanism == RecordingMechanismCompositor || values.MediaProducerEnabled {
+		elements = append(elements, "pipewiresrc", "videorate")
+	}
+	if values.MediaProducerEnabled {
+		elements = append(elements, "udpsink")
+	}
 	switch codec {
 	case mediaCodecVP8:
-		elements = append(elements, "videoconvert", "vp8enc", "rtpvp8pay")
+		elements = append(elements, "videoconvert", "vp8enc")
+		if values.RecordingMechanism != "" {
+			elements = append(elements, "webmmux")
+		}
+		if values.MediaProducerEnabled {
+			elements = append(elements, "rtpvp8pay")
+		}
 	case mediaCodecH264:
-		elements = append(elements, "vapostproc", "vah264enc", "h264parse", "rtph264pay")
+		elements = append(elements, "vapostproc", "vah264enc", "h264parse")
+		if values.RecordingMechanism != "" {
+			elements = append(elements, "matroskamux")
+		}
+		if values.MediaProducerEnabled {
+			elements = append(elements, "rtph264pay")
+		}
 	case mediaCodecX264:
 		elements = append(elements, "videoconvert", "x264enc", "h264parse", "rtph264pay")
 	default:

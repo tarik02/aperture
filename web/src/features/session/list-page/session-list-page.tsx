@@ -474,7 +474,7 @@ export function SessionListPage() {
                     />
                     <TableHead>Session</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Channel</TableHead>
+                    <TableHead>Browser</TableHead>
                     <TableHead>Snapshot</TableHead>
                     <TableHead>Tags</TableHead>
                     <TableHead>Created</TableHead>
@@ -497,7 +497,7 @@ export function SessionListPage() {
                     />
                     <TableHead>Session</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Channel</TableHead>
+                    <TableHead>Browser</TableHead>
                     <TableHead>Snapshot</TableHead>
                     <TableHead>Tags</TableHead>
                     <TableHead>Created</TableHead>
@@ -546,7 +546,9 @@ export function SessionListPage() {
                       <TableCell>
                         <SessionStatusBadge status={session.status} />
                       </TableCell>
-                      <TableCell>{session.browserChannel ?? "—"}</TableCell>
+                      <TableCell>
+                        {session.browser.channel} · {session.browser.mode}
+                      </TableCell>
                       <TableCell>{session.baseSnapshotName ?? "—"}</TableCell>
                       <TableCell>
                         <TagBadges tags={session.tags} />

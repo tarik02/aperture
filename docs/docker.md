@@ -184,17 +184,17 @@ curl -fsS "$APERTURE_BASE_URL/api/health" | jq
 curl -fsS \
   -H "Authorization: Bearer $APERTURE_TOKEN" \
   -H "X-Aperture-Tenant-Id: $APERTURE_TENANT_ID" \
-  "$APERTURE_BASE_URL/api/browser/channels" | jq
+  "$APERTURE_BASE_URL/api/browser/configurations" | jq
 
 session_response="$(curl -fsS -X POST \
   -H "Authorization: Bearer $APERTURE_TOKEN" \
   -H "X-Aperture-Tenant-Id: $APERTURE_TENANT_ID" \
   -H "Content-Type: application/json" \
-  -d '{"browser":{"channel":"chromium","args":[]}}' \
+  -d '{"browser":{"channel":"chromium","mode":"headless","args":[]}}' \
   "$APERTURE_BASE_URL/api/sessions")"
 session_id="$(jq -er '.session | select(.status == "running") | .id' \
   <<<"$session_response")"
-session_token="$(jq -er '.sessionToken' <<<"$session_response")"
+session_token="$(jq -er '.session.connection.sessionToken' <<<"$session_response")"
 
 curl -fsS \
   -H "Authorization: Bearer $session_token" \

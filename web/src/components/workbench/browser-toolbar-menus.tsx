@@ -138,13 +138,17 @@ export function BrowserMenus({
               shareUrls={shareUrls}
               onSessionDetails={onSessionDetails}
             />
-            <DropdownMenuSeparator />
-            <RecordingMenuItems
-              control={control}
-              connected={connected && control.collaboration.role === "owner"}
-              runningRecordings={runningRecordings}
-              now={now}
-            />
+            {control.recordingSupported ? (
+              <>
+                <DropdownMenuSeparator />
+                <RecordingMenuItems
+                  control={control}
+                  connected={connected && control.collaboration.role === "owner"}
+                  runningRecordings={runningRecordings}
+                  now={now}
+                />
+              </>
+            ) : null}
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
               control={control}
@@ -158,37 +162,39 @@ export function BrowserMenus({
         </DropdownMenu>
       </div>
       <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant={recordingActive ? "destructive" : "ghost"}
-                      size="icon-sm"
-                      aria-label={recordingActive ? "Recording in progress" : "Recording"}
-                    />
-                  }
-                />
-              }
-            >
-              <Circle fill={recordingActive ? "currentColor" : "none"} />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {recordingActive ? "Recording in progress" : "Recording"}
-            </TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-72">
-            <RecordingMenuItems
-              control={control}
-              connected={connected && control.collaboration.role === "owner"}
-              runningRecordings={runningRecordings}
-              now={now}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {control.recordingSupported ? (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant={recordingActive ? "destructive" : "ghost"}
+                        size="icon-sm"
+                        aria-label={recordingActive ? "Recording in progress" : "Recording"}
+                      />
+                    }
+                  />
+                }
+              >
+                <Circle fill={recordingActive ? "currentColor" : "none"} />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {recordingActive ? "Recording in progress" : "Recording"}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-72">
+              <RecordingMenuItems
+                control={control}
+                connected={connected && control.collaboration.role === "owner"}
+                runningRecordings={runningRecordings}
+                now={now}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
@@ -468,14 +474,16 @@ function ViewportStreamMenuItems({
           qualityUpdatesEnabled={control.collaboration.role !== "viewer"}
         />
       ) : null}
-      <DropdownMenuCheckboxItem
-        disabled={!connected || control.collaboration.role === "viewer"}
-        checked={control.remoteCursorEnabled}
-        onCheckedChange={control.setRemoteCursorEnabled}
-      >
-        <MousePointer2 />
-        Remote cursor
-      </DropdownMenuCheckboxItem>
+      {control.remoteCursorSupported ? (
+        <DropdownMenuCheckboxItem
+          disabled={!connected || control.collaboration.role === "viewer"}
+          checked={control.remoteCursorEnabled}
+          onCheckedChange={control.setRemoteCursorEnabled}
+        >
+          <MousePointer2 />
+          Remote cursor
+        </DropdownMenuCheckboxItem>
+      ) : null}
       <DropdownMenuCheckboxItem checked={localCursorEnabled} onCheckedChange={onLocalCursorChange}>
         <MousePointer2 />
         Local cursor

@@ -50,6 +50,8 @@ func TestLiveTraefikCDPWebSocketSmoke(t *testing.T) {
 		SystemdBrowserUnitName:  "browser-session@.service",
 		SessionRetentionDays:    7,
 		SnapshotRetentionDays:   7,
+		WebRTCCompositorWidth:   1280,
+		WebRTCCompositorHeight:  720,
 		ChannelRegistry: map[string]config.ChannelConfig{
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},

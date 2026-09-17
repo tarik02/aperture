@@ -4,7 +4,7 @@ export const queryKeys = {
   apiHealth: ["api-health"] as const,
   passkeys: ["passkeys"] as const,
   securityStatus: ["security-status"] as const,
-  browserChannels: (tenantId: string | null) => ["browser-channels", tenantId] as const,
+  browserConfigurations: (tenantId: string | null) => ["browser-configurations", tenantId] as const,
   browserStatus: (sessionId: string, revision: number) =>
     ["browser-status", sessionId, revision] as const,
   tenants: (filters: TenantsFilters) => ["tenants", filters] as const,

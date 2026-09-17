@@ -302,7 +302,7 @@ export function CollaborationPaintOverlay({
       onPointerMove={handlePointerMove}
       onPointerUp={finishStroke}
       onPointerCancel={finishStroke}
-      onWheel={stopPointerEvent}
+      onWheel={(event) => event.stopPropagation()}
       onContextMenu={stopPointerEvent}
     />
   );

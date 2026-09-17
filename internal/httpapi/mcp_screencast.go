@@ -14,19 +14,22 @@ import (
 )
 
 type wrapperRecordingStatus struct {
-	RecordingID       string `json:"recordingId"`
-	Mode              string `json:"mode"`
-	TargetID          string `json:"targetId"`
-	CaptureGeneration uint64 `json:"captureGeneration"`
-	Status            string `json:"status"`
-	StopReason        string `json:"stopReason,omitempty"`
-	Path              string `json:"path"`
-	StartedAt         string `json:"startedAt"`
-	StoppedAt         string `json:"stoppedAt,omitempty"`
-	SizeBytes         int64  `json:"sizeBytes,omitempty"`
-	FPS               int    `json:"fps"`
-	BitrateKbps       int    `json:"bitrateKbps"`
-	Codec             string `json:"codec"`
+	RecordingID       string                  `json:"recordingId"`
+	Mode              string                  `json:"mode"`
+	TargetID          string                  `json:"targetId"`
+	CaptureGeneration uint64                  `json:"captureGeneration"`
+	Status            string                  `json:"status"`
+	StopReason        string                  `json:"stopReason,omitempty"`
+	Path              string                  `json:"path"`
+	StartedAt         string                  `json:"startedAt"`
+	StoppedAt         string                  `json:"stoppedAt,omitempty"`
+	SizeBytes         int64                   `json:"sizeBytes,omitempty"`
+	FPS               int                     `json:"fps"`
+	BitrateKbps       int                     `json:"bitrateKbps"`
+	Codec             string                  `json:"codec"`
+	CDP               *mcpCDPRecordingOptions `json:"cdp,omitempty"`
+	AcceptedFrames    uint64                  `json:"acceptedFrames,omitempty"`
+	DroppedFrames     uint64                  `json:"droppedFrames,omitempty"`
 }
 
 func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
@@ -39,7 +42,7 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, mcpRecordingOutput{}, err
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
-		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec, "cdp": in.CDP,
 	}, false)
 }
 
@@ -88,7 +91,7 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, CDP: in.CDP})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -193,6 +196,7 @@ func mcpRecordingOutputFromStatus(status wrapperRecordingStatus) mcpRecordingOut
 		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		CDP: status.CDP, AcceptedFrames: status.AcceptedFrames, DroppedFrames: status.DroppedFrames,
 	}
 	if status.Path != "" {
 		output.RelativePath = filepath.ToSlash(filepath.Join("recordings", filepath.Base(status.Path)))

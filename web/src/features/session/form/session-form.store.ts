@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { BrowserMode } from "#/lib/api/schemas.ts";
 
 export type DraftTagEntry = {
   key: string;
@@ -8,6 +9,7 @@ export type DraftTagEntry = {
 type SessionFormData = {
   label: string;
   channel: string;
+  browserMode: BrowserMode;
   baseSnapshot: string | null;
   browserArgs: string[];
   tagEntries: DraftTagEntry[];
@@ -24,6 +26,7 @@ type SessionFormState = {
 const defaultFormData: SessionFormData = {
   label: "",
   channel: "",
+  browserMode: "headed",
   baseSnapshot: null,
   browserArgs: [],
   tagEntries: [],

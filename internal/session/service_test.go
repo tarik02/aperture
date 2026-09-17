@@ -130,12 +130,20 @@ func newTestService(t *testing.T) (*Service, config.Config, *db.Repository, *fak
 		SystemdBrowserUnitName:  "browser-session@.service",
 		SessionRetentionDays:    7,
 		SnapshotRetentionDays:   7,
+		WebRTCCompositorWidth:   1280,
+		WebRTCCompositorHeight:  720,
 		ChannelRegistry: map[string]config.ChannelConfig{
 			"chromium": {Executable: "/usr/bin/chromium"},
 		},
-		ExternalBaseURL:  "https://browser.example.test",
-		CdpRouteBasePath: "/cdp",
-		LogLevel:         "info",
+		AllowedBrowserModes:        []string{config.BrowserModeHeaded},
+		ExternalBaseURL:            "https://browser.example.test",
+		CdpRouteBasePath:           "/cdp",
+		WebRTCCompositorEnabled:    true,
+		WebRTCCompositorExecutable: "/usr/bin/weston",
+		WebRTCCompositorBackend:    "pipewire",
+		WebRTCCompositorRenderer:   "gl",
+		WebRTCCompositorShell:      "aperture",
+		LogLevel:                   "info",
 	}
 
 	database, err := db.Open(ctx, cfg.DatabasePath)

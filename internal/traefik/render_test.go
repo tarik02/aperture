@@ -85,6 +85,7 @@ func TestRenderSessionsConfigIncludesCustomCDPBase(t *testing.T) {
 		ID:          "018f1234-0000-7000-8000-000000000001",
 		CDPPort:     9222,
 		WrapperPort: 9333,
+		WebRTC:      true,
 	}})
 	if err != nil {
 		t.Fatalf("RenderSessionsConfig() error = %v", err)
@@ -109,6 +110,7 @@ func TestRenderSessionsConfigGoldenOneSession(t *testing.T) {
 		ID:          "018f1234-0000-7000-8000-000000000001",
 		CDPPort:     9222,
 		WrapperPort: 9333,
+		WebRTC:      true,
 	}})
 	if err != nil {
 		t.Fatalf("RenderSessionsConfig() error = %v", err)

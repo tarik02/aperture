@@ -254,7 +254,7 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		browser:       newLiveSessionBrowser(runtime),
 		clients:       make(map[string]*liveSessionClient),
 		recordings:    make(map[string]*wrapperRecording),
-		cursorVisible: true,
+		cursorVisible: runtime.values.CompositorEnabled,
 	}, nil
 }
 

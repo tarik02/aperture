@@ -190,7 +190,8 @@ func (s *Service) Suspend(ctx context.Context, tenantID, sessionID string) (*Ses
 		Session:          *updated,
 		Tags:             tags,
 		BaseSnapshotName: baseSnapshotName,
-		Media:            s.sessionMediaView(*updated),
+		Capabilities:     s.sessionCapabilities(*updated),
+		WebRTCICEServers: s.sessionWebRTCICEServers(*updated),
 	}
 	if err := s.populateSessionCredentials(ctx, &view); err != nil {
 		return nil, err
@@ -434,7 +435,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
 	}
-	channel, err := s.channels.Resolve(sessionRow.BrowserChannel)
+	plan, err := s.channels.ResolveLaunchPlan(sessionRow.BrowserChannel, sessionRow.BrowserMode)
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
 	}
@@ -452,7 +453,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		if err != nil {
 			return browser.RuntimeEnvValues{}, "", err
 		}
-		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
+		return s.runtimeEnvValues(sessionRow, layout, plan, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
 	}
 
 	port, err := AllocateCDPPort()
@@ -464,20 +465,18 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		return browser.RuntimeEnvValues{}, "", err
 	}
 
-	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
+	return s.runtimeEnvValues(sessionRow, layout, plan, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
 }
 
 func (s *Service) runtimeEnvValues(
 	sessionRow *db.Session,
 	layout paths.SessionLayout,
-	channel browser.Channel,
+	plan browser.LaunchPlan,
 	browserArgs []string,
 	port int,
 	wrapperPort int,
 	rawSessionToken string,
 ) browser.RuntimeEnvValues {
-	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
-	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
 	internalAPIURL := s.cfg.DeployBlueURL
 	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
 		internalAPIURL = s.cfg.DeployGreenURL
@@ -500,19 +499,21 @@ func (s *Service) runtimeEnvValues(
 		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
-		BrowserExecutable:          channel.Executable,
-		BrowserDefaultArgs:         channel.DefaultArgs,
+		BrowserExecutable:          plan.Channel.Executable,
+		BrowserMode:                plan.Mode,
+		BrowserDefaultArgs:         plan.Channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
-		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
+		CaptureProofExtensionDir:   captureProofExtensionDir(s.cfg, plan),
 		GPUMode:                    s.cfg.GPUMode,
-		CompositorEnabled:          compositorEnabled,
+		CompositorEnabled:          plan.CompositorEnabled,
+		RecordingMechanism:         plan.RecordingMechanism,
 		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
 		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
 		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
 		CompositorShell:            s.cfg.WebRTCCompositorShell,
-		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       mediaProducerEnabled,
+		ViewportWidth:              s.cfg.WebRTCCompositorWidth,
+		ViewportHeight:             s.cfg.WebRTCCompositorHeight,
+		MediaProducerEnabled:       plan.MediaProducerEnabled,
 		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
 		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
 		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
@@ -525,6 +526,13 @@ func (s *Service) runtimeEnvValues(
 		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
 		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
 	}
+}
+
+func captureProofExtensionDir(cfg config.Config, plan browser.LaunchPlan) string {
+	if !plan.MediaProducerEnabled {
+		return ""
+	}
+	return cfg.WebRTCCaptureProofExtensionDir
 }
 
 func wrapperPortForSession(sessionRow *db.Session, cdpPort int) (int, error) {
@@ -654,10 +662,6 @@ func waitForHTTP(ctx context.Context, url string) error {
 		case <-ticker.C:
 		}
 	}
-}
-
-func mediaViewAvailable(status string) bool {
-	return status == db.SessionStatusRunning || status == db.SessionStatusSuspended
 }
 
 func retainedSessionAvailable(status string) bool {
