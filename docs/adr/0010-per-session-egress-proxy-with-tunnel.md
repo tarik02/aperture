@@ -73,7 +73,7 @@ proxy: {
 ```
 
 - `direct`: wrapper dials target TCP itself. (Still via the local SOCKS so filtering/accounting apply.)
-- `proxy`: wrapper dials through the configured generic upstream URL (`http(s)://`, `socks5(h)://`, …). Chromium never sees this URL.
+- `proxy`: wrapper dials through the configured generic upstream URL (`http(s)://`, `socks5(h)://`, …). Chromium never sees this URL. Credentials ride in the URL's userinfo and are applied per scheme — Basic `Proxy-Authorization` on the `CONNECT` for `http`/`https`, RFC 1929 username/password for the socks schemes. An omitted port defaults per scheme (1080 socks, 80 http, 443 https).
 - `tunnel`: wrapper opens one yamux stream per SOCKS `CONNECT` over the session's authenticated WSS tunnel. The operator terminates SOCKS5 on the stream (same shape as the local server); the wrapper negotiates no-auth on the stream itself, forwards Chromium's `CONNECT` request unmodified, and relays the operator's reply straight back, so the client sees exactly one method-selection reply and one `CONNECT` reply. Only method negotiation is re-originated — the destination bytes are Chromium's, and no custom framing is added.
 
 An assignment update swaps the strategy for new connections only. An explicit hard-rotate option resets live tunnel streams, accepting request failures.
@@ -85,7 +85,7 @@ An assignment update swaps the strategy for new connections only. An explicit ha
 ```json
 "proxy": {
   "upstream": "direct | proxy | tunnel",
-  "url": "string, required when upstream=proxy: generic upstream proxy URL",
+  "url": "string, required when upstream=proxy: generic upstream proxy URL, credentials as userinfo; reads mask the password",
   "tunnel": { "url": "string, required when upstream=tunnel: compound tunnel URL (see below)",
               "auth": "string, required when upstream=tunnel: per-assignment bearer secret" },
   "bypass": "string, optional: extra --proxy-bypass-list entries"

@@ -151,7 +151,7 @@ func (m *Manager) Stats() Stats {
 }
 
 // Assignment returns a copy of the current assignment with the tunnel secret
-// redacted.
+// redacted and any upstream proxy password masked.
 func (m *Manager) Assignment() Assignment {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -159,6 +159,7 @@ func (m *Manager) Assignment() Assignment {
 	if a.TunnelAuth != "" {
 		a.TunnelAuth = "<redacted>"
 	}
+	a.URL = RedactedURL(a.URL)
 	return a
 }
 

@@ -9,6 +9,7 @@ package proxy
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -102,22 +103,55 @@ func (a Assignment) Same(other Assignment) bool {
 		strings.TrimSpace(a.Bypass) == strings.TrimSpace(other.Bypass)
 }
 
-// ParseUpstreamProxyURL validates a generic upstream proxy URL. Supported
-// schemes are http, https, socks5, socks5h, and socks (alias for socks5).
+// defaultUpstreamPorts is the port assumed when an upstream proxy URL omits one.
+var defaultUpstreamPorts = map[string]string{
+	"http":    "80",
+	"https":   "443",
+	"socks":   "1080",
+	"socks5":  "1080",
+	"socks5h": "1080",
+}
+
+// ParseUpstreamProxyURL validates a generic upstream proxy URL and fills in the
+// scheme's default port when none is given. Supported schemes are http, https,
+// socks5, socks5h, and socks (alias for socks5). Userinfo carries the upstream
+// credentials: http and https send them as Basic `Proxy-Authorization`, the
+// socks schemes as RFC 1929 username/password.
 func ParseUpstreamProxyURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return nil, fmt.Errorf("invalid proxy url: %w", err)
 	}
-	switch strings.ToLower(u.Scheme) {
-	case "http", "https", "socks5", "socks5h", "socks":
-		if u.Host == "" {
-			return nil, fmt.Errorf("invalid proxy url %q: missing host", raw)
-		}
-		return u, nil
-	default:
+	scheme := strings.ToLower(u.Scheme)
+	defaultPort, supported := defaultUpstreamPorts[scheme]
+	if !supported {
 		return nil, fmt.Errorf("unsupported proxy url scheme %q", u.Scheme)
 	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("invalid proxy url %q: missing host", raw)
+	}
+	if u.User != nil && u.User.Username() == "" {
+		return nil, fmt.Errorf("invalid proxy url %q: credentials must include a username", RedactedURL(raw))
+	}
+	if u.Port() == "" {
+		u.Host = net.JoinHostPort(u.Hostname(), defaultPort)
+	}
+	return u, nil
+}
+
+// RedactedURL masks the password in an upstream proxy URL so it is safe for
+// API responses and logs. Upstream credentials are write-only, like tunnel
+// secrets: the username stays visible, the password never comes back out.
+func RedactedURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return "<invalid proxy url>"
+	}
+	return u.Redacted()
 }
 
 // TunnelSchemePrefix is the separator between stack layers in a tunnel URL scheme.

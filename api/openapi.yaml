@@ -628,7 +628,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
-      description: Replaces the session egress proxy assignment. The change applies to new connections; existing connections finish on the previous assignment unless `drain` resets live tunnel streams. Tunnel secrets are write-only and never returned.
+      description: Replaces the session egress proxy assignment. The change applies to new connections; existing connections finish on the previous assignment unless `drain` resets live tunnel streams. Secrets are write-only: tunnel auth is never returned and upstream proxy passwords come back masked.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -1851,8 +1851,8 @@ components:
           example: tunnel
         url:
           type: string
-          description: Generic upstream proxy URL. Required when `upstream` is `proxy`.
-          example: socks5://proxy.example.com:1080
+          description: Generic upstream proxy URL (`http`, `https`, `socks`, `socks5`, `socks5h`). Required when `upstream` is `proxy`. Credentials go in the userinfo (`socks5://user:pass@host:1080`) and are sent as Basic `Proxy-Authorization` for `http`/`https` or RFC 1929 username/password for the socks schemes. An omitted port defaults to 1080 (socks), 80 (http) or 443 (https).
+          example: socks5://user:pass@proxy.example.com:1080
         tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
         bypass:
           type: string
@@ -1860,7 +1860,7 @@ components:
           example: '*.internal.example.com'
     SessionProxy:
       type: object
-      description: Stored session egress proxy assignment. Tunnel secrets are write-only and never appear here.
+      description: Stored session egress proxy assignment. Secrets are write-only: tunnel auth never appears here, and an upstream proxy URL comes back with its password masked.
       required: [upstream]
       properties:
         upstream:
@@ -1870,8 +1870,8 @@ components:
           example: tunnel
         url:
           type: string
-          description: Generic upstream proxy URL. Omitted unless `upstream` is `proxy`.
-          example: socks5://proxy.example.com:1080
+          description: Generic upstream proxy URL. Omitted unless `upstream` is `proxy`. The password is masked, so this value cannot be replayed as a write.
+          example: socks5://user:pass@proxy.example.com:1080
         tunnel:
           type: object
           description: Tunnel endpoint. Omitted unless `upstream` is `tunnel`. The secret is never returned.
@@ -1895,8 +1895,8 @@ components:
           example: tunnel
         url:
           type: string
-          description: Generic upstream proxy URL. Required when `upstream` is `proxy`.
-          example: socks5://proxy.example.com:1080
+          description: Generic upstream proxy URL (`http`, `https`, `socks`, `socks5`, `socks5h`). Required when `upstream` is `proxy`. Credentials go in the userinfo (`socks5://user:pass@host:1080`) and are sent as Basic `Proxy-Authorization` for `http`/`https` or RFC 1929 username/password for the socks schemes. An omitted port defaults to 1080 (socks), 80 (http) or 443 (https).
+          example: socks5://user:pass@proxy.example.com:1080
         tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
         bypass:
           type: string

@@ -363,14 +363,15 @@ type sessionProxyView struct {
 }
 
 // toSessionProxyView renders the stored assignment without secrets. Tunnel
-// auth is write-only and never appears in responses.
+// auth is write-only and never appears in responses; an upstream proxy URL
+// comes back with its password masked.
 func toSessionProxyView(upstream, url, tunnelURL, bypass string) *sessionProxyView {
 	view := &sessionProxyView{Upstream: upstream}
 	if upstream == "" {
 		view.Upstream = string(proxy.UpstreamDirect)
 	}
 	if strings.TrimSpace(url) != "" {
-		view.URL = url
+		view.URL = proxy.RedactedURL(url)
 	}
 	if strings.TrimSpace(tunnelURL) != "" {
 		view.Tunnel = &sessionProxyTunnelView{URL: tunnelURL}

@@ -105,6 +105,9 @@ func (s *socksContextDialer) DialContext(ctx context.Context, network, address s
 // httpConnectDialer tunnels through an HTTP(S) proxy with CONNECT.
 type httpConnectDialer struct {
 	proxyURL *url.URL
+	// tlsConfig overrides the defaults used to reach an https proxy. Nil means
+	// system roots; only tests set it.
+	tlsConfig *tls.Config
 }
 
 // DialContext implements Dialer.
@@ -119,7 +122,7 @@ func (d *httpConnectDialer) DialContext(ctx context.Context, network, address st
 	var conn net.Conn
 	var err error
 	if strings.ToLower(d.proxyURL.Scheme) == "https" {
-		tlsDialer := tls.Dialer{NetDialer: &net.Dialer{}}
+		tlsDialer := tls.Dialer{NetDialer: &net.Dialer{}, Config: d.tlsConfig}
 		conn, err = tlsDialer.DialContext(dialCtx, "tcp", d.proxyURL.Host)
 	} else {
 		var nd net.Dialer
