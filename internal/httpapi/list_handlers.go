@@ -32,6 +32,12 @@ func toSessionListItem(view session.SessionView) sessionListItemResponse {
 		DeletedAt: view.Session.DeletedAt,
 		ExpiresAt: view.Session.ExpiresAt,
 		Tags:      view.Tags,
+		Proxy: toSessionProxyView(
+			view.Session.ProxyUpstream,
+			derefSessionString(view.Session.ProxyURL),
+			derefSessionString(view.Session.ProxyTunnelURL),
+			derefSessionString(view.Session.ProxyBypass),
+		),
 	}
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
