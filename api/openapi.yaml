@@ -618,6 +618,24 @@ paths:
       responses:
         '200': {description: Updated session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/proxy:
+    put:
+      operationId: updateSessionProxy
+      tags: [sessions]
+      summary: Replace browser session proxy assignment
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
+      description: Replaces the session egress proxy assignment. The change applies to new connections; existing connections finish on the previous assignment unless `drain` resets live tunnel streams. Secrets are write-only — tunnel auth is never returned and upstream proxy passwords come back masked.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/UpdateProxy'}
+      responses:
+        '200': {description: Updated session, content: {application/json: {schema: {$ref: '#/components/schemas/SessionMutation'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/suspend:
     post:
       operationId: suspendSession
@@ -1073,6 +1091,10 @@ components:
       required: true
       description: Complete replacement tag map. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/ReplaceTagsInput'}}}
+    UpdateProxy:
+      required: true
+      description: Replacement session egress proxy assignment. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/UpdateProxyAssignment'}}}
     PromoteSession:
       required: true
       description: Snapshot metadata created from a retained session. The JSON body must not exceed 1 MiB.
@@ -1762,6 +1784,7 @@ components:
         tags:
           allOf: [{$ref: '#/components/schemas/StringMap'}]
           description: Initial session tags.
+        proxy: {$ref: '#/components/schemas/ProxyConfig'}
       example:
         baseSnapshotName: signed-in-base
         label: checkout smoke test
@@ -1804,6 +1827,85 @@ components:
           type: array
           description: ICE configuration for WebRTC setup. Omitted when WebRTC is unavailable or does not need configured ICE servers.
           items: {$ref: '#/components/schemas/IceServer'}
+    ProxyTunnelConfig:
+      type: object
+      description: Tunnel endpoint for the `tunnel` upstream. Minted by the tunnel operator.
+      properties:
+        url:
+          type: string
+          description: Compound tunnel URL (`ws+yamux+socks5://` or `wss+yamux+socks5://`).
+          example: wss+yamux+socks5://tunnel.example.com/t/019f6cf0-0000-7000-8000-000000000010
+        auth:
+          type: string
+          x-sensitive: true
+          description: Per-assignment bearer secret for the tunnel handshake. Write-only; never returned.
+          example: REDACTED
+    ProxyConfig:
+      type: object
+      description: Session egress proxy assignment. Omitted for direct egress.
+      properties:
+        upstream:
+          type: string
+          enum: [direct, proxy, tunnel]
+          description: Upstream strategy for new connections. Defaults to `direct`.
+          example: tunnel
+        url:
+          type: string
+          description: Generic upstream proxy URL (`http`, `https`, `socks`, `socks5`, `socks5h`). Required when `upstream` is `proxy`. Credentials go in the userinfo (`socks5://user:pass@host:1080`) and are sent as Basic `Proxy-Authorization` for `http`/`https` or RFC 1929 username/password for the socks schemes. An omitted port defaults to 1080 (socks), 80 (http) or 443 (https).
+          example: socks5://user:pass@proxy.example.com:1080
+        tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
+        bypass:
+          type: string
+          description: Extra `--proxy-bypass-list` entries. Loopback is always bypassed.
+          example: '*.internal.example.com'
+    SessionProxy:
+      type: object
+      description: Stored session egress proxy assignment. Secrets are write-only — tunnel auth never appears here, and an upstream proxy URL comes back with its password masked.
+      required: [upstream]
+      properties:
+        upstream:
+          type: string
+          enum: [direct, proxy, tunnel]
+          description: Upstream strategy for new connections.
+          example: tunnel
+        url:
+          type: string
+          description: Generic upstream proxy URL. Omitted unless `upstream` is `proxy`. The password is masked, so this value cannot be replayed as a write.
+          example: socks5://user:pass@proxy.example.com:1080
+        tunnel:
+          type: object
+          description: Tunnel endpoint. Omitted unless `upstream` is `tunnel`. The secret is never returned.
+          properties:
+            url:
+              type: string
+              description: Compound tunnel URL.
+              example: wss+yamux+socks5://tunnel.example.com/t/019f6cf0-0000-7000-8000-000000000010
+        bypass:
+          type: string
+          description: Extra `--proxy-bypass-list` entries.
+          example: '*.internal.example.com'
+    UpdateProxyAssignment:
+      type: object
+      description: Replacement session egress proxy assignment.
+      properties:
+        upstream:
+          type: string
+          enum: [direct, proxy, tunnel]
+          description: Upstream strategy for new connections. Defaults to `direct`.
+          example: tunnel
+        url:
+          type: string
+          description: Generic upstream proxy URL (`http`, `https`, `socks`, `socks5`, `socks5h`). Required when `upstream` is `proxy`. Credentials go in the userinfo (`socks5://user:pass@host:1080`) and are sent as Basic `Proxy-Authorization` for `http`/`https` or RFC 1929 username/password for the socks schemes. An omitted port defaults to 1080 (socks), 80 (http) or 443 (https).
+          example: socks5://user:pass@proxy.example.com:1080
+        tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
+        bypass:
+          type: string
+          description: Extra `--proxy-bypass-list` entries. Loopback is always bypassed.
+          example: '*.internal.example.com'
+        drain:
+          type: boolean
+          description: Reset live tunnel streams instead of letting them drain. New connections use the new assignment either way.
+          example: false
     Session:
       type: object
       description: Browser session state, retention metadata, tags, and currently available access credentials.
@@ -1879,6 +1981,8 @@ components:
           example: aps_019f6cf0000070008000000000000010_REDACTED
         collaboration:
           $ref: '#/components/schemas/SessionCollaborationCapabilities'
+        proxy:
+          $ref: '#/components/schemas/SessionProxy'
     SessionCollaborationCapabilities:
       type: object
       description: Owner-visible role-scoped secrets used to build collaboration links.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/ids"
+	"github.com/aperture/aperture/internal/proxy"
 )
 
 var (
@@ -306,10 +307,79 @@ type createSessionRequest struct {
 	Label            *string              `json:"label"`
 	Browser          sessionBrowserConfig `json:"browser"`
 	Tags             map[string]string    `json:"tags"`
+	Proxy            proxyConfigRequest   `json:"proxy"`
 }
 
 func (r createSessionRequest) Validate() error {
-	return r.Browser.Validate()
+	if err := r.Browser.Validate(); err != nil {
+		return err
+	}
+	return r.Proxy.Validate()
+}
+
+type proxyTunnelRequest struct {
+	URL  string `json:"url"`
+	Auth string `json:"auth"`
+}
+
+type proxyConfigRequest struct {
+	Upstream string             `json:"upstream"`
+	URL      string             `json:"url"`
+	Tunnel   proxyTunnelRequest `json:"tunnel"`
+	Bypass   string             `json:"bypass"`
+}
+
+func (r proxyConfigRequest) assignment() proxy.Assignment {
+	return proxy.Assignment{
+		Upstream:   proxy.Upstream(strings.TrimSpace(r.Upstream)),
+		URL:        strings.TrimSpace(r.URL),
+		TunnelURL:  strings.TrimSpace(r.Tunnel.URL),
+		TunnelAuth: r.Tunnel.Auth,
+		Bypass:     strings.TrimSpace(r.Bypass),
+	}
+}
+
+func (r proxyConfigRequest) Validate() error {
+	if err := r.assignment().Validate(); err != nil {
+		return validationError(err.Error())
+	}
+	return nil
+}
+
+type updateProxyRequest struct {
+	proxyConfigRequest
+	Drain bool `json:"drain"`
+}
+
+type sessionProxyTunnelView struct {
+	URL string `json:"url,omitempty"`
+}
+
+type sessionProxyView struct {
+	Upstream string                  `json:"upstream"`
+	URL      string                  `json:"url,omitempty"`
+	Tunnel   *sessionProxyTunnelView `json:"tunnel,omitempty"`
+	Bypass   string                  `json:"bypass,omitempty"`
+}
+
+// toSessionProxyView renders the stored assignment without secrets. Tunnel
+// auth is write-only and never appears in responses; an upstream proxy URL
+// comes back with its password masked.
+func toSessionProxyView(upstream, url, tunnelURL, bypass string) *sessionProxyView {
+	view := &sessionProxyView{Upstream: upstream}
+	if upstream == "" {
+		view.Upstream = string(proxy.UpstreamDirect)
+	}
+	if strings.TrimSpace(url) != "" {
+		view.URL = proxy.RedactedURL(url)
+	}
+	if strings.TrimSpace(tunnelURL) != "" {
+		view.Tunnel = &sessionProxyTunnelView{URL: tunnelURL}
+	}
+	if strings.TrimSpace(bypass) != "" {
+		view.Bypass = bypass
+	}
+	return view
 }
 
 type sessionResponse struct {
@@ -331,6 +401,7 @@ type sessionResponse struct {
 	CDPURL           string                            `json:"cdpUrl,omitempty"`
 	SessionToken     string                            `json:"sessionToken,omitempty"`
 	Collaboration    *sessionCollaborationCapabilities `json:"collaboration,omitempty"`
+	Proxy            *sessionProxyView                 `json:"proxy,omitempty"`
 }
 
 type sessionCollaborationCapabilities struct {

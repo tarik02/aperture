@@ -3,6 +3,7 @@ package browser
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aperture/aperture/internal/proxy"
 )
 
 const (
@@ -48,6 +51,7 @@ type wrapperRuntime struct {
 	activeRequests           int
 	cdpConnections           int
 	liveSession              *liveSession
+	proxyManager             *proxy.Manager
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -285,6 +289,23 @@ func sessionTokenAuthenticated(req *http.Request) bool {
 	return sessionCapabilityRole(req) == "owner"
 }
 
+// wrapperControlAuthorized gates daemon-only control endpoints. The wrapper
+// API listens on loopback inside the browser's own network namespace, so page
+// JavaScript can reach every route; the control token lives only in the
+// runtime env file, which the sandbox cannot read.
+func (r *wrapperRuntime) wrapperControlAuthorized(req *http.Request) bool {
+	expected := strings.TrimSpace(r.values.WrapperControlToken)
+	if expected == "" {
+		return false
+	}
+	header := strings.TrimSpace(req.Header.Get("Authorization"))
+	presented, ok := strings.CutPrefix(header, "Bearer ")
+	if !ok {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(strings.TrimSpace(presented)), []byte(expected)) == 1
+}
+
 func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error, error) {
 	if r.values.WrapperPort <= 0 {
 		return nil, nil, fmt.Errorf("wrapper port is required")
@@ -317,6 +338,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/session", liveSession.serveSessionWebSocketHTTP)
 	mux.HandleFunc("/automation/lease", liveSession.serveAutomationLeaseHTTP)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
+	mux.HandleFunc("/proxy/assignment", r.handleProxyAssignment)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)
 	mux.HandleFunc("/cursor", r.handleCursor)
@@ -406,6 +428,7 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) 
 		"viewerConnected": len(r.viewers) > 0,
 		"cdpConnections":  r.cdpConnections,
 		"recordings":      r.liveSession.listRecordingsLocked(),
+		"proxy":           r.proxyStatusFragmentLocked(),
 	}
 	if r.mediaProducer != nil {
 		quality := r.mediaProducer.media.Quality()
@@ -455,20 +478,26 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) 
 		writeWrapperJSON(w, http.StatusOK, status)
 		return
 	}
-	if r.values.SessionTokenPath != "" {
-		body, err := os.ReadFile(r.values.SessionTokenPath)
-		if err != nil {
-			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
-			return
+	// The session token authorizes CDP, so it is reported only to the daemon.
+	// This endpoint is reachable by anything that can open a loopback socket —
+	// page JavaScript included, since the sandbox shares the network namespace
+	// — and is routed publicly under a sessions:read rule.
+	if r.wrapperControlAuthorized(req) {
+		if r.values.SessionTokenPath != "" {
+			body, err := os.ReadFile(r.values.SessionTokenPath)
+			if err != nil {
+				writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
+				return
+			}
+			token := strings.TrimSpace(string(body))
+			if token == "" {
+				writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
+				return
+			}
+			status["sessionToken"] = token
+		} else if r.values.SessionToken != "" {
+			status["sessionToken"] = r.values.SessionToken
 		}
-		token := strings.TrimSpace(string(body))
-		if token == "" {
-			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
-			return
-		}
-		status["sessionToken"] = token
-	} else if r.values.SessionToken != "" {
-		status["sessionToken"] = r.values.SessionToken
 	}
 	writeWrapperJSON(w, http.StatusOK, status)
 }

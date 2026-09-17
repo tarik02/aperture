@@ -31,6 +31,12 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 		LastConnectedAt: view.Session.LastConnectedAt,
 		SuspendedAt:     view.Session.SuspendedAt,
 		Tags:            view.Tags,
+		Proxy: toSessionProxyView(
+			view.Session.ProxyUpstream,
+			derefSessionString(view.Session.ProxyURL),
+			derefSessionString(view.Session.ProxyTunnelURL),
+			derefSessionString(view.Session.ProxyBypass),
+		),
 	}
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
@@ -45,6 +51,13 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 		}
 	}
 	return resp
+}
+
+func derefSessionString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (s *Server) rotateCollaborationCapability(c *gin.Context, role session.CollaborationRole) {
@@ -106,6 +119,7 @@ func (s *Server) createSession(c *gin.Context) {
 		BrowserChannel:   req.Browser.Channel,
 		BrowserArgs:      req.Browser.Args,
 		Tags:             req.Tags,
+		Proxy:            req.Proxy.assignment(),
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -164,6 +178,34 @@ func (s *Server) replaceSessionTags(c *gin.Context) {
 	}
 
 	view, err := s.Sessions.ReplaceTags(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), req.Tags)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, sessionMutationResponse{
+		Session: toSessionResponse(view),
+	})
+}
+
+func (s *Server) updateSessionProxy(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+
+	var req updateProxyRequest
+	if err := bindJSON(c, &req); err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	if _, err := s.Sessions.UpdateProxy(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), req.assignment(), req.Drain); err != nil {
+		WriteError(c, err)
+		return
+	}
+
+	view, err := s.Sessions.Get(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"))
 	if err != nil {
 		WriteError(c, err)
 		return

@@ -190,6 +190,7 @@ Endpoints:
 - `POST /api/sessions` — create
 - `DELETE /api/sessions/:sessionId`
 - `PUT /api/sessions/:sessionId/tags` — replace all tags
+- `PUT /api/sessions/:sessionId/proxy` — replace the egress proxy assignment (new connections only unless `drain` is set)
 - `POST /api/sessions/:sessionId/suspend`
 - `POST /api/sessions/:sessionId/reopen`
 - `POST /api/sessions/:sessionId/session-token/rotate`
@@ -219,9 +220,20 @@ Create request:
   },
   "tags": {
     "key": "value"
+  },
+  "proxy": {
+    "upstream": "direct",
+    "url": "socks5://proxy.example.com:1080",
+    "tunnel": {
+      "url": "wss+yamux+socks5://tunnel.example.com/t/assignment",
+      "auth": "per-assignment bearer secret"
+    },
+    "bypass": "*.internal.example.com"
   }
 }
 ```
+
+Every session routes browser egress through a session-local SOCKS5 proxy owned by its wrapper; Chromium flags are constant and supervisor-owned (`--proxy-server` / `--proxy-bypass-list` are rejected as user args). `proxy.upstream` selects the strategy for new connections: `direct` (default when omitted), `proxy` (requires `url`, any generic `http`/`https`/`socks`/`socks5`/`socks5h` URL), or `tunnel` (requires `tunnel.url` + `tunnel.auth`). An upstream that needs credentials takes them as userinfo in the URL — `socks5://user:pass@host:1080` — sent as RFC 1929 username/password for the socks schemes and as Basic `Proxy-Authorization` for `http`/`https`. The port may be omitted; it defaults to 1080 for socks, 80 for http, 443 for https. The tunnel URL uses a compound `ws+yamux+socks5://` / `wss+yamux+socks5://` scheme; each SOCKS session gets its own yamux stream and is terminated by the tunnel operator. `PUT /api/sessions/:sessionId/proxy` accepts the same object plus `"drain": true` to reset live tunnel streams instead of letting them finish. Secrets are write-only: session reads return the tunnel URL but never its secret, and an upstream proxy URL comes back with its password masked (`socks5://user:xxxxx@host:1080`).
 
 `browser.channel` is required. Use `GET /api/browser/channels` rather than assuming a channel name.
 

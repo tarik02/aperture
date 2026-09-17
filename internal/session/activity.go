@@ -446,13 +446,17 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
 	}
+	controlToken, err := wrapperControlTokenForSession(sessionRow)
+	if err != nil {
+		return browser.RuntimeEnvValues{}, "", err
+	}
 	if sessionRow.CurrentCDPPort != nil && *sessionRow.CurrentCDPPort > 0 {
 		port := *sessionRow.CurrentCDPPort
 		wrapperPort, err := wrapperPortForSession(sessionRow, port)
 		if err != nil {
 			return browser.RuntimeEnvValues{}, "", err
 		}
-		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
+		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
 	}
 
 	port, err := AllocateCDPPort()
@@ -464,7 +468,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		return browser.RuntimeEnvValues{}, "", err
 	}
 
-	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken), layout.RuntimeEnv, nil
+	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
 }
 
 func (s *Service) runtimeEnvValues(
@@ -475,6 +479,7 @@ func (s *Service) runtimeEnvValues(
 	port int,
 	wrapperPort int,
 	rawSessionToken string,
+	wrapperControlToken string,
 ) browser.RuntimeEnvValues {
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
@@ -482,6 +487,7 @@ func (s *Service) runtimeEnvValues(
 	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
 		internalAPIURL = s.cfg.DeployGreenURL
 	}
+	proxyAssignment := proxyAssignmentFromRow(sessionRow)
 
 	return browser.RuntimeEnvValues{
 		SessionID:        sessionRow.ID,
@@ -500,9 +506,15 @@ func (s *Service) runtimeEnvValues(
 		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
+		WrapperControlToken:        wrapperControlToken,
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
+		ProxyUpstream:              string(proxyAssignment.NormalizedUpstream()),
+		ProxyURL:                   proxyAssignment.URL,
+		ProxyTunnelURL:             proxyAssignment.TunnelURL,
+		ProxyTunnelAuth:            proxyAssignment.TunnelAuth,
+		ProxyBypass:                proxyAssignment.Bypass,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
 		GPUMode:                    s.cfg.GPUMode,
 		CompositorEnabled:          compositorEnabled,
@@ -540,6 +552,22 @@ func wrapperPortForSession(sessionRow *db.Session, cdpPort int) (int, error) {
 	return AllocateCDPPort(cdpPort)
 }
 
+// wrapperControlTokenForSession reuses the running wrapper's control token so
+// rewriting the runtime env never invalidates the daemon's own credential for
+// the wrapper's control endpoints. A session without one gets a fresh token.
+func wrapperControlTokenForSession(sessionRow *db.Session) (string, error) {
+	if sessionRow.RuntimeEnvPath != nil {
+		body, err := os.ReadFile(*sessionRow.RuntimeEnvPath)
+		if err == nil {
+			values, err := browser.ParseRuntimeEnv(body)
+			if err == nil && strings.TrimSpace(values.WrapperControlToken) != "" {
+				return values.WrapperControlToken, nil
+			}
+		}
+	}
+	return GenerateWrapperControlToken()
+}
+
 func wrapperPort(sessionRow *db.Session) (int, error) {
 	if sessionRow.Status != db.SessionStatusRunning || sessionRow.RuntimeEnvPath == nil {
 		return 0, ErrNotRunning
@@ -556,6 +584,30 @@ func wrapperPort(sessionRow *db.Session) (int, error) {
 		return 0, ErrNotRunning
 	}
 	return values.WrapperPort, nil
+}
+
+// wrapperControl returns the loopback port and control credential for a
+// running session's wrapper.
+func wrapperControl(sessionRow *db.Session) (int, string, error) {
+	if sessionRow.Status != db.SessionStatusRunning || sessionRow.RuntimeEnvPath == nil {
+		return 0, "", ErrNotRunning
+	}
+	body, err := os.ReadFile(*sessionRow.RuntimeEnvPath)
+	if err != nil {
+		return 0, "", err
+	}
+	values, err := browser.ParseRuntimeEnv(body)
+	if err != nil {
+		return 0, "", err
+	}
+	if values.WrapperPort <= 0 {
+		return 0, "", ErrNotRunning
+	}
+	token := strings.TrimSpace(values.WrapperControlToken)
+	if token == "" {
+		return 0, "", fmt.Errorf("wrapper control token missing from session runtime env")
+	}
+	return values.WrapperPort, token, nil
 }
 
 func (s *Service) wrapperActivity(ctx context.Context, sessionRow *db.Session) (browser.WrapperActivityStatus, error) {

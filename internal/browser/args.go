@@ -25,6 +25,14 @@ var deniedBrowserArgs = map[string]struct{}{
 	"--disable-extensions":            {},
 	"--disable-extensions-except":     {},
 	"--load-extension":                {},
+	"--proxy-server":                  {},
+	"--proxy-bypass-list":             {},
+	// Chromium resolves these before --proxy-server, so any of them would
+	// route egress around the session-local proxy.
+	"--no-proxy-server":        {},
+	"--proxy-auto-detect":      {},
+	"--proxy-pac-url":          {},
+	"--winhttp-proxy-resolver": {},
 }
 
 var deniedCompositorBrowserArgs = map[string]struct{}{
@@ -43,36 +51,27 @@ var deniedCompositorBrowserArgs = map[string]struct{}{
 	"--window-size":                      {},
 }
 
-var deniedBrowserArgPrefixes = []string{
-	"--user-data-dir=",
-	"--remote-debugging-address=",
-	"--remote-debugging-port=",
-	"--remote-allow-origins=",
-	"--disk-cache-dir=",
-	"--media-cache-dir=",
-	"--download-default-directory=",
-	"--disable-crashpad=",
-	"--disable-crashpad-for-testing=",
-	"--disable-crash-reporter=",
-	"--disable-extensions=",
-	"--disable-extensions-except=",
-	"--load-extension=",
+// browserArgName reduces a switch to its canonical double-dash name, dropping
+// any value. Chromium accepts single- and double-dash spellings alike, so
+// matching the raw string would let "-proxy-server=..." past the denylists.
+func browserArgName(arg string) string {
+	trimmed := strings.TrimSpace(arg)
+	if trimmed == "" {
+		return ""
+	}
+	name, _, _ := strings.Cut(trimmed, "=")
+	return "--" + strings.TrimLeft(name, "-")
 }
 
 // ValidateBrowserArgs rejects args that conflict with supervisor-owned Chromium behavior.
 func ValidateBrowserArgs(args []string) error {
 	for _, arg := range args {
-		trimmed := strings.TrimSpace(arg)
-		if trimmed == "" {
+		name := browserArgName(arg)
+		if name == "" {
 			continue
 		}
-		if _, denied := deniedBrowserArgs[trimmed]; denied {
-			return fmt.Errorf("%w: %q", ErrDeniedBrowserArg, trimmed)
-		}
-		for _, prefix := range deniedBrowserArgPrefixes {
-			if strings.HasPrefix(trimmed, prefix) {
-				return fmt.Errorf("%w: %q", ErrDeniedBrowserArg, trimmed)
-			}
+		if _, denied := deniedBrowserArgs[name]; denied {
+			return fmt.Errorf("%w: %q", ErrDeniedBrowserArg, strings.TrimSpace(arg))
 		}
 	}
 	return nil
@@ -81,13 +80,12 @@ func ValidateBrowserArgs(args []string) error {
 // ValidateCompositorBrowserArgs rejects args that would break nested compositor mode.
 func ValidateCompositorBrowserArgs(args []string) error {
 	for _, arg := range args {
-		trimmed := strings.TrimSpace(arg)
-		if trimmed == "" {
+		name := browserArgName(arg)
+		if name == "" {
 			continue
 		}
-		name, _, _ := strings.Cut(trimmed, "=")
 		if _, denied := deniedCompositorBrowserArgs[name]; denied {
-			return fmt.Errorf("%w: %q", ErrDeniedCompositorBrowserArg, trimmed)
+			return fmt.Errorf("%w: %q", ErrDeniedCompositorBrowserArg, strings.TrimSpace(arg))
 		}
 	}
 	return nil
@@ -104,6 +102,22 @@ func RequiredArgs(mergedUserDataDir string, cacheDir string, cdpPort int) []stri
 		"--media-cache-dir=" + cacheDir,
 		"--no-first-run",
 		"--no-default-browser-check",
+	}
+}
+
+// ProxyArgs returns the supervisor-owned Chromium proxy flags. Every session
+// routes egress through the session-local SOCKS5 server, so these flags are
+// constant across proxy assignments and never user-supplied.
+func ProxyArgs(serverAddr, extraBypass string) []string {
+	bypass := "<-loopback>;localhost;127.0.0.1;::1"
+	if trimmed := strings.TrimSpace(extraBypass); trimmed != "" {
+		bypass += ";" + trimmed
+	}
+	return []string{
+		"--proxy-server=socks5://" + serverAddr,
+		"--proxy-bypass-list=" + bypass,
+		// QUIC/UDP has no SOCKS CONNECT path and would bypass the proxy.
+		"--disable-quic",
 	}
 }
 
