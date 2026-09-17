@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -155,7 +156,8 @@ func (d *httpConnectDialer) DialContext(ctx context.Context, network, address st
 		return nil, fmt.Errorf("proxy: write connect: %w", err)
 	}
 
-	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, req)
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("proxy: read connect response: %w", err)
@@ -170,5 +172,28 @@ func (d *httpConnectDialer) DialContext(ctx context.Context, network, address st
 		_ = conn.Close()
 		return nil, fmt.Errorf("proxy: clear connect deadline: %w", err)
 	}
+	// The response reader may have pulled the target's first bytes into its
+	// buffer along with the CONNECT reply, so replay them before the socket.
+	if buffered := reader.Buffered(); buffered > 0 {
+		return &replayConn{Conn: conn, reader: io.MultiReader(io.LimitReader(reader, int64(buffered)), conn)}, nil
+	}
 	return conn, nil
+}
+
+// replayConn serves buffered bytes ahead of the live connection. It forwards
+// CloseWrite so the relay keeps propagating half-close.
+type replayConn struct {
+	net.Conn
+	reader io.Reader
+}
+
+func (c *replayConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
+}
+
+func (c *replayConn) CloseWrite() error {
+	if closer, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return closer.CloseWrite()
+	}
+	return c.Close()
 }

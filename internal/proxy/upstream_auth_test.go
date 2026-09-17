@@ -459,3 +459,59 @@ func TestUpstreamProxyRejectsWrongCredentials(t *testing.T) {
 		t.Fatal("dial succeeded with wrong credentials, want failure")
 	}
 }
+
+// TestHTTPConnectPreservesBytesSentWithTheReply covers a proxy that packs the
+// target's first bytes into the same write as the CONNECT reply. The response
+// reader buffers them, so they must be replayed rather than dropped.
+func TestHTTPConnectPreservesBytesSentWithTheReply(t *testing.T) {
+	t.Parallel()
+
+	const earlyBytes = "SERVER-HELLO"
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		reader := bufio.NewReader(conn)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if strings.TrimSpace(line) == "" {
+				break
+			}
+		}
+		// One write: CONNECT reply immediately followed by target data.
+		_, _ = conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n" + earlyBytes))
+		time.Sleep(time.Second)
+	}()
+
+	proxyURL, err := ParseUpstreamProxyURL("http://" + listener.Addr().String())
+	if err != nil {
+		t.Fatalf("parse proxy url: %v", err)
+	}
+	dialer := &httpConnectDialer{proxyURL: proxyURL}
+	conn, err := dialer.DialContext(context.Background(), "tcp", "example.com:443")
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	got := make([]byte, len(earlyBytes))
+	if _, err := io.ReadFull(conn, got); err != nil {
+		t.Fatalf("read bytes that arrived with the reply: %v", err)
+	}
+	if string(got) != earlyBytes {
+		t.Fatalf("read %q, want %q", string(got), earlyBytes)
+	}
+}

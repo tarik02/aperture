@@ -478,20 +478,26 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) 
 		writeWrapperJSON(w, http.StatusOK, status)
 		return
 	}
-	if r.values.SessionTokenPath != "" {
-		body, err := os.ReadFile(r.values.SessionTokenPath)
-		if err != nil {
-			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
-			return
+	// The session token authorizes CDP, so it is reported only to the daemon.
+	// This endpoint is reachable by anything that can open a loopback socket —
+	// page JavaScript included, since the sandbox shares the network namespace
+	// — and is routed publicly under a sessions:read rule.
+	if r.wrapperControlAuthorized(req) {
+		if r.values.SessionTokenPath != "" {
+			body, err := os.ReadFile(r.values.SessionTokenPath)
+			if err != nil {
+				writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
+				return
+			}
+			token := strings.TrimSpace(string(body))
+			if token == "" {
+				writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
+				return
+			}
+			status["sessionToken"] = token
+		} else if r.values.SessionToken != "" {
+			status["sessionToken"] = r.values.SessionToken
 		}
-		token := strings.TrimSpace(string(body))
-		if token == "" {
-			writeWrapperError(w, http.StatusInternalServerError, "session token unavailable")
-			return
-		}
-		status["sessionToken"] = token
-	} else if r.values.SessionToken != "" {
-		status["sessionToken"] = r.values.SessionToken
 	}
 	writeWrapperJSON(w, http.StatusOK, status)
 }
