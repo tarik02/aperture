@@ -547,6 +547,15 @@ func (s openAPIServer) ReplaceSessionTags(ctx context.Context, _ generated.Repla
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) UpdateSessionProxy(ctx context.Context, _ generated.UpdateSessionProxyRequestObject) (generated.UpdateSessionProxyResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.updateSessionProxy(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) ListSnapshots(ctx context.Context, _ generated.ListSnapshotsRequestObject) (generated.ListSnapshotsResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -790,6 +799,10 @@ func (openAPIPassthroughResponse) VisitSuspendSessionResponse(http.ResponseWrite
 }
 
 func (openAPIPassthroughResponse) VisitReplaceSessionTagsResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitUpdateSessionProxyResponse(http.ResponseWriter) error {
 	return nil
 }
 

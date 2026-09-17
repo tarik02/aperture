@@ -260,6 +260,11 @@ type LaunchConfig struct {
 	HardwareAcceleration     bool
 	RenderNode               string
 	NestedWaylandSocket      string
+	// ProxyServerAddr is the session-local SOCKS5 address (host:port) Chromium
+	// must use. Always set by the wrapper; never user-supplied.
+	ProxyServerAddr string
+	// ProxyBypass holds extra --proxy-bypass-list entries from the assignment.
+	ProxyBypass string
 }
 
 // BuildBwrapCommand constructs the bwrap command that launches Chromium.
@@ -292,6 +297,9 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 	browserArgs, err := BuildLaunchArgs(cfg.MergedUserDataDir, cfg.CacheDir, cfg.CDPPort, cfg.DefaultArgs, cfg.ExtraArgs)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(cfg.ProxyServerAddr) != "" {
+		browserArgs = append(browserArgs, ProxyArgs(cfg.ProxyServerAddr, cfg.ProxyBypass)...)
 	}
 	extensionDirs := make([]string, 0, 2)
 	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" {
@@ -583,6 +591,12 @@ func LaunchFromRuntimeEnv() error {
 		return launchWithCompositor(values, bwrapPath)
 	}
 
+	proxyManager, err := startSessionProxy(values)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = proxyManager.Close() }()
+
 	cmd, err := BuildBwrapCommand(LaunchConfig{
 		BwrapPath:                bwrapPath,
 		BrowserExecutable:        values.BrowserExecutable,
@@ -596,6 +610,8 @@ func LaunchFromRuntimeEnv() error {
 		CaptureProofExtensionDir: values.CaptureProofExtensionDir,
 		HardwareAcceleration:     values.GPUMode == gpuModeHardware,
 		RenderNode:               values.RenderNode,
+		ProxyServerAddr:          proxyManager.Addr(),
+		ProxyBypass:              values.ProxyBypass,
 	})
 	if err != nil {
 		return err
@@ -607,6 +623,7 @@ func LaunchFromRuntimeEnv() error {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
 	wrapper := newWrapperRuntime(values, "")
+	wrapper.proxyManager = proxyManager
 	wrapperServer, wrapperDone, err := wrapper.serve(ctx)
 	if err != nil {
 		return err
@@ -721,6 +738,12 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
 	wrapper := newWrapperRuntime(values, controlSocket)
+	proxyManager, err := startSessionProxy(values)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = proxyManager.Close() }()
+	wrapper.proxyManager = proxyManager
 	wrapperServer, wrapperDone, err := wrapper.serve(ctx)
 	if err != nil {
 		return err
@@ -909,6 +932,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		HardwareAcceleration:     hardwareAcceleration,
 		RenderNode:               values.RenderNode,
 		NestedWaylandSocket:      socketName,
+		ProxyServerAddr:          proxyManager.Addr(),
+		ProxyBypass:              values.ProxyBypass,
 	})
 	if err != nil {
 		stopProcess(compositor, compositorDone)
@@ -1470,6 +1495,11 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	}
 	values.CaptureProofExtensionDir = strings.TrimSpace(os.Getenv("CAPTURE_PROOF_EXTENSION_DIR"))
 	values.GPUMode = strings.TrimSpace(os.Getenv("GPU_MODE"))
+	values.ProxyUpstream = strings.TrimSpace(os.Getenv("PROXY_UPSTREAM"))
+	values.ProxyURL = strings.TrimSpace(os.Getenv("PROXY_URL"))
+	values.ProxyTunnelURL = strings.TrimSpace(os.Getenv("PROXY_TUNNEL_URL"))
+	values.ProxyTunnelAuth = strings.TrimSpace(os.Getenv("PROXY_TUNNEL_AUTH"))
+	values.ProxyBypass = strings.TrimSpace(os.Getenv("PROXY_BYPASS"))
 	values.CompositorEnabled = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_ENABLED")) == "1"
 	values.CompositorExecutable = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_EXECUTABLE"))
 	values.CompositorBackend = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_BACKEND"))

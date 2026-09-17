@@ -10,6 +10,18 @@ import (
 
 const sessionTokenSecretBytes = 32
 
+// GenerateWrapperControlToken creates the shared secret the daemon presents to
+// the wrapper's control endpoints. It is stored only in the session runtime
+// env, which lives outside the browser sandbox, and is never served over the
+// wrapper API.
+func GenerateWrapperControlToken() (string, error) {
+	secret := make([]byte, sessionTokenSecretBytes)
+	if _, err := rand.Read(secret); err != nil {
+		return "", fmt.Errorf("generate wrapper control token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(secret), nil
+}
+
 // GenerateSessionToken creates aps_<sessionId>_<secret> and its stored hash.
 func GenerateSessionToken(sessionID string) (raw string, hash string, err error) {
 	secretBytes := make([]byte, sessionTokenSecretBytes)

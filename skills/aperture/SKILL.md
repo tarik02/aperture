@@ -190,6 +190,7 @@ Endpoints:
 - `POST /api/sessions` — create
 - `DELETE /api/sessions/:sessionId`
 - `PUT /api/sessions/:sessionId/tags` — replace all tags
+- `PUT /api/sessions/:sessionId/proxy` — replace the egress proxy assignment (new connections only unless `drain` is set)
 - `POST /api/sessions/:sessionId/suspend`
 - `POST /api/sessions/:sessionId/reopen`
 - `POST /api/sessions/:sessionId/session-token/rotate`
@@ -219,9 +220,20 @@ Create request:
   },
   "tags": {
     "key": "value"
+  },
+  "proxy": {
+    "upstream": "direct",
+    "url": "socks5://proxy.example.com:1080",
+    "tunnel": {
+      "url": "wss+yamux+socks5://tunnel.example.com/t/assignment",
+      "auth": "per-assignment bearer secret"
+    },
+    "bypass": "*.internal.example.com"
   }
 }
 ```
+
+Every session routes browser egress through a session-local SOCKS5 proxy owned by its wrapper; Chromium flags are constant and supervisor-owned (`--proxy-server` / `--proxy-bypass-list` are rejected as user args). `proxy.upstream` selects the strategy for new connections: `direct` (default when omitted), `proxy` (requires `url`, any generic `http`/`https`/`socks5` URL), or `tunnel` (requires `tunnel.url` + `tunnel.auth`). The tunnel URL uses a compound `ws+yamux+socks5://` / `wss+yamux+socks5://` scheme; each SOCKS session gets its own yamux stream and is terminated by the tunnel operator. `PUT /api/sessions/:sessionId/proxy` accepts the same object plus `"drain": true` to reset live tunnel streams instead of letting them finish. Tunnel secrets are write-only: session reads return the tunnel URL but never the secret.
 
 `browser.channel` is required. Use `GET /api/browser/channels` rather than assuming a channel name.
 

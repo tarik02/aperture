@@ -19,6 +19,7 @@ import (
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/proxy"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/traefik"
 )
@@ -96,6 +97,7 @@ type CreateInput struct {
 	BrowserChannel   string
 	BrowserArgs      []string
 	Tags             map[string]string
+	Proxy            proxy.Assignment
 }
 
 // SessionView is returned by session APIs.
@@ -119,6 +121,9 @@ type SessionMediaView struct {
 // Create creates and starts a browser session.
 func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, error) {
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
+		return nil, err
+	}
+	if err := input.Proxy.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -186,6 +191,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		ExpiresAt:       expiresAt.Format(time.RFC3339Nano),
 		LastConnectedAt: &nowText,
 	}
+	applyProxyAssignmentToRow(sessionRow, input.Proxy)
 
 	if err := s.repo.CreateSession(ctx, sessionRow); err != nil {
 		return nil, err
@@ -224,6 +230,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		_ = s.markFailed(ctx, sessionRow, "wrapper port allocation failed", err)
 		return nil, err
 	}
+	wrapperControlToken, err := GenerateWrapperControlToken()
+	if err != nil {
+		_ = s.markFailed(ctx, sessionRow, "wrapper control token generation failed", err)
+		return nil, err
+	}
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
@@ -249,9 +260,15 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
+		WrapperControlToken:        wrapperControlToken,
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           input.BrowserArgs,
+		ProxyUpstream:              string(input.Proxy.NormalizedUpstream()),
+		ProxyURL:                   input.Proxy.URL,
+		ProxyTunnelURL:             input.Proxy.TunnelURL,
+		ProxyTunnelAuth:            input.Proxy.TunnelAuth,
+		ProxyBypass:                input.Proxy.Bypass,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
 		GPUMode:                    s.cfg.GPUMode,
 		CompositorEnabled:          compositorEnabled,
@@ -590,6 +607,11 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
+	wrapperControlToken, err := GenerateWrapperControlToken()
+	if err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
+	}
 
 	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
 	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
@@ -621,9 +643,15 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,
 		WrapperPort:                wrapperPort,
+		WrapperControlToken:        wrapperControlToken,
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
+		ProxyUpstream:              sessionRow.ProxyUpstream,
+		ProxyURL:                   derefProxyString(sessionRow.ProxyURL),
+		ProxyTunnelURL:             derefProxyString(sessionRow.ProxyTunnelURL),
+		ProxyTunnelAuth:            derefProxyString(sessionRow.ProxyTunnelAuth),
+		ProxyBypass:                derefProxyString(sessionRow.ProxyBypass),
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
 		GPUMode:                    s.cfg.GPUMode,
 		CompositorEnabled:          compositorEnabled,
