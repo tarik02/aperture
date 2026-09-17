@@ -628,7 +628,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_invalid_state, session_expired, session_service_unavailable]
-      description: Replaces the session egress proxy assignment. The change applies to new connections; existing connections finish on the previous assignment unless `drain` resets live tunnel streams. Secrets are write-only: tunnel auth is never returned and upstream proxy passwords come back masked.
+      description: Replaces the session egress proxy assignment. The change applies to new connections; existing connections finish on the previous assignment unless `drain` resets live tunnel streams. Secrets are write-only — tunnel auth is never returned and upstream proxy passwords come back masked.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -1860,7 +1860,7 @@ components:
           example: '*.internal.example.com'
     SessionProxy:
       type: object
-      description: Stored session egress proxy assignment. Secrets are write-only: tunnel auth never appears here, and an upstream proxy URL comes back with its password masked.
+      description: Stored session egress proxy assignment. Secrets are write-only — tunnel auth never appears here, and an upstream proxy URL comes back with its password masked.
       required: [upstream]
       properties:
         upstream:
