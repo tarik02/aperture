@@ -23,7 +23,7 @@ func ginPath(specPath string) string {
 func TestOpenAPIRoutesWithRequestBodyMatchSpec(t *testing.T) {
 	t.Parallel()
 
-	spec, err := generated.GetSwagger()
+	spec, err := generated.GetSpec()
 	if err != nil {
 		t.Fatalf("load openapi spec: %v", err)
 	}
