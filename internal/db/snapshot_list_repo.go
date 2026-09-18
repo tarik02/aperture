@@ -54,25 +54,25 @@ func (r *Repository) ListSnapshotsPage(ctx context.Context, filter SnapshotFilte
 		switch tag.Operator {
 		case TagOperatorNotEqual:
 			query = query.Where(
-				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value != ?)",
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = ?TableAlias.id AND st.key = ? AND st.value != ?)",
 				tag.Key,
 				tag.Values[0],
 			)
 		case TagOperatorIn:
 			query = query.Where(
-				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value IN (?))",
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = ?TableAlias.id AND st.key = ? AND st.value IN (?))",
 				tag.Key,
 				bun.List(tag.Values),
 			)
 		case TagOperatorNotIn:
 			query = query.Where(
-				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value NOT IN (?))",
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = ?TableAlias.id AND st.key = ? AND st.value NOT IN (?))",
 				tag.Key,
 				bun.List(tag.Values),
 			)
 		default:
 			query = query.Where(
-				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = snapshots.id AND st.key = ? AND st.value = ?)",
+				"EXISTS (SELECT 1 FROM snapshot_tags st WHERE st.snapshot_id = ?TableAlias.id AND st.key = ? AND st.value = ?)",
 				tag.Key,
 				tag.Values[0],
 			)
