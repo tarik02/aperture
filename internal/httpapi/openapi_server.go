@@ -143,25 +143,46 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 	c.Next()
 }
 
+// openAPIRoutesWithRequestBody lists every generated route whose body the gin
+// handler behind it re-reads. The strict wrapper decodes the body before that
+// handler runs, so a route missing here reaches it drained and answers
+// invalid_request_body for every input. TestOpenAPIRoutesWithRequestBodyMatchSpec
+// keeps this in step with the spec.
+var openAPIRoutesWithRequestBody = map[string]map[string]struct{}{
+	http.MethodPost: {
+		"/api/admin/tenants":                          {},
+		"/api/admin/users":                            {},
+		"/api/admin/tokens":                           {},
+		"/api/tenant/tokens":                          {},
+		"/api/sessions":                               {},
+		"/api/sessions/bulk":                          {},
+		"/api/sessions/:sessionId/files/download-url": {},
+		"/api/sessions/:sessionId/promote":            {},
+	},
+	http.MethodPatch: {
+		"/api/admin/tenants/:tenantId": {},
+		"/api/admin/users/:userId":     {},
+		"/api/tenant":                  {},
+		"/api/snapshots/:name":         {},
+	},
+	http.MethodPut: {
+		"/api/admin/tenants/:tenantId/memberships/:userId": {},
+		"/api/sessions/:sessionId/cursor":                  {},
+		"/api/sessions/:sessionId/proxy":                   {},
+		"/api/sessions/:sessionId/tags":                    {},
+		"/api/snapshots/:name/tags":                        {},
+	},
+}
+
+// openAPIRouteHasRequestBody reports whether a gin route carries a request body
+// the handler behind the strict wrapper reads.
+func openAPIRouteHasRequestBody(method, path string) bool {
+	_, ok := openAPIRoutesWithRequestBody[method][path]
+	return ok
+}
+
 func captureOpenAPIRequestBody(c *gin.Context) {
-	path := c.FullPath()
-	hasBody := c.Request.Method == http.MethodPost && (path == "/api/admin/tenants" ||
-		path == "/api/admin/users" ||
-		path == "/api/admin/tokens" ||
-		path == "/api/tenant/tokens" ||
-		path == "/api/sessions" ||
-		path == "/api/sessions/bulk" ||
-		path == "/api/sessions/:sessionId/files/download-url" ||
-		path == "/api/sessions/:sessionId/promote") ||
-		c.Request.Method == http.MethodPatch && (path == "/api/admin/tenants/:tenantId" ||
-			path == "/api/admin/users/:userId" ||
-			path == "/api/tenant" ||
-			path == "/api/snapshots/:name") ||
-		c.Request.Method == http.MethodPut && (path == "/api/admin/tenants/:tenantId/memberships/:userId" ||
-			path == "/api/sessions/:sessionId/cursor" ||
-			path == "/api/sessions/:sessionId/tags" ||
-			path == "/api/snapshots/:name/tags")
-	if !hasBody {
+	if !openAPIRouteHasRequestBody(c.Request.Method, c.FullPath()) {
 		c.Next()
 		return
 	}
