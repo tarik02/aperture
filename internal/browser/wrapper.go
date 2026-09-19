@@ -1494,6 +1494,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		values.BrowserExtraArgs = args
 	}
 	values.CaptureProofExtensionDir = strings.TrimSpace(os.Getenv("CAPTURE_PROOF_EXTENSION_DIR"))
+	values.WrapperControlToken = strings.TrimSpace(os.Getenv("WRAPPER_CONTROL_TOKEN"))
 	values.GPUMode = strings.TrimSpace(os.Getenv("GPU_MODE"))
 	values.ProxyUpstream = strings.TrimSpace(os.Getenv("PROXY_UPSTREAM"))
 	values.ProxyURL = strings.TrimSpace(os.Getenv("PROXY_URL"))
