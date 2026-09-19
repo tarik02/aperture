@@ -196,3 +196,30 @@ func TestRenderRuntimeEnvRejectsInvalidPort(t *testing.T) {
 		t.Fatal("expected invalid port error")
 	}
 }
+
+// The wrapper authorizes its control endpoints against this value, so an unset
+// one makes every proxy push fail with 401 for the life of the session.
+func TestParseRuntimeEnvFromProcessReadsWrapperControlToken(t *testing.T) {
+	for key, value := range map[string]string{
+		"APERTURE_SESSION_ID":   "session-1",
+		"MERGED_USER_DATA_DIR":  t.TempDir(),
+		"DOWNLOADS_DIR":         t.TempDir(),
+		"RECORDINGS_DIR":        t.TempDir(),
+		"CACHE_DIR":             t.TempDir(),
+		"ARTIFACTS_DIR":         t.TempDir(),
+		"BROWSER_EXECUTABLE":    "/bin/true",
+		"CDP_PORT":              "19200",
+		"WRAPPER_PORT":          "19201",
+		"WRAPPER_CONTROL_TOKEN": "control-token",
+	} {
+		t.Setenv(key, value)
+	}
+
+	values, err := ParseRuntimeEnvFromProcess()
+	if err != nil {
+		t.Fatalf("ParseRuntimeEnvFromProcess: %v", err)
+	}
+	if values.WrapperControlToken != "control-token" {
+		t.Fatalf("WrapperControlToken = %q, want %q", values.WrapperControlToken, "control-token")
+	}
+}
