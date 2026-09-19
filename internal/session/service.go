@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,9 +25,6 @@ import (
 
 const (
 	defaultMonitorInterval = 15 * time.Second
-	cdpReadyTimeout        = 45 * time.Second
-	cdpReadyPollInterval   = 500 * time.Millisecond
-	cdpReadyRequestTime    = 2 * time.Second
 	defaultSuspendAfter    = 15 * time.Minute
 )
 
@@ -42,8 +38,6 @@ type OverlayClient interface {
 type MediaSessionCleaner interface {
 	CloseSessionMedia(sessionID string)
 }
-
-type CDPReadyWaiter func(ctx context.Context, port int) error
 
 // Service owns session lifecycle orchestration.
 type Service struct {
@@ -298,26 +292,32 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 
 	runtimePath := layout.RuntimeEnv
 	startedAt := now.Format(time.RFC3339Nano)
-	sessionRow.Status = db.SessionStatusRunning
 	sessionRow.StartedAt = &startedAt
 	sessionRow.StoppedAt = nil
 	sessionRow.DeletedAt = nil
 	sessionRow.RuntimeEnvPath = &runtimePath
 	sessionRow.CurrentCDPPort = &port
 
-	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		_ = s.cleanupPreparedRuntime(ctx, sessionID)
-		return nil, err
-	}
-
+	// The session stays creating until its CDP endpoint answers, so a session
+	// never reports running while its browser is still starting. Failures from
+	// here on are cleaned up with an uncancellable context so a client that
+	// walks away cannot leave the session stuck in creating.
+	cleanupCtx := context.WithoutCancel(ctx)
 	if err := s.browser.Start(ctx, sessionID); err != nil {
 		sessionRow.StartedAt = nil
-		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
+		_ = s.markFailed(cleanupCtx, sessionRow, "browser start failed", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
-	if err := s.waitForCDPReady(ctx, port); err != nil {
-		_ = s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
+
+	if err := s.waitForCDPReady(ctx, wrapperPort); err != nil {
+		_ = s.markFailed(cleanupCtx, sessionRow, "browser cdp endpoint did not become ready", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
+	sessionRow.Status = db.SessionStatusRunning
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.markFailed(cleanupCtx, sessionRow, "session status update failed", err)
+		return nil, err
 	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
@@ -448,35 +448,6 @@ func normalizedOptionalString(value *string) *string {
 		return nil
 	}
 	return &trimmed
-}
-
-func waitForCDPEndpoint(ctx context.Context, port int) error {
-	ctx, cancel := context.WithTimeout(ctx, cdpReadyTimeout)
-	defer cancel()
-
-	client := &http.Client{Timeout: cdpReadyRequestTime}
-	url := fmt.Sprintf("http://127.0.0.1:%d/json/version", port)
-
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return err
-		}
-		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			_ = resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for cdp endpoint %s: %w", url, ctx.Err())
-		case <-time.After(cdpReadyPollInterval):
-		}
-	}
 }
 
 // Delete tombstones a session and stops its browser.
@@ -684,7 +655,9 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 	runtimePath := layout.RuntimeEnv
 
-	sessionRow.Status = db.SessionStatusRunning
+	// A reopened session reports creating while its browser starts; it only
+	// reaches running once its CDP endpoint answers.
+	sessionRow.Status = db.SessionStatusCreating
 	sessionRow.DeletedAt = nil
 	sessionRow.StoppedAt = nil
 	sessionRow.StartedAt = &startedAt
@@ -699,10 +672,22 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
+	cleanupCtx := context.WithoutCancel(ctx)
 	if err := s.browser.Start(ctx, sessionID); err != nil {
 		sessionRow.StartedAt = nil
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
+	if err := s.waitForCDPReady(ctx, wrapperPort); err != nil {
+		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
+	sessionRow.Status = db.SessionStatusRunning
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		return nil, err
 	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
@@ -1021,6 +1006,18 @@ func (s *Service) ReconcileStartup(ctx context.Context) error {
 			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil); err != nil {
 				return err
 			}
+		}
+	}
+
+	// A session is only creating while one API process starts its browser.
+	// After a restart nothing can advance it, so it must not linger.
+	creating, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusCreating)
+	if err != nil {
+		return err
+	}
+	for _, sessionRow := range creating {
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found session stuck in creating", nil); err != nil {
+			return err
 		}
 	}
 
