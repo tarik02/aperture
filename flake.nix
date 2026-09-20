@@ -82,9 +82,11 @@
 
         browserFonts = [
           pkgs.dejavu_fonts
+          pkgs.liberation_ttf
           pkgs.noto-fonts
           pkgs.noto-fonts-cjk-sans
           pkgs.noto-fonts-color-emoji
+          pkgs.roboto
         ];
 
         browserFontsConf = pkgs.writeText "aperture-fonts.conf" ''
@@ -99,9 +101,36 @@
               </rescan>
             </config>
 
+            <include>${pkgs.fontconfig.out}/share/fontconfig/conf.avail/30-metric-aliases.conf</include>
+            <include>${pkgs.fontconfig.out}/share/fontconfig/conf.avail/49-sansserif.conf</include>
+
             <alias binding="strong">
               <family>system-ui</family>
               <prefer><family>Noto Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>-apple-system</family>
+              <prefer><family>Noto Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>BlinkMacSystemFont</family>
+              <prefer><family>Noto Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>Segoe UI</family>
+              <prefer><family>Noto Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>Helvetica Neue</family>
+              <prefer><family>Liberation Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>Helvetica</family>
+              <prefer><family>Liberation Sans</family></prefer>
+            </alias>
+            <alias binding="strong">
+              <family>Arial</family>
+              <prefer><family>Liberation Sans</family></prefer>
             </alias>
             <alias binding="strong">
               <family>ui-sans-serif</family>
