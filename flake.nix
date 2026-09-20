@@ -101,8 +101,7 @@
               </rescan>
             </config>
 
-            <include>${pkgs.fontconfig.out}/share/fontconfig/conf.avail/30-metric-aliases.conf</include>
-            <include>${pkgs.fontconfig.out}/share/fontconfig/conf.avail/49-sansserif.conf</include>
+            <include>${lib.getOutput "out" pkgs.fontconfig}/etc/fonts/conf.d</include>
 
             <alias binding="strong">
               <family>system-ui</family>
@@ -123,66 +122,6 @@
             <alias binding="strong">
               <family>Helvetica Neue</family>
               <prefer><family>Liberation Sans</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>Helvetica</family>
-              <prefer><family>Liberation Sans</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>Arial</family>
-              <prefer><family>Liberation Sans</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>ui-sans-serif</family>
-              <prefer><family>Noto Sans</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>ui-rounded</family>
-              <prefer><family>Noto Sans</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>sans-serif</family>
-              <prefer>
-                <family>Noto Sans</family>
-                <family>Noto Sans CJK SC</family>
-                <family>Noto Color Emoji</family>
-              </prefer>
-            </alias>
-            <alias binding="strong">
-              <family>ui-serif</family>
-              <prefer><family>Noto Serif</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>serif</family>
-              <prefer>
-                <family>Noto Serif</family>
-                <family>Noto Sans CJK SC</family>
-                <family>Noto Color Emoji</family>
-              </prefer>
-            </alias>
-            <alias binding="strong">
-              <family>ui-monospace</family>
-              <prefer><family>Noto Sans Mono</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>monospace</family>
-              <prefer>
-                <family>Noto Sans Mono</family>
-                <family>Noto Sans Mono CJK SC</family>
-                <family>Noto Color Emoji</family>
-              </prefer>
-            </alias>
-            <alias binding="strong">
-              <family>emoji</family>
-              <prefer><family>Noto Color Emoji</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>Apple Color Emoji</family>
-              <prefer><family>Noto Color Emoji</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>Segoe UI Emoji</family>
-              <prefer><family>Noto Color Emoji</family></prefer>
             </alias>
             <alias binding="strong">
               <family>Segoe UI Symbol</family>
