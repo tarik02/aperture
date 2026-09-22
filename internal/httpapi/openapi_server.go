@@ -150,14 +150,16 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 // keeps this in step with the spec.
 var openAPIRoutesWithRequestBody = map[string]map[string]struct{}{
 	http.MethodPost: {
-		"/api/admin/tenants":                          {},
-		"/api/admin/users":                            {},
-		"/api/admin/tokens":                           {},
-		"/api/tenant/tokens":                          {},
-		"/api/sessions":                               {},
-		"/api/sessions/bulk":                          {},
-		"/api/sessions/:sessionId/files/download-url": {},
-		"/api/sessions/:sessionId/promote":            {},
+		"/api/admin/tenants":                  {},
+		"/api/admin/users":                    {},
+		"/api/admin/tokens":                   {},
+		"/api/tenant/tokens":                  {},
+		"/api/sessions":                       {},
+		"/api/sessions/bulk":                  {},
+		"/api/sessions/:sessionId/recordings": {},
+		"/api/sessions/:sessionId/recordings/:recordingId/retarget": {},
+		"/api/sessions/:sessionId/files/download-url":               {},
+		"/api/sessions/:sessionId/promote":                          {},
 	},
 	http.MethodPatch: {
 		"/api/admin/tenants/:tenantId": {},
@@ -487,6 +489,42 @@ func (s openAPIServer) SetSessionCursor(ctx context.Context, _ generated.SetSess
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) ListSessionRecordings(ctx context.Context, _ generated.ListSessionRecordingsRequestObject) (generated.ListSessionRecordingsResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.listSessionRecordings(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) CreateSessionRecording(ctx context.Context, _ generated.CreateSessionRecordingRequestObject) (generated.CreateSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) GetSessionRecording(ctx context.Context, _ generated.GetSessionRecordingRequestObject) (generated.GetSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.getSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) RetargetSessionRecording(ctx context.Context, _ generated.RetargetSessionRecordingRequestObject) (generated.RetargetSessionRecordingResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.retargetSessionRecording(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) StopSessionRecording(ctx context.Context, _ generated.StopSessionRecordingRequestObject) (generated.StopSessionRecordingResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -521,9 +559,9 @@ func (s openAPIServer) RotateCollaborationCapability(ctx context.Context, reques
 	}
 	var role session.CollaborationRole
 	switch request.Role {
-	case generated.Editor:
+	case generated.RotateCollaborationCapabilityParamsRoleEditor:
 		role = session.CollaborationRoleEditor
-	case generated.Viewer:
+	case generated.RotateCollaborationCapabilityParamsRoleViewer:
 		role = session.CollaborationRoleViewer
 	default:
 		return nil, validationError("invalid collaboration role")
@@ -788,6 +826,22 @@ func (openAPIPassthroughResponse) VisitGetSessionCursorResponse(http.ResponseWri
 }
 
 func (openAPIPassthroughResponse) VisitSetSessionCursorResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitListSessionRecordingsResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitGetSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitRetargetSessionRecordingResponse(http.ResponseWriter) error {
 	return nil
 }
 
