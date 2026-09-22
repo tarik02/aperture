@@ -11,7 +11,6 @@ import (
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
-	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/traefik"
 )
@@ -23,13 +22,12 @@ type OverlayClient interface {
 
 // Service runs garbage collection for sessions and snapshots.
 type Service struct {
-	cfg          config.Config
-	repo         *db.Repository
-	browser      *supervisor.Browser
-	overlay      OverlayClient
-	traefik      traefik.Reconciler
-	mediaCleaner session.MediaSessionCleaner
-	now          func() time.Time
+	cfg     config.Config
+	repo    *db.Repository
+	browser *supervisor.Browser
+	overlay OverlayClient
+	traefik traefik.Reconciler
+	now     func() time.Time
 }
 
 // NewService constructs a GC service.
@@ -132,9 +130,6 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	}
 	sessionRow = latest
 
-	if s.mediaCleaner != nil {
-		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
-	}
 	if sessionRow.Status == db.SessionStatusRunning {
 		if err := s.browser.Stop(ctx, sessionRow.ID); err != nil {
 			return false, err
@@ -159,9 +154,6 @@ func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now
 	sessionRow.SuspendedAt = nil
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return false, err
-	}
-	if s.mediaCleaner != nil {
-		s.mediaCleaner.CloseSessionMedia(sessionRow.ID)
 	}
 	return true, nil
 }
@@ -229,11 +221,6 @@ func (s *Service) removeSessionArtifacts(sessionRow *db.Session) error {
 		return fmt.Errorf("remove session artifacts: %w", err)
 	}
 	return nil
-}
-
-// SetMediaSessionCleaner configures cleanup for in-memory media state.
-func (s *Service) SetMediaSessionCleaner(cleaner session.MediaSessionCleaner) {
-	s.mediaCleaner = cleaner
 }
 
 func (s *Service) collectSnapshot(ctx context.Context, snapshotRow *db.Snapshot, now time.Time) (bool, error) {

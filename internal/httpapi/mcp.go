@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aperture/aperture/internal/agentbrowser"
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
+	"github.com/aperture/aperture/internal/playwrightmcp"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
@@ -52,13 +52,6 @@ func (s *Server) initMCPHandler() {
 	if !s.Config.MCPEnabled || s.mcpHandler != nil {
 		return
 	}
-	s.agentBrowser = agentbrowser.NewManager(s.Config.AgentBrowserIdleTimeout, s.Logger)
-	if s.Sessions != nil {
-		s.Sessions.SetMediaSessionCleaner(s.agentBrowser)
-	}
-	if s.GC != nil {
-		s.GC.SetMediaSessionCleaner(s.agentBrowser)
-	}
 	streamable := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		authn, ok := r.Context().Value(mcpContextKey{}).(mcpAuth)
 		if !ok {
@@ -92,11 +85,11 @@ func (s *Server) mcp(c *gin.Context) {
 		mcpHTTPError(c, http.StatusUnauthorized, err)
 		return
 	}
-	profileValue := strings.TrimSpace(c.Request.URL.Query().Get("agentBrowserTools"))
+	profileValue := strings.TrimSpace(c.Request.URL.Query().Get("browserTools"))
 	if profileValue == "" {
-		profileValue = s.Config.AgentBrowserToolsDefault
+		profileValue = s.Config.BrowserToolsDefault
 	}
-	profiles, err := agentbrowser.ParseProfiles(profileValue)
+	profiles, err := playwrightmcp.ParseProfiles(profileValue)
 	if err != nil {
 		mcpHTTPError(c, http.StatusBadRequest, fmt.Errorf("invalid_profile: %w", err))
 		return
@@ -130,11 +123,11 @@ func mcpIdentity(value mcpAuth) string {
 }
 
 func (s *Server) validateMCPProfile(r *http.Request) error {
-	profile := strings.TrimSpace(r.URL.Query().Get("agentBrowserTools"))
+	profile := strings.TrimSpace(r.URL.Query().Get("browserTools"))
 	if profile == "" {
 		return nil
 	}
-	if _, err := agentbrowser.ParseProfiles(profile); err != nil {
+	if _, err := playwrightmcp.ParseProfiles(profile); err != nil {
 		return fmt.Errorf("invalid_profile: %w", err)
 	}
 	return nil
@@ -608,30 +601,26 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.revoke", Description: "Revoke an API bearer token."}, s.mcpTokensRevoke)
 	}
 	canProxy := a.sessionOnly || (a.principal != nil && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite))
-	tools, err := agentbrowser.ToolsForProfilesMetadata(a.profiles)
+	tools, err := playwrightmcp.ToolsForProfilesMetadata(a.profiles)
 	if canProxy && err == nil {
 		for name, definition := range tools {
-			if name == "agent_browser_close" || name == "sessions.status" || name == "sessions.connection" {
-				continue
-			}
-			tool := adaptAgentBrowserTool(definition, a.pathBound)
-			server.AddTool(tool, s.agentBrowserToolHandler(a, name, a.pathBound))
+			tool := adaptPlaywrightTool(definition, a.pathBound)
+			server.AddTool(tool, s.playwrightToolHandler(a, name, a.pathBound))
 		}
 	}
 	return server
 }
 
-func adaptAgentBrowserTool(definition agentbrowser.Tool, pathBound bool) *mcp.Tool {
+func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Tool {
 	schema := make(map[string]any)
 	encoded, _ := json.Marshal(definition.InputSchema)
 	_ = json.Unmarshal(encoded, &schema)
 	properties, _ := schema["properties"].(map[string]any)
-	delete(properties, "session")
 	delete(properties, "sessionId")
 	required, _ := schema["required"].([]any)
 	filteredRequired := required[:0]
 	for _, item := range required {
-		if item != "session" && item != "sessionId" {
+		if item != "sessionId" {
 			filteredRequired = append(filteredRequired, item)
 		}
 	}
@@ -666,16 +655,13 @@ func adaptAgentBrowserTool(definition agentbrowser.Tool, pathBound bool) *mcp.To
 	return tool
 }
 
-func (s *Server) agentBrowserToolHandler(a mcpAuth, name string, pathBound bool) mcp.ToolHandler {
+func (s *Server) playwrightToolHandler(a mcpAuth, name string, pathBound bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		arguments := map[string]any{}
 		if len(req.Params.Arguments) > 0 {
 			if err := json.Unmarshal(req.Params.Arguments, &arguments); err != nil {
 				return nil, mcpToolError("invalid_arguments", err)
 			}
-		}
-		if _, ok := arguments["session"]; ok {
-			return nil, mcpToolError("invalid_arguments", errors.New("agent-browser session cannot be overridden"))
 		}
 		sessionID := a.sessionID
 		if !pathBound {
@@ -690,15 +676,11 @@ func (s *Server) agentBrowserToolHandler(a mcpAuth, name string, pathBound bool)
 		if err != nil {
 			return nil, err
 		}
-		cdpPort, release, err := s.Sessions.AcquireCDPPort(ctx, view.Session.TenantID, sessionID)
+		wrapperPort, controlToken, release, err := s.Sessions.AcquireWrapperControl(ctx, view.Session.TenantID, sessionID)
 		if err != nil {
 			return nil, mcpToolError("session_unavailable", err)
 		}
 		defer release()
-		wrapperPort, err := s.Sessions.RunningWrapperPort(ctx, view.Session.TenantID, sessionID)
-		if err != nil {
-			return nil, mcpToolError("session_unavailable", err)
-		}
 		releaseLease, err := acquireAutomationLease(ctx, wrapperPort, view.SessionToken, automationActorName(a))
 		if err != nil {
 			code := "session_unavailable"
@@ -708,12 +690,60 @@ func (s *Server) agentBrowserToolHandler(a mcpAuth, name string, pathBound bool)
 			return nil, mcpToolError(code, err)
 		}
 		defer releaseLease()
-		result, err := s.agentBrowser.Call(ctx, sessionID, fmt.Sprintf("http://127.0.0.1:%d", cdpPort), name, arguments)
+		result, err := callPlaywright(ctx, wrapperPort, controlToken, name, arguments, s.Config.ToolOutputMaxBytes)
 		if err != nil {
-			return nil, mcpToolError("agent_browser_error", err)
+			return nil, mcpToolError("playwright_error", err)
 		}
 		return result, nil
 	}
+}
+
+func callPlaywright(
+	ctx context.Context,
+	port int,
+	controlToken string,
+	name string,
+	arguments map[string]any,
+	maxResponseBytes int64,
+) (*mcp.CallToolResult, error) {
+	payload, err := json.Marshal(map[string]any{"name": name, "arguments": arguments})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d/automation/playwright", port),
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+controlToken)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("call Playwright MCP: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if maxResponseBytes <= 0 {
+		maxResponseBytes = 16 << 20
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read Playwright MCP response: %w", err)
+	}
+	if int64(len(body)) > maxResponseBytes {
+		return nil, fmt.Errorf("playwright MCP response exceeds %d bytes", maxResponseBytes)
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("playwright MCP returned status %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var result mcp.CallToolResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("decode Playwright MCP response: %w", err)
+	}
+	return &result, nil
 }
 
 func automationActorName(value mcpAuth) string {

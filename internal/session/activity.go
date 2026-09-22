@@ -117,6 +117,35 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 	return port, s.releaseInhibitor(sessionRow.ID, release), nil
 }
 
+// AcquireWrapperControl wakes a tenant-owned session and returns its internal
+// wrapper endpoint while holding an activity inhibitor.
+func (s *Service) AcquireWrapperControl(ctx context.Context, tenantID, sessionID string) (int, string, func(), error) {
+	unlock := s.repo.LockSession(sessionID)
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		unlock()
+		return 0, "", nil, err
+	}
+	release := s.acquireInhibitor(sessionID)
+	unlock()
+
+	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
+	if err != nil {
+		release()
+		return 0, "", nil, err
+	}
+	port, controlToken, err := wrapperControl(sessionRow)
+	if err != nil {
+		release()
+		return 0, "", nil, err
+	}
+	if err := s.touchConnected(ctx, sessionRow); err != nil {
+		release()
+		return 0, "", nil, err
+	}
+	return port, controlToken, s.releaseInhibitor(sessionRow.ID, release), nil
+}
+
 // SuspendIdleSessions stops running sessions that have no recent connection activity.
 func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
 	cutoff := s.now().UTC().Add(-defaultSuspendAfter)
@@ -399,7 +428,6 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 		}
 	}
 
-	_ = s.retireMediaSession(latest.ID)
 	if err := s.browser.Stop(ctx, latest.ID); err != nil {
 		return false, err
 	}
@@ -416,7 +444,6 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	if err := s.repo.UpdateSession(ctx, latest); err != nil {
 		return false, err
 	}
-	s.closeMediaSession(latest.ID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return false, err
 	}
