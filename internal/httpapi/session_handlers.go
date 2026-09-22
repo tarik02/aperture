@@ -88,7 +88,7 @@ func toICEServerResponses(servers []config.WebRTCICEServer) []iceServerResponse 
 	return responses
 }
 
-func (s *Server) createSession(c *gin.Context) {
+func (s *Server) createSession(c *gin.Context, waitForReady bool) {
 	if s.Sessions == nil {
 		WriteError(c, errSessionServiceUnavailable)
 		return
@@ -112,7 +112,11 @@ func (s *Server) createSession(c *gin.Context) {
 		}
 	}
 
-	view, err := s.Sessions.Create(c.Request.Context(), session.CreateInput{
+	create := s.Sessions.CreateAsync
+	if waitForReady {
+		create = s.Sessions.Create
+	}
+	view, err := create(c.Request.Context(), session.CreateInput{
 		TenantID:         tenantIDFromContext(c),
 		BaseSnapshotName: req.BaseSnapshotName,
 		Label:            req.Label,

@@ -29,6 +29,30 @@ func (s *Service) ValidateSessionTokenForwardAuth(ctx context.Context, routeSess
 }
 
 func (s *Service) authorizedSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, error) {
+	sessionRow, err := s.sessionTokenSession(ctx, routeSessionID, authorization)
+	if err != nil {
+		return nil, err
+	}
+	if sessionRow.Status != db.SessionStatusRunning && sessionRow.Status != db.SessionStatusSuspended {
+		return nil, ErrNotRunning
+	}
+	return sessionRow, nil
+}
+
+func (s *Service) authorizedUploadAuditSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, error) {
+	sessionRow, err := s.sessionTokenSession(ctx, routeSessionID, authorization)
+	if err != nil {
+		return nil, err
+	}
+	switch sessionRow.Status {
+	case db.SessionStatusCreating, db.SessionStatusRunning, db.SessionStatusSuspended:
+		return sessionRow, nil
+	default:
+		return nil, ErrNotRunning
+	}
+}
+
+func (s *Service) sessionTokenSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, error) {
 	routeSessionID = strings.TrimSpace(routeSessionID)
 	if routeSessionID == "" {
 		return nil, ErrNotFound
@@ -67,9 +91,6 @@ func (s *Service) authorizedSession(ctx context.Context, routeSessionID, authori
 	}
 	if sessionRow == nil {
 		return nil, ErrNotFound
-	}
-	if sessionRow.Status != db.SessionStatusRunning && sessionRow.Status != db.SessionStatusSuspended {
-		return nil, ErrNotRunning
 	}
 	if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {
 		return nil, ErrExpired

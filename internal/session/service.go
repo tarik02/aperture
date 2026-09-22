@@ -116,6 +116,37 @@ type SessionMediaView struct {
 
 // Create creates and starts a browser session.
 func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, error) {
+	return s.create(ctx, input, nil)
+}
+
+// CreateAsync creates a session record and starts its browser in the background.
+func (s *Service) CreateAsync(ctx context.Context, input CreateInput) (*SessionView, error) {
+	type createResult struct {
+		view *SessionView
+		err  error
+	}
+
+	created := make(chan createResult, 1)
+	go func() {
+		notified := false
+		view, err := s.create(context.WithoutCancel(ctx), input, func(view *SessionView) {
+			notified = true
+			created <- createResult{view: view}
+		})
+		if !notified {
+			created <- createResult{view: view, err: err}
+		}
+	}()
+
+	result := <-created
+	return result.view, result.err
+}
+
+func (s *Service) create(
+	ctx context.Context,
+	input CreateInput,
+	onCreated func(*SessionView),
+) (*SessionView, error) {
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
 		return nil, err
 	}
@@ -218,6 +249,16 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 
 	if err := s.replaceTags(ctx, sessionID, input.Tags); err != nil {
 		return nil, err
+	}
+	if onCreated != nil {
+		onCreated(&SessionView{
+			Session:          *sessionRow,
+			Tags:             input.Tags,
+			BaseSnapshotName: baseSnapshotName,
+			CDPURL:           s.cdpURL(sessionID),
+			SessionToken:     rawSessionToken,
+			Media:            s.sessionMediaView(*sessionRow),
+		})
 	}
 
 	if err := s.mountOverlay(ctx, sessionID, baseSnapshotID); err != nil {
@@ -809,7 +850,7 @@ type UploadedFileEvent struct {
 }
 
 func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authorization string, files []UploadedFileEvent, actorKind, clientIP string) error {
-	sessionRow, err := s.authorizedSession(ctx, sessionID, authorization)
+	sessionRow, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization)
 	if err != nil {
 		return err
 	}
@@ -839,7 +880,7 @@ func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authoriza
 }
 
 func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authorization string) ([]UploadedFileEvent, error) {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization); err != nil {
 		return nil, err
 	}
 	events, err := s.repo.ListEventsForResourceType(ctx, "session", sessionID, "session.file_upload_pending")
@@ -861,14 +902,14 @@ func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authori
 }
 
 func (s *Service) FinalizeFilesUploaded(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.FinalizeEvents(ctx, "session", sessionID, "session.file_upload_pending", "session.file_uploaded", "file uploaded", eventIDs)
 }
 
 func (s *Service) CancelPendingFileUploads(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.DeletePendingEvents(ctx, "session", sessionID, "session.file_upload_pending", eventIDs)
@@ -1006,6 +1047,16 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 
 // ReconcileStartup aligns DB session state with systemd and runtime files after restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
+	creating, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusCreating)
+	if err != nil {
+		return err
+	}
+	for _, sessionRow := range creating {
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found interrupted session creation", nil); err != nil {
+			return err
+		}
+	}
+
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
 		return err

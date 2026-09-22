@@ -548,10 +548,15 @@ paths:
               operator: non_empty
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed, browser_initialization_failed]
-      description: Starts a browser with a retained overlay, then optionally imports browser storage and replaces the startup page with initial browser targets. Imported storage overlays the base snapshot. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
+      description: Starts a browser with a retained overlay, then optionally imports browser storage and replaces the startup page with initial browser targets. Imported storage overlays the base snapshot. Set `waitForReady=false` to receive the session and its credentials in the `creating` state while startup continues. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
+      parameters:
+        - name: waitForReady
+          in: query
+          description: Wait for browser startup and state restoration before returning. Defaults to true.
+          schema: {type: boolean, default: true}
       requestBody: {$ref: '#/components/requestBodies/CreateSession'}
       responses:
-        '201': {description: Created session, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
+        '201': {description: Created session. Its status is `creating` when `waitForReady=false` and startup is still in progress., content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/bulk:
     parameters:

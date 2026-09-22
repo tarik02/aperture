@@ -66,5 +66,6 @@ export function useSessionQuery(sessionId: string | undefined) {
       return apiClient.getSession(credentials, sessionId);
     },
     enabled: Boolean(sessionId && isTenantScopedQueryReady(credentials)),
+    refetchInterval: (query) => (query.state.data?.status === "creating" ? 500 : false),
   });
 }
