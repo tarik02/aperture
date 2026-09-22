@@ -12,6 +12,44 @@ permissions:
   pull-requests: read
 
 jobs:
+  companion:
+    name: companion extension
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Validate and package companion
+        shell: bash
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @aperture/ui format:check
+          pnpm --filter @aperture/ui lint
+          pnpm --filter @aperture/ui typecheck
+          pnpm --filter @aperture/companion format:check
+          pnpm --filter @aperture/companion lint
+          pnpm --filter @aperture/companion typecheck
+          pnpm --filter @aperture/companion build
+          cd extensions/aperture-companion/dist
+          zip -qr ../aperture-companion.zip .
+
+      - name: Upload companion
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: aperture-companion
+          path: extensions/aperture-companion/aperture-companion.zip
+          if-no-files-found: error
+          retention-days: 14
+
   golangci-lint:
     name: golangci-lint
     runs-on: ubuntu-24.04

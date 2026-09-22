@@ -1,5 +1,6 @@
 packages:
   - backend/restore-worker
+  - extensions/aperture-companion
   - packages/*
   - web
 

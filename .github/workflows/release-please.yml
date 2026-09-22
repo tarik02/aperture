@@ -85,6 +85,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build companion extension
+        shell: bash
+        run: |
+          pnpm --filter @aperture/companion build
+          cd extensions/aperture-companion/dist
+          zip -qr "../aperture-companion_${{ needs.release-please.outputs.version }}.zip" .
+
+      - name: Upload companion extension
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release upload
+          "${{ needs.release-please.outputs.tag_name }}"
+          "extensions/aperture-companion/aperture-companion_${{ needs.release-please.outputs.version }}.zip"
+          --clobber
+
   docker:
     name: stable docker image
     needs: release-please

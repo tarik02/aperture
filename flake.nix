@@ -68,6 +68,14 @@
           || lib.hasPrefix "backend/restore-worker/node_modules/" rel
           || rel == "backend/restore-worker/dist"
           || lib.hasPrefix "backend/restore-worker/dist/" rel
+          || rel == "extensions/aperture-companion/node_modules"
+          || lib.hasPrefix "extensions/aperture-companion/node_modules/" rel
+          || rel == "extensions/aperture-companion/dist"
+          || lib.hasPrefix "extensions/aperture-companion/dist/" rel
+          || rel == "packages/api-client/node_modules"
+          || lib.hasPrefix "packages/api-client/node_modules/" rel
+          || rel == "packages/ui/node_modules"
+          || lib.hasPrefix "packages/ui/node_modules/" rel
           || rel == "web/node_modules"
           || lib.hasPrefix "web/node_modules/" rel
           || rel == "web/dist"
@@ -538,6 +546,48 @@
           else
             null;
 
+        apertureCompanion = pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
+          pname = "aperture-companion";
+          version = deployVersion;
+          inherit src;
+
+          pnpmDeps = pkgs.fetchPnpmDeps {
+            inherit (finalAttrs) pname version src;
+            pnpm = pnpmLatest;
+            fetcherVersion = 4;
+            pnpmWorkspaces = [
+              "@aperture/restore-worker"
+              "@aperture/browser-state"
+              "@aperture/api-client"
+              "@aperture/companion"
+              "@aperture/ui"
+              "@aperture/web"
+            ];
+            hash = "sha256-7FXRGcd0POpJJP8TfO8wcKgnWC1RggSoUyBmouE7bKo=";
+          };
+
+          nativeBuildInputs = [
+            pkgs.nodejs_22
+            pnpmLatest
+            pkgs.pnpmConfigHook
+          ];
+
+          env.CI = "true";
+
+          buildPhase = ''
+            runHook preBuild
+            pnpm --filter @aperture/companion build
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/share/aperture/aperture-companion
+            cp -R extensions/aperture-companion/dist/. $out/share/aperture/aperture-companion/
+            runHook postInstall
+          '';
+        });
+
         aperture =
           (buildGoModule (finalAttrs: {
             pname = "aperture";
@@ -561,10 +611,11 @@
                 "@aperture/restore-worker"
                 "@aperture/browser-state"
                 "@aperture/api-client"
+                "@aperture/companion"
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-KKmV1rMgzqmNWj8Sql/krf0hYSMP8SlVWS5WiJ9Jjuo=";
+              hash = "sha256-7FXRGcd0POpJJP8TfO8wcKgnWC1RggSoUyBmouE7bKo=";
             };
 
             nativeBuildInputs = [
@@ -1141,6 +1192,7 @@
         packages = {
           default = aperture;
           aperture = aperture;
+          aperture-companion = apertureCompanion;
           playwright-mcp = playwrightMCP;
           patched-weston = patchedWeston;
         }

@@ -6,5 +6,8 @@ node_modules/
 web/dist/
 web/.output/
 backend/restore-worker/dist/
+extensions/aperture-companion/dist/
+extensions/aperture-companion/public/icon-*.png
+extensions/aperture-companion/aperture-companion.zip
 .scaffold-tmp/
 .data/

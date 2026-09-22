@@ -75,6 +75,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build companion extension
+        shell: bash
+        run: |
+          pnpm --filter @aperture/companion build
+          cd extensions/aperture-companion/dist
+          zip -qr "../aperture-companion_${{ steps.version.outputs.version }}.zip" .
+
+      - name: Upload companion extension
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release upload
+          "v${{ steps.version.outputs.version }}"
+          "extensions/aperture-companion/aperture-companion_${{ steps.version.outputs.version }}.zip"
+          --clobber
+
   docker:
     name: nightly docker image
     needs: nightly

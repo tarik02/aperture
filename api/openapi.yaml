@@ -2002,6 +2002,10 @@ components:
           description: Cookie value. Never log this field.
         domain: {type: string, minLength: 1, example: .example.com}
         path: {type: string, pattern: '^/', example: /}
+        hostOnly:
+          type: boolean
+          default: false
+          description: Whether the cookie is scoped only to the exact domain instead of its subdomains.
         expires:
           type: number
           exclusiveMinimum: 0
