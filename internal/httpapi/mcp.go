@@ -341,13 +341,13 @@ type mcpSessionIDInput struct {
 type mcpRecordingStartInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
-	TargetID    string `json:"targetId"`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for a ready target; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
 }
 type mcpBoundRecordingStartInput struct {
-	TargetID    string `json:"targetId"`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for a ready target; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
@@ -359,6 +359,16 @@ type mcpRecordingInput struct {
 }
 type mcpBoundRecordingInput struct {
 	RecordingID string `json:"recordingId"`
+}
+type mcpRecordingRetargetInput struct {
+	TenantID    string `json:"tenantId,omitempty"`
+	SessionID   string `json:"sessionId"`
+	RecordingID string `json:"recordingId"`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for the ready destination; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
+}
+type mcpBoundRecordingRetargetInput struct {
+	RecordingID string `json:"recordingId"`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for the ready destination; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
 }
 type mcpRecordingOutput struct {
 	RecordingID       string `json:"recordingId"`
@@ -547,10 +557,11 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend this running session."}, s.mcpBoundSuspend)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for this session."}, s.mcpBoundCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings."}, s.mcpBoundCursorSet)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a recording pinned to one ready browser target."}, s.mcpBoundRecordingStart)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings for this session."}, s.mcpBoundRecordingsList)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording by ID."}, s.mcpBoundRecordingStatus)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID."}, s.mcpBoundRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready Aperture browser target through its Weston output and PipeWire/GStreamer capture pipeline."}, s.mcpBoundRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current Aperture browser targets for this session."}, s.mcpBoundRecordingsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current Aperture browser target by recording ID."}, s.mcpBoundRecordingStatus)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready Aperture browser target without starting a new logical recording."}, s.mcpBoundRecordingRetarget)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID and finalize its captured segments."}, s.mcpBoundRecordingStop)
 		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
@@ -578,10 +589,11 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings."}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a recording pinned to one ready browser target."}, s.mcpRecordingStart)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings for a session."}, s.mcpRecordingsList)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording by ID."}, s.mcpRecordingStatus)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID."}, s.mcpRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready Aperture browser target through its Weston output and PipeWire/GStreamer capture pipeline."}, s.mcpRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current Aperture browser targets for a session."}, s.mcpRecordingsList)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current Aperture browser target by recording ID."}, s.mcpRecordingStatus)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready Aperture browser target without starting a new logical recording."}, s.mcpRecordingRetarget)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID and finalize its captured segments."}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
