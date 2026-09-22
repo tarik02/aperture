@@ -148,6 +148,8 @@ Create returns `201`:
 
 Session reads may include `cdpUrl` and `sessionToken` while retained live access is available. Suspend, reopen, and session-token rotation return `{ "session": {...}, "cdpUrl": "...", "sessionToken": "..." }`; other mutations return `{ "session": {...} }`.
 
+Reopen applies only to retained `deleted` or `failed` sessions. Do not reopen a `suspended` session; live-session and browser MCP operations wake it automatically.
+
 Promotion body:
 
 ```json
