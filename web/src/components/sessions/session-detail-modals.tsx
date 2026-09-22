@@ -24,20 +24,20 @@ import {
   TagEditor,
   tagsToEntries,
   type TagEntry,
-} from "#/components/resources/tag-editor.tsx";
+} from "@aperture/ui/components/tag-editor";
 import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
-import type { Session } from "#/lib/api/schemas.ts";
+} from "@aperture/ui/components/dropdown-menu";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture/ui/components/tabs";
+import type { Session } from "@aperture/api-client";
 
 export type SessionDetailSection = "details" | "connection" | "events" | "tags";
 

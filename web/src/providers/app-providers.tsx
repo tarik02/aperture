@@ -4,8 +4,8 @@ import { ThemeProvider } from "next-themes";
 import { useState } from "react";
 import { AuthSessionProvider } from "#/components/auth-session-provider.tsx";
 import { PwaRegistration } from "#/components/pwa-registration.tsx";
-import { Toaster } from "#/components/ui/sonner.tsx";
-import { TooltipProvider } from "#/components/ui/tooltip.tsx";
+import { Toaster } from "@aperture/ui/components/sonner";
+import { TooltipProvider } from "@aperture/ui/components/tooltip";
 import { WindowControlsOverlayWatcher } from "#/features/window-controls-overlay/window-controls-overlay-watcher.tsx";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {

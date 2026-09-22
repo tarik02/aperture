@@ -1,6 +1,6 @@
 import { useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { SidebarProvider } from "#/components/ui/sidebar-provider.tsx";
+import { SidebarProvider } from "@aperture/ui/components/sidebar-provider";
 
 const StandardAppShell = lazy(() => import("#/components/standard-app-shell.tsx"));
 

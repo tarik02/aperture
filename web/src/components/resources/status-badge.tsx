@@ -1,5 +1,5 @@
-import type { SessionStatus } from "#/lib/api/schemas.ts";
-import { Badge } from "#/components/ui/badge.tsx";
+import type { SessionStatus } from "@aperture/api-client";
+import { Badge } from "@aperture/ui/components/badge";
 
 const statusVariant: Record<SessionStatus, "default" | "secondary" | "destructive" | "outline"> = {
   running: "default",

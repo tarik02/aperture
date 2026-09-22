@@ -1,6 +1,6 @@
 import { useRouterState } from "@tanstack/react-router";
-import { Separator } from "#/components/ui/separator.tsx";
-import { SidebarInset, SidebarTrigger } from "#/components/ui/sidebar.tsx";
+import { Separator } from "@aperture/ui/components/separator";
+import { SidebarInset, SidebarTrigger } from "@aperture/ui/components/sidebar";
 import { AppSidebar } from "#/components/app-sidebar.tsx";
 import { primaryNavItems } from "#/lib/navigation.ts";
 

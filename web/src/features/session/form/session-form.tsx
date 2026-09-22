@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { Button } from "#/components/ui/button.tsx";
-import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
-import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { DialogFooter, DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
 import {
   Select,
   SelectContent,
@@ -10,7 +10,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "#/components/ui/select.tsx";
+} from "@aperture/ui/components/select";
 import {
   Combobox,
   ComboboxContent,
@@ -19,15 +19,15 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxTrigger,
-} from "#/components/ui/combobox.tsx";
-import { TagEditor, entriesToTags } from "#/components/resources/tag-editor.tsx";
+} from "@aperture/ui/components/combobox";
+import { TagEditor, entriesToTags } from "@aperture/ui/components/tag-editor";
 import { BrowserArgsEditor } from "#/components/sessions/browser-args-editor.tsx";
 import { useCreateSessionMutation } from "#/features/session/session.mutations.ts";
 import { useBrowserChannelsQuery } from "#/features/browser/browser.queries.ts";
 import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
-import type { CreateSessionResponse } from "#/lib/api/schemas.ts";
-import { cn } from "#/lib/utils.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
+import type { CreateSessionResponse } from "@aperture/api-client";
+import { cn } from "@aperture/ui/utils";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
 import { useSessionFormStore } from "#/features/session/form/session-form.store.ts";
 

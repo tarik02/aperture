@@ -1,4 +1,4 @@
-import { Dialog, DialogContent } from "#/components/ui/dialog.tsx";
+import { Dialog, DialogContent } from "@aperture/ui/components/dialog";
 import { SessionPromoteForm } from "#/features/session/promote-form/session-promote-form.tsx";
 import { useSessionPromoteModalStore } from "#/features/session/promote-modal/session-promote-modal.store.ts";
 

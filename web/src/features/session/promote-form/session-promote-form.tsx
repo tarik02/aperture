@@ -1,6 +1,6 @@
 import { Pause } from "lucide-react";
 import { useMemo } from "react";
-import { Alert, AlertDescription, AlertTitle } from "#/components/ui/alert.tsx";
+import { Alert, AlertDescription, AlertTitle } from "@aperture/ui/components/alert";
 import {
   Autocomplete,
   AutocompleteContent,
@@ -10,14 +10,14 @@ import {
   AutocompleteList,
   AutocompleteTrigger,
   AutocompleteValue,
-} from "#/components/ui/autocomplete.tsx";
-import { Button } from "#/components/ui/button.tsx";
+} from "@aperture/ui/components/autocomplete";
+import { Button } from "@aperture/ui/components/button";
 import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
+} from "@aperture/ui/components/dialog";
 import {
   Field,
   FieldContent,
@@ -25,10 +25,10 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-} from "#/components/ui/field.tsx";
-import { Switch } from "#/components/ui/switch.tsx";
-import { Textarea } from "#/components/ui/textarea.tsx";
-import { TagEditor, entriesToTags, tagsToEntries } from "#/components/resources/tag-editor.tsx";
+} from "@aperture/ui/components/field";
+import { Switch } from "@aperture/ui/components/switch";
+import { Textarea } from "@aperture/ui/components/textarea";
+import { TagEditor, entriesToTags, tagsToEntries } from "@aperture/ui/components/tag-editor";
 import {
   usePromoteSessionMutation,
   useSuspendSessionMutation,
@@ -37,7 +37,7 @@ import { useSessionPromoteFormStore } from "#/features/session/promote-form/sess
 import { useSessionPromoteModalStore } from "#/features/session/promote-modal/session-promote-modal.store.ts";
 import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
 
 export function SessionPromoteForm() {
   const mutation = usePromoteSessionMutation();

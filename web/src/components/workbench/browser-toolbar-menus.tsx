@@ -15,9 +15,9 @@ import {
   Share2,
   X,
 } from "lucide-react";
-import { Button } from "#/components/ui/button.tsx";
-import { Field, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Field, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -32,8 +32,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+} from "@aperture/ui/components/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 import {
   createViewportPreset,
   formatViewportScale,

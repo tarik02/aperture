@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarClock, Check, ChevronsUpDown } from "lucide-react";
-import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Badge } from "@aperture/ui/components/badge";
+import { Button } from "@aperture/ui/components/button";
 import {
   Combobox,
   ComboboxChip,
@@ -16,13 +16,13 @@ import {
   ComboboxList,
   ComboboxValue,
   useComboboxAnchor,
-} from "#/components/ui/combobox.tsx";
-import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
-import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "#/components/ui/input-group.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
+} from "@aperture/ui/components/combobox";
+import { DialogFooter, DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@aperture/ui/components/input-group";
+import { Input } from "@aperture/ui/components/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@aperture/ui/components/popover";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
 import {
   Select,
   SelectContent,
@@ -30,20 +30,20 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "#/components/ui/select.tsx";
+} from "@aperture/ui/components/select";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
 import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import type { ApiCredentials } from "#/lib/api/client.ts";
+import type { ApiCredentials } from "@aperture/api-client";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
 import { adminScopeOptions, tenantScopeOptions, type ScopeOption } from "#/lib/scopes.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
-import type { ResourceGrant } from "#/lib/api/schemas.ts";
+import type { ResourceGrant } from "@aperture/api-client";
 
 const AUTHORITY_OPTIONS = [
   { value: "tenant", label: "Tenant" },

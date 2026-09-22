@@ -1,7 +1,7 @@
-import { Button } from "#/components/ui/button.tsx";
-import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
-import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { DialogFooter, DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
 import {
   useCreateTenantMutation,
   useUpdateTenantMutation,

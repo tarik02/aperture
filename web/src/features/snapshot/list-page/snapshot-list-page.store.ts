@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { SnapshotDetailSection } from "#/components/snapshots/snapshot-detail-modals.tsx";
 import type { DeletedFilterValue } from "#/lib/api/query-keys.ts";
-import type { Snapshot } from "#/lib/api/schemas.ts";
+import type { Snapshot } from "@aperture/api-client";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 
 export type SnapshotConfirmAction =

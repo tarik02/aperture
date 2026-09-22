@@ -12,15 +12,15 @@ import {
   TableSkeletonRows,
 } from "#/components/resources/infinite-table-shell.tsx";
 import { DeletedBadge } from "#/components/resources/status-badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Checkbox } from "#/components/ui/checkbox.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Checkbox } from "@aperture/ui/components/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
+} from "@aperture/ui/components/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -32,7 +32,7 @@ import {
   stickyTableEndHeaderClassName,
   stickyTableStartCellClassName,
   stickyTableStartHeaderClassName,
-} from "#/components/ui/table.tsx";
+} from "@aperture/ui/components/table";
 import {
   useDeleteTenantMutation,
   useRestoreTenantMutation,
@@ -40,8 +40,8 @@ import {
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { formatTimestamp } from "#/lib/format.ts";
-import { apiClient } from "#/lib/api/client.ts";
-import type { Tenant } from "#/lib/api/schemas.ts";
+import { apiClient } from "@aperture/api-client";
+import type { Tenant } from "@aperture/api-client";
 import { useTenantFormStore } from "#/features/tenant/form/tenant-form.store.ts";
 import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-form-modal.store.ts";
 import { useTenantListPageStore } from "#/features/tenant/list-page/tenant-list-page.store.ts";

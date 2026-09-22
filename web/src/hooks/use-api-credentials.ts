@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ApiCredentials } from "#/lib/api/client.ts";
+import type { ApiCredentials } from "@aperture/api-client";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 export function useApiCredentials(): ApiCredentials | null {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BehaviorSubject, Subject, type Observable } from "rxjs";
 import { z } from "zod";
-import type { ApiCredentials } from "#/lib/api/client.ts";
-import type { Recording } from "#/lib/api/schemas.ts";
+import type { ApiCredentials } from "@aperture/api-client";
+import type { Recording } from "@aperture/api-client";
 import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 import { evdevKeycodeByCode } from "#/lib/control/input-keycodes.ts";
 import { windowsVirtualKeyCodeForCodeOrKey } from "#/lib/control/keyboard.ts";

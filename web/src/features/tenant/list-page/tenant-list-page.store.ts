@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { DeletedFilterValue } from "#/lib/api/query-keys.ts";
-import type { Tenant } from "#/lib/api/schemas.ts";
+import type { Tenant } from "@aperture/api-client";
 
 export type TenantConfirmAction =
   | { kind: "batch-delete" }

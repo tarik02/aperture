@@ -8,10 +8,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
-} from "#/components/ui/sidebar.tsx";
+} from "@aperture/ui/components/sidebar";
 import { useRecentSessionsStore } from "#/features/session/recent-sessions.store.ts";
 import { useSessionsBulkQuery } from "#/features/session/session.queries.ts";
-import type { Session } from "#/lib/api/schemas.ts";
+import type { Session } from "@aperture/api-client";
 
 type RecentSessionsSidebarGroupProps = {
   pathname: string;

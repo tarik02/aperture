@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "#/components/ui/empty.tsx";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@aperture/ui/components/empty";
 
 type PagePlaceholderProps = {
   title: string;
