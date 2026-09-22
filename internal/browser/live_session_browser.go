@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -30,21 +32,28 @@ type liveSessionBrowser struct {
 	mu     sync.Mutex
 	client *liveSessionCDP
 
-	stateMu         sync.Mutex
-	observedClient  *liveSessionCDP
-	observedTargets map[string]string
-	targetBySession map[string]string
-	attaching       map[string]struct{}
-	loading         map[string]bool
+	stateMu                      sync.Mutex
+	observedClient               *liveSessionCDP
+	observedTargets              map[string]string
+	targetBySession              map[string]string
+	attaching                    map[string]struct{}
+	loading                      map[string]bool
+	initialOrder                 map[string]int
+	initialActiveID              string
+	fetchWaiters                 map[string]chan json.RawMessage
+	initialSessionStorageScripts map[string]map[string]string
 }
 
 func newLiveSessionBrowser(runtime *wrapperRuntime) *liveSessionBrowser {
 	return &liveSessionBrowser{
-		runtime:         runtime,
-		observedTargets: make(map[string]string),
-		targetBySession: make(map[string]string),
-		attaching:       make(map[string]struct{}),
-		loading:         make(map[string]bool),
+		runtime:                      runtime,
+		observedTargets:              make(map[string]string),
+		targetBySession:              make(map[string]string),
+		attaching:                    make(map[string]struct{}),
+		loading:                      make(map[string]bool),
+		initialOrder:                 make(map[string]int),
+		fetchWaiters:                 make(map[string]chan json.RawMessage),
+		initialSessionStorageScripts: make(map[string]map[string]string),
 	}
 }
 
@@ -83,7 +92,21 @@ func (browser *liveSessionBrowser) targets() ([]liveSessionTarget, error) {
 		}
 		targets = append(targets, resolved)
 	}
+	browser.stateMu.Lock()
+	initialOrder := make(map[string]int, len(browser.initialOrder))
+	for targetID, index := range browser.initialOrder {
+		initialOrder[targetID] = index
+	}
+	browser.stateMu.Unlock()
 	sort.Slice(targets, func(left, right int) bool {
+		leftIndex, leftInitialized := initialOrder[targets[left].ID]
+		rightIndex, rightInitialized := initialOrder[targets[right].ID]
+		if leftInitialized != rightInitialized {
+			return leftInitialized
+		}
+		if leftInitialized && leftIndex != rightIndex {
+			return leftIndex < rightIndex
+		}
 		return targets[left].ID < targets[right].ID
 	})
 	return targets, nil
@@ -93,12 +116,35 @@ func (browser *liveSessionBrowser) firstSelectableTargetID(targets []liveSession
 	browser.runtime.mu.Lock()
 	hasTargetRegistry := browser.runtime.targets != nil
 	browser.runtime.mu.Unlock()
+	browser.stateMu.Lock()
+	initialActiveID := browser.initialActiveID
+	browser.stateMu.Unlock()
+	if initialActiveID != "" {
+		for _, target := range targets {
+			if target.ID == initialActiveID && (!hasTargetRegistry || target.Viewport != nil) {
+				return target.ID
+			}
+		}
+	}
 	for _, target := range targets {
 		if !hasTargetRegistry || target.Viewport != nil {
 			return target.ID
 		}
 	}
 	return ""
+}
+
+func (browser *liveSessionBrowser) setInitialTargetOrder(targetIDs []string, activeIndex int) {
+	browser.stateMu.Lock()
+	defer browser.stateMu.Unlock()
+	clear(browser.initialOrder)
+	for index, targetID := range targetIDs {
+		browser.initialOrder[targetID] = index
+	}
+	browser.initialActiveID = ""
+	if activeIndex >= 0 && activeIndex < len(targetIDs) {
+		browser.initialActiveID = targetIDs[activeIndex]
+	}
 }
 
 func (browser *liveSessionBrowser) createTarget(rawURL string) (string, error) {
@@ -118,6 +164,77 @@ func (browser *liveSessionBrowser) createTarget(rawURL string) (string, error) {
 		return "", err
 	}
 	return result.TargetID, nil
+}
+
+func (browser *liveSessionBrowser) createChildTarget(ctx context.Context, openerID string) (string, error) {
+	existing, err := browser.targetInfos()
+	if err != nil {
+		return "", err
+	}
+	existingIDs := make(map[string]struct{}, len(existing))
+	for _, target := range existing {
+		existingIDs[target.TargetID] = struct{}{}
+	}
+	var evaluation struct {
+		Result struct {
+			Value bool `json:"value"`
+		} `json:"result"`
+		ExceptionDetails *json.RawMessage `json:"exceptionDetails"`
+	}
+	if err := browser.withTarget(openerID, func(sessionID string) error {
+		return browser.call("Runtime.evaluate", map[string]any{
+			"expression":    fmt.Sprintf(`globalThis[Symbol.for(%q)]("about:blank", "_blank") !== null`, initialWindowOpenSymbol),
+			"returnByValue": true,
+			"userGesture":   true,
+		}, sessionID, &evaluation)
+	}); err != nil {
+		return "", err
+	}
+	if evaluation.ExceptionDetails != nil || !evaluation.Result.Value {
+		return "", errors.New("browser rejected the initial popup target")
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, liveSessionTargetReadyTimeout)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		infos, err := browser.targetInfos()
+		if err == nil {
+			matches := make([]string, 0, 1)
+			for _, target := range infos {
+				_, existed := existingIDs[target.TargetID]
+				if !existed && target.Type == "page" && target.OpenerID == openerID {
+					matches = append(matches, target.TargetID)
+				}
+			}
+			if len(matches) > 1 {
+				return "", errors.New("browser created multiple initial popup targets")
+			}
+			if len(matches) == 1 {
+				if err := browser.waitUntilTargetReady(matches[0]); err != nil {
+					_ = browser.closeTarget(matches[0])
+					return "", err
+				}
+				return matches[0], nil
+			}
+		}
+		select {
+		case <-waitCtx.Done():
+			return "", fmt.Errorf("initial popup target did not appear: %w", waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func (browser *liveSessionBrowser) targetInfos() ([]cdpTargetInfo, error) {
+	var result struct {
+		TargetInfos []cdpTargetInfo `json:"targetInfos"`
+	}
+	if err := browser.call("Target.getTargets", map[string]any{}, "", &result); err != nil {
+		return nil, err
+	}
+	return result.TargetInfos, nil
 }
 
 func (browser *liveSessionBrowser) closeTarget(targetID string) error {
@@ -291,10 +408,34 @@ func (browser *liveSessionBrowser) withTarget(targetID string, action func(strin
 	return action(attached.SessionID)
 }
 
+func (browser *liveSessionBrowser) waitForObservedTargetSession(ctx context.Context, targetID string) (string, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, liveSessionTargetReadyTimeout)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		browser.stateMu.Lock()
+		sessionID := browser.observedTargets[targetID]
+		browser.stateMu.Unlock()
+		if sessionID != "" {
+			return sessionID, nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return "", errors.New("created browser target did not get a persistent CDP attachment")
+		case <-ticker.C:
+		}
+	}
+}
+
 func (browser *liveSessionBrowser) call(method string, params any, sessionID string, result any) error {
+	return browser.callWithTimeout(liveSessionBrowserCommandTimeout, method, params, sessionID, result)
+}
+
+func (browser *liveSessionBrowser) callWithTimeout(timeout time.Duration, method string, params any, sessionID string, result any) error {
 	browser.mu.Lock()
 	defer browser.mu.Unlock()
-	ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionBrowserCommandTimeout)
+	ctx, cancel := context.WithTimeout(browser.runtime.ctx, timeout)
 	defer cancel()
 	if browser.client == nil {
 		client, err := connectLiveSessionCDP(ctx, browser.runtime.values.CDPPort)
@@ -323,6 +464,17 @@ func (browser *liveSessionBrowser) call(method string, params any, sessionID str
 	return nil
 }
 
+func (browser *liveSessionBrowser) send(method string, params any, sessionID string) error {
+	browser.mu.Lock()
+	defer browser.mu.Unlock()
+	ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionBrowserCommandTimeout)
+	defer cancel()
+	if browser.client == nil {
+		return errors.New("browser CDP connection is unavailable")
+	}
+	return browser.client.send(ctx, method, params, sessionID)
+}
+
 func (browser *liveSessionBrowser) close() {
 	browser.mu.Lock()
 	defer browser.mu.Unlock()
@@ -340,6 +492,7 @@ func (browser *liveSessionBrowser) startObserving(client *liveSessionCDP) {
 	clear(browser.targetBySession)
 	clear(browser.attaching)
 	clear(browser.loading)
+	clear(browser.fetchWaiters)
 	browser.stateMu.Unlock()
 	go browser.observe(client)
 }
@@ -394,9 +547,91 @@ func (browser *liveSessionBrowser) observeEvent(client *liveSessionCDP, event li
 		}
 	case "Page.frameStartedLoading":
 		browser.setSessionLoading(event.SessionID, true)
-	case "Page.frameStoppedLoading", "Page.loadEventFired", "Page.frameNavigated", "Page.navigatedWithinDocument":
+	case "Page.frameStoppedLoading", "Page.loadEventFired", "Page.navigatedWithinDocument":
 		browser.setSessionLoading(event.SessionID, false)
+	case "Page.frameNavigated":
+		browser.setSessionLoading(event.SessionID, false)
+		browser.restoreInitialFrameSessionStorage(event)
+	case "Fetch.requestPaused":
+		browser.stateMu.Lock()
+		waiter := browser.fetchWaiters[event.SessionID]
+		browser.stateMu.Unlock()
+		if waiter != nil {
+			select {
+			case waiter <- event.Params:
+			default:
+			}
+		}
 	}
+}
+
+func (browser *liveSessionBrowser) registerFetchWaiter(sessionID string) (<-chan json.RawMessage, func()) {
+	waiter := make(chan json.RawMessage, 1)
+	browser.stateMu.Lock()
+	browser.fetchWaiters[sessionID] = waiter
+	browser.stateMu.Unlock()
+	return waiter, func() {
+		browser.stateMu.Lock()
+		delete(browser.fetchWaiters, sessionID)
+		browser.stateMu.Unlock()
+	}
+}
+
+func (browser *liveSessionBrowser) registerInitialSessionStorageScripts(targetID string, scripts map[string]string) {
+	if len(scripts) == 0 {
+		return
+	}
+	browser.stateMu.Lock()
+	browser.initialSessionStorageScripts[targetID] = scripts
+	browser.stateMu.Unlock()
+}
+
+func (browser *liveSessionBrowser) restoreInitialFrameSessionStorage(event liveSessionCDPEvent) {
+	var params struct {
+		Frame struct {
+			URL string `json:"url"`
+		} `json:"frame"`
+	}
+	if json.Unmarshal(event.Params, &params) != nil {
+		return
+	}
+	parsed, err := url.Parse(params.Frame.URL)
+	if err != nil {
+		return
+	}
+	origin, err := canonicalHTTPOrigin(parsed.Scheme + "://" + parsed.Host)
+	if err != nil {
+		return
+	}
+
+	browser.stateMu.Lock()
+	targetID := browser.targetBySession[event.SessionID]
+	scripts := browser.initialSessionStorageScripts[targetID]
+	identifier := scripts[origin]
+	if identifier != "" {
+		delete(scripts, origin)
+		if len(scripts) == 0 {
+			delete(browser.initialSessionStorageScripts, targetID)
+		}
+	}
+	browser.stateMu.Unlock()
+	if identifier == "" {
+		return
+	}
+	go func() {
+		err := browser.call("Page.removeScriptToEvaluateOnNewDocument", map[string]any{
+			"identifier": identifier,
+		}, event.SessionID, nil)
+		if err == nil {
+			return
+		}
+		browser.stateMu.Lock()
+		if browser.initialSessionStorageScripts[targetID] == nil {
+			browser.initialSessionStorageScripts[targetID] = make(map[string]string)
+		}
+		browser.initialSessionStorageScripts[targetID][origin] = identifier
+		browser.stateMu.Unlock()
+	}()
 }
 
 func (browser *liveSessionBrowser) observeTarget(client *liveSessionCDP, targetID string) {
@@ -449,6 +684,7 @@ func (browser *liveSessionBrowser) removeObservedTarget(targetID string) {
 	delete(browser.observedTargets, targetID)
 	delete(browser.attaching, targetID)
 	delete(browser.loading, targetID)
+	delete(browser.initialSessionStorageScripts, targetID)
 	if sessionID != "" {
 		delete(browser.targetBySession, sessionID)
 	}

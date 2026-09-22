@@ -372,6 +372,63 @@ export type EventsListParams = {
 
 export type InitialBrowserTarget = {
   url: string;
+  sessionStorage?: Array<{ origin: string; entries: BrowserStorageEntry[] }>;
+  scroll?: { x: number; y: number };
+  documentState?: InitialBrowserDocumentState;
+  openerTargetIndex?: number;
+  active?: boolean;
+};
+
+export type InitialBrowserElementLocator = {
+  tag: string;
+  id?: string;
+  name?: string;
+  inputType?: string;
+  autocomplete?: string;
+  ariaLabel?: string;
+  placeholder?: string;
+  path: Array<{ tag: string; index: number }>;
+};
+
+export type InitialBrowserControlSelection = {
+  start: number;
+  end: number;
+  direction: "forward" | "backward" | "none";
+};
+
+export type InitialBrowserControlState = {
+  locator: InitialBrowserElementLocator;
+  value: string;
+  checked?: boolean;
+  selectedIndices?: number[];
+  selection?: InitialBrowserControlSelection;
+};
+
+export type InitialBrowserSelectionEndpoint = {
+  locator: InitialBrowserElementLocator;
+  nodePath: number[];
+  offset: number;
+};
+
+export type InitialBrowserDocumentState = {
+  version: 1;
+  windowName?: string;
+  historyState?: string;
+  controls: InitialBrowserControlState[];
+  contentEditables: Array<{ locator: InitialBrowserElementLocator; html: string }>;
+  scrollPositions: Array<{ locator: InitialBrowserElementLocator; x: number; y: number }>;
+  focus?: InitialBrowserElementLocator;
+  selection?: {
+    anchor: InitialBrowserSelectionEndpoint;
+    focus: InitialBrowserSelectionEndpoint;
+  };
+};
+
+export type BrowserStorageEntry = { name: string; value: string };
+
+export type InitialBrowserCookiePartitionKey = {
+  topLevelSite: string;
+  hasCrossSiteAncestor?: boolean;
 };
 
 export type InitialBrowserCookie = {
@@ -383,13 +440,61 @@ export type InitialBrowserCookie = {
   httpOnly?: boolean;
   secure?: boolean;
   sameSite?: "Strict" | "Lax" | "None";
+  partitionKey?: InitialBrowserCookiePartitionKey;
+};
+
+export type InitialIndexedDBKeyPath = {
+  kind: "none" | "string" | "array";
+  value?: string[];
+};
+
+export type InitialIndexedDBIndex = {
+  name: string;
+  keyPath: InitialIndexedDBKeyPath;
+  unique: boolean;
+  multiEntry: boolean;
+};
+
+export type InitialIndexedDBObjectStore = {
+  name: string;
+  keyPath: InitialIndexedDBKeyPath;
+  autoIncrement: boolean;
+  indexes: InitialIndexedDBIndex[];
+  records: Array<{ key: string; value: string }>;
+};
+
+export type InitialIndexedDBDatabase = {
+  name: string;
+  version: number;
+  objectStores: InitialIndexedDBObjectStore[];
+};
+
+export type InitialCacheStorageCache = {
+  name: string;
+  entries: Array<{
+    url: string;
+    requestHeaders: Record<string, string>;
+    responseHeaders: Record<string, string>;
+    responseStatus: number;
+    responseStatusText: string;
+    responseBody: string;
+  }>;
+};
+
+export type InitialOPFSFile = {
+  path: string;
+  body: string;
 };
 
 export type InitialBrowserStorageState = {
   cookies: InitialBrowserCookie[];
   origins: Array<{
     origin: string;
-    localStorage: Array<{ name: string; value: string }>;
+    ancestorOrigins?: string[];
+    localStorage: BrowserStorageEntry[];
+    indexedDB?: InitialIndexedDBDatabase[];
+    cacheStorage?: InitialCacheStorageCache[];
+    opfs?: InitialOPFSFile[];
   }>;
 };
 

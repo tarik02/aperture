@@ -87,6 +87,7 @@ type extensionWindowMessage struct {
 
 type cdpTargetInfo struct {
 	TargetID string `json:"targetId"`
+	OpenerID string `json:"openerId"`
 	Type     string `json:"type"`
 	Title    string `json:"title"`
 	URL      string `json:"url"`

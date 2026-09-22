@@ -15,12 +15,8 @@ func pushBrowserInitialization(
 	ctx context.Context,
 	wrapperPort int,
 	wrapperControlToken string,
-	input browser.SessionInitialization,
+	payload []byte,
 ) error {
-	payload, err := json.Marshal(input)
-	if err != nil {
-		return fmt.Errorf("encode browser initialization: %w", err)
-	}
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
@@ -52,4 +48,22 @@ func pushBrowserInitialization(
 		return fmt.Errorf("initialize browser: %s", failure.Error)
 	}
 	return fmt.Errorf("initialize browser: wrapper returned %s", response.Status)
+}
+
+func encodeBrowserInitialization(input browser.SessionInitialization) ([]byte, error) {
+	if input.Empty() {
+		return nil, nil
+	}
+
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(input); err != nil {
+		return nil, fmt.Errorf("encode browser initialization: %w", err)
+	}
+	payload := bytes.TrimSuffix(encoded.Bytes(), []byte{'\n'})
+	if len(payload) > browser.MaxSessionInitializationBytes {
+		return nil, ErrBrowserStateTooLarge
+	}
+	return payload, nil
 }
