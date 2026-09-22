@@ -72,6 +72,10 @@ type wrapperRecordingRequest struct {
 	Path        string               `json:"path"`
 }
 
+type wrapperRecordingRetargetRequest struct {
+	TargetID string `json:"targetId"`
+}
+
 func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
@@ -119,6 +123,28 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 			return
 		}
 		serveWrapperRecording(w, req, recording)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "retarget" && req.Method == http.MethodPost {
+		var body wrapperRecordingRetargetRequest
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeWrapperError(w, http.StatusBadRequest, "invalid retarget request")
+			return
+		}
+		if strings.TrimSpace(body.TargetID) == "" {
+			writeWrapperError(w, http.StatusBadRequest, "targetId is required")
+			return
+		}
+		recording, err := session.retargetRecording(req.Context(), parts[0], body.TargetID)
+		if err != nil {
+			if errors.Is(err, errWrapperRecordingNotFound) {
+				writeWrapperError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			writeWrapperError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeWrapperJSON(w, http.StatusOK, recording)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "content" && req.Method == http.MethodGet {
@@ -485,10 +511,64 @@ func (session *liveSession) replaceRecordingTargets(ctx context.Context, target 
 	return nil
 }
 
-func (session *liveSession) rotateRecordingTarget(ctx context.Context, recording *wrapperRecording, target wrapperTargetSnapshot, expectedTargetID string) error {
+func (session *liveSession) retargetRecording(ctx context.Context, recordingID, targetID string) (wrapperRecording, error) {
 	r := session.runtime
+	r.mu.Lock()
+	recording := session.recordings[recordingID]
+	registry := r.targets
+	r.mu.Unlock()
+	if recording == nil {
+		return wrapperRecording{}, errWrapperRecordingNotFound
+	}
+
 	recording.operationMu.Lock()
 	defer recording.operationMu.Unlock()
+	defer session.broadcastRecordings()
+
+	r.mu.Lock()
+	session.refreshRecordingLocked(recording)
+	if recording.Mode != wrapperRecordingModeTab {
+		status := *recording
+		r.mu.Unlock()
+		return status, errors.New("only tab recordings can be retargeted")
+	}
+	if recording.Status != wrapperRecordingRunning {
+		status := *recording
+		r.mu.Unlock()
+		return status, errors.New("only running recordings can be retargeted")
+	}
+	if recording.TargetID == targetID {
+		status := *recording
+		r.mu.Unlock()
+		return status, nil
+	}
+	expectedTargetID := recording.TargetID
+	r.mu.Unlock()
+
+	if registry == nil {
+		return wrapperRecording{}, errors.New("target registry is unavailable")
+	}
+	target, exists := registry.readyTarget(targetID)
+	if !exists {
+		return wrapperRecording{}, errors.New("target is not ready")
+	}
+	if err := session.rotateRecordingTargetLocked(ctx, recording, target, expectedTargetID, true); err != nil {
+		return wrapperRecording{}, err
+	}
+	r.mu.Lock()
+	status := *recording
+	r.mu.Unlock()
+	return status, nil
+}
+
+func (session *liveSession) rotateRecordingTarget(ctx context.Context, recording *wrapperRecording, target wrapperTargetSnapshot, expectedTargetID string) error {
+	recording.operationMu.Lock()
+	defer recording.operationMu.Unlock()
+	return session.rotateRecordingTargetLocked(ctx, recording, target, expectedTargetID, false)
+}
+
+func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, recording *wrapperRecording, target wrapperTargetSnapshot, expectedTargetID string, allowTabTargetChange bool) error {
+	r := session.runtime
 
 	r.mu.Lock()
 	session.refreshRecordingLocked(recording)
@@ -504,7 +584,7 @@ func (session *liveSession) rotateRecordingTarget(ctx context.Context, recording
 		r.mu.Unlock()
 		return nil
 	}
-	if recording.Mode == wrapperRecordingModeTab && recording.TargetID != target.TargetID {
+	if recording.Mode == wrapperRecordingModeTab && recording.TargetID != target.TargetID && !allowTabTargetChange {
 		r.mu.Unlock()
 		return errors.New("tab recording cannot switch targets")
 	}

@@ -9,10 +9,20 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/chromedp/cdproto"
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/fetch"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/cdproto/storage"
+	"github.com/chromedp/cdproto/target"
 )
 
 const browserStateImportTimeout = time.Minute
@@ -139,7 +149,33 @@ func (browser *liveSessionBrowser) restoreCookies(cookies []InitialCookie) error
 	if len(cookies) == 0 {
 		return nil
 	}
-	return browser.call("Storage.setCookies", map[string]any{"cookies": cookies}, "", nil)
+	params := make([]*network.CookieParam, 0, len(cookies))
+	for _, cookie := range cookies {
+		param := &network.CookieParam{
+			Name:     cookie.Name,
+			Value:    cookie.Value,
+			Domain:   cookie.Domain,
+			Path:     cookie.Path,
+			Secure:   cookie.Secure,
+			HTTPOnly: cookie.HTTPOnly,
+			SameSite: network.CookieSameSite(cookie.SameSite),
+		}
+		if cookie.Expires != nil {
+			seconds, fraction := math.Modf(*cookie.Expires)
+			expires := cdp.TimeSinceEpoch(time.Unix(int64(seconds), int64(fraction*float64(time.Second))).UTC())
+			param.Expires = &expires
+		}
+		if cookie.PartitionKey != nil {
+			param.PartitionKey = &network.CookiePartitionKey{
+				TopLevelSite:         cookie.PartitionKey.TopLevelSite,
+				HasCrossSiteAncestor: cookie.PartitionKey.HasCrossSiteAncestor,
+			}
+		}
+		params = append(params, param)
+	}
+	return browser.execute("", func(ctx context.Context) error {
+		return storage.SetCookies(params).Do(ctx)
+	})
 }
 
 const blankStorageDocument = "<!doctype html><meta charset=utf-8><title>Aperture storage import</title>"
@@ -164,59 +200,53 @@ func (browser *liveSessionBrowser) restoreOriginStorage(ctx context.Context, ori
 		return err
 	}
 	source := originStorageRestoreSource(encodedState)
-	return browser.withTarget(targetID, func(sessionID string) error {
-		if err := browser.call("Storage.clearDataForOrigin", map[string]any{
-			"origin":       canonicalOrigin,
-			"storageTypes": strings.Join(storageTypes, ","),
-		}, sessionID, nil); err != nil {
+	return browser.withTargetSessionTimeout(browserStateImportTimeout, targetID, func(sessionID target.SessionID, commandCtx context.Context) error {
+		if err := storage.ClearDataForOrigin(canonicalOrigin, strings.Join(storageTypes, ",")).Do(commandCtx); err != nil {
 			return fmt.Errorf("clear destination origin storage: %w", err)
 		}
 		waiter, unregister := browser.registerFetchWaiter(sessionID)
 		defer unregister()
-		if err := browser.call("Network.setBypassServiceWorker", map[string]any{"bypass": true}, sessionID, nil); err != nil {
+		if err := network.SetBypassServiceWorker(true).Do(commandCtx); err != nil {
 			return err
 		}
-		if err := browser.call("Fetch.enable", map[string]any{
-			"patterns": []map[string]any{{"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"}},
-		}, sessionID, nil); err != nil {
+		if err := fetch.Enable().WithPatterns([]*fetch.RequestPattern{{
+			URLPattern:   "*",
+			ResourceType: network.ResourceTypeDocument,
+			RequestStage: fetch.RequestStageRequest,
+		}}).Do(commandCtx); err != nil {
 			return err
 		}
-		defer func() { _ = browser.call("Fetch.disable", map[string]any{}, sessionID, nil) }()
+		defer func() { _ = fetch.Disable().Do(commandCtx) }()
 
-		if err := browser.send("Page.navigate", map[string]any{"url": canonicalOrigin}, sessionID); err != nil {
+		if err := browser.sendAsync(commandCtx, cdproto.MethodType(page.CommandNavigate), page.Navigate(canonicalOrigin), sessionID); err != nil {
 			return err
 		}
 
 		waitCtx, cancel := context.WithTimeout(ctx, browserStateImportTimeout)
 		defer cancel()
-		var paused json.RawMessage
+		var paused *fetch.EventRequestPaused
 		select {
 		case <-waitCtx.Done():
 			return errors.New("browser did not request the isolated origin document within 1 minute")
 		case paused = <-waiter:
 		}
-		var request struct {
-			RequestID string `json:"requestId"`
-		}
-		if err := json.Unmarshal(paused, &request); err != nil || request.RequestID == "" {
+		if paused == nil || paused.RequestID == "" {
 			return errors.New("browser returned an invalid intercepted origin request")
 		}
-		if err := browser.call("Fetch.fulfillRequest", map[string]any{
-			"requestId":    request.RequestID,
-			"responseCode": 200,
-			"responseHeaders": []map[string]string{
-				{"name": "Content-Type", "value": "text/html; charset=utf-8"},
-				{"name": "Cache-Control", "value": "no-store"},
-			},
-			"body": base64.StdEncoding.EncodeToString([]byte(blankStorageDocument)),
-		}, sessionID, nil); err != nil {
+		if err := fetch.FulfillRequest(paused.RequestID, http.StatusOK).
+			WithResponseHeaders([]*fetch.HeaderEntry{
+				{Name: "Content-Type", Value: "text/html; charset=utf-8"},
+				{Name: "Cache-Control", Value: "no-store"},
+			}).
+			WithBody(base64.StdEncoding.EncodeToString([]byte(blankStorageDocument))).
+			Do(commandCtx); err != nil {
 			return err
 		}
-		if err := browser.waitForTargetOrigin(waitCtx, sessionID, canonicalOrigin); err != nil {
+		if err := browser.waitForTargetOrigin(waitCtx, commandCtx, canonicalOrigin); err != nil {
 			return err
 		}
 
-		return browser.evaluateOriginStorage(sessionID, source, nil)
+		return browser.evaluateOriginStorage(commandCtx, source, nil)
 	})
 }
 
@@ -242,92 +272,84 @@ func (browser *liveSessionBrowser) restorePartitionedOriginStorage(ctx context.C
 		return err
 	}
 	source := originStorageRestoreSource(encodedState)
-	return browser.withTarget(targetID, func(sessionID string) error {
-		if err := browser.call("Page.enable", map[string]any{}, sessionID, nil); err != nil {
+	return browser.withTargetSessionTimeout(browserStateImportTimeout, targetID, func(sessionID target.SessionID, commandCtx context.Context) error {
+		if err := page.Enable().Do(commandCtx); err != nil {
 			return err
 		}
-		if err := browser.call("Network.setBypassServiceWorker", map[string]any{"bypass": true}, sessionID, nil); err != nil {
+		if err := network.SetBypassServiceWorker(true).Do(commandCtx); err != nil {
 			return err
 		}
 		waiter, unregister := browser.registerFetchWaiter(sessionID)
 		defer unregister()
-		if err := browser.call("Fetch.enable", map[string]any{
-			"patterns": []map[string]any{{"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"}},
-		}, sessionID, nil); err != nil {
+		if err := fetch.Enable().WithPatterns([]*fetch.RequestPattern{{
+			URLPattern:   "*",
+			ResourceType: network.ResourceTypeDocument,
+			RequestStage: fetch.RequestStageRequest,
+		}}).Do(commandCtx); err != nil {
 			return err
 		}
-		defer func() { _ = browser.call("Fetch.disable", map[string]any{}, sessionID, nil) }()
+		defer func() { _ = fetch.Disable().Do(commandCtx) }()
 
-		if err := browser.send("Page.navigate", map[string]any{"url": chain[0]}, sessionID); err != nil {
+		if err := browser.sendAsync(commandCtx, cdproto.MethodType(page.CommandNavigate), page.Navigate(chain[0]), sessionID); err != nil {
 			return err
 		}
 		waitCtx, cancel := context.WithTimeout(ctx, browserStateImportTimeout)
 		defer cancel()
 
-		frameID := ""
+		var frameID cdp.FrameID
 		for index, expectedOrigin := range chain {
-			var paused json.RawMessage
+			var paused *fetch.EventRequestPaused
 			select {
 			case <-waitCtx.Done():
 				return errors.New("browser did not request the partitioned storage document within 1 minute")
 			case paused = <-waiter:
 			}
-			var request struct {
-				RequestID string `json:"requestId"`
-				FrameID   string `json:"frameId"`
-				Request   struct {
-					URL string `json:"url"`
-				} `json:"request"`
-			}
-			if err := json.Unmarshal(paused, &request); err != nil || request.RequestID == "" || request.FrameID == "" {
+			if paused == nil || paused.RequestID == "" || paused.FrameID == "" || paused.Request == nil {
 				return errors.New("browser returned an invalid intercepted partition request")
 			}
-			requestURL, err := url.Parse(request.Request.URL)
+			requestURL, err := url.Parse(paused.Request.URL)
 			if err != nil {
-				return fmt.Errorf("browser requested invalid partition URL %q", request.Request.URL)
+				return fmt.Errorf("browser requested invalid partition URL %q", paused.Request.URL)
 			}
 			requestOrigin, err := canonicalHTTPOrigin(requestURL.Scheme + "://" + requestURL.Host)
 			if err != nil || requestOrigin != expectedOrigin {
-				return fmt.Errorf("browser requested unexpected partition origin %q", request.Request.URL)
+				return fmt.Errorf("browser requested unexpected partition origin %q", paused.Request.URL)
 			}
 			body := blankStorageDocument
 			if index+1 < len(chain) {
 				body = partitionStorageDocument(chain[index+1])
 			}
-			if err := browser.call("Fetch.fulfillRequest", map[string]any{
-				"requestId":    request.RequestID,
-				"responseCode": 200,
-				"responseHeaders": []map[string]string{
-					{"name": "Content-Type", "value": "text/html; charset=utf-8"},
-					{"name": "Cache-Control", "value": "no-store"},
-				},
-				"body": base64.StdEncoding.EncodeToString([]byte(body)),
-			}, sessionID, nil); err != nil {
+			if err := fetch.FulfillRequest(paused.RequestID, http.StatusOK).
+				WithResponseHeaders([]*fetch.HeaderEntry{
+					{Name: "Content-Type", Value: "text/html; charset=utf-8"},
+					{Name: "Cache-Control", Value: "no-store"},
+				}).
+				WithBody(base64.StdEncoding.EncodeToString([]byte(body))).
+				Do(commandCtx); err != nil {
 				return err
 			}
-			frameID = request.FrameID
+			frameID = paused.FrameID
 		}
 
-		contextID, err := browser.waitForFrameOrigin(waitCtx, sessionID, frameID, canonicalOrigin)
+		contextID, err := browser.waitForFrameOrigin(waitCtx, commandCtx, frameID, canonicalOrigin)
 		if err != nil {
 			return err
 		}
-		var storageKey struct {
+		var storageKeyResult struct {
 			StorageKey string `json:"storageKey"`
 		}
-		if err := browser.call("Storage.getStorageKeyForFrame", map[string]any{"frameId": frameID}, sessionID, &storageKey); err != nil {
+		if err := cdp.Execute(commandCtx, "Storage.getStorageKeyForFrame", struct {
+			FrameID cdp.FrameID `json:"frameId"`
+		}{FrameID: frameID}, &storageKeyResult); err != nil {
 			return fmt.Errorf("resolve destination storage partition: %w", err)
 		}
-		if storageKey.StorageKey == "" {
+		if storageKeyResult.StorageKey == "" {
 			return errors.New("browser omitted the destination storage partition key")
 		}
-		if err := browser.call("Storage.clearDataForStorageKey", map[string]any{
-			"storageKey":   storageKey.StorageKey,
-			"storageTypes": strings.Join(initialStorageTypes(origin), ","),
-		}, sessionID, nil); err != nil {
+		if err := storage.ClearDataForStorageKey(storageKeyResult.StorageKey, strings.Join(initialStorageTypes(origin), ",")).Do(commandCtx); err != nil {
 			return fmt.Errorf("clear destination storage partition: %w", err)
 		}
-		return browser.evaluateOriginStorage(sessionID, source, &contextID)
+		return browser.evaluateOriginStorage(commandCtx, source, &contextID)
 	})
 }
 
@@ -349,31 +371,22 @@ func partitionStorageDocument(childOrigin string) string {
 	return `<!doctype html><meta charset=utf-8><title>Aperture storage partition import</title><iframe src="` + html.EscapeString(childOrigin) + `"></iframe>`
 }
 
-func (browser *liveSessionBrowser) waitForFrameOrigin(ctx context.Context, sessionID, frameID, expected string) (int64, error) {
+func (browser *liveSessionBrowser) waitForFrameOrigin(ctx, commandCtx context.Context, frameID cdp.FrameID, expected string) (runtime.ExecutionContextID, error) {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		var world struct {
-			ExecutionContextID int64 `json:"executionContextId"`
-		}
-		err := browser.call("Page.createIsolatedWorld", map[string]any{
-			"frameId":   frameID,
-			"worldName": "aperture-storage-import",
-		}, sessionID, &world)
-		if err == nil && world.ExecutionContextID != 0 {
-			var evaluation struct {
-				Result struct {
-					Value string `json:"value"`
-				} `json:"result"`
-				ExceptionDetails *json.RawMessage `json:"exceptionDetails"`
+		contextID, err := page.CreateIsolatedWorld(frameID).WithWorldName("aperture-storage-import").Do(commandCtx)
+		if err == nil && contextID != 0 {
+			result, exceptionDetails, evaluateErr := runtime.Evaluate("location.origin").
+				WithContextID(contextID).
+				WithReturnByValue(true).
+				Do(commandCtx)
+			var currentOrigin string
+			if evaluateErr == nil && exceptionDetails == nil && result != nil && len(result.Value) > 0 {
+				evaluateErr = json.Unmarshal(result.Value, &currentOrigin)
 			}
-			err = browser.call("Runtime.evaluate", map[string]any{
-				"expression":    "location.origin",
-				"contextId":     world.ExecutionContextID,
-				"returnByValue": true,
-			}, sessionID, &evaluation)
-			if err == nil && evaluation.ExceptionDetails == nil && evaluation.Result.Value == expected {
-				return world.ExecutionContextID, nil
+			if evaluateErr == nil && currentOrigin == expected {
+				return contextID, nil
 			}
 		}
 		select {
@@ -384,54 +397,46 @@ func (browser *liveSessionBrowser) waitForFrameOrigin(ctx context.Context, sessi
 	}
 }
 
-func (browser *liveSessionBrowser) evaluateOriginStorage(sessionID, source string, contextID *int64) error {
-	params := map[string]any{
-		"expression":    source,
-		"awaitPromise":  true,
-		"returnByValue": true,
-	}
+func (browser *liveSessionBrowser) evaluateOriginStorage(commandCtx context.Context, source string, contextID *runtime.ExecutionContextID) error {
+	params := runtime.Evaluate(source).WithAwaitPromise(true).WithReturnByValue(true)
 	if contextID != nil {
-		params["contextId"] = *contextID
+		params = params.WithContextID(*contextID)
 	}
-	var evaluation struct {
-		Result struct {
-			Value *struct {
-				Status string `json:"status"`
-				Error  string `json:"error"`
-			} `json:"value"`
-		} `json:"result"`
-		ExceptionDetails *json.RawMessage `json:"exceptionDetails"`
-	}
-	if err := browser.callWithTimeout(browserStateImportTimeout, "Runtime.evaluate", params, sessionID, &evaluation); err != nil {
+	result, exceptionDetails, err := params.Do(commandCtx)
+	if err != nil {
 		return err
 	}
-	if evaluation.ExceptionDetails != nil || evaluation.Result.Value == nil {
+	var value *struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	if result != nil && len(result.Value) > 0 {
+		if err := json.Unmarshal(result.Value, &value); err != nil {
+			return err
+		}
+	}
+	if exceptionDetails != nil || value == nil {
 		return errors.New("browser could not evaluate the origin storage import")
 	}
-	if evaluation.Result.Value.Status == "failed" {
-		return fmt.Errorf("browser rejected origin storage: %s", evaluation.Result.Value.Error)
+	if value.Status == "failed" {
+		return fmt.Errorf("browser rejected origin storage: %s", value.Error)
 	}
-	if evaluation.Result.Value.Status != "succeeded" {
+	if value.Status != "succeeded" {
 		return errors.New("browser returned an invalid origin storage import result")
 	}
 	return nil
 }
 
-func (browser *liveSessionBrowser) waitForTargetOrigin(ctx context.Context, sessionID, expected string) error {
+func (browser *liveSessionBrowser) waitForTargetOrigin(ctx, commandCtx context.Context, expected string) error {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		var evaluation struct {
-			Result struct {
-				Value string `json:"value"`
-			} `json:"result"`
-			ExceptionDetails *json.RawMessage `json:"exceptionDetails"`
+		result, exceptionDetails, err := runtime.Evaluate("location.origin").WithReturnByValue(true).Do(commandCtx)
+		var currentOrigin string
+		if err == nil && exceptionDetails == nil && result != nil && len(result.Value) > 0 {
+			err = json.Unmarshal(result.Value, &currentOrigin)
 		}
-		err := browser.call("Runtime.evaluate", map[string]any{
-			"expression":    "location.origin",
-			"returnByValue": true,
-		}, sessionID, &evaluation)
-		if err == nil && evaluation.ExceptionDetails == nil && evaluation.Result.Value == expected {
+		if err == nil && currentOrigin == expected {
 			return nil
 		}
 		select {
@@ -487,8 +492,8 @@ func (browser *liveSessionBrowser) createInitialTarget(ctx context.Context, targ
 	if err != nil {
 		return "", err
 	}
-	err = func() error {
-		if err := browser.call("Page.enable", map[string]any{}, sessionID, nil); err != nil {
+	err = browser.executeWithTimeout(browserStateImportTimeout, sessionID, func(commandCtx context.Context) error {
+		if err := page.Enable().Do(commandCtx); err != nil {
 			return err
 		}
 		for _, origin := range sessionStorage {
@@ -496,47 +501,37 @@ func (browser *liveSessionBrowser) createInitialTarget(ctx context.Context, targ
 			if err != nil {
 				return err
 			}
-			var installed struct {
-				Identifier string `json:"identifier"`
-			}
-			if err := browser.call("Page.addScriptToEvaluateOnNewDocument", map[string]any{
-				"source": targetSessionStorageRestoreSource(encoded),
-			}, sessionID, &installed); err != nil {
+			identifier, err := page.AddScriptToEvaluateOnNewDocument(targetSessionStorageRestoreSource(encoded)).Do(commandCtx)
+			if err != nil {
 				return err
 			}
-			if installed.Identifier == "" {
+			if identifier == "" {
 				return errors.New("browser omitted the session storage preload script identifier")
 			}
-			remainingSessionStorageScripts[origin.Origin] = installed.Identifier
+			remainingSessionStorageScripts[origin.Origin] = string(identifier)
 		}
-		var installed struct {
-			Identifier string `json:"identifier"`
-		}
-		if err := browser.call("Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": documentSource}, sessionID, &installed); err != nil {
+		documentIdentifier, err := page.AddScriptToEvaluateOnNewDocument(documentSource).Do(commandCtx)
+		if err != nil {
 			return err
 		}
-		if installed.Identifier == "" {
+		if documentIdentifier == "" {
 			return errors.New("browser omitted the target preload script identifier")
 		}
-		var navigation struct {
-			ErrorText string `json:"errorText"`
-		}
-		if err := browser.call("Page.navigate", map[string]any{"url": target.URL}, sessionID, &navigation); err != nil {
+		_, _, errorText, _, err := page.Navigate(target.URL).Do(commandCtx)
+		if err != nil {
 			return err
 		}
-		if navigation.ErrorText != "" {
-			return fmt.Errorf("navigate initial target: %s", navigation.ErrorText)
+		if errorText != "" {
+			return fmt.Errorf("navigate initial target: %s", errorText)
 		}
-		if err := browser.waitForTargetNavigation(ctx, sessionID, target.DocumentState != nil); err != nil {
+		if err := browser.waitForTargetNavigation(ctx, commandCtx, target.DocumentState != nil); err != nil {
 			return err
 		}
-		if err := browser.call("Page.removeScriptToEvaluateOnNewDocument", map[string]any{
-			"identifier": installed.Identifier,
-		}, sessionID, nil); err != nil {
+		if err := page.RemoveScriptToEvaluateOnNewDocument(documentIdentifier).Do(commandCtx); err != nil {
 			return err
 		}
-		return browser.removeLoadedSessionStorageScripts(sessionID, remainingSessionStorageScripts)
-	}()
+		return browser.removeLoadedSessionStorageScripts(commandCtx, remainingSessionStorageScripts)
+	})
 	if err != nil {
 		return "", err
 	}
@@ -545,23 +540,17 @@ func (browser *liveSessionBrowser) createInitialTarget(ctx context.Context, targ
 	return targetID, nil
 }
 
-type initialFrameTree struct {
-	Frame struct {
-		URL string `json:"url"`
-	} `json:"frame"`
-	ChildFrames []initialFrameTree `json:"childFrames"`
-}
-
-func (browser *liveSessionBrowser) removeLoadedSessionStorageScripts(sessionID string, scripts map[string]string) error {
-	var result struct {
-		FrameTree initialFrameTree `json:"frameTree"`
-	}
-	if err := browser.call("Page.getFrameTree", map[string]any{}, sessionID, &result); err != nil {
+func (browser *liveSessionBrowser) removeLoadedSessionStorageScripts(commandCtx context.Context, scripts map[string]string) error {
+	frameTree, err := page.GetFrameTree().Do(commandCtx)
+	if err != nil {
 		return err
 	}
 	loaded := make(map[string]struct{})
-	var collect func(initialFrameTree)
-	collect = func(tree initialFrameTree) {
+	var collect func(*page.FrameTree)
+	collect = func(tree *page.FrameTree) {
+		if tree == nil || tree.Frame == nil {
+			return
+		}
 		if parsed, err := url.Parse(tree.Frame.URL); err == nil {
 			if origin, err := canonicalHTTPOrigin(parsed.Scheme + "://" + parsed.Host); err == nil {
 				loaded[origin] = struct{}{}
@@ -571,14 +560,12 @@ func (browser *liveSessionBrowser) removeLoadedSessionStorageScripts(sessionID s
 			collect(child)
 		}
 	}
-	collect(result.FrameTree)
+	collect(frameTree)
 	for origin, identifier := range scripts {
 		if _, exists := loaded[origin]; !exists {
 			continue
 		}
-		if err := browser.call("Page.removeScriptToEvaluateOnNewDocument", map[string]any{
-			"identifier": identifier,
-		}, sessionID, nil); err != nil {
+		if err := page.RemoveScriptToEvaluateOnNewDocument(page.ScriptIdentifier(identifier)).Do(commandCtx); err != nil {
 			return err
 		}
 		delete(scripts, origin)
@@ -586,33 +573,30 @@ func (browser *liveSessionBrowser) removeLoadedSessionStorageScripts(sessionID s
 	return nil
 }
 
-func (browser *liveSessionBrowser) waitForTargetNavigation(ctx context.Context, sessionID string, waitForDocumentState bool) error {
+func (browser *liveSessionBrowser) waitForTargetNavigation(ctx, commandCtx context.Context, waitForDocumentState bool) error {
 	waitCtx, cancel := context.WithTimeout(ctx, browserStateImportTimeout)
 	defer cancel()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		var evaluation struct {
-			Result struct {
-				Value *struct {
-					Href          string `json:"href"`
-					ReadyState    string `json:"readyState"`
-					DocumentState *struct {
-						Status string `json:"status"`
-						Error  string `json:"error"`
-					} `json:"documentState"`
-				} `json:"value"`
-			} `json:"result"`
+		var value *struct {
+			Href          string `json:"href"`
+			ReadyState    string `json:"readyState"`
+			DocumentState *struct {
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			} `json:"documentState"`
 		}
-		err := browser.call("Runtime.evaluate", map[string]any{
-			"expression": fmt.Sprintf(
+		result, _, err := runtime.Evaluate(
+			fmt.Sprintf(
 				"({ href: location.href, readyState: document.readyState, documentState: globalThis[Symbol.for(%q)] || null })",
 				initialDocumentStateSymbol,
 			),
-			"returnByValue": true,
-		}, sessionID, &evaluation)
-		if err == nil && evaluation.Result.Value != nil {
-			value := evaluation.Result.Value
+		).WithReturnByValue(true).Do(commandCtx)
+		if err == nil && result != nil && len(result.Value) > 0 {
+			err = json.Unmarshal(result.Value, &value)
+		}
+		if err == nil && value != nil {
 			if value.DocumentState != nil && value.DocumentState.Status == "failed" {
 				return fmt.Errorf("restore initial document state: %s", value.DocumentState.Error)
 			}

@@ -8,14 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
+	cdpbrowser "github.com/chromedp/cdproto/browser"
+	cdptarget "github.com/chromedp/cdproto/target"
 )
 
 const cdpDiscoveryMessageLimit = 4 * 1024 * 1024
@@ -85,16 +85,8 @@ type extensionWindowMessage struct {
 	TabID    int64  `json:"tabId"`
 }
 
-type cdpTargetInfo struct {
-	TargetID string `json:"targetId"`
-	OpenerID string `json:"openerId"`
-	Type     string `json:"type"`
-	Title    string `json:"title"`
-	URL      string `json:"url"`
-}
-
 type cdpTargetWindow struct {
-	Target cdpTargetInfo
+	Target *cdptarget.Info
 	Window int64
 }
 
@@ -325,7 +317,7 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 	liveTargets := make(map[string]struct{}, len(targets))
 	unresolvedWindow := false
 	for _, target := range targets {
-		liveTargets[target.Target.TargetID] = struct{}{}
+		liveTargets[string(target.Target.TargetID)] = struct{}{}
 		if target.Window == 0 {
 			unresolvedWindow = true
 		}
@@ -385,7 +377,8 @@ func (registry *wrapperTargetRegistry) reconcileSettledWindows(ctx context.Conte
 
 func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding wrapperWindowBinding, discovered cdpTargetWindow) error {
 	registry.mu.Lock()
-	existing, exists := registry.targets[discovered.Target.TargetID]
+	targetID := string(discovered.Target.TargetID)
+	existing, exists := registry.targets[targetID]
 	if exists && existing.WindowID == binding.WindowID && existing.SurfaceID == binding.SurfaceID && existing.State == wrapperTargetReady {
 		existing.Title = discovered.Target.Title
 		existing.URL = discovered.Target.URL
@@ -401,7 +394,7 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 	}
 	registry.mu.Unlock()
 
-	captureID := registryCaptureID(discovered.Target.TargetID, generation)
+	captureID := registryCaptureID(targetID, generation)
 	created, err := registry.createOutput(ctx, captureID, viewport)
 	if err != nil {
 		return err
@@ -449,7 +442,7 @@ func (registry *wrapperTargetRegistry) ensureTarget(ctx context.Context, binding
 		return err
 	}
 	next := wrapperTargetSnapshot{
-		TargetID:       discovered.Target.TargetID,
+		TargetID:       targetID,
 		WindowID:       binding.WindowID,
 		SurfaceID:      binding.SurfaceID,
 		CaptureID:      captureID,
@@ -797,90 +790,36 @@ func (registry *wrapperTargetRegistry) hasLiveTarget(targetID string) bool {
 func discoverCDPTargetWindows(ctx context.Context, port int) ([]cdpTargetWindow, error) {
 	discoveryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(discoveryCtx, http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(port)+"/json/version", nil)
+	client, err := connectLiveSessionCDP(discoveryCtx, port)
 	if err != nil {
 		return nil, err
 	}
-	response, err := http.DefaultClient.Do(request)
+	defer client.close()
+	executorCtx := client.executorContext(discoveryCtx, "")
+	targetInfos, err := cdptarget.GetTargets().Do(executorCtx)
 	if err != nil {
-		return nil, fmt.Errorf("discover browser CDP endpoint: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("discover browser CDP endpoint: status %d", response.StatusCode)
-	}
-	var version struct {
-		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&version); err != nil {
-		return nil, fmt.Errorf("decode browser CDP endpoint: %w", err)
-	}
-	connection, _, err := websocket.Dial(discoveryCtx, version.WebSocketDebuggerURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("connect browser CDP endpoint: %w", err)
-	}
-	connection.SetReadLimit(cdpDiscoveryMessageLimit)
-	defer func() { _ = connection.Close(websocket.StatusNormalClosure, "done") }()
-	callID := int64(0)
-	call := func(method string, params any, result any) error {
-		callID++
-		requestBody, err := json.Marshal(map[string]any{"id": callID, "method": method, "params": params})
-		if err != nil {
-			return err
-		}
-		if err := connection.Write(discoveryCtx, websocket.MessageText, requestBody); err != nil {
-			return err
-		}
-		for {
-			_, body, err := connection.Read(discoveryCtx)
-			if err != nil {
-				return err
-			}
-			var envelope struct {
-				ID     int64           `json:"id"`
-				Result json.RawMessage `json:"result"`
-				Error  *struct {
-					Code    int    `json:"code"`
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if err := json.Unmarshal(body, &envelope); err != nil || envelope.ID != callID {
-				continue
-			}
-			if envelope.Error != nil {
-				return fmt.Errorf("CDP %s failed (%d): %s", method, envelope.Error.Code, envelope.Error.Message)
-			}
-			return json.Unmarshal(envelope.Result, result)
-		}
-	}
-	var targetResult struct {
-		TargetInfos []cdpTargetInfo `json:"targetInfos"`
-	}
-	if err := call("Target.getTargets", map[string]any{}, &targetResult); err != nil {
 		return nil, fmt.Errorf("list CDP targets: %w", err)
 	}
-	targets := make([]cdpTargetWindow, 0, len(targetResult.TargetInfos))
-	for _, target := range targetResult.TargetInfos {
-		if !isUserCDPTarget(target) {
+	targets := make([]cdpTargetWindow, 0, len(targetInfos))
+	for _, targetInfo := range targetInfos {
+		if !isUserCDPTarget(targetInfo) {
 			continue
 		}
-		targetWindow := cdpTargetWindow{Target: target}
-		var window struct {
-			WindowID int64 `json:"windowId"`
-		}
-		if err := call("Browser.getWindowForTarget", map[string]any{"targetId": target.TargetID}, &window); err == nil {
-			targetWindow.Window = window.WindowID
+		targetWindow := cdpTargetWindow{Target: targetInfo}
+		windowID, _, err := cdpbrowser.GetWindowForTarget().WithTargetID(targetInfo.TargetID).Do(executorCtx)
+		if err == nil {
+			targetWindow.Window = int64(windowID)
 		}
 		targets = append(targets, targetWindow)
 	}
 	return targets, nil
 }
 
-func isUserCDPTarget(target cdpTargetInfo) bool {
-	if target.Type != "page" {
+func isUserCDPTarget(targetInfo *cdptarget.Info) bool {
+	if targetInfo == nil || targetInfo.Type != "page" {
 		return false
 	}
-	return !strings.HasPrefix(target.URL, "chrome-extension://"+tabWindowEnforcerExtensionID+"/") && !strings.HasPrefix(target.URL, "devtools://")
+	return !strings.HasPrefix(targetInfo.URL, "chrome-extension://"+tabWindowEnforcerExtensionID+"/") && !strings.HasPrefix(targetInfo.URL, "devtools://")
 }
 
 func registryCaptureID(targetID string, generation uint64) string {
