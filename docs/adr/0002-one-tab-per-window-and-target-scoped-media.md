@@ -235,7 +235,7 @@ The formal HTTP surface provides create, list, get, retarget, and stop operation
 
 Recording pipelines crop the bucket padding before encoding. H.264 and VP8 segments round the cropped width and height up to an even value, so an odd content dimension retains at most one black edge pixel instead of exposing the full canvas padding. A content resize rotates the recording segment even when it stays in the same canvas generation. The recording timeline and pinned target do not change.
 
-The HTTP API exposes `mode`, `targetId`, and `recordingId`. MCP status includes the same fields, while MCP start always selects tab mode. In both APIs, `targetId` is the opaque Aperture browser-target ID, not an agent-browser tab ID, element reference, session ID, or capture-backend selector. The existing singular start, status, and stop state will be replaced rather than overloaded with an implicit current target.
+The HTTP API exposes `mode`, `targetId`, and `recordingId`. MCP status includes the same fields, while MCP start always selects tab mode. In both APIs, `targetId` is the opaque Aperture browser-target ID, not a Playwright MCP tab index, element reference, session ID, or capture-backend selector. The existing singular start, status, and stop state will be replaced rather than overloaded with an implicit current target.
 
 This ADR covers video. Target-scoped audio needs a separate decision because Chromium and desktop audio do not have the same one-window identity.
 

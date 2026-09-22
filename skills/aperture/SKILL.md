@@ -388,7 +388,7 @@ Viewer recordings belong to a live session client and follow that client's selec
 
 MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
 
-Treat `targetId` as an opaque Aperture browser-target ID. It is not an agent-browser tab ID, element reference, session ID, or capture-backend selector. Aperture maps that identity to a verified Weston output, captures it through PipeWire, and encodes it with GStreamer. Retargeting keeps the same logical recording, output path, timeline, and encoder settings; the replacement segment must produce data before the old pipeline stops. Sending the current target is idempotent. Viewer, stopped, and failed recordings cannot be explicitly retargeted.
+Treat `targetId` as an opaque Aperture browser-target ID. It is not a Playwright MCP tab index, element reference, session ID, or capture-backend selector. Aperture maps that identity to a verified Weston output, captures it through PipeWire, and encodes it with GStreamer. Retargeting keeps the same logical recording, output path, timeline, and encoder settings; the replacement segment must produce data before the old pipeline stops. Sending the current target is idempotent. Viewer, stopped, and failed recordings cannot be explicitly retargeted.
 
 ## CDP Proxy
 

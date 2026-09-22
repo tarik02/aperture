@@ -334,13 +334,13 @@ type mcpSessionIDInput struct {
 type mcpRecordingStartInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
-	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for a ready target; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for a ready target; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
 }
 type mcpBoundRecordingStartInput struct {
-	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for a ready target; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for a ready target; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
@@ -357,11 +357,11 @@ type mcpRecordingRetargetInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
 	RecordingID string `json:"recordingId"`
-	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for the ready destination; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for the ready destination; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector."`
 }
 type mcpBoundRecordingRetargetInput struct {
 	RecordingID string `json:"recordingId"`
-	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for the ready destination; not an agent-browser tab ID, element reference, session ID, or capture-backend selector."`
+	TargetID    string `json:"targetId" jsonschema:"Opaque Aperture browser-target ID for the ready destination; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector."`
 }
 type mcpRecordingOutput struct {
 	RecordingID       string `json:"recordingId"`

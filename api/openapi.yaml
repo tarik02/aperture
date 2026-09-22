@@ -2149,7 +2149,7 @@ components:
         targetId:
           type: string
           minLength: 1
-          description: Opaque Aperture browser-target ID for a ready target; not an agent-browser tab ID, element reference, session ID, or capture-backend selector.
+          description: Opaque Aperture browser-target ID for a ready target; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector.
         fps:
           type: integer
           description: Requested frames per second. Omit or use a non-positive value for the instance default.
@@ -2171,7 +2171,7 @@ components:
         targetId:
           type: string
           minLength: 1
-          description: Opaque Aperture browser-target ID for the ready destination; not an agent-browser tab ID, element reference, session ID, or capture-backend selector.
+          description: Opaque Aperture browser-target ID for the ready destination; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector.
     Recording:
       type: object
       description: One logical target-scoped recording. Its media may span several internally joined capture segments.
