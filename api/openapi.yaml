@@ -755,7 +755,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
-      description: Lists logical recordings without exposing wrapper filesystem paths.
+      description: Lists logical recordings without exposing host filesystem paths.
       responses:
         '200':
           description: Session recordings
@@ -772,7 +772,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording pinned to one ready Aperture browser target through its Weston output and PipeWire/GStreamer capture pipeline.
+      description: Starts a tab recording of one ready top-level target.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -787,7 +787,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, session_service_unavailable, browser_control_failed]
-      description: Returns one logical recording and its current Aperture browser target without exposing wrapper filesystem paths.
+      description: Returns one logical recording and its current top-level target without exposing host filesystem paths.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -805,7 +805,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Moves a running tab recording to another ready Aperture browser target while preserving its recording ID, timeline, and encoder settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+      description: Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -1177,11 +1177,11 @@ components:
       content: {application/json: {schema: {$ref: '#/components/schemas/SessionFileDownloadURLInput'}}}
     CreateSessionRecording:
       required: true
-      description: Ready Aperture browser target and optional encoder settings. The JSON body must not exceed 1 MiB.
+      description: Ready top-level target and optional recording settings. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionRecordingInput'}}}
     RetargetSessionRecording:
       required: true
-      description: Ready destination Aperture browser target. The JSON body must not exceed 1 MiB.
+      description: Ready destination top-level target. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/RetargetSessionRecordingInput'}}}
     SetCursorVisibility:
       required: true
@@ -2143,13 +2143,13 @@ components:
           description: Whether to include the remote cursor in live streams and recordings.
     CreateSessionRecordingInput:
       type: object
-      description: Tab recording target and optional encoder settings.
+      description: Top-level target and optional recording settings.
       required: [targetId]
       properties:
         targetId:
           type: string
           minLength: 1
-          description: Opaque Aperture browser-target ID for a ready target; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector.
+          description: Identifier of the ready top-level target to record.
         fps:
           type: integer
           description: Requested frames per second. Omit or use a non-positive value for the instance default.
@@ -2171,10 +2171,10 @@ components:
         targetId:
           type: string
           minLength: 1
-          description: Opaque Aperture browser-target ID for the ready destination; not a Playwright MCP tab index, element reference, session ID, or capture-backend selector.
+          description: Identifier of the ready destination top-level target.
     Recording:
       type: object
-      description: One logical target-scoped recording. Its media may span several internally joined capture segments.
+      description: One logical recording of a top-level target.
       required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
       properties:
         recordingId:
@@ -2184,15 +2184,15 @@ components:
         mode:
           type: string
           enum: [tab, viewer]
-          description: Tab recordings stay on their explicit target; viewer recordings follow a live session client and cannot be explicitly retargeted.
+          description: Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
         targetId:
           type: string
-          description: Opaque Aperture browser-target ID currently captured by this recording.
+          description: Identifier of the top-level target currently recorded.
         captureGeneration:
           type: integer
           format: int64
           minimum: 0
-          description: Internal capture-output generation for the current target.
+          description: Assignment generation for the current top-level target.
         status:
           type: string
           enum: [starting, running, stopped, failed]
@@ -2201,7 +2201,7 @@ components:
           description: Lifecycle reason recorded after the recording stops or fails.
         relativePath:
           type: string
-          description: Path below the session root; wrapper absolute paths are never exposed.
+          description: Path below the session root; absolute host paths are never exposed.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
         startedAt:
           type: string
