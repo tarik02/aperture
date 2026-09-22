@@ -1,19 +1,12 @@
-package browser
+import codecSource from "./structured-clone-codec.txt";
 
-import "fmt"
-
-const (
-	initialDocumentStateSymbol = "aperture.initial-document-state"
-	initialWindowOpenSymbol    = "aperture.initial-window-open"
-)
-
-func targetStateRestoreSource(state []byte) string {
-	return fmt.Sprintf(`(() => {
-  const state = %s;
+export function targetStateSource(state: unknown): string {
+  return codecSource + "\n" + String.raw`(() => {
+  const state = ${JSON.stringify(state)};
   if (globalThis.top !== globalThis) return;
 
-  globalThis[Symbol.for(%q)] = globalThis.open.bind(globalThis);
-  const marker = Symbol.for(%q);
+  globalThis[Symbol.for("aperture.initial-window-open")] = globalThis.open.bind(globalThis);
+  const marker = Symbol.for("aperture.initial-document-state");
   const documentState = state.documentState;
   if (documentState) globalThis[marker] = { status: "pending" };
 
@@ -24,97 +17,20 @@ func targetStateRestoreSource(state []byte) string {
     };
   };
   try {
-    if (documentState && documentState.windowName !== undefined) window.name = documentState.windowName;
     const capturedURL = new URL(state.url).href;
-    const restoreDocument = documentState && location.href === capturedURL;
-
-    const fromBase64 = (body) => {
-      const binary = atob(body);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-      return bytes;
-    };
-    const decode = (encoded) => {
-      const serialized = JSON.parse(encoded);
-      const values = new Array(serialized.nodes.length);
-      const constructors = {
-        Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array,
-        Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array,
-        BigUint64Array, DataView,
-      };
-      for (let index = 0; index < serialized.nodes.length; index++) {
-        const node = serialized.nodes[index];
-        switch (node.type) {
-          case "array": values[index] = []; break;
-          case "object": values[index] = {}; break;
-          case "map": values[index] = new Map(); break;
-          case "set": values[index] = new Set(); break;
-          case "date": values[index] = new Date(node.value); break;
-          case "regexp": values[index] = new RegExp(node.source, node.flags); break;
-          case "error": {
-            const error = new Error(node.message);
-            error.name = node.name;
-            if (node.stack !== undefined) error.stack = node.stack;
-            values[index] = error;
-            break;
-          }
-          case "array-buffer": values[index] = fromBase64(node.body).buffer; break;
-          case "typed-array": {
-            const constructor = constructors[node.constructor];
-            if (!constructor) throw new Error("unsupported typed array " + node.constructor);
-            const bytes = fromBase64(node.body);
-            values[index] = node.constructor === "DataView"
-              ? new DataView(bytes.buffer)
-              : new constructor(bytes.buffer);
-            break;
-          }
-          case "blob": values[index] = new Blob([fromBase64(node.body)], { type: node.mimeType }); break;
-          case "file": values[index] = new File([fromBase64(node.body)], node.name, {
-            type: node.mimeType,
-            lastModified: node.lastModified,
-          }); break;
-          default: throw new Error("unsupported structured-clone node " + node.type);
-        }
-      }
-      const token = (value) => {
-        if (value === null || typeof value !== "object") return value;
-        if (Object.hasOwn(value, "ref")) return values[value.ref];
-        switch (value.type) {
-          case "undefined": return undefined;
-          case "bigint": return BigInt(value.value);
-          case "number": {
-            if (value.value === "nan") return NaN;
-            if (value.value === "positive-infinity") return Infinity;
-            if (value.value === "negative-infinity") return -Infinity;
-            if (value.value === "negative-zero") return -0;
-            break;
-          }
-        }
-        throw new Error("unsupported structured-clone token");
-      };
-      for (let index = 0; index < serialized.nodes.length; index++) {
-        const node = serialized.nodes[index];
-        const value = values[index];
-        if (node.type === "array") {
-          for (const item of node.values) value.push(token(item));
-        } else if (node.type === "object") {
-          for (const [name, item] of node.properties) Object.defineProperty(value, name, {
-            value: token(item), enumerable: true, configurable: true, writable: true,
-          });
-        } else if (node.type === "map") {
-          for (const [key, item] of node.entries) value.set(token(key), token(item));
-        } else if (node.type === "set") {
-          for (const item of node.values) value.add(token(item));
-        } else if (node.type === "error") {
-          value.cause = token(node.cause);
-        }
-      }
-      return token(serialized.root);
-    };
-
-    if (restoreDocument && documentState.historyState !== undefined) {
-      history.replaceState(decode(documentState.historyState), "");
+    const restoreTarget = location.href === capturedURL;
+    const restoreDocument = Boolean(documentState && restoreTarget);
+    if (restoreDocument && documentState.windowName !== undefined) {
+      window.name = documentState.windowName;
     }
+
+    let historyRestored = false;
+    const restoreHistory = () => {
+      if (!historyRestored && restoreDocument && documentState.historyState !== undefined) {
+        history.replaceState(ApertureStructuredCloneCodec.decodeStructuredClone(documentState.historyState), "");
+        historyRestored = true;
+      }
+    };
 
     const resolve = (locator) => {
       const compatible = (element) => {
@@ -254,14 +170,17 @@ func targetStateRestoreSource(state []byte) string {
       addEventListener(eventName, interrupt, { capture: true });
     }
     const replay = (dispatchEvents) => {
-      if (interrupted || !restoreDocument) return;
-      for (const control of documentState.controls) restoreControl(control, dispatchEvents);
-      for (const editable of documentState.contentEditables) restoreEditable(editable, dispatchEvents);
+      if (interrupted || !restoreTarget) return;
+      for (const control of documentState?.controls || []) restoreControl(control, dispatchEvents);
+      for (const editable of documentState?.contentEditables || []) restoreEditable(editable, dispatchEvents);
       restoreScroll();
     };
     const start = () => {
-      if (restoreDocument) {
+      if (restoreTarget) {
+        restoreHistory();
         replay(false);
+      }
+      if (restoreDocument) {
         let scheduled = false;
         observer = new MutationObserver(() => {
           if (scheduled || interrupted) return;
@@ -276,7 +195,13 @@ func targetStateRestoreSource(state []byte) string {
       }
     };
     const safeStart = () => {
-      try { start(); } catch (error) { fail(error); }
+      try {
+        start();
+        return true;
+      } catch (error) {
+        fail(error);
+        return false;
+      }
     };
     const finalReplay = () => {
       hydrated = true;
@@ -298,25 +223,134 @@ func targetStateRestoreSource(state []byte) string {
       setTimeout(retry, 100);
       setTimeout(retry, 500);
     };
-    if (document.readyState === "loading") {
-      addEventListener("DOMContentLoaded", safeStart, { once: true });
-      addEventListener("load", complete, { once: true });
-    } else {
-      safeStart();
-      if (document.readyState === "complete") complete();
-      else addEventListener("load", complete, { once: true });
-    }
+    const ready = () => {
+      if (safeStart()) complete();
+    };
+    if (document.readyState === "loading") addEventListener("DOMContentLoaded", ready, { once: true });
+    else ready();
   } catch (error) {
     if (documentState) fail(error);
   }
-})()`, state, initialWindowOpenSymbol, initialDocumentStateSymbol)
+})()`;
 }
 
-func targetSessionStorageRestoreSource(state []byte) string {
-	return fmt.Sprintf(`(() => {
-  const state = %s;
+export function sessionStorageSource(state: unknown): string {
+  return String.raw`(() => {
+  const state = ${JSON.stringify(state)};
   if (location.origin !== state.origin) return;
   sessionStorage.clear();
   for (const entry of state.entries) sessionStorage.setItem(entry.name, entry.value);
-})()`, state)
+})()`;
+}
+
+export function originStorageSource(state: unknown): string {
+  return codecSource + "\n" + String.raw`(async () => {
+  try {
+    const state = ${JSON.stringify(state)};
+    const fromBase64 = (body) => {
+      const binary = atob(body);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      return bytes;
+    };
+    const keyPath = (specification) => {
+      if (specification.kind === "none") return null;
+      if (specification.kind === "string") return specification.value[0];
+      return specification.value;
+    };
+    const transactionDone = (transaction) => new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error || new Error("IndexedDB transaction failed"));
+      transaction.onabort = () => reject(transaction.error || new Error("IndexedDB transaction aborted"));
+    });
+    const openDatabase = (database) => new Promise((resolve, reject) => {
+      const request = indexedDB.open(database.name, database.version);
+      request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
+      request.onblocked = () => reject(new Error("IndexedDB open was blocked"));
+      request.onupgradeneeded = () => {
+        const opened = request.result;
+        for (const storeState of database.objectStores) {
+          const store = opened.createObjectStore(storeState.name, {
+            keyPath: keyPath(storeState.keyPath),
+            autoIncrement: storeState.autoIncrement,
+          });
+          for (const index of storeState.indexes) {
+            store.createIndex(index.name, keyPath(index.keyPath), {
+              unique: index.unique,
+              multiEntry: index.multiEntry,
+            });
+          }
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+    });
+
+    localStorage.clear();
+    for (const entry of state.localStorage) localStorage.setItem(entry.name, entry.value);
+    for (const databaseState of state.indexedDB || []) {
+      const database = await openDatabase(databaseState);
+      try {
+        for (const storeState of databaseState.objectStores) {
+          const decoded = await Promise.all(storeState.records.map(async (record) => ({
+            key: await ApertureStructuredCloneCodec.decodeStructuredCloneAsync(record.key),
+            value: await ApertureStructuredCloneCodec.decodeStructuredCloneAsync(record.value),
+          })));
+          if (decoded.length === 0) continue;
+          const transaction = database.transaction(storeState.name, "readwrite");
+          const store = transaction.objectStore(storeState.name);
+          for (const record of decoded) {
+            if (store.keyPath === null) store.put(record.value, record.key);
+            else store.put(record.value);
+          }
+          await transactionDone(transaction);
+        }
+      } finally {
+        database.close();
+      }
+    }
+    if (state.cacheStorage !== undefined && typeof caches === "undefined") {
+      if (state.cacheStorage.length > 0) throw new Error("Cache Storage is unavailable");
+    } else if (state.cacheStorage !== undefined) {
+      for (const cacheName of await caches.keys()) await caches.delete(cacheName);
+      for (const cacheState of state.cacheStorage || []) {
+        const cache = await caches.open(cacheState.name);
+        for (const entry of cacheState.entries) {
+          const responseBody = [204, 205, 304].includes(entry.responseStatus)
+            ? null
+            : fromBase64(entry.responseBody);
+          await cache.put(
+            new Request(entry.url, { headers: entry.requestHeaders }),
+            new Response(responseBody, {
+              status: entry.responseStatus,
+              statusText: entry.responseStatusText,
+              headers: entry.responseHeaders,
+            }),
+          );
+        }
+      }
+    }
+    if (state.opfs !== undefined && typeof navigator.storage.getDirectory === "function") {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of root.entries()) await root.removeEntry(name, { recursive: true });
+      for (const fileState of state.opfs || []) {
+        const parts = fileState.path.split("/");
+        const fileName = parts.pop();
+        let directory = root;
+        for (const part of parts) directory = await directory.getDirectoryHandle(part, { create: true });
+        const file = await directory.getFileHandle(fileName, { create: true });
+        const writer = await file.createWritable();
+        await writer.write(fromBase64(fileState.body));
+        await writer.close();
+      }
+    } else if ((state.opfs || []).length > 0) {
+      throw new Error("OPFS is unavailable");
+    }
+    return { status: "succeeded" };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error instanceof Error ? error.name + ": " + error.message : String(error),
+    };
+  }
+})()`;
 }

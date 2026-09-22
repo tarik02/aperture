@@ -304,13 +304,13 @@ func (r sessionBrowserConfig) Validate() error {
 }
 
 type createSessionRequest struct {
-	BaseSnapshotName *string                      `json:"baseSnapshotName"`
-	Label            *string                      `json:"label"`
-	Browser          sessionBrowserConfig         `json:"browser"`
-	InitialTargets   []browser.InitialTarget      `json:"initialTargets"`
-	StorageState     *browser.InitialStorageState `json:"storageState"`
-	Tags             map[string]string            `json:"tags"`
-	Proxy            proxyConfigRequest           `json:"proxy"`
+	BaseSnapshotName *string              `json:"baseSnapshotName"`
+	Label            *string              `json:"label"`
+	Browser          sessionBrowserConfig `json:"browser"`
+	InitialTargets   json.RawMessage      `json:"initialTargets"`
+	StorageState     json.RawMessage      `json:"storageState"`
+	Tags             map[string]string    `json:"tags"`
+	Proxy            proxyConfigRequest   `json:"proxy"`
 }
 
 func (r createSessionRequest) Validate() error {

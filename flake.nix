@@ -62,6 +62,10 @@
           rel == "result"
           || rel == "node_modules"
           || lib.hasPrefix "node_modules/" rel
+          || rel == "backend/restore-worker/node_modules"
+          || lib.hasPrefix "backend/restore-worker/node_modules/" rel
+          || rel == "backend/restore-worker/dist"
+          || lib.hasPrefix "backend/restore-worker/dist/" rel
           || rel == "web/node_modules"
           || lib.hasPrefix "web/node_modules/" rel
           || rel == "web/dist"
@@ -476,6 +480,11 @@
           npmDepsHash = "sha256-9ezjwWu4tXgO868iDMT9Cst5Ke9ADISvbNbeEOJNmxw=";
           npmInstallFlags = [ "--ignore-scripts" ];
           dontNpmBuild = true;
+          postInstall = ''
+            test -f $out/lib/node_modules/@playwright/mcp/node_modules/playwright-core/package.json
+            mkdir -p $out/share/aperture
+            ln -s $out/lib/node_modules/@playwright/mcp/node_modules/playwright-core $out/share/aperture/playwright-core
+          '';
 
           meta = with lib; {
             description = "Playwright browser automation tools for MCP";
@@ -547,11 +556,12 @@
               pnpm = pnpmLatest;
               fetcherVersion = 4;
               pnpmWorkspaces = [
+                "@aperture/restore-worker"
                 "@aperture/api-client"
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-QIfA0DxEbFVtrr+H2qisu2mfluXLErMbjPTBXjeMc4Q=";
+              hash = "sha256-3YXfFvt8P9svhyjgwia61E4lrcF9DG4s5ptQm3eg2Q0=";
             };
 
             nativeBuildInputs = [
@@ -581,6 +591,7 @@
             ];
 
             preBuild = ''
+              pnpm --filter @aperture/restore-worker build
               pnpm --filter @aperture/web build
               test -f web/dist/client/index.html
             '';
@@ -597,6 +608,14 @@
             doCheck = true;
 
             postInstall = ''
+              mkdir -p $out/share/aperture/restore-worker/node_modules
+              cp backend/restore-worker/dist/restore.cjs $out/share/aperture/restore-worker/restore.cjs
+              ln -s ${playwrightMCP}/share/aperture/playwright-core $out/share/aperture/restore-worker/node_modules/playwright-core
+              cat > $out/bin/aperture-browser-restore <<EOF
+              #!${pkgs.runtimeShell}
+              exec ${pkgs.nodejs}/bin/node $out/share/aperture/restore-worker/restore.cjs "\$@"
+              EOF
+              chmod 0755 $out/bin/aperture-browser-restore
               mkdir -p $out/lib/weston
               mkdir -p $TMPDIR/aperture-wayland-protocols
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
