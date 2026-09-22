@@ -11,22 +11,15 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/chromedp/cdproto"
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/target"
 	"github.com/coder/websocket"
 )
 
-type liveSessionCDPResponse struct {
-	ID     int64           `json:"id"`
-	Result json.RawMessage `json:"result"`
-	Error  *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-}
-
 type liveSessionCDPEvent struct {
-	Method    string          `json:"method"`
-	Params    json.RawMessage `json:"params"`
-	SessionID string          `json:"sessionId"`
+	Value     any
+	SessionID target.SessionID
 }
 
 type liveSessionCDP struct {
@@ -38,7 +31,7 @@ type liveSessionCDP struct {
 	closed   bool
 	asyncErr error
 	async    map[int64]struct{}
-	pending  map[int64]chan liveSessionCDPResponse
+	pending  map[int64]chan *cdproto.Message
 	events   chan liveSessionCDPEvent
 	done     chan struct{}
 }
@@ -73,7 +66,7 @@ func connectLiveSessionCDP(ctx context.Context, port int) (*liveSessionCDP, erro
 	client := &liveSessionCDP{
 		connection: connection,
 		async:      make(map[int64]struct{}),
-		pending:    make(map[int64]chan liveSessionCDPResponse),
+		pending:    make(map[int64]chan *cdproto.Message),
 		events:     make(chan liveSessionCDPEvent, 64),
 		done:       make(chan struct{}),
 	}
@@ -88,17 +81,7 @@ func (client *liveSessionCDP) read() {
 		if err != nil {
 			return
 		}
-		var envelope struct {
-			ID        int64           `json:"id"`
-			Method    string          `json:"method"`
-			Params    json.RawMessage `json:"params"`
-			SessionID string          `json:"sessionId"`
-			Result    json.RawMessage `json:"result"`
-			Error     *struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-			} `json:"error"`
-		}
+		var envelope cdproto.Message
 		if err := json.Unmarshal(body, &envelope); err != nil {
 			continue
 		}
@@ -113,21 +96,25 @@ func (client *liveSessionCDP) read() {
 			}
 			client.mu.Unlock()
 			if waiter != nil {
-				waiter <- liveSessionCDPResponse{ID: envelope.ID, Result: envelope.Result, Error: envelope.Error}
+				waiter <- &envelope
 			}
 			continue
 		}
 		if envelope.Method == "" {
 			continue
 		}
+		event, err := cdproto.UnmarshalMessage(&envelope)
+		if err != nil {
+			continue
+		}
 		select {
-		case client.events <- liveSessionCDPEvent{Method: envelope.Method, Params: envelope.Params, SessionID: envelope.SessionID}:
+		case client.events <- liveSessionCDPEvent{Value: event, SessionID: envelope.SessionID}:
 		default:
 		}
 	}
 }
 
-func (client *liveSessionCDP) call(ctx context.Context, method string, params any, sessionID string, result any) error {
+func (client *liveSessionCDP) call(ctx context.Context, method string, params any, sessionID target.SessionID, result any) error {
 	client.mu.Lock()
 	if client.closed {
 		client.mu.Unlock()
@@ -140,7 +127,7 @@ func (client *liveSessionCDP) call(ctx context.Context, method string, params an
 	}
 	client.nextID++
 	id := client.nextID
-	waiter := make(chan liveSessionCDPResponse, 1)
+	waiter := make(chan *cdproto.Message, 1)
 	client.pending[id] = waiter
 	client.mu.Unlock()
 
@@ -179,15 +166,7 @@ func (client *liveSessionCDP) call(ctx context.Context, method string, params an
 	}
 }
 
-func (client *liveSessionCDP) send(ctx context.Context, method string, params any, sessionID string) error {
-	return client.sendAsync(ctx, method, params, sessionID, true)
-}
-
-func (client *liveSessionCDP) sendBestEffort(ctx context.Context, method string, params any, sessionID string) error {
-	return client.sendAsync(ctx, method, params, sessionID, false)
-}
-
-func (client *liveSessionCDP) sendAsync(ctx context.Context, method string, params any, sessionID string, reportErrors bool) error {
+func (client *liveSessionCDP) sendAsync(ctx context.Context, method cdproto.MethodType, params any, sessionID target.SessionID, reportErrors bool) error {
 	client.mu.Lock()
 	if client.closed {
 		client.mu.Unlock()
@@ -223,6 +202,19 @@ func (client *liveSessionCDP) sendAsync(ctx context.Context, method string, para
 		client.removeAsync(id)
 	}
 	return err
+}
+
+type liveSessionCDPExecutor struct {
+	client    *liveSessionCDP
+	sessionID target.SessionID
+}
+
+func (executor liveSessionCDPExecutor) Execute(ctx context.Context, method string, params, result any) error {
+	return executor.client.call(ctx, method, params, executor.sessionID, result)
+}
+
+func (client *liveSessionCDP) executorContext(ctx context.Context, sessionID target.SessionID) context.Context {
+	return cdp.WithExecutor(ctx, liveSessionCDPExecutor{client: client, sessionID: sessionID})
 }
 
 func (client *liveSessionCDP) removeAsync(id int64) {
