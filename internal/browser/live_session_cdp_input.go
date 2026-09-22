@@ -7,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/cdproto"
+	cdpinput "github.com/chromedp/cdproto/input"
+	"github.com/chromedp/cdproto/target"
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
@@ -16,7 +19,7 @@ type liveSessionCDPInput struct {
 	port        int
 	connection  *liveSessionCDP
 	targetID    string
-	sessionID   string
+	sessionID   target.SessionID
 	pointerX    float64
 	pointerY    float64
 	buttons     int
@@ -49,26 +52,30 @@ func (input *liveSessionCDPInput) bind(_ uint64, targetID string, _ func()) erro
 		if err := input.release(0); err != nil {
 			return err
 		}
-		if err := input.call("Target.detachFromTarget", map[string]any{"sessionId": input.sessionID}, "", nil); err != nil {
+		if err := input.execute("", func(ctx context.Context) error {
+			return target.DetachFromTarget().WithSessionID(input.sessionID).Do(ctx)
+		}); err != nil {
 			input.closeConnection()
 			return err
 		}
 		input.sessionID = ""
 		input.targetID = ""
 	}
-	var attached struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := input.call("Target.attachToTarget", map[string]any{"targetId": targetID, "flatten": true}, "", &attached); err != nil {
+	var sessionID target.SessionID
+	if err := input.execute("", func(ctx context.Context) error {
+		var err error
+		sessionID, err = target.AttachToTarget(target.ID(targetID)).WithFlatten(true).Do(ctx)
+		return err
+	}); err != nil {
 		input.closeConnection()
 		return err
 	}
-	if strings.TrimSpace(attached.SessionID) == "" {
+	if sessionID == "" {
 		input.closeConnection()
 		return errors.New("CDP input target attachment omitted session id")
 	}
 	input.targetID = targetID
-	input.sessionID = attached.SessionID
+	input.sessionID = sessionID
 	input.pointerX = 0
 	input.pointerY = 0
 	input.buttons = 0
@@ -84,15 +91,17 @@ func (input *liveSessionCDPInput) hasTarget(targetID string) (bool, error) {
 	if err := input.ensureConnection(); err != nil {
 		return false, err
 	}
-	var targets struct {
-		TargetInfos []cdpTargetInfo `json:"targetInfos"`
-	}
-	if err := input.call("Target.getTargets", map[string]any{}, "", &targets); err != nil {
+	var targetInfos []*target.Info
+	if err := input.execute("", func(ctx context.Context) error {
+		var err error
+		targetInfos, err = target.GetTargets().Do(ctx)
+		return err
+	}); err != nil {
 		input.closeConnection()
 		return false, err
 	}
-	for _, target := range targets.TargetInfos {
-		if target.TargetID == targetID && isUserCDPTarget(target) {
+	for _, targetInfo := range targetInfos {
+		if string(targetInfo.TargetID) == targetID && isUserCDPTarget(targetInfo) {
 			return true, nil
 		}
 	}
@@ -115,23 +124,20 @@ func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMess
 		}
 		input.pointerX = message.X * message.Width
 		input.pointerY = message.Y * message.Height
-		button := "none"
+		button := cdpinput.None
 		switch {
 		case input.buttons&1 != 0:
-			button = "left"
+			button = cdpinput.Left
 		case input.buttons&2 != 0:
-			button = "right"
+			button = cdpinput.Right
 		case input.buttons&4 != 0:
-			button = "middle"
+			button = cdpinput.Middle
 		}
-		return input.send("Input.dispatchMouseEvent", map[string]any{
-			"type":      "mouseMoved",
-			"x":         input.pointerX,
-			"y":         input.pointerY,
-			"button":    button,
-			"buttons":   input.buttons,
-			"modifiers": message.Modifiers,
-		}, input.sessionID)
+		params := cdpinput.DispatchMouseEvent(cdpinput.MouseMoved, input.pointerX, input.pointerY).
+			WithButton(button).
+			WithButtons(int64(input.buttons)).
+			WithModifiers(cdpinput.Modifier(message.Modifiers))
+		return input.send(cdproto.MethodType(cdpinput.CommandDispatchMouseEvent), params, input.sessionID)
 	case "input.pointer.button":
 		if message.Width <= 0 || message.Height <= 0 || message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
 			return errors.New("pointer position is invalid")
@@ -151,19 +157,16 @@ func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMess
 		if clickCount <= 0 {
 			clickCount = 1
 		}
-		eventType := "mouseReleased"
+		eventType := cdpinput.MouseReleased
 		if message.Pressed {
-			eventType = "mousePressed"
+			eventType = cdpinput.MousePressed
 		}
-		return input.call("Input.dispatchMouseEvent", map[string]any{
-			"type":       eventType,
-			"x":          input.pointerX,
-			"y":          input.pointerY,
-			"button":     button,
-			"buttons":    input.buttons,
-			"clickCount": clickCount,
-			"modifiers":  message.Modifiers,
-		}, input.sessionID, nil)
+		params := cdpinput.DispatchMouseEvent(eventType, input.pointerX, input.pointerY).
+			WithButton(button).
+			WithButtons(int64(input.buttons)).
+			WithClickCount(int64(clickCount)).
+			WithModifiers(cdpinput.Modifier(message.Modifiers))
+		return input.execute(input.sessionID, params.Do)
 	case "input.pointer.scroll":
 		if message.Width <= 0 || message.Height <= 0 || message.X < 0 || message.X > 1 || message.Y < 0 || message.Y > 1 {
 			return errors.New("pointer position is invalid")
@@ -173,16 +176,13 @@ func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMess
 		if message.Horizontal == 0 && message.Vertical == 0 {
 			return nil
 		}
-		return input.send("Input.dispatchMouseEvent", map[string]any{
-			"type":      "mouseWheel",
-			"x":         input.pointerX,
-			"y":         input.pointerY,
-			"button":    "none",
-			"buttons":   input.buttons,
-			"deltaX":    message.Horizontal,
-			"deltaY":    message.Vertical,
-			"modifiers": message.Modifiers,
-		}, input.sessionID)
+		params := cdpinput.DispatchMouseEvent(cdpinput.MouseWheel, input.pointerX, input.pointerY).
+			WithButton(cdpinput.None).
+			WithButtons(int64(input.buttons)).
+			WithDeltaX(message.Horizontal).
+			WithDeltaY(message.Vertical).
+			WithModifiers(cdpinput.Modifier(message.Modifiers))
+		return input.send(cdproto.MethodType(cdpinput.CommandDispatchMouseEvent), params, input.sessionID)
 	case "input.keyboard.key":
 		if err := input.dispatchKey(message); err != nil {
 			return err
@@ -197,43 +197,31 @@ func (input *liveSessionCDPInput) submit(_ uint64, message liveSessionClientMess
 		}
 		return nil
 	case "input.keyboard.text":
-		return input.call("Input.insertText", map[string]any{"text": message.Text}, input.sessionID, nil)
+		return input.execute(input.sessionID, cdpinput.InsertText(message.Text).Do)
 	default:
 		return errors.New("unsupported CDP input event")
 	}
 }
 
 func (input *liveSessionCDPInput) dispatchKey(message liveSessionClientMessage) error {
-	eventType := "rawKeyDown"
+	eventType := cdpinput.KeyRawDown
 	if !message.Pressed {
-		eventType = "keyUp"
+		eventType = cdpinput.KeyUp
 	} else if message.Text != "" {
-		eventType = "keyDown"
+		eventType = cdpinput.KeyDown
 	}
-	params := map[string]any{
-		"type":                  eventType,
-		"modifiers":             message.Modifiers,
-		"windowsVirtualKeyCode": message.WindowsVirtualKeyCode,
-		"nativeVirtualKeyCode":  message.NativeVirtualKeyCode,
-		"autoRepeat":            message.AutoRepeat,
-		"isKeypad":              message.IsKeypad,
-	}
-	if message.Key != "" {
-		params["key"] = message.Key
-	}
-	if message.Code != "" {
-		params["code"] = message.Code
-	}
-	if message.Text != "" {
-		params["text"] = message.Text
-	}
-	if message.UnmodifiedText != "" {
-		params["unmodifiedText"] = message.UnmodifiedText
-	}
-	if message.Location != 0 {
-		params["location"] = message.Location
-	}
-	return input.call("Input.dispatchKeyEvent", params, input.sessionID, nil)
+	params := cdpinput.DispatchKeyEvent(eventType).
+		WithModifiers(cdpinput.Modifier(message.Modifiers)).
+		WithWindowsVirtualKeyCode(int64(message.WindowsVirtualKeyCode)).
+		WithNativeVirtualKeyCode(int64(message.NativeVirtualKeyCode)).
+		WithAutoRepeat(message.AutoRepeat).
+		WithIsKeypad(message.IsKeypad).
+		WithKey(message.Key).
+		WithCode(message.Code).
+		WithText(message.Text).
+		WithUnmodifiedText(message.UnmodifiedText).
+		WithLocation(int64(message.Location))
+	return input.execute(input.sessionID, params.Do)
 }
 
 func (input *liveSessionCDPInput) release(_ uint64) error {
@@ -255,25 +243,22 @@ func (input *liveSessionCDPInput) release(_ uint64) error {
 		delete(input.pressedKeys, keyID)
 	}
 	for _, button := range []struct {
-		name string
+		name cdpinput.MouseButton
 		mask int
 	}{
-		{name: "left", mask: 1},
-		{name: "right", mask: 2},
-		{name: "middle", mask: 4},
+		{name: cdpinput.Left, mask: 1},
+		{name: cdpinput.Right, mask: 2},
+		{name: cdpinput.Middle, mask: 4},
 	} {
 		if input.buttons&button.mask == 0 {
 			continue
 		}
 		input.buttons &^= button.mask
-		if err := input.call("Input.dispatchMouseEvent", map[string]any{
-			"type":       "mouseReleased",
-			"x":          input.pointerX,
-			"y":          input.pointerY,
-			"button":     button.name,
-			"buttons":    input.buttons,
-			"clickCount": 1,
-		}, input.sessionID, nil); err != nil {
+		params := cdpinput.DispatchMouseEvent(cdpinput.MouseReleased, input.pointerX, input.pointerY).
+			WithButton(button.name).
+			WithButtons(int64(input.buttons)).
+			WithClickCount(1)
+		if err := input.execute(input.sessionID, params.Do); err != nil {
 			input.closeConnection()
 			return err
 		}
@@ -300,22 +285,22 @@ func (input *liveSessionCDPInput) ensureConnection() error {
 	return nil
 }
 
-func (input *liveSessionCDPInput) call(method string, params any, sessionID string, result any) error {
+func (input *liveSessionCDPInput) execute(sessionID target.SessionID, action func(context.Context) error) error {
 	if input.connection == nil {
 		return errors.New("CDP input connection is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
-	return input.connection.call(ctx, method, params, sessionID, result)
+	return action(input.connection.executorContext(ctx, sessionID))
 }
 
-func (input *liveSessionCDPInput) send(method string, params any, sessionID string) error {
+func (input *liveSessionCDPInput) send(method cdproto.MethodType, params any, sessionID target.SessionID) error {
 	if input.connection == nil {
 		return errors.New("CDP input connection is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), liveSessionCDPInputTimeout)
 	defer cancel()
-	return input.connection.send(ctx, method, params, sessionID)
+	return input.connection.sendAsync(ctx, method, params, sessionID, true)
 }
 
 func (input *liveSessionCDPInput) closeConnection() {
@@ -344,15 +329,15 @@ func liveSessionCDPKeyID(message liveSessionClientMessage) string {
 	return ""
 }
 
-func liveSessionCDPMouseButton(code uint32) (string, int, bool) {
+func liveSessionCDPMouseButton(code uint32) (cdpinput.MouseButton, int, bool) {
 	switch code {
 	case 272:
-		return "left", 1, true
+		return cdpinput.Left, 1, true
 	case 273:
-		return "right", 2, true
+		return cdpinput.Right, 2, true
 	case 274:
-		return "middle", 4, true
+		return cdpinput.Middle, 4, true
 	default:
-		return "", 0, false
+		return cdpinput.None, 0, false
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,7 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/chromedp/cdproto"
+	cdpbrowser "github.com/chromedp/cdproto/browser"
 )
 
 const compositorBrowserAppID = "aperture-browser"
@@ -1364,36 +1364,12 @@ func stopBrowserProcess(cdpPort int, cmd *exec.Cmd, done <-chan error) {
 func closeBrowser(cdpPort int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/json/version", cdpPort), nil)
+	client, err := connectLiveSessionCDP(ctx, cdpPort)
 	if err != nil {
 		return err
 	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("cdp version returned %s", response.Status)
-	}
-
-	var version struct {
-		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&version); err != nil {
-		return err
-	}
-	if strings.TrimSpace(version.WebSocketDebuggerURL) == "" {
-		return fmt.Errorf("cdp version omitted webSocketDebuggerUrl")
-	}
-
-	connection, _, err := websocket.Dial(ctx, version.WebSocketDebuggerURL, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = connection.CloseNow() }()
-	return connection.Write(ctx, websocket.MessageText, []byte(`{"id":1,"method":"Browser.close"}`))
+	defer client.close()
+	return client.sendAsync(ctx, cdproto.MethodType(cdpbrowser.CommandClose), cdpbrowser.Close(), "", false)
 }
 
 func stopProcess(cmd *exec.Cmd, done <-chan error) {

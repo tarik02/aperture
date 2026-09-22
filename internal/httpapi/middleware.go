@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aperture/aperture/internal/agentbrowser"
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
@@ -48,7 +47,6 @@ type Server struct {
 	Logger        *zap.Logger
 	jobToken      string
 	mcpHandler    http.Handler
-	agentBrowser  *agentbrowser.Manager
 }
 
 // SetJobToken configures the local job token for internal endpoints.
@@ -303,10 +301,4 @@ func eventResourceFilter(principal auth.Principal) ([]db.ResourceReference, bool
 
 func tenantIDFromContext(c *gin.Context) string {
 	return c.GetString("tenantId")
-}
-
-func (s *Server) Close() {
-	if s.agentBrowser != nil {
-		s.agentBrowser.Close()
-	}
 }

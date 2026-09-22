@@ -38,11 +38,6 @@ type OverlayClient interface {
 	Unmount(ctx context.Context, sessionID string) error
 }
 
-// MediaSessionCleaner closes in-memory media resources for a session.
-type MediaSessionCleaner interface {
-	CloseSessionMedia(sessionID string)
-}
-
 type CDPReadyWaiter func(ctx context.Context, port int) error
 
 // Service owns session lifecycle orchestration.
@@ -54,7 +49,6 @@ type Service struct {
 	channels        *browser.Registry
 	traefik         traefik.Reconciler
 	successCache    *auth.BcryptSuccessCache
-	mediaCleaner    MediaSessionCleaner
 	waitForCDPReady CDPReadyWaiter
 	now             func() time.Time
 	mountLocal      func(ctx context.Context, sessionID string, baseSnapshotID *string) error
@@ -507,9 +501,6 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	}
 	wasRunning := sessionRow.Status == db.SessionStatusRunning
 
-	if err := s.retireMediaSession(sessionID); err != nil {
-		return nil, err
-	}
 	if wasRunning {
 		if err := s.browser.Stop(ctx, sessionID); err != nil {
 			return nil, err
@@ -535,7 +526,6 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
-	s.closeMediaSession(sessionID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
 	}
@@ -579,9 +569,6 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, ErrOverlayMissing
 	}
 
-	if err := s.retireMediaSession(sessionID); err != nil {
-		return nil, err
-	}
 	if err := s.browser.Stop(ctx, sessionID); err != nil {
 		return nil, err
 	}
@@ -1071,7 +1058,6 @@ func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
 			continue
 		}
 		if sessionRow == nil || sessionRow.Status != db.SessionStatusRunning {
-			_ = s.retireMediaSession(sessionID)
 			_ = s.browser.Stop(ctx, sessionID)
 			_ = s.browser.RemoveRuntimeEnv(sessionID)
 		}
@@ -1112,7 +1098,6 @@ func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
 			continue
 		}
 
-		_ = s.retireMediaSession(sessionID)
 		_ = s.browser.Stop(ctx, sessionID)
 		_ = s.browser.RemoveRuntimeEnv(sessionID)
 	}
@@ -1220,20 +1205,8 @@ func (s *Service) replaceTags(ctx context.Context, sessionID string, tags map[st
 	return s.repo.ReplaceSessionTags(ctx, sessionID, rows)
 }
 
-func (s *Service) retireMediaSession(sessionID string) error {
-	s.closeMediaSession(sessionID)
-	return nil
-}
-
-func (s *Service) closeMediaSession(sessionID string) {
-	if s.mediaCleaner != nil {
-		s.mediaCleaner.CloseSessionMedia(sessionID)
-	}
-}
-
 func (s *Service) cleanupPreparedRuntime(ctx context.Context, sessionID string) error {
 	return errors.Join(
-		s.retireMediaSession(sessionID),
 		s.browser.RemoveRuntimeEnv(sessionID),
 		s.unmountOverlay(ctx, sessionID),
 	)
@@ -1244,7 +1217,6 @@ func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, messag
 }
 
 func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
-	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
 
@@ -1257,8 +1229,6 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return err
 	}
-	s.closeMediaSession(sessionRow.ID)
-
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
 	}
@@ -1272,7 +1242,6 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 }
 
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
-	_ = s.retireMediaSession(sessionRow.ID)
 	_ = s.browser.Stop(ctx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
 
@@ -1285,7 +1254,6 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return err
 	}
-	s.closeMediaSession(sessionRow.ID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
 	}
@@ -1420,11 +1388,6 @@ func isExpired(expiresAt string, now time.Time) bool {
 
 func isRetainedOrRunning(status string) bool {
 	return retainedActionable(status)
-}
-
-// SetMediaSessionCleaner configures cleanup for in-memory media state.
-func (s *Service) SetMediaSessionCleaner(cleaner MediaSessionCleaner) {
-	s.mediaCleaner = cleaner
 }
 
 // SetCDPReadyWaiter configures the browser CDP readiness check.

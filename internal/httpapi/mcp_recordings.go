@@ -1,33 +1,12 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-type wrapperRecordingStatus struct {
-	RecordingID       string `json:"recordingId"`
-	Mode              string `json:"mode"`
-	TargetID          string `json:"targetId"`
-	CaptureGeneration uint64 `json:"captureGeneration"`
-	Status            string `json:"status"`
-	StopReason        string `json:"stopReason,omitempty"`
-	Path              string `json:"path"`
-	StartedAt         string `json:"startedAt"`
-	StoppedAt         string `json:"stoppedAt,omitempty"`
-	SizeBytes         int64  `json:"sizeBytes,omitempty"`
-	FPS               int    `json:"fps"`
-	BitrateKbps       int    `json:"bitrateKbps"`
-	Codec             string `json:"codec"`
-}
 
 func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
@@ -83,6 +62,19 @@ func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, i
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, path, nil, false)
 }
 
+func (s *Server) mcpRecordingRetarget(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingRetargetInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
+	a, err := mcpAuthFromContext(ctx)
+	if err != nil {
+		return nil, mcpRecordingOutput{}, err
+	}
+	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	if err != nil {
+		return nil, mcpRecordingOutput{}, err
+	}
+	path := "/recordings/" + url.PathEscape(in.RecordingID) + "/retarget"
+	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path, map[string]string{"targetId": in.TargetID}, false)
+}
+
 func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
@@ -115,47 +107,37 @@ func (s *Server) mcpBoundRecordingStop(ctx context.Context, req *mcp.CallToolReq
 	return s.mcpRecordingStop(ctx, req, mcpRecordingInput{TenantID: a.tenantID, SessionID: a.sessionID, RecordingID: in.RecordingID})
 }
 
+func (s *Server) mcpBoundRecordingRetarget(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingRetargetInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
+	a, err := mcpAuthFromContext(ctx)
+	if err != nil {
+		return nil, mcpRecordingOutput{}, err
+	}
+	return s.mcpRecordingRetarget(ctx, req, mcpRecordingRetargetInput{
+		TenantID: a.tenantID, SessionID: a.sessionID, RecordingID: in.RecordingID, TargetID: in.TargetID,
+	})
+}
+
 func (s *Server) mcpRecordingRequest(ctx context.Context, tenantID, sessionID, method, path string, body any, stop bool) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	port, release, err := s.Sessions.AcquireWrapperPort(ctx, tenantID, sessionID)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, mcpToolError("session_unavailable", err)
 	}
 	defer release()
-	var requestBody io.Reader
-	if body != nil {
-		encoded, err := json.Marshal(body)
-		if err != nil {
-			return nil, mcpRecordingOutput{}, mcpToolError("internal", err)
+	if stop {
+		if err := requestWrapperRecording(ctx, port, method, path, body, true, nil); err != nil {
+			return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
 		}
-		requestBody = bytes.NewReader(encoded)
-	}
-	request, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), requestBody)
-	if err != nil {
-		return nil, mcpRecordingOutput{}, mcpToolError("internal", err)
-	}
-	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	if stop {
-		request.Header.Set("Range", "bytes=0-0")
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
-		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", fmt.Errorf("wrapper returned %s: %s", response.Status, message))
-	}
-	if stop {
 		return nil, mcpRecordingOutput{}, nil
 	}
 	var status wrapperRecordingStatus
-	if err := json.NewDecoder(io.LimitReader(response.Body, 64*1024)).Decode(&status); err != nil {
+	if err := requestWrapperRecording(ctx, port, method, path, body, false, &status); err != nil {
 		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
 	}
-	return nil, mcpRecordingOutputFromStatus(status), nil
+	output, err := s.mcpRecordingOutputFromStatus(sessionID, status)
+	if err != nil {
+		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
+	}
+	return nil, output, nil
 }
 
 func (s *Server) mcpRecordingsRequest(ctx context.Context, tenantID, sessionID string) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -164,38 +146,30 @@ func (s *Server) mcpRecordingsRequest(ctx context.Context, tenantID, sessionID s
 		return nil, mcpRecordingsOutput{}, mcpToolError("session_unavailable", err)
 	}
 	defer release()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/recordings", port), nil)
-	if err != nil {
-		return nil, mcpRecordingsOutput{}, mcpToolError("internal", err)
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
-		return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", fmt.Errorf("wrapper returned %s: %s", response.Status, message))
-	}
 	var statuses []wrapperRecordingStatus
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1024*1024)).Decode(&statuses); err != nil {
+	if err := requestWrapperRecording(ctx, port, http.MethodGet, "/recordings", nil, false, &statuses); err != nil {
 		return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", err)
 	}
 	output := mcpRecordingsOutput{Recordings: make([]mcpRecordingOutput, 0, len(statuses))}
 	for _, status := range statuses {
-		output.Recordings = append(output.Recordings, mcpRecordingOutputFromStatus(status))
+		recording, err := s.mcpRecordingOutputFromStatus(sessionID, status)
+		if err != nil {
+			return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", err)
+		}
+		output.Recordings = append(output.Recordings, recording)
 	}
 	return nil, output, nil
 }
 
-func mcpRecordingOutputFromStatus(status wrapperRecordingStatus) mcpRecordingOutput {
+func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRecordingStatus) (mcpRecordingOutput, error) {
+	relativePath, err := s.recordingRelativePath(sessionID, status.Path)
+	if err != nil {
+		return mcpRecordingOutput{}, err
+	}
 	output := mcpRecordingOutput{
 		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
-		SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}
-	if status.Path != "" {
-		output.RelativePath = filepath.ToSlash(filepath.Join("recordings", filepath.Base(status.Path)))
-	}
-	return output
+	return output, nil
 }

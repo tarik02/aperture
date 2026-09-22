@@ -742,6 +742,78 @@ paths:
       responses:
         '200': {description: Updated remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings:
+    parameters:
+      - {$ref: '#/components/parameters/SessionId'}
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: listSessionRecordings
+      tags: [sessions]
+      summary: List session recordings
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
+      description: Lists logical recordings without exposing host filesystem paths.
+      responses:
+        '200':
+          description: Session recordings
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Recording'}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createSessionRecording
+      tags: [sessions]
+      summary: Start a session recording
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Starts a tab recording of one ready top-level target.
+      requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
+      responses:
+        '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}:
+    get:
+      operationId: getSessionRecording
+      tags: [sessions]
+      summary: Get a session recording
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, session_service_unavailable, browser_control_failed]
+      description: Returns one logical recording and its current top-level target without exposing host filesystem paths.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Session recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/retarget:
+    post:
+      operationId: retargetSessionRecording
+      tags: [sessions]
+      summary: Retarget a session recording
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/RetargetSessionRecording'}
+      responses:
+        '200': {description: Retargeted recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/recordings/{recordingId}/stop:
     post:
       operationId: stopSessionRecording
@@ -751,7 +823,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, session_service_unavailable, browser_control_failed]
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
       description: Stops the selected recording without transferring its media data and returns the resulting session file.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1103,6 +1175,14 @@ components:
       required: true
       description: Session file path and optional signed URL lifetime. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/SessionFileDownloadURLInput'}}}
+    CreateSessionRecording:
+      required: true
+      description: Ready top-level target and optional recording settings. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionRecordingInput'}}}
+    RetargetSessionRecording:
+      required: true
+      description: Ready destination top-level target. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/RetargetSessionRecordingInput'}}}
     SetCursorVisibility:
       required: true
       description: Remote cursor visibility. The JSON body must not exceed 1 MiB.
@@ -1293,6 +1373,7 @@ components:
         - session_invalid_state
         - session_not_running
         - recording_not_found
+        - recording_invalid_state
         - session_file_not_found
         - browser_start_failed
         - browser_initialization_failed
@@ -1344,6 +1425,7 @@ components:
         session_invalid_state: 409
         session_not_running: 409
         recording_not_found: 404
+        recording_invalid_state: 409
         session_file_not_found: 404
         browser_start_failed: 502
         browser_initialization_failed: 502
@@ -2142,6 +2224,87 @@ components:
         visible:
           type: boolean
           description: Whether to include the remote cursor in live streams and recordings.
+    CreateSessionRecordingInput:
+      type: object
+      description: Top-level target and optional recording settings.
+      required: [targetId]
+      properties:
+        targetId:
+          type: string
+          minLength: 1
+          description: Identifier of the ready top-level target to record.
+        fps:
+          type: integer
+          description: Requested frames per second. Omit or use a non-positive value for the instance default.
+          example: 60
+        bitrateKbps:
+          type: integer
+          description: Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.
+          example: 6000
+        codec:
+          type: string
+          enum: [vp8, h264-va]
+          description: Video codec. Omit for the instance default.
+          example: vp8
+    RetargetSessionRecordingInput:
+      type: object
+      description: Destination for a running tab recording.
+      required: [targetId]
+      properties:
+        targetId:
+          type: string
+          minLength: 1
+          description: Identifier of the ready destination top-level target.
+    Recording:
+      type: object
+      description: One logical recording of a top-level target.
+      required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
+      properties:
+        recordingId:
+          type: string
+          format: uuid
+          description: Stable recording identifier retained across target changes.
+        mode:
+          type: string
+          enum: [tab, viewer]
+          description: Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
+        targetId:
+          type: string
+          description: Identifier of the top-level target currently recorded.
+        captureGeneration:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Assignment generation for the current top-level target.
+        status:
+          type: string
+          enum: [starting, running, stopped, failed]
+        stopReason:
+          type: string
+          description: Lifecycle reason recorded after the recording stops or fails.
+        relativePath:
+          type: string
+          description: Path below the session root; absolute host paths are never exposed.
+          example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
+        startedAt:
+          type: string
+          format: date-time
+        stoppedAt:
+          type: string
+          format: date-time
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        fps:
+          type: integer
+          minimum: 1
+        bitrateKbps:
+          type: integer
+          minimum: 1
+        codec:
+          type: string
+          enum: [vp8, h264-va]
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

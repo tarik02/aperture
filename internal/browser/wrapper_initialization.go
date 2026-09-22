@@ -7,8 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"time"
+
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/cdproto/storage"
+	"github.com/chromedp/cdproto/target"
 )
 
 const wrapperInitializationBodyLimit = 64 * 1024 * 1024
@@ -110,7 +118,27 @@ func (browser *liveSessionBrowser) restoreCookies(cookies []InitialCookie) error
 	if len(cookies) == 0 {
 		return nil
 	}
-	return browser.call("Storage.setCookies", map[string]any{"cookies": cookies}, "", nil)
+	params := make([]*network.CookieParam, 0, len(cookies))
+	for _, cookie := range cookies {
+		param := &network.CookieParam{
+			Name:     cookie.Name,
+			Value:    cookie.Value,
+			Domain:   cookie.Domain,
+			Path:     cookie.Path,
+			Secure:   cookie.Secure,
+			HTTPOnly: cookie.HTTPOnly,
+			SameSite: network.CookieSameSite(cookie.SameSite),
+		}
+		if cookie.Expires != nil {
+			seconds, fraction := math.Modf(*cookie.Expires)
+			expires := cdp.TimeSinceEpoch(time.Unix(int64(seconds), int64(fraction*float64(time.Second))).UTC())
+			param.Expires = &expires
+		}
+		params = append(params, param)
+	}
+	return browser.execute("", func(ctx context.Context) error {
+		return storage.SetCookies(params).Do(ctx)
+	})
 }
 
 func (browser *liveSessionBrowser) restoreLocalStorage(ctx context.Context, origin InitialStorageOrigin) error {
@@ -140,76 +168,105 @@ func (browser *liveSessionBrowser) restoreLocalStorage(ctx context.Context, orig
   }
 })()`, entries)
 
-	return browser.withTarget(targetID, func(sessionID string) error {
-		var navigation struct {
-			ErrorText string `json:"errorText"`
-		}
-		if err := browser.call("Page.navigate", map[string]any{"url": canonicalOrigin}, sessionID, &navigation); err != nil {
-			return err
-		}
-		if navigation.ErrorText != "" {
-			return fmt.Errorf("navigate to origin: %s", navigation.ErrorText)
-		}
+	var sessionID target.SessionID
+	if err := browser.execute("", func(ctx context.Context) error {
+		var err error
+		sessionID, err = target.AttachToTarget(target.ID(targetID)).WithFlatten(true).Do(ctx)
+		return err
+	}); err != nil {
+		return err
+	}
+	if sessionID == "" {
+		return errors.New("browser omitted the target attachment ID")
+	}
+	defer func() {
+		_ = browser.execute("", func(ctx context.Context) error {
+			return target.DetachFromTarget().WithSessionID(sessionID).Do(ctx)
+		})
+	}()
 
-		deadline := time.Now().Add(localStorageImportTimeout)
-		originReady := false
-		for time.Now().Before(deadline) {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			var evaluation struct {
-				Result struct {
-					Value string `json:"value"`
-				} `json:"result"`
-				ExceptionDetails *json.RawMessage `json:"exceptionDetails"`
-			}
-			err := browser.call("Runtime.evaluate", map[string]any{
-				"expression":    "location.origin",
-				"returnByValue": true,
-			}, sessionID, &evaluation)
-			if err == nil && evaluation.ExceptionDetails == nil && evaluation.Result.Value == canonicalOrigin {
-				originReady = true
-				break
-			}
-			timer := time.NewTimer(25 * time.Millisecond)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return ctx.Err()
-			case <-timer.C:
-			}
-		}
-		if !originReady {
-			return errors.New("browser did not navigate to the local storage origin within 1 minute")
-		}
-		if err := browser.call("Page.stopLoading", map[string]any{}, sessionID, nil); err != nil {
+	if err := browser.execute(sessionID, func(ctx context.Context) error {
+		_, _, errorText, _, err := page.Navigate(canonicalOrigin).Do(ctx)
+		if err != nil {
 			return err
 		}
-
-		var evaluation struct {
-			Result struct {
-				Value *struct {
-					Status string `json:"status"`
-					Error  string `json:"error"`
-				} `json:"value"`
-			} `json:"result"`
-			ExceptionDetails *json.RawMessage `json:"exceptionDetails"`
-		}
-		if err := browser.call("Runtime.evaluate", map[string]any{
-			"expression":    source,
-			"returnByValue": true,
-		}, sessionID, &evaluation); err != nil {
-			return err
-		}
-		if evaluation.ExceptionDetails != nil || evaluation.Result.Value == nil {
-			return errors.New("browser could not evaluate the local storage import")
-		}
-		if evaluation.Result.Value.Status == "failed" {
-			return fmt.Errorf("browser rejected local storage: %s", evaluation.Result.Value.Error)
-		}
-		if evaluation.Result.Value.Status != "succeeded" {
-			return errors.New("browser returned an invalid local storage import result")
+		if errorText != "" {
+			return fmt.Errorf("navigate to origin: %s", errorText)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(localStorageImportTimeout)
+	originReady := false
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var currentOrigin string
+		var exception bool
+		err := browser.execute(sessionID, func(ctx context.Context) error {
+			result, exceptionDetails, err := runtime.Evaluate("location.origin").WithReturnByValue(true).Do(ctx)
+			if err != nil {
+				return err
+			}
+			exception = exceptionDetails != nil
+			if result != nil && len(result.Value) > 0 {
+				return json.Unmarshal(result.Value, &currentOrigin)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if !exception && currentOrigin == canonicalOrigin {
+			originReady = true
+			break
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	if !originReady {
+		return errors.New("browser did not navigate to the local storage origin within 1 minute")
+	}
+	if err := browser.execute(sessionID, func(ctx context.Context) error {
+		return page.StopLoading().Do(ctx)
+	}); err != nil {
+		return err
+	}
+
+	var value *struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	var exception bool
+	if err := browser.execute(sessionID, func(ctx context.Context) error {
+		result, exceptionDetails, err := runtime.Evaluate(source).WithReturnByValue(true).Do(ctx)
+		if err != nil {
+			return err
+		}
+		exception = exceptionDetails != nil
+		if result == nil || len(result.Value) == 0 {
+			return nil
+		}
+		return json.Unmarshal(result.Value, &value)
+	}); err != nil {
+		return err
+	}
+	if exception || value == nil {
+		return errors.New("browser could not evaluate the local storage import")
+	}
+	if value.Status == "failed" {
+		return fmt.Errorf("browser rejected local storage: %s", value.Error)
+	}
+	if value.Status != "succeeded" {
+		return errors.New("browser returned an invalid local storage import result")
+	}
+	return nil
 }
