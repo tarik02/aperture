@@ -21,8 +21,7 @@ let
     lib.recursiveUpdate
       {
         mcp_enabled = true;
-        agent_browser_tools_default = "core,tabs,mobile,network";
-        agent_browser_idle_timeout = "5m";
+        browser_tools_default = "core,vision,network";
         tool_output_max_bytes = 16777216;
         signed_file_url_ttl = "15m";
         signed_file_url_max_ttl = "24h";
@@ -232,7 +231,7 @@ in
     };
     extraPath = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = [ self.packages.${pkgs.system}.agent-browser ];
+      default = [ ];
       description = "Additional packages available to Aperture API services.";
     };
     chromiumPackage = lib.mkOption {

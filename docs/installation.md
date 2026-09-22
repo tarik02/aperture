@@ -46,8 +46,7 @@ runtime_root: /run/user/UID/aperture
 external_base_url: https://browser.example.test
 listen_address: 127.0.0.1:8080
 mcp_enabled: true
-agent_browser_tools_default: core,tabs,mobile,network
-agent_browser_idle_timeout: 5m
+browser_tools_default: core,vision,network
 tool_output_max_bytes: 16777216
 signed_file_url_ttl: 15m
 signed_file_url_max_ttl: 24h

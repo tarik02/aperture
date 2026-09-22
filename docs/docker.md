@@ -1,6 +1,6 @@
 # Docker
 
-The Docker images contain Chromium, the WebRTC media stack, the patched Weston compositor, GStreamer, PipeWire/WirePlumber, bubblewrap, agent-browser, Traefik, and s6-overlay.
+The Docker images contain Chromium, the WebRTC media stack, the patched Weston compositor, GStreamer, PipeWire/WirePlumber, bubblewrap, Playwright MCP, Traefik, and s6-overlay.
 
 Aperture publishes two variants:
 

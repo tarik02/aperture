@@ -1,4 +1,4 @@
-package agentbrowser
+package playwrightmcp
 
 import (
 	_ "embed"
@@ -15,6 +15,32 @@ type Profile struct {
 	Tools []string `json:"tools"`
 }
 
+type ProfileSpec struct {
+	Name       string
+	Capability string
+}
+
+var profileSpecs = []ProfileSpec{
+	{Name: "core"},
+	{Name: "vision", Capability: "vision"},
+	{Name: "network", Capability: "network"},
+	{Name: "storage", Capability: "storage"},
+}
+
+func ProfileSpecs() []ProfileSpec {
+	return append([]ProfileSpec(nil), profileSpecs...)
+}
+
+func RuntimeCapabilities() []string {
+	capabilities := make([]string, 0, len(profileSpecs)-1)
+	for _, profile := range profileSpecs {
+		if profile.Capability != "" {
+			capabilities = append(capabilities, profile.Capability)
+		}
+	}
+	return capabilities
+}
+
 type Tool struct {
 	Name         string         `json:"name"`
 	Title        string         `json:"title,omitempty"`
@@ -27,7 +53,7 @@ type Tool struct {
 }
 
 type Metadata struct {
-	Version  string             `json:"agent_browser_version"`
+	Version  string             `json:"playwright_mcp_version"`
 	Profiles map[string]Profile `json:"profiles"`
 	Tools    map[string]Tool    `json:"tools"`
 }
@@ -35,7 +61,7 @@ type Metadata struct {
 func MetadataFromEmbedded() (Metadata, error) {
 	var metadata Metadata
 	if err := json.Unmarshal(profilesJSON, &metadata); err != nil {
-		return Metadata{}, fmt.Errorf("parse embedded agent-browser metadata: %w", err)
+		return Metadata{}, fmt.Errorf("parse embedded Playwright MCP metadata: %w", err)
 	}
 	return metadata, nil
 }
@@ -52,19 +78,19 @@ func ParseProfiles(value string) ([]string, error) {
 	for _, part := range parts {
 		profile := strings.TrimSpace(part)
 		if profile == "" {
-			return nil, fmt.Errorf("agent-browser tool profile is empty")
+			return nil, fmt.Errorf("playwright tool profile is empty")
 		}
 		if _, ok := metadata.Profiles[profile]; !ok {
-			return nil, fmt.Errorf("unknown agent-browser tool profile %q", profile)
+			return nil, fmt.Errorf("unknown Playwright tool profile %q", profile)
 		}
 		if _, ok := seen[profile]; ok {
-			return nil, fmt.Errorf("agent-browser tool profile %q is repeated", profile)
+			return nil, fmt.Errorf("playwright tool profile %q is repeated", profile)
 		}
 		seen[profile] = struct{}{}
 		profiles = append(profiles, profile)
 	}
 	if len(profiles) == 0 {
-		return nil, fmt.Errorf("agent-browser tool profiles are required")
+		return nil, fmt.Errorf("playwright tool profiles are required")
 	}
 	return profiles, nil
 }
@@ -78,7 +104,7 @@ func ToolsForProfiles(profiles []string) (map[string]struct{}, error) {
 	for _, profile := range profiles {
 		entry, ok := metadata.Profiles[profile]
 		if !ok {
-			return nil, fmt.Errorf("unknown agent-browser tool profile %q", profile)
+			return nil, fmt.Errorf("unknown Playwright tool profile %q", profile)
 		}
 		for _, tool := range entry.Tools {
 			tools[tool] = struct{}{}
@@ -113,9 +139,18 @@ func ToolsForProfilesMetadata(profiles []string) (map[string]Tool, error) {
 	for name := range names {
 		tool, ok := metadata.Tools[name]
 		if !ok {
-			return nil, fmt.Errorf("missing metadata for agent-browser tool %q", name)
+			return nil, fmt.Errorf("missing metadata for Playwright tool %q", name)
 		}
 		tools[name] = tool
 	}
 	return tools, nil
+}
+
+func HasTool(name string) bool {
+	metadata, err := MetadataFromEmbedded()
+	if err != nil {
+		return false
+	}
+	_, ok := metadata.Tools[name]
+	return ok
 }
