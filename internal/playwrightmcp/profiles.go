@@ -15,6 +15,32 @@ type Profile struct {
 	Tools []string `json:"tools"`
 }
 
+type ProfileSpec struct {
+	Name       string
+	Capability string
+}
+
+var profileSpecs = []ProfileSpec{
+	{Name: "core"},
+	{Name: "vision", Capability: "vision"},
+	{Name: "network", Capability: "network"},
+	{Name: "storage", Capability: "storage"},
+}
+
+func ProfileSpecs() []ProfileSpec {
+	return append([]ProfileSpec(nil), profileSpecs...)
+}
+
+func RuntimeCapabilities() []string {
+	capabilities := make([]string, 0, len(profileSpecs)-1)
+	for _, profile := range profileSpecs {
+		if profile.Capability != "" {
+			capabilities = append(capabilities, profile.Capability)
+		}
+	}
+	return capabilities
+}
+
 type Tool struct {
 	Name         string         `json:"name"`
 	Title        string         `json:"title,omitempty"`

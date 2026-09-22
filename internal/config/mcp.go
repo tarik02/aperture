@@ -8,13 +8,13 @@ import (
 )
 
 func validateMCP(cfg Config) []error {
-	if !cfg.MCPEnabled && cfg.PlaywrightToolsDefault == "" && cfg.ToolOutputMaxBytes == 0 && cfg.SignedFileURLTTL == 0 && cfg.SignedFileURLMaxTTL == 0 {
+	if !cfg.MCPEnabled && cfg.BrowserToolsDefault == "" && cfg.ToolOutputMaxBytes == 0 && cfg.SignedFileURLTTL == 0 && cfg.SignedFileURLMaxTTL == 0 {
 		return nil
 	}
 
 	var errs []error
-	if _, err := playwrightmcp.ParseProfiles(cfg.PlaywrightToolsDefault); err != nil {
-		errs = append(errs, fmt.Errorf("playwright_tools_default: %w", err))
+	if _, err := playwrightmcp.ParseProfiles(cfg.BrowserToolsDefault); err != nil {
+		errs = append(errs, fmt.Errorf("browser_tools_default: %w", err))
 	}
 	if cfg.ToolOutputMaxBytes <= 0 {
 		errs = append(errs, errors.New("tool_output_max_bytes must be positive"))

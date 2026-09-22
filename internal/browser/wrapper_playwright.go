@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,17 +56,19 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 }
 
 func (b *playwrightMCPBackend) start(ctx context.Context) error {
-	command := exec.Command(
-		"playwright-mcp",
-		"--cdp-endpoint", "http://127.0.0.1:"+strconv.Itoa(b.values.CDPPort),
+	args := []string{
+		"--cdp-endpoint", "http://127.0.0.1:" + strconv.Itoa(b.values.CDPPort),
 		"--cdp-timeout", "30000",
-		"--caps", "vision,network,storage",
 		"--codegen", "none",
-		"--file-paths", "absolute",
+		"--file-paths", "relative",
 		"--idle-timeout", "0",
 		"--no-webmcp",
 		"--output-dir", b.values.ArtifactsDir,
-	)
+	}
+	if capabilities := playwrightmcp.RuntimeCapabilities(); len(capabilities) > 0 {
+		args = append(args, "--caps", strings.Join(capabilities, ","))
+	}
+	command := exec.Command("playwright-mcp", args...)
 	command.Dir = b.values.ArtifactsDir
 	command.Env = []string{
 		"HOME=" + b.values.ArtifactsDir,

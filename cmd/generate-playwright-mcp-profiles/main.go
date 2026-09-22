@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/playwrightmcp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -56,29 +57,21 @@ func main() {
 		fail(err)
 	}
 
-	profileCapabilities := []struct {
-		name       string
-		capability string
-	}{
-		{name: "core"},
-		{name: "vision", capability: "vision"},
-		{name: "network", capability: "network"},
-		{name: "storage", capability: "storage"},
-	}
-	profiles := make(map[string]profileMetadata, len(profileCapabilities))
+	profileSpecs := playwrightmcp.ProfileSpecs()
+	profiles := make(map[string]profileMetadata, len(profileSpecs))
 	toolDefinitions := make(map[string]toolMetadata)
 	coreTools := make(map[string]struct{})
-	for _, profile := range profileCapabilities {
-		tools, err := listTools(playwrightMCP, profile.capability)
+	for _, profile := range profileSpecs {
+		tools, err := listTools(playwrightMCP, profile.Capability)
 		if err != nil {
-			fail(fmt.Errorf("list %s tools: %w", profile.name, err))
+			fail(fmt.Errorf("list %s tools: %w", profile.Name, err))
 		}
 		names := make([]string, 0, len(tools))
 		for _, tool := range tools {
 			if _, blocked := blockedTools[tool.Name]; blocked {
 				continue
 			}
-			if profile.name != "core" {
+			if profile.Name != "core" {
 				if _, core := coreTools[tool.Name]; core {
 					continue
 				}
@@ -93,11 +86,11 @@ func main() {
 				InputSchema: inputSchema, OutputSchema: tool.OutputSchema,
 				Annotations: tool.Annotations, Meta: tool.Meta, Icons: tool.Icons,
 			}
-			if profile.name == "core" {
+			if profile.Name == "core" {
 				coreTools[tool.Name] = struct{}{}
 			}
 		}
-		profiles[profile.name] = profileMetadata{Tools: names}
+		profiles[profile.Name] = profileMetadata{Tools: names}
 	}
 	contents, err := json.MarshalIndent(metadata{Version: version, Profiles: profiles, Tools: toolDefinitions}, "", "  ")
 	if err != nil {

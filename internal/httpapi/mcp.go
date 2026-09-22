@@ -85,9 +85,9 @@ func (s *Server) mcp(c *gin.Context) {
 		mcpHTTPError(c, http.StatusUnauthorized, err)
 		return
 	}
-	profileValue := strings.TrimSpace(c.Request.URL.Query().Get("playwrightTools"))
+	profileValue := strings.TrimSpace(c.Request.URL.Query().Get("browserTools"))
 	if profileValue == "" {
-		profileValue = s.Config.PlaywrightToolsDefault
+		profileValue = s.Config.BrowserToolsDefault
 	}
 	profiles, err := playwrightmcp.ParseProfiles(profileValue)
 	if err != nil {
@@ -123,7 +123,7 @@ func mcpIdentity(value mcpAuth) string {
 }
 
 func (s *Server) validateMCPProfile(r *http.Request) error {
-	profile := strings.TrimSpace(r.URL.Query().Get("playwrightTools"))
+	profile := strings.TrimSpace(r.URL.Query().Get("browserTools"))
 	if profile == "" {
 		return nil
 	}
