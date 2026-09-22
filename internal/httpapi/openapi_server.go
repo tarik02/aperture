@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	openAPIRequestBodyKey     = "openapiRequestBody"
-	maxOpenAPIRequestBodySize = 1 << 20
+	openAPIRequestBodyKey           = "openapiRequestBody"
+	maxOpenAPIRequestBodySize       = 1 << 20
+	maxSessionCreateRequestBodySize = 64 << 20
 )
 
 var errOpenAPIContext = errors.New("openapi handler context is not gin context")
@@ -189,7 +190,11 @@ func captureOpenAPIRequestBody(c *gin.Context) {
 		return
 	}
 
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
+	limit := int64(maxOpenAPIRequestBodySize)
+	if c.Request.Method == http.MethodPost && c.FullPath() == "/api/sessions" {
+		limit = maxSessionCreateRequestBodySize
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		WriteError(c, errRequestDecode)

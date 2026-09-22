@@ -19,7 +19,7 @@ info:
 
     ## Errors
 
-    Errors use `{ "error": { "code": "...", "message": "..." } }`. Each operation enumerates its possible stable codes; `ErrorCode` is the complete catalog. Request bodies are limited to 1 MiB.
+    Errors use `{ "error": { "code": "...", "message": "..." } }`. Each operation enumerates its possible stable codes; `ErrorCode` is the complete catalog. Request bodies are limited to 1 MiB unless an operation documents a larger limit.
 servers:
   - url: /
 security:
@@ -547,8 +547,8 @@ paths:
               property: baseSnapshotName
               operator: non_empty
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed]
-      description: Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed, browser_initialization_failed]
+      description: Starts a browser with a retained overlay, then optionally imports browser storage and replaces the startup page with initial browser targets. Imported storage overlays the base snapshot. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
       requestBody: {$ref: '#/components/requestBodies/CreateSession'}
       responses:
         '201': {description: Created session, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
@@ -1153,7 +1153,7 @@ components:
       content: {application/json: {schema: {$ref: '#/components/schemas/CreateTenantTokenInput'}}}
     CreateSession:
       required: true
-      description: Browser session configuration. The JSON body must not exceed 1 MiB.
+      description: Browser session configuration. The JSON body must not exceed 64 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionInput'}}}
     SessionBulk:
       required: true
@@ -1237,6 +1237,9 @@ components:
             browserStartFailed:
               summary: 502 · browser failed to start
               value: {error: {code: browser_start_failed, message: browser failed to start}}
+            browserInitializationFailed:
+              summary: 502 · browser startup state could not be applied
+              value: {error: {code: browser_initialization_failed, message: browser initialization failed}}
   schemas:
     UUIDv7:
       type: string
@@ -1373,6 +1376,7 @@ components:
         - recording_invalid_state
         - session_file_not_found
         - browser_start_failed
+        - browser_initialization_failed
         - snapshot_not_found
         - snapshot_name_conflict
         - snapshot_deleted
@@ -1424,6 +1428,7 @@ components:
         recording_invalid_state: 409
         session_file_not_found: 404
         browser_start_failed: 502
+        browser_initialization_failed: 502
         snapshot_not_found: 404
         snapshot_name_conflict: 409
         snapshot_deleted: 409
@@ -1849,6 +1854,74 @@ components:
           description: Additional Chromium command-line arguments. Aperture rejects arguments that conflict with supervisor-owned behavior or deployment policy.
           items: {type: string}
           example: ['--lang=en-US']
+    InitialBrowserTarget:
+      type: object
+      description: HTTP page opened as a browser target during session creation.
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+          description: Absolute HTTP or HTTPS URL without embedded credentials.
+          example: https://example.com/account
+    BrowserCookieSameSite:
+      type: string
+      enum: [Strict, Lax, None]
+    InitialBrowserCookie:
+      type: object
+      description: Cookie imported into the new browser profile. Partitioned cookies are not supported.
+      required: [name, value, domain, path]
+      properties:
+        name: {type: string, minLength: 1}
+        value:
+          type: string
+          x-sensitive: true
+          description: Cookie value. Never log this field.
+        domain: {type: string, minLength: 1, example: .example.com}
+        path: {type: string, pattern: '^/', example: /}
+        expires:
+          type: number
+          exclusiveMinimum: 0
+          description: Unix timestamp in seconds. Omit for a session cookie.
+        httpOnly: {type: boolean, default: false}
+        secure: {type: boolean, default: false}
+        sameSite: {$ref: '#/components/schemas/BrowserCookieSameSite'}
+    LocalStorageEntry:
+      type: object
+      required: [name, value]
+      properties:
+        name: {type: string}
+        value:
+          type: string
+          x-sensitive: true
+          description: Local storage value. Never log this field.
+    InitialStorageOrigin:
+      type: object
+      description: Local storage imported for one exact HTTP origin.
+      required: [origin, localStorage]
+      properties:
+        origin:
+          type: string
+          format: uri
+          pattern: '^https?://[^/]+$'
+          example: https://example.com
+        localStorage:
+          type: array
+          items: {$ref: '#/components/schemas/LocalStorageEntry'}
+    InitialBrowserStorageState:
+      type: object
+      description: Cookies and origin-local storage imported before initial browser targets are opened.
+      required: [cookies, origins]
+      properties:
+        cookies:
+          type: array
+          maxItems: 1000
+          items: {$ref: '#/components/schemas/InitialBrowserCookie'}
+        origins:
+          type: array
+          maxItems: 20
+          items: {$ref: '#/components/schemas/InitialStorageOrigin'}
     CreateSessionInput:
       type: object
       description: Configuration for a new retained browser session.
@@ -1863,6 +1936,12 @@ components:
           description: Optional operator-facing label for the session.
           example: checkout smoke test
         browser: {$ref: '#/components/schemas/BrowserConfig'}
+        initialTargets:
+          type: array
+          maxItems: 50
+          description: Browser targets that replace the browser's startup page after storage import. Input order is preserved during creation.
+          items: {$ref: '#/components/schemas/InitialBrowserTarget'}
+        storageState: {$ref: '#/components/schemas/InitialBrowserStorageState'}
         tags:
           allOf: [{$ref: '#/components/schemas/StringMap'}]
           description: Initial session tags.
@@ -1871,6 +1950,10 @@ components:
         baseSnapshotName: signed-in-base
         label: checkout smoke test
         browser: {channel: chromium, args: ['--lang=en-US']}
+        initialTargets: [{url: https://example.com/account}]
+        storageState:
+          cookies: []
+          origins: [{origin: https://example.com, localStorage: [{name: access-token, value: REDACTED}]}]
         tags: {environment: staging, suite: checkout}
     IceServer:
       type: object

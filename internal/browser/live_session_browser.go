@@ -13,7 +13,10 @@ import (
 	"github.com/chromedp/cdproto/target"
 )
 
-const liveSessionBrowserCommandTimeout = 5 * time.Second
+const (
+	liveSessionBrowserCommandTimeout = 5 * time.Second
+	liveSessionTargetReadyTimeout    = 15 * time.Second
+)
 
 type liveSessionTarget struct {
 	ID       string              `json:"id"`
@@ -142,7 +145,7 @@ func (browser *liveSessionBrowser) waitUntilTargetReady(targetID string) error {
 	if registry == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionBrowserCommandTimeout)
+	ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionTargetReadyTimeout)
 	defer cancel()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
@@ -153,6 +156,31 @@ func (browser *liveSessionBrowser) waitUntilTargetReady(targetID string) error {
 		select {
 		case <-ctx.Done():
 			return errors.New("created browser target did not become ready")
+		case <-ticker.C:
+		}
+	}
+}
+
+func (browser *liveSessionBrowser) waitUntilStartupTargetReady(ctx context.Context) error {
+	browser.runtime.mu.Lock()
+	registry := browser.runtime.targets
+	browser.runtime.mu.Unlock()
+	if registry == nil {
+		return nil
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, liveSessionTargetReadyTimeout)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		for _, target := range registry.snapshots() {
+			if target.State == wrapperTargetReady {
+				return nil
+			}
+		}
+		select {
+		case <-waitCtx.Done():
+			return errors.New("startup browser target did not become ready")
 		case <-ticker.C:
 		}
 	}

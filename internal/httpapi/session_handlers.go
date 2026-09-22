@@ -118,6 +118,7 @@ func (s *Server) createSession(c *gin.Context) {
 		Label:            req.Label,
 		BrowserChannel:   req.Browser.Channel,
 		BrowserArgs:      req.Browser.Args,
+		Initialization:   req.initialization(),
 		Tags:             req.Tags,
 		Proxy:            req.Proxy.assignment(),
 	})

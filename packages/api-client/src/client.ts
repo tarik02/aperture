@@ -38,6 +38,7 @@ import {
 import type { ResourceGrant, ResourceMode } from "./schemas.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
+const sessionCreateBodyMaxBytes = 64 * 1024 * 1024;
 
 type ApiClientConfig = {
   baseUrl: string;
@@ -369,6 +370,29 @@ export type EventsListParams = {
   resourceId?: string;
 };
 
+export type InitialBrowserTarget = {
+  url: string;
+};
+
+export type InitialBrowserCookie = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+};
+
+export type InitialBrowserStorageState = {
+  cookies: InitialBrowserCookie[];
+  origins: Array<{
+    origin: string;
+    localStorage: Array<{ name: string; value: string }>;
+  }>;
+};
+
 export type CreateSessionInput = {
   baseSnapshotName?: string | null;
   label?: string | null;
@@ -376,6 +400,8 @@ export type CreateSessionInput = {
     channel: string;
     args?: string[];
   };
+  initialTargets?: InitialBrowserTarget[];
+  storageState?: InitialBrowserStorageState;
   tags?: Record<string, string>;
 };
 
@@ -816,21 +842,31 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
 
     createSession(credentials: ApiCredentials, input: CreateSessionInput) {
+      const body = {
+        baseSnapshotName: input.baseSnapshotName ?? null,
+        label: input.label ?? null,
+        browser: {
+          channel: input.browser.channel,
+          args: input.browser.args ?? [],
+        },
+        initialTargets: input.initialTargets ?? [],
+        ...(input.storageState === undefined ? {} : { storageState: input.storageState }),
+        tags: input.tags ?? {},
+      };
+      if (new TextEncoder().encode(JSON.stringify(body)).byteLength > sessionCreateBodyMaxBytes) {
+        throw new ApiRequestError(
+          "validation_failed",
+          "The browser state exceeds Aperture's 64 MiB session creation limit",
+          0,
+        );
+      }
       return request(config, {
         method: "POST",
         path: "/api/sessions",
         schema: createSessionResponseSchema,
         credentials,
         tenantHeader: "tenant-scoped",
-        body: {
-          baseSnapshotName: input.baseSnapshotName ?? null,
-          label: input.label ?? null,
-          browser: {
-            channel: input.browser.channel,
-            args: input.browser.args ?? [],
-          },
-          tags: input.tags ?? {},
-        },
+        body,
       });
     },
 
