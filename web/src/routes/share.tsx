@@ -9,9 +9,9 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "#/components/ui/empty.tsx";
-import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
-import { ApiRequestError } from "#/lib/api/errors.ts";
+} from "@aperture/ui/components/empty";
+import { apiClient, type ApiCredentials } from "@aperture/api-client";
+import { ApiRequestError } from "@aperture/api-client";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 

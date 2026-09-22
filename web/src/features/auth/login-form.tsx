@@ -2,20 +2,20 @@ import { useState } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { Fingerprint, Key, KeyRound, LogIn } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "#/components/ui/button.tsx";
-import { DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
 import {
   Field,
   FieldError,
   FieldGroup,
   FieldLabel,
   FieldSeparator,
-} from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { apiClient } from "#/lib/api/client.ts";
+} from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
+import { apiClient } from "@aperture/api-client";
 import { parseTokenId } from "#/lib/token-id.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
-import type { LoginMethods } from "#/lib/api/schemas.ts";
+import type { LoginMethods } from "@aperture/api-client";
 
 type LoginFormProps = {
   loginMethods?: LoginMethods["methods"];

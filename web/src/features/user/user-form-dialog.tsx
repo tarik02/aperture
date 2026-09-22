@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
+} from "@aperture/ui/components/dialog";
 import {
   Field,
   FieldContent,
@@ -17,11 +17,11 @@ import {
   FieldGroup,
   FieldLabel,
   FieldTitle,
-} from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { Switch } from "#/components/ui/switch.tsx";
+} from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
+import { Switch } from "@aperture/ui/components/switch";
 import { useCreateUserMutation, useUpdateUserMutation } from "#/features/user/user.mutations.ts";
-import type { User } from "#/lib/api/schemas.ts";
+import type { User } from "@aperture/api-client";
 
 type UserFormDialogProps = {
   open: boolean;

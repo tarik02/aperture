@@ -5,8 +5,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
-import { Button } from "#/components/ui/button.tsx";
+} from "@aperture/ui/components/dialog";
+import { Button } from "@aperture/ui/components/button";
 import type { ComponentProps } from "react";
 
 type ConfirmDialogProps = {

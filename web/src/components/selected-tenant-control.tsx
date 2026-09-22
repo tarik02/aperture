@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
-import { apiClient } from "#/lib/api/client.ts";
+import { apiClient } from "@aperture/api-client";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
-import { cn } from "#/lib/utils.ts";
+import { cn } from "@aperture/ui/utils";
 
 type SelectedTenantControlProps = {
   triggerClassName?: string;

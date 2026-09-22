@@ -8,8 +8,8 @@ import {
   type LiveSessionControl,
   type LiveSessionMediaSelection,
 } from "#/hooks/use-live-session.ts";
-import { apiClient, type ApiCredentials } from "#/lib/api/client.ts";
-import type { Recording } from "#/lib/api/schemas.ts";
+import { apiClient, type ApiCredentials } from "@aperture/api-client";
+import type { Recording } from "@aperture/api-client";
 import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 import type {
   CollaborationRole,

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AuthMePrincipal, AuthMeResponse } from "#/lib/api/schemas.ts";
+import type { AuthMePrincipal, AuthMeResponse } from "@aperture/api-client";
 
 type AuthSessionData =
   | { status: "loading" | "unauthenticated"; auth: null }

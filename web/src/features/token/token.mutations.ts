@@ -3,7 +3,7 @@ import {
   apiClient,
   type CreateAdminTokenInput,
   type CreateTenantTokenInput,
-} from "#/lib/api/client.ts";
+} from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 

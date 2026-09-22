@@ -4,15 +4,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Fingerprint, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "#/components/ui/empty.tsx";
-import { Field, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { Skeleton } from "#/components/ui/skeleton.tsx";
-import { apiClient } from "#/lib/api/client.ts";
+import { Button } from "@aperture/ui/components/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@aperture/ui/components/empty";
+import { Field, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
+import { Skeleton } from "@aperture/ui/components/skeleton";
+import { apiClient } from "@aperture/api-client";
 import { queryKeys } from "#/lib/api/query-keys.ts";
-import type { Passkey } from "#/lib/api/schemas.ts";
+import type { Passkey } from "@aperture/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
 
 type PendingAction =

@@ -5,7 +5,7 @@ import {
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { useEffect, useRef, useState } from "react";
 import { Globe2, Plus, Wrench, X } from "lucide-react";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -13,11 +13,11 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from "#/components/ui/context-menu.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+} from "@aperture/ui/components/context-menu";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 import { copyText } from "#/components/resources/copy-button.tsx";
-import { cn } from "#/lib/utils.ts";
+import { cn } from "@aperture/ui/utils";
 import type { LiveSessionTarget } from "#/lib/control/live-session-protocol.ts";
 import { toast } from "sonner";
 

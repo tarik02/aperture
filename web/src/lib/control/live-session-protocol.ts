@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { recordingSchema } from "#/lib/api/schemas.ts";
+import { recordingSchema } from "@aperture/api-client";
 
 export const LIVE_SESSION_PROTOCOL = "aperture-session.v1";
 
