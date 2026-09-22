@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { apiClient, setSessionAuthenticationFailureHandler } from "#/lib/api/client.ts";
+import { apiClient, setSessionAuthenticationFailureHandler } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 
 const WelcomeLoginModal = lazy(() =>

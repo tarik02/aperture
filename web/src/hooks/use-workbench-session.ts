@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useSessionQuery, useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
-import type { Session } from "#/lib/api/schemas.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
+import type { Session } from "@aperture/api-client";
 
 type UseWorkbenchSessionResult = {
   session: Session | null;

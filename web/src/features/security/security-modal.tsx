@@ -5,15 +5,15 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { CopyButton } from "#/components/resources/copy-button.tsx";
 import { CopyField } from "#/components/resources/copy-field.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
-import { Field, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { Skeleton } from "#/components/ui/skeleton.tsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
-import { apiClient } from "#/lib/api/client.ts";
+import { Button } from "@aperture/ui/components/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
+import { Field, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
+import { Skeleton } from "@aperture/ui/components/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture/ui/components/tabs";
+import { apiClient } from "@aperture/api-client";
 import { queryKeys } from "#/lib/api/query-keys.ts";
-import type { TOTPEnrollment } from "#/lib/api/schemas.ts";
+import type { TOTPEnrollment } from "@aperture/api-client";
 
 type TOTPFlow =
   | { kind: "idle" }

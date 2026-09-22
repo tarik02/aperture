@@ -23,7 +23,7 @@ import { SessionDetailModals } from "#/components/sessions/session-detail-modals
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { TagEditModal } from "#/features/tag/edit-modal/tag-edit-modal.tsx";
-import { tagsToEntries } from "#/components/resources/tag-editor.tsx";
+import { tagsToEntries } from "@aperture/ui/components/tag-editor";
 import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import {
   InfiniteTableShell,
@@ -33,8 +33,8 @@ import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
 import { TagFilter } from "#/components/resources/tag-filter.tsx";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Checkbox } from "#/components/ui/checkbox.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Checkbox } from "@aperture/ui/components/checkbox";
 import {
   Empty,
   EmptyContent,
@@ -42,7 +42,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "#/components/ui/empty.tsx";
+} from "@aperture/ui/components/empty";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +53,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
+} from "@aperture/ui/components/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -61,7 +61,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "#/components/ui/select.tsx";
+} from "@aperture/ui/components/select";
 import {
   Table,
   TableBody,
@@ -73,7 +73,7 @@ import {
   stickyTableEndHeaderClassName,
   stickyTableStartCellClassName,
   stickyTableStartHeaderClassName,
-} from "#/components/ui/table.tsx";
+} from "@aperture/ui/components/table";
 import {
   useDeleteSessionMutation,
   useReopenSessionMutation,
@@ -84,12 +84,12 @@ import {
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
 import { hasAllScopes, hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
-import type { Session } from "#/lib/api/schemas.ts";
-import { apiClient } from "#/lib/api/client.ts";
+import type { Session } from "@aperture/api-client";
+import { apiClient } from "@aperture/api-client";
 import { copyText } from "#/components/resources/copy-button.tsx";
-import { cn } from "#/lib/utils.ts";
+import { cn } from "@aperture/ui/utils";
 import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
 import { useSessionFormStore } from "#/features/session/form/session-form.store.ts";

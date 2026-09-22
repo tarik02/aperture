@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient, type CreateSessionInput, type PromoteSessionInput } from "#/lib/api/client.ts";
+import { apiClient, type CreateSessionInput, type PromoteSessionInput } from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 

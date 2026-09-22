@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { apiClient, type UserInput } from "#/lib/api/client.ts";
+import { apiClient, type UserInput } from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 
 function useInvalidateUsers() {

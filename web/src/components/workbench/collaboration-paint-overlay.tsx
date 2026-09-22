@@ -2,7 +2,7 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react
 import type { CollaborationControl } from "#/hooks/use-live-session.ts";
 import { collaborationPaintLifetimeMs } from "#/hooks/use-live-session.ts";
 import type { CollaborationPaintPoint } from "#/lib/control/live-session-protocol.ts";
-import { cn } from "#/lib/utils.ts";
+import { cn } from "@aperture/ui/utils";
 
 type CollaborationPaintOverlayProps = {
   collaboration: CollaborationControl;

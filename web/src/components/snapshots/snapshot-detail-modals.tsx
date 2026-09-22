@@ -4,17 +4,17 @@ import { EventsPanel } from "#/components/resources/events-panel.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
 import { DeletedBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs.tsx";
-import type { Snapshot } from "#/lib/api/schemas.ts";
+} from "@aperture/ui/components/dialog";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture/ui/components/tabs";
+import type { Snapshot } from "@aperture/api-client";
 
 export type SnapshotDetailSection = "details" | "events";
 

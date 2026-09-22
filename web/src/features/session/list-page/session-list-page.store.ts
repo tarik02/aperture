@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { SessionDetailSection } from "#/components/sessions/session-detail-modals.tsx";
-import type { CreateSessionResponse, Session } from "#/lib/api/schemas.ts";
+import type { CreateSessionResponse, Session } from "@aperture/api-client";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 
 export type SessionConfirmAction =

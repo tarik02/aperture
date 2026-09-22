@@ -1,4 +1,4 @@
-import { Dialog, DialogContent } from "#/components/ui/dialog.tsx";
+import { Dialog, DialogContent } from "@aperture/ui/components/dialog";
 import { TokenCreateForm } from "#/features/token/create-form/token-create-form.tsx";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
 

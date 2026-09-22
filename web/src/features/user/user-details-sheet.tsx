@@ -3,9 +3,9 @@ import { KeyRound, Link2, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata-grid.tsx";
-import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Alert, AlertDescription } from "@aperture/ui/components/alert";
+import { Badge } from "@aperture/ui/components/badge";
+import { Button } from "@aperture/ui/components/button";
 import {
   Card,
   CardAction,
@@ -14,24 +14,24 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "#/components/ui/card.tsx";
+} from "@aperture/ui/components/card";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "#/components/ui/empty.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
+} from "@aperture/ui/components/empty";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Separator } from "@aperture/ui/components/separator";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "#/components/ui/sheet.tsx";
-import { Skeleton } from "#/components/ui/skeleton.tsx";
+} from "@aperture/ui/components/sheet";
+import { Skeleton } from "@aperture/ui/components/skeleton";
 import { MembershipDialog } from "#/features/user/membership-dialog.tsx";
 import { UserFormDialog } from "#/features/user/user-form-dialog.tsx";
 import {
@@ -46,8 +46,8 @@ import {
 } from "#/features/user/user.mutations.ts";
 import { useUserMembershipsQuery, useUserQuery } from "#/features/user/user.queries.ts";
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
-import type { TenantMembership } from "#/lib/api/schemas.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
+import type { TenantMembership } from "@aperture/api-client";
 import { scopeLabel } from "#/lib/scopes.ts";
 
 type MembershipDialogState =

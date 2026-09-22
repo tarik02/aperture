@@ -1,11 +1,16 @@
 import { Lock, Radio } from "lucide-react";
-import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "#/components/ui/avatar.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "#/components/ui/popover.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "@aperture/ui/components/avatar";
+import { Button } from "@aperture/ui/components/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@aperture/ui/components/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 import type { CollaborationControl } from "#/hooks/use-live-session.ts";
 import type { CollaborationParticipant } from "#/lib/control/live-session-protocol.ts";
-import { cn } from "#/lib/utils.ts";
+import { cn } from "@aperture/ui/utils";
 
 const visibleParticipantCount = 5;
 

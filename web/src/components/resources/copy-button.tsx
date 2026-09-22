@@ -3,8 +3,8 @@ import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
 import { timer } from "rxjs";
 import { toast } from "sonner";
-import { Button } from "#/components/ui/button.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 
 type CopyButtonProps = {
   value: string;

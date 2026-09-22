@@ -13,7 +13,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { interval } from "rxjs";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,9 +22,9 @@ import {
   ContextMenuRadioGroup,
   ContextMenuRadioItem,
   ContextMenuTrigger,
-} from "#/components/ui/context-menu.tsx";
-import { InputGroup, InputGroupInput } from "#/components/ui/input-group.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+} from "@aperture/ui/components/context-menu";
+import { InputGroup, InputGroupInput } from "@aperture/ui/components/input-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";

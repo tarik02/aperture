@@ -1,6 +1,6 @@
 import { Trash2 } from "lucide-react";
-import { Toggle } from "#/components/ui/toggle.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip.tsx";
+import { Toggle } from "@aperture/ui/components/toggle";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 
 type IncludeDeletedToggleProps = {
   checked: boolean;
