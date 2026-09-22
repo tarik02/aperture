@@ -548,6 +548,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get status for this session without waking it."}, s.mcpBoundStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get live connection data for this session without waking it."}, s.mcpBoundConnection)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend this running session."}, s.mcpBoundSuspend)
+		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking this session if it is suspended."}, s.mcpBoundBrowserTargets)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for this session."}, s.mcpBoundCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings."}, s.mcpBoundCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpBoundRecordingStart)
@@ -573,11 +574,12 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.status", Description: "Get current status for a session."}, s.mcpSessionStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get current connection data for a session."}, s.mcpSessionConnection)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend a running session."}, s.mcpSessionSuspend)
-		mcp.AddTool(server, &mcp.Tool{Name: "sessions.reopen", Description: "Reopen a retained deleted or failed session."}, s.mcpSessionReopen)
+		mcp.AddTool(server, &mcp.Tool{Name: "sessions.reopen", Description: "Reopen a retained deleted or failed session. Suspended sessions wake automatically when a browser tool is called."}, s.mcpSessionReopen)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.replace_tags", Description: "Replace all tags on a session."}, s.mcpSessionReplaceTags)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.delete", Description: "Delete a tenant-owned session."}, s.mcpSessionDelete)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
+		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking the session if it is suspended."}, s.mcpBrowserTargets)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for a session."}, s.mcpCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings."}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
@@ -639,7 +641,14 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 		filteredRequired = append(filteredRequired, "sessionId")
 		schema["required"] = filteredRequired
 	}
-	tool := &mcp.Tool{Name: definition.Name, Title: definition.Title, Description: definition.Description, InputSchema: schema, OutputSchema: definition.OutputSchema}
+	description := definition.Description
+	if definition.Name == "browser_file_upload" {
+		description = "Upload one or multiple files from the session artifact directory"
+		if paths, ok := properties["paths"].(map[string]any); ok {
+			paths["description"] = "Paths relative to the session artifact directory, or absolute paths within it. Files from downloads or recordings must be uploaded into the artifact directory first. Omit to cancel the file chooser."
+		}
+	}
+	tool := &mcp.Tool{Name: definition.Name, Title: definition.Title, Description: description, InputSchema: schema, OutputSchema: definition.OutputSchema}
 	if definition.Annotations != nil {
 		b, _ := json.Marshal(definition.Annotations)
 		_ = json.Unmarshal(b, &tool.Annotations)

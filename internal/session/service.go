@@ -574,6 +574,9 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	if sessionRow.Status == db.SessionStatusExpired {
 		return nil, ErrExpired
 	}
+	if sessionRow.Status == db.SessionStatusSuspended {
+		return nil, fmt.Errorf("%w because it is suspended; call a browser tool to wake it", ErrNotReopenable)
+	}
 	if sessionRow.Status != db.SessionStatusDeleted && sessionRow.Status != db.SessionStatusFailed {
 		return nil, ErrNotReopenable
 	}

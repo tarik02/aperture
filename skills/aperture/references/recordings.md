@@ -54,7 +54,7 @@ Public recording results use `relativePath`; absolute host paths are never retur
 
 ## MCP
 
-MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
+MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Call `browser.targets` and select a target whose `state` is `ready` before starting or retargeting a recording. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
 
 ## Lifecycle
 

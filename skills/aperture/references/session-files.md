@@ -12,6 +12,8 @@ Session files are limited to regular files below the session's `downloads` and `
 
 `session_files.list` returns `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`. MCP returns metadata and signed URLs rather than large file contents.
 
+Session-file paths under `downloads/` and `recordings/` cannot be passed directly to Playwright's `browser_file_upload`, whose allowed root is the session artifact directory. To reuse one in a browser upload, fetch it through a signed URL, upload the bytes with `POST /sessions/:sessionId/uploads`, then pass the returned `uploads/<name>` path to `browser_file_upload`.
+
 ## HTTP
 
 `POST /api/sessions/:sessionId/files/download-url` requires `sessions:read` and accepts:
