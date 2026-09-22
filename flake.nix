@@ -462,54 +462,27 @@
               ];
             });
 
-        agentBrowserBinary =
-          if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then
-            "agent-browser-linux-x64"
-          else if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then
-            "agent-browser-linux-arm64"
-          else if pkgs.stdenv.hostPlatform.system == "x86_64-darwin" then
-            "agent-browser-darwin-x64"
-          else if pkgs.stdenv.hostPlatform.system == "aarch64-darwin" then
-            "agent-browser-darwin-arm64"
-          else
-            throw "agent-browser is not packaged for ${pkgs.stdenv.hostPlatform.system}";
+        playwrightMCP = pkgs.buildNpmPackage rec {
+          pname = "playwright-mcp";
+          version = "0.0.82";
 
-        agentBrowser = pkgs.stdenvNoCC.mkDerivation {
-          pname = "agent-browser";
-          version = "0.31.2";
-
-          src = pkgs.fetchurl {
-            url = "https://registry.npmjs.org/agent-browser/-/agent-browser-0.31.2.tgz";
-            hash = "sha512-TkqqlFIIs9XFR7GCX92syuWdbWy3pcGkTsBKk/oncofVfICmaMJHnAeXk2MciE1SEUonzRqVNUCnYCqcO8rqWA==";
+          src = pkgs.fetchFromGitHub {
+            owner = "Microsoft";
+            repo = "playwright-mcp";
+            tag = "v${version}";
+            hash = "sha256-O/Z/ufrtcbLInCnlZ1RhW2XsSTKQEn9KMUN+sC+DqdM=";
           };
 
-          nativeBuildInputs = [
-            pkgs.makeWrapper
-          ]
-          ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-            pkgs.patchelf
-          ];
+          npmDepsHash = "sha256-9ezjwWu4tXgO868iDMT9Cst5Ke9ADISvbNbeEOJNmxw=";
+          npmInstallFlags = [ "--ignore-scripts" ];
+          dontNpmBuild = true;
 
-          installPhase = ''
-            runHook preInstall
-
-            mkdir -p $out/bin $out/libexec/agent-browser $out/share/agent-browser $out/share/licenses/agent-browser
-            cp bin/${agentBrowserBinary} $out/libexec/agent-browser/agent-browser
-            cp -R skill-data $out/share/agent-browser/skills
-            cp LICENSE $out/share/licenses/agent-browser/LICENSE
-            chmod +x $out/libexec/agent-browser/agent-browser
-
-            ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-              patchelf \
-                --set-interpreter ${pkgs.stdenv.cc.bintools.dynamicLinker} \
-                $out/libexec/agent-browser/agent-browser
-            ''}
-
-            makeWrapper $out/libexec/agent-browser/agent-browser $out/bin/agent-browser \
-              --set AGENT_BROWSER_SKILLS_DIR $out/share/agent-browser/skills
-
-            runHook postInstall
-          '';
+          meta = with lib; {
+            description = "Playwright browser automation tools for MCP";
+            homepage = "https://github.com/microsoft/playwright-mcp";
+            license = licenses.asl20;
+            mainProgram = "playwright-mcp";
+          };
         };
 
         s6OverlayVersion = "3.2.3.1";
@@ -702,6 +675,7 @@
                 --prefix PATH : ${
                   lib.makeBinPath [
                     pkgs.bubblewrap
+                    playwrightMCP
                     runtimeGstreamer
                     patchedWeston
                     runtimePipewire
@@ -857,7 +831,7 @@
               maxLayers = 120;
               contents = [
                 aperture
-                agentBrowser
+                playwrightMCP
                 pkgs.traefik
                 runtimeChromium
                 pkgs.bashInteractive
@@ -960,7 +934,7 @@
                     lib.makeBinPath (
                       [
                         aperture
-                        agentBrowser
+                        playwrightMCP
                         pkgs.traefik
                         runtimeChromium
                         pkgs.bashInteractive
@@ -1134,14 +1108,14 @@
             pkgs.pixman
             pkgs.wayland.dev
             patchedWeston
-            agentBrowser
+            playwrightMCP
           ];
         };
 
         packages = {
           default = aperture;
           aperture = aperture;
-          agent-browser = agentBrowser;
+          playwright-mcp = playwrightMCP;
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

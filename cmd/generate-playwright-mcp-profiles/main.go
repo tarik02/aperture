@@ -31,42 +31,73 @@ type toolMetadata struct {
 }
 
 type metadata struct {
-	Version  string                     `json:"agent_browser_version"`
+	Version  string                     `json:"playwright_mcp_version"`
 	Profiles map[string]profileMetadata `json:"profiles"`
 	Tools    map[string]toolMetadata    `json:"tools"`
 }
 
+var blockedTools = map[string]struct{}{
+	"browser_close":           {},
+	"browser_install":         {},
+	"browser_run_code":        {},
+	"browser_run_code_unsafe": {},
+}
+
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: generate-agent-browser-mcp-profiles <agent-browser> <output>")
+		fmt.Fprintln(os.Stderr, "usage: generate-playwright-mcp-profiles <playwright-mcp> <output>")
 		os.Exit(2)
 	}
 
-	agentBrowser := os.Args[1]
+	playwrightMCP := os.Args[1]
 	outputPath := os.Args[2]
-	version, err := bundledVersion(agentBrowser)
+	version, err := bundledVersion(playwrightMCP)
 	if err != nil {
 		fail(err)
 	}
 
-	profileNames := []string{"all", "core", "debug", "mobile", "network", "react", "state", "tabs"}
-	profiles := make(map[string]profileMetadata, len(profileNames))
+	profileCapabilities := []struct {
+		name       string
+		capability string
+	}{
+		{name: "core"},
+		{name: "vision", capability: "vision"},
+		{name: "network", capability: "network"},
+		{name: "storage", capability: "storage"},
+	}
+	profiles := make(map[string]profileMetadata, len(profileCapabilities))
 	toolDefinitions := make(map[string]toolMetadata)
-	for _, profile := range profileNames {
-		tools, err := listTools(agentBrowser, profile)
+	coreTools := make(map[string]struct{})
+	for _, profile := range profileCapabilities {
+		tools, err := listTools(playwrightMCP, profile.capability)
 		if err != nil {
-			fail(fmt.Errorf("list %s tools: %w", profile, err))
+			fail(fmt.Errorf("list %s tools: %w", profile.name, err))
 		}
 		names := make([]string, 0, len(tools))
 		for _, tool := range tools {
-			names = append(names, tool.Name)
+			if _, blocked := blockedTools[tool.Name]; blocked {
+				continue
+			}
+			if profile.name != "core" {
+				if _, core := coreTools[tool.Name]; core {
+					continue
+				}
+			}
 			inputSchema, ok := tool.InputSchema.(map[string]any)
 			if !ok {
 				fail(fmt.Errorf("tool %s has invalid input schema", tool.Name))
 			}
-			toolDefinitions[tool.Name] = toolMetadata{Name: tool.Name, Title: tool.Title, Description: tool.Description, InputSchema: inputSchema, OutputSchema: tool.OutputSchema, Annotations: tool.Annotations, Meta: tool.Meta, Icons: tool.Icons}
+			names = append(names, tool.Name)
+			toolDefinitions[tool.Name] = toolMetadata{
+				Name: tool.Name, Title: tool.Title, Description: tool.Description,
+				InputSchema: inputSchema, OutputSchema: tool.OutputSchema,
+				Annotations: tool.Annotations, Meta: tool.Meta, Icons: tool.Icons,
+			}
+			if profile.name == "core" {
+				coreTools[tool.Name] = struct{}{}
+			}
 		}
-		profiles[profile] = profileMetadata{Tools: names}
+		profiles[profile.name] = profileMetadata{Tools: names}
 	}
 	contents, err := json.MarshalIndent(metadata{Version: version, Profiles: profiles, Tools: toolDefinitions}, "", "  ")
 	if err != nil {
@@ -78,26 +109,31 @@ func main() {
 	}
 }
 
-func bundledVersion(agentBrowser string) (string, error) {
-	output, err := exec.Command(agentBrowser, "--version").Output()
+func bundledVersion(playwrightMCP string) (string, error) {
+	output, err := exec.Command(playwrightMCP, "--version").Output()
 	if err != nil {
-		return "", fmt.Errorf("run %s --version: %w", agentBrowser, err)
+		return "", fmt.Errorf("run %s --version: %w", playwrightMCP, err)
 	}
 	version := strings.TrimSpace(string(output))
-	version = strings.TrimPrefix(version, "agent-browser ")
+	version = strings.TrimPrefix(version, "Version ")
 	if version == "" {
-		return "", fmt.Errorf("%s returned an empty version", agentBrowser)
+		return "", fmt.Errorf("%s returned an empty version", playwrightMCP)
 	}
 	return version, nil
 }
 
-func listTools(agentBrowser, profile string) ([]*mcp.Tool, error) {
+func listTools(playwrightMCP, capability string) ([]*mcp.Tool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
+	args := []string{"--cdp-endpoint", "http://127.0.0.1:1", "--no-webmcp"}
+	if capability != "" {
+		args = append(args, "--caps", capability)
+	}
+	command := exec.CommandContext(ctx, playwrightMCP, args...)
+	command.Stderr = os.Stderr
 	client := mcp.NewClient(&mcp.Implementation{Name: "aperture-profile-generator", Version: "1.0.0"}, nil)
-	transport := &mcp.CommandTransport{Command: exec.CommandContext(ctx, agentBrowser, "mcp", "--tools", profile)}
-	session, err := client.Connect(ctx, transport, nil)
+	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 	if err != nil {
 		return nil, err
 	}
