@@ -338,6 +338,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/session", liveSession.serveSessionWebSocketHTTP)
 	mux.HandleFunc("/automation/lease", liveSession.serveAutomationLeaseHTTP)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
+	mux.HandleFunc("/initialize", r.handleInitialization)
 	mux.HandleFunc("/proxy/assignment", r.handleProxyAssignment)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)

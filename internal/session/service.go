@@ -96,6 +96,7 @@ type CreateInput struct {
 	Label            *string
 	BrowserChannel   string
 	BrowserArgs      []string
+	Initialization   browser.SessionInitialization
 	Tags             map[string]string
 	Proxy            proxy.Assignment
 }
@@ -121,6 +122,9 @@ type SessionMediaView struct {
 // Create creates and starts a browser session.
 func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, error) {
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
+		return nil, err
+	}
+	if err := input.Initialization.Validate(); err != nil {
 		return nil, err
 	}
 	if err := input.Proxy.Validate(); err != nil {
@@ -318,6 +322,16 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	if err := s.waitForCDPReady(ctx, port); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+	if !input.Initialization.Empty() {
+		if err := s.waitForRuntimeReady(ctx, port, wrapperPort); err != nil {
+			_ = s.markFailed(ctx, sessionRow, "browser wrapper did not become ready", err)
+			return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+		}
+		if err := pushBrowserInitialization(ctx, wrapperPort, wrapperControlToken, input.Initialization); err != nil {
+			_ = s.markFailed(ctx, sessionRow, "browser initialization failed", err)
+			return nil, fmt.Errorf("%w: %v", ErrBrowserInitialize, err)
+		}
 	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {

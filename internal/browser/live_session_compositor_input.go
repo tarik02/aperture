@@ -1,11 +1,15 @@
 package browser
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"time"
 
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
+
+const liveSessionInputTargetReadyTimeout = 5 * time.Second
 
 type liveSessionCompositorInput struct {
 	runtime    *wrapperRuntime
@@ -44,7 +48,7 @@ func newLiveSessionCompositorInput(runtime *wrapperRuntime) (*liveSessionComposi
 }
 
 func (input *liveSessionCompositorInput) bind(ownerID uint64, targetID string, onRevoke func()) error {
-	target, ok := input.readyTarget(targetID)
+	target, ok := input.waitForReadyTarget(targetID)
 	if !ok {
 		return remoteinput.ErrNotReady
 	}
@@ -166,4 +170,34 @@ func (input *liveSessionCompositorInput) readyTarget(targetID string) (wrapperTa
 		return wrapperTargetSnapshot{}, false
 	}
 	return registry.readyTarget(targetID)
+}
+
+func (input *liveSessionCompositorInput) waitForReadyTarget(targetID string) (wrapperTargetSnapshot, bool) {
+	if target, ready := input.readyTarget(targetID); ready {
+		return target, true
+	}
+	input.runtime.mu.Lock()
+	registry := input.runtime.targets
+	input.runtime.mu.Unlock()
+	if registry == nil || !registry.hasLiveTarget(targetID) {
+		return wrapperTargetSnapshot{}, false
+	}
+
+	ctx, cancel := context.WithTimeout(input.runtime.ctx, liveSessionInputTargetReadyTimeout)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return wrapperTargetSnapshot{}, false
+		case <-ticker.C:
+			if target, ready := registry.readyTarget(targetID); ready {
+				return target, true
+			}
+			if !registry.hasLiveTarget(targetID) {
+				return wrapperTargetSnapshot{}, false
+			}
+		}
+	}
 }

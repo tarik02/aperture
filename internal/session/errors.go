@@ -20,6 +20,7 @@ var (
 	ErrSnapshotDeleted     = errors.New("base snapshot is deleted")
 	ErrOverlayMissing      = errors.New("session overlay is not present")
 	ErrBrowserStart        = errors.New("browser failed to start")
+	ErrBrowserInitialize   = errors.New("browser initialization failed")
 	ErrDeniedBrowserArg    = errors.New("browser argument conflicts with supervisor-owned behavior")
 	ErrInvalidChannel      = errors.New("invalid browser channel")
 )

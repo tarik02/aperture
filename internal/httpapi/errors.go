@@ -170,6 +170,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, session.ErrBrowserStart):
 		return http.StatusBadGateway, "browser_start_failed", "browser failed to start"
+	case errors.Is(err, session.ErrBrowserInitialize):
+		return http.StatusBadGateway, "browser_initialization_failed", "browser initialization failed"
 	case errors.Is(err, snapshot.ErrNotFound):
 		return http.StatusNotFound, "snapshot_not_found", "snapshot not found"
 	case errors.Is(err, snapshot.ErrNameConflict):

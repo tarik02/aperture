@@ -23,6 +23,16 @@ type liveSessionCDPResponse struct {
 	} `json:"error"`
 }
 
+type liveSessionCDPCommandError struct {
+	method  string
+	code    int
+	message string
+}
+
+func (err *liveSessionCDPCommandError) Error() string {
+	return fmt.Sprintf("CDP %s failed (%d): %s", err.method, err.code, err.message)
+}
+
 type liveSessionCDPEvent struct {
 	Method    string          `json:"method"`
 	Params    json.RawMessage `json:"params"`
@@ -170,7 +180,11 @@ func (client *liveSessionCDP) call(ctx context.Context, method string, params an
 		return errors.New("browser CDP connection closed")
 	case response := <-waiter:
 		if response.Error != nil {
-			return fmt.Errorf("CDP %s failed (%d): %s", method, response.Error.Code, response.Error.Message)
+			return &liveSessionCDPCommandError{
+				method:  method,
+				code:    response.Error.Code,
+				message: response.Error.Message,
+			}
 		}
 		if result == nil {
 			return nil
