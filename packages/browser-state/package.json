@@ -1,0 +1,11 @@
+{
+  "name": "@aperture/browser-state",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/structured-clone-codec.ts"
+  },
+  "dependencies": {
+    "devalue": "6.0.2"
+  }
+}

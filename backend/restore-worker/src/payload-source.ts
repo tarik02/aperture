@@ -1,0 +1,23 @@
+import { readFileSync } from "node:fs";
+
+const sources = {
+  target: readFileSync(new URL("./target.js", import.meta.url), "utf8"),
+  sessionStorage: readFileSync(new URL("./session-storage.js", import.meta.url), "utf8"),
+  originStorage: readFileSync(new URL("./origin-storage.js", import.meta.url), "utf8"),
+};
+
+function source(bundle: string, entrypoint: string, state: unknown): string {
+  return `${bundle}\n${entrypoint}.run(${JSON.stringify(state)})`;
+}
+
+export function targetStateSource(state: unknown): string {
+  return source(sources.target, "ApertureTargetRestore", state);
+}
+
+export function sessionStorageSource(state: unknown): string {
+  return source(sources.sessionStorage, "ApertureSessionStorageRestore", state);
+}
+
+export function originStorageSource(state: unknown): string {
+  return source(sources.originStorage, "ApertureOriginStorageRestore", state);
+}

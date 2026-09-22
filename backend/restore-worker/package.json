@@ -7,6 +7,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aperture/browser-state": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
