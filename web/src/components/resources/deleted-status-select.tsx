@@ -5,7 +5,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "#/components/ui/select.tsx";
+} from "@aperture/ui/components/select";
 import type { DeletedFilterValue } from "#/lib/api/query-keys.ts";
 
 const deletedStatusOptions: Array<{ value: DeletedFilterValue; label: string }> = [

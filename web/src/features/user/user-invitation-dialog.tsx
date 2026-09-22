@@ -6,9 +6,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
+} from "@aperture/ui/components/dialog";
 import { formatTimestamp } from "#/lib/format.ts";
-import type { UserInvitation } from "#/lib/api/schemas.ts";
+import type { UserInvitation } from "@aperture/api-client";
 
 export type UserPasswordLink = {
   kind: "setup" | "reset";

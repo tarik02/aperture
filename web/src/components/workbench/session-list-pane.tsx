@@ -2,11 +2,11 @@ import { useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Input } from "#/components/ui/input.tsx";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Input } from "@aperture/ui/components/input";
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
-import type { Session } from "#/lib/api/schemas.ts";
-import { cn } from "#/lib/utils.ts";
+import type { Session } from "@aperture/api-client";
+import { cn } from "@aperture/ui/utils";
 
 type SessionListPaneProps = {
   selectedSessionId: string | null;

@@ -1,0 +1,22 @@
+{
+  "name": "@aperture/api-client",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "lint": "vp lint",
+    "format:check": "vp fmt --check"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "13.3.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "typescript": "^6.0.3",
+    "vite-plus": "catalog:"
+  }
+}

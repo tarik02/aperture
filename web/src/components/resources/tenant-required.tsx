@@ -1,4 +1,4 @@
-import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
+import { Alert, AlertDescription } from "@aperture/ui/components/alert";
 import { SelectedTenantControl } from "#/components/selected-tenant-control.tsx";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";

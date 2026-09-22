@@ -8,8 +8,8 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "#/components/ui/empty.tsx";
-import { Button } from "#/components/ui/button.tsx";
+} from "@aperture/ui/components/empty";
+import { Button } from "@aperture/ui/components/button";
 import { BrowserControlPane } from "#/components/workbench/browser-control-pane.tsx";
 import {
   SessionDetailModals,
@@ -21,8 +21,8 @@ import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { AppWindow, Loader2 } from "lucide-react";
-import type { ApiCredentials } from "#/lib/api/client.ts";
-import type { Session } from "#/lib/api/schemas.ts";
+import type { ApiCredentials } from "@aperture/api-client";
+import type { Session } from "@aperture/api-client";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 
 type SessionWorkbenchProps = {

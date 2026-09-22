@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
-import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Alert, AlertDescription } from "@aperture/ui/components/alert";
+import { Button } from "@aperture/ui/components/button";
 import {
   Card,
   CardContent,
@@ -10,11 +10,11 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "#/components/ui/card.tsx";
-import { Field, FieldError, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { Skeleton } from "#/components/ui/skeleton.tsx";
-import { apiClient } from "#/lib/api/client.ts";
+} from "@aperture/ui/components/card";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
+import { Skeleton } from "@aperture/ui/components/skeleton";
+import { apiClient } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 
 const invitationStorageKey = "aperture.user-invitation";

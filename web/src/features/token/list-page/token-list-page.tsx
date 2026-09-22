@@ -10,9 +10,9 @@ import {
   TableSkeletonRows,
 } from "#/components/resources/infinite-table-shell.tsx";
 import { RevokedBadge } from "#/components/resources/status-badge.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Checkbox } from "#/components/ui/checkbox.tsx";
+import { Badge } from "@aperture/ui/components/badge";
+import { Button } from "@aperture/ui/components/button";
+import { Checkbox } from "@aperture/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -20,15 +20,15 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
+} from "@aperture/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
+} from "@aperture/ui/components/dropdown-menu";
+import { Input } from "@aperture/ui/components/input";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
 import {
   Select,
   SelectContent,
@@ -36,7 +36,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "#/components/ui/select.tsx";
+} from "@aperture/ui/components/select";
 import {
   Table,
   TableBody,
@@ -48,7 +48,7 @@ import {
   stickyTableEndHeaderClassName,
   stickyTableStartCellClassName,
   stickyTableStartHeaderClassName,
-} from "#/components/ui/table.tsx";
+} from "@aperture/ui/components/table";
 import { useRevokeTokenMutation } from "#/features/token/token.mutations.ts";
 import { useTokensInfiniteQuery } from "#/features/token/token.queries.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
@@ -56,7 +56,7 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { formatTimestamp } from "#/lib/format.ts";
 import { adminScopeOptions, scopeLabel, scopePriority, tenantScopeOptions } from "#/lib/scopes.ts";
 import type { TokenRevokedFilterValue, TokensFilters } from "#/lib/api/query-keys.ts";
-import type { ApiToken, ResourceGrant } from "#/lib/api/schemas.ts";
+import type { ApiToken, ResourceGrant } from "@aperture/api-client";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";

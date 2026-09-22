@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { Building2, Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
-import { Button } from "#/components/ui/button.tsx";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "#/components/ui/input-group.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "#/components/ui/popover.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@aperture/ui/components/input-group";
+import { Popover, PopoverContent, PopoverTrigger } from "@aperture/ui/components/popover";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
-import type { Tenant } from "#/lib/api/schemas.ts";
-import { cn } from "#/lib/utils.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
+import type { Tenant } from "@aperture/api-client";
+import { cn } from "@aperture/ui/utils";
 
 type TenantComboboxProps = {
   value: string | null;

@@ -1,0 +1,28 @@
+{
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "paths": {
+      "@aperture/ui/components": ["./src/components"],
+      "@aperture/ui/components/*": ["./src/components/*"],
+      "@aperture/ui/hooks": ["./src"],
+      "@aperture/ui/hooks/*": ["./src/*"],
+      "@aperture/ui/lib": ["./src"],
+      "@aperture/ui/lib/*": ["./src/*"],
+      "@aperture/ui/utils": ["./src/utils.ts"]
+    },
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  }
+}

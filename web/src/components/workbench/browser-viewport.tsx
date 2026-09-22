@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, MousePointer2, Unplug } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "#/components/ui/badge.tsx";
+import { Badge } from "@aperture/ui/components/badge";
 import {
   keyboardInputMessage,
   keyboardModifiers,
@@ -10,7 +10,7 @@ import {
 import { computeRenderMetrics } from "#/lib/control/viewport.ts";
 import type { LiveSessionRasterFrame } from "#/lib/control/live-session-protocol.ts";
 import type { ViewportPreset } from "#/lib/control/viewport.ts";
-import { cn } from "#/lib/utils.ts";
+import { cn } from "@aperture/ui/utils";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
 

@@ -546,8 +546,12 @@
               inherit (finalAttrs) pname version src;
               pnpm = pnpmLatest;
               fetcherVersion = 4;
-              pnpmWorkspaces = [ "@aperture/web" ];
-              hash = "sha256-R/mB960YAi6iuEpF0Ohd/Q0f5t3w3yCJ4/GoBcDKYRE=";
+              pnpmWorkspaces = [
+                "@aperture/api-client"
+                "@aperture/ui"
+                "@aperture/web"
+              ];
+              hash = "sha256-QIfA0DxEbFVtrr+H2qisu2mfluXLErMbjPTBXjeMc4Q=";
             };
 
             nativeBuildInputs = [

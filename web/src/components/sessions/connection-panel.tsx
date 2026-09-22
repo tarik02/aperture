@@ -2,18 +2,18 @@ import { Link } from "@tanstack/react-router";
 import { AppWindow, Cable, ChevronDown, KeyRound } from "lucide-react";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { DialogFooter } from "#/components/ui/dialog.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { DialogFooter } from "@aperture/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import type { Session } from "#/lib/api/schemas.ts";
+} from "@aperture/ui/components/dropdown-menu";
+import { Separator } from "@aperture/ui/components/separator";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import type { Session } from "@aperture/api-client";
 import { useRotateSessionTokenMutation } from "#/features/session/session.mutations.ts";
 import { useSessionQuery } from "#/features/session/session.queries.ts";
 import { useEffect, useMemo, useState } from "react";

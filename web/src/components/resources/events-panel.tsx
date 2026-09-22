@@ -1,11 +1,11 @@
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
-import type { ResourceEvent } from "#/lib/api/schemas.ts";
+import type { ResourceEvent } from "@aperture/api-client";
 import { useEventsInfiniteQuery } from "#/features/event/event.queries.ts";
-import { Button } from "#/components/ui/button.tsx";
-import { Empty, EmptyHeader, EmptyTitle } from "#/components/ui/empty.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Skeleton } from "#/components/ui/skeleton.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@aperture/ui/components/empty";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Skeleton } from "@aperture/ui/components/skeleton";
 import {
   Table,
   TableBody,
@@ -13,8 +13,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "#/components/ui/table.tsx";
-import { cn } from "#/lib/utils.ts";
+} from "@aperture/ui/components/table";
+import { cn } from "@aperture/ui/utils";
 
 type EventsPanelProps = {
   resourceType: string;
