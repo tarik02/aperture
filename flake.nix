@@ -563,7 +563,7 @@
               "@aperture/ui"
               "@aperture/web"
             ];
-            hash = "sha256-7FXRGcd0POpJJP8TfO8wcKgnWC1RggSoUyBmouE7bKo=";
+            hash = "sha256-2/cmyf341y4Ugq6pJp/4eIA6eDTjpHm6RBQ1bese6iY=";
           };
 
           nativeBuildInputs = [
@@ -615,7 +615,7 @@
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-7FXRGcd0POpJJP8TfO8wcKgnWC1RggSoUyBmouE7bKo=";
+              hash = "sha256-2/cmyf341y4Ugq6pJp/4eIA6eDTjpHm6RBQ1bese6iY=";
             };
 
             nativeBuildInputs = [
