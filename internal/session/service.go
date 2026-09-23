@@ -119,9 +119,6 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
 		return nil, err
 	}
-	if err := input.Initialization.Validate(); err != nil {
-		return nil, err
-	}
 	if err := input.Proxy.Validate(); err != nil {
 		return nil, err
 	}

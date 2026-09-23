@@ -18,6 +18,8 @@
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
         nodeRuntime = pkgs.nodejs_26;
+        playwrightCoreVersion =
+          (builtins.fromJSON (builtins.readFile ./backend/restore-worker/package.json)).devDependencies."playwright-core";
 
         goLatest = pkgs.go_1_26.overrideAttrs (_: {
           version = "1.26.5";
@@ -486,6 +488,7 @@
           dontNpmBuild = true;
           postInstall = ''
             test -f $out/lib/node_modules/@playwright/mcp/node_modules/playwright-core/package.json
+            test "$(node -p "require(process.argv[1]).version" "$out/lib/node_modules/@playwright/mcp/node_modules/playwright-core/package.json")" = "${playwrightCoreVersion}"
             mkdir -p $out/share/aperture
             ln -s $out/lib/node_modules/@playwright/mcp/node_modules/playwright-core $out/share/aperture/playwright-core
           '';
@@ -566,7 +569,7 @@
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-vJ9kBGitRo/UYxF8tvMoedqfJy4WTQ/M8lar+zhbzxQ=";
+              hash = "sha256-j2g0E9bS4Tbbn1EEKUEt//nNYZnFzpr+1AkLWFs1WY8=";
             };
 
             nativeBuildInputs = [

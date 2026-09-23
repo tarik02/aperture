@@ -33,22 +33,22 @@ const endpoint = z.strictObject({
 const documentState = z
   .strictObject({
     version: z.literal(1),
-    windowName: z.string().nullish(),
-    historyState: z.string().nullish(),
+    windowName: z.string().optional(),
+    historyState: z.string().optional(),
     controls: z
       .array(
         z.strictObject({
           locator,
           value: z.string(),
-          checked: z.boolean().nullish(),
-          selectedIndices: z.array(nonNegative).nullish(),
+          checked: z.boolean().optional(),
+          selectedIndices: z.array(nonNegative).optional(),
           selection: z
             .strictObject({
               start: nonNegative,
               end: nonNegative,
               direction: z.enum(["forward", "backward", "none"]),
             })
-            .nullish(),
+            .optional(),
         }),
       )
       .max(10000),
@@ -56,8 +56,8 @@ const documentState = z
     scrollPositions: z
       .array(z.strictObject({ locator, x: z.number().finite(), y: z.number().finite() }))
       .max(10000),
-    focus: locator.nullish(),
-    selection: z.strictObject({ anchor: endpoint, focus: endpoint }).nullish(),
+    focus: locator.optional(),
+    selection: z.strictObject({ anchor: endpoint, focus: endpoint }).optional(),
   })
   .superRefine((value, ctx) => {
     if (Buffer.byteLength(JSON.stringify(value)) > 32 * 1024 * 1024)
@@ -108,23 +108,26 @@ const base64 = z
     "must be valid base64",
   );
 
-const keyPath = z
-  .strictObject({
-    kind: z.enum(["none", "string", "array"]),
-    value: z.array(z.string()).optional(),
-  })
-  .superRefine((value, ctx) => {
-    const length = value.value?.length ?? 0;
-    if (value.kind === "none" && length !== 0) issue(ctx, "none key path must not have a value");
-    if (value.kind === "string" && length !== 1)
-      issue(ctx, "string key path must contain exactly one value");
-    if (value.kind === "array" && length === 0)
-      issue(ctx, "array key path must contain at least one value");
-  });
+const stringKeyPath = z.strictObject({
+  kind: z.literal("string"),
+  value: z.tuple([z.string()]),
+});
+
+const arrayKeyPath = z.strictObject({
+  kind: z.literal("array"),
+  value: z.array(z.string()).min(1),
+});
+
+const indexKeyPath = z.discriminatedUnion("kind", [stringKeyPath, arrayKeyPath]);
+const keyPath = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("none") }),
+  stringKeyPath,
+  arrayKeyPath,
+]);
 
 const index = z.strictObject({
   name: z.string(),
-  keyPath,
+  keyPath: indexKeyPath,
   unique: z.boolean(),
   multiEntry: z.boolean(),
 });
@@ -216,13 +219,13 @@ const cookie = z
     domain: z.string().refine((value) => value.trim().length > 0),
     path: z.string().startsWith("/"),
     hostOnly: z.boolean().optional(),
-    expires: z.number().finite().positive().nullish(),
+    expires: z.number().finite().positive().optional(),
     httpOnly: z.boolean().optional(),
     secure: z.boolean().optional(),
     sameSite: z.enum(["Strict", "Lax", "None"]).optional(),
     partitionKey: z
       .strictObject({ topLevelSite: origin, hasCrossSiteAncestor: z.boolean().optional() })
-      .nullish(),
+      .optional(),
   })
   .superRefine((value, ctx) => {
     if (!value.hostOnly) return;
@@ -273,9 +276,9 @@ const target = z
   .strictObject({
     url: httpURL,
     sessionStorage: z.array(z.strictObject({ origin, entries })).optional(),
-    scroll: z.strictObject({ x: z.number().finite(), y: z.number().finite() }).nullish(),
-    documentState: documentState.nullish(),
-    openerTargetIndex: nonNegative.nullish(),
+    scroll: z.strictObject({ x: z.number().finite(), y: z.number().finite() }).optional(),
+    documentState: documentState.optional(),
+    openerTargetIndex: nonNegative.optional(),
     active: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
@@ -288,7 +291,7 @@ const target = z
 export const capsuleSchema = z
   .strictObject({
     initialTargets: z.array(target).max(50).optional(),
-    storageState: storageState.nullish(),
+    storageState: storageState.optional(),
   })
   .superRefine((value, ctx) => {
     const targets = value.initialTargets ?? [];

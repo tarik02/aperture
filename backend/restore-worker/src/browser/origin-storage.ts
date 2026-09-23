@@ -12,8 +12,8 @@ interface RestoreResult {
 
 function keyPath(specification: KeyPathState): string | string[] | null {
   if (specification.kind === "none") return null;
-  if (specification.kind === "string") return specification.value?.[0] ?? null;
-  return specification.value ?? null;
+  if (specification.kind === "string") return specification.value[0];
+  return specification.value;
 }
 
 function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
@@ -32,8 +32,9 @@ function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
           });
 
           for (const index of storeState.indexes) {
-            const path = keyPath(index.keyPath);
-            store.createIndex(index.name, path === null ? "null" : path, {
+            const path =
+              index.keyPath.kind === "string" ? index.keyPath.value[0] : index.keyPath.value;
+            store.createIndex(index.name, path, {
               unique: index.unique,
               multiEntry: index.multiEntry,
             });

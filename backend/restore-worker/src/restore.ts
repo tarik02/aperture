@@ -1,4 +1,4 @@
-import { Buffer } from "node:buffer";
+import { createInterface } from "node:readline";
 import type { Browser } from "playwright-core";
 import { chromium } from "playwright-core";
 import { restoreStorage } from "./restore-storage.js";
@@ -7,40 +7,13 @@ import { capsuleSchema, type Capsule } from "./schema.js";
 
 class InvalidCapsule extends Error {}
 
-class WorkerInput {
-  private readonly chunks = process.stdin[Symbol.asyncIterator]();
-  private remaining = Buffer.alloc(0);
-
-  async readLine(maxBytes: number): Promise<Buffer> {
-    const parts: Buffer[] = [];
-    let size = 0;
-
-    while (true) {
-      if (this.remaining.length === 0) {
-        const next = await this.chunks.next();
-        if (next.done) throw new Error("restore worker input closed");
-        this.remaining = Buffer.isBuffer(next.value) ? next.value : Buffer.from(next.value);
-      }
-
-      const newline = this.remaining.indexOf(10);
-      const length = newline < 0 ? this.remaining.length : newline;
-      size += length;
-      if (size > maxBytes) throw new Error("restore worker input exceeded its limit");
-
-      parts.push(this.remaining.subarray(0, length));
-      this.remaining = newline < 0 ? Buffer.alloc(0) : this.remaining.subarray(newline + 1);
-      if (newline >= 0) return Buffer.concat(parts, size);
-    }
-  }
-}
-
-async function readCapsule(input: WorkerInput): Promise<Capsule> {
+async function readCapsule(lines: AsyncIterator<string>): Promise<Capsule> {
   let parsed: unknown;
   try {
-    const bytes = await input.readLine(64 * 1024 * 1024);
-    parsed = JSON.parse(bytes.toString("utf8"), (_key, value: unknown) =>
-      value === null ? undefined : value,
-    );
+    const line = await lines.next();
+    if (line.done) throw new InvalidCapsule();
+
+    parsed = JSON.parse(line.value, (_key, value: unknown) => (value === null ? undefined : value));
   } catch {
     throw new InvalidCapsule();
   }
@@ -68,8 +41,8 @@ async function main(): Promise<void> {
   if (process.argv.length !== 3 || !/^http:\/\/127\.0\.0\.1:\d+$/.test(process.argv[2]))
     throw new Error("usage: restore <cdp-url>");
 
-  const input = new WorkerInput();
-  const capsule = await readCapsule(input);
+  const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
+  const capsule = await readCapsule(lines);
   const browser = await chromium.connectOverCDP(process.argv[2], { timeout: 15_000 });
 
   try {
@@ -81,10 +54,9 @@ async function main(): Promise<void> {
       });
     });
 
-    const acknowledgment = await input.readLine(16);
-    if (acknowledgment.toString("utf8") !== "ready") {
-      throw new Error("browser restore handoff was not acknowledged");
-    }
+    // Go closes stdin after installing the replacement session-storage scripts.
+    const handoff = await lines.next();
+    if (!handoff.done) throw new Error("unexpected restore worker input");
   } finally {
     await browser.close();
   }

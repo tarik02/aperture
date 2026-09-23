@@ -53,14 +53,7 @@ func (r *wrapperRuntime) handleInitialization(w http.ResponseWriter, req *http.R
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	result, err := r.runRestoreWorker(req.Context(), body, func(ctx context.Context, result restoreWorkerResult) error {
-		for targetID, sources := range result.SessionStorageSources {
-			if err := live.browser.installInitialSessionStorageScripts(ctx, targetID, sources); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	result, err := r.runRestoreWorker(req.Context(), body, live.browser)
 	if err != nil {
 		status := http.StatusBadGateway
 		if errors.Is(err, ErrInvalidSessionInitialization) {
@@ -80,30 +73,10 @@ type restoreWorkerResult struct {
 	SessionStorageSources map[string]map[string]string `json:"sessionStorageSources"`
 }
 
-type boundedOutput struct {
-	bytes.Buffer
-	limit     int
-	truncated bool
-}
-
-func (output *boundedOutput) Write(data []byte) (int, error) {
-	n := len(data)
-	remaining := output.limit - output.Len()
-	if remaining < n {
-		output.truncated = true
-		if remaining > 0 {
-			_, _ = output.Buffer.Write(data[:remaining])
-		}
-		return n, nil
-	}
-	_, _ = output.Buffer.Write(data)
-	return n, nil
-}
-
 func (r *wrapperRuntime) runRestoreWorker(
 	parent context.Context,
 	capsule []byte,
-	beforeDisconnect func(context.Context, restoreWorkerResult) error,
+	browser *liveSessionBrowser,
 ) (restoreWorkerResult, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -121,7 +94,7 @@ func (r *wrapperRuntime) runRestoreWorker(
 	if err != nil {
 		return restoreWorkerResult{}, fmt.Errorf("open browser restore worker output: %w", err)
 	}
-	stderr := &boundedOutput{limit: 64 * 1024}
+	stderr := &bytes.Buffer{}
 	command.Stderr = stderr
 	command.WaitDelay = 5 * time.Second
 	if err := command.Start(); err != nil {
@@ -147,7 +120,7 @@ func (r *wrapperRuntime) runRestoreWorker(
 		return restoreWorkerResult{}, finishAfterInputError(err)
 	}
 
-	line, err := readRestoreWorkerLine(reader)
+	line, err := reader.ReadBytes('\n')
 	if err != nil {
 		_ = stdin.Close()
 		if errors.Is(err, io.EOF) {
@@ -161,46 +134,24 @@ func (r *wrapperRuntime) runRestoreWorker(
 		_ = stop()
 		return restoreWorkerResult{}, errors.New("browser restore worker returned an invalid result")
 	}
-	if err := beforeDisconnect(ctx, result); err != nil {
-		_ = stop()
-		return restoreWorkerResult{}, err
-	}
-	if _, err := stdin.Write([]byte("ready\n")); err != nil {
-		return restoreWorkerResult{}, restoreWorkerFailure(ctx, stderr, errors.Join(err, stop()))
+	for targetID, sources := range result.SessionStorageSources {
+		if err := browser.installInitialSessionStorageScripts(ctx, targetID, sources); err != nil {
+			_ = stop()
+			return restoreWorkerResult{}, err
+		}
 	}
 	_ = stdin.Close()
-	extra := &boundedOutput{limit: 128 * 1024 * 1024}
-	_, readErr := io.Copy(extra, reader)
+	extraBytes, readErr := io.Copy(io.Discard, reader)
 	if err := command.Wait(); err != nil {
 		return restoreWorkerResult{}, restoreWorkerFailure(ctx, stderr, err)
 	}
-	if extra.truncated || stderr.truncated {
-		return restoreWorkerResult{}, errors.New("browser restore worker output exceeded its limit")
-	}
-	if readErr != nil || extra.Len() != 0 {
+	if readErr != nil || extraBytes != 0 {
 		return restoreWorkerResult{}, errors.New("browser restore worker returned unexpected output")
 	}
 	return result, nil
 }
 
-func readRestoreWorkerLine(reader *bufio.Reader) ([]byte, error) {
-	output := &boundedOutput{limit: 128 * 1024 * 1024}
-	for {
-		part, err := reader.ReadSlice('\n')
-		_, _ = output.Write(part)
-		if output.truncated {
-			return nil, errors.New("browser restore worker output exceeded its limit")
-		}
-		if err == nil {
-			return bytes.TrimSuffix(output.Bytes(), []byte{'\n'}), nil
-		}
-		if !errors.Is(err, bufio.ErrBufferFull) {
-			return nil, err
-		}
-	}
-}
-
-func restoreWorkerFailure(ctx context.Context, stderr *boundedOutput, err error) error {
+func restoreWorkerFailure(ctx context.Context, stderr *bytes.Buffer, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("browser restore worker stopped: %w", ctx.Err())
 	}
