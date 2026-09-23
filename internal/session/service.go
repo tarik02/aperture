@@ -330,6 +330,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		}
 		if err := pushBrowserInitialization(ctx, wrapperPort, wrapperControlToken, initializationPayload); err != nil {
 			_ = s.markFailed(ctx, sessionRow, "browser initialization failed", err)
+			if errors.Is(err, ErrBrowserStateInvalid) {
+				return nil, err
+			}
 			return nil, fmt.Errorf("%w: %v", ErrBrowserInitialize, err)
 		}
 	}
