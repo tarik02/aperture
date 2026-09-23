@@ -13,13 +13,16 @@ import { originStorageSource, sessionStorageSource, targetStateSource } from "./
 const minute = 60_000;
 const emptyDocument = "<!doctype html><meta charset=utf-8><title>Aperture storage import</title>";
 const tabWindowEnforcerOrigin = "chrome-extension://imdifnnggmlpoochobfcpghdppldpmjl/";
+
 type CDP = CDPSession;
+
 interface TargetInfo {
   targetId: string;
   type: string;
   url: string;
   openerId?: string;
 }
+
 interface TargetResult {
   targetIds: string[];
   activeIndex: number;
@@ -35,6 +38,7 @@ async function readCapsule(): Promise<Capsule> {
     if (size > 64 * 1024 * 1024) throw new InvalidCapsule();
     chunks.push(bytes);
   }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.concat(chunks, size).toString("utf8"), (_key, value: unknown) =>
@@ -43,6 +47,7 @@ async function readCapsule(): Promise<Capsule> {
   } catch {
     throw new InvalidCapsule();
   }
+
   const result = capsuleSchema.safeParse(parsed);
   if (!result.success) {
     throw new InvalidCapsule();
@@ -54,6 +59,7 @@ async function cdpForPage(context: BrowserContext, page: Page): Promise<{ cdp: C
   const cdp = await context.newCDPSession(page);
   const info = (await cdp.send("Target.getTargetInfo")) as { targetInfo: TargetInfo };
   if (!info.targetInfo?.targetId) throw new Error("browser omitted the created target ID");
+
   return { cdp, id: info.targetInfo.targetId };
 }
 
@@ -66,6 +72,7 @@ async function evaluate(cdp: CDP, expression: string, contextId?: number): Promi
   })) as { result?: { value?: unknown }; exceptionDetails?: unknown };
   if (result.exceptionDetails || !result.result || !("value" in result.result))
     throw new Error("browser could not evaluate the restore runtime");
+
   return result.result.value;
 }
 
@@ -81,6 +88,7 @@ async function until<T>(operation: () => Promise<T | null>, description: string)
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
+
   throw new Error(`${description} within 1 minute`);
 }
 
@@ -89,6 +97,7 @@ function storageTypes(origin: StorageOrigin): string {
   if (origin.indexedDB !== undefined) types.push("indexeddb");
   if (origin.cacheStorage !== undefined) types.push("cache_storage");
   if (origin.opfs !== undefined) types.push("file_systems");
+
   return types.join(",");
 }
 
@@ -100,17 +109,20 @@ function documentForChild(origin: string): string {
 async function restoreOrigin(context: BrowserContext, origin: StorageOrigin): Promise<void> {
   const page = await context.newPage();
   const { cdp } = await cdpForPage(context, page);
+
   const chain = [...(origin.ancestorOrigins ?? []), origin.origin].map(
     (value) => canonicalOrigin(value)!,
   );
   const partitioned = chain.length > 1;
   let expected = 0;
+
   let resolveFinished: (() => void) | undefined;
   let rejectFinished: ((error: Error) => void) | undefined;
   const finished = new Promise<void>((resolve, reject) => {
     resolveFinished = resolve;
     rejectFinished = reject;
   });
+
   const timer = setTimeout(
     () =>
       rejectFinished?.(
@@ -118,22 +130,26 @@ async function restoreOrigin(context: BrowserContext, origin: StorageOrigin): Pr
       ),
     minute,
   );
+
   const onRoute = async (route: Route): Promise<void> => {
     if (route.request().resourceType() !== "document") {
       await route.abort();
       return;
     }
+
     let requestedOrigin: string | null = null;
     try {
       requestedOrigin = canonicalOrigin(new URL(route.request().url()).origin);
     } catch {
       /* Invalid navigation URL. */
     }
+
     if (expected >= chain.length || requestedOrigin !== chain[expected]) {
       rejectFinished?.(new Error("browser requested an unexpected partition origin"));
       await route.abort();
       return;
     }
+
     const body =
       expected + 1 < chain.length ? documentForChild(chain[expected + 1]) : emptyDocument;
     expected++;
@@ -149,6 +165,7 @@ async function restoreOrigin(context: BrowserContext, origin: StorageOrigin): Pr
       rejectFinished?.(asError(error));
     }
   };
+
   try {
     await cdp.send("Page.enable");
     await cdp.send("Network.setBypassServiceWorker", { bypass: true });
@@ -157,16 +174,20 @@ async function restoreOrigin(context: BrowserContext, origin: StorageOrigin): Pr
         origin: chain[0],
         storageTypes: storageTypes(origin),
       });
+
     await page.route("**/*", onRoute);
     await Promise.all([page.goto(chain[0], { waitUntil: "commit", timeout: minute }), finished]);
+
     const frame = await until(
       async () => page.frames().find((candidate) => frameOrigins(candidate, chain)) ?? null,
       "browser did not enter the storage frame",
     );
+
     const frameCDP = await context.newCDPSession(frame);
     const tree = (await frameCDP.send("Page.getFrameTree")) as { frameTree: FrameTree };
     const frameId = findFrameID(tree.frameTree, chain.at(-1)!);
     if (!frameId) throw new Error("browser omitted the storage frame ID");
+
     const contextId = await until(async () => {
       const world = (await frameCDP.send("Page.createIsolatedWorld", {
         frameId,
@@ -176,6 +197,7 @@ async function restoreOrigin(context: BrowserContext, origin: StorageOrigin): Pr
       const actual = await evaluate(frameCDP, "location.origin", world.executionContextId);
       return actual === chain.at(-1) ? world.executionContextId : null;
     }, "browser did not enter the storage origin");
+
     if (partitioned) {
       const key = (await frameCDP.send("Storage.getStorageKeyForFrame", { frameId })) as {
         storageKey?: string;
@@ -186,6 +208,7 @@ async function restoreOrigin(context: BrowserContext, origin: StorageOrigin): Pr
         storageTypes: storageTypes(origin),
       });
     }
+
     const result = (await evaluate(frameCDP, originStorageSource(origin), contextId)) as {
       status?: string;
       error?: string;
@@ -209,6 +232,7 @@ function frameOrigins(frame: Frame, expected: readonly string[]): boolean {
       return false;
     }
   }
+
   return (
     origins.length === expected.length && origins.every((value, index) => value === expected[index])
   );
@@ -219,6 +243,7 @@ function findFrameID(tree: FrameTree, origin: string): string | null {
     const found = findFrameID(child, origin);
     if (found) return found;
   }
+
   try {
     if (canonicalOrigin(new URL(tree.frame.url).origin) === origin) return tree.frame.id;
   } catch {
@@ -232,6 +257,7 @@ async function restoreCookies(
   cookies: NonNullable<Capsule["storageState"]>["cookies"],
 ): Promise<void> {
   if (cookies.length === 0) return;
+
   await browserCDP.send("Storage.setCookies", {
     cookies: cookies.map((cookie) => {
       const { domain, hostOnly, partitionKey, expires, sameSite, ...rest } = cookie;
@@ -259,6 +285,7 @@ async function waitForNavigation(cdp: CDP, documentState: boolean): Promise<void
       cdp,
       '({ href: location.href, documentState: globalThis[Symbol.for("aperture.initial-document-state")] || null })',
     )) as { href?: string; documentState?: { status: string; error?: string } };
+
     if (value.documentState?.status === "failed")
       throw new RestoreFailure(`restore initial document state: ${value.documentState.error}`);
     if (
@@ -267,6 +294,7 @@ async function waitForNavigation(cdp: CDP, documentState: boolean): Promise<void
       (!documentState || value.documentState?.status === "succeeded")
     )
       return true;
+
     return null;
   }, "initial target did not navigate");
 }
@@ -282,6 +310,7 @@ async function createTarget(
   const page = opener ? await createPopup(opener) : await context.newPage();
   const { cdp, id } = await cdpForPage(context, page);
   const scripts: Record<string, { identifier: string; source: string }> = {};
+
   try {
     await cdp.send("Page.enable");
     for (const state of target.sessionStorage ?? []) {
@@ -294,6 +323,7 @@ async function createTarget(
         throw new Error("browser omitted the session storage preload script identifier");
       scripts[origin] = { identifier: added.identifier, source };
     }
+
     const added = (await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
       source: targetStateSource({
         url: target.url,
@@ -302,22 +332,28 @@ async function createTarget(
       }),
     })) as { identifier?: string };
     if (!added.identifier) throw new Error("browser omitted the target preload script identifier");
+
     const navigation = (await cdp.send("Page.navigate", { url: target.url })) as {
       errorText?: string;
     };
     if (navigation.errorText) throw new Error(`navigate initial target: ${navigation.errorText}`);
+
     await waitForNavigation(cdp, target.documentState != null);
     await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: added.identifier });
+
     const tree = (await cdp.send("Page.getFrameTree")) as { frameTree: FrameTree };
     const loaded = new Set<string>();
     collectOrigins(tree.frameTree, loaded);
     const sources: Record<string, string> = {};
+
     for (const [origin, script] of Object.entries(scripts)) {
       if (!loaded.has(origin)) continue;
       await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: script.identifier });
       delete scripts[origin];
     }
+
     for (const [origin, script] of Object.entries(scripts)) sources[origin] = script.source;
+
     return { page, id, sources };
   } catch (error) {
     await page.close().catch(() => undefined);
@@ -362,11 +398,13 @@ async function createPopup(opener: Page): Promise<Page> {
 async function restore(browser: Browser, capsule: Capsule): Promise<TargetResult> {
   const context = browser.contexts()[0];
   if (!context) throw new Error("browser has no default context");
+
   const browserCDP = await browser.newBrowserCDPSession();
   if (capsule.storageState) {
     for (const origin of capsule.storageState.origins) await restoreOrigin(context, origin);
     await restoreCookies(browserCDP, capsule.storageState.cookies);
   }
+
   const targets = capsule.initialTargets ?? [];
   const result: TargetResult = {
     targetIds: [],
@@ -374,6 +412,7 @@ async function restore(browser: Browser, capsule: Capsule): Promise<TargetResult
     sessionStorageSources: {},
   };
   if (targets.length === 0) return result;
+
   const existing = (await browserCDP.send("Target.getTargets")) as { targetInfos: TargetInfo[] };
   const existingIDs = existing.targetInfos
     .filter(
@@ -383,6 +422,7 @@ async function restore(browser: Browser, capsule: Capsule): Promise<TargetResult
         !item.url.startsWith(tabWindowEnforcerOrigin),
     )
     .map((item) => item.targetId);
+
   const created = new Map<number, { page: Page; id: string }>();
   while (created.size < targets.length) {
     let progress = false;
@@ -398,9 +438,12 @@ async function restore(browser: Browser, capsule: Capsule): Promise<TargetResult
         result.sessionStorageSources[made.id] = made.sources;
       progress = true;
     }
+
     if (!progress) throw new Error("initial target opener graph could not be resolved");
   }
+
   for (const id of existingIDs) await browserCDP.send("Target.closeTarget", { targetId: id });
+
   return result;
 }
 
@@ -411,8 +454,10 @@ function asError(value: unknown): Error {
 async function main(): Promise<void> {
   if (process.argv.length !== 3 || !/^http:\/\/127\.0\.0\.1:\d+$/.test(process.argv[2]))
     throw new Error("usage: restore <cdp-url>");
+
   const capsule = await readCapsule();
   const browser = await chromium.connectOverCDP(process.argv[2], { timeout: 15_000 });
+
   try {
     const result = await restore(browser, capsule);
     process.stdout.write(JSON.stringify(result));
