@@ -100,16 +100,13 @@ const httpURL = z.string().refine((value) => {
 
 const encodedJSON = z.string().refine(validJSON, "must contain valid structured-clone JSON");
 
-const base64 = z.string().refine((value) => {
-  const encoded = value.replaceAll(/\r|\n/g, "");
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
-    return false;
-
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  if (encoded.endsWith("==")) return alphabet.indexOf(encoded[encoded.length - 3]) % 16 === 0;
-  if (encoded.endsWith("=")) return alphabet.indexOf(encoded[encoded.length - 2]) % 4 === 0;
-  return true;
-}, "must be valid base64");
+const base64Text = z.base64();
+const base64 = z
+  .string()
+  .refine(
+    (value) => base64Text.safeParse(value.replaceAll(/\r|\n/g, "")).success,
+    "must be valid base64",
+  );
 
 const keyPath = z
   .strictObject({

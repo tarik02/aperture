@@ -1,4 +1,5 @@
 import { decodeStructuredCloneAsync } from "@aperture/browser-state";
+import { openDB, type IDBPDatabase } from "idb";
 import type { StorageOrigin } from "../schema.js";
 
 type DatabaseState = NonNullable<StorageOrigin["indexedDB"]>[number];
@@ -9,57 +10,43 @@ interface RestoreResult {
   error?: string;
 }
 
-function fromBase64(body: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(body);
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-
-  for (let index = 0; index < binary.length; index++) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
-}
-
 function keyPath(specification: KeyPathState): string | string[] | null {
   if (specification.kind === "none") return null;
   if (specification.kind === "string") return specification.value?.[0] ?? null;
   return specification.value ?? null;
 }
 
-function transactionDone(transaction: IDBTransaction): Promise<void> {
+function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
   return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error || new Error("IndexedDB transaction failed"));
-    transaction.onabort = () =>
-      reject(transaction.error || new Error("IndexedDB transaction aborted"));
-  });
-}
-
-function openDatabase(database: DatabaseState): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(database.name, database.version);
-    request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
-    request.onblocked = () => reject(new Error("IndexedDB open was blocked"));
-    request.onupgradeneeded = () => {
-      const opened = request.result;
-
-      for (const storeState of database.objectStores) {
-        const store = opened.createObjectStore(storeState.name, {
-          keyPath: keyPath(storeState.keyPath),
-          autoIncrement: storeState.autoIncrement,
-        });
-
-        for (const index of storeState.indexes) {
-          const path = keyPath(index.keyPath);
-          store.createIndex(index.name, path === null ? "null" : path, {
-            unique: index.unique,
-            multiEntry: index.multiEntry,
+    let wasBlocked = false;
+    openDB(database.name, database.version, {
+      blocked() {
+        wasBlocked = true;
+        reject(new Error("IndexedDB open was blocked"));
+      },
+      upgrade(opened) {
+        for (const storeState of database.objectStores) {
+          const store = opened.createObjectStore(storeState.name, {
+            keyPath: keyPath(storeState.keyPath),
+            autoIncrement: storeState.autoIncrement,
           });
+
+          for (const index of storeState.indexes) {
+            const path = keyPath(index.keyPath);
+            store.createIndex(index.name, path === null ? "null" : path, {
+              unique: index.unique,
+              multiEntry: index.multiEntry,
+            });
+          }
         }
+      },
+    }).then((opened) => {
+      if (wasBlocked) {
+        opened.close();
+      } else {
+        resolve(opened);
       }
-    };
-    request.onsuccess = () => resolve(request.result);
+    }, reject);
   });
 }
 
@@ -79,12 +66,13 @@ async function restoreIndexedDB(databases: DatabaseState[]): Promise<void> {
 
         const transaction = database.transaction(storeState.name, "readwrite");
         const store = transaction.objectStore(storeState.name);
-        for (const record of decoded) {
-          if (store.keyPath === null) store.put(record.value, record.key as IDBValidKey);
-          else store.put(record.value);
-        }
+        const writes = decoded.map((record) =>
+          store.keyPath === null
+            ? store.put(record.value, record.key as IDBValidKey)
+            : store.put(record.value),
+        );
 
-        await transactionDone(transaction);
+        await Promise.all([...writes, transaction.done]);
       }
     } finally {
       database.close();
@@ -109,7 +97,7 @@ async function restoreCacheStorage(cachesState: StorageOrigin["cacheStorage"]): 
     for (const entry of cacheState.entries) {
       const responseBody = [204, 205, 304].includes(entry.responseStatus)
         ? null
-        : fromBase64(entry.responseBody);
+        : Uint8Array.fromBase64(entry.responseBody);
       await cache.put(
         new Request(entry.url, { headers: entry.requestHeaders }),
         new Response(responseBody, {
@@ -146,7 +134,7 @@ async function restoreOPFS(files: StorageOrigin["opfs"]): Promise<void> {
 
     const file = await directory.getFileHandle(fileName, { create: true });
     const writer = await file.createWritable();
-    await writer.write(fromBase64(fileState.body));
+    await writer.write(Uint8Array.fromBase64(fileState.body));
     await writer.close();
   }
 }

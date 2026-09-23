@@ -1,16 +1,10 @@
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
-import {
-  cdpForPage,
-  evaluate,
-  RestoreFailure,
-  until,
-  type FrameTree,
-  type TargetInfo,
-} from "./cdp.js";
+import { cdpForPage, type FrameTree, type TargetInfo } from "./cdp.js";
 import { sessionStorageSource, targetStateSource } from "./payload-source.js";
 import { canonicalOrigin, type Target } from "./schema.js";
 
 const tabWindowEnforcerOrigin = "chrome-extension://imdifnnggmlpoochobfcpghdppldpmjl/";
+const minute = 60_000;
 
 export interface TargetResult {
   targetIds: string[];
@@ -29,24 +23,34 @@ interface CreatedTarget {
   sources: Record<string, string>;
 }
 
-async function waitForNavigation(cdp: CDPSession, documentState: boolean): Promise<void> {
-  await until(async () => {
-    const value = (await evaluate(
-      cdp,
-      '({ href: location.href, documentState: globalThis[Symbol.for("aperture.initial-document-state")] || null })',
-    )) as { href?: string; documentState?: { status: string; error?: string } };
+interface NavigationResult {
+  status: "succeeded" | "failed";
+  error?: string;
+}
 
-    if (value.documentState?.status === "failed")
-      throw new RestoreFailure(`restore initial document state: ${value.documentState.error}`);
-    if (
-      value.href &&
-      value.href !== "about:blank" &&
-      (!documentState || value.documentState?.status === "succeeded")
-    )
-      return true;
+async function waitForNavigation(page: Page, documentState: boolean): Promise<void> {
+  const ready = await page.waitForFunction(
+    (expectDocumentState) => {
+      if (location.href === "about:blank") return false;
+      if (!expectDocumentState) return { status: "succeeded" };
 
-    return null;
-  }, "initial target did not navigate");
+      const marker = Reflect.get(window, Symbol.for("aperture.initial-document-state")) as
+        | NavigationResult
+        | undefined;
+      return marker?.status === "succeeded" || marker?.status === "failed" ? marker : false;
+    },
+    documentState,
+    { timeout: minute },
+  );
+
+  try {
+    const result = (await ready.jsonValue()) as NavigationResult;
+    if (result.status === "failed") {
+      throw new Error(`restore initial document state: ${result.error}`);
+    }
+  } finally {
+    await ready.dispose().catch(() => undefined);
+  }
 }
 
 async function createTarget(
@@ -85,7 +89,7 @@ async function createTarget(
     };
     if (navigation.errorText) throw new Error(`navigate initial target: ${navigation.errorText}`);
 
-    await waitForNavigation(cdp, target.documentState != null);
+    await waitForNavigation(page, target.documentState != null);
     await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: added.identifier });
 
     const tree = (await cdp.send("Page.getFrameTree")) as { frameTree: FrameTree };
