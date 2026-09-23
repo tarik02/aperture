@@ -1,18 +1,18 @@
 import { parse, stringifyAsync } from "devalue";
 
-type PortableCryptoKeyAlgorithm = {
+interface PortableCryptoKeyAlgorithm {
   name: string;
   hash?: string;
   length?: number;
   namedCurve?: string;
-};
+}
 
-type PortableCryptoKey = {
+interface PortableCryptoKey {
   algorithm: PortableCryptoKeyAlgorithm;
   format: "pkcs8" | "raw" | "spki";
   material: ArrayBuffer;
   usages: KeyUsage[];
-};
+}
 
 class PendingCryptoKey {
   constructor(readonly value: PortableCryptoKey) {}
