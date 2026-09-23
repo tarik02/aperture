@@ -67,7 +67,6 @@ export function createDocumentReplay(state: Target): DocumentReplay {
       }
 
       if (control.selection !== undefined && "setSelectionRange" in element) {
-        if (control.selection === null) return;
         element.setSelectionRange(
           control.selection.start,
           control.selection.end,

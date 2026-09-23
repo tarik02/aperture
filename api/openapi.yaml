@@ -2042,18 +2042,29 @@ components:
           items: {$ref: '#/components/schemas/BrowserStorageEntry'}
     InitialIndexedDBKeyPath:
       type: object
+      description: Object-store key path. String paths contain one value; array paths contain at least one.
       required: [kind]
       properties:
         kind: {type: string, enum: [none, string, array]}
         value:
           type: array
           items: {type: string}
+    InitialIndexedDBIndexKeyPath:
+      type: object
+      description: Index key path. String paths contain one value; array paths contain at least one.
+      required: [kind, value]
+      properties:
+        kind: {type: string, enum: [string, array]}
+        value:
+          type: array
+          minItems: 1
+          items: {type: string}
     InitialIndexedDBIndex:
       type: object
       required: [name, keyPath, unique, multiEntry]
       properties:
         name: {type: string}
-        keyPath: {$ref: '#/components/schemas/InitialIndexedDBKeyPath'}
+        keyPath: {$ref: '#/components/schemas/InitialIndexedDBIndexKeyPath'}
         unique: {type: boolean}
         multiEntry: {type: boolean}
     InitialIndexedDBRecord:
@@ -2180,7 +2191,7 @@ components:
         initialTargets:
           type: array
           maxItems: 50
-          description: Browser targets that replace the browser's startup page after storage import. Input order is preserved during creation.
+          description: Browser targets that replace the browser's startup page after storage import. Result order follows input order; opener dependencies may be created first.
           items: {$ref: '#/components/schemas/InitialBrowserTarget'}
         storageState: {$ref: '#/components/schemas/InitialBrowserStorageState'}
         tags:

@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "playwright-core": "1.55.0",
+    "playwright-core": "1.64.0-alpha-1789764292000",
     "typescript": "^6.0.3",
     "vite": "catalog:"
   }
