@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { build } from "esbuild";
+import { build } from "vite";
 
 const codecLicense = readFileSync(
   new URL("../../packages/browser-state/LICENSE", import.meta.url),
@@ -11,25 +11,47 @@ const browserPayloads = [
   ["origin-storage", "ApertureOriginStorageRestore"],
 ];
 
-for (const [name, globalName] of browserPayloads) {
+for (const [index, [name, globalName]] of browserPayloads.entries()) {
   await build({
-    entryPoints: [`src/browser/${name}.js`],
-    bundle: true,
-    platform: "browser",
-    target: "chrome120",
-    format: "iife",
-    globalName,
-    outfile: `dist/${name}.js`,
-    ...(name === "session-storage" ? {} : { banner: { js: `/*!\n${codecLicense}\n*/` } }),
+    configFile: false,
+    plugins:
+      name === "session-storage"
+        ? []
+        : [
+            {
+              name: "browser-state-license",
+              generateBundle(_, bundle) {
+                for (const output of Object.values(bundle)) {
+                  if (output.type === "chunk") output.code = `/*!\n${codecLicense}\n*/\n${output.code}`;
+                }
+              },
+            },
+          ],
+    build: {
+      outDir: "dist",
+      emptyOutDir: index === 0,
+      target: "chrome120",
+      lib: {
+        entry: `src/browser/${name}.ts`,
+        name: globalName,
+        formats: ["iife"],
+        fileName: () => `${name}.js`,
+      },
+    },
   });
 }
 
 await build({
-  entryPoints: ["src/restore.ts"],
-  bundle: true,
-  external: ["playwright-core"],
-  platform: "node",
-  target: "node22",
-  format: "esm",
-  outfile: "dist/restore.mjs",
+  configFile: false,
+  ssr: { noExternal: ["zod"] },
+  build: {
+    outDir: "dist",
+    emptyOutDir: false,
+    target: "node22",
+    ssr: "src/restore.ts",
+    rolldownOptions: {
+      external: ["playwright-core"],
+      output: { entryFileNames: "restore.mjs" },
+    },
+  },
 });

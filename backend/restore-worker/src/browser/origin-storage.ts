@@ -1,27 +1,36 @@
 import { decodeStructuredCloneAsync } from "@aperture/browser-state";
+import type { StorageOrigin } from "../schema.js";
 
-export async function run(state) {
+type DatabaseState = NonNullable<StorageOrigin["indexedDB"]>[number];
+type KeyPathState = DatabaseState["objectStores"][number]["keyPath"];
+
+interface RestoreResult {
+  status: "succeeded" | "failed";
+  error?: string;
+}
+
+export async function run(state: StorageOrigin): Promise<RestoreResult> {
   try {
-    const fromBase64 = (body) => {
+    const fromBase64 = (body: string): Uint8Array<ArrayBuffer> => {
       const binary = atob(body);
-      const bytes = new Uint8Array(binary.length);
+      const bytes = new Uint8Array(new ArrayBuffer(binary.length));
       for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
       return bytes;
     };
-    const keyPath = (specification) => {
+    const keyPath = (specification: KeyPathState): string | string[] | null => {
       if (specification.kind === "none") return null;
-      if (specification.kind === "string") return specification.value[0];
-      return specification.value;
+      if (specification.kind === "string") return specification.value?.[0] ?? null;
+      return specification.value ?? null;
     };
-    const transactionDone = (transaction) =>
+    const transactionDone = (transaction: IDBTransaction): Promise<void> =>
       new Promise((resolve, reject) => {
-        transaction.oncomplete = resolve;
+        transaction.oncomplete = () => resolve();
         transaction.onerror = () =>
           reject(transaction.error || new Error("IndexedDB transaction failed"));
         transaction.onabort = () =>
           reject(transaction.error || new Error("IndexedDB transaction aborted"));
       });
-    const openDatabase = (database) =>
+    const openDatabase = (database: DatabaseState): Promise<IDBDatabase> =>
       new Promise((resolve, reject) => {
         const request = indexedDB.open(database.name, database.version);
         request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
@@ -34,7 +43,8 @@ export async function run(state) {
               autoIncrement: storeState.autoIncrement,
             });
             for (const index of storeState.indexes) {
-              store.createIndex(index.name, keyPath(index.keyPath), {
+              const path = keyPath(index.keyPath);
+              store.createIndex(index.name, path === null ? "null" : path, {
                 unique: index.unique,
                 multiEntry: index.multiEntry,
               });
@@ -60,7 +70,7 @@ export async function run(state) {
           const transaction = database.transaction(storeState.name, "readwrite");
           const store = transaction.objectStore(storeState.name);
           for (const record of decoded) {
-            if (store.keyPath === null) store.put(record.value, record.key);
+            if (store.keyPath === null) store.put(record.value, record.key as IDBValidKey);
             else store.put(record.value);
           }
           await transactionDone(transaction);
@@ -96,6 +106,7 @@ export async function run(state) {
       for (const fileState of state.opfs || []) {
         const parts = fileState.path.split("/");
         const fileName = parts.pop();
+        if (fileName === undefined) throw new Error("OPFS path has no file name");
         let directory = root;
         for (const part of parts)
           directory = await directory.getDirectoryHandle(part, { create: true });
