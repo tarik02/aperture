@@ -175,6 +175,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadGateway, "browser_start_failed", "browser failed to start"
 	case errors.Is(err, session.ErrBrowserInitialize):
 		return http.StatusBadGateway, "browser_initialization_failed", "browser initialization failed"
+	case errors.Is(err, session.ErrBrowserStateInvalid):
+		return http.StatusBadRequest, "validation_failed", "invalid browser initialization"
 	case errors.Is(err, session.ErrBrowserStateTooLarge):
 		return http.StatusBadRequest, "validation_failed", "browser state exceeds Aperture's 64 MiB session creation limit"
 	case errors.Is(err, snapshot.ErrNotFound):

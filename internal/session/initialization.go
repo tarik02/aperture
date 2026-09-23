@@ -37,6 +37,9 @@ func pushBrowserInitialization(
 	if response.StatusCode == http.StatusNoContent {
 		return nil
 	}
+	if response.StatusCode == http.StatusBadRequest {
+		return ErrBrowserStateInvalid
+	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 	if err != nil {
 		return fmt.Errorf("initialize browser: wrapper returned %s", response.Status)

@@ -253,6 +253,7 @@ const storageState = z
           item.domain.toLowerCase(),
           item.path,
           item.partitionKey?.topLevelSite.toLowerCase() ?? "",
+          item.partitionKey == null ? "" : String(item.partitionKey.hasCrossSiteAncestor ?? false),
         ].join("\0"),
       ),
       ctx,
