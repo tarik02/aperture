@@ -513,9 +513,9 @@ export type CreateSessionInput = {
   tags?: Record<string, string>;
 };
 
-export type CreateSessionOptions = {
+export interface CreateSessionOptions {
   waitForReady?: boolean;
-};
+}
 
 export type PromoteSessionInput = {
   name: string;
