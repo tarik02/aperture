@@ -4,12 +4,12 @@ import type {
   InitialBrowserSelectionEndpoint,
 } from "@aperture/api-client";
 
-export type CapturedDocumentState = {
+export interface CapturedDocumentState {
   href: string;
   hasOpener: boolean;
   state: InitialBrowserDocumentState;
   warnings: string[];
-};
+}
 
 export async function captureDocumentState(tabId: number): Promise<CapturedDocumentState> {
   const target = { tabId, frameIds: [0] };

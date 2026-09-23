@@ -10,18 +10,18 @@ import type {
 } from "@aperture/api-client";
 import { captureDocumentState, type CapturedDocumentState } from "./document-state";
 
-export type CapturedBrowserState = {
+export interface CapturedBrowserState {
   targets: InitialBrowserTarget[];
   storageState: InitialBrowserStorageState;
   warnings: string[];
-};
+}
 
-type CapturedTabState = {
+interface CapturedTabState {
   tab: chrome.tabs.Tab;
   top: CapturedPageState;
   frames: CapturedPageState[];
   document: CapturedDocumentState;
-};
+}
 
 const preferredPayloadBytes = 48 * 1024 * 1024;
 
@@ -374,7 +374,7 @@ function sameSite(value: chrome.cookies.Cookie["sameSite"]): InitialBrowserCooki
   }
 }
 
-export type CapturedPageState = {
+export interface CapturedPageState {
   frameId: number;
   href: string;
   origin: string;
@@ -388,7 +388,7 @@ export type CapturedPageState = {
   profileStorageCaptured: boolean;
   webStorageCaptured: boolean;
   warnings: string[];
-};
+}
 
 export async function capturePageStates(
   tabId: number,

@@ -98,23 +98,23 @@ const defaultTags: TagEntry[] = [
   { key: "action", value: "teleport" },
 ];
 
-type ConnectionDragData = {
+interface ConnectionDragData extends Record<string, unknown> {
   kind: typeof connectionDragKind;
   connectionId: string;
-};
+}
 
 type DropPlacement = "before" | "after";
 
-type BrowserWindowTabs = {
+interface BrowserWindowTabs {
   id: number;
   label: string;
   tabs: chrome.tabs.Tab[];
-};
+}
 
-type Status = {
+interface Status {
   message: string;
   kind: "neutral" | "error";
-};
+}
 
 type PendingAction = "connect" | "connection" | "remove" | "reorder" | "channel" | "teleport";
 
@@ -906,7 +906,7 @@ function CompanionPopup() {
   );
 }
 
-type ConnectionFormProps = {
+interface ConnectionFormProps {
   origin: string;
   token: string;
   busy: boolean;
@@ -914,7 +914,7 @@ type ConnectionFormProps = {
   status: Status | null;
   onChange: (draft: ConnectionDraft) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-};
+}
 
 function ConnectionForm({
   origin,

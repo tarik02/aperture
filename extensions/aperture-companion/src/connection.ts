@@ -33,14 +33,14 @@ export type Connection = z.infer<typeof connectionSchema>;
 export type ConnectionDraft = z.infer<typeof connectionDraftSchema>;
 export type StorageState = InitialBrowserStorageState;
 export type InitialTarget = InitialBrowserTarget;
-export type CreateSessionOptions = {
+export interface CreateSessionOptions {
   targets: InitialTarget[];
   storageState?: StorageState;
   baseSnapshotName?: string;
   label?: string;
   tags?: Record<string, string>;
   waitForReady?: boolean;
-};
+}
 
 const connectionStoreKey = "apertureConnections";
 const connectionDraftKey = "apertureConnectionDraft";
