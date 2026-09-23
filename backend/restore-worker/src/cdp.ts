@@ -1,7 +1,5 @@
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
 
-const minute = 60_000;
-
 export interface FrameTree {
   frame: { id: string; url: string };
   childFrames?: FrameTree[];
@@ -13,8 +11,6 @@ export interface TargetInfo {
   url: string;
   openerId?: string;
 }
-
-export class RestoreFailure extends Error {}
 
 export async function cdpForPage(
   context: BrowserContext,
@@ -43,25 +39,4 @@ export async function evaluate(
   }
 
   return result.result.value;
-}
-
-export async function until<T>(
-  operation: () => Promise<T | null>,
-  description: string,
-): Promise<T> {
-  const deadline = Date.now() + minute;
-
-  while (Date.now() < deadline) {
-    try {
-      const result = await operation();
-      if (result !== null) return result;
-    } catch (error) {
-      if (error instanceof RestoreFailure) throw error;
-      // The frame can change between calls while navigation is in progress.
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-
-  throw new Error(`${description} within 1 minute`);
 }
