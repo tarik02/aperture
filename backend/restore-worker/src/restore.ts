@@ -14,12 +14,17 @@ const minute = 60_000;
 const emptyDocument = "<!doctype html><meta charset=utf-8><title>Aperture storage import</title>";
 const tabWindowEnforcerOrigin = "chrome-extension://imdifnnggmlpoochobfcpghdppldpmjl/";
 type CDP = CDPSession;
-type TargetInfo = { targetId: string; type: string; url: string; openerId?: string };
-type TargetResult = {
+interface TargetInfo {
+  targetId: string;
+  type: string;
+  url: string;
+  openerId?: string;
+}
+interface TargetResult {
   targetIds: string[];
   activeIndex: number;
   sessionStorageSources: Record<string, Record<string, string>>;
-};
+}
 
 async function readCapsule(): Promise<Capsule> {
   const chunks: Buffer[] = [];

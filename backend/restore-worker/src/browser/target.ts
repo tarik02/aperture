@@ -1,37 +1,54 @@
 import { decodeStructuredClone } from "@aperture/browser-state";
+import type { Target } from "../schema.js";
 
-export function run(state) {
-  if (globalThis.top !== globalThis) return;
+interface Locator {
+  tag: string;
+  id?: string;
+  name?: string;
+  inputType?: string;
+  autocomplete?: string;
+  ariaLabel?: string;
+  placeholder?: string;
+  path: { tag: string; index: number }[];
+}
 
-  globalThis[Symbol.for("aperture.initial-window-open")] = globalThis.open.bind(globalThis);
+type DocumentState = NonNullable<Target["documentState"]>;
+type ControlState = DocumentState["controls"][number];
+type EditableState = DocumentState["contentEditables"][number];
+type SelectionEndpoint = NonNullable<DocumentState["selection"]>["anchor"];
+
+export function run(state: Target): void {
+  if (window.top !== window) return;
+
+  Reflect.set(window, Symbol.for("aperture.initial-window-open"), window.open.bind(window));
   const marker = Symbol.for("aperture.initial-document-state");
   const documentState = state.documentState;
-  if (documentState) globalThis[marker] = { status: "pending" };
+  if (documentState) Reflect.set(window, marker, { status: "pending" });
 
-  const fail = (error) => {
-    globalThis[marker] = {
+  const fail = (error: unknown): void => {
+    Reflect.set(window, marker, {
       status: "failed",
       error: error instanceof Error ? error.name + ": " + error.message : String(error),
-    };
+    });
   };
   try {
     const capturedURL = new URL(state.url).href;
     const restoreTarget = location.href === capturedURL;
     const restoreDocument = Boolean(documentState && restoreTarget);
-    if (restoreDocument && documentState.windowName !== undefined) {
-      window.name = documentState.windowName;
+    if (restoreDocument && documentState?.windowName !== undefined) {
+      window.name = String(documentState.windowName);
     }
 
     let historyRestored = false;
     const restoreHistory = () => {
-      if (!historyRestored && restoreDocument && documentState.historyState !== undefined) {
-        history.replaceState(decodeStructuredClone(documentState.historyState), "");
+      if (!historyRestored && restoreDocument && documentState?.historyState !== undefined) {
+        history.replaceState(decodeStructuredClone(String(documentState.historyState)), "");
         historyRestored = true;
       }
     };
 
-    const resolve = (locator) => {
-      const compatible = (element) => {
+    const resolve = (locator: Locator): HTMLElement | null => {
+      const compatible = (element: Element): element is HTMLElement => {
         if (!(element instanceof HTMLElement) || element.localName !== locator.tag) return false;
         if (
           locator.inputType !== undefined &&
@@ -40,7 +57,7 @@ export function run(state) {
           return false;
         return true;
       };
-      const sameIdentity = (element) => {
+      const sameIdentity = (element: Element): boolean => {
         if (locator.name !== undefined && element.getAttribute("name") !== locator.name)
           return false;
         if (
@@ -75,7 +92,7 @@ export function run(state) {
         const semantic = candidates.filter(sameIdentity);
         if (semantic.length === 1) return semantic[0];
       }
-      let current = document.documentElement;
+      let current: Element = document.documentElement;
       for (const step of locator.path) {
         const children = Array.from(current.children).filter(
           (child) => child.localName === step.tag,
@@ -86,14 +103,19 @@ export function run(state) {
       return compatible(current) ? current : null;
     };
 
-    const nativeSet = (element, constructor, property, value) => {
+    const nativeSet = (
+      element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+      constructor: typeof HTMLInputElement | typeof HTMLTextAreaElement | typeof HTMLSelectElement,
+      property: string,
+      value: string | boolean | null,
+    ): void => {
       const setter = Object.getOwnPropertyDescriptor(constructor.prototype, property)?.set;
       if (!setter) throw new Error("browser omitted the native " + property + " setter");
       setter.call(element, value);
     };
     const eventedControls = new WeakSet();
     const eventedEditables = new WeakSet();
-    const restoreControl = (control, dispatchEvents) => {
+    const restoreControl = (control: ControlState, dispatchEvents: boolean): boolean => {
       const element = resolve(control.locator);
       try {
         if (element instanceof HTMLInputElement) {
@@ -115,6 +137,7 @@ export function run(state) {
           return false;
         }
         if (control.selection !== undefined && "setSelectionRange" in element) {
+          if (control.selection === null) return false;
           element.setSelectionRange(
             control.selection.start,
             control.selection.end,
@@ -135,7 +158,7 @@ export function run(state) {
         return false;
       }
     };
-    const restoreEditable = (editable, dispatchEvents) => {
+    const restoreEditable = (editable: EditableState, dispatchEvents: boolean): boolean => {
       const element = resolve(editable.locator);
       try {
         if (!element || !element.isContentEditable) return false;
@@ -158,8 +181,8 @@ export function run(state) {
       }
       if (state.scroll) scrollTo(state.scroll.x, state.scroll.y);
     };
-    const resolveSelectionEndpoint = (endpoint) => {
-      let node = resolve(endpoint.locator);
+    const resolveSelectionEndpoint = (endpoint: SelectionEndpoint) => {
+      let node: Node | null = resolve(endpoint.locator);
       if (!node) return null;
       for (const index of endpoint.nodePath) {
         node = node.childNodes[index];
@@ -192,20 +215,20 @@ export function run(state) {
 
     let interrupted = false;
     let hydrated = false;
-    let observer;
+    let observer: MutationObserver | undefined;
     const interruptEvents = ["beforeinput", "keydown", "pointerdown"];
     const stop = () => {
       interrupted = true;
       observer?.disconnect();
       for (const eventName of interruptEvents) removeEventListener(eventName, interrupt, true);
     };
-    const interrupt = (event) => {
+    const interrupt = (event: Event): void => {
       if (event.isTrusted) stop();
     };
     for (const eventName of interruptEvents) {
       addEventListener(eventName, interrupt, { capture: true });
     }
-    const replay = (dispatchEvents) => {
+    const replay = (dispatchEvents: boolean): void => {
       if (interrupted || !restoreTarget) return;
       for (const control of documentState?.controls || []) restoreControl(control, dispatchEvents);
       for (const editable of documentState?.contentEditables || [])
@@ -251,7 +274,7 @@ export function run(state) {
     const complete = () => {
       try {
         finalReplay();
-        if (documentState) globalThis[marker] = { status: "succeeded" };
+        if (documentState) Reflect.set(window, marker, { status: "succeeded" });
       } catch (error) {
         fail(error);
       }
