@@ -14,14 +14,18 @@ export async function run(state: StorageOrigin): Promise<RestoreResult> {
     const fromBase64 = (body: string): Uint8Array<ArrayBuffer> => {
       const binary = atob(body);
       const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      for (let index = 0; index < binary.length; index++) {
+        bytes[index] = binary.charCodeAt(index);
+      }
       return bytes;
     };
+
     const keyPath = (specification: KeyPathState): string | string[] | null => {
       if (specification.kind === "none") return null;
       if (specification.kind === "string") return specification.value?.[0] ?? null;
       return specification.value ?? null;
     };
+
     const transactionDone = (transaction: IDBTransaction): Promise<void> =>
       new Promise((resolve, reject) => {
         transaction.oncomplete = () => resolve();
@@ -30,6 +34,7 @@ export async function run(state: StorageOrigin): Promise<RestoreResult> {
         transaction.onabort = () =>
           reject(transaction.error || new Error("IndexedDB transaction aborted"));
       });
+
     const openDatabase = (database: DatabaseState): Promise<IDBDatabase> =>
       new Promise((resolve, reject) => {
         const request = indexedDB.open(database.name, database.version);
@@ -51,11 +56,15 @@ export async function run(state: StorageOrigin): Promise<RestoreResult> {
             }
           }
         };
+
         request.onsuccess = () => resolve(request.result);
       });
 
     localStorage.clear();
-    for (const entry of state.localStorage) localStorage.setItem(entry.name, entry.value);
+    for (const entry of state.localStorage) {
+      localStorage.setItem(entry.name, entry.value);
+    }
+
     for (const databaseState of state.indexedDB || []) {
       const database = await openDatabase(databaseState);
       try {
@@ -67,22 +76,28 @@ export async function run(state: StorageOrigin): Promise<RestoreResult> {
             })),
           );
           if (decoded.length === 0) continue;
+
           const transaction = database.transaction(storeState.name, "readwrite");
           const store = transaction.objectStore(storeState.name);
           for (const record of decoded) {
             if (store.keyPath === null) store.put(record.value, record.key as IDBValidKey);
             else store.put(record.value);
           }
+
           await transactionDone(transaction);
         }
       } finally {
         database.close();
       }
     }
+
     if (state.cacheStorage !== undefined && typeof caches === "undefined") {
       if (state.cacheStorage.length > 0) throw new Error("Cache Storage is unavailable");
     } else if (state.cacheStorage !== undefined) {
-      for (const cacheName of await caches.keys()) await caches.delete(cacheName);
+      for (const cacheName of await caches.keys()) {
+        await caches.delete(cacheName);
+      }
+
       for (const cacheState of state.cacheStorage || []) {
         const cache = await caches.open(cacheState.name);
         for (const entry of cacheState.entries) {
@@ -100,16 +115,23 @@ export async function run(state: StorageOrigin): Promise<RestoreResult> {
         }
       }
     }
+
     if (state.opfs !== undefined && typeof navigator.storage.getDirectory === "function") {
       const root = await navigator.storage.getDirectory();
-      for await (const [name] of root.entries()) await root.removeEntry(name, { recursive: true });
+      for await (const [name] of root.entries()) {
+        await root.removeEntry(name, { recursive: true });
+      }
+
       for (const fileState of state.opfs || []) {
         const parts = fileState.path.split("/");
         const fileName = parts.pop();
         if (fileName === undefined) throw new Error("OPFS path has no file name");
+
         let directory = root;
-        for (const part of parts)
+        for (const part of parts) {
           directory = await directory.getDirectoryHandle(part, { create: true });
+        }
+
         const file = await directory.getFileHandle(fileName, { create: true });
         const writer = await file.createWritable();
         await writer.write(fromBase64(fileState.body));
@@ -118,6 +140,7 @@ export async function run(state: StorageOrigin): Promise<RestoreResult> {
     } else if ((state.opfs || []).length > 0) {
       throw new Error("OPFS is unavailable");
     }
+
     return { status: "succeeded" };
   } catch (error) {
     return {

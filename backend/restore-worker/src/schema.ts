@@ -3,13 +3,16 @@ import { z } from "zod";
 
 const nonNegative = z.number().int().nonnegative();
 const entry = z.strictObject({ name: z.string(), value: z.string() });
+
 const entries = z.array(entry).superRefine((values, ctx) =>
   unique(
     values.map((value) => value.name),
     ctx,
   ),
 );
+
 const htmlTag = z.string().regex(/^[a-z][a-z0-9-]*$/);
+
 const locator = z.strictObject({
   tag: htmlTag,
   id: z.string().optional(),
@@ -20,11 +23,13 @@ const locator = z.strictObject({
   placeholder: z.string().optional(),
   path: z.array(z.strictObject({ tag: htmlTag, index: nonNegative })).max(256),
 });
+
 const endpoint = z.strictObject({
   locator,
   nodePath: z.array(nonNegative).max(256),
   offset: nonNegative,
 });
+
 const documentState = z
   .strictObject({
     version: z.literal(1),
@@ -57,8 +62,10 @@ const documentState = z
   .superRefine((value, ctx) => {
     if (Buffer.byteLength(JSON.stringify(value)) > 32 * 1024 * 1024)
       issue(ctx, "documentState exceeds 32 MiB");
+
     if (value.historyState != null && !validJSON(value.historyState))
       issue(ctx, "historyState must contain valid structured-clone JSON");
+
     value.controls.forEach((control, index) => {
       if (control.selection && control.selection.end < control.selection.start) {
         ctx.addIssue({
@@ -76,6 +83,7 @@ const origin = z
     (value) => canonicalOrigin(value) !== null,
     "origin must contain only an http or https scheme and host",
   );
+
 const httpURL = z.string().refine((value) => {
   try {
     const parsed = new URL(value.trim());
@@ -89,11 +97,14 @@ const httpURL = z.string().refine((value) => {
     return false;
   }
 }, "must be an absolute http or https URL without embedded credentials");
+
 const encodedJSON = z.string().refine(validJSON, "must contain valid structured-clone JSON");
+
 const base64 = z.string().refine((value) => {
   const encoded = value.replaceAll(/\r|\n/g, "");
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
     return false;
+
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   if (encoded.endsWith("==")) return alphabet.indexOf(encoded[encoded.length - 3]) % 16 === 0;
   if (encoded.endsWith("=")) return alphabet.indexOf(encoded[encoded.length - 2]) % 4 === 0;
@@ -113,12 +124,14 @@ const keyPath = z
     if (value.kind === "array" && length === 0)
       issue(ctx, "array key path must contain at least one value");
   });
+
 const index = z.strictObject({
   name: z.string(),
   keyPath,
   unique: z.boolean(),
   multiEntry: z.boolean(),
 });
+
 const objectStore = z
   .strictObject({
     name: z.string(),
@@ -133,6 +146,7 @@ const objectStore = z
       ctx,
     ),
   );
+
 const database = z
   .strictObject({
     name: z.string(),
@@ -145,6 +159,7 @@ const database = z
       ctx,
     ),
   );
+
 const cacheEntry = z.strictObject({
   url: httpURL,
   requestHeaders: z.record(z.string(), z.string()),
@@ -153,7 +168,9 @@ const cacheEntry = z.strictObject({
   responseStatusText: z.string(),
   responseBody: base64,
 });
+
 const cache = z.strictObject({ name: z.string(), entries: z.array(cacheEntry) });
+
 const opfsFile = z
   .strictObject({ path: z.string(), body: base64 })
   .refine(
@@ -167,6 +184,7 @@ const opfsFile = z
       !value.path.startsWith("../"),
     "path must be a normalized relative path",
   );
+
 const storageOrigin = z
   .strictObject({
     origin,
@@ -193,6 +211,7 @@ const storageOrigin = z
         ctx,
       );
   });
+
 const cookie = z
   .strictObject({
     name: z.string().refine((value) => value.trim().length > 0),
@@ -212,6 +231,7 @@ const cookie = z
     if (!value.hostOnly) return;
     if (value.domain.startsWith("."))
       issue(ctx, "host-only cookie domain must not start with a dot");
+
     try {
       const parsed = new URL(`http://${value.domain}/`);
       if (
@@ -225,6 +245,7 @@ const cookie = z
       issue(ctx, "host-only cookie domain must be a valid hostname");
     }
   });
+
 const storageState = z
   .strictObject({ cookies: z.array(cookie).max(10000), origins: z.array(storageOrigin).max(100) })
   .superRefine((value, ctx) => {
@@ -239,6 +260,7 @@ const storageState = z
       ),
       ctx,
     );
+
     unique(
       value.origins.map((item) =>
         [canonicalOrigin(item.origin), ...(item.ancestorOrigins ?? []).map(canonicalOrigin)].join(
@@ -248,6 +270,7 @@ const storageState = z
       ctx,
     );
   });
+
 const target = z
   .strictObject({
     url: httpURL,
@@ -273,14 +296,17 @@ export const capsuleSchema = z
     const targets = value.initialTargets ?? [];
     if (targets.filter((item) => item.active).length > 1)
       issue(ctx, "initialTargets must contain at most one active target");
+
     const visiting = new Set<number>();
     const visited = new Set<number>();
+
     const visit = (index: number): void => {
       if (visited.has(index)) return;
       if (visiting.has(index)) {
         issue(ctx, "initialTargets opener relationships must not contain a cycle");
         return;
       }
+
       visiting.add(index);
       const opener = targets[index]?.openerTargetIndex;
       if (opener != null) {
@@ -288,9 +314,11 @@ export const capsuleSchema = z
           issue(ctx, `initialTargets[${index}].openerTargetIndex is invalid`);
         else visit(opener);
       }
+
       visiting.delete(index);
       visited.add(index);
     };
+
     targets.forEach((_, index) => visit(index));
   });
 
