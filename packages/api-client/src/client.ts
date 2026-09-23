@@ -370,16 +370,16 @@ export type EventsListParams = {
   resourceId?: string;
 };
 
-export type InitialBrowserTarget = {
+export interface InitialBrowserTarget {
   url: string;
   sessionStorage?: Array<{ origin: string; entries: BrowserStorageEntry[] }>;
   scroll?: { x: number; y: number };
   documentState?: InitialBrowserDocumentState;
   openerTargetIndex?: number;
   active?: boolean;
-};
+}
 
-export type InitialBrowserElementLocator = {
+export interface InitialBrowserElementLocator {
   tag: string;
   id?: string;
   name?: string;
@@ -388,29 +388,29 @@ export type InitialBrowserElementLocator = {
   ariaLabel?: string;
   placeholder?: string;
   path: Array<{ tag: string; index: number }>;
-};
+}
 
-export type InitialBrowserControlSelection = {
+export interface InitialBrowserControlSelection {
   start: number;
   end: number;
   direction: "forward" | "backward" | "none";
-};
+}
 
-export type InitialBrowserControlState = {
+export interface InitialBrowserControlState {
   locator: InitialBrowserElementLocator;
   value: string;
   checked?: boolean;
   selectedIndices?: number[];
   selection?: InitialBrowserControlSelection;
-};
+}
 
-export type InitialBrowserSelectionEndpoint = {
+export interface InitialBrowserSelectionEndpoint {
   locator: InitialBrowserElementLocator;
   nodePath: number[];
   offset: number;
-};
+}
 
-export type InitialBrowserDocumentState = {
+export interface InitialBrowserDocumentState {
   version: 1;
   windowName?: string;
   historyState?: string;
@@ -422,16 +422,19 @@ export type InitialBrowserDocumentState = {
     anchor: InitialBrowserSelectionEndpoint;
     focus: InitialBrowserSelectionEndpoint;
   };
-};
+}
 
-export type BrowserStorageEntry = { name: string; value: string };
+export interface BrowserStorageEntry {
+  name: string;
+  value: string;
+}
 
-export type InitialBrowserCookiePartitionKey = {
+export interface InitialBrowserCookiePartitionKey {
   topLevelSite: string;
   hasCrossSiteAncestor?: boolean;
-};
+}
 
-export type InitialBrowserCookie = {
+export interface InitialBrowserCookie {
   name: string;
   value: string;
   domain: string;
@@ -441,35 +444,35 @@ export type InitialBrowserCookie = {
   secure?: boolean;
   sameSite?: "Strict" | "Lax" | "None";
   partitionKey?: InitialBrowserCookiePartitionKey;
-};
+}
 
-export type InitialIndexedDBKeyPath = {
+export interface InitialIndexedDBKeyPath {
   kind: "none" | "string" | "array";
   value?: string[];
-};
+}
 
-export type InitialIndexedDBIndex = {
+export interface InitialIndexedDBIndex {
   name: string;
   keyPath: InitialIndexedDBKeyPath;
   unique: boolean;
   multiEntry: boolean;
-};
+}
 
-export type InitialIndexedDBObjectStore = {
+export interface InitialIndexedDBObjectStore {
   name: string;
   keyPath: InitialIndexedDBKeyPath;
   autoIncrement: boolean;
   indexes: InitialIndexedDBIndex[];
   records: Array<{ key: string; value: string }>;
-};
+}
 
-export type InitialIndexedDBDatabase = {
+export interface InitialIndexedDBDatabase {
   name: string;
   version: number;
   objectStores: InitialIndexedDBObjectStore[];
-};
+}
 
-export type InitialCacheStorageCache = {
+export interface InitialCacheStorageCache {
   name: string;
   entries: Array<{
     url: string;
@@ -479,14 +482,14 @@ export type InitialCacheStorageCache = {
     responseStatusText: string;
     responseBody: string;
   }>;
-};
+}
 
-export type InitialOPFSFile = {
+export interface InitialOPFSFile {
   path: string;
   body: string;
-};
+}
 
-export type InitialBrowserStorageState = {
+export interface InitialBrowserStorageState {
   cookies: InitialBrowserCookie[];
   origins: Array<{
     origin: string;
@@ -496,7 +499,7 @@ export type InitialBrowserStorageState = {
     cacheStorage?: InitialCacheStorageCache[];
     opfs?: InitialOPFSFile[];
   }>;
-};
+}
 
 export type CreateSessionInput = {
   baseSnapshotName?: string | null;

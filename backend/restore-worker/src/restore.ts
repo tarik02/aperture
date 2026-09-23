@@ -325,7 +325,10 @@ async function createTarget(
   }
 }
 
-type FrameTree = { frame: { id: string; url: string }; childFrames?: FrameTree[] };
+interface FrameTree {
+  frame: { id: string; url: string };
+  childFrames?: FrameTree[];
+}
 function collectOrigins(tree: FrameTree, origins: Set<string>): void {
   try {
     const origin = canonicalOrigin(new URL(tree.frame.url).origin);
