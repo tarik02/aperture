@@ -3,11 +3,12 @@ import { build } from "vite";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const license = readFileSync(
-  new URL("../../../packages/browser-state/LICENSE", import.meta.url),
+
+const devalueLicense = readFileSync(
+  new URL("../../../packages/browser-state/node_modules/devalue/LICENSE", import.meta.url),
   "utf8",
 );
-const banner = `/*!\n${license}\n*/`;
+const banner = `/*!\n${devalueLicense}\n*/`;
 
 function licenseBannerPlugin() {
   return {
