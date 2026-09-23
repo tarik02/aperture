@@ -31,6 +31,7 @@ export function run(state: Target): void {
       error: error instanceof Error ? error.name + ": " + error.message : String(error),
     });
   };
+
   try {
     const capturedURL = new URL(state.url).href;
     const restoreTarget = location.href === capturedURL;
@@ -57,6 +58,7 @@ export function run(state: Target): void {
           return false;
         return true;
       };
+
       const sameIdentity = (element: Element): boolean => {
         if (locator.name !== undefined && element.getAttribute("name") !== locator.name)
           return false;
@@ -77,11 +79,13 @@ export function run(state: Target): void {
           return false;
         return true;
       };
+
       const candidates = Array.from(document.getElementsByTagName(locator.tag)).filter(compatible);
       if (locator.id !== undefined) {
         const byID = candidates.filter((element) => element.id === locator.id);
         if (byID.length === 1) return byID[0];
       }
+
       const hasIdentity =
         locator.name !== undefined ||
         locator.inputType !== undefined ||
@@ -92,6 +96,7 @@ export function run(state: Target): void {
         const semantic = candidates.filter(sameIdentity);
         if (semantic.length === 1) return semantic[0];
       }
+
       let current: Element = document.documentElement;
       for (const step of locator.path) {
         const children = Array.from(current.children).filter(
@@ -100,6 +105,7 @@ export function run(state: Target): void {
         current = children[step.index];
         if (!current) return null;
       }
+
       return compatible(current) ? current : null;
     };
 
@@ -113,10 +119,13 @@ export function run(state: Target): void {
       if (!setter) throw new Error("browser omitted the native " + property + " setter");
       setter.call(element, value);
     };
+
     const eventedControls = new WeakSet();
     const eventedEditables = new WeakSet();
+
     const restoreControl = (control: ControlState, dispatchEvents: boolean): boolean => {
       const element = resolve(control.locator);
+
       try {
         if (element instanceof HTMLInputElement) {
           nativeSet(element, HTMLInputElement, "value", control.value);
@@ -136,6 +145,7 @@ export function run(state: Target): void {
         } else {
           return false;
         }
+
         if (control.selection !== undefined && "setSelectionRange" in element) {
           if (control.selection === null) return false;
           element.setSelectionRange(
@@ -144,6 +154,7 @@ export function run(state: Target): void {
             control.selection.direction,
           );
         }
+
         if (dispatchEvents && !eventedControls.has(element)) {
           eventedControls.add(element);
           element.dispatchEvent(
@@ -153,13 +164,16 @@ export function run(state: Target): void {
             element.dispatchEvent(new Event("change", { bubbles: true }));
           }
         }
+
         return true;
       } catch {
         return false;
       }
     };
+
     const restoreEditable = (editable: EditableState, dispatchEvents: boolean): boolean => {
       const element = resolve(editable.locator);
+
       try {
         if (!element || !element.isContentEditable) return false;
         if (element.innerHTML !== editable.html) element.innerHTML = editable.html;
@@ -169,27 +183,34 @@ export function run(state: Target): void {
             new InputEvent("input", { bubbles: true, inputType: "insertReplacementText" }),
           );
         }
+
         return true;
       } catch {
         return false;
       }
     };
+
     const restoreScroll = () => {
       for (const position of documentState?.scrollPositions || []) {
         const element = resolve(position.locator);
         if (element) element.scrollTo(position.x, position.y);
       }
+
       if (state.scroll) scrollTo(state.scroll.x, state.scroll.y);
     };
+
     const resolveSelectionEndpoint = (endpoint: SelectionEndpoint) => {
       let node: Node | null = resolve(endpoint.locator);
       if (!node) return null;
+
       for (const index of endpoint.nodePath) {
         node = node.childNodes[index];
         if (!node) return null;
       }
+
       return { node, offset: endpoint.offset };
     };
+
     const restoreFocusAndSelection = () => {
       if (documentState?.focus) {
         const element = resolve(documentState.focus);
@@ -199,6 +220,7 @@ export function run(state: Target): void {
           } catch {}
         }
       }
+
       if (documentState?.selection) {
         const anchor = resolveSelectionEndpoint(documentState.selection.anchor);
         const focus = resolveSelectionEndpoint(documentState.selection.focus);
@@ -217,24 +239,32 @@ export function run(state: Target): void {
     let hydrated = false;
     let observer: MutationObserver | undefined;
     const interruptEvents = ["beforeinput", "keydown", "pointerdown"];
+
     const stop = () => {
       interrupted = true;
       observer?.disconnect();
       for (const eventName of interruptEvents) removeEventListener(eventName, interrupt, true);
     };
+
     const interrupt = (event: Event): void => {
       if (event.isTrusted) stop();
     };
+
     for (const eventName of interruptEvents) {
       addEventListener(eventName, interrupt, { capture: true });
     }
+
     const replay = (dispatchEvents: boolean): void => {
       if (interrupted || !restoreTarget) return;
-      for (const control of documentState?.controls || []) restoreControl(control, dispatchEvents);
-      for (const editable of documentState?.contentEditables || [])
+      for (const control of documentState?.controls || []) {
+        restoreControl(control, dispatchEvents);
+      }
+      for (const editable of documentState?.contentEditables || []) {
         restoreEditable(editable, dispatchEvents);
+      }
       restoreScroll();
     };
+
     const start = () => {
       if (restoreTarget) {
         restoreHistory();
@@ -254,6 +284,7 @@ export function run(state: Target): void {
         setTimeout(() => observer?.disconnect(), 5000);
       }
     };
+
     const safeStart = () => {
       try {
         start();
@@ -263,6 +294,7 @@ export function run(state: Target): void {
         return false;
       }
     };
+
     const finalReplay = () => {
       hydrated = true;
       replay(true);
@@ -271,6 +303,7 @@ export function run(state: Target): void {
         restoreScroll();
       }
     };
+
     const complete = () => {
       try {
         finalReplay();
@@ -278,18 +311,22 @@ export function run(state: Target): void {
       } catch (error) {
         fail(error);
       }
+
       const retry = () => {
         try {
           finalReplay();
         } catch {}
       };
+
       requestAnimationFrame(() => requestAnimationFrame(retry));
       setTimeout(retry, 100);
       setTimeout(retry, 500);
     };
+
     const ready = () => {
       if (safeStart()) complete();
     };
+
     if (document.readyState === "loading")
       addEventListener("DOMContentLoaded", ready, { once: true });
     else ready();
