@@ -5,6 +5,7 @@ import type {
   InitialBrowserStorageState,
   InitialBrowserTarget,
   InitialIndexedDBDatabase,
+  InitialIndexedDBIndexKeyPath,
   InitialIndexedDBKeyPath,
   InitialOPFSFile,
 } from "@aperture/api-client";
@@ -433,13 +434,14 @@ export async function capturePageStates(
         }));
       }
 
-      function keyPath(value: string | string[] | null): InitialIndexedDBKeyPath {
-        if (value === null) {
-          return { kind: "none" };
-        }
+      function indexKeyPath(value: string | string[]): InitialIndexedDBIndexKeyPath {
         return Array.isArray(value)
           ? { kind: "array", value: [...value] }
           : { kind: "string", value: [value] };
+      }
+
+      function objectStoreKeyPath(value: string | string[] | null): InitialIndexedDBKeyPath {
+        return value === null ? { kind: "none" } : indexKeyPath(value);
       }
 
       function bytesToBase64(bytes: Uint8Array): string {
@@ -512,7 +514,7 @@ export async function capturePageStates(
                 const index = store.index(name);
                 return {
                   name,
-                  keyPath: keyPath(index.keyPath),
+                  keyPath: indexKeyPath(index.keyPath),
                   unique: index.unique,
                   multiEntry: index.multiEntry,
                 };
@@ -527,7 +529,7 @@ export async function capturePageStates(
               }
               objectStores.push({
                 name: storeName,
-                keyPath: keyPath(store.keyPath),
+                keyPath: objectStoreKeyPath(store.keyPath),
                 autoIncrement: store.autoIncrement,
                 indexes,
                 records,

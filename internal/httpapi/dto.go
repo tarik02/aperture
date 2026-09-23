@@ -317,9 +317,6 @@ func (r createSessionRequest) Validate() error {
 	if err := r.Browser.Validate(); err != nil {
 		return err
 	}
-	if err := r.initialization().Validate(); err != nil {
-		return validationError(err.Error())
-	}
 	return r.Proxy.Validate()
 }
 

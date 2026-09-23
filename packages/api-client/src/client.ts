@@ -38,7 +38,6 @@ import {
 import type { ResourceGrant, ResourceMode } from "./schemas.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
-const sessionCreateBodyMaxBytes = 64 * 1024 * 1024;
 
 type ApiClientConfig = {
   baseUrl: string;
@@ -452,9 +451,14 @@ export interface InitialIndexedDBKeyPath {
   value?: string[];
 }
 
+export interface InitialIndexedDBIndexKeyPath {
+  kind: "string" | "array";
+  value: string[];
+}
+
 export interface InitialIndexedDBIndex {
   name: string;
-  keyPath: InitialIndexedDBKeyPath;
+  keyPath: InitialIndexedDBIndexKeyPath;
   unique: boolean;
   multiEntry: boolean;
 }
@@ -970,13 +974,6 @@ export function createApiClient(options: ApiClientOptions = {}) {
         ...(input.storageState === undefined ? {} : { storageState: input.storageState }),
         tags: input.tags ?? {},
       };
-      if (new TextEncoder().encode(JSON.stringify(body)).byteLength > sessionCreateBodyMaxBytes) {
-        throw new ApiRequestError(
-          "validation_failed",
-          "The browser state exceeds Aperture's 64 MiB session creation limit",
-          0,
-        );
-      }
       return request(config, {
         method: "POST",
         path: "/api/sessions",

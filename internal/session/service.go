@@ -150,9 +150,6 @@ func (s *Service) create(
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
 		return nil, err
 	}
-	if err := input.Initialization.Validate(); err != nil {
-		return nil, err
-	}
 	if err := input.Proxy.Validate(); err != nil {
 		return nil, err
 	}
