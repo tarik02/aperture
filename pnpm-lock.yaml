@@ -21,13 +21,16 @@ importers:
       '@aperture/browser-state':
         specifier: workspace:*
         version: link:../../packages/browser-state
+      idb:
+        specifier: 8.0.3
+        version: 8.0.3
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
       '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.4
+        specifier: ^26.1.1
+        version: 26.1.1
       playwright-core:
         specifier: 1.55.0
         version: 1.55.0
@@ -36,7 +39,7 @@ importers:
         version: 6.0.3
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.4
-        version: '@voidzero-dev/vite-plus-core@0.2.4(@types/node@22.20.4)(jiti@2.7.0)(typescript@6.0.3)'
+        version: '@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.1.1)(jiti@2.7.0)(typescript@6.0.3)'
 
   extensions/aperture-companion:
     dependencies:
@@ -1310,9 +1313,6 @@ packages:
   '@types/har-format@1.2.16':
     resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
 
-  '@types/node@22.20.4':
-    resolution: {integrity: sha512-zJRE40jpHtKqE/C4fgHrAKQLJuSpzEnP9ff9Y7YtoR3Wd2pwqzlekDeEuUQXjRd+QCYnVnNwuJYmhdk9XV8gvA==}
-
   '@types/node@26.1.1':
     resolution: {integrity: sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==}
 
@@ -2077,6 +2077,9 @@ packages:
   iconv-lite@0.7.3:
     resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
     engines: {node: '>=0.10.0'}
+
+  idb@8.0.3:
+    resolution: {integrity: sha512-LtwtVyVYO5BqRvcsKuB2iUMnHwPVByPCXFXOpuU96IZPPoPN6xjOGxZQ74pgSVVLQWtUOYgyeL4GE98BY5D3wg==}
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
@@ -3008,9 +3011,6 @@ packages:
 
   ufo@1.6.4:
     resolution: {integrity: sha512-JFNbkD1Svwe0KvGi8GOeLcP4kAWQ609twvCdcHxq1oSL8svv39ZuSvajcD8B+5D0eL4+s1Is2D/O6KN3qcTeRA==}
-
-  undici-types@6.21.0:
-    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
@@ -4241,10 +4241,6 @@ snapshots:
 
   '@types/har-format@1.2.16': {}
 
-  '@types/node@22.20.4':
-    dependencies:
-      undici-types: 6.21.0
-
   '@types/node@26.1.1':
     dependencies:
       undici-types: 8.3.0
@@ -4401,18 +4397,6 @@ snapshots:
       '@vitest/pretty-format': 4.1.10
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
-
-  '@voidzero-dev/vite-plus-core@0.2.4(@types/node@22.20.4)(jiti@2.7.0)(typescript@6.0.3)':
-    dependencies:
-      '@oxc-project/runtime': 0.138.0
-      '@oxc-project/types': 0.138.0
-      lightningcss: 1.33.0
-      postcss: 8.5.28
-    optionalDependencies:
-      '@types/node': 22.20.4
-      fsevents: 2.3.3
-      jiti: 2.7.0
-      typescript: 6.0.3
 
   '@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.1.1)(jiti@2.7.0)(typescript@6.0.3)':
     dependencies:
@@ -4957,6 +4941,8 @@ snapshots:
   iconv-lite@0.7.3:
     dependencies:
       safer-buffer: 2.1.2
+
+  idb@8.0.3: {}
 
   ignore@5.3.2: {}
 
@@ -5833,8 +5819,6 @@ snapshots:
   typescript@6.0.3: {}
 
   ufo@1.6.4: {}
-
-  undici-types@6.21.0: {}
 
   undici-types@8.3.0: {}
 

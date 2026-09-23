@@ -17,6 +17,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        nodeRuntime = pkgs.nodejs_26;
 
         goLatest = pkgs.go_1_26.overrideAttrs (_: {
           version = "1.26.5";
@@ -27,6 +28,7 @@
         });
 
         pnpmLatest = pkgs.pnpm.override {
+          nodejs-slim = nodeRuntime;
           version = "11.13.0";
           hash = "sha256-hlx2vZERpFykH27u1AZ/8Ozf7p6sg6rSQXnIP/6+dZk=";
         };
@@ -476,7 +478,7 @@
               ];
             });
 
-        playwrightMCP = pkgs.buildNpmPackage rec {
+        playwrightMCP = (pkgs.buildNpmPackage.override { nodejs = nodeRuntime; }) rec {
           pname = "playwright-mcp";
           version = "0.0.82";
 
@@ -563,11 +565,11 @@
               "@aperture/ui"
               "@aperture/web"
             ];
-            hash = "sha256-2/cmyf341y4Ugq6pJp/4eIA6eDTjpHm6RBQ1bese6iY=";
+            hash = "sha256-LU5B87kZ30DzXQs8CmVEQu821FAwdMkNWyFrx1s7MoY=";
           };
 
           nativeBuildInputs = [
-            pkgs.nodejs_22
+            nodeRuntime
             pnpmLatest
             pkgs.pnpmConfigHook
           ];
@@ -615,12 +617,12 @@
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-2/cmyf341y4Ugq6pJp/4eIA6eDTjpHm6RBQ1bese6iY=";
+              hash = "sha256-LU5B87kZ30DzXQs8CmVEQu821FAwdMkNWyFrx1s7MoY=";
             };
 
             nativeBuildInputs = [
               pkgs.makeWrapper
-              pkgs.nodejs_22
+              nodeRuntime
               pnpmLatest
               pkgs.pnpmConfigHook
               pkgs.pkg-config
@@ -653,7 +655,7 @@
             # Vendor derivation only needs Go modules, not frontend dependencies.
             overrideModAttrs = oldAttrs: {
               nativeBuildInputs = builtins.filter (
-                drv: drv != pkgs.pnpmConfigHook && drv != pnpmLatest && drv != pkgs.nodejs_22
+                drv: drv != pkgs.pnpmConfigHook && drv != pnpmLatest && drv != nodeRuntime
               ) (oldAttrs.nativeBuildInputs or [ ]);
               preBuild = "";
               pnpmDeps = null;
@@ -667,7 +669,7 @@
               ln -s ${playwrightMCP}/share/aperture/playwright-core $out/share/aperture/restore-worker/node_modules/playwright-core
               cat > $out/bin/aperture-browser-restore <<EOF
               #!${pkgs.runtimeShell}
-              exec ${pkgs.nodejs}/bin/node $out/share/aperture/restore-worker/restore.mjs "\$@"
+              exec ${nodeRuntime}/bin/node $out/share/aperture/restore-worker/restore.mjs "\$@"
               EOF
               chmod 0755 $out/bin/aperture-browser-restore
               mkdir -p $out/lib/weston
@@ -922,7 +924,7 @@
                 pkgs.cacert
               ]
               ++ lib.optionals development [
-                pkgs.nodejs_22
+                nodeRuntime
                 pnpmLatest
               ]
               ++ browserFonts
@@ -1023,7 +1025,7 @@
                         pkgs.sudo
                       ]
                       ++ lib.optionals development [
-                        pkgs.nodejs_22
+                        nodeRuntime
                         pnpmLatest
                       ]
                     )
@@ -1171,7 +1173,7 @@
             pkgs.golangci-lint
             pkgs.gopls
             pkgs.goreleaser
-            pkgs.nodejs_22
+            nodeRuntime
             pnpmLatest
             pkgs.pkg-config
             pkgs.sqlite

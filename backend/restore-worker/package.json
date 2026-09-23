@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@aperture/browser-state": "workspace:*",
+    "idb": "8.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.1.1",
     "playwright-core": "1.55.0",
     "typescript": "^6.0.3",
     "vite": "catalog:"

@@ -1,5 +1,5 @@
 import type { BrowserContext, CDPSession, Frame, Page, Route } from "playwright-core";
-import { cdpForPage, evaluate, until, type FrameTree } from "./cdp.js";
+import { cdpForPage, evaluate, type FrameTree } from "./cdp.js";
 import { originStorageSource } from "./payload-source.js";
 import { canonicalOrigin, type Capsule, type StorageOrigin } from "./schema.js";
 
@@ -102,25 +102,30 @@ async function restoreOrigin(context: BrowserContext, origin: StorageOrigin): Pr
 
     await navigateIsolatedOrigin(page, chain);
 
-    const frame = await until(
-      async () => page.frames().find((candidate) => frameOrigins(candidate, chain)) ?? null,
-      "browser did not enter the storage frame",
-    );
+    const frame =
+      page.frames().find((candidate) => frameOrigins(candidate, chain)) ??
+      (await page.waitForEvent("framenavigated", {
+        predicate: (candidate) => frameOrigins(candidate, chain),
+        timeout: minute,
+      }));
+    await frame.waitForLoadState("domcontentloaded", { timeout: minute });
 
     const frameCDP = await context.newCDPSession(frame);
     const tree = (await frameCDP.send("Page.getFrameTree")) as { frameTree: FrameTree };
     const frameId = findFrameID(tree.frameTree, destinationOrigin);
     if (!frameId) throw new Error("browser omitted the storage frame ID");
 
-    const contextId = await until(async () => {
-      const world = (await frameCDP.send("Page.createIsolatedWorld", {
-        frameId,
-        worldName: "aperture-storage-import",
-      })) as { executionContextId?: number };
-      if (!world.executionContextId) return null;
-      const actual = await evaluate(frameCDP, "location.origin", world.executionContextId);
-      return actual === destinationOrigin ? world.executionContextId : null;
-    }, "browser did not enter the storage origin");
+    const world = (await frameCDP.send("Page.createIsolatedWorld", {
+      frameId,
+      worldName: "aperture-storage-import",
+    })) as { executionContextId?: number };
+    if (!world.executionContextId) throw new Error("browser omitted the storage execution context");
+
+    const contextId = world.executionContextId;
+    const actualOrigin = await evaluate(frameCDP, "location.origin", contextId);
+    if (actualOrigin !== destinationOrigin) {
+      throw new Error("browser entered an unexpected storage origin");
+    }
 
     if (partitioned) {
       const key = (await frameCDP.send("Storage.getStorageKeyForFrame", { frameId })) as {

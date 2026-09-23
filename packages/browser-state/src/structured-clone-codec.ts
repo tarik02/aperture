@@ -15,7 +15,11 @@ interface PortableCryptoKey {
 }
 
 class PendingCryptoKey {
-  constructor(readonly value: PortableCryptoKey) {}
+  readonly value: PortableCryptoKey;
+
+  constructor(value: PortableCryptoKey) {
+    this.value = value;
+  }
 }
 
 const baseRevivers = {
