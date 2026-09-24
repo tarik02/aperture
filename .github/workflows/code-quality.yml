@@ -28,8 +28,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Validate and package companion
-        shell: bash
+      - name: Validate companion
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter @aperture/ui format:check
@@ -38,17 +37,6 @@ jobs:
           pnpm --filter @aperture/companion format:check
           pnpm --filter @aperture/companion lint
           pnpm --filter @aperture/companion typecheck
-          pnpm --filter @aperture/companion build
-          cd extensions/aperture-companion/dist
-          zip -qr ../aperture-companion.zip .
-
-      - name: Upload companion
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: aperture-companion
-          path: extensions/aperture-companion/aperture-companion.zip
-          if-no-files-found: error
-          retention-days: 14
 
   golangci-lint:
     name: golangci-lint

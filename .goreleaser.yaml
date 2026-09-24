@@ -6,6 +6,8 @@ before:
   hooks:
     - pnpm install --frozen-lockfile
     - pnpm --filter @aperture/web build
+    - pnpm --filter @aperture/companion build
+    - sh -c "rm -f extensions/aperture-companion/aperture-companion.zip && cd extensions/aperture-companion/dist && zip -qr ../aperture-companion.zip ."
 
 builds:
   - id: aperture
@@ -89,6 +91,9 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: extensions/aperture-companion/aperture-companion.zip
+      name_template: "aperture-companion_{{ .Version }}.zip"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
@@ -108,3 +113,6 @@ release:
     name: aperture
   prerelease: auto
   mode: append
+  extra_files:
+    - glob: extensions/aperture-companion/aperture-companion.zip
+      name_template: "aperture-companion_{{ .Version }}.zip"

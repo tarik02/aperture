@@ -66,6 +66,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/checksums.txt
+            extensions/aperture-companion/aperture-companion.zip
           if-no-files-found: error
           retention-days: 14
 

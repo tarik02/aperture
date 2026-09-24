@@ -522,26 +522,31 @@
           else
             null;
 
-        apertureCompanion = pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
+        # One fetch of the whole pnpm workspace, shared by every package built from it.
+        workspacePnpmDeps = pkgs.fetchPnpmDeps {
+          pname = "aperture-workspace";
+          version = deployVersion;
+          inherit src;
+          pnpm = pnpmLatest;
+          fetcherVersion = 4;
+          pnpmWorkspaces = [
+            "@aperture/restore-worker"
+            "@aperture/api-schema"
+            "@aperture/browser-state"
+            "@aperture/api-client"
+            "@aperture/companion"
+            "@aperture/ui"
+            "@aperture/web"
+          ];
+          hash = "sha256-daYv3PqMK3nHvO7tCu0jZvfbZji5I5TjZ7n8QIQTAPE=";
+        };
+
+        apertureCompanion = pkgs.stdenvNoCC.mkDerivation {
           pname = "aperture-companion";
           version = deployVersion;
           inherit src;
 
-          pnpmDeps = pkgs.fetchPnpmDeps {
-            inherit (finalAttrs) pname version src;
-            pnpm = pnpmLatest;
-            fetcherVersion = 4;
-            pnpmWorkspaces = [
-              "@aperture/restore-worker"
-              "@aperture/api-schema"
-              "@aperture/browser-state"
-              "@aperture/api-client"
-              "@aperture/companion"
-              "@aperture/ui"
-              "@aperture/web"
-            ];
-            hash = "sha256-daYv3PqMK3nHvO7tCu0jZvfbZji5I5TjZ7n8QIQTAPE=";
-          };
+          pnpmDeps = workspacePnpmDeps;
 
           nativeBuildInputs = [
             nodeRuntime
@@ -563,7 +568,7 @@
             cp -R extensions/aperture-companion/dist/. $out/share/aperture/aperture-companion/
             runHook postInstall
           '';
-        });
+        };
 
         aperture =
           (buildGoModule (finalAttrs: {
@@ -580,21 +585,7 @@
               "cmd/browser-session-wrapper"
             ];
 
-            pnpmDeps = pkgs.fetchPnpmDeps {
-              inherit (finalAttrs) pname version src;
-              pnpm = pnpmLatest;
-              fetcherVersion = 4;
-              pnpmWorkspaces = [
-                "@aperture/restore-worker"
-                "@aperture/api-schema"
-                "@aperture/browser-state"
-                "@aperture/api-client"
-                "@aperture/companion"
-                "@aperture/ui"
-                "@aperture/web"
-              ];
-              hash = "sha256-daYv3PqMK3nHvO7tCu0jZvfbZji5I5TjZ7n8QIQTAPE=";
-            };
+            pnpmDeps = workspacePnpmDeps;
 
             nativeBuildInputs = [
               pkgs.makeWrapper
@@ -1193,6 +1184,7 @@
 
         checks = {
           default = aperture;
+          aperture-companion = apertureCompanion;
           aperture-dev = apertureDev;
         };
       }
