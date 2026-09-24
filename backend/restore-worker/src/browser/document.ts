@@ -26,6 +26,11 @@ export function controlKind(element: Element): ControlKind {
   return unfillableInputTypes.has(element.type) ? "native" : "fill";
 }
 
+/** Returns the first label of a control, which styled checkboxes use as their visible part. */
+export function label(element: Element): HTMLLabelElement | null {
+  return "labels" in element ? ((element.labels as NodeListOf<HTMLLabelElement>)[0] ?? null) : null;
+}
+
 /** Reports whether the control already holds the saved state. */
 export function matches(element: Element, control: ControlState): boolean {
   if (element instanceof HTMLSelectElement && control.selectedIndices !== undefined) {
