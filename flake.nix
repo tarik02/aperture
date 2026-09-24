@@ -588,10 +588,13 @@
             doCheck = true;
 
             postInstall = ''
-              # Node runtime: the restore worker bundle plus Playwright and Playwright MCP.
-              pnpm --filter @aperture/restore-worker deploy --legacy --prod --offline $out/share/aperture/restore-worker
-              # Drop the deployed package's link back into the build tree.
-              find $out/share/aperture/restore-worker -xtype l -delete
+              # Node runtime: the restore worker bundle plus the Playwright packages it
+              # depends on, copied flat out of the pnpm-installed node_modules.
+              mkdir -p $out/share/aperture/restore-worker/node_modules/@playwright
+              cp -r backend/restore-worker/dist $out/share/aperture/restore-worker/
+              cp -rL backend/restore-worker/node_modules/playwright backend/restore-worker/node_modules/playwright-core \
+                $out/share/aperture/restore-worker/node_modules/
+              cp -rL backend/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
               makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
                 --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
               makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \

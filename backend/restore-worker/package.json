@@ -1,9 +1,6 @@
 {
   "name": "@aperture/restore-worker",
   "private": true,
-  "files": [
-    "dist"
-  ],
   "type": "module",
   "scripts": {
     "build": "vp build",
@@ -13,6 +10,7 @@
   },
   "dependencies": {
     "@playwright/mcp": "0.0.82",
+    "playwright": "1.64.0-alpha-1789764292000",
     "playwright-core": "1.64.0-alpha-1789764292000"
   },
   "devDependencies": {
