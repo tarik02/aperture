@@ -12,10 +12,10 @@ import {
   FieldSeparator,
 } from "@aperture/ui/components/field";
 import { Input } from "@aperture/ui/components/input";
-import { apiClient } from "@aperture/api-client";
 import { parseTokenId } from "#/lib/token-id.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import type { LoginMethods } from "@aperture/api-client";
+import { runApi } from "#/lib/runtime.ts";
 
 type LoginFormProps = {
   loginMethods?: LoginMethods["methods"];
@@ -64,8 +64,8 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
 
     setTokenSubmitting(true);
     try {
-      await apiClient.loginWithAPIToken(trimmedToken);
-      setAuthenticated(await apiClient.getAuthMe());
+      await runApi((api) => api.loginWithAPIToken(trimmedToken));
+      setAuthenticated(await runApi((api) => api.getAuthMe()));
       setRawToken("");
       toast.success("Logged in");
       onDone();
@@ -79,10 +79,10 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
   async function handlePasskeyLogin() {
     setPasskeySubmitting(true);
     try {
-      const options = await apiClient.beginPasskeyLogin();
+      const options = await runApi((api) => api.beginPasskeyLogin());
       const credential = await startAuthentication({ optionsJSON: options.publicKey });
-      await apiClient.finishPasskeyLogin(credential);
-      setAuthenticated(await apiClient.getAuthMe());
+      await runApi((api) => api.finishPasskeyLogin(credential));
+      setAuthenticated(await runApi((api) => api.getAuthMe()));
       toast.success("Logged in");
       onDone();
     } catch (error) {
@@ -97,16 +97,16 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
     setPasswordSubmitting(true);
     try {
       if (passwordStep === "credentials") {
-        const result = await apiClient.loginWithPassword(email, password);
+        const result = await runApi((api) => api.loginWithPassword(email, password));
         if (result.mfaRequired) {
           setPassword("");
           setPasswordStep("mfa");
           return;
         }
       } else {
-        await apiClient.completePasswordMFA(mfaCode);
+        await runApi((api) => api.completePasswordMFA(mfaCode));
       }
-      setAuthenticated(await apiClient.getAuthMe());
+      setAuthenticated(await runApi((api) => api.getAuthMe()));
       setPasswordStep("credentials");
       setEmail("");
       setPassword("");

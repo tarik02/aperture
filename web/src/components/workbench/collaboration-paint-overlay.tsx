@@ -1,8 +1,13 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { Effect, Stream } from "effect";
 import type { CollaborationControl } from "#/hooks/use-live-session.ts";
 import { collaborationPaintLifetimeMs } from "#/hooks/use-live-session.ts";
-import type { CollaborationPaintPoint } from "#/lib/control/live-session-protocol.ts";
+import type {
+  CollaborationPaintEvent,
+  CollaborationPaintPoint,
+} from "#/lib/control/live-session-protocol.ts";
 import { cn } from "@aperture/ui/utils";
+import { forkEffect } from "#/lib/runtime.ts";
 
 type CollaborationPaintOverlayProps = {
   collaboration: CollaborationControl;
@@ -142,7 +147,7 @@ export function CollaborationPaintOverlay({
       }
     };
 
-    const subscription = collaboration.paintEvents.subscribe((event) => {
+    const onPaint = (event: CollaborationPaintEvent) => {
       if (event.type === "clear") {
         strokesRef.current.clear();
         requestDraw();
@@ -198,11 +203,14 @@ export function CollaborationPaintOverlay({
         ended: message.phase === "end",
       });
       requestDraw();
-    });
+    };
+    const interrupt = forkEffect(
+      Stream.runForEach(collaboration.paintEvents, (event) => Effect.sync(() => onPaint(event))),
+    );
 
     draw();
     return () => {
-      subscription.unsubscribe();
+      interrupt();
       if (animationFrame !== null) {
         window.cancelAnimationFrame(animationFrame);
       }

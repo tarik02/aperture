@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { timer, type Observable } from "rxjs";
+import { Effect, type Stream } from "effect";
 import { toast } from "sonner";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import {
@@ -8,7 +8,7 @@ import {
   type LiveSessionControl,
   type LiveSessionMediaSelection,
 } from "#/hooks/use-live-session.ts";
-import { apiClient, type ApiCredentials } from "@aperture/api-client";
+import type { ApiCredentials, IceServer } from "@aperture/api-client";
 import type { Recording } from "@aperture/api-client";
 import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 import type {
@@ -23,6 +23,7 @@ import {
   DEFAULT_VIEWPORT,
   type ViewportPreset,
 } from "#/lib/control/viewport.ts";
+import { appRuntime, runApi } from "#/lib/runtime.ts";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
@@ -31,7 +32,7 @@ type UseBrowserControlOptions = {
   collaborationRole?: CollaborationRole;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
-  webrtcIceServers?: RTCIceServer[];
+  webrtcIceServers?: readonly IceServer[];
 };
 
 type BrowserViewportSize = {
@@ -44,10 +45,10 @@ export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
 export type UseBrowserControlResult = {
   phase: LiveSessionControl["phase"];
-  targets: LiveSessionTarget[];
+  targets: readonly LiveSessionTarget[];
   activeTargetId: string | null;
   activeTarget: LiveSessionTarget | null;
-  frame$: Observable<LiveSessionRasterFrame | null>;
+  frames: Stream.Stream<LiveSessionRasterFrame | null>;
   mediaPhase: BrowserMediaPhase;
   mediaStream: MediaStream | null;
   mediaStreamSettings: LiveSessionPresentationQuality | null;
@@ -66,7 +67,7 @@ export type UseBrowserControlResult = {
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
   captured: boolean;
-  recordings: Recording[];
+  recordings: readonly Recording[];
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
   collaboration: CollaborationControl;
@@ -100,7 +101,7 @@ export type UseBrowserControlResult = {
   reconnect: () => void;
 };
 
-const emptyIceServers: RTCIceServer[] = [];
+const emptyIceServers: readonly IceServer[] = [];
 
 export function useBrowserControl({
   sessionId,
@@ -122,7 +123,7 @@ export function useBrowserControl({
     webrtcSupported: webrtcProducerSupported,
     iceServers: webrtcIceServers,
   });
-  const [targets, setTargets] = useState<LiveSessionTarget[]>([]);
+  const [targets, setTargets] = useState<readonly LiveSessionTarget[]>([]);
   const [viewport, setViewportState] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
@@ -372,7 +373,9 @@ export function useBrowserControl({
       void live
         .request("recording.stop", { recordingId })
         .then(() =>
-          apiClient.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
+          runApi((api) =>
+            api.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
+          ),
         )
         .then(({ blob, filename }) => {
           const recording = live.recordings.find(
@@ -458,7 +461,7 @@ export function useBrowserControl({
     targets,
     activeTargetId: live.activeTargetId,
     activeTarget,
-    frame$: live.frame$,
+    frames: live.frames,
     mediaPhase,
     mediaStream: live.mediaStream,
     mediaStreamSettings: live.presentation?.quality ?? null,
@@ -505,8 +508,8 @@ export function useBrowserControl({
 }
 
 function mergeTargetsInCurrentOrder(
-  currentTargets: LiveSessionTarget[],
-  nextTargets: LiveSessionTarget[],
+  currentTargets: readonly LiveSessionTarget[],
+  nextTargets: readonly LiveSessionTarget[],
 ): LiveSessionTarget[] {
   const nextById = new Map(nextTargets.map((target) => [target.id, target]));
   const seen = new Set<string>();
@@ -539,7 +542,7 @@ function downloadBlob(blob: Blob, filename: string) {
   link.href = url;
   link.download = filename;
   link.click();
-  timer(0).subscribe(() => URL.revokeObjectURL(url));
+  appRuntime.runFork(Effect.sync(() => URL.revokeObjectURL(url)).pipe(Effect.delay(0)));
 }
 
 function errorMessage(cause: unknown, fallback: string): string {

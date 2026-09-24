@@ -87,7 +87,6 @@ import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-cre
 import { flattenInfinitePages } from "@aperture/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
 import type { Session } from "@aperture/api-client";
-import { apiClient } from "@aperture/api-client";
 import { copyText } from "#/components/resources/copy-button.tsx";
 import { cn } from "@aperture/ui/utils";
 import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";
@@ -97,6 +96,7 @@ import { useSessionPromoteFormStore } from "#/features/session/promote-form/sess
 import { useSessionPromoteModalStore } from "#/features/session/promote-modal/session-promote-modal.store.ts";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 const ALL_STATUS = "__all__";
 
@@ -256,7 +256,7 @@ export function SessionListPage() {
 
     setCopyingShareSessionId(session.id);
     try {
-      const detailedSession = await apiClient.getSession(credentials, session.id);
+      const detailedSession = await runApi((api) => api.getSession(credentials, session.id));
       if (!detailedSession.collaboration?.viewerToken) {
         throw new Error("Viewer capability unavailable");
       }

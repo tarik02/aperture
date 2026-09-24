@@ -11,9 +11,12 @@ interface RestoreResult {
 }
 
 // The capsule schema guarantees the value arity for each kind.
-function keyPath(specification: { kind: string; value?: string[] }): string | string[] | null {
+function keyPath(specification: {
+  kind: string;
+  value?: readonly string[];
+}): string | string[] | null {
   if (specification.kind === "none") return null;
-  return specification.kind === "string" ? specification.value![0] : specification.value!;
+  return specification.kind === "string" ? specification.value![0] : [...specification.value!];
 }
 
 function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
@@ -49,7 +52,7 @@ function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
   });
 }
 
-async function restoreIndexedDB(databases: DatabaseState[]): Promise<void> {
+async function restoreIndexedDB(databases: readonly DatabaseState[]): Promise<void> {
   for (const databaseState of databases) {
     const database = await openDatabase(databaseState);
 

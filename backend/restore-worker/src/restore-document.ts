@@ -1,6 +1,9 @@
-import type { ElementHandle, JSHandle, Page } from "playwright-core";
+import { Effect } from "effect";
+import type { Playwright } from "effect-playwright";
+import type { ElementHandle, JSHandle } from "playwright-core";
 import type * as DocumentHelpers from "./browser/document.js";
-import { documentHelpersSource } from "./payload-source.js";
+import { attempt } from "./cdp.js";
+import { PayloadSource } from "./payload-source.js";
 import type { Target } from "./schema.js";
 
 type Helpers = JSHandle<typeof DocumentHelpers>;
@@ -20,151 +23,160 @@ const appearTimeout = 1_000;
  * change events Playwright's selectOption dispatches. Native setters, with synthetic
  * events, are only the last resort for controls Playwright cannot act on.
  */
-export async function restoreDocument(page: Page, target: Target): Promise<void> {
+export const restoreDocument = Effect.fnUntraced(function* (page: Playwright.Page, target: Target) {
   const state = target.documentState;
   if (!state && !target.scroll) return;
 
-  await settle(page);
+  yield* settle(page);
   // The saved state belongs to this exact URL, not to wherever a redirect led.
   if (page.url() !== new URL(target.url).href) return;
 
-  const helpers: Helpers = await page.evaluateHandle(documentHelpersSource());
-  try {
-    const controls = state?.controls ?? [];
-    for (const control of controls) await restoreControl(helpers, control, false);
+  const payloads = yield* PayloadSource;
+  const helpers: Helpers = yield* Effect.acquireRelease(
+    page.use((raw) => raw.evaluateHandle(payloads.documentHelpers()) as Promise<Helpers>),
+    (helpers) => Effect.ignore(attempt(() => helpers.dispose())),
+  );
 
-    for (const editable of state?.contentEditables ?? []) {
-      await helpers.evaluate((h, value) => h.restoreEditable(value), editable);
+  const controls = state?.controls ?? [];
+  for (const control of controls) yield* restoreControl(helpers, control, false);
+
+  for (const editable of state?.contentEditables ?? []) {
+    yield* attempt(() => helpers.evaluate((h, value) => h.restoreEditable(value), editable));
+  }
+
+  // Second pass: controls the page reset while reacting to the restored values, and
+  // controls Playwright could not act on yet. Only now do native setters step in.
+  yield* Effect.sleep(reactionDelay);
+  for (const control of controls) yield* restoreControl(helpers, control, true);
+
+  if (state?.focus) {
+    const focus = yield* resolve(helpers, state.focus);
+    if (focus) {
+      yield* Effect.ignore(attempt(() => focus.focus()));
+      yield* attempt(() => focus.dispose());
     }
+  }
+  const selection = state?.selection;
+  if (selection) {
+    yield* attempt(() => helpers.evaluate((h, value) => h.restoreSelection(value), selection));
+  }
 
-    // Second pass: controls the page reset while reacting to the restored values, and
-    // controls Playwright could not act on yet. Only now do native setters step in.
-    await page.waitForTimeout(reactionDelay);
-    for (const control of controls) await restoreControl(helpers, control, true);
-
-    if (state?.focus) {
-      const focus = await resolve(helpers, state.focus);
-      await focus?.focus().catch(() => undefined);
-      await focus?.dispose();
-    }
-    if (state?.selection) {
-      await helpers.evaluate((h, selection) => h.restoreSelection(selection), state.selection);
-    }
-
-    // Last, because filling and focusing controls scrolls them into view.
-    await helpers.evaluate((h, { positions, scroll }) => h.restoreScroll(positions, scroll), {
+  // Last, because filling and focusing controls scrolls them into view.
+  yield* attempt(() =>
+    helpers.evaluate((h, { positions, scroll }) => h.restoreScroll(positions, scroll), {
       positions: state?.scrollPositions ?? [],
       scroll: target.scroll,
-    });
-  } finally {
-    await helpers.dispose();
-  }
-}
+    }),
+  );
+}, Effect.scoped);
 
-async function settle(page: Page): Promise<void> {
-  await page.waitForLoadState("load", { timeout: loadTimeout }).catch(() => undefined);
-  await page.waitForLoadState("networkidle", { timeout: settleTimeout }).catch(() => undefined);
-}
+const settle = (page: Playwright.Page) =>
+  Effect.gen(function* () {
+    yield* Effect.ignore(page.waitForLoadState("load", { timeout: loadTimeout }));
+    yield* Effect.ignore(page.waitForLoadState("networkidle", { timeout: settleTimeout }));
+  });
 
-async function resolve(
-  helpers: Helpers,
-  locator: ControlState["locator"],
-): Promise<ElementHandle<HTMLElement> | null> {
-  const handle = await helpers.evaluateHandle((h, value) => h.resolve(value), locator);
+const resolve = Effect.fnUntraced(function* (helpers: Helpers, locator: ControlState["locator"]) {
+  const handle = yield* attempt(() =>
+    helpers.evaluateHandle((h, value) => h.resolve(value), locator),
+  );
   const element = handle.asElement();
-  if (!element) await handle.dispose();
+  if (!element) yield* attempt(() => handle.dispose());
   return element;
-}
+});
 
-async function restoreControl(
-  helpers: Helpers,
-  control: ControlState,
-  nativeFallback: boolean,
-): Promise<void> {
-  const element = await resolve(helpers, control.locator);
-  if (!element) return;
+const restoreControl = (helpers: Helpers, control: ControlState, nativeFallback: boolean) =>
+  Effect.gen(function* () {
+    const element = yield* resolve(helpers, control.locator);
+    if (!element) return;
 
-  try {
-    const alreadySet = await helpers.evaluate((h, [el, c]) => h.matches(el, c), [
-      element,
-      control,
-    ] as const);
-    if (!alreadySet) {
-      const kind = await helpers.evaluate((h, el) => h.controlKind(el), element);
-      if (kind === "none") return;
-      const acted =
-        kind !== "native" && (await act(helpers, element, kind, control, nativeFallback));
-      if (!acted && !nativeFallback) return;
-      if (!acted) {
-        await helpers.evaluate((h, [el, c]) => h.setControl(el, c), [element, control] as const);
+    yield* Effect.gen(function* () {
+      const alreadySet = yield* attempt(() =>
+        helpers.evaluate((h, [el, c]) => h.matches(el, c), [element, control] as const),
+      );
+      if (!alreadySet) {
+        const kind = yield* attempt(() => helpers.evaluate((h, el) => h.controlKind(el), element));
+        if (kind === "none") return;
+        const acted =
+          kind !== "native" && (yield* act(helpers, element, kind, control, nativeFallback));
+        if (!acted && !nativeFallback) return;
+        if (!acted) {
+          yield* attempt(() =>
+            helpers.evaluate((h, [el, c]) => h.setControl(el, c), [element, control] as const),
+          );
+        }
       }
-    }
-    await helpers.evaluate((h, [el, selection]) => h.setSelectionRange(el, selection), [
-      element,
-      control.selection,
-    ] as const);
-  } catch {
-    // The control was replaced or detached while restoring; the page keeps its own value.
-  } finally {
-    await element.dispose();
-  }
-}
+      yield* attempt(() =>
+        helpers.evaluate((h, [el, selection]) => h.setSelectionRange(el, selection), [
+          element,
+          control.selection,
+        ] as const),
+      );
+    }).pipe(
+      // The control was replaced or detached while restoring; the page keeps its own value.
+      Effect.ignore,
+      Effect.ensuring(Effect.ignore(attempt(() => element.dispose()))),
+    );
+  });
 
 // Restores a control through Playwright, which only acts on visible elements. On the last
 // pass (patient) it gives a control that is still appearing a moment more.
-async function act(
+const act = (
   helpers: Helpers,
   element: ElementHandle<HTMLElement>,
   kind: DocumentHelpers.ControlKind,
   control: ControlState,
   patient: boolean,
-): Promise<boolean> {
-  const options = { timeout: actionTimeout };
-  try {
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    const options = { timeout: actionTimeout };
     const visible = patient
-      ? await element.waitForElementState("visible", { timeout: appearTimeout }).then(
-          () => true,
-          () => false,
+      ? yield* attempt(() =>
+          element.waitForElementState("visible", { timeout: appearTimeout }),
+        ).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
         )
-      : await element.isVisible();
+      : yield* attempt(() => element.isVisible());
 
     if (kind === "check" && control.checked !== undefined) {
       if (visible) {
-        await element.setChecked(control.checked, options);
+        yield* attempt(() => element.setChecked(control.checked!, options));
         return true;
       }
       // Styled checkboxes often hide the input behind its label; a label click is still a
       // real click on the control.
-      const label = await visibleLabel(helpers, element);
+      const label = yield* visibleLabel(helpers, element);
       if (!label) return false;
-      await label.click(options).finally(() => label.dispose());
-      return await helpers.evaluate((h, [el, c]) => h.matches(el, c), [element, control] as const);
+      yield* attempt(() => label.click(options)).pipe(
+        Effect.ensuring(Effect.ignore(attempt(() => label.dispose()))),
+      );
+      return yield* attempt(() =>
+        helpers.evaluate((h, [el, c]) => h.matches(el, c), [element, control] as const),
+      );
     }
 
     if (!visible) return false;
     if (kind === "fill") {
-      await element.fill(control.value, options);
+      yield* attempt(() => element.fill(control.value, options));
     } else if (kind === "select") {
-      await element.selectOption(
-        control.selectedIndices?.map((index) => ({ index })) ?? { value: control.value },
-        options,
-      );
+      const values = control.selectedIndices?.map((index) => ({ index })) ?? {
+        value: control.value,
+      };
+      yield* attempt(() => element.selectOption(values, options));
     } else {
       return false;
     }
     return true;
-  } catch {
-    return false;
-  }
-}
+  }).pipe(Effect.orElseSucceed(() => false));
 
-async function visibleLabel(
+const visibleLabel = Effect.fnUntraced(function* (
   helpers: Helpers,
   element: ElementHandle<HTMLElement>,
-): Promise<ElementHandle<HTMLLabelElement> | null> {
-  const handle = await helpers.evaluateHandle((h, el) => h.label(el), element);
+) {
+  const handle = yield* attempt(() => helpers.evaluateHandle((h, el) => h.label(el), element));
   const label = handle.asElement();
-  if (label && (await label.isVisible())) return label;
-  await handle.dispose();
+  if (label && (yield* attempt(() => label.isVisible()))) return label;
+  yield* attempt(() => handle.dispose());
   return null;
-}
+});

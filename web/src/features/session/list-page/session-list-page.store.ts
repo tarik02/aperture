@@ -1,6 +1,7 @@
+import { Schema } from "effect";
 import { create } from "zustand";
 import type { SessionDetailSection } from "#/components/sessions/session-detail-modals.tsx";
-import type { CreateSessionResponse, Session } from "@aperture/api-client";
+import { SessionStatus, type CreateSessionResponse, type Session } from "@aperture/api-client";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 
 export type SessionConfirmAction =
@@ -11,7 +12,7 @@ export type SessionConfirmAction =
   | { kind: "rotate"; session: Session };
 
 type SessionListPageState = {
-  status: string | undefined;
+  status: SessionStatus | undefined;
   tags: TagFilterValue | undefined;
   detailSession: Session | null;
   detailSection: SessionDetailSection | null;
@@ -30,6 +31,8 @@ type SessionListPageState = {
   setConfirmAction: (action: SessionConfirmAction | null) => void;
 };
 
+const isSessionStatus = Schema.is(SessionStatus);
+
 export const useSessionListPageStore = create<SessionListPageState>()((set) => ({
   status: undefined,
   tags: undefined,
@@ -37,7 +40,7 @@ export const useSessionListPageStore = create<SessionListPageState>()((set) => (
   detailSection: null,
   selectedSessions: {},
   confirmAction: null,
-  setStatus: (status) => set({ status }),
+  setStatus: (status) => set({ status: isSessionStatus(status) ? status : undefined }),
   setTags: (tags) => set({ tags }),
   openDetail: (session, section = "details") =>
     set({ detailSession: session, detailSection: section }),

@@ -17,7 +17,7 @@ type TenantComboboxProps = {
   placeholder?: string;
   triggerClassName?: string;
   align?: "start" | "center" | "end";
-  options?: Tenant[];
+  options?: readonly Tenant[];
 };
 
 export function TenantCombobox({

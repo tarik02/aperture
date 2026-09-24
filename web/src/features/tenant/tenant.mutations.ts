@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 function useInvalidateTenants() {
   const queryClient = useQueryClient();
@@ -15,7 +15,8 @@ export function useCreateTenantMutation() {
   const invalidate = useInvalidateTenants();
 
   return useMutation({
-    mutationFn: (input: { displayName: string }) => apiClient.createTenant(credentials!, input),
+    mutationFn: (input: { displayName: string }) =>
+      runApi((api) => api.createTenant(credentials!, input)),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Create failed"),
   });
@@ -27,7 +28,7 @@ export function useUpdateTenantMutation() {
 
   return useMutation({
     mutationFn: ({ tenantId, displayName }: { tenantId: string; displayName: string }) =>
-      apiClient.updateTenant(credentials!, tenantId, { displayName }),
+      runApi((api) => api.updateTenant(credentials!, tenantId, { displayName })),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Update failed"),
   });
@@ -38,7 +39,7 @@ export function useDeleteTenantMutation() {
   const invalidate = useInvalidateTenants();
 
   return useMutation({
-    mutationFn: (tenantId: string) => apiClient.deleteTenant(credentials!, tenantId),
+    mutationFn: (tenantId: string) => runApi((api) => api.deleteTenant(credentials!, tenantId)),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Delete failed"),
   });
@@ -49,7 +50,7 @@ export function useRestoreTenantMutation() {
   const invalidate = useInvalidateTenants();
 
   return useMutation({
-    mutationFn: (tenantId: string) => apiClient.restoreTenant(credentials!, tenantId),
+    mutationFn: (tenantId: string) => runApi((api) => api.restoreTenant(credentials!, tenantId)),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Restore failed"),
   });

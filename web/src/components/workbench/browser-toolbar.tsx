@@ -12,7 +12,7 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
-import { interval } from "rxjs";
+import { Effect, Schedule } from "effect";
 import { Button } from "@aperture/ui/components/button";
 import {
   ContextMenu,
@@ -26,6 +26,7 @@ import {
 import { InputGroup, InputGroupInput } from "@aperture/ui/components/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
+import { forkEffect } from "#/lib/runtime.ts";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
@@ -87,9 +88,8 @@ export function BrowserToolbar({
     if (!hasRunningRecordings) {
       return;
     }
-    setRecordingNow(Date.now());
-    const subscription = interval(1000).subscribe(() => setRecordingNow(Date.now()));
-    return () => subscription.unsubscribe();
+    const tick = Effect.sync(() => setRecordingNow(Date.now()));
+    return forkEffect(Effect.repeat(tick, Schedule.spaced(1000)));
   }, [hasRunningRecordings]);
 
   function handleNavigate(value: string) {

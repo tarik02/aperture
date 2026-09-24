@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
-import { apiClient } from "@aperture/api-client";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { cn } from "@aperture/ui/utils";
+import { runApi } from "#/lib/runtime.ts";
 
 type SelectedTenantControlProps = {
   triggerClassName?: string;
@@ -28,7 +28,7 @@ export function SelectedTenantControl({
   async function selectTenant(tenantId: string) {
     setSwitching(true);
     try {
-      setAuthenticated(await apiClient.getAuthMe(tenantId));
+      setAuthenticated(await runApi((api) => api.getAuthMe(tenantId)));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Tenant switch failed");
     } finally {

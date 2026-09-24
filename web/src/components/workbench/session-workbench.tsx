@@ -22,7 +22,7 @@ import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { AppWindow } from "lucide-react";
-import type { ApiCredentials } from "@aperture/api-client";
+import type { ApiCredentials, IceServer } from "@aperture/api-client";
 import type { Session } from "@aperture/api-client";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 
@@ -35,7 +35,7 @@ type SessionWorkbenchProps = {
   };
 };
 
-const emptyIceServers: RTCIceServer[] = [];
+const emptyIceServers: readonly IceServer[] = [];
 
 export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProps) {
   const sessionCredentials = useApiCredentials();

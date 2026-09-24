@@ -24,7 +24,7 @@ import { toast } from "sonner";
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
 
 type BrowserTabStripProps = {
-  targets: LiveSessionTarget[];
+  targets: readonly LiveSessionTarget[];
   activeTargetId: string | null;
   recordingTargetIds: ReadonlySet<string>;
   devToolsTargetIds: ReadonlySet<string>;

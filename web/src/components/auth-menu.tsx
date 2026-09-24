@@ -21,9 +21,9 @@ import {
 } from "@aperture/ui/components/dropdown-menu";
 import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
 import { SecurityModal } from "#/features/security/security-modal.tsx";
-import { apiClient } from "@aperture/api-client";
 import { cn } from "@aperture/ui/utils";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 type AuthMenuProps = {
   className?: string;
@@ -41,7 +41,7 @@ export function AuthMenu({ className }: AuthMenuProps) {
   async function handleLogout() {
     setLoggingOut(true);
     try {
-      await apiClient.logoutWebSession();
+      await runApi((api) => api.logoutWebSession());
       queryClient.clear();
       setUnauthenticated();
     } catch (error) {

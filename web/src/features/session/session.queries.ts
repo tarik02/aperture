@@ -1,9 +1,9 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { apiClient } from "@aperture/api-client";
 import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture/api-client";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type SessionsFilters } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
+import { runApi } from "#/lib/runtime.ts";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {
@@ -25,14 +25,18 @@ export function useSessionsInfiniteQuery(
 
   return useInfiniteQuery({
     queryKey: queryKeys.sessions(tenantKey, filters),
-    queryFn: ({ pageParam }) =>
-      apiClient.listSessions(credentials!, {
-        limit: filters.limit ?? defaultListLimit,
-        cursor: pageParam,
-        includeDeleted: filters.includeDeleted,
-        status: filters.status,
-        tags: filters.tags,
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      runApi(
+        (api) =>
+          api.listSessions(credentials!, {
+            limit: filters.limit ?? defaultListLimit,
+            cursor: pageParam,
+            includeDeleted: filters.includeDeleted,
+            status: filters.status,
+            tags: filters.tags,
+          }),
+        { signal },
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam,
     enabled,
@@ -47,7 +51,8 @@ export function useSessionsBulkQuery(sessionIds: string[]) {
 
   return useQuery({
     queryKey: queryKeys.sessionsBulk(tenantKey, sessionIds),
-    queryFn: () => apiClient.getSessionsBulk(credentials!, sessionIds),
+    queryFn: ({ signal }) =>
+      runApi((api) => api.getSessionsBulk(credentials!, sessionIds), { signal }),
     enabled,
     select: (response) => response.sessions,
   });
@@ -59,11 +64,11 @@ export function useSessionQuery(sessionId: string | undefined) {
 
   return useQuery({
     queryKey: queryKeys.session(tenantKey, sessionId ?? "none"),
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (!credentials || !sessionId) {
         throw new Error("Session credentials unavailable");
       }
-      return apiClient.getSession(credentials, sessionId);
+      return runApi((api) => api.getSession(credentials, sessionId), { signal });
     },
     enabled: Boolean(sessionId && isTenantScopedQueryReady(credentials)),
     refetchInterval: (query) => (query.state.data?.status === "creating" ? 500 : false),

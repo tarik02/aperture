@@ -45,10 +45,11 @@ export default defineConfig({
       devalueLicense,
       idbLicense,
     ]),
-    // The Node worker Go spawns. playwright-core comes from the Nix package at runtime.
+    // The Node worker Go spawns. Everything but playwright-core, which the Nix package
+    // installs next to it, is bundled.
     worker: {
       consumer: "server",
-      resolve: { noExternal: ["zod"], external: ["playwright-core"] },
+      resolve: { noExternal: true, external: ["playwright-core"] },
       build: {
         target: "node26",
         emptyOutDir: false,

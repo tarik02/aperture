@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 function useInvalidateSnapshots() {
   const queryClient = useQueryClient();
@@ -16,7 +16,7 @@ export function useDeleteSnapshotMutation() {
   const invalidate = useInvalidateSnapshots();
 
   return useMutation({
-    mutationFn: (name: string) => apiClient.deleteSnapshot(credentials!, name),
+    mutationFn: (name: string) => runApi((api) => api.deleteSnapshot(credentials!, name)),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Delete failed"),
   });
@@ -27,7 +27,7 @@ export function useRestoreSnapshotMutation() {
   const invalidate = useInvalidateSnapshots();
 
   return useMutation({
-    mutationFn: (name: string) => apiClient.restoreSnapshot(credentials!, name),
+    mutationFn: (name: string) => runApi((api) => api.restoreSnapshot(credentials!, name)),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Restore failed"),
   });
@@ -39,7 +39,7 @@ export function useReplaceSnapshotTagsMutation() {
 
   return useMutation({
     mutationFn: ({ name, tags }: { name: string; tags: Record<string, string> }) =>
-      apiClient.replaceSnapshotTags(credentials!, name, tags),
+      runApi((api) => api.replaceSnapshotTags(credentials!, name, tags)),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Tags update failed"),
   });
@@ -51,7 +51,7 @@ export function useUpdateSnapshotMutation() {
 
   return useMutation({
     mutationFn: ({ name, description }: { name: string; description: string | null }) =>
-      apiClient.updateSnapshot(credentials!, name, { description }),
+      runApi((api) => api.updateSnapshot(credentials!, name, { description })),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Snapshot update failed"),
   });

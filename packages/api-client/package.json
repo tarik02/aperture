@@ -11,8 +11,9 @@
     "format:check": "vp fmt --check"
   },
   "dependencies": {
+    "@aperture/api-schema": "workspace:*",
     "@simplewebauthn/browser": "13.3.0",
-    "zod": "^4.4.3"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260707.2",

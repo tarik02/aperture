@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { apiClient, type UserInput } from "@aperture/api-client";
+import type { UserInput } from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 function useInvalidateUsers() {
   const queryClient = useQueryClient();
@@ -25,7 +26,7 @@ export function useCreateUserMutation() {
   const invalidate = useInvalidateUsers();
 
   return useMutation({
-    mutationFn: (input: UserInput) => apiClient.createUser(credentials!, input),
+    mutationFn: (input: UserInput) => runApi((api) => api.createUser(credentials!, input)),
     onSuccess: () => invalidate(),
     onError: (error) => toastMutationError(error, "Create failed"),
   });
@@ -37,7 +38,7 @@ export function useUpdateUserMutation() {
 
   return useMutation({
     mutationFn: ({ userId, input }: { userId: string; input: UserInput }) =>
-      apiClient.updateUser(credentials!, userId, input),
+      runApi((api) => api.updateUser(credentials!, userId, input)),
     onSuccess: (user) => invalidate(user.id),
     onError: (error) => toastMutationError(error, "Update failed"),
   });
@@ -48,7 +49,7 @@ export function useDisableUserMutation() {
   const invalidate = useInvalidateUsers();
 
   return useMutation({
-    mutationFn: (userId: string) => apiClient.disableUser(credentials!, userId),
+    mutationFn: (userId: string) => runApi((api) => api.disableUser(credentials!, userId)),
     onSuccess: (user) => invalidate(user.id),
     onError: (error) => toastMutationError(error, "Disable failed"),
   });
@@ -59,7 +60,7 @@ export function useRestoreUserMutation() {
   const invalidate = useInvalidateUsers();
 
   return useMutation({
-    mutationFn: (userId: string) => apiClient.restoreUser(credentials!, userId),
+    mutationFn: (userId: string) => runApi((api) => api.restoreUser(credentials!, userId)),
     onSuccess: (user) => invalidate(user.id),
     onError: (error) => toastMutationError(error, "Restore failed"),
   });
@@ -69,7 +70,7 @@ export function useCreateUserInvitationMutation() {
   const credentials = useApiCredentials();
 
   return useMutation({
-    mutationFn: (userId: string) => apiClient.createUserInvitation(credentials!, userId),
+    mutationFn: (userId: string) => runApi((api) => api.createUserInvitation(credentials!, userId)),
     onError: (error) => toastMutationError(error, "Password link creation failed"),
   });
 }
@@ -87,7 +88,7 @@ export function useUpsertTenantMembershipMutation() {
       userId: string;
       tenantId: string;
       scopes: string[];
-    }) => apiClient.upsertTenantMembership(credentials!, tenantId, userId, scopes),
+    }) => runApi((api) => api.upsertTenantMembership(credentials!, tenantId, userId, scopes)),
     onSuccess: (membership) => invalidate(membership.userId),
     onError: (error) => toastMutationError(error, "Access update failed"),
   });
@@ -99,7 +100,7 @@ export function useDeleteTenantMembershipMutation() {
 
   return useMutation({
     mutationFn: async ({ userId, tenantId }: { userId: string; tenantId: string }) => {
-      await apiClient.deleteTenantMembership(credentials!, tenantId, userId);
+      await runApi((api) => api.deleteTenantMembership(credentials!, tenantId, userId));
       return { userId };
     },
     onSuccess: ({ userId }) => invalidate(userId),

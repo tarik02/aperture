@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@aperture/api-client";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
+import { runApi } from "#/lib/runtime.ts";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {
@@ -20,7 +20,7 @@ export function useBrowserChannelsQuery() {
 
   return useQuery({
     queryKey: queryKeys.browserChannels(tenantKey),
-    queryFn: () => apiClient.getBrowserChannels(credentials!),
+    queryFn: ({ signal }) => runApi((api) => api.getBrowserChannels(credentials!), { signal }),
     enabled,
     staleTime: 60_000,
   });

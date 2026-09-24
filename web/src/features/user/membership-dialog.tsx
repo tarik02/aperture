@@ -57,7 +57,7 @@ export function MembershipDialog({
     }
     setTenantId(membership?.tenantId ?? null);
     setSelectedTenantLabel(tenantLabel);
-    setScopes(membership?.scopes ?? []);
+    setScopes(membership ? [...membership.scopes] : []);
     setTenantError(null);
     setScopeError(null);
   }, [membership, open, tenantLabel]);

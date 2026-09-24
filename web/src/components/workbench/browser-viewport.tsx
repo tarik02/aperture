@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Effect, Stream } from "effect";
 import { Loader2, MousePointer2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@aperture/ui/components/badge";
@@ -13,6 +14,7 @@ import type { ViewportPreset } from "#/lib/control/viewport.ts";
 import { cn } from "@aperture/ui/utils";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
+import { forkEffect } from "#/lib/runtime.ts";
 
 type BrowserViewportProps = {
   control: UseBrowserControlResult;
@@ -178,7 +180,7 @@ export function BrowserViewport({
   }, [control.sendInput]);
 
   useEffect(() => {
-    const subscription = control.frame$.subscribe((frame) => {
+    const onFrame = (frame: LiveSessionRasterFrame | null) => {
       if (!frame) {
         if (imageRef.current) {
           resetImageFrames(imageRef.current, rasterDecoderRef.current);
@@ -206,17 +208,20 @@ export function BrowserViewport({
         frameMetadataRef.current = nextMetadata;
         setFrameMetadata(nextMetadata);
       }
-    });
+    };
+    const interrupt = forkEffect(
+      Stream.runForEach(control.frames, (frame) => Effect.sync(() => onFrame(frame))),
+    );
 
     return () => {
-      subscription.unsubscribe();
+      interrupt();
       if (imageRef.current) {
         resetImageFrames(imageRef.current, rasterDecoderRef.current);
       } else {
         resetRasterFrameDecoder(rasterDecoderRef.current);
       }
     };
-  }, [control.activeTargetId, control.frame$, showingWebRTC]);
+  }, [control.activeTargetId, control.frames, showingWebRTC]);
 
   useLayoutEffect(() => {
     const decoder = rasterDecoderRef.current;

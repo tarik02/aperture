@@ -1,94 +1,142 @@
-import { once } from "node:events";
-import { readFile } from "node:fs/promises";
-import type { Browser } from "playwright-core";
-import { chromium } from "playwright-core";
-import type { z } from "zod";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import {
+  Cause,
+  Data,
+  Effect,
+  FileSystem,
+  Layer,
+  Result,
+  Runtime,
+  Schema,
+  SchemaIssue,
+} from "effect";
+import { Playwright } from "effect-playwright";
+import { makeCdp, restoreError } from "./cdp.js";
+import { PayloadSource } from "./payload-source.js";
 import { restoreStorage } from "./restore-storage.js";
-import { restoreTargets, type TargetResult } from "./restore-targets.js";
-import { capsuleSchema, type Capsule } from "./schema.js";
+import { restoreTargets } from "./restore-targets.js";
+import { Capsule } from "./schema.js";
 
 const usage = "usage: aperture-browser-restore validate <capsule> | restore <cdp-url> <capsule>";
 
-class InvalidCapsule extends Error {}
-class UsageError extends Error {}
+// Exit code 2 tells Go that the capsule itself is invalid; stderr then holds the reason.
+class InvalidCapsule extends Data.TaggedError("InvalidCapsule")<{ readonly message: string }> {
+  readonly [Runtime.errorExitCode] = 2;
+}
 
-async function readCapsule(path: string): Promise<Capsule> {
-  const text = await readFile(path, "utf8");
+class UsageError extends Data.TaggedError("UsageError")<{ readonly message: string }> {
+  readonly [Runtime.errorExitCode] = 64;
+}
+
+// Other failures stay generic because their details may contain restored browser data.
+class RestoreFailed extends Data.TaggedError("RestoreFailed")<{ readonly message: string }> {
+  readonly [Runtime.errorExitCode] = 1;
+}
+
+const decodeCapsule = Schema.decodeUnknownResult(Capsule);
+
+// Formats the first validation issue as "initialTargets[0].url: message". Issues never
+// include input values, which may be sensitive.
+const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
+
+function describeIssue(issue: SchemaIssue.Issue): string {
+  const first = formatIssues(issue).issues[0];
+  if (!first) return "invalid browser initialization";
+  const path = (first.path ?? [])
+    .map((segment) => (typeof segment === "object" ? segment.key : segment))
+    .map((part, index) =>
+      typeof part === "number" ? `[${part}]` : `${index === 0 ? "" : "."}${String(part)}`,
+    )
+    .join("");
+  return path === "" ? first.message : `${path}: ${first.message}`;
+}
+
+const readCapsule = Effect.fnUntraced(function* (path: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const text = yield* fs.readFileString(path);
   let parsed: unknown;
   try {
     // Treat explicit nulls like omitted optional fields.
     parsed = JSON.parse(text, (_key, value: unknown) => (value === null ? undefined : value));
   } catch {
-    throw new InvalidCapsule("request body is not valid JSON");
+    return yield* new InvalidCapsule({ message: "request body is not valid JSON" });
   }
 
-  const result = capsuleSchema.safeParse(parsed);
-  if (!result.success) throw new InvalidCapsule(describeIssue(result.error.issues[0]));
-  return result.data;
-}
+  const result = decodeCapsule(parsed);
+  if (Result.isFailure(result)) {
+    return yield* new InvalidCapsule({ message: describeIssue(result.failure.issue) });
+  }
+  return result.success;
+});
 
-// Formats the first validation issue as "initialTargets[0].url: message". Issues never
-// include input values, which may be sensitive.
-function describeIssue(issue: z.core.$ZodIssue | undefined): string {
-  if (!issue) return "invalid browser initialization";
-  const path = issue.path
-    .map((part, index) =>
-      typeof part === "number" ? `[${part}]` : `${index === 0 ? "" : "."}${String(part)}`,
-    )
-    .join("");
-  return path === "" ? issue.message : `${path}: ${issue.message}`;
-}
-
-async function restore(browser: Browser, capsule: Capsule): Promise<TargetResult> {
+const restore = Effect.fnUntraced(function* (browser: Playwright.Browser, capsule: Capsule) {
   const context = browser.contexts()[0];
-  if (!context) throw new Error("browser has no default context");
+  if (!context) return yield* restoreError("browser has no default context");
 
-  const browserCDP = await browser.newBrowserCDPSession();
+  const browserCDP = makeCdp(yield* browser.use((raw) => raw.newBrowserCDPSession()));
   if (capsule.storageState) {
-    await restoreStorage(context, browserCDP, capsule.storageState);
+    yield* restoreStorage(context, browserCDP, capsule.storageState);
   }
 
-  return restoreTargets(context, browserCDP, capsule.initialTargets ?? []);
-}
+  return yield* restoreTargets(context, browserCDP, capsule.initialTargets ?? []);
+});
 
-async function main([command, ...args]: string[]): Promise<void> {
+const writeTo = (stream: NodeJS.WritableStream, text: string) =>
+  Effect.callback<void>((resume) => {
+    stream.write(text, () => resume(Effect.void));
+  });
+
+// Go closes stdin once it no longer needs the connection.
+const stdinClosed = Effect.callback<void>((resume) => {
+  const onEnd = () => resume(Effect.void);
+  process.stdin.once("end", onEnd);
+  process.stdin.resume();
+  return Effect.sync(() => {
+    process.stdin.off("end", onEnd);
+    process.stdin.pause();
+  });
+});
+
+const main = Effect.fnUntraced(function* ([command, ...args]: string[]) {
   if (command === "validate" && args.length === 1) {
-    await readCapsule(args[0]);
+    yield* readCapsule(args[0]);
     return;
   }
 
   const [cdpURL, capsulePath] = args;
   if (command !== "restore" || args.length !== 2 || !/^http:\/\/127\.0\.0\.1:\d+$/.test(cdpURL)) {
-    throw new UsageError(usage);
+    return yield* new UsageError({ message: usage });
   }
 
-  const capsule = await readCapsule(capsulePath);
-  const browser = await chromium.connectOverCDP(cdpURL, { timeout: 15_000 });
-  try {
-    const result = await restore(browser, capsule);
-    await new Promise<void>((resolve, reject) => {
-      process.stdout.write(`${JSON.stringify(result)}\n`, (error) =>
-        error ? reject(error) : resolve(),
-      );
-    });
+  const capsule = yield* readCapsule(capsulePath);
+  const playwright = yield* Playwright.Playwright;
+  const browser = yield* playwright.connectCDPScoped(cdpURL, { timeout: 15_000 });
+  const result = yield* restore(browser, capsule);
+  yield* writeTo(process.stdout, `${JSON.stringify(result)}\n`);
 
-    // Preload scripts added through this CDP connection disappear when it closes. Go
-    // installs the remaining session storage scripts itself, then closes stdin.
-    process.stdin.resume();
-    await once(process.stdin, "end");
-  } finally {
-    await browser.close();
-  }
-}
+  // Preload scripts added through this CDP connection disappear when it closes. Go
+  // installs the remaining session storage scripts itself, then closes stdin.
+  yield* stdinClosed;
+}, Effect.scoped);
 
-function exit(code: number, message: string): void {
-  process.stderr.write(`${message}\n`, () => process.exit(code));
-}
+const program = main(process.argv.slice(2)).pipe(
+  Effect.catchCause((cause): Effect.Effect<never, InvalidCapsule | UsageError | RestoreFailed> => {
+    if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
+    const error = Cause.squash(cause);
+    const reported =
+      error instanceof InvalidCapsule || error instanceof UsageError
+        ? error
+        : new RestoreFailed({ message: "browser restore failed" });
+    return writeTo(process.stderr, `${reported.message}\n`).pipe(
+      Effect.andThen(Effect.fail(reported)),
+    );
+  }),
+  Effect.provide(
+    PayloadSource.layer.pipe(
+      Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, Playwright.layer)),
+    ),
+  ),
+);
 
-main(process.argv.slice(2)).catch((error: unknown) => {
-  // Exit code 2 tells Go that the capsule itself is invalid; stderr then holds the reason.
-  if (error instanceof InvalidCapsule) exit(2, error.message);
-  else if (error instanceof UsageError) exit(64, error.message);
-  // Other failures stay generic because their details may contain restored browser data.
-  else exit(1, "browser restore failed");
-});
+NodeRuntime.runMain(program, { disableErrorReporting: true });

@@ -60,4 +60,4 @@ jobs:
       - name: Verify generated OpenAPI code
         run: |
           ./scripts/generate-openapi.sh
-          git diff --exit-code -- api internal/httpapi/openapi
+          git diff --exit-code -- api internal/httpapi/openapi packages/api-schema

@@ -12,7 +12,7 @@ export function useApiCredentials(): ApiCredentials | null {
     return {
       kind: "session",
       authorityType: auth.principal.authorityType,
-      tenantId: auth.principal.tenantId,
+      tenantId: auth.principal.tenantId ?? null,
       selectedTenantId: auth.selectedTenant?.id ?? null,
     };
   }, [auth]);

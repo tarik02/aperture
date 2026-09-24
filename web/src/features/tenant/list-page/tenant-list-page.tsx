@@ -40,12 +40,12 @@ import {
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { formatTimestamp } from "#/lib/format.ts";
-import { apiClient } from "@aperture/api-client";
 import type { Tenant } from "@aperture/api-client";
 import { useTenantFormStore } from "#/features/tenant/form/tenant-form.store.ts";
 import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-form-modal.store.ts";
 import { useTenantListPageStore } from "#/features/tenant/list-page/tenant-list-page.store.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 const TENANT_SKELETON_COLUMNS = [
   {
@@ -95,7 +95,7 @@ export function TenantListPage() {
 
   async function selectTenant(tenant: Tenant) {
     try {
-      setAuthenticated(await apiClient.getAuthMe(tenant.id));
+      setAuthenticated(await runApi((api) => api.getAuthMe(tenant.id)));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Tenant switch failed");
     }

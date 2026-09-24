@@ -14,8 +14,8 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
 import { Input } from "@aperture/ui/components/input";
 import { Skeleton } from "@aperture/ui/components/skeleton";
-import { apiClient } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 const invitationStorageKey = "aperture.user-invitation";
 
@@ -71,9 +71,9 @@ function InviteRoute() {
     setPasswordError(null);
     setRequestError(null);
     try {
-      await apiClient.acceptUserInvitation(invitation.token, password);
+      await runApi((api) => api.acceptUserInvitation(invitation.token, password));
       window.sessionStorage.removeItem(invitationStorageKey);
-      setAuthenticated(await apiClient.getAuthMe());
+      setAuthenticated(await runApi((api) => api.getAuthMe()));
       await navigate({ to: "/-/sessions" });
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Password update failed");

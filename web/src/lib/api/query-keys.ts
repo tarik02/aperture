@@ -1,3 +1,4 @@
+import type { SessionStatus } from "@aperture/api-client";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 
 export const queryKeys = {
@@ -38,7 +39,7 @@ export type UsersFilters = {
 
 export type SessionsFilters = {
   includeDeleted?: boolean;
-  status?: string;
+  status?: SessionStatus;
   tags?: TagFilterValue;
   limit?: number;
 };

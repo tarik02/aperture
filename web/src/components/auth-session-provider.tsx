@@ -1,8 +1,10 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { apiClient, setSessionAuthenticationFailureHandler } from "@aperture/api-client";
+import { Effect, Stream } from "effect";
+import { ApiClient } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
+import { forkEffect, runApi } from "#/lib/runtime.ts";
 
 const WelcomeLoginModal = lazy(() =>
   import("#/features/auth/login-modal.tsx").then((module) => ({
@@ -25,10 +27,16 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
 
   useEffect(
     () =>
-      setSessionAuthenticationFailureHandler(() => {
-        queryClient.clear();
-        setUnauthenticated();
-      }),
+      forkEffect(
+        ApiClient.use((api) =>
+          Stream.runForEach(api.sessionAuthenticationFailures, () =>
+            Effect.sync(() => {
+              queryClient.clear();
+              setUnauthenticated();
+            }),
+          ),
+        ),
+      ),
     [queryClient, setUnauthenticated],
   );
 
@@ -38,8 +46,7 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
     }
 
     let cancelled = false;
-    void apiClient
-      .getAuthMe()
+    void runApi((api) => api.getAuthMe())
       .then((response) => {
         if (!cancelled) {
           setAuthenticated(response);

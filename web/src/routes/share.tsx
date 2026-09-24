@@ -10,10 +10,11 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@aperture/ui/components/empty";
-import { apiClient, type ApiCredentials } from "@aperture/api-client";
+import type { ApiCredentials } from "@aperture/api-client";
 import { ApiRequestError } from "@aperture/api-client";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
+import { runApi } from "#/lib/runtime.ts";
 
 const capabilityStorageKey = "aperture.share.session-token";
 
@@ -101,11 +102,11 @@ function ShareRoute() {
       capability.kind === "ready" ? capability.sessionId : "none",
       capability.kind === "ready" ? capability.revision : 0,
     ),
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (capability.kind !== "ready" || !credentials) {
         throw new Error("Session capability unavailable");
       }
-      return apiClient.getBrowserStatus(credentials, capability.sessionId);
+      return runApi((api) => api.getBrowserStatus(credentials, capability.sessionId), { signal });
     },
     enabled: capability.kind === "ready" && credentials !== null,
     retry: false,

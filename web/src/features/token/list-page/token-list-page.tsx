@@ -583,7 +583,7 @@ function TokenViewModal({
   );
 }
 
-function ScopeList({ scopes }: { scopes: string[] }) {
+function ScopeList({ scopes }: { scopes: readonly string[] }) {
   if (scopes.length === 0) {
     return "—";
   }
@@ -599,7 +599,7 @@ function ScopeList({ scopes }: { scopes: string[] }) {
   );
 }
 
-function ScopeSummary({ scopes }: { scopes: string[] }) {
+function ScopeSummary({ scopes }: { scopes: readonly string[] }) {
   const primaryScope =
     scopePriority.find((scope) => scopes.includes(scope)) ?? [...scopes].sort()[0] ?? "none";
   const hiddenCount = Math.max(scopes.length - 1, 0);
@@ -634,7 +634,7 @@ function ResourceSummary({ token }: { token: ApiToken }) {
   );
 }
 
-function ResourceGrantList({ grants }: { grants: ResourceGrant[] }) {
+function ResourceGrantList({ grants }: { grants: readonly ResourceGrant[] }) {
   if (grants.length === 0) {
     return "No resources";
   }

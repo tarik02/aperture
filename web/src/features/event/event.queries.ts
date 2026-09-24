@@ -1,9 +1,9 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { apiClient } from "@aperture/api-client";
 import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture/api-client";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type EventsFilters } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
+import { runApi } from "#/lib/runtime.ts";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {
@@ -21,13 +21,17 @@ export function useEventsInfiniteQuery(filters: EventsFilters, enabled = true) {
 
   return useInfiniteQuery({
     queryKey: queryKeys.events(tenantKey, filters),
-    queryFn: ({ pageParam }) =>
-      apiClient.listEvents(credentials!, {
-        limit: filters.limit ?? defaultListLimit,
-        cursor: pageParam,
-        resourceType: filters.resourceType,
-        resourceId: filters.resourceId,
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      runApi(
+        (api) =>
+          api.listEvents(credentials!, {
+            limit: filters.limit ?? defaultListLimit,
+            cursor: pageParam,
+            resourceType: filters.resourceType,
+            resourceId: filters.resourceId,
+          }),
+        { signal },
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam,
     enabled: queryEnabled,

@@ -1,6 +1,10 @@
-import { z } from "zod";
+import { Effect, Schema } from "effect";
+import * as Api from "@aperture/api-schema";
 
-const passkeyAuthenticatorTransportSchema = z.enum([
+// Resources described by api/openapi.yaml come from the generated schemas. The schemas
+// below cover the browser login flows and live session state, which the spec omits.
+
+const passkeyAuthenticatorTransport = Schema.Literals([
   "ble",
   "cable",
   "hybrid",
@@ -10,422 +14,228 @@ const passkeyAuthenticatorTransportSchema = z.enum([
   "usb",
 ]);
 
-const passkeyCredentialDescriptorSchema = z.object({
-  id: z.string(),
-  type: z.literal("public-key"),
-  transports: z.array(passkeyAuthenticatorTransportSchema).optional(),
+const passkeyCredentialDescriptor = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Literal("public-key"),
+  transports: Schema.optionalKey(Schema.mutable(Schema.Array(passkeyAuthenticatorTransport))),
 });
 
-const passkeyExtensionsSchema = z
-  .object({
-    appid: z.string().optional(),
-    credProps: z.boolean().optional(),
-    hmacCreateSecret: z.boolean().optional(),
-    minPinLength: z.boolean().optional(),
-  })
-  .optional();
+const passkeyExtensions = Schema.optionalKey(
+  Schema.Struct({
+    appid: Schema.optionalKey(Schema.String),
+    credProps: Schema.optionalKey(Schema.Boolean),
+    hmacCreateSecret: Schema.optionalKey(Schema.Boolean),
+    minPinLength: Schema.optionalKey(Schema.Boolean),
+  }),
+);
 
-const passkeyHintSchema = z.enum(["hybrid", "security-key", "client-device"]);
-const passkeyUserVerificationSchema = z.enum(["discouraged", "preferred", "required"]);
+const passkeyHint = Schema.Literals(["hybrid", "security-key", "client-device"]);
+const passkeyUserVerification = Schema.Literals(["discouraged", "preferred", "required"]);
 
-export const pageMetaSchema = z.object({
-  limit: z.number(),
-  nextCursor: z.string().optional(),
-  hasMore: z.boolean(),
-});
-
-export function paginatedSchema<T extends z.ZodType>(itemSchema: T) {
-  return z.object({
-    data: z.array(itemSchema),
-    meta: pageMetaSchema,
-  });
-}
-
-export const tenantSchema = z.object({
-  id: z.string(),
-  displayName: z.string(),
-  createdAt: z.string(),
-  deletedAt: z.string().nullable(),
-});
-
-export const resourceModeSchema = z.enum(["all", "allowlist"]);
-
-export const resourceGrantSchema = z.object({
-  resourceType: z.enum(["session", "snapshot"]),
-  resourceId: z.string(),
-});
-
-export const userSchema = z.object({
-  id: z.string(),
-  email: z.string().nullable(),
-  displayName: z.string(),
-  isSystemAdmin: z.boolean(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  disabledAt: z.string().nullable(),
-  passwordSetupStatus: z
-    .enum(["available", "configured", "email_required", "user_disabled", "login_disabled"])
-    .optional(),
-});
-
-export const userInvitationSchema = z.object({
-  token: z.string(),
-  expiresAt: z.string(),
-});
-
-export const tenantMembershipSchema = z.object({
-  tenantId: z.string(),
-  userId: z.string(),
-  scopes: z.array(z.string()),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export const principalSchema = z.object({
-  type: z.enum(["api_token", "user", "system"]),
-  id: z.string(),
-  authMethod: z.enum(["api_token", "oidc", "passkey", "password"]),
-  tokenId: z.string().nullable(),
-  userId: z.string().nullable().optional(),
-  name: z.string(),
-  authorityType: z.enum(["system_admin", "tenant"]),
-  tenantId: z.string().nullable(),
-  scopes: z.array(z.string()),
-  resourceMode: resourceModeSchema,
-  resourceGrants: z.array(resourceGrantSchema),
-});
-
-export const authMeSchema = z.object({
-  principal: principalSchema,
-  selectedTenant: tenantSchema.nullable(),
-  availableTenants: z.array(tenantSchema),
-});
-
-export const loginMethodsSchema = z.object({
-  methods: z.array(
-    z.discriminatedUnion("type", [
-      z.object({ type: z.literal("password") }),
-      z.object({ type: z.literal("api_token") }),
-      z.object({ type: z.literal("passkey") }),
-      z.object({
-        type: z.literal("oidc"),
-        id: z.string(),
-        name: z.string(),
-        loginUrl: z.string(),
+export const LoginMethods = Schema.Struct({
+  methods: Schema.Array(
+    Schema.Union([
+      Schema.Struct({ type: Schema.Literal("password") }),
+      Schema.Struct({ type: Schema.Literal("api_token") }),
+      Schema.Struct({ type: Schema.Literal("passkey") }),
+      Schema.Struct({
+        type: Schema.Literal("oidc"),
+        id: Schema.String,
+        name: Schema.String,
+        loginUrl: Schema.String,
       }),
     ]),
   ),
 });
 
-export const passkeyLoginOptionsSchema = z.object({
-  publicKey: z.object({
-    challenge: z.string(),
-    timeout: z.number().optional(),
-    rpId: z.string().optional(),
-    allowCredentials: z.array(passkeyCredentialDescriptorSchema).optional(),
-    userVerification: passkeyUserVerificationSchema.optional(),
-    hints: z.array(passkeyHintSchema).optional(),
-    extensions: passkeyExtensionsSchema,
+export const PasskeyLoginOptions = Schema.Struct({
+  publicKey: Schema.Struct({
+    challenge: Schema.String,
+    timeout: Schema.optionalKey(Schema.Number),
+    rpId: Schema.optionalKey(Schema.String),
+    allowCredentials: Schema.optionalKey(Schema.mutable(Schema.Array(passkeyCredentialDescriptor))),
+    userVerification: Schema.optionalKey(passkeyUserVerification),
+    hints: Schema.optionalKey(Schema.mutable(Schema.Array(passkeyHint))),
+    extensions: passkeyExtensions,
   }),
 });
 
-export const passkeyRegistrationOptionsSchema = z.object({
-  publicKey: z.object({
-    rp: z.object({
-      id: z.string().optional(),
-      name: z.string(),
+export const PasskeyRegistrationOptions = Schema.Struct({
+  publicKey: Schema.Struct({
+    rp: Schema.Struct({
+      id: Schema.optionalKey(Schema.String),
+      name: Schema.String,
     }),
-    user: z.object({
-      id: z.string(),
-      name: z.string(),
-      displayName: z.string(),
+    user: Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      displayName: Schema.String,
     }),
-    challenge: z.string(),
-    pubKeyCredParams: z.array(
-      z.object({
-        alg: z.union([
-          z.literal(-7),
-          z.literal(-8),
-          z.literal(-35),
-          z.literal(-36),
-          z.literal(-37),
-          z.literal(-38),
-          z.literal(-39),
-          z.literal(-257),
-          z.literal(-258),
-          z.literal(-259),
-        ]),
-        type: z.literal("public-key"),
+    challenge: Schema.String,
+    pubKeyCredParams: Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          alg: Schema.Literals([-7, -8, -35, -36, -37, -38, -39, -257, -258, -259]),
+          type: Schema.Literal("public-key"),
+        }),
+      ),
+    ),
+    timeout: Schema.optionalKey(Schema.Number),
+    excludeCredentials: Schema.optionalKey(
+      Schema.mutable(Schema.Array(passkeyCredentialDescriptor)),
+    ),
+    authenticatorSelection: Schema.optionalKey(
+      Schema.Struct({
+        authenticatorAttachment: Schema.optionalKey(
+          Schema.Literals(["platform", "cross-platform"]),
+        ),
+        requireResidentKey: Schema.optionalKey(Schema.Boolean),
+        residentKey: Schema.optionalKey(Schema.Literals(["discouraged", "preferred", "required"])),
+        userVerification: Schema.optionalKey(passkeyUserVerification),
       }),
     ),
-    timeout: z.number().optional(),
-    excludeCredentials: z.array(passkeyCredentialDescriptorSchema).optional(),
-    authenticatorSelection: z
-      .object({
-        authenticatorAttachment: z.enum(["platform", "cross-platform"]).optional(),
-        requireResidentKey: z.boolean().optional(),
-        residentKey: z.enum(["discouraged", "preferred", "required"]).optional(),
-        userVerification: passkeyUserVerificationSchema.optional(),
-      })
-      .optional(),
-    hints: z.array(passkeyHintSchema).optional(),
-    attestation: z.enum(["direct", "enterprise", "indirect", "none"]).optional(),
-    attestationFormats: z
-      .array(
-        z.enum(["fido-u2f", "packed", "android-safetynet", "android-key", "tpm", "apple", "none"]),
-      )
-      .optional(),
-    extensions: passkeyExtensionsSchema,
+    hints: Schema.optionalKey(Schema.mutable(Schema.Array(passkeyHint))),
+    attestation: Schema.optionalKey(Schema.Literals(["direct", "enterprise", "indirect", "none"])),
+    attestationFormats: Schema.optionalKey(
+      Schema.mutable(
+        Schema.Array(
+          Schema.Literals([
+            "fido-u2f",
+            "packed",
+            "android-safetynet",
+            "android-key",
+            "tpm",
+            "apple",
+            "none",
+          ]),
+        ),
+      ),
+    ),
+    extensions: passkeyExtensions,
   }),
 });
 
-export const passkeySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  createdAt: z.string(),
-  lastUsedAt: z.string().nullable(),
+export const Passkey = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  createdAt: Schema.String,
+  lastUsedAt: Schema.NullOr(Schema.String),
 });
 
-export const passkeysSchema = z.object({
-  passkeys: z.array(passkeySchema),
+export const Passkeys = Schema.Struct({
+  passkeys: Schema.Array(Passkey),
 });
 
-export const passkeyMutationSchema = z.object({
-  passkey: passkeySchema,
+export const PasskeyMutation = Schema.Struct({
+  passkey: Passkey,
 });
 
-export const passwordLoginResponseSchema = z.object({
-  mfaRequired: z.boolean(),
+export const PasswordLoginResponse = Schema.Struct({
+  mfaRequired: Schema.Boolean,
 });
 
-export const securityStatusSchema = z.object({
-  hasPassword: z.boolean(),
-  totpEnabled: z.boolean(),
-  recoveryCodesRemaining: z.number().int().nonnegative(),
+export const SecurityStatus = Schema.Struct({
+  hasPassword: Schema.Boolean,
+  totpEnabled: Schema.Boolean,
+  recoveryCodesRemaining: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 });
 
-export const totpEnrollmentSchema = z.object({
-  secret: z.string(),
-  otpauthUrl: z.string(),
-  qrCodeDataUrl: z.string(),
+export const TOTPEnrollment = Schema.Struct({
+  secret: Schema.String,
+  otpauthUrl: Schema.String,
+  qrCodeDataUrl: Schema.String,
 });
 
-export const recoveryCodesSchema = z.object({
-  recoveryCodes: z.array(z.string()),
+export const RecoveryCodes = Schema.Struct({
+  recoveryCodes: Schema.Array(Schema.String),
 });
 
-export const healthSchema = z.object({
-  status: z.literal("ok"),
-});
+const positiveInt = Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0));
+const emptyArray = Effect.succeed([]);
 
-export const sessionStatusSchema = z.enum([
-  "creating",
-  "running",
-  "suspended",
-  "deleted",
-  "expired",
-  "failed",
-]);
-
-const iceServerSchema = z.object({
-  urls: z.array(z.string()),
-  username: z.string().optional(),
-  credential: z.string().optional(),
-});
-
-export const sessionMediaSchema = z.object({
-  mode: z.enum(["auto", "cdp"]),
-  webrtcProducer: z.boolean(),
-  iceServers: z.array(iceServerSchema).default([]),
-});
-
-export const browserStatusSchema = z.object({
-  sessionId: z.string(),
-  cdpUrl: z.string(),
-  media: sessionMediaSchema,
-  targets: z
-    .array(
-      z.object({
-        targetId: z.string(),
-        generation: z.number().int().positive(),
-        state: z.enum(["pending", "ready", "unavailable", "closed"]),
-        title: z.string(),
-        url: z.string(),
-        viewport: z.object({
-          width: z.number().int().positive(),
-          height: z.number().int().positive(),
-          deviceScaleFactor: z.number().positive(),
-          contentWidth: z.number().int().positive(),
-          contentHeight: z.number().int().positive(),
-          canvasWidth: z.number().int().positive(),
-          canvasHeight: z.number().int().positive(),
-        }),
+export const BrowserStatus = Schema.Struct({
+  sessionId: Schema.String,
+  cdpUrl: Schema.String,
+  media: Api.SessionMedia,
+  targets: Schema.Array(
+    Schema.Struct({
+      targetId: Schema.String,
+      generation: positiveInt,
+      state: Schema.Literals(["pending", "ready", "unavailable", "closed"]),
+      title: Schema.String,
+      url: Schema.String,
+      viewport: Schema.Struct({
+        width: positiveInt,
+        height: positiveInt,
+        deviceScaleFactor: Schema.Number.check(Schema.isGreaterThan(0)),
+        contentWidth: positiveInt,
+        contentHeight: positiveInt,
+        canvasWidth: positiveInt,
+        canvasHeight: positiveInt,
       }),
-    )
-    .default([]),
+    }),
+  ).pipe(Schema.withDecodingDefaultKey(emptyArray)),
 });
 
-export const recordingSchema = z.object({
-  recordingId: z.string(),
-  mode: z.enum(["tab", "viewer"]),
-  targetId: z.string(),
-  captureGeneration: z.number().int().positive(),
-  status: z.enum(["starting", "running", "stopped", "failed"]),
-  stopReason: z.string().optional(),
-  path: z.string(),
-  startedAt: z.string(),
-  stoppedAt: z.string().optional(),
-  sizeBytes: z.number().int().nonnegative().optional(),
-  fps: z.number().int().positive(),
-  bitrateKbps: z.number().int().positive(),
-  codec: z.string(),
-});
-export const sessionSchema = z.object({
-  id: z.string(),
-  tenantId: z.string(),
-  baseSnapshotName: z.string().nullable().optional(),
-  label: z.string().nullable().optional(),
-  status: sessionStatusSchema,
-  browserChannel: z.string().optional(),
-  media: sessionMediaSchema,
-  createdAt: z.string(),
-  startedAt: z.string().nullable().optional(),
-  stoppedAt: z.string().nullable().optional(),
-  deletedAt: z.string().nullable(),
-  expiresAt: z.string(),
-  lastConnectedAt: z.string().nullable().optional(),
-  suspendedAt: z.string().nullable().optional(),
-  tags: z.record(z.string(), z.string()).optional(),
-  cdpUrl: z.string().optional(),
-  sessionToken: z.string().optional(),
-  collaboration: z
-    .object({
-      editorToken: z.string(),
-      viewerToken: z.string(),
-    })
-    .optional(),
+/** A recording as the live session reports it. */
+export const Recording = Schema.Struct({
+  recordingId: Schema.String,
+  mode: Schema.Literals(["tab", "viewer"]),
+  targetId: Schema.String,
+  captureGeneration: positiveInt,
+  status: Schema.Literals(["starting", "running", "stopped", "failed"]),
+  stopReason: Schema.optionalKey(Schema.String),
+  path: Schema.String,
+  startedAt: Schema.String,
+  stoppedAt: Schema.optionalKey(Schema.String),
+  sizeBytes: Schema.optionalKey(
+    Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  fps: positiveInt,
+  bitrateKbps: positiveInt,
+  codec: Schema.String,
 });
 
-export const snapshotSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().nullable(),
-  tenantId: z.string(),
-  parentSnapshotId: z.string().nullable().optional(),
-  promotedFromSessionId: z.string().nullable().optional(),
-  createdAt: z.string(),
-  deletedAt: z.string().nullable(),
-  expiresAt: z.string().nullable().optional(),
-  tags: z.record(z.string(), z.string()).optional(),
-});
-
-export const tokenSchema = z.object({
-  id: z.string(),
-  authorityType: z.enum(["system_admin", "tenant"]),
-  tenantId: z.string().nullable(),
-  name: z.string(),
-  scopes: z.array(z.string()),
-  createdAt: z.string(),
-  createdByType: z.enum(["api_token", "user", "system"]),
-  createdById: z.string().nullable(),
-  parentTokenId: z.string().nullable(),
-  resourceMode: resourceModeSchema,
-  resourceGrants: z.array(resourceGrantSchema),
-  expiresAt: z.string().nullable(),
-  revokedAt: z.string().nullable(),
-});
-
-export const tenantsPageSchema = paginatedSchema(tenantSchema);
-export const usersPageSchema = paginatedSchema(userSchema);
-export const tenantMembershipsSchema = z.array(tenantMembershipSchema);
-export const sessionsPageSchema = paginatedSchema(sessionSchema);
-export const sessionsBulkResponseSchema = z.object({
-  sessions: z.array(sessionSchema),
-});
-export const snapshotsPageSchema = paginatedSchema(snapshotSchema);
-export const tokensPageSchema = paginatedSchema(tokenSchema);
-
-export const browserChannelSchema = z.object({
-  name: z.string(),
-});
-
-export const browserChannelsSchema = z.object({
-  channels: z.array(browserChannelSchema),
-});
-
-export const eventSchema = z.object({
-  id: z.string(),
-  tenantId: z.string(),
-  resourceType: z.string(),
-  resourceId: z.string(),
-  type: z.string(),
-  message: z.string(),
-  data: z.unknown(),
-  createdAt: z.string(),
-});
-
-export const eventsPageSchema = paginatedSchema(eventSchema);
-
-export const createSessionResponseSchema = z.object({
-  session: sessionSchema,
-  cdpUrl: z.string(),
-  sessionToken: z.string(),
-});
-
-export const sessionMutationResponseSchema = z.object({
-  session: sessionSchema,
-  cdpUrl: z.string().optional(),
-  sessionToken: z.string().optional(),
-});
-
-export const snapshotMutationResponseSchema = z.object({
-  snapshot: snapshotSchema,
-});
-
-export const promoteSessionResponseSchema = z.object({
-  snapshot: snapshotSchema,
-});
-
-export const createTokenResponseSchema = z.object({
-  token: tokenSchema,
-  rawToken: z.string(),
-});
-
-export type PageMeta = z.infer<typeof pageMetaSchema>;
-export type Tenant = z.infer<typeof tenantSchema>;
-export type User = z.infer<typeof userSchema>;
-export type UserInvitation = z.infer<typeof userInvitationSchema>;
-export type TenantMembership = z.infer<typeof tenantMembershipSchema>;
-export type AuthMeResponse = z.infer<typeof authMeSchema>;
-export type AuthMePrincipal = z.infer<typeof principalSchema>;
-export type AuthMeTenant = z.infer<typeof tenantSchema>;
-export type ResourceMode = z.infer<typeof resourceModeSchema>;
-export type ResourceGrant = z.infer<typeof resourceGrantSchema>;
-export type LoginMethods = z.infer<typeof loginMethodsSchema>;
-export type PasskeyLoginOptions = z.infer<typeof passkeyLoginOptionsSchema>;
-export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
-export type Passkey = z.infer<typeof passkeySchema>;
-export type SecurityStatus = z.infer<typeof securityStatusSchema>;
-export type TOTPEnrollment = z.infer<typeof totpEnrollmentSchema>;
-export type Session = z.infer<typeof sessionSchema>;
-export type SessionMedia = z.infer<typeof sessionMediaSchema>;
-export type BrowserStatus = z.infer<typeof browserStatusSchema>;
-export type Recording = z.infer<typeof recordingSchema>;
-export type SessionStatus = z.infer<typeof sessionStatusSchema>;
-export type Snapshot = z.infer<typeof snapshotSchema>;
-export type ApiToken = z.infer<typeof tokenSchema>;
-export type TenantsPage = z.infer<typeof tenantsPageSchema>;
-export type UsersPage = z.infer<typeof usersPageSchema>;
-export type SessionsPage = z.infer<typeof sessionsPageSchema>;
-export type SessionsBulkResponse = z.infer<typeof sessionsBulkResponseSchema>;
-export type SnapshotsPage = z.infer<typeof snapshotsPageSchema>;
-export type TokensPage = z.infer<typeof tokensPageSchema>;
-export type BrowserChannel = z.infer<typeof browserChannelSchema>;
-export type BrowserChannelsResponse = z.infer<typeof browserChannelsSchema>;
-export type ResourceEvent = z.infer<typeof eventSchema>;
-export type EventsPage = z.infer<typeof eventsPageSchema>;
-export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
-export type SessionMutationResponse = z.infer<typeof sessionMutationResponseSchema>;
-export type SnapshotMutationResponse = z.infer<typeof snapshotMutationResponseSchema>;
-export type PromoteSessionResponse = z.infer<typeof promoteSessionResponseSchema>;
-export type CreateTokenResponse = z.infer<typeof createTokenResponseSchema>;
+export type PageMeta = Api.PageMeta;
+export type Tenant = Api.Tenant;
+export type User = Api.User;
+export type UserInvitation = Api.UserInvitation;
+export type TenantMembership = Api.TenantMembership;
+export type AuthMeResponse = Api.AuthMe;
+export type AuthMePrincipal = Api.Principal;
+export type AuthMeTenant = Api.Tenant;
+export type ResourceMode = Api.ResourceMode;
+export type ResourceGrant = Api.ResourceGrant;
+export type Scope = Api.Scope;
+export type TenantScope = Api.TenantScope;
+export type LoginMethods = typeof LoginMethods.Type;
+export type PasskeyLoginOptions = typeof PasskeyLoginOptions.Type;
+export type PasskeyRegistrationOptions = typeof PasskeyRegistrationOptions.Type;
+export type Passkey = typeof Passkey.Type;
+export type SecurityStatus = typeof SecurityStatus.Type;
+export type TOTPEnrollment = typeof TOTPEnrollment.Type;
+export type Session = Api.Session;
+export type SessionMedia = Api.SessionMedia;
+export type IceServer = Api.IceServer;
+export type BrowserStatus = typeof BrowserStatus.Type;
+export type Recording = typeof Recording.Type;
+export const SessionStatus = Api.SessionStatus;
+export type SessionStatus = Api.SessionStatus;
+export type Snapshot = Api.Snapshot;
+export type ApiToken = Api.Token;
+export type TenantsPage = Api.TenantPage;
+export type UsersPage = Api.UserPage;
+export type SessionsPage = Api.SessionPage;
+export type SessionsBulkResponse = Api.SessionBulkResponse;
+export type SnapshotsPage = Api.SnapshotPage;
+export type TokensPage = Api.TokenPage;
+export type BrowserChannel = Api.BrowserChannel;
+export type BrowserChannelsResponse = Api.BrowserChannels;
+export type ResourceEvent = Api.Event;
+export type EventsPage = Api.EventPage;
+export type CreateSessionResponse = Api.CreateSessionResult;
+export type SessionMutationResponse = Api.SessionMutation;
+export type SnapshotMutationResponse = Api.SnapshotMutation;
+export type PromoteSessionResponse = Api.SnapshotMutation;
+export type CreateTokenResponse = Api.CreateTokenResponse;
+export type Health = Api.Health;

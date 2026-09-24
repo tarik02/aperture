@@ -1,47 +1,29 @@
-import type { z } from "zod";
+import { Context, Effect, Layer, PubSub, Schema, Stream } from "effect";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
+import * as Api from "@aperture/api-schema";
 import { ApiRequestError, parseApiErrorBody } from "./errors.ts";
 import type { ApiErrorBody } from "./errors.ts";
 import {
-  authMeSchema,
-  browserStatusSchema,
-  browserChannelsSchema,
-  createSessionResponseSchema,
-  createTokenResponseSchema,
-  eventsPageSchema,
-  healthSchema,
-  loginMethodsSchema,
-  passkeyLoginOptionsSchema,
-  passkeyMutationSchema,
-  passkeyRegistrationOptionsSchema,
-  passkeysSchema,
-  passwordLoginResponseSchema,
-  promoteSessionResponseSchema,
-  recoveryCodesSchema,
-  securityStatusSchema,
-  sessionSchema,
-  sessionsBulkResponseSchema,
-  sessionMutationResponseSchema,
-  sessionsPageSchema,
-  snapshotMutationResponseSchema,
-  snapshotsPageSchema,
-  tenantMembershipSchema,
-  tenantMembershipsSchema,
-  tenantSchema,
-  totpEnrollmentSchema,
-  tenantsPageSchema,
-  tokensPageSchema,
-  userSchema,
-  userInvitationSchema,
-  usersPageSchema,
+  BrowserStatus,
+  LoginMethods,
+  PasskeyLoginOptions,
+  PasskeyMutation,
+  PasskeyRegistrationOptions,
+  Passkeys,
+  PasswordLoginResponse,
+  RecoveryCodes,
+  SecurityStatus,
+  TOTPEnrollment,
 } from "./schemas.ts";
 import type { ResourceGrant, ResourceMode } from "./schemas.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
-
-type ApiClientConfig = {
-  baseUrl: string;
-};
 
 export type ApiClientOptions = {
   baseUrl?: string;
@@ -77,39 +59,11 @@ const webSessionCredentials: ApiCredentials = {
 
 export type TenantHeaderMode = "none" | "optional" | "tenant-scoped";
 
-type QueryValue = string | number | boolean | Array<string | number | boolean> | undefined | null;
-type SessionAuthenticationFailureHandler = () => void;
-
-let sessionAuthenticationFailureHandler: SessionAuthenticationFailureHandler | null = null;
-
-export function setSessionAuthenticationFailureHandler(
-  handler: SessionAuthenticationFailureHandler,
-): () => void {
-  sessionAuthenticationFailureHandler = handler;
-  return () => {
-    if (sessionAuthenticationFailureHandler === handler) {
-      sessionAuthenticationFailureHandler = null;
-    }
-  };
-}
-
-function handleAuthenticationFailure(
-  error: ApiErrorBody["error"],
-  credentials: ApiCredentials | null | undefined,
-) {
-  if (credentials?.kind !== "session") {
-    return;
-  }
-
-  switch (error.code) {
-    case "authentication_required":
-    case "invalid_authentication_token":
-    case "authentication_token_expired":
-    case "authentication_token_revoked":
-    case "user_disabled":
-      sessionAuthenticationFailureHandler?.();
-  }
-}
+type Authorization = {
+  credentials?: ApiCredentials | null;
+  bearerToken?: string;
+  tenantHeader?: TenantHeaderMode;
+};
 
 export function resolveTenantHeader(
   credentials: ApiCredentials,
@@ -137,195 +91,19 @@ export function resolveTenantHeader(
   return undefined;
 }
 
-type RequestOptions<T extends z.ZodType> = {
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  path: string;
-  schema: T;
-  credentials?: ApiCredentials | null;
-  bearerToken?: string;
-  tenantHeader?: TenantHeaderMode;
-  query?: Record<string, QueryValue>;
-  body?: unknown;
-};
-
-type VoidRequestOptions = Omit<RequestOptions<z.ZodType>, "schema"> & {
-  headers?: Record<string, string>;
-};
-
-function buildUrl(baseUrl: string, path: string, query?: Record<string, QueryValue>): string {
-  const url = `${baseUrl}${path}`;
-  if (!query) {
-    return url;
-  }
-
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value === undefined || value === null || value === "") {
-      continue;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item !== "") {
-          search.append(key, String(item));
-        }
-      }
-      continue;
-    }
-    search.set(key, String(value));
-  }
-
-  const queryString = search.toString();
-  return queryString ? `${url}?${queryString}` : url;
-}
-
-function buildHeaders(
-  credentials: ApiCredentials | null | undefined,
-  bearerToken: string | undefined,
-  tenantHeader: TenantHeaderMode,
-  hasBody: boolean,
-): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-  };
-
-  if (hasBody) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  if (bearerToken) {
-    headers.Authorization = `Bearer ${bearerToken}`;
-  } else if (credentials?.kind === "bearer") {
-    headers.Authorization = `Bearer ${credentials.token.trim()}`;
-  }
-
-  const tenantId = credentials ? resolveTenantHeader(credentials, tenantHeader) : undefined;
-  if (tenantId) {
-    headers[TENANT_HEADER] = tenantId;
-  }
-
-  return headers;
-}
-
-async function request<T extends z.ZodType>(
-  config: ApiClientConfig,
-  options: RequestOptions<T>,
-): Promise<z.infer<T>> {
-  const {
-    method = "GET",
-    path,
-    schema,
-    credentials = null,
-    bearerToken,
-    tenantHeader = "none",
-    query,
-    body,
-  } = options;
-
-  const hasBody = body !== undefined;
-  const response = await fetch(buildUrl(config.baseUrl, path, query), {
-    method,
-    headers: buildHeaders(credentials, bearerToken, tenantHeader, hasBody),
-    body: hasBody ? JSON.stringify(body) : undefined,
-  });
-
-  const responseBody: unknown = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    const parsed = parseApiErrorBody(responseBody);
-    if (parsed) {
-      handleAuthenticationFailure(parsed, credentials);
-      throw new ApiRequestError(parsed.code, parsed.message, response.status);
-    }
-    throw new ApiRequestError("internal_error", "Request failed", response.status);
-  }
-
-  const parsed = schema.safeParse(responseBody);
-  if (!parsed.success) {
-    throw new ApiRequestError("internal_error", "Invalid response", response.status);
-  }
-
-  return parsed.data;
-}
-
-async function requestVoid(config: ApiClientConfig, options: VoidRequestOptions): Promise<void> {
-  const {
-    method = "GET",
-    path,
-    credentials = null,
-    bearerToken,
-    tenantHeader = "none",
-    query,
-    body,
-    headers,
-  } = options;
-
-  const hasBody = body !== undefined;
-  const response = await fetch(buildUrl(config.baseUrl, path, query), {
-    method,
-    headers: { ...buildHeaders(credentials, bearerToken, tenantHeader, hasBody), ...headers },
-    body: hasBody ? JSON.stringify(body) : undefined,
-  });
-
-  if (response.ok) {
-    return;
-  }
-
-  const responseBody: unknown = await response.json().catch(() => null);
-  const parsed = parseApiErrorBody(responseBody);
-  if (parsed) {
-    handleAuthenticationFailure(parsed, credentials);
-    throw new ApiRequestError(parsed.code, parsed.message, response.status);
-  }
-  throw new ApiRequestError("internal_error", "Request failed", response.status);
-}
-
-async function requestBlob(
-  config: ApiClientConfig,
-  options: Omit<VoidRequestOptions, "body">,
-): Promise<{
-  blob: Blob;
-  filename: string | null;
-}> {
-  const {
-    method = "GET",
-    path,
-    credentials = null,
-    bearerToken,
-    tenantHeader = "none",
-    query,
-  } = options;
-
-  const response = await fetch(buildUrl(config.baseUrl, path, query), {
-    method,
-    headers: buildHeaders(credentials, bearerToken, tenantHeader, false),
-  });
-
-  if (!response.ok) {
-    const responseBody: unknown = await response.json().catch(() => null);
-    const parsed = parseApiErrorBody(responseBody);
-    if (parsed) {
-      handleAuthenticationFailure(parsed, credentials);
-      throw new ApiRequestError(parsed.code, parsed.message, response.status);
-    }
-    throw new ApiRequestError("internal_error", "Request failed", response.status);
-  }
-
-  return {
-    blob: await response.blob(),
-    filename: contentDispositionFilename(response.headers.get("Content-Disposition")),
-  };
-}
-
-function contentDispositionFilename(header: string | null): string | null {
-  const match = header?.match(/filename="([^"]+)"/);
-  return match?.[1] ?? null;
-}
+const sessionAuthenticationFailureCodes = new Set([
+  "authentication_required",
+  "invalid_authentication_token",
+  "authentication_token_expired",
+  "authentication_token_revoked",
+  "user_disabled",
+]);
 
 export type SessionsListParams = {
   limit?: number;
   cursor?: string;
   includeDeleted?: boolean;
-  status?: string;
+  status?: Api.SessionStatus;
   tags?: TagFilterValue;
 };
 
@@ -369,141 +147,8 @@ export type EventsListParams = {
   resourceId?: string;
 };
 
-export interface InitialBrowserTarget {
-  url: string;
-  sessionStorage?: Array<{ origin: string; entries: BrowserStorageEntry[] }>;
-  scroll?: { x: number; y: number };
-  documentState?: InitialBrowserDocumentState;
-  openerTargetIndex?: number;
-  active?: boolean;
-}
-
-export interface InitialBrowserElementLocator {
-  tag: string;
-  id?: string;
-  name?: string;
-  inputType?: string;
-  autocomplete?: string;
-  ariaLabel?: string;
-  placeholder?: string;
-  path: Array<{ tag: string; index: number }>;
-}
-
-export interface InitialBrowserControlSelection {
-  start: number;
-  end: number;
-  direction: "forward" | "backward" | "none";
-}
-
-export interface InitialBrowserControlState {
-  locator: InitialBrowserElementLocator;
-  value: string;
-  checked?: boolean;
-  selectedIndices?: number[];
-  selection?: InitialBrowserControlSelection;
-}
-
-export interface InitialBrowserSelectionEndpoint {
-  locator: InitialBrowserElementLocator;
-  nodePath: number[];
-  offset: number;
-}
-
-export interface InitialBrowserDocumentState {
-  version: 1;
-  windowName?: string;
-  historyState?: string;
-  controls: InitialBrowserControlState[];
-  contentEditables: Array<{ locator: InitialBrowserElementLocator; html: string }>;
-  scrollPositions: Array<{ locator: InitialBrowserElementLocator; x: number; y: number }>;
-  focus?: InitialBrowserElementLocator;
-  selection?: {
-    anchor: InitialBrowserSelectionEndpoint;
-    focus: InitialBrowserSelectionEndpoint;
-  };
-}
-
-export interface BrowserStorageEntry {
-  name: string;
-  value: string;
-}
-
-export interface InitialBrowserCookiePartitionKey {
-  topLevelSite: string;
-  hasCrossSiteAncestor?: boolean;
-}
-
-export interface InitialBrowserCookie {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  expires?: number;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Strict" | "Lax" | "None";
-  partitionKey?: InitialBrowserCookiePartitionKey;
-}
-
-export interface InitialIndexedDBKeyPath {
-  kind: "none" | "string" | "array";
-  value?: string[];
-}
-
-export interface InitialIndexedDBIndexKeyPath {
-  kind: "string" | "array";
-  value: string[];
-}
-
-export interface InitialIndexedDBIndex {
-  name: string;
-  keyPath: InitialIndexedDBIndexKeyPath;
-  unique: boolean;
-  multiEntry: boolean;
-}
-
-export interface InitialIndexedDBObjectStore {
-  name: string;
-  keyPath: InitialIndexedDBKeyPath;
-  autoIncrement: boolean;
-  indexes: InitialIndexedDBIndex[];
-  records: Array<{ key: string; value: string }>;
-}
-
-export interface InitialIndexedDBDatabase {
-  name: string;
-  version: number;
-  objectStores: InitialIndexedDBObjectStore[];
-}
-
-export interface InitialCacheStorageCache {
-  name: string;
-  entries: Array<{
-    url: string;
-    requestHeaders: Record<string, string>;
-    responseHeaders: Record<string, string>;
-    responseStatus: number;
-    responseStatusText: string;
-    responseBody: string;
-  }>;
-}
-
-export interface InitialOPFSFile {
-  path: string;
-  body: string;
-}
-
-export interface InitialBrowserStorageState {
-  cookies: InitialBrowserCookie[];
-  origins: Array<{
-    origin: string;
-    ancestorOrigins?: string[];
-    localStorage: BrowserStorageEntry[];
-    indexedDB?: InitialIndexedDBDatabase[];
-    cacheStorage?: InitialCacheStorageCache[];
-    opfs?: InitialOPFSFile[];
-  }>;
-}
+export type InitialBrowserTarget = Api.InitialBrowserTarget;
+export type InitialBrowserStorageState = Api.InitialBrowserStorageState;
 
 export type CreateSessionInput = {
   baseSnapshotName?: string | null;
@@ -512,7 +157,7 @@ export type CreateSessionInput = {
     channel: string;
     args?: string[];
   };
-  initialTargets?: InitialBrowserTarget[];
+  initialTargets?: readonly InitialBrowserTarget[];
   storageState?: InitialBrowserStorageState;
   tags?: Record<string, string>;
 };
@@ -556,692 +201,599 @@ export type UserInput = {
   isSystemAdmin: boolean;
 };
 
-export function createApiClient(options: ApiClientOptions = {}) {
-  const config: ApiClientConfig = {
-    baseUrl: options.baseUrl?.replace(/\/+$/, "") ?? "",
+export type DownloadedFile = {
+  blob: Blob;
+  filename: string | null;
+};
+
+type Query = Record<string, string | number | boolean | ReadonlyArray<string> | undefined | null>;
+
+// Empty strings and empty list items mean "no filter", as they always have for callers.
+function compactQuery<T extends Query>(query: T): T {
+  const out: Query = {};
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      const items = value.filter((item) => item !== "");
+      if (items.length > 0) {
+        out[key] = items;
+      }
+      continue;
+    }
+    out[key] = value;
+  }
+  return out as T;
+}
+
+function tagQuery(tags: TagFilterValue | undefined) {
+  return {
+    tagKey: tags?.map((tag) => tag.key),
+    tagOperator: tags?.map((tag) => tag.operator),
+    tagValue: tags?.map((tag) => tag.values.join(",")),
+  };
+}
+
+function contentDispositionFilename(header: string | undefined): string | null {
+  const match = header?.match(/filename="([^"]+)"/);
+  return match?.[1] ?? null;
+}
+
+export const make = Effect.fnUntraced(function* (options: ApiClientOptions = {}) {
+  const baseUrl = options.baseUrl?.replace(/\/+$/, "") ?? "";
+  const httpClient = yield* HttpClient.HttpClient;
+  const authenticationFailures = yield* PubSub.unbounded<void>();
+
+  const authorize = ({ credentials = null, bearerToken, tenantHeader = "none" }: Authorization) =>
+    HttpClient.mapRequest((request) => {
+      let next = HttpClientRequest.acceptJson(HttpClientRequest.prependUrl(request, baseUrl));
+      if (bearerToken) {
+        next = HttpClientRequest.bearerToken(next, bearerToken);
+      } else if (credentials?.kind === "bearer") {
+        next = HttpClientRequest.bearerToken(next, credentials.token.trim());
+      }
+      const tenantId = credentials ? resolveTenantHeader(credentials, tenantHeader) : undefined;
+      return tenantId
+        ? HttpClientRequest.setHeader(next, TENANT_HEADER, tenantId)
+        : HttpClientRequest.removeHeader(next, TENANT_HEADER);
+    });
+
+  const failWith = (
+    authorization: Authorization,
+    status: number,
+    body: ApiErrorBody["error"] | null,
+  ): Effect.Effect<never, ApiRequestError> => {
+    if (!body) {
+      return Effect.fail(
+        new ApiRequestError({ code: "internal_error", message: "Request failed", status }),
+      );
+    }
+    const notify =
+      authorization.credentials?.kind === "session" &&
+      sessionAuthenticationFailureCodes.has(body.code)
+        ? PubSub.publish(authenticationFailures, undefined)
+        : Effect.void;
+    return notify.pipe(
+      Effect.andThen(
+        Effect.fail(new ApiRequestError({ code: body.code, message: body.message, status })),
+      ),
+    );
   };
 
+  // Maps transport, status and decoding failures to ApiRequestError. `status` reports the
+  // status of the response that failed to decode, if one arrived.
+  const mapErrors =
+    (authorization: Authorization, status: () => number) =>
+    <A, R>(
+      effect: Effect.Effect<A, HttpClientError.HttpClientError | Schema.SchemaError, R>,
+    ): Effect.Effect<A, ApiRequestError, R> =>
+      effect.pipe(
+        Effect.catch((error) => {
+          if (Schema.isSchemaError(error)) {
+            return Effect.fail(
+              new ApiRequestError({
+                code: "internal_error",
+                message: "Invalid response",
+                status: status(),
+              }),
+            );
+          }
+          const reason = error.reason;
+          if (reason._tag === "StatusCodeError") {
+            return reason.response.json.pipe(
+              Effect.orElseSucceed(() => null),
+              Effect.flatMap((body) =>
+                failWith(authorization, reason.response.status, parseApiErrorBody(body)),
+              ),
+            );
+          }
+          if (reason._tag === "DecodeError") {
+            return Effect.fail(
+              new ApiRequestError({
+                code: "internal_error",
+                message: "Invalid response",
+                status: status(),
+              }),
+            );
+          }
+          return Effect.fail(
+            new ApiRequestError({
+              code: "network_error",
+              message: "The server could not be reached",
+              status: 0,
+            }),
+          );
+        }),
+      );
+
+  // Runs one operation of the generated client with the given authorization.
+  const api = <A>(
+    authorization: Authorization,
+    operation: (
+      client: Api.ApertureApi,
+    ) => Effect.Effect<A, HttpClientError.HttpClientError | Schema.SchemaError>,
+  ): Effect.Effect<A, ApiRequestError> =>
+    Effect.suspend(() => {
+      let status = 0;
+      const client = httpClient.pipe(
+        authorize(authorization),
+        HttpClient.tap((response) =>
+          Effect.sync(() => {
+            status = response.status;
+          }),
+        ),
+      );
+      return operation(Api.make(client)).pipe(mapErrors(authorization, () => status));
+    });
+
+  // Sends a request outside api/openapi.yaml and returns the successful response.
+  const send = (
+    authorization: Authorization,
+    request: HttpClientRequest.HttpClientRequest,
+  ): Effect.Effect<HttpClientResponse.HttpClientResponse, ApiRequestError> =>
+    httpClient
+      .pipe(authorize(authorization), HttpClient.filterStatusOk)
+      .execute(request)
+      .pipe(mapErrors(authorization, () => 0));
+
+  const sendJson = <S extends Schema.Top & { readonly DecodingServices: never }>(
+    authorization: Authorization,
+    request: HttpClientRequest.HttpClientRequest,
+    schema: S,
+  ): Effect.Effect<S["Type"], ApiRequestError> =>
+    Effect.suspend(() => {
+      let status = 0;
+      return httpClient
+        .pipe(authorize(authorization), HttpClient.filterStatusOk)
+        .execute(request)
+        .pipe(
+          Effect.tap((response) =>
+            Effect.sync(() => {
+              status = response.status;
+            }),
+          ),
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
+          mapErrors(authorization, () => status),
+        );
+    });
+
+  const sendVoid = (
+    authorization: Authorization,
+    request: HttpClientRequest.HttpClientRequest,
+  ): Effect.Effect<void, ApiRequestError> => Effect.asVoid(send(authorization, request));
+
+  const post = (url: string, body?: unknown) =>
+    body === undefined
+      ? HttpClientRequest.post(url)
+      : HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.post(url), body);
+
+  const session = { credentials: webSessionCredentials };
+  const tenantScoped = (credentials: ApiCredentials): Authorization => ({
+    credentials,
+    tenantHeader: "tenant-scoped",
+  });
+
   return {
-    listLoginMethods() {
-      return request(config, {
-        path: "/auth/login-methods",
-        schema: loginMethodsSchema,
-      });
-    },
+    /** Emits whenever the web session is found to be missing, expired or revoked. */
+    sessionAuthenticationFailures: Stream.fromPubSub(authenticationFailures),
 
-    beginPasskeyLogin() {
-      return request(config, {
-        method: "POST",
-        path: "/auth/passkeys/login/options",
-        schema: passkeyLoginOptionsSchema,
-      });
-    },
+    listLoginMethods: () =>
+      sendJson({}, HttpClientRequest.get("/auth/login-methods"), LoginMethods),
 
-    finishPasskeyLogin(credential: AuthenticationResponseJSON) {
-      return requestVoid(config, {
-        method: "POST",
-        path: "/auth/passkeys/login/finish",
-        body: credential,
-      });
-    },
+    beginPasskeyLogin: () =>
+      sendJson({}, post("/auth/passkeys/login/options"), PasskeyLoginOptions),
 
-    listPasskeys() {
-      return request(config, {
-        path: "/auth/passkeys",
-        schema: passkeysSchema,
-        credentials: webSessionCredentials,
-      });
-    },
+    finishPasskeyLogin: (credential: AuthenticationResponseJSON) =>
+      sendVoid({}, post("/auth/passkeys/login/finish", credential)),
 
-    beginPasskeyRegistration(name: string) {
-      return request(config, {
-        method: "POST",
-        path: "/auth/passkeys/registration/options",
-        schema: passkeyRegistrationOptionsSchema,
-        credentials: webSessionCredentials,
-        body: { name },
-      });
-    },
+    listPasskeys: () => sendJson(session, HttpClientRequest.get("/auth/passkeys"), Passkeys),
 
-    finishPasskeyRegistration(credential: RegistrationResponseJSON) {
-      return request(config, {
-        method: "POST",
-        path: "/auth/passkeys/registration/finish",
-        schema: passkeyMutationSchema,
-        credentials: webSessionCredentials,
-        body: credential,
-      });
-    },
+    beginPasskeyRegistration: (name: string) =>
+      sendJson(
+        session,
+        post("/auth/passkeys/registration/options", { name }),
+        PasskeyRegistrationOptions,
+      ),
 
-    renamePasskey(passkeyId: string, name: string) {
-      return request(config, {
-        method: "PATCH",
-        path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
-        schema: passkeyMutationSchema,
-        credentials: webSessionCredentials,
-        body: { name },
-      });
-    },
+    finishPasskeyRegistration: (credential: RegistrationResponseJSON) =>
+      sendJson(session, post("/auth/passkeys/registration/finish", credential), PasskeyMutation),
 
-    deletePasskey(passkeyId: string) {
-      return requestVoid(config, {
-        method: "DELETE",
-        path: `/auth/passkeys/${encodeURIComponent(passkeyId)}`,
-        credentials: webSessionCredentials,
-      });
-    },
+    renamePasskey: (passkeyId: string, name: string) =>
+      sendJson(
+        session,
+        HttpClientRequest.bodyJsonUnsafe(
+          HttpClientRequest.patch(`/auth/passkeys/${encodeURIComponent(passkeyId)}`),
+          { name },
+        ),
+        PasskeyMutation,
+      ),
 
-    loginWithPassword(email: string, password: string) {
-      return request(config, {
-        method: "POST",
-        path: "/auth/password/login",
-        schema: passwordLoginResponseSchema,
-        body: { email, password },
-      });
-    },
+    deletePasskey: (passkeyId: string) =>
+      sendVoid(
+        session,
+        HttpClientRequest.delete(`/auth/passkeys/${encodeURIComponent(passkeyId)}`),
+      ),
 
-    loginWithAPIToken(token: string) {
-      return requestVoid(config, {
-        method: "POST",
-        path: "/auth/token/login",
-        body: { token },
-      });
-    },
+    loginWithPassword: (email: string, password: string) =>
+      sendJson({}, post("/auth/password/login", { email, password }), PasswordLoginResponse),
 
-    completePasswordMFA(code: string) {
-      return requestVoid(config, {
-        method: "POST",
-        path: "/auth/password/login/mfa",
-        body: { code },
-      });
-    },
+    loginWithAPIToken: (token: string) => sendVoid({}, post("/auth/token/login", { token })),
 
-    getSecurityStatus() {
-      return request(config, {
-        path: "/auth/security",
-        schema: securityStatusSchema,
-        credentials: webSessionCredentials,
-      });
-    },
+    completePasswordMFA: (code: string) => sendVoid({}, post("/auth/password/login/mfa", { code })),
 
-    setPassword(currentPassword: string, newPassword: string) {
-      return requestVoid(config, {
-        method: "PUT",
-        path: "/auth/password",
-        credentials: webSessionCredentials,
-        body: { currentPassword, newPassword },
-      });
-    },
+    getSecurityStatus: () =>
+      sendJson(session, HttpClientRequest.get("/auth/security"), SecurityStatus),
 
-    acceptUserInvitation(token: string, password: string) {
-      return requestVoid(config, {
-        method: "POST",
-        path: "/auth/invitations/accept",
-        body: { token, password },
-      });
-    },
+    setPassword: (currentPassword: string, newPassword: string) =>
+      sendVoid(
+        session,
+        HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.put("/auth/password"), {
+          currentPassword,
+          newPassword,
+        }),
+      ),
 
-    beginTOTPEnrollment() {
-      return request(config, {
-        method: "POST",
-        path: "/auth/totp/enrollment/options",
-        schema: totpEnrollmentSchema,
-        credentials: webSessionCredentials,
-      });
-    },
+    acceptUserInvitation: (token: string, password: string) =>
+      sendVoid({}, post("/auth/invitations/accept", { token, password })),
 
-    completeTOTPEnrollment(code: string) {
-      return request(config, {
-        method: "POST",
-        path: "/auth/totp/enrollment/finish",
-        schema: recoveryCodesSchema,
-        credentials: webSessionCredentials,
-        body: { code },
-      });
-    },
+    beginTOTPEnrollment: () =>
+      sendJson(session, post("/auth/totp/enrollment/options"), TOTPEnrollment),
 
-    regenerateRecoveryCodes(code: string) {
-      return request(config, {
-        method: "POST",
-        path: "/auth/totp/recovery-codes",
-        schema: recoveryCodesSchema,
-        credentials: webSessionCredentials,
-        body: { code },
-      });
-    },
+    completeTOTPEnrollment: (code: string) =>
+      sendJson(session, post("/auth/totp/enrollment/finish", { code }), RecoveryCodes),
 
-    disableTOTP(code: string) {
-      return requestVoid(config, {
-        method: "POST",
-        path: "/auth/totp/disable",
-        credentials: webSessionCredentials,
-        body: { code },
-      });
-    },
+    regenerateRecoveryCodes: (code: string) =>
+      sendJson(session, post("/auth/totp/recovery-codes", { code }), RecoveryCodes),
 
-    logoutWebSession() {
-      return requestVoid(config, {
-        method: "POST",
-        path: "/auth/logout",
-        credentials: webSessionCredentials,
-      });
-    },
+    disableTOTP: (code: string) => sendVoid(session, post("/auth/totp/disable", { code })),
 
-    getHealth() {
-      return request(config, {
-        path: "/api/health",
-        schema: healthSchema,
-      });
-    },
+    logoutWebSession: () => sendVoid(session, post("/auth/logout")),
 
-    getAuthMe(
+    getHealth: () => api({}, (client) => client.getHealth(undefined)),
+
+    getAuthMe: (
       selectedTenantId: string | null = null,
       credentials: ApiCredentials = webSessionCredentials,
-    ) {
-      return request(config, {
-        path: "/api/auth/me",
-        schema: authMeSchema,
-        credentials: {
-          ...credentials,
-          selectedTenantId,
-        },
-        tenantHeader: "optional",
-      });
-    },
+    ) =>
+      api(
+        { credentials: { ...credentials, selectedTenantId }, tenantHeader: "optional" },
+        (client) => client.getCurrentPrincipal(undefined),
+      ),
 
-    getBrowserChannels(credentials: ApiCredentials) {
-      return request(config, {
-        path: "/api/browser/channels",
-        schema: browserChannelsSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    getBrowserChannels: (credentials: ApiCredentials) =>
+      api(tenantScoped(credentials), (client) => client.listBrowserChannels(undefined)),
 
-    getBrowserStatus(credentials: ApiCredentials, sessionId: string, sessionToken?: string) {
-      return request(config, {
-        path: `/sessions/${encodeURIComponent(sessionId)}/browser/status`,
-        schema: browserStatusSchema,
-        credentials,
-        bearerToken: sessionToken,
-      });
-    },
+    getBrowserStatus: (credentials: ApiCredentials, sessionId: string, sessionToken?: string) =>
+      sendJson(
+        { credentials, bearerToken: sessionToken },
+        HttpClientRequest.get(`/sessions/${encodeURIComponent(sessionId)}/browser/status`),
+        BrowserStatus,
+      ),
 
-    listTenants(credentials: ApiCredentials, params: TenantsListParams = {}) {
-      return request(config, {
-        path: "/api/admin/tenants",
-        schema: tenantsPageSchema,
-        credentials,
-        query: {
-          limit: params.limit,
-          cursor: params.cursor,
-          includeDeleted: params.includeDeleted ? "true" : undefined,
-          deleted: params.deleted,
-        },
-      });
-    },
+    listTenants: (credentials: ApiCredentials, params: TenantsListParams = {}) =>
+      api({ credentials }, (client) =>
+        client.listTenants({
+          params: compactQuery({
+            limit: params.limit,
+            cursor: params.cursor,
+            includeDeleted: params.includeDeleted || undefined,
+            deleted: params.deleted,
+          }),
+        }),
+      ),
 
-    createTenant(credentials: ApiCredentials, input: { displayName: string }) {
-      return request(config, {
-        method: "POST",
-        path: "/api/admin/tenants",
-        schema: tenantSchema,
-        credentials,
-        body: input,
-      });
-    },
+    createTenant: (credentials: ApiCredentials, input: { displayName: string }) =>
+      api({ credentials }, (client) => client.createTenant({ payload: input })),
 
-    updateTenant(credentials: ApiCredentials, tenantId: string, input: { displayName: string }) {
-      return request(config, {
-        method: "PATCH",
-        path: `/api/admin/tenants/${tenantId}`,
-        schema: tenantSchema,
-        credentials,
-        body: input,
-      });
-    },
+    updateTenant: (credentials: ApiCredentials, tenantId: string, input: { displayName: string }) =>
+      api({ credentials }, (client) => client.updateTenant(tenantId, { payload: input })),
 
-    deleteTenant(credentials: ApiCredentials, tenantId: string) {
-      return request(config, {
-        method: "DELETE",
-        path: `/api/admin/tenants/${tenantId}`,
-        schema: tenantSchema,
-        credentials,
-      });
-    },
+    deleteTenant: (credentials: ApiCredentials, tenantId: string) =>
+      api({ credentials }, (client) => client.deleteTenant(tenantId, undefined)),
 
-    restoreTenant(credentials: ApiCredentials, tenantId: string) {
-      return request(config, {
-        method: "POST",
-        path: `/api/admin/tenants/${tenantId}/restore`,
-        schema: tenantSchema,
-        credentials,
-      });
-    },
+    restoreTenant: (credentials: ApiCredentials, tenantId: string) =>
+      api({ credentials }, (client) => client.restoreTenant(tenantId, undefined)),
 
-    listUsers(credentials: ApiCredentials, params: UsersListParams = {}) {
-      return request(config, {
-        path: "/api/admin/users",
-        schema: usersPageSchema,
-        credentials,
-        query: {
-          limit: params.limit,
-          cursor: params.cursor,
-          query: params.query,
-          disabled: params.disabled,
-        },
-      });
-    },
+    listUsers: (credentials: ApiCredentials, params: UsersListParams = {}) =>
+      api({ credentials }, (client) =>
+        client.listUsers({
+          params: compactQuery({
+            limit: params.limit,
+            cursor: params.cursor,
+            query: params.query,
+            disabled: params.disabled,
+          }),
+        }),
+      ),
 
-    createUser(credentials: ApiCredentials, input: UserInput) {
-      return request(config, {
-        method: "POST",
-        path: "/api/admin/users",
-        schema: userSchema,
-        credentials,
-        body: input,
-      });
-    },
+    createUser: (credentials: ApiCredentials, input: UserInput) =>
+      api({ credentials }, (client) => client.createUser({ payload: input })),
 
-    getUser(credentials: ApiCredentials, userId: string) {
-      return request(config, {
-        path: `/api/admin/users/${encodeURIComponent(userId)}`,
-        schema: userSchema,
-        credentials,
-      });
-    },
+    getUser: (credentials: ApiCredentials, userId: string) =>
+      api({ credentials }, (client) => client.getUser(userId, undefined)),
 
-    updateUser(credentials: ApiCredentials, userId: string, input: UserInput) {
-      return request(config, {
-        method: "PATCH",
-        path: `/api/admin/users/${encodeURIComponent(userId)}`,
-        schema: userSchema,
-        credentials,
-        body: input,
-      });
-    },
+    updateUser: (credentials: ApiCredentials, userId: string, input: UserInput) =>
+      api({ credentials }, (client) => client.updateUser(userId, { payload: input })),
 
-    createUserInvitation(credentials: ApiCredentials, userId: string) {
-      return request(config, {
-        method: "POST",
-        path: `/api/admin/users/${encodeURIComponent(userId)}/invitation`,
-        schema: userInvitationSchema,
-        credentials,
-      });
-    },
+    createUserInvitation: (credentials: ApiCredentials, userId: string) =>
+      api({ credentials }, (client) => client.createUserInvitation(userId, undefined)),
 
-    disableUser(credentials: ApiCredentials, userId: string) {
-      return request(config, {
-        method: "DELETE",
-        path: `/api/admin/users/${encodeURIComponent(userId)}`,
-        schema: userSchema,
-        credentials,
-      });
-    },
+    disableUser: (credentials: ApiCredentials, userId: string) =>
+      api({ credentials }, (client) => client.disableUser(userId, undefined)),
 
-    restoreUser(credentials: ApiCredentials, userId: string) {
-      return request(config, {
-        method: "POST",
-        path: `/api/admin/users/${encodeURIComponent(userId)}/restore`,
-        schema: userSchema,
-        credentials,
-      });
-    },
+    restoreUser: (credentials: ApiCredentials, userId: string) =>
+      api({ credentials }, (client) => client.restoreUser(userId, undefined)),
 
-    listUserMemberships(credentials: ApiCredentials, userId: string) {
-      return request(config, {
-        path: `/api/admin/users/${encodeURIComponent(userId)}/memberships`,
-        schema: tenantMembershipsSchema,
-        credentials,
-      });
-    },
+    listUserMemberships: (credentials: ApiCredentials, userId: string) =>
+      api({ credentials }, (client) => client.listUserMemberships(userId, undefined)),
 
-    upsertTenantMembership(
+    upsertTenantMembership: (
       credentials: ApiCredentials,
       tenantId: string,
       userId: string,
-      scopes: string[],
-    ) {
-      return request(config, {
-        method: "PUT",
-        path: `/api/admin/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(userId)}`,
-        schema: tenantMembershipSchema,
-        credentials,
-        body: { scopes },
-      });
-    },
+      scopes: readonly string[],
+    ) =>
+      api({ credentials }, (client) =>
+        client.upsertTenantMembership(tenantId, userId, {
+          payload: { scopes } as typeof Api.UpsertTenantMembershipRequestJson.Encoded,
+        }),
+      ),
 
-    deleteTenantMembership(credentials: ApiCredentials, tenantId: string, userId: string) {
-      return requestVoid(config, {
-        method: "DELETE",
-        path: `/api/admin/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(userId)}`,
-        credentials,
-      });
-    },
+    deleteTenantMembership: (credentials: ApiCredentials, tenantId: string, userId: string) =>
+      Effect.asVoid(
+        api({ credentials }, (client) =>
+          client.deleteTenantMembership(tenantId, userId, undefined),
+        ),
+      ),
 
-    listSessions(credentials: ApiCredentials, params: SessionsListParams = {}) {
-      return request(config, {
-        path: "/api/sessions",
-        schema: sessionsPageSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        query: {
-          limit: params.limit,
-          cursor: params.cursor,
-          includeDeleted: params.includeDeleted ? "true" : undefined,
-          status: params.status,
-          tagKey: params.tags?.map((tag) => tag.key),
-          tagOperator: params.tags?.map((tag) => tag.operator),
-          tagValue: params.tags?.map((tag) => tag.values.join(",")),
-        },
-      });
-    },
+    listSessions: (credentials: ApiCredentials, params: SessionsListParams = {}) =>
+      api(tenantScoped(credentials), (client) =>
+        client.listSessions({
+          params: compactQuery({
+            limit: params.limit,
+            cursor: params.cursor,
+            includeDeleted: params.includeDeleted || undefined,
+            status: params.status,
+            ...tagQuery(params.tags),
+          }),
+        }),
+      ),
 
-    getSession(credentials: ApiCredentials, sessionId: string) {
-      return request(config, {
-        path: `/api/sessions/${sessionId}`,
-        schema: sessionSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    getSession: (credentials: ApiCredentials, sessionId: string) =>
+      api(tenantScoped(credentials), (client) => client.getSession(sessionId, undefined)),
 
-    getSessionsBulk(credentials: ApiCredentials, sessionIds: string[]) {
-      return request(config, {
-        method: "POST",
-        path: "/api/sessions/bulk",
-        schema: sessionsBulkResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        body: { ids: sessionIds },
-      });
-    },
+    getSessionsBulk: (credentials: ApiCredentials, sessionIds: readonly string[]) =>
+      api(tenantScoped(credentials), (client) =>
+        client.getSessionsBulk({ payload: { ids: sessionIds } }),
+      ),
 
-    createSession(
+    createSession: (
       credentials: ApiCredentials,
       input: CreateSessionInput,
       options: CreateSessionOptions = {},
-    ) {
-      const body = {
-        baseSnapshotName: input.baseSnapshotName ?? null,
-        label: input.label ?? null,
-        browser: {
-          channel: input.browser.channel,
-          args: input.browser.args ?? [],
-        },
-        initialTargets: input.initialTargets ?? [],
-        ...(input.storageState === undefined ? {} : { storageState: input.storageState }),
-        tags: input.tags ?? {},
-      };
-      return request(config, {
-        method: "POST",
-        path: "/api/sessions",
-        schema: createSessionResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        query: { waitForReady: options.waitForReady },
-        body,
-      });
-    },
+    ) =>
+      api(tenantScoped(credentials), (client) =>
+        client.createSession({
+          params: compactQuery({ waitForReady: options.waitForReady }),
+          payload: {
+            baseSnapshotName: input.baseSnapshotName ?? null,
+            label: input.label ?? null,
+            browser: {
+              channel: input.browser.channel,
+              args: input.browser.args ?? [],
+            },
+            initialTargets: input.initialTargets ?? [],
+            ...(input.storageState === undefined ? {} : { storageState: input.storageState }),
+            tags: input.tags ?? {},
+          },
+        }),
+      ),
 
-    deleteSession(credentials: ApiCredentials, sessionId: string) {
-      return request(config, {
-        method: "DELETE",
-        path: `/api/sessions/${sessionId}`,
-        schema: sessionMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    deleteSession: (credentials: ApiCredentials, sessionId: string) =>
+      api(tenantScoped(credentials), (client) => client.deleteSession(sessionId, undefined)),
 
-    reopenSession(credentials: ApiCredentials, sessionId: string) {
-      return request(config, {
-        method: "POST",
-        path: `/api/sessions/${sessionId}/reopen`,
-        schema: sessionMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    reopenSession: (credentials: ApiCredentials, sessionId: string) =>
+      api(tenantScoped(credentials), (client) => client.reopenSession(sessionId, undefined)),
 
-    suspendSession(credentials: ApiCredentials, sessionId: string) {
-      return request(config, {
-        method: "POST",
-        path: `/api/sessions/${sessionId}/suspend`,
-        schema: sessionMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    suspendSession: (credentials: ApiCredentials, sessionId: string) =>
+      api(tenantScoped(credentials), (client) => client.suspendSession(sessionId, undefined)),
 
-    rotateSessionToken(credentials: ApiCredentials, sessionId: string) {
-      return request(config, {
-        method: "POST",
-        path: `/api/sessions/${sessionId}/session-token/rotate`,
-        schema: sessionMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    rotateSessionToken: (credentials: ApiCredentials, sessionId: string) =>
+      api(tenantScoped(credentials), (client) => client.rotateSessionToken(sessionId, undefined)),
 
-    rotateCollaborationCapability(
+    rotateCollaborationCapability: (
       credentials: ApiCredentials,
       sessionId: string,
       role: "editor" | "viewer",
-    ) {
-      return request(config, {
-        method: "POST",
-        path: `/api/sessions/${sessionId}/collaboration-capabilities/${role}/rotate`,
-        schema: sessionMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    ) =>
+      api(tenantScoped(credentials), (client) =>
+        client.rotateCollaborationCapability(sessionId, role, undefined),
+      ),
 
-    promoteSession(credentials: ApiCredentials, sessionId: string, input: PromoteSessionInput) {
-      return request(config, {
-        method: "POST",
-        path: `/api/sessions/${sessionId}/promote`,
-        schema: promoteSessionResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        body: {
-          name: input.name,
-          description: input.description ?? null,
-          force: input.force ?? false,
-          tags: input.tags ?? {},
-        },
-      });
-    },
+    promoteSession: (credentials: ApiCredentials, sessionId: string, input: PromoteSessionInput) =>
+      api(tenantScoped(credentials), (client) =>
+        client.promoteSession(sessionId, {
+          payload: {
+            name: input.name,
+            description: input.description ?? null,
+            force: input.force ?? false,
+            tags: input.tags ?? {},
+          },
+        }),
+      ),
 
-    replaceSessionTags(
+    replaceSessionTags: (
       credentials: ApiCredentials,
       sessionId: string,
       tags: Record<string, string>,
-    ) {
-      return request(config, {
-        method: "PUT",
-        path: `/api/sessions/${sessionId}/tags`,
-        schema: sessionMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        body: { tags },
-      });
-    },
+    ) =>
+      api(tenantScoped(credentials), (client) =>
+        client.replaceSessionTags(sessionId, { payload: { tags } }),
+      ),
 
-    downloadSessionRecording(
+    downloadSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
       sessionToken?: string,
-    ) {
-      return requestBlob(config, {
-        path: `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/content`,
+    ): Effect.Effect<DownloadedFile, ApiRequestError> => {
+      const authorization: Authorization = {
         credentials,
         bearerToken: sessionToken,
         tenantHeader: "tenant-scoped",
-      });
+      };
+      return send(
+        authorization,
+        HttpClientRequest.get(
+          `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/content`,
+        ),
+      ).pipe(
+        Effect.flatMap((response) =>
+          response.arrayBuffer.pipe(
+            Effect.map((body) => ({
+              blob: new Blob([body], { type: response.headers["content-type"] ?? "" }),
+              filename: contentDispositionFilename(response.headers["content-disposition"]),
+            })),
+            mapErrors(authorization, () => response.status),
+          ),
+        ),
+      );
     },
 
-    listSnapshots(credentials: ApiCredentials, params: SnapshotsListParams = {}) {
-      return request(config, {
-        path: "/api/snapshots",
-        schema: snapshotsPageSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        query: {
-          limit: params.limit,
-          cursor: params.cursor,
-          includeDeleted: params.includeDeleted ? "true" : undefined,
-          deleted: params.deleted,
-          name: params.name,
-          tagKey: params.tags?.map((tag) => tag.key),
-          tagOperator: params.tags?.map((tag) => tag.operator),
-          tagValue: params.tags?.map((tag) => tag.values.join(",")),
-        },
-      });
-    },
+    listSnapshots: (credentials: ApiCredentials, params: SnapshotsListParams = {}) =>
+      api(tenantScoped(credentials), (client) =>
+        client.listSnapshots({
+          params: compactQuery({
+            limit: params.limit,
+            cursor: params.cursor,
+            includeDeleted: params.includeDeleted || undefined,
+            deleted: params.deleted,
+            name: params.name,
+            ...tagQuery(params.tags),
+          }),
+        }),
+      ),
 
-    deleteSnapshot(credentials: ApiCredentials, name: string) {
-      return request(config, {
-        method: "DELETE",
-        path: `/api/snapshots/${encodeURIComponent(name)}`,
-        schema: snapshotMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    deleteSnapshot: (credentials: ApiCredentials, name: string) =>
+      api(tenantScoped(credentials), (client) => client.deleteSnapshot(name, undefined)),
 
-    restoreSnapshot(credentials: ApiCredentials, name: string) {
-      return request(config, {
-        method: "POST",
-        path: `/api/snapshots/${encodeURIComponent(name)}/restore`,
-        schema: snapshotMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-      });
-    },
+    restoreSnapshot: (credentials: ApiCredentials, name: string) =>
+      api(tenantScoped(credentials), (client) => client.restoreSnapshot(name, undefined)),
 
-    replaceSnapshotTags(credentials: ApiCredentials, name: string, tags: Record<string, string>) {
-      return request(config, {
-        method: "PUT",
-        path: `/api/snapshots/${encodeURIComponent(name)}/tags`,
-        schema: snapshotMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        body: { tags },
-      });
-    },
+    replaceSnapshotTags: (
+      credentials: ApiCredentials,
+      name: string,
+      tags: Record<string, string>,
+    ) =>
+      api(tenantScoped(credentials), (client) =>
+        client.replaceSnapshotTags(name, { payload: { tags } }),
+      ),
 
-    updateSnapshot(credentials: ApiCredentials, name: string, input: UpdateSnapshotInput) {
-      return request(config, {
-        method: "PATCH",
-        path: `/api/snapshots/${encodeURIComponent(name)}`,
-        schema: snapshotMutationResponseSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        body: input,
-      });
-    },
+    updateSnapshot: (credentials: ApiCredentials, name: string, input: UpdateSnapshotInput) =>
+      api(tenantScoped(credentials), (client) => client.updateSnapshot(name, { payload: input })),
 
-    listEvents(credentials: ApiCredentials, params: EventsListParams = {}) {
-      return request(config, {
-        path: "/api/events",
-        schema: eventsPageSchema,
-        credentials,
-        tenantHeader: "tenant-scoped",
-        query: {
-          limit: params.limit,
-          cursor: params.cursor,
-          resourceType: params.resourceType,
-          resourceId: params.resourceId,
-        },
-      });
-    },
+    listEvents: (credentials: ApiCredentials, params: EventsListParams = {}) =>
+      api(tenantScoped(credentials), (client) =>
+        client.listEvents({
+          params: compactQuery({
+            limit: params.limit,
+            cursor: params.cursor,
+            resourceType: params.resourceType,
+            resourceId: params.resourceId,
+          }),
+        }),
+      ),
 
-    listAdminTokens(credentials: ApiCredentials, params: TokensListParams = {}) {
-      return request(config, {
-        path: "/api/admin/tokens",
-        schema: tokensPageSchema,
-        credentials,
-        query: {
-          limit: params.limit,
-          cursor: params.cursor,
-          tenantId: params.tenantId,
-          name: params.name,
-          authorityType: params.authorityType,
-          revoked: params.revoked,
-          scope: params.scope,
-        },
-      });
-    },
+    listAdminTokens: (credentials: ApiCredentials, params: TokensListParams = {}) =>
+      api({ credentials }, (client) =>
+        client.listAdminTokens({
+          params: compactQuery({
+            limit: params.limit,
+            cursor: params.cursor,
+            tenantId: params.tenantId,
+            name: params.name,
+            authorityType: params.authorityType,
+            revoked: params.revoked,
+            scope: params.scope,
+          }) as typeof Api.ListAdminTokensParams.Encoded,
+        }),
+      ),
 
-    listTenantTokens(credentials: ApiCredentials, params: TokensListParams = {}) {
-      return request(config, {
-        path: "/api/tenant/tokens",
-        schema: tokensPageSchema,
-        credentials,
-        query: {
-          limit: params.limit,
-          cursor: params.cursor,
-          name: params.name,
-          revoked: params.revoked,
-          scope: params.scope,
-        },
-      });
-    },
+    listTenantTokens: (credentials: ApiCredentials, params: TokensListParams = {}) =>
+      api({ credentials }, (client) =>
+        client.listTenantTokens({
+          params: compactQuery({
+            limit: params.limit,
+            cursor: params.cursor,
+            name: params.name,
+            revoked: params.revoked,
+            scope: params.scope,
+          }) as typeof Api.ListTenantTokensParams.Encoded,
+        }),
+      ),
 
-    createAdminToken(credentials: ApiCredentials, input: CreateAdminTokenInput) {
-      return request(config, {
-        method: "POST",
-        path: "/api/admin/tokens",
-        schema: createTokenResponseSchema,
-        credentials,
-        body: {
-          name: input.name,
-          authorityType: input.authorityType,
-          tenantId: input.tenantId ?? null,
-          scopes: input.scopes,
-          resourceMode: input.authorityType === "system_admin" ? "all" : input.resourceMode,
-          resourceGrants: input.authorityType === "system_admin" ? [] : input.resourceGrants,
-          expiresAt: input.expiresAt ?? null,
-        },
-      });
-    },
+    // Scopes arrive from free-form UI state; the server validates them.
+    createAdminToken: (credentials: ApiCredentials, input: CreateAdminTokenInput) =>
+      api({ credentials }, (client) =>
+        client.createAdminToken({
+          payload: {
+            name: input.name,
+            authorityType: input.authorityType,
+            tenantId: input.tenantId ?? null,
+            scopes: input.scopes,
+            resourceMode: input.authorityType === "system_admin" ? "all" : input.resourceMode,
+            resourceGrants: input.authorityType === "system_admin" ? [] : input.resourceGrants,
+            expiresAt: input.expiresAt ?? null,
+          } as typeof Api.CreateAdminTokenRequestJson.Encoded,
+        }),
+      ),
 
-    createTenantToken(credentials: ApiCredentials, input: CreateTenantTokenInput) {
-      return request(config, {
-        method: "POST",
-        path: "/api/tenant/tokens",
-        schema: createTokenResponseSchema,
-        credentials,
-        body: {
-          name: input.name,
-          scopes: input.scopes,
-          resourceMode: input.resourceMode,
-          resourceGrants: input.resourceGrants,
-          expiresAt: input.expiresAt ?? null,
-        },
-      });
-    },
+    createTenantToken: (credentials: ApiCredentials, input: CreateTenantTokenInput) =>
+      api({ credentials }, (client) =>
+        client.createTenantToken({
+          payload: {
+            name: input.name,
+            scopes: input.scopes,
+            resourceMode: input.resourceMode,
+            resourceGrants: input.resourceGrants,
+            expiresAt: input.expiresAt ?? null,
+          } as typeof Api.CreateTenantTokenRequestJson.Encoded,
+        }),
+      ),
 
-    revokeAdminToken(credentials: ApiCredentials, tokenId: string) {
-      return requestVoid(config, {
-        method: "POST",
-        path: `/api/admin/tokens/${tokenId}/revoke`,
-        credentials,
-      });
-    },
+    revokeAdminToken: (credentials: ApiCredentials, tokenId: string) =>
+      Effect.asVoid(api({ credentials }, (client) => client.revokeAdminToken(tokenId, undefined))),
 
-    revokeTenantToken(credentials: ApiCredentials, tokenId: string) {
-      return requestVoid(config, {
-        method: "POST",
-        path: `/api/tenant/tokens/${tokenId}/revoke`,
-        credentials,
-      });
-    },
+    revokeTenantToken: (credentials: ApiCredentials, tokenId: string) =>
+      Effect.asVoid(api({ credentials }, (client) => client.revokeTenantToken(tokenId, undefined))),
   };
-}
+});
 
-export type ApiClient = ReturnType<typeof createApiClient>;
-export const apiClient = createApiClient();
+export class ApiClient extends Context.Service<
+  ApiClient,
+  Effect.Success<ReturnType<typeof make>>
+>()("@aperture/api-client/ApiClient") {
+  static readonly layer = (options: ApiClientOptions = {}) =>
+    Layer.effect(ApiClient, make(options));
+}

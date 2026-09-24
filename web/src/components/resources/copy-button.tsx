@@ -1,10 +1,11 @@
 import { Check, Copy } from "lucide-react";
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
-import { timer } from "rxjs";
+import { Effect } from "effect";
 import { toast } from "sonner";
 import { Button } from "@aperture/ui/components/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
+import { forkEffect } from "#/lib/runtime.ts";
 
 type CopyButtonProps = {
   value: string;
@@ -30,10 +31,9 @@ export function CopyButton({
       return;
     }
 
-    const subscription = timer(COPY_RESET_MS).subscribe(() => {
-      setCopied(false);
-    });
-    return () => subscription.unsubscribe();
+    return forkEffect(
+      Effect.sleep(COPY_RESET_MS).pipe(Effect.andThen(Effect.sync(() => setCopied(false)))),
+    );
   }, [copied]);
 
   async function handleCopy() {
