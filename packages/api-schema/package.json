@@ -5,7 +5,14 @@
   "exports": {
     ".": "./src/zod.gen.ts"
   },
+  "scripts": {
+    "generate": "openapi-ts"
+  },
   "dependencies": {
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
+    "typescript": "^6.0.3"
   }
 }
