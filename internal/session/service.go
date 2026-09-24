@@ -183,6 +183,12 @@ func (s *Service) create(
 	if err != nil {
 		return nil, err
 	}
+	// Reject invalid browser state before anything is allocated for the session.
+	if len(initializationPayload) != 0 {
+		if err := browser.ValidateSessionInitialization(ctx, initializationPayload); err != nil {
+			return nil, err
+		}
+	}
 
 	sessionID, err := ids.NewUUIDv7()
 	if err != nil {
@@ -850,7 +856,7 @@ type UploadedFileEvent struct {
 }
 
 func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authorization string, files []UploadedFileEvent, actorKind, clientIP string) error {
-	sessionRow, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization)
+	sessionRow, err := s.wrapperSession(ctx, sessionID, authorization)
 	if err != nil {
 		return err
 	}
@@ -880,7 +886,7 @@ func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authoriza
 }
 
 func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authorization string) ([]UploadedFileEvent, error) {
-	if _, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return nil, err
 	}
 	events, err := s.repo.ListEventsForResourceType(ctx, "session", sessionID, "session.file_upload_pending")
@@ -902,14 +908,14 @@ func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authori
 }
 
 func (s *Service) FinalizeFilesUploaded(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.FinalizeEvents(ctx, "session", sessionID, "session.file_upload_pending", "session.file_uploaded", "file uploaded", eventIDs)
 }
 
 func (s *Service) CancelPendingFileUploads(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedUploadAuditSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.DeletePendingEvents(ctx, "session", sessionID, "session.file_upload_pending", eventIDs)

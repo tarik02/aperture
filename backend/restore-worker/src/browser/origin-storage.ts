@@ -1,19 +1,19 @@
 import { decodeStructuredCloneAsync } from "@aperture/browser-state";
 import { openDB, type IDBPDatabase } from "idb";
 import type { StorageOrigin } from "../schema.js";
+import { errorMessage } from "./error.js";
 
 type DatabaseState = NonNullable<StorageOrigin["indexedDB"]>[number];
-type KeyPathState = DatabaseState["objectStores"][number]["keyPath"];
 
 interface RestoreResult {
   status: "succeeded" | "failed";
   error?: string;
 }
 
-function keyPath(specification: KeyPathState): string | string[] | null {
+// The capsule schema guarantees the value arity for each kind.
+function keyPath(specification: { kind: string; value?: string[] }): string | string[] | null {
   if (specification.kind === "none") return null;
-  if (specification.kind === "string") return specification.value[0];
-  return specification.value;
+  return specification.kind === "string" ? specification.value![0] : specification.value!;
 }
 
 function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
@@ -32,9 +32,7 @@ function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
           });
 
           for (const index of storeState.indexes) {
-            const path =
-              index.keyPath.kind === "string" ? index.keyPath.value[0] : index.keyPath.value;
-            store.createIndex(index.name, path, {
+            store.createIndex(index.name, keyPath(index.keyPath)!, {
               unique: index.unique,
               multiEntry: index.multiEntry,
             });
@@ -153,9 +151,6 @@ export async function run(state: StorageOrigin): Promise<RestoreResult> {
 
     return { status: "succeeded" };
   } catch (error) {
-    return {
-      status: "failed",
-      error: error instanceof Error ? error.name + ": " + error.message : String(error),
-    };
+    return { status: "failed", error: errorMessage(error) };
   }
 }

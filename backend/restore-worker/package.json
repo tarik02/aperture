@@ -3,18 +3,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node build.mjs",
-    "typecheck": "tsc --noEmit"
+    "build": "vp build",
+    "typecheck": "tsc --noEmit",
+    "lint": "vp lint",
+    "format:check": "vp fmt --check"
   },
   "dependencies": {
-    "@aperture/browser-state": "workspace:*",
-    "idb": "8.0.3",
-    "zod": "^4.4.3"
+    "@playwright/mcp": "0.0.82",
+    "playwright": "1.64.0-alpha-1789764292000",
+    "playwright-core": "1.64.0-alpha-1789764292000"
   },
   "devDependencies": {
+    "@aperture/api-schema": "workspace:*",
+    "@aperture/browser-state": "workspace:*",
     "@types/node": "^26.1.1",
-    "playwright-core": "1.64.0-alpha-1789764292000",
+    "idb": "8.0.3",
     "typescript": "^6.0.3",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "zod": "^4.4.3"
   }
 }
