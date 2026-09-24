@@ -1,11 +1,11 @@
 import { Check, Copy } from "lucide-react";
 import type { ReactElement } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Effect } from "effect";
 import { toast } from "sonner";
 import { Button } from "@aperture/ui/components/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
-import { forkEffect } from "#/lib/runtime.ts";
+import { useFork } from "#/lib/effect/react.tsx";
 
 type CopyButtonProps = {
   value: string;
@@ -26,15 +26,13 @@ export function CopyButton({
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (!copied) {
-      return;
-    }
-
-    return forkEffect(
-      Effect.sleep(COPY_RESET_MS).pipe(Effect.andThen(Effect.sync(() => setCopied(false)))),
-    );
-  }, [copied]);
+  useFork(
+    () =>
+      copied
+        ? Effect.sleep(COPY_RESET_MS).pipe(Effect.andThen(Effect.sync(() => setCopied(false))))
+        : undefined,
+    [copied],
+  );
 
   async function handleCopy() {
     try {

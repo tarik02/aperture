@@ -96,7 +96,8 @@ import { useSessionPromoteFormStore } from "#/features/session/promote-form/sess
 import { useSessionPromoteModalStore } from "#/features/session/promote-modal/session-promote-modal.store.ts";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
-import { runApi } from "#/lib/runtime.ts";
+import { SessionsApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 const ALL_STATUS = "__all__";
 
@@ -138,6 +139,7 @@ type ConfirmDialogContent = {
 };
 
 export function SessionListPage() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const scopes = useActiveScopes();
   const canWrite = hasScope(scopes, "sessions:write");
@@ -256,7 +258,9 @@ export function SessionListPage() {
 
     setCopyingShareSessionId(session.id);
     try {
-      const detailedSession = await runApi((api) => api.getSession(credentials, session.id));
+      const detailedSession = await runApi(
+        SessionsApi.use((sessions) => sessions.getSession(credentials, session.id)),
+      );
       if (!detailedSession.collaboration?.viewerToken) {
         throw new Error("Viewer capability unavailable");
       }

@@ -1,0 +1,59 @@
+import { Context, type Effect } from "effect";
+import type { ApiCredentials } from "../authorization/service.ts";
+import type { ApiRequestError } from "../errors.ts";
+import type { CreateTokenResponse, ResourceGrant, ResourceMode, TokensPage } from "../schemas.ts";
+
+type Call<A> = Effect.Effect<A, ApiRequestError>;
+
+export type TokensListParams = {
+  limit?: number;
+  cursor?: string;
+  tenantId?: string;
+  name?: string;
+  authorityType?: "system_admin" | "tenant";
+  revoked?: "all" | "active" | "revoked";
+  scope?: string;
+};
+
+export type CreateAdminTokenInput = {
+  name: string;
+  authorityType: "system_admin" | "tenant";
+  tenantId?: string | null;
+  scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
+  expiresAt?: string | null;
+};
+
+export type CreateTenantTokenInput = {
+  name: string;
+  scopes: string[];
+  resourceMode: ResourceMode;
+  resourceGrants: ResourceGrant[];
+  expiresAt?: string | null;
+};
+
+/** API tokens, issued either deployment-wide or within the current tenant. */
+export class TokensApi extends Context.Service<
+  TokensApi,
+  {
+    readonly listAdminTokens: (
+      credentials: ApiCredentials,
+      params?: TokensListParams,
+    ) => Call<TokensPage>;
+    readonly createAdminToken: (
+      credentials: ApiCredentials,
+      input: CreateAdminTokenInput,
+    ) => Call<CreateTokenResponse>;
+    readonly revokeAdminToken: (credentials: ApiCredentials, tokenId: string) => Call<void>;
+    readonly listTenantTokens: (
+      credentials: ApiCredentials,
+      params?: TokensListParams,
+    ) => Call<TokensPage>;
+    readonly createTenantToken: (
+      credentials: ApiCredentials,
+      input: CreateTenantTokenInput,
+    ) => Call<CreateTokenResponse>;
+    readonly revokeTenantToken: (credentials: ApiCredentials, tokenId: string) => Call<void>;
+  }
+>()("@aperture/api-client/TokensApi") {}

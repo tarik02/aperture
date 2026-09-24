@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -26,7 +26,7 @@ import {
 import { InputGroup, InputGroupInput } from "@aperture/ui/components/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
-import { forkEffect } from "#/lib/runtime.ts";
+import { useFork } from "#/lib/effect/react.tsx";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
@@ -84,13 +84,16 @@ export function BrowserToolbar({
   const recordingTargetIds = new Set(runningRecordings.map((recording) => recording.targetId));
   const [recordingNow, setRecordingNow] = useState(Date.now());
 
-  useEffect(() => {
-    if (!hasRunningRecordings) {
-      return;
-    }
-    const tick = Effect.sync(() => setRecordingNow(Date.now()));
-    return forkEffect(Effect.repeat(tick, Schedule.spaced(1000)));
-  }, [hasRunningRecordings]);
+  useFork(
+    () =>
+      hasRunningRecordings
+        ? Effect.repeat(
+            Effect.sync(() => setRecordingNow(Date.now())),
+            Schedule.spaced(1000),
+          )
+        : undefined,
+    [hasRunningRecordings],
+  );
 
   function handleNavigate(value: string) {
     const nextUrl = value.trim();

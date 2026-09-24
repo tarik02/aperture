@@ -3,7 +3,8 @@ import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type SessionsFilters } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
-import { runApi } from "#/lib/runtime.ts";
+import { SessionsApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {
@@ -18,6 +19,7 @@ export function useSessionsInfiniteQuery(
   filters: SessionsFilters = {},
   options: { enabled?: boolean; credentials?: ApiCredentials | null } = {},
 ) {
+  const runApi = useRunApi();
   const activeCredentials = useApiCredentials();
   const credentials = options.credentials === undefined ? activeCredentials : options.credentials;
   const tenantKey = resolveTenantKey(credentials);
@@ -27,14 +29,15 @@ export function useSessionsInfiniteQuery(
     queryKey: queryKeys.sessions(tenantKey, filters),
     queryFn: ({ pageParam, signal }) =>
       runApi(
-        (api) =>
-          api.listSessions(credentials!, {
+        SessionsApi.use((sessions) =>
+          sessions.listSessions(credentials!, {
             limit: filters.limit ?? defaultListLimit,
             cursor: pageParam,
             includeDeleted: filters.includeDeleted,
             status: filters.status,
             tags: filters.tags,
           }),
+        ),
         { signal },
       ),
     initialPageParam: undefined as string | undefined,
@@ -45,6 +48,7 @@ export function useSessionsInfiniteQuery(
 }
 
 export function useSessionsBulkQuery(sessionIds: string[]) {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const tenantKey = resolveTenantKey(credentials);
   const enabled = sessionIds.length > 0 && isTenantScopedQueryReady(credentials);
@@ -52,13 +56,17 @@ export function useSessionsBulkQuery(sessionIds: string[]) {
   return useQuery({
     queryKey: queryKeys.sessionsBulk(tenantKey, sessionIds),
     queryFn: ({ signal }) =>
-      runApi((api) => api.getSessionsBulk(credentials!, sessionIds), { signal }),
+      runApi(
+        SessionsApi.use((sessions) => sessions.getSessionsBulk(credentials!, sessionIds)),
+        { signal },
+      ),
     enabled,
     select: (response) => response.sessions,
   });
 }
 
 export function useSessionQuery(sessionId: string | undefined) {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const tenantKey = resolveTenantKey(credentials);
 
@@ -68,7 +76,10 @@ export function useSessionQuery(sessionId: string | undefined) {
       if (!credentials || !sessionId) {
         throw new Error("Session credentials unavailable");
       }
-      return runApi((api) => api.getSession(credentials, sessionId), { signal });
+      return runApi(
+        SessionsApi.use((sessions) => sessions.getSession(credentials, sessionId)),
+        { signal },
+      );
     },
     enabled: Boolean(sessionId && isTenantScopedQueryReady(credentials)),
     refetchInterval: (query) => (query.state.data?.status === "creating" ? 500 : false),

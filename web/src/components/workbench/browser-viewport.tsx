@@ -14,7 +14,7 @@ import type { ViewportPreset } from "#/lib/control/viewport.ts";
 import { cn } from "@aperture/ui/utils";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
-import { forkEffect } from "#/lib/runtime.ts";
+import { useFork } from "#/lib/effect/react.tsx";
 
 type BrowserViewportProps = {
   control: UseBrowserControlResult;
@@ -179,7 +179,7 @@ export function BrowserViewport({
     }
   }, [control.sendInput]);
 
-  useEffect(() => {
+  useFork(() => {
     const onFrame = (frame: LiveSessionRasterFrame | null) => {
       if (!frame) {
         if (imageRef.current) {
@@ -209,18 +209,17 @@ export function BrowserViewport({
         setFrameMetadata(nextMetadata);
       }
     };
-    const interrupt = forkEffect(
-      Stream.runForEach(control.frames, (frame) => Effect.sync(() => onFrame(frame))),
+    return Stream.runForEach(control.frames, (frame) => Effect.sync(() => onFrame(frame))).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (imageRef.current) {
+            resetImageFrames(imageRef.current, rasterDecoderRef.current);
+          } else {
+            resetRasterFrameDecoder(rasterDecoderRef.current);
+          }
+        }),
+      ),
     );
-
-    return () => {
-      interrupt();
-      if (imageRef.current) {
-        resetImageFrames(imageRef.current, rasterDecoderRef.current);
-      } else {
-        resetRasterFrameDecoder(rasterDecoderRef.current);
-      }
-    };
   }, [control.activeTargetId, control.frames, showingWebRTC]);
 
   useLayoutEffect(() => {

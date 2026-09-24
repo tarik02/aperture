@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Effect, Option, PubSub, Schema, Stream, SubscriptionRef } from "effect";
 import type { ApiCredentials, IceServer } from "@aperture/api-client";
 import type { Recording } from "@aperture/api-client";
@@ -23,7 +23,7 @@ import {
   type LiveSessionServerMessage,
   type LiveSessionTarget,
 } from "#/lib/control/live-session-protocol.ts";
-import { appRuntime, forkEffect } from "#/lib/runtime.ts";
+import { useEffectCallback, useFork, useRuntime } from "#/lib/effect/react.tsx";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 type InputDimensions = {
@@ -93,12 +93,20 @@ export type LiveSessionControl = {
   sendBrowserInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
   selectTarget: (targetId: string) => boolean;
   command: (type: string, payload?: Record<string, unknown>) => boolean;
-  request: (type: string, payload?: Record<string, unknown>) => Promise<LiveSessionCommandResult>;
-  selectPresentation: (selection: LiveSessionMediaSelection) => Promise<void>;
+  request: (
+    type: string,
+    payload?: Record<string, unknown>,
+  ) => Effect.Effect<LiveSessionCommandResult, LiveSessionConnection.LiveSessionError>;
+  selectPresentation: (
+    selection: LiveSessionMediaSelection,
+  ) => Effect.Effect<void, LiveSessionConnection.LiveSessionError>;
   reconnect: () => void;
 };
 
 const heartbeatIntervalMs = 2_000;
+
+const transportUnavailable = () =>
+  new LiveSessionConnection.LiveSessionError({ message: "live session transport is unavailable" });
 const cursorIntervalMs = 40;
 export const collaborationPaintLifetimeMs = 7_000;
 const pointerButtonCode: Record<"left" | "right" | "middle", number> = {
@@ -121,20 +129,20 @@ export function useLiveSession({
     () => collaborationIdentity(role, principal?.name ?? null),
     [principal?.name, role],
   );
+  const runtime = useRuntime();
   const frameRef = useMemo(
-    () => appRuntime.runSync(SubscriptionRef.make<LiveSessionRasterFrame | null>(null)),
-    [],
+    () => runtime.runSync(SubscriptionRef.make<LiveSessionRasterFrame | null>(null)),
+    [runtime],
   );
   const paintPubSub = useMemo(
-    () => appRuntime.runSync(PubSub.unbounded<CollaborationPaintEvent>()),
-    [],
+    () => runtime.runSync(PubSub.unbounded<CollaborationPaintEvent>()),
+    [runtime],
   );
   const frames = useMemo(() => SubscriptionRef.changes(frameRef), [frameRef]);
   const paintEvents = useMemo(() => Stream.fromPubSub(paintPubSub), [paintPubSub]);
   const publishFrame = useCallback(
-    (frame: LiveSessionRasterFrame | null) =>
-      appRuntime.runSync(SubscriptionRef.set(frameRef, frame)),
-    [frameRef],
+    (frame: LiveSessionRasterFrame | null) => runtime.runSync(SubscriptionRef.set(frameRef, frame)),
+    [frameRef, runtime],
   );
   const publishPaint = useCallback(
     (event: CollaborationPaintEvent) => PubSub.publishUnsafe(paintPubSub, event),
@@ -152,7 +160,7 @@ export function useLiveSession({
   const mediaSizeRef = useRef<LiveSessionMediaSize | null>(null);
   const transportRef = useRef<LiveSessionControl["transport"]>(null);
   const presentationRef = useRef<LiveSessionPresentation | null>(null);
-  const presentationSelectionRef = useRef<Promise<void> | null>(null);
+  const presentationSelectionRef = useRef(false);
 
   const [phase, setPhase] = useState<LiveSessionControl["phase"]>("idle");
   const [targets, setTargets] = useState<readonly LiveSessionTarget[]>([]);
@@ -277,7 +285,7 @@ export function useLiveSession({
     [publishPaint],
   );
 
-  useEffect(() => {
+  useFork(() => {
     if (!enabled || !sessionId || !credentials) {
       connectionRef.current = null;
       setPhase("idle");
@@ -294,44 +302,45 @@ export function useLiveSession({
       setRecordings([]);
       publishFrame(null);
       publishPaint({ type: "clear" });
-      return;
+      return undefined;
     }
 
     // The connection lives as long as this fiber; interrupting it closes the connection.
-    const interrupt = forkEffect(
-      Effect.gen(function* () {
-        const connection = yield* LiveSessionConnection.make({
-          sessionId,
-          credentials,
-          sessionToken,
-          identity,
-          iceServers,
-          webrtcSupported,
-          callbacks: {
-            onPhase: setPhase,
-            onMessage: handleMessage,
-            onFrame: publishFrame,
-            onStream: setMediaStream,
-            onTransport: setTransport,
-            onError: (message) => setLastError({ code: "connection_failed", message }),
-          },
-        });
-        connectionRef.current = connection;
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            if (connectionRef.current === connection) {
-              connectionRef.current = null;
-            }
-          }),
-        );
-        return yield* Effect.never;
-      }).pipe(Effect.scoped),
+    return Effect.gen(function* () {
+      const connection = yield* LiveSessionConnection.make({
+        sessionId,
+        credentials,
+        sessionToken,
+        identity,
+        iceServers,
+        webrtcSupported,
+        callbacks: {
+          onPhase: setPhase,
+          onMessage: handleMessage,
+          onFrame: publishFrame,
+          onStream: setMediaStream,
+          onTransport: setTransport,
+          onError: (message) => setLastError({ code: "connection_failed", message }),
+        },
+      });
+      connectionRef.current = connection;
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (connectionRef.current === connection) {
+            connectionRef.current = null;
+          }
+        }),
+      );
+      return yield* Effect.never;
+    }).pipe(
+      Effect.scoped,
+      Effect.ensuring(
+        Effect.sync(() => {
+          publishFrame(null);
+          publishPaint({ type: "clear" });
+        }),
+      ),
     );
-    return () => {
-      interrupt();
-      publishFrame(null);
-      publishPaint({ type: "clear" });
-    };
   }, [
     credentials,
     enabled,
@@ -353,12 +362,12 @@ export function useLiveSession({
     (message: Record<string, unknown>) => connectionRef.current?.sendRealtime(message) ?? false,
     [],
   );
-  const command = useCallback((type: string, payload: Record<string, unknown> = {}) => {
-    const connection = connectionRef.current;
-    if (!connection) {
-      return false;
-    }
-    appRuntime.runFork(
+  const runCommand = useEffectCallback(
+    (
+      connection: LiveSessionConnection.LiveSessionConnection,
+      type: string,
+      payload: Record<string, unknown>,
+    ) =>
       connection.command(type, payload).pipe(
         Effect.catch((error) =>
           Effect.sync(() => {
@@ -367,28 +376,30 @@ export function useLiveSession({
           }),
         ),
       ),
-    );
-    return true;
-  }, []);
-  const request = useCallback((type: string, payload: Record<string, unknown> = {}) => {
-    const connection = connectionRef.current;
-    return appRuntime.runPromise(
-      connection
-        ? connection.command(type, payload)
-        : Effect.fail(
-            new LiveSessionConnection.LiveSessionError({
-              message: "live session transport is unavailable",
-            }),
-          ),
-    );
-  }, []);
-  const selectTarget = useCallback((targetId: string) => {
-    const connection = connectionRef.current;
-    if (!connection) {
-      return false;
-    }
-    setTargetSwitching(true);
-    appRuntime.runFork(
+    [],
+  );
+  const command = useCallback(
+    (type: string, payload: Record<string, unknown> = {}) => {
+      const connection = connectionRef.current;
+      if (!connection) {
+        return false;
+      }
+      runCommand(connection, type, payload);
+      return true;
+    },
+    [runCommand],
+  );
+  const request = useCallback(
+    (type: string, payload: Record<string, unknown> = {}) =>
+      Effect.suspend(() =>
+        connectionRef.current
+          ? connectionRef.current.command(type, payload)
+          : Effect.fail(transportUnavailable()),
+      ),
+    [],
+  );
+  const runSelectTarget = useEffectCallback(
+    (connection: LiveSessionConnection.LiveSessionConnection, targetId: string) =>
       connection.command("target.select", { targetId }).pipe(
         Effect.match({
           onSuccess: () => setActiveTargetId(targetId),
@@ -396,87 +407,99 @@ export function useLiveSession({
         }),
         Effect.ensuring(Effect.sync(() => setTargetSwitching(false))),
       ),
-    );
-    return true;
-  }, []);
+    [],
+  );
+  const selectTarget = useCallback(
+    (targetId: string) => {
+      const connection = connectionRef.current;
+      if (!connection) {
+        return false;
+      }
+      setTargetSwitching(true);
+      runSelectTarget(connection, targetId);
+      return true;
+    },
+    [runSelectTarget],
+  );
 
-  const selectPresentation = useCallback((selection: LiveSessionMediaSelection) => {
-    const connection = connectionRef.current;
-    if (!connection) {
-      return Promise.reject(
-        new LiveSessionConnection.LiveSessionError({
-          message: "live session transport is unavailable",
-        }),
-      );
-    }
-    if (presentationSelectionRef.current) {
-      return Promise.reject(
-        new LiveSessionConnection.LiveSessionError({
-          message: "another presentation update is already in progress",
-        }),
-      );
-    }
-    setPresentationSwitching(true);
-    const update = Effect.gen(function* () {
-      switch (selection.kind) {
-        case "jpeg":
-          return yield* connection.selectTransport("websocket");
-        case "webrtc-retry":
-          return yield* connection.selectTransport("webrtc");
-        case "webrtc": {
-          const size = mediaSizeRef.current;
-          if (!size) {
-            return yield* new LiveSessionConnection.LiveSessionError({
-              message: "presentation size is unavailable",
-            });
-          }
-          const profileChanged =
-            presentationRef.current?.quality?.profile !== selection.quality.profile;
-          // A new encoder profile needs a new WebRTC session; present JPEG meanwhile.
-          const restoreWebRTC = profileChanged && transportRef.current === "webrtc";
-          if (restoreWebRTC) {
-            yield* connection.selectTransport("websocket");
-          }
-          const result = yield* connection
-            .command("presentation.quality.set", {
-              profile: selection.quality.profile,
-              width: size.canvasWidth,
-              height: size.canvasHeight,
-              fps: selection.quality.fps,
-              bitrateKbps: selection.quality.bitrateKbps,
-            })
-            .pipe(
-              // Keep the quality update error as the reported failure.
-              Effect.tapError(() =>
-                restoreWebRTC ? Effect.ignore(connection.selectTransport("webrtc")) : Effect.void,
-              ),
-            );
-          if (result.presentation) {
-            setPresentation(result.presentation);
-          }
-          return yield* connection.selectTransport("webrtc");
+  const selectPresentation = useCallback(
+    (selection: LiveSessionMediaSelection) =>
+      Effect.suspend(() => {
+        const connection = connectionRef.current;
+        if (!connection) {
+          return Effect.fail(transportUnavailable());
         }
-        default: {
-          const exhaustive: never = selection;
-          return exhaustive;
+        if (presentationSelectionRef.current) {
+          return Effect.fail(
+            new LiveSessionConnection.LiveSessionError({
+              message: "another presentation update is already in progress",
+            }),
+          );
         }
-      }
-    }).pipe(
-      Effect.tapError((error) =>
-        Effect.sync(() =>
-          setLastError({ code: "presentation_update_failed", message: error.message }),
-        ),
-      ),
-    );
-    const operation = appRuntime.runPromise(update);
-    presentationSelectionRef.current = operation;
-    return operation.finally(() => {
-      if (presentationSelectionRef.current === operation) {
-        presentationSelectionRef.current = null;
-        setPresentationSwitching(false);
-      }
-    });
-  }, []);
+        presentationSelectionRef.current = true;
+        setPresentationSwitching(true);
+        return Effect.gen(function* () {
+          switch (selection.kind) {
+            case "jpeg":
+              return yield* connection.selectTransport("websocket");
+            case "webrtc-retry":
+              return yield* connection.selectTransport("webrtc");
+            case "webrtc": {
+              const size = mediaSizeRef.current;
+              if (!size) {
+                return yield* new LiveSessionConnection.LiveSessionError({
+                  message: "presentation size is unavailable",
+                });
+              }
+              const profileChanged =
+                presentationRef.current?.quality?.profile !== selection.quality.profile;
+              // A new encoder profile needs a new WebRTC session; present JPEG meanwhile.
+              const restoreWebRTC = profileChanged && transportRef.current === "webrtc";
+              if (restoreWebRTC) {
+                yield* connection.selectTransport("websocket");
+              }
+              const result = yield* connection
+                .command("presentation.quality.set", {
+                  profile: selection.quality.profile,
+                  width: size.canvasWidth,
+                  height: size.canvasHeight,
+                  fps: selection.quality.fps,
+                  bitrateKbps: selection.quality.bitrateKbps,
+                })
+                .pipe(
+                  // Keep the quality update error as the reported failure.
+                  Effect.tapError(() =>
+                    restoreWebRTC
+                      ? Effect.ignore(connection.selectTransport("webrtc"))
+                      : Effect.void,
+                  ),
+                );
+              if (result.presentation) {
+                setPresentation(result.presentation);
+              }
+              return yield* connection.selectTransport("webrtc");
+            }
+            default: {
+              const exhaustive: never = selection;
+              return exhaustive;
+            }
+          }
+        }).pipe(
+          Effect.tapError((error) =>
+            Effect.sync(() =>
+              setLastError({ code: "presentation_update_failed", message: error.message }),
+            ),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              presentationSelectionRef.current = false;
+              setPresentationSwitching(false);
+            }),
+          ),
+        );
+      }),
+    [],
+  );
 
   const claim = useCallback(
     (targetId: string, mode: CollaborationLeaseMode) => {
@@ -695,23 +718,22 @@ export function useLiveSession({
   const followingClientId =
     participants.find((participant) => participant.clientId === clientId)?.followingClientId ??
     null;
-  useEffect(() => {
-    if (!hasControl) {
-      return;
-    }
-    return forkEffect(
-      Effect.sleep(heartbeatIntervalMs).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            if (holderClientIdRef.current === clientIdRef.current) {
-              sendReliable({ type: "input.heartbeat" });
-            }
-          }),
-        ),
-        Effect.forever,
-      ),
-    );
-  }, [hasControl, sendReliable]);
+  useFork(
+    () =>
+      hasControl
+        ? Effect.sleep(heartbeatIntervalMs).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                if (holderClientIdRef.current === clientIdRef.current) {
+                  sendReliable({ type: "input.heartbeat" });
+                }
+              }),
+            ),
+            Effect.forever,
+          )
+        : undefined,
+    [hasControl, sendReliable],
+  );
 
   return {
     phase,
@@ -732,7 +754,7 @@ export function useLiveSession({
     reconnect: () => {
       const connection = connectionRef.current;
       if (connection) {
-        appRuntime.runSync(connection.reconnect);
+        runtime.runSync(connection.reconnect);
       }
     },
     collaboration: {

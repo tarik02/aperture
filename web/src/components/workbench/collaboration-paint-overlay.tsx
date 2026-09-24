@@ -7,7 +7,7 @@ import type {
   CollaborationPaintPoint,
 } from "#/lib/control/live-session-protocol.ts";
 import { cn } from "@aperture/ui/utils";
-import { forkEffect } from "#/lib/runtime.ts";
+import { useFork } from "#/lib/effect/react.tsx";
 
 type CollaborationPaintOverlayProps = {
   collaboration: CollaborationControl;
@@ -53,7 +53,7 @@ export function CollaborationPaintOverlay({
   const strokesRef = useRef(new Map<string, PaintStroke>());
   const color = colorForClient(collaboration.clientId);
 
-  useEffect(() => {
+  useFork(() => {
     const canvas = canvasRef.current;
     if (!canvas) {
       return;
@@ -204,17 +204,19 @@ export function CollaborationPaintOverlay({
       });
       requestDraw();
     };
-    const interrupt = forkEffect(
-      Stream.runForEach(collaboration.paintEvents, (event) => Effect.sync(() => onPaint(event))),
-    );
 
     draw();
-    return () => {
-      interrupt();
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-    };
+    return Stream.runForEach(collaboration.paintEvents, (event) =>
+      Effect.sync(() => onPaint(event)),
+    ).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (animationFrame !== null) {
+            window.cancelAnimationFrame(animationFrame);
+          }
+        }),
+      ),
+    );
   }, [collaboration.paintEvents, collaboration.participants, height, targetId, width]);
 
   useEffect(() => {

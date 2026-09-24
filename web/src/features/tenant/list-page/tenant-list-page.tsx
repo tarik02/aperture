@@ -45,7 +45,8 @@ import { useTenantFormStore } from "#/features/tenant/form/tenant-form.store.ts"
 import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-form-modal.store.ts";
 import { useTenantListPageStore } from "#/features/tenant/list-page/tenant-list-page.store.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
-import { runApi } from "#/lib/runtime.ts";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 const TENANT_SKELETON_COLUMNS = [
   {
@@ -64,6 +65,7 @@ const TENANT_SKELETON_COLUMNS = [
 ] as const;
 
 export function TenantListPage() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const authStatus = useAuthSessionStore((state) => state.status);
   const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
@@ -95,7 +97,7 @@ export function TenantListPage() {
 
   async function selectTenant(tenant: Tenant) {
     try {
-      setAuthenticated(await runApi((api) => api.getAuthMe(tenant.id)));
+      setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe(tenant.id))));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Tenant switch failed");
     }

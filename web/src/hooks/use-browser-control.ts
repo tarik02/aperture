@@ -8,7 +8,7 @@ import {
   type LiveSessionControl,
   type LiveSessionMediaSelection,
 } from "#/hooks/use-live-session.ts";
-import type { ApiCredentials, IceServer } from "@aperture/api-client";
+import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture/api-client";
 import type { Recording } from "@aperture/api-client";
 import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 import type {
@@ -23,7 +23,7 @@ import {
   DEFAULT_VIEWPORT,
   type ViewportPreset,
 } from "#/lib/control/viewport.ts";
-import { appRuntime, runApi } from "#/lib/runtime.ts";
+import { useEffectCallback, useRuntime } from "#/lib/effect/react.tsx";
 
 type UseBrowserControlOptions = {
   sessionId: string | null;
@@ -112,6 +112,7 @@ export function useBrowserControl({
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
 }: UseBrowserControlOptions): UseBrowserControlResult {
+  const runtime = useRuntime();
   const sessionCredentials = useApiCredentials();
   const credentials = credentialsOverride ?? sessionCredentials;
   const live = useLiveSession({
@@ -208,16 +209,19 @@ export function useBrowserControl({
   );
 
   const createAndSelectTarget = useCallback(
-    async (url: string) => {
-      try {
-        const result = await live.request("target.create", { url });
-        return result.targetId ?? null;
-      } catch (cause: unknown) {
-        toast.error(errorMessage(cause, "Tab could not be created"));
-        return null;
-      }
-    },
-    [live],
+    (url: string) =>
+      runtime.runPromise(
+        live.request("target.create", { url }).pipe(
+          Effect.map((result) => result.targetId ?? null),
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              toast.error(errorMessage(error, "Tab could not be created"));
+              return null;
+            }),
+          ),
+        ),
+      ),
+    [live, runtime],
   );
 
   const createTarget = useCallback(
@@ -349,6 +353,23 @@ export function useBrowserControl({
     commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
   }, [commitViewport]);
 
+  const settleRecording = <A, E extends Error>(
+    effect: Effect.Effect<A, E, SessionsApi>,
+    failure: string,
+  ) =>
+    effect.pipe(
+      Effect.catch((error) => Effect.sync(() => toast.error(errorMessage(error, failure)))),
+      Effect.ensuring(Effect.sync(() => setRecordingBusy(false))),
+    );
+
+  const runStartRecording = useEffectCallback(
+    (mode: "tab" | "viewer", targetId: string) =>
+      settleRecording(
+        live.request("recording.start", { mode, targetId }),
+        "Recording failed to start",
+      ),
+    [live],
+  );
   const startRecording = useCallback(
     (mode: "tab" | "viewer") => {
       const targetId = activeTargetIdRef.current;
@@ -356,83 +377,111 @@ export function useBrowserControl({
         return;
       }
       setRecordingBusy(true);
-      void live
-        .request("recording.start", { mode, targetId })
-        .catch((cause: unknown) => toast.error(errorMessage(cause, "Recording failed to start")))
-        .finally(() => setRecordingBusy(false));
+      runStartRecording(mode, targetId);
     },
-    [collaborationRole, live, recordingBusy],
+    [collaborationRole, recordingBusy, runStartRecording],
   );
 
+  const runStopRecording = useEffectCallback(
+    (credentials: ApiCredentials, sessionId: string, recordingId: string) =>
+      settleRecording(
+        live.request("recording.stop", { recordingId }).pipe(
+          Effect.andThen(
+            SessionsApi.use((sessions) =>
+              sessions.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
+            ),
+          ),
+          Effect.flatMap(({ blob, filename }) => {
+            const recording = live.recordings.find(
+              (candidate) => candidate.recordingId === recordingId,
+            );
+            return downloadBlob(
+              blob,
+              filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
+            );
+          }),
+          Effect.andThen(Effect.sync(() => toast.success("Recording saved"))),
+        ),
+        "Recording failed to stop",
+      ),
+    [live, sessionToken],
+  );
   const stopRecording = useCallback(
     (recordingId: string) => {
       if (!sessionId || !credentials || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      void live
-        .request("recording.stop", { recordingId })
-        .then(() =>
-          runApi((api) =>
-            api.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
-          ),
-        )
-        .then(({ blob, filename }) => {
-          const recording = live.recordings.find(
-            (candidate) => candidate.recordingId === recordingId,
-          );
-          downloadBlob(
-            blob,
-            filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
-          );
-          toast.success("Recording saved");
-        })
-        .catch((cause: unknown) => toast.error(errorMessage(cause, "Recording failed to stop")))
-        .finally(() => setRecordingBusy(false));
+      runStopRecording(credentials, sessionId, recordingId);
     },
-    [credentials, live, recordingBusy, sessionId, sessionToken],
+    [credentials, recordingBusy, runStopRecording, sessionId],
   );
 
+  const runCancelRecording = useEffectCallback(
+    (recordingId: string) =>
+      settleRecording(
+        live
+          .request("recording.cancel", { recordingId })
+          .pipe(Effect.andThen(Effect.sync(() => toast.success("Recording stopped")))),
+        "Recording failed to stop",
+      ),
+    [live],
+  );
   const cancelRecording = useCallback(
     (recordingId: string) => {
       if (recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      void live
-        .request("recording.cancel", { recordingId })
-        .then(() => toast.success("Recording stopped"))
-        .catch((cause: unknown) => toast.error(errorMessage(cause, "Recording failed to stop")))
-        .finally(() => setRecordingBusy(false));
+      runCancelRecording(recordingId);
     },
-    [live, recordingBusy],
+    [recordingBusy, runCancelRecording],
   );
 
+  const runSetRemoteCursor = useEffectCallback(
+    (visible: boolean) =>
+      live
+        .request("presentation.cursor.set", { visible })
+        .pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              toast.error(errorMessage(error, "Remote cursor could not be updated")),
+            ),
+          ),
+        ),
+    [live],
+  );
   const setRemoteCursorEnabled = useCallback(
     (visible: boolean) => {
-      if (!sessionId || !credentials) {
-        return;
+      if (sessionId && credentials) {
+        runSetRemoteCursor(visible);
       }
-      void live.request("presentation.cursor.set", { visible }).catch((cause: unknown) => {
-        toast.error(errorMessage(cause, "Remote cursor could not be updated"));
-      });
     },
-    [credentials, live, sessionId],
+    [credentials, runSetRemoteCursor, sessionId],
   );
 
+  const runSelectPresentation = useEffectCallback(
+    (selection: LiveSessionMediaSelection) =>
+      live
+        .selectPresentation(selection)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              toast.error(errorMessage(error, "Presentation could not be updated")),
+            ),
+          ),
+        ),
+    [live],
+  );
   const selectMediaStream = useCallback(
     (selection: LiveSessionMediaSelection) => {
       if (!enabled || !sessionId || !credentials || live.mediaSwitching) {
         return false;
       }
-      void live
-        .selectPresentation(selection)
-        .catch((cause: unknown) =>
-          toast.error(errorMessage(cause, "Presentation could not be updated")),
-        );
+      runSelectPresentation(selection);
       return true;
     },
-    [credentials, enabled, live, sessionId],
+    [credentials, enabled, live.mediaSwitching, runSelectPresentation, sessionId],
   );
 
   const setWebRTCStreamSettings = useCallback(
@@ -536,14 +585,19 @@ function createBrowserViewport(
   return createViewportPreset(size.width, size.height, deviceScaleFactor);
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  appRuntime.runFork(Effect.sync(() => URL.revokeObjectURL(url)).pipe(Effect.delay(0)));
-}
+// The object URL is released once the browser has started the download.
+const downloadBlob = (blob: Blob, filename: string) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => URL.createObjectURL(blob)),
+    (url) =>
+      Effect.sync(() => {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.click();
+      }),
+    (url) => Effect.sync(() => URL.revokeObjectURL(url)).pipe(Effect.delay(0)),
+  );
 
 function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message ? cause.message : fallback;

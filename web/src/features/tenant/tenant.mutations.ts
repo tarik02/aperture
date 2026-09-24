@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { runApi } from "#/lib/runtime.ts";
+import { TenantsApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 function useInvalidateTenants() {
   const queryClient = useQueryClient();
@@ -11,46 +12,54 @@ function useInvalidateTenants() {
 }
 
 export function useCreateTenantMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateTenants();
 
   return useMutation({
     mutationFn: (input: { displayName: string }) =>
-      runApi((api) => api.createTenant(credentials!, input)),
+      runApi(TenantsApi.use((tenants) => tenants.createTenant(credentials!, input))),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Create failed"),
   });
 }
 
 export function useUpdateTenantMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateTenants();
 
   return useMutation({
     mutationFn: ({ tenantId, displayName }: { tenantId: string; displayName: string }) =>
-      runApi((api) => api.updateTenant(credentials!, tenantId, { displayName })),
+      runApi(
+        TenantsApi.use((tenants) => tenants.updateTenant(credentials!, tenantId, { displayName })),
+      ),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Update failed"),
   });
 }
 
 export function useDeleteTenantMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateTenants();
 
   return useMutation({
-    mutationFn: (tenantId: string) => runApi((api) => api.deleteTenant(credentials!, tenantId)),
+    mutationFn: (tenantId: string) =>
+      runApi(TenantsApi.use((tenants) => tenants.deleteTenant(credentials!, tenantId))),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Delete failed"),
   });
 }
 
 export function useRestoreTenantMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateTenants();
 
   return useMutation({
-    mutationFn: (tenantId: string) => runApi((api) => api.restoreTenant(credentials!, tenantId)),
+    mutationFn: (tenantId: string) =>
+      runApi(TenantsApi.use((tenants) => tenants.restoreTenant(credentials!, tenantId))),
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Restore failed"),
   });

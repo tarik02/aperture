@@ -3,7 +3,8 @@ import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type SnapshotsFilters } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
-import { runApi } from "#/lib/runtime.ts";
+import { SnapshotsApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {
@@ -18,6 +19,7 @@ export function useSnapshotsInfiniteQuery(
   filters: SnapshotsFilters = {},
   options: { enabled?: boolean; credentials?: ApiCredentials | null } = {},
 ) {
+  const runApi = useRunApi();
   const activeCredentials = useApiCredentials();
   const credentials = options.credentials === undefined ? activeCredentials : options.credentials;
   const tenantKey = resolveTenantKey(credentials);
@@ -27,8 +29,8 @@ export function useSnapshotsInfiniteQuery(
     queryKey: queryKeys.snapshots(tenantKey, filters),
     queryFn: ({ pageParam, signal }) =>
       runApi(
-        (api) =>
-          api.listSnapshots(credentials!, {
+        SnapshotsApi.use((snapshots) =>
+          snapshots.listSnapshots(credentials!, {
             limit: filters.limit ?? defaultListLimit,
             cursor: pageParam,
             includeDeleted: filters.includeDeleted,
@@ -36,6 +38,7 @@ export function useSnapshotsInfiniteQuery(
             name: filters.name,
             tags: filters.tags,
           }),
+        ),
         { signal },
       ),
     initialPageParam: undefined as string | undefined,

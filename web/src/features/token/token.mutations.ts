@@ -2,7 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type CreateAdminTokenInput, type CreateTenantTokenInput } from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { runApi } from "#/lib/runtime.ts";
+import { TokensApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 export type CreateTokenMutationInput =
   | { kind: "admin"; input: CreateAdminTokenInput }
@@ -16,6 +17,7 @@ function useInvalidateTokens() {
 }
 
 export function useCreateTokenMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateTokens();
 
@@ -23,9 +25,13 @@ export function useCreateTokenMutation() {
     mutationFn: (request: CreateTokenMutationInput) => {
       switch (request.kind) {
         case "admin":
-          return runApi((api) => api.createAdminToken(credentials!, request.input));
+          return runApi(
+            TokensApi.use((tokens) => tokens.createAdminToken(credentials!, request.input)),
+          );
         case "tenant":
-          return runApi((api) => api.createTenantToken(credentials!, request.input));
+          return runApi(
+            TokensApi.use((tokens) => tokens.createTenantToken(credentials!, request.input)),
+          );
         default: {
           const exhaustive: never = request;
           return exhaustive;
@@ -38,15 +44,16 @@ export function useCreateTokenMutation() {
 }
 
 export function useRevokeTokenMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateTokens();
 
   return useMutation({
     mutationFn: (tokenId: string) => {
       if (credentials!.authorityType === "system_admin") {
-        return runApi((api) => api.revokeAdminToken(credentials!, tokenId));
+        return runApi(TokensApi.use((tokens) => tokens.revokeAdminToken(credentials!, tokenId)));
       }
-      return runApi((api) => api.revokeTenantToken(credentials!, tokenId));
+      return runApi(TokensApi.use((tokens) => tokens.revokeTenantToken(credentials!, tokenId)));
     },
     onSuccess: invalidate,
     onError: (error) => toastMutationError(error, "Revoke failed"),

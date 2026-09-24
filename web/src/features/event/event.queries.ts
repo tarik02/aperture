@@ -3,7 +3,8 @@ import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type EventsFilters } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
-import { runApi } from "#/lib/runtime.ts";
+import { EventsApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {
@@ -15,6 +16,7 @@ function resolveTenantKey(credentials: ApiCredentials | null): string | null {
 }
 
 export function useEventsInfiniteQuery(filters: EventsFilters, enabled = true) {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const tenantKey = resolveTenantKey(credentials);
   const queryEnabled = enabled && isTenantScopedQueryReady(credentials);
@@ -23,13 +25,14 @@ export function useEventsInfiniteQuery(filters: EventsFilters, enabled = true) {
     queryKey: queryKeys.events(tenantKey, filters),
     queryFn: ({ pageParam, signal }) =>
       runApi(
-        (api) =>
-          api.listEvents(credentials!, {
+        EventsApi.use((events) =>
+          events.listEvents(credentials!, {
             limit: filters.limit ?? defaultListLimit,
             cursor: pageParam,
             resourceType: filters.resourceType,
             resourceId: filters.resourceId,
           }),
+        ),
         { signal },
       ),
     initialPageParam: undefined as string | undefined,

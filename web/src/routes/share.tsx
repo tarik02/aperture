@@ -14,7 +14,8 @@ import type { ApiCredentials } from "@aperture/api-client";
 import { ApiRequestError } from "@aperture/api-client";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
-import { runApi } from "#/lib/runtime.ts";
+import { SessionsApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 const capabilityStorageKey = "aperture.share.session-token";
 
@@ -35,6 +36,7 @@ export const Route = createFileRoute("/share")({
 });
 
 function ShareRoute() {
+  const runApi = useRunApi();
   const [capability, setCapability] = useState<CapabilityState>({ kind: "loading" });
 
   useEffect(() => {
@@ -106,7 +108,10 @@ function ShareRoute() {
       if (capability.kind !== "ready" || !credentials) {
         throw new Error("Session capability unavailable");
       }
-      return runApi((api) => api.getBrowserStatus(credentials, capability.sessionId), { signal });
+      return runApi(
+        SessionsApi.use((sessions) => sessions.getBrowserStatus(credentials, capability.sessionId)),
+        { signal },
+      );
     },
     enabled: capability.kind === "ready" && credentials !== null,
     retry: false,

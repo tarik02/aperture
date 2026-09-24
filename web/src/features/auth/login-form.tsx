@@ -15,7 +15,8 @@ import { Input } from "@aperture/ui/components/input";
 import { parseTokenId } from "#/lib/token-id.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import type { LoginMethods } from "@aperture/api-client";
-import { runApi } from "#/lib/runtime.ts";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 type LoginFormProps = {
   loginMethods?: LoginMethods["methods"];
@@ -25,6 +26,7 @@ type LoginFormProps = {
 type LoginFormMethod = "password" | "api_token";
 
 export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
+  const runApi = useRunApi();
   const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
   const [selectedLoginMethod, setSelectedLoginMethod] = useState<LoginFormMethod | null>(null);
   const [rawToken, setRawToken] = useState("");
@@ -64,8 +66,8 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
 
     setTokenSubmitting(true);
     try {
-      await runApi((api) => api.loginWithAPIToken(trimmedToken));
-      setAuthenticated(await runApi((api) => api.getAuthMe()));
+      await runApi(AuthApi.use((auth) => auth.loginWithAPIToken(trimmedToken)));
+      setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe())));
       setRawToken("");
       toast.success("Logged in");
       onDone();
@@ -79,10 +81,10 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
   async function handlePasskeyLogin() {
     setPasskeySubmitting(true);
     try {
-      const options = await runApi((api) => api.beginPasskeyLogin());
+      const options = await runApi(AuthApi.use((auth) => auth.beginPasskeyLogin()));
       const credential = await startAuthentication({ optionsJSON: options.publicKey });
-      await runApi((api) => api.finishPasskeyLogin(credential));
-      setAuthenticated(await runApi((api) => api.getAuthMe()));
+      await runApi(AuthApi.use((auth) => auth.finishPasskeyLogin(credential)));
+      setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe())));
       toast.success("Logged in");
       onDone();
     } catch (error) {
@@ -97,16 +99,16 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
     setPasswordSubmitting(true);
     try {
       if (passwordStep === "credentials") {
-        const result = await runApi((api) => api.loginWithPassword(email, password));
+        const result = await runApi(AuthApi.use((auth) => auth.loginWithPassword(email, password)));
         if (result.mfaRequired) {
           setPassword("");
           setPasswordStep("mfa");
           return;
         }
       } else {
-        await runApi((api) => api.completePasswordMFA(mfaCode));
+        await runApi(AuthApi.use((auth) => auth.completePasswordMFA(mfaCode)));
       }
-      setAuthenticated(await runApi((api) => api.getAuthMe()));
+      setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe())));
       setPasswordStep("credentials");
       setEmail("");
       setPassword("");

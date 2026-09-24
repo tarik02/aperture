@@ -13,7 +13,8 @@ import { Skeleton } from "@aperture/ui/components/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture/ui/components/tabs";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { TOTPEnrollment } from "@aperture/api-client";
-import { runApi } from "#/lib/runtime.ts";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 type TOTPFlow =
   | { kind: "idle" }
@@ -34,11 +35,16 @@ type SecurityModalProps = {
 };
 
 export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
+  const runApi = useRunApi();
   const queryClient = useQueryClient();
   const securityStatusQueryKey = queryKeys.securityStatus;
   const status = useQuery({
     queryKey: securityStatusQueryKey,
-    queryFn: ({ signal }) => runApi((api) => api.getSecurityStatus(), { signal }),
+    queryFn: ({ signal }) =>
+      runApi(
+        AuthApi.use((auth) => auth.getSecurityStatus()),
+        { signal },
+      ),
     enabled: open,
   });
   const [currentPassword, setCurrentPassword] = useState("");
@@ -68,7 +74,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
     }
     setPendingAction("password");
     try {
-      await runApi((api) => api.setPassword(currentPassword, newPassword));
+      await runApi(AuthApi.use((auth) => auth.setPassword(currentPassword, newPassword)));
       await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setCurrentPassword("");
       setNewPassword("");
@@ -84,7 +90,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
   async function handleBeginTOTP() {
     setPendingAction("begin-totp");
     try {
-      const enrollment = await runApi((api) => api.beginTOTPEnrollment());
+      const enrollment = await runApi(AuthApi.use((auth) => auth.beginTOTPEnrollment()));
       setTOTPFlow({ kind: "enrollment", enrollment, code: "" });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Authenticator setup failed");
@@ -100,7 +106,9 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
     }
     setPendingAction("finish-totp");
     try {
-      const result = await runApi((api) => api.completeTOTPEnrollment(totpFlow.code));
+      const result = await runApi(
+        AuthApi.use((auth) => auth.completeTOTPEnrollment(totpFlow.code)),
+      );
       await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setTOTPFlow({ kind: "recovery-codes", codes: [...result.recoveryCodes] });
       toast.success("Authenticator enabled");
@@ -114,7 +122,9 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
   async function handleRegenerateRecoveryCodes() {
     setPendingAction("recovery-codes");
     try {
-      const result = await runApi((api) => api.regenerateRecoveryCodes(verificationCode));
+      const result = await runApi(
+        AuthApi.use((auth) => auth.regenerateRecoveryCodes(verificationCode)),
+      );
       await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setVerificationCode("");
       setTOTPFlow({ kind: "recovery-codes", codes: [...result.recoveryCodes] });
@@ -129,7 +139,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
   async function handleDisableTOTP() {
     setPendingAction("disable-totp");
     try {
-      await runApi((api) => api.disableTOTP(verificationCode));
+      await runApi(AuthApi.use((auth) => auth.disableTOTP(verificationCode)));
       await queryClient.invalidateQueries({ queryKey: securityStatusQueryKey });
       setVerificationCode("");
       setTOTPFlow({ kind: "idle" });

@@ -23,13 +23,15 @@ import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
 import { SecurityModal } from "#/features/security/security-modal.tsx";
 import { cn } from "@aperture/ui/utils";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
-import { runApi } from "#/lib/runtime.ts";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 type AuthMenuProps = {
   className?: string;
 };
 
 export function AuthMenu({ className }: AuthMenuProps) {
+  const runApi = useRunApi();
   const queryClient = useQueryClient();
   const principal = useAuthSessionStore(selectPrincipal);
   const setUnauthenticated = useAuthSessionStore((state) => state.setUnauthenticated);
@@ -41,7 +43,7 @@ export function AuthMenu({ className }: AuthMenuProps) {
   async function handleLogout() {
     setLoggingOut(true);
     try {
-      await runApi((api) => api.logoutWebSession());
+      await runApi(AuthApi.use((auth) => auth.logoutWebSession()));
       queryClient.clear();
       setUnauthenticated();
     } catch (error) {

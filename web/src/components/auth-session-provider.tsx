@@ -2,9 +2,9 @@ import { lazy, Suspense, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { Effect, Stream } from "effect";
-import { ApiClient } from "@aperture/api-client";
+import { ApiAuthorization, AuthApi } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
-import { forkEffect, runApi } from "#/lib/runtime.ts";
+import { useFork } from "#/lib/effect/react.tsx";
 
 const WelcomeLoginModal = lazy(() =>
   import("#/features/auth/login-modal.tsx").then((module) => ({
@@ -25,43 +25,32 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
     window.localStorage.removeItem("aperture-token-vault");
   }, []);
 
-  useEffect(
+  useFork(
     () =>
-      forkEffect(
-        ApiClient.use((api) =>
-          Stream.runForEach(api.sessionAuthenticationFailures, () =>
-            Effect.sync(() => {
-              queryClient.clear();
-              setUnauthenticated();
-            }),
-          ),
+      ApiAuthorization.use((authorization) =>
+        Stream.runForEach(authorization.sessionAuthenticationFailures, () =>
+          Effect.sync(() => {
+            queryClient.clear();
+            setUnauthenticated();
+          }),
         ),
       ),
     [queryClient, setUnauthenticated],
   );
 
-  useEffect(() => {
-    if (guestMode || status !== "loading") {
-      return;
-    }
-
-    let cancelled = false;
-    void runApi((api) => api.getAuthMe())
-      .then((response) => {
-        if (!cancelled) {
-          setAuthenticated(response);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setUnauthenticated();
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [guestMode, setAuthenticated, setUnauthenticated, status]);
+  // Interrupted when the status changes first, so a stale answer is never applied.
+  useFork(
+    () =>
+      guestMode || status !== "loading"
+        ? undefined
+        : AuthApi.use((auth) => auth.getAuthMe()).pipe(
+            Effect.match({
+              onSuccess: setAuthenticated,
+              onFailure: () => setUnauthenticated(),
+            }),
+          ),
+    [guestMode, setAuthenticated, setUnauthenticated, status],
+  );
 
   return (
     <>
