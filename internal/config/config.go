@@ -79,7 +79,6 @@ type Config struct {
 	ChannelRegistry                  map[string]ChannelConfig `mapstructure:"channels"`
 	ExternalBaseURL                  string                   `mapstructure:"external_base_url"`
 	CdpRouteBasePath                 string                   `mapstructure:"cdp_route_base_path"`
-	BrowserRestoreDiagnostics        bool                     `mapstructure:"browser_restore_diagnostics"`
 	WebRTCCaptureProofExtensionDir   string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
 	WebRTCMediaMode                  string                   `mapstructure:"webrtc_media_mode"`
 	GPUMode                          string                   `mapstructure:"gpu_mode"`
@@ -141,7 +140,6 @@ func Defaults() Config {
 		ChannelRegistry:                  nil,
 		ExternalBaseURL:                  "",
 		CdpRouteBasePath:                 "/cdp",
-		BrowserRestoreDiagnostics:        false,
 		WebRTCCaptureProofExtensionDir:   "",
 		WebRTCMediaMode:                  WebRTCMediaModeAuto,
 		GPUMode:                          GPUModeAuto,
@@ -224,7 +222,6 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("session_storage_quota_bytes", defaults.SessionStorageQuotaBytes)
 	v.SetDefault("snapshot_retention_days", defaults.SnapshotRetentionDays)
 	v.SetDefault("cdp_route_base_path", defaults.CdpRouteBasePath)
-	v.SetDefault("browser_restore_diagnostics", defaults.BrowserRestoreDiagnostics)
 	v.SetDefault("webrtc_media_mode", defaults.WebRTCMediaMode)
 	v.SetDefault("gpu_mode", defaults.GPUMode)
 	v.SetDefault("webrtc_compositor_enabled", defaults.WebRTCCompositorEnabled)
@@ -282,7 +279,6 @@ func Load(flags *viper.Viper) (Config, error) {
 		"snapshot_retention_days",
 		"external_base_url",
 		"cdp_route_base_path",
-		"browser_restore_diagnostics",
 		"webrtc_capture_proof_extension_dir",
 		"webrtc_media_mode",
 		"gpu_mode",

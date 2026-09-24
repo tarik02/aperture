@@ -34,7 +34,6 @@ type RuntimeEnvValues struct {
 	BrowserExecutable          string
 	BrowserDefaultArgs         []string
 	BrowserExtraArgs           []string
-	BrowserRestoreDiagnostics  bool
 	ProxyUpstream              string
 	ProxyURL                   string
 	ProxyTunnelURL             string
@@ -211,9 +210,6 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"PROXY_UPSTREAM=" + shellQuote(values.ProxyUpstream),
 		"GPU_MODE=" + shellQuote(values.GPUMode),
 	}
-	if values.BrowserRestoreDiagnostics {
-		lines = append(lines, "BROWSER_RESTORE_DIAGNOSTICS=1")
-	}
 	if strings.TrimSpace(values.WrapperControlToken) != "" {
 		lines = append(lines, "WRAPPER_CONTROL_TOKEN="+shellQuote(values.WrapperControlToken))
 	}
@@ -329,8 +325,6 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 			values.CompositorEnabled = strings.TrimSpace(val) == "1"
 		case "WEBRTC_MEDIA_PRODUCER_ENABLED":
 			values.MediaProducerEnabled = strings.TrimSpace(val) == "1"
-		case "BROWSER_RESTORE_DIAGNOSTICS":
-			values.BrowserRestoreDiagnostics = strings.TrimSpace(val) == "1"
 		case "CDP_PORT":
 			port, err := strconv.Atoi(val)
 			if err != nil {
