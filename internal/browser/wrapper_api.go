@@ -52,6 +52,7 @@ type wrapperRuntime struct {
 	cdpConnections           int
 	liveSession              *liveSession
 	proxyManager             *proxy.Manager
+	playwright               *playwrightMCPBackend
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -311,6 +312,11 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 		return nil, nil, fmt.Errorf("wrapper port is required")
 	}
 	r.ctx = ctx
+	r.playwright = newPlaywrightMCPBackend(r.values)
+	go func() {
+		<-ctx.Done()
+		r.playwright.Close()
+	}()
 	if err := r.watchSessionToken(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -337,7 +343,9 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/webrtc/signal", r.handleSignal)
 	mux.HandleFunc("/session", liveSession.serveSessionWebSocketHTTP)
 	mux.HandleFunc("/automation/lease", liveSession.serveAutomationLeaseHTTP)
+	mux.HandleFunc("/automation/playwright", r.handlePlaywrightCall)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
+	mux.HandleFunc("/initialize", r.handleInitialization)
 	mux.HandleFunc("/proxy/assignment", r.handleProxyAssignment)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)

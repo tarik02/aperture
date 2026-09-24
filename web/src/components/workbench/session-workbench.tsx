@@ -8,8 +8,9 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "#/components/ui/empty.tsx";
-import { Button } from "#/components/ui/button.tsx";
+} from "@aperture/ui/components/empty";
+import { Button } from "@aperture/ui/components/button";
+import { Spinner } from "@aperture/ui/components/spinner";
 import { BrowserControlPane } from "#/components/workbench/browser-control-pane.tsx";
 import {
   SessionDetailModals,
@@ -20,9 +21,9 @@ import { useRecentSessionsStore } from "#/features/session/recent-sessions.store
 import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { AppWindow, Loader2 } from "lucide-react";
-import type { ApiCredentials } from "#/lib/api/client.ts";
-import type { Session } from "#/lib/api/schemas.ts";
+import { AppWindow } from "lucide-react";
+import type { ApiCredentials } from "@aperture/api-client";
+import type { Session } from "@aperture/api-client";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 
 type SessionWorkbenchProps = {
@@ -129,10 +130,35 @@ export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProp
         <Empty className="h-full border-none">
           <EmptyHeader>
             <EmptyMedia variant="icon">
-              <Loader2 className="animate-spin" />
+              <Spinner />
             </EmptyMedia>
             <EmptyTitle>Loading session</EmptyTitle>
           </EmptyHeader>
+        </Empty>
+      ) : selectedSession?.status === "creating" ? (
+        <Empty className="h-full border-none">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Spinner />
+            </EmptyMedia>
+            <EmptyTitle>Starting session</EmptyTitle>
+            <EmptyDescription>Restoring browser state…</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : selectedSession?.status === "failed" ? (
+        <Empty className="h-full border-none">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <AppWindow />
+            </EmptyMedia>
+            <EmptyTitle>Session failed to start</EmptyTitle>
+            <EmptyDescription>Open the session details to inspect the failure.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button variant="outline" size="sm" render={<Link to="/-/sessions" />}>
+              Sessions
+            </Button>
+          </EmptyContent>
         </Empty>
       ) : selectedSession ? (
         <BrowserControlPane

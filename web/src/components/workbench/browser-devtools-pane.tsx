@@ -6,7 +6,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "#/components/ui/empty.tsx";
+} from "@aperture/ui/components/empty";
 
 export type DevToolsDock = "bottom" | "right";
 

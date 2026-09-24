@@ -1,4 +1,4 @@
-import { Dialog, DialogContent } from "#/components/ui/dialog.tsx";
+import { Dialog, DialogContent } from "@aperture/ui/components/dialog";
 import { TenantForm } from "#/features/tenant/form/tenant-form.tsx";
 import { useTenantFormStore } from "#/features/tenant/form/tenant-form.store.ts";
 import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-form-modal.store.ts";

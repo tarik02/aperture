@@ -171,6 +171,11 @@ func rewriteWrapperCDPDiscoveryValue(value any, req *http.Request, basePath stri
 		if rawURL, ok := typed["webSocketDebuggerUrl"].(string); ok {
 			typed["webSocketDebuggerUrl"] = publicCDPWebSocketURL(req, basePath, rawURL)
 		}
+		for _, key := range []string{"devtoolsFrontendUrl", "devtoolsFrontendUrlCompat"} {
+			if rawURL, ok := typed[key].(string); ok {
+				typed[key] = publicCDPDevToolsFrontendURL(req, basePath, rawURL)
+			}
+		}
 		for _, child := range typed {
 			rewriteWrapperCDPDiscoveryValue(child, req, basePath)
 		}
@@ -179,6 +184,33 @@ func rewriteWrapperCDPDiscoveryValue(value any, req *http.Request, basePath stri
 			rewriteWrapperCDPDiscoveryValue(child, req, basePath)
 		}
 	}
+}
+
+func publicCDPDevToolsFrontendURL(req *http.Request, basePath, rawURL string) string {
+	frontend, err := url.Parse(rawURL)
+	if err != nil || basePath == "" {
+		return rawURL
+	}
+	values, err := url.ParseQuery(frontend.RawQuery)
+	if err != nil {
+		return rawURL
+	}
+	for _, scheme := range []string{"ws", "wss"} {
+		endpoint := values.Get(scheme)
+		if endpoint == "" {
+			continue
+		}
+		target, err := url.Parse(publicCDPWebSocketURL(req, basePath, scheme+"://"+endpoint))
+		if err != nil {
+			return rawURL
+		}
+		values.Del("ws")
+		values.Del("wss")
+		values.Set(target.Scheme, strings.TrimPrefix(target.String(), target.Scheme+"://"))
+		frontend.RawQuery = values.Encode()
+		return frontend.String()
+	}
+	return rawURL
 }
 
 func publicCDPBasePathFromForwardedURI(forwardedURI string) string {

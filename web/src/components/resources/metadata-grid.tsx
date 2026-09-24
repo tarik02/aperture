@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { CopyButton } from "#/components/resources/copy-button.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import { formatTimestamp } from "#/lib/format.ts";
 
 type MetadataItem =

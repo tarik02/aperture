@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,11 +18,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
+} from "@aperture/ui/components/dropdown-menu";
 import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
 import { SecurityModal } from "#/features/security/security-modal.tsx";
-import { apiClient } from "#/lib/api/client.ts";
-import { cn } from "#/lib/utils.ts";
+import { apiClient } from "@aperture/api-client";
+import { cn } from "@aperture/ui/utils";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 type AuthMenuProps = {

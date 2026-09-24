@@ -26,17 +26,13 @@ import (
 const (
 	defaultMonitorInterval = 15 * time.Second
 	defaultSuspendAfter    = 15 * time.Minute
+	failureCleanupTimeout  = 30 * time.Second
 )
 
 // OverlayClient mounts and unmounts session overlays.
 type OverlayClient interface {
 	Mount(ctx context.Context, sessionID string, baseSnapshotID *string) error
 	Unmount(ctx context.Context, sessionID string) error
-}
-
-// MediaSessionCleaner closes in-memory media resources for a session.
-type MediaSessionCleaner interface {
-	CloseSessionMedia(sessionID string)
 }
 
 // Service owns session lifecycle orchestration.
@@ -48,7 +44,6 @@ type Service struct {
 	channels        *browser.Registry
 	traefik         traefik.Reconciler
 	successCache    *auth.BcryptSuccessCache
-	mediaCleaner    MediaSessionCleaner
 	waitForCDPReady CDPReadyWaiter
 	now             func() time.Time
 	mountLocal      func(ctx context.Context, sessionID string, baseSnapshotID *string) error
@@ -90,6 +85,7 @@ type CreateInput struct {
 	Label            *string
 	BrowserChannel   string
 	BrowserArgs      []string
+	Initialization   browser.SessionInitialization
 	Tags             map[string]string
 	Proxy            proxy.Assignment
 }
@@ -114,6 +110,37 @@ type SessionMediaView struct {
 
 // Create creates and starts a browser session.
 func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, error) {
+	return s.create(ctx, input, nil)
+}
+
+// CreateAsync creates a session record and starts its browser in the background.
+func (s *Service) CreateAsync(ctx context.Context, input CreateInput) (*SessionView, error) {
+	type createResult struct {
+		view *SessionView
+		err  error
+	}
+
+	created := make(chan createResult, 1)
+	go func() {
+		notified := false
+		view, err := s.create(context.WithoutCancel(ctx), input, func(view *SessionView) {
+			notified = true
+			created <- createResult{view: view}
+		})
+		if !notified {
+			created <- createResult{view: view, err: err}
+		}
+	}()
+
+	result := <-created
+	return result.view, result.err
+}
+
+func (s *Service) create(
+	ctx context.Context,
+	input CreateInput,
+	onCreated func(*SessionView),
+) (*SessionView, error) {
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
 		return nil, err
 	}
@@ -146,11 +173,23 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		nameCopy := snapshot.Name
 		baseSnapshotName = &nameCopy
 	}
+	initializationPayload, err := encodeBrowserInitialization(input.Initialization)
+	if err != nil {
+		return nil, err
+	}
+	// Reject invalid browser state before anything is allocated for the session.
+	if len(initializationPayload) != 0 {
+		if err := browser.ValidateSessionInitialization(ctx, initializationPayload); err != nil {
+			return nil, err
+		}
+	}
 
 	sessionID, err := ids.NewUUIDv7()
 	if err != nil {
 		return nil, err
 	}
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
 
 	layout, err := paths.Session(s.cfg, sessionID)
 	if err != nil {
@@ -207,6 +246,16 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 
 	if err := s.replaceTags(ctx, sessionID, input.Tags); err != nil {
 		return nil, err
+	}
+	if onCreated != nil {
+		onCreated(&SessionView{
+			Session:          *sessionRow,
+			Tags:             input.Tags,
+			BaseSnapshotName: baseSnapshotName,
+			CDPURL:           s.cdpURL(sessionID),
+			SessionToken:     rawSessionToken,
+			Media:            s.sessionMediaView(*sessionRow),
+		})
 	}
 
 	if err := s.mountOverlay(ctx, sessionID, baseSnapshotID); err != nil {
@@ -298,25 +347,35 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	sessionRow.RuntimeEnvPath = &runtimePath
 	sessionRow.CurrentCDPPort = &port
 
-	// The session stays creating until its CDP endpoint answers, so a session
-	// never reports running while its browser is still starting. Failures from
-	// here on are cleaned up with an uncancellable context so a client that
-	// walks away cannot leave the session stuck in creating.
-	cleanupCtx := context.WithoutCancel(ctx)
-	if err := s.browser.Start(ctx, sessionID); err != nil {
-		sessionRow.StartedAt = nil
-		_ = s.markFailed(cleanupCtx, sessionRow, "browser start failed", err)
-		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.cleanupPreparedRuntime(ctx, sessionID)
+		return nil, err
 	}
 
-	if err := s.waitForCDPReady(ctx, wrapperPort); err != nil {
-		_ = s.markFailed(cleanupCtx, sessionRow, "browser cdp endpoint did not become ready", err)
+	if err := s.browser.Start(ctx, sessionID); err != nil {
+		sessionRow.StartedAt = nil
+		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+	// The probe goes through the wrapper, so it also proves the wrapper API that
+	// browser initialization talks to is listening.
+	if err := s.waitForCDPReady(ctx, wrapperPort); err != nil {
+		_ = s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+	if len(initializationPayload) != 0 {
+		if err := pushBrowserInitialization(ctx, wrapperPort, wrapperControlToken, initializationPayload); err != nil {
+			_ = s.markFailed(ctx, sessionRow, "browser initialization failed", err)
+			if errors.Is(err, ErrBrowserStateInvalid) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("%w: %v", ErrBrowserInitialize, err)
+		}
 	}
 
 	sessionRow.Status = db.SessionStatusRunning
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		_ = s.markFailed(cleanupCtx, sessionRow, "session status update failed", err)
+		_ = s.markFailed(ctx, sessionRow, "session activation failed", err)
 		return nil, err
 	}
 
@@ -464,9 +523,6 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	}
 	wasRunning := sessionRow.Status == db.SessionStatusRunning
 
-	if err := s.retireMediaSession(sessionID); err != nil {
-		return nil, err
-	}
 	if wasRunning {
 		if err := s.browser.Stop(ctx, sessionID); err != nil {
 			return nil, err
@@ -492,7 +548,6 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
-	s.closeMediaSession(sessionID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
 	}
@@ -529,6 +584,9 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	if sessionRow.Status == db.SessionStatusExpired {
 		return nil, ErrExpired
 	}
+	if sessionRow.Status == db.SessionStatusSuspended {
+		return nil, fmt.Errorf("%w because it is suspended; call a browser tool to wake it", ErrNotReopenable)
+	}
 	if sessionRow.Status != db.SessionStatusDeleted && sessionRow.Status != db.SessionStatusFailed {
 		return nil, ErrNotReopenable
 	}
@@ -536,9 +594,6 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, ErrOverlayMissing
 	}
 
-	if err := s.retireMediaSession(sessionID); err != nil {
-		return nil, err
-	}
 	if err := s.browser.Stop(ctx, sessionID); err != nil {
 		return nil, err
 	}
@@ -672,21 +727,19 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
-	cleanupCtx := context.WithoutCancel(ctx)
 	if err := s.browser.Start(ctx, sessionID); err != nil {
 		sessionRow.StartedAt = nil
-		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
-
 	if err := s.waitForCDPReady(ctx, wrapperPort); err != nil {
-		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
 
 	sessionRow.Status = db.SessionStatusRunning
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
 
@@ -778,7 +831,7 @@ type UploadedFileEvent struct {
 }
 
 func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authorization string, files []UploadedFileEvent, actorKind, clientIP string) error {
-	sessionRow, err := s.authorizedSession(ctx, sessionID, authorization)
+	sessionRow, err := s.wrapperSession(ctx, sessionID, authorization)
 	if err != nil {
 		return err
 	}
@@ -808,7 +861,7 @@ func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authoriza
 }
 
 func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authorization string) ([]UploadedFileEvent, error) {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return nil, err
 	}
 	events, err := s.repo.ListEventsForResourceType(ctx, "session", sessionID, "session.file_upload_pending")
@@ -830,14 +883,14 @@ func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authori
 }
 
 func (s *Service) FinalizeFilesUploaded(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.FinalizeEvents(ctx, "session", sessionID, "session.file_upload_pending", "session.file_uploaded", "file uploaded", eventIDs)
 }
 
 func (s *Service) CancelPendingFileUploads(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.DeletePendingEvents(ctx, "session", sessionID, "session.file_upload_pending", eventIDs)
@@ -975,6 +1028,16 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 
 // ReconcileStartup aligns DB session state with systemd and runtime files after restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
+	creating, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusCreating)
+	if err != nil {
+		return err
+	}
+	for _, sessionRow := range creating {
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found interrupted session creation", nil); err != nil {
+			return err
+		}
+	}
+
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
 		return err
@@ -1006,18 +1069,6 @@ func (s *Service) ReconcileStartup(ctx context.Context) error {
 			if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found inactive browser unit", nil); err != nil {
 				return err
 			}
-		}
-	}
-
-	// A session is only creating while one API process starts its browser.
-	// After a restart nothing can advance it, so it must not linger.
-	creating, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusCreating)
-	if err != nil {
-		return err
-	}
-	for _, sessionRow := range creating {
-		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found session stuck in creating", nil); err != nil {
-			return err
 		}
 	}
 
@@ -1054,7 +1105,6 @@ func (s *Service) reconcileOrphanRuntimeUnits(ctx context.Context) error {
 			continue
 		}
 		if sessionRow == nil || sessionRow.Status != db.SessionStatusRunning {
-			_ = s.retireMediaSession(sessionID)
 			_ = s.browser.Stop(ctx, sessionID)
 			_ = s.browser.RemoveRuntimeEnv(sessionID)
 		}
@@ -1095,7 +1145,6 @@ func (s *Service) removeStaleRuntimeEnvFiles(ctx context.Context) error {
 			continue
 		}
 
-		_ = s.retireMediaSession(sessionID)
 		_ = s.browser.Stop(ctx, sessionID)
 		_ = s.browser.RemoveRuntimeEnv(sessionID)
 	}
@@ -1203,20 +1252,8 @@ func (s *Service) replaceTags(ctx context.Context, sessionID string, tags map[st
 	return s.repo.ReplaceSessionTags(ctx, sessionID, rows)
 }
 
-func (s *Service) retireMediaSession(sessionID string) error {
-	s.closeMediaSession(sessionID)
-	return nil
-}
-
-func (s *Service) closeMediaSession(sessionID string) {
-	if s.mediaCleaner != nil {
-		s.mediaCleaner.CloseSessionMedia(sessionID)
-	}
-}
-
 func (s *Service) cleanupPreparedRuntime(ctx context.Context, sessionID string) error {
 	return errors.Join(
-		s.retireMediaSession(sessionID),
 		s.browser.RemoveRuntimeEnv(sessionID),
 		s.unmountOverlay(ctx, sessionID),
 	)
@@ -1227,8 +1264,10 @@ func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, messag
 }
 
 func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
-	_ = s.retireMediaSession(sessionRow.ID)
-	_ = s.browser.Stop(ctx, sessionRow.ID)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failureCleanupTimeout)
+	defer cancel()
+
+	_ = s.browser.Stop(cleanupCtx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
@@ -1237,26 +1276,26 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
-	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
-	s.closeMediaSession(sessionRow.ID)
-
-	if err := s.traefik.Reconcile(ctx); err != nil {
-		return err
-	}
-
-	if err := s.appendEvent(ctx, sessionRow, "session.failed", message, cause); err != nil {
+	if err := s.traefik.Reconcile(cleanupCtx); err != nil {
 		return err
 	}
 
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	if err := s.appendEvent(cleanupCtx, sessionRow, "session.failed", message, cause); err != nil {
+		return err
+	}
+
+	_ = s.unmountOverlay(cleanupCtx, sessionRow.ID)
 	return nil
 }
 
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
-	_ = s.retireMediaSession(sessionRow.ID)
-	_ = s.browser.Stop(ctx, sessionRow.ID)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failureCleanupTimeout)
+	defer cancel()
+
+	_ = s.browser.Stop(cleanupCtx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
@@ -1265,18 +1304,17 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
-	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
-	s.closeMediaSession(sessionRow.ID)
-	if err := s.traefik.Reconcile(ctx); err != nil {
+	if err := s.traefik.Reconcile(cleanupCtx); err != nil {
 		return err
 	}
-	if err := s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause); err != nil {
+	if err := s.appendEvent(cleanupCtx, sessionRow, "session.reopen_failed", "session reopen failed", cause); err != nil {
 		return err
 	}
 
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	_ = s.unmountOverlay(cleanupCtx, sessionRow.ID)
 	return nil
 }
 
@@ -1403,11 +1441,6 @@ func isExpired(expiresAt string, now time.Time) bool {
 
 func isRetainedOrRunning(status string) bool {
 	return retainedActionable(status)
-}
-
-// SetMediaSessionCleaner configures cleanup for in-memory media state.
-func (s *Service) SetMediaSessionCleaner(cleaner MediaSessionCleaner) {
-	s.mediaCleaner = cleaner
 }
 
 // SetCDPReadyWaiter configures the browser CDP readiness check.

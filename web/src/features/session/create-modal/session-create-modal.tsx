@@ -1,5 +1,5 @@
-import { Dialog, DialogContent } from "#/components/ui/dialog.tsx";
-import type { CreateSessionResponse } from "#/lib/api/schemas.ts";
+import { Dialog, DialogContent } from "@aperture/ui/components/dialog";
+import type { CreateSessionResponse } from "@aperture/api-client";
 import { SessionForm } from "#/features/session/form/session-form.tsx";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
 

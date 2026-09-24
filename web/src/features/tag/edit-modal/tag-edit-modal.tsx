@@ -1,4 +1,4 @@
-import { Dialog, DialogContent } from "#/components/ui/dialog.tsx";
+import { Dialog, DialogContent } from "@aperture/ui/components/dialog";
 import { TagForm } from "#/features/tag/form/tag-form.tsx";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";

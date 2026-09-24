@@ -71,6 +71,8 @@ POST /sessions/<session-id>/uploads
 
 Uploads use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file. The response includes the relative session path and absolute browser-visible path so CDP clients can use uploaded files with `DOM.setFileInputFiles`.
 
+Playwright MCP resolves `browser_file_upload` paths inside the session artifact directory. Files returned as `downloads/<name>` or `recordings/<name>` are outside that allowed root. To upload one again, download it from the session file route, send those bytes to the uploads route, and pass the returned `uploads/<name>` path to `browser_file_upload`.
+
 Each request accepts at most 100 files, and a session may retain at most 1,000 uploaded files.
 
 File routes accept the owner session token or an account token with `sessions:write`. Editor and viewer capabilities cannot access files.

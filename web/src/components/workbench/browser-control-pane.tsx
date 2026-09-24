@@ -12,7 +12,7 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-} from "#/components/ui/resizable.tsx";
+} from "@aperture/ui/components/resizable";
 
 type BrowserControlPaneProps = {
   control: UseBrowserControlResult;

@@ -4,7 +4,7 @@ import {
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "#/components/ui/input-group.tsx";
+} from "@aperture/ui/components/input-group";
 
 type CopyFieldProps = {
   value: string;

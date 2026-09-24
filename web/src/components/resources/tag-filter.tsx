@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
+import { Badge } from "@aperture/ui/components/badge";
+import { Button } from "@aperture/ui/components/button";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
 import {
   Combobox,
   ComboboxContent,
@@ -11,7 +11,7 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxTrigger,
-} from "#/components/ui/combobox.tsx";
+} from "@aperture/ui/components/combobox";
 import {
   Select,
   SelectContent,
@@ -19,14 +19,14 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "#/components/ui/select.tsx";
+} from "@aperture/ui/components/select";
 import {
   tagFilterOperators,
   type TagFilterCondition,
   type TagFilterOperator,
   type TagFilterValue,
 } from "#/lib/tag-filter.ts";
-import { cn } from "#/lib/utils.ts";
+import { cn } from "@aperture/ui/utils";
 
 type TagFilterProps = {
   value?: TagFilterValue;

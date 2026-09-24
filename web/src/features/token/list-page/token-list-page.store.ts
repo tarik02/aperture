@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { TokenRevokedFilterValue } from "#/lib/api/query-keys.ts";
-import type { ApiToken } from "#/lib/api/schemas.ts";
+import type { ApiToken } from "@aperture/api-client";
 
 export type TokenConfirmAction = { kind: "batch-revoke" } | { kind: "revoke"; token: ApiToken };
 

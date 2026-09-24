@@ -21,6 +21,7 @@ var (
 	errPromotionServiceUnavailable = errors.New("promotion service unavailable")
 	errSnapshotServiceUnavailable  = errors.New("snapshot service unavailable")
 	errBrowserControlFailed        = errors.New("browser control failed")
+	errRecordingInvalidState       = errors.New("recording invalid state")
 	errRecordingNotFound           = errors.New("recording not found")
 	errSessionFileNotFound         = errors.New("session file not found")
 )
@@ -162,6 +163,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_not_running", err.Error()
 	case errors.Is(err, errRecordingNotFound):
 		return http.StatusNotFound, "recording_not_found", err.Error()
+	case errors.Is(err, errRecordingInvalidState):
+		return http.StatusConflict, "recording_invalid_state", err.Error()
 	case errors.Is(err, errSessionFileNotFound):
 		return http.StatusNotFound, "session_file_not_found", err.Error()
 	case errors.Is(err, errBrowserControlFailed):
@@ -170,6 +173,12 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, session.ErrBrowserStart):
 		return http.StatusBadGateway, "browser_start_failed", "browser failed to start"
+	case errors.Is(err, session.ErrBrowserInitialize):
+		return http.StatusBadGateway, "browser_initialization_failed", "browser initialization failed"
+	case errors.Is(err, session.ErrBrowserStateInvalid):
+		return http.StatusBadRequest, "validation_failed", err.Error()
+	case errors.Is(err, session.ErrBrowserStateTooLarge):
+		return http.StatusBadRequest, "validation_failed", "browser state exceeds Aperture's 64 MiB session creation limit"
 	case errors.Is(err, snapshot.ErrNotFound):
 		return http.StatusNotFound, "snapshot_not_found", "snapshot not found"
 	case errors.Is(err, snapshot.ErrNameConflict):

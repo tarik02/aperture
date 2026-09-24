@@ -102,8 +102,7 @@ type Config struct {
 	WebRTCMediaProducerUDPPortMax    int                      `mapstructure:"webrtc_media_producer_udp_port_max"`
 	WebRTCICEServers                 []WebRTCICEServer        `mapstructure:"webrtc_ice_servers"`
 	MCPEnabled                       bool                     `mapstructure:"mcp_enabled"`
-	AgentBrowserToolsDefault         string                   `mapstructure:"agent_browser_tools_default"`
-	AgentBrowserIdleTimeout          time.Duration            `mapstructure:"agent_browser_idle_timeout"`
+	BrowserToolsDefault              string                   `mapstructure:"browser_tools_default"`
 	ToolOutputMaxBytes               int64                    `mapstructure:"tool_output_max_bytes"`
 	SignedFileURLTTL                 time.Duration            `mapstructure:"signed_file_url_ttl"`
 	SignedFileURLMaxTTL              time.Duration            `mapstructure:"signed_file_url_max_ttl"`
@@ -164,8 +163,7 @@ func Defaults() Config {
 		WebRTCMediaProducerUDPPortMax:    50010,
 		WebRTCICEServers:                 nil,
 		MCPEnabled:                       true,
-		AgentBrowserToolsDefault:         "core,tabs,mobile,network",
-		AgentBrowserIdleTimeout:          5 * time.Minute,
+		BrowserToolsDefault:              "core,vision,network",
 		ToolOutputMaxBytes:               16 * 1024 * 1024,
 		SignedFileURLTTL:                 15 * time.Minute,
 		SignedFileURLMaxTTL:              24 * time.Hour,
@@ -243,8 +241,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("webrtc_media_producer_udp_port_max", defaults.WebRTCMediaProducerUDPPortMax)
 	v.SetDefault("webrtc_ice_servers", defaults.WebRTCICEServers)
 	v.SetDefault("mcp_enabled", defaults.MCPEnabled)
-	v.SetDefault("agent_browser_tools_default", defaults.AgentBrowserToolsDefault)
-	v.SetDefault("agent_browser_idle_timeout", defaults.AgentBrowserIdleTimeout)
+	v.SetDefault("browser_tools_default", defaults.BrowserToolsDefault)
 	v.SetDefault("tool_output_max_bytes", defaults.ToolOutputMaxBytes)
 	v.SetDefault("signed_file_url_ttl", defaults.SignedFileURLTTL)
 	v.SetDefault("signed_file_url_max_ttl", defaults.SignedFileURLMaxTTL)
@@ -304,8 +301,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_media_producer_udp_port_max",
 		"webrtc_ice_servers",
 		"mcp_enabled",
-		"agent_browser_tools_default",
-		"agent_browser_idle_timeout",
+		"browser_tools_default",
 		"tool_output_max_bytes",
 		"signed_file_url_ttl",
 		"signed_file_url_max_ttl",

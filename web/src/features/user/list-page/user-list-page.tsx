@@ -6,9 +6,9 @@ import {
   InfiniteTableShell,
   TableSkeletonRows,
 } from "#/components/resources/infinite-table-shell.tsx";
-import { Badge } from "#/components/ui/badge.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "#/components/ui/input-group.tsx";
+import { Badge } from "@aperture/ui/components/badge";
+import { Button } from "@aperture/ui/components/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@aperture/ui/components/input-group";
 import {
   Select,
   SelectContent,
@@ -16,7 +16,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "#/components/ui/select.tsx";
+} from "@aperture/ui/components/select";
 import {
   Table,
   TableBody,
@@ -26,7 +26,7 @@ import {
   TableRow,
   stickyTableEndCellClassName,
   stickyTableEndHeaderClassName,
-} from "#/components/ui/table.tsx";
+} from "@aperture/ui/components/table";
 import { UserDetailsSheet } from "#/features/user/user-details-sheet.tsx";
 import { UserFormDialog } from "#/features/user/user-form-dialog.tsx";
 import { useUsersInfiniteQuery } from "#/features/user/user.queries.ts";

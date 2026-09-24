@@ -1,0 +1,156 @@
+package playwrightmcp
+
+import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+)
+
+//go:embed profiles.json
+var profilesJSON []byte
+
+type Profile struct {
+	Tools []string `json:"tools"`
+}
+
+type ProfileSpec struct {
+	Name       string
+	Capability string
+}
+
+var profileSpecs = []ProfileSpec{
+	{Name: "core"},
+	{Name: "vision", Capability: "vision"},
+	{Name: "network", Capability: "network"},
+	{Name: "storage", Capability: "storage"},
+}
+
+func ProfileSpecs() []ProfileSpec {
+	return append([]ProfileSpec(nil), profileSpecs...)
+}
+
+func RuntimeCapabilities() []string {
+	capabilities := make([]string, 0, len(profileSpecs)-1)
+	for _, profile := range profileSpecs {
+		if profile.Capability != "" {
+			capabilities = append(capabilities, profile.Capability)
+		}
+	}
+	return capabilities
+}
+
+type Tool struct {
+	Name         string         `json:"name"`
+	Title        string         `json:"title,omitempty"`
+	Description  string         `json:"description,omitempty"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema any            `json:"outputSchema,omitempty"`
+	Annotations  any            `json:"annotations,omitempty"`
+	Meta         any            `json:"_meta,omitempty"`
+	Icons        any            `json:"icons,omitempty"`
+}
+
+type Metadata struct {
+	Version  string             `json:"playwright_mcp_version"`
+	Profiles map[string]Profile `json:"profiles"`
+	Tools    map[string]Tool    `json:"tools"`
+}
+
+func MetadataFromEmbedded() (Metadata, error) {
+	var metadata Metadata
+	if err := json.Unmarshal(profilesJSON, &metadata); err != nil {
+		return Metadata{}, fmt.Errorf("parse embedded Playwright MCP metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func ParseProfiles(value string) ([]string, error) {
+	metadata, err := MetadataFromEmbedded()
+	if err != nil {
+		return nil, err
+	}
+
+	parts := strings.Split(value, ",")
+	profiles := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		profile := strings.TrimSpace(part)
+		if profile == "" {
+			return nil, fmt.Errorf("playwright tool profile is empty")
+		}
+		if _, ok := metadata.Profiles[profile]; !ok {
+			return nil, fmt.Errorf("unknown Playwright tool profile %q", profile)
+		}
+		if _, ok := seen[profile]; ok {
+			return nil, fmt.Errorf("playwright tool profile %q is repeated", profile)
+		}
+		seen[profile] = struct{}{}
+		profiles = append(profiles, profile)
+	}
+	if len(profiles) == 0 {
+		return nil, fmt.Errorf("playwright tool profiles are required")
+	}
+	return profiles, nil
+}
+
+func ToolsForProfiles(profiles []string) (map[string]struct{}, error) {
+	metadata, err := MetadataFromEmbedded()
+	if err != nil {
+		return nil, err
+	}
+	tools := make(map[string]struct{})
+	for _, profile := range profiles {
+		entry, ok := metadata.Profiles[profile]
+		if !ok {
+			return nil, fmt.Errorf("unknown Playwright tool profile %q", profile)
+		}
+		for _, tool := range entry.Tools {
+			tools[tool] = struct{}{}
+		}
+	}
+	return tools, nil
+}
+
+func SortedToolsForProfiles(profiles []string) ([]string, error) {
+	tools, err := ToolsForProfiles(profiles)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(tools))
+	for tool := range tools {
+		result = append(result, tool)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func ToolsForProfilesMetadata(profiles []string) (map[string]Tool, error) {
+	metadata, err := MetadataFromEmbedded()
+	if err != nil {
+		return nil, err
+	}
+	names, err := ToolsForProfiles(profiles)
+	if err != nil {
+		return nil, err
+	}
+	tools := make(map[string]Tool, len(names))
+	for name := range names {
+		tool, ok := metadata.Tools[name]
+		if !ok {
+			return nil, fmt.Errorf("missing metadata for Playwright tool %q", name)
+		}
+		tools[name] = tool
+	}
+	return tools, nil
+}
+
+func HasTool(name string) bool {
+	metadata, err := MetadataFromEmbedded()
+	if err != nil {
+		return false
+	}
+	_, ok := metadata.Tools[name]
+	return ok
+}

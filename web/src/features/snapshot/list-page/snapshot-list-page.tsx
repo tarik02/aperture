@@ -19,7 +19,7 @@ import {
   entriesToTags,
   tagsToEntries,
   type TagEntry,
-} from "#/components/resources/tag-editor.tsx";
+} from "@aperture/ui/components/tag-editor";
 import { DeletedStatusSelect } from "#/components/resources/deleted-status-select.tsx";
 import {
   InfiniteTableShell,
@@ -29,15 +29,15 @@ import { DeletedBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
 import { TagFilter } from "#/components/resources/tag-filter.tsx";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Checkbox } from "#/components/ui/checkbox.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Checkbox } from "@aperture/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
+} from "@aperture/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,7 +45,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
+} from "@aperture/ui/components/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -57,21 +57,21 @@ import {
   stickyTableEndHeaderClassName,
   stickyTableStartCellClassName,
   stickyTableStartHeaderClassName,
-} from "#/components/ui/table.tsx";
+} from "@aperture/ui/components/table";
 import {
   useDeleteSnapshotMutation,
   useReplaceSnapshotTagsMutation,
   useRestoreSnapshotMutation,
   useUpdateSnapshotMutation,
 } from "#/features/snapshot/snapshot.mutations.ts";
-import { Field, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Textarea } from "#/components/ui/textarea.tsx";
+import { Field, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Textarea } from "@aperture/ui/components/textarea";
 import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { flattenInfinitePages } from "#/lib/api/pagination.ts";
+import { flattenInfinitePages } from "@aperture/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
-import type { CreateSessionResponse, Snapshot } from "#/lib/api/schemas.ts";
+import type { CreateSessionResponse, Snapshot } from "@aperture/api-client";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
 import { useSessionFormStore } from "#/features/session/form/session-form.store.ts";
 import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/proxy"
 )
@@ -306,6 +307,8 @@ type createSessionRequest struct {
 	BaseSnapshotName *string              `json:"baseSnapshotName"`
 	Label            *string              `json:"label"`
 	Browser          sessionBrowserConfig `json:"browser"`
+	InitialTargets   json.RawMessage      `json:"initialTargets"`
+	StorageState     json.RawMessage      `json:"storageState"`
 	Tags             map[string]string    `json:"tags"`
 	Proxy            proxyConfigRequest   `json:"proxy"`
 }
@@ -315,6 +318,10 @@ func (r createSessionRequest) Validate() error {
 		return err
 	}
 	return r.Proxy.Validate()
+}
+
+func (r createSessionRequest) initialization() browser.SessionInitialization {
+	return browser.SessionInitialization{Targets: r.InitialTargets, StorageState: r.StorageState}
 }
 
 type proxyTunnelRequest struct {

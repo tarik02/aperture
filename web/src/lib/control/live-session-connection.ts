@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { resolveTenantHeader, type ApiCredentials } from "#/lib/api/client.ts";
+import { resolveTenantHeader, type ApiCredentials } from "@aperture/api-client";
 import {
   LIVE_SESSION_PROTOCOL,
   liveSessionServerMessageSchema,

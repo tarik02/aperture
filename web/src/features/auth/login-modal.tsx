@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Dialog, DialogContent } from "#/components/ui/dialog.tsx";
+import { Dialog, DialogContent } from "@aperture/ui/components/dialog";
 import { LoginForm } from "#/features/auth/login-form.tsx";
-import { apiClient } from "#/lib/api/client.ts";
+import { apiClient } from "@aperture/api-client";
 
 type WelcomeLoginModalProps = {
   open: boolean;

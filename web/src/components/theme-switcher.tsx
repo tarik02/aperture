@@ -1,7 +1,7 @@
 import { ChevronsUpDown, Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import type { ComponentType, SVGProps } from "react";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,7 +9,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from "#/components/ui/dropdown-menu.tsx";
+} from "@aperture/ui/components/dropdown-menu";
 
 type ThemeMode = "system" | "light" | "dark";
 

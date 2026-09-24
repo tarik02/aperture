@@ -85,6 +85,8 @@ func (s *Service) UpdateProxy(ctx context.Context, tenantID, sessionID string, a
 	if err := assignment.Validate(); err != nil {
 		return ProxyUpdateResult{}, err
 	}
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
 
 	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
 	if err != nil {

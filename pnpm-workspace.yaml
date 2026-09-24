@@ -1,4 +1,6 @@
 packages:
+  - backend/restore-worker
+  - packages/*
   - web
 
 onlyBuiltDependencies:
@@ -30,3 +32,7 @@ minimumReleaseAgeExclude:
   - '@typescript/native-preview-win32-arm64@7.0.0-dev.20260707.2'
   - '@typescript/native-preview-win32-x64@7.0.0-dev.20260707.2'
   - '@typescript/native-preview@7.0.0-dev.20260707.2'
+  - devalue@6.0.2
+
+allowBuilds:
+  esbuild: true

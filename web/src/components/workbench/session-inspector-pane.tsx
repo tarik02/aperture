@@ -3,9 +3,9 @@ import { MetadataGrid, metadataTimestamp } from "#/components/resources/metadata
 import { SessionStatusBadge } from "#/components/resources/status-badge.tsx";
 import { TagBadges } from "#/components/resources/tag-badges.tsx";
 import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
-import type { Session } from "#/lib/api/schemas.ts";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Separator } from "@aperture/ui/components/separator";
+import type { Session } from "@aperture/api-client";
 
 type SessionInspectorPaneProps = {
   session: Session | null;

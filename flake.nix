@@ -17,6 +17,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        nodeRuntime = pkgs.nodejs_26;
 
         goLatest = pkgs.go_1_26.overrideAttrs (_: {
           version = "1.26.5";
@@ -27,6 +28,7 @@
         });
 
         pnpmLatest = pkgs.pnpm.override {
+          nodejs-slim = nodeRuntime;
           version = "11.13.0";
           hash = "sha256-hlx2vZERpFykH27u1AZ/8Ozf7p6sg6rSQXnIP/6+dZk=";
         };
@@ -62,6 +64,14 @@
           rel == "result"
           || rel == "node_modules"
           || lib.hasPrefix "node_modules/" rel
+          || rel == "packages/browser-state/node_modules"
+          || lib.hasPrefix "packages/browser-state/node_modules/" rel
+          || rel == "packages/api-schema/node_modules"
+          || lib.hasPrefix "packages/api-schema/node_modules/" rel
+          || rel == "backend/restore-worker/node_modules"
+          || lib.hasPrefix "backend/restore-worker/node_modules/" rel
+          || rel == "backend/restore-worker/dist"
+          || lib.hasPrefix "backend/restore-worker/dist/" rel
           || rel == "web/node_modules"
           || lib.hasPrefix "web/node_modules/" rel
           || rel == "web/dist"
@@ -82,9 +92,11 @@
 
         browserFonts = [
           pkgs.dejavu_fonts
+          pkgs.liberation_ttf
           pkgs.noto-fonts
           pkgs.noto-fonts-cjk-sans
           pkgs.noto-fonts-color-emoji
+          pkgs.roboto
         ];
 
         browserFontsConf = pkgs.writeText "aperture-fonts.conf" ''
@@ -99,61 +111,27 @@
               </rescan>
             </config>
 
+            <include>${lib.getOutput "out" pkgs.fontconfig}/etc/fonts/conf.d</include>
+
             <alias binding="strong">
               <family>system-ui</family>
               <prefer><family>Noto Sans</family></prefer>
             </alias>
             <alias binding="strong">
-              <family>ui-sans-serif</family>
+              <family>-apple-system</family>
               <prefer><family>Noto Sans</family></prefer>
             </alias>
             <alias binding="strong">
-              <family>ui-rounded</family>
+              <family>BlinkMacSystemFont</family>
               <prefer><family>Noto Sans</family></prefer>
             </alias>
             <alias binding="strong">
-              <family>sans-serif</family>
-              <prefer>
-                <family>Noto Sans</family>
-                <family>Noto Sans CJK SC</family>
-                <family>Noto Color Emoji</family>
-              </prefer>
+              <family>Segoe UI</family>
+              <prefer><family>Noto Sans</family></prefer>
             </alias>
             <alias binding="strong">
-              <family>ui-serif</family>
-              <prefer><family>Noto Serif</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>serif</family>
-              <prefer>
-                <family>Noto Serif</family>
-                <family>Noto Sans CJK SC</family>
-                <family>Noto Color Emoji</family>
-              </prefer>
-            </alias>
-            <alias binding="strong">
-              <family>ui-monospace</family>
-              <prefer><family>Noto Sans Mono</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>monospace</family>
-              <prefer>
-                <family>Noto Sans Mono</family>
-                <family>Noto Sans Mono CJK SC</family>
-                <family>Noto Color Emoji</family>
-              </prefer>
-            </alias>
-            <alias binding="strong">
-              <family>emoji</family>
-              <prefer><family>Noto Color Emoji</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>Apple Color Emoji</family>
-              <prefer><family>Noto Color Emoji</family></prefer>
-            </alias>
-            <alias binding="strong">
-              <family>Segoe UI Emoji</family>
-              <prefer><family>Noto Color Emoji</family></prefer>
+              <family>Helvetica Neue</family>
+              <prefer><family>Liberation Sans</family></prefer>
             </alias>
             <alias binding="strong">
               <family>Segoe UI Symbol</family>
@@ -494,56 +472,6 @@
               ];
             });
 
-        agentBrowserBinary =
-          if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then
-            "agent-browser-linux-x64"
-          else if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then
-            "agent-browser-linux-arm64"
-          else if pkgs.stdenv.hostPlatform.system == "x86_64-darwin" then
-            "agent-browser-darwin-x64"
-          else if pkgs.stdenv.hostPlatform.system == "aarch64-darwin" then
-            "agent-browser-darwin-arm64"
-          else
-            throw "agent-browser is not packaged for ${pkgs.stdenv.hostPlatform.system}";
-
-        agentBrowser = pkgs.stdenvNoCC.mkDerivation {
-          pname = "agent-browser";
-          version = "0.31.2";
-
-          src = pkgs.fetchurl {
-            url = "https://registry.npmjs.org/agent-browser/-/agent-browser-0.31.2.tgz";
-            hash = "sha512-TkqqlFIIs9XFR7GCX92syuWdbWy3pcGkTsBKk/oncofVfICmaMJHnAeXk2MciE1SEUonzRqVNUCnYCqcO8rqWA==";
-          };
-
-          nativeBuildInputs = [
-            pkgs.makeWrapper
-          ]
-          ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-            pkgs.patchelf
-          ];
-
-          installPhase = ''
-            runHook preInstall
-
-            mkdir -p $out/bin $out/libexec/agent-browser $out/share/agent-browser $out/share/licenses/agent-browser
-            cp bin/${agentBrowserBinary} $out/libexec/agent-browser/agent-browser
-            cp -R skill-data $out/share/agent-browser/skills
-            cp LICENSE $out/share/licenses/agent-browser/LICENSE
-            chmod +x $out/libexec/agent-browser/agent-browser
-
-            ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-              patchelf \
-                --set-interpreter ${pkgs.stdenv.cc.bintools.dynamicLinker} \
-                $out/libexec/agent-browser/agent-browser
-            ''}
-
-            makeWrapper $out/libexec/agent-browser/agent-browser $out/bin/agent-browser \
-              --set AGENT_BROWSER_SKILLS_DIR $out/share/agent-browser/skills
-
-            runHook postInstall
-          '';
-        };
-
         s6OverlayVersion = "3.2.3.1";
         s6OverlayArch =
           if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then
@@ -591,7 +519,7 @@
             pname = "aperture";
             version = deployVersion;
             inherit src;
-            vendorHash = "sha256-pqzCEvB5osfXnZcpkN+DtaXAwkSIJIEjqwlLgiYFJWA=";
+            vendorHash = "sha256-al/Q8x2ZpTB1PdVGhHYmoREnKJTd/3+7Au9KQx+DQPI=";
 
             subPackages = [
               "cmd/aperture"
@@ -605,13 +533,20 @@
               inherit (finalAttrs) pname version src;
               pnpm = pnpmLatest;
               fetcherVersion = 4;
-              pnpmWorkspaces = [ "@aperture/web" ];
-              hash = "sha256-R/mB960YAi6iuEpF0Ohd/Q0f5t3w3yCJ4/GoBcDKYRE=";
+              pnpmWorkspaces = [
+                "@aperture/restore-worker"
+                "@aperture/api-schema"
+                "@aperture/browser-state"
+                "@aperture/api-client"
+                "@aperture/ui"
+                "@aperture/web"
+              ];
+              hash = "sha256-B48f/lbmr8y26FxMsk+X3uAj6BsCzCQVErhmKnjDgyE=";
             };
 
             nativeBuildInputs = [
               pkgs.makeWrapper
-              pkgs.nodejs_22
+              nodeRuntime
               pnpmLatest
               pkgs.pnpmConfigHook
               pkgs.pkg-config
@@ -636,6 +571,7 @@
             ];
 
             preBuild = ''
+              pnpm --filter @aperture/restore-worker build
               pnpm --filter @aperture/web build
               test -f web/dist/client/index.html
             '';
@@ -643,7 +579,7 @@
             # Vendor derivation only needs Go modules, not frontend dependencies.
             overrideModAttrs = oldAttrs: {
               nativeBuildInputs = builtins.filter (
-                drv: drv != pkgs.pnpmConfigHook && drv != pnpmLatest && drv != pkgs.nodejs_22
+                drv: drv != pkgs.pnpmConfigHook && drv != pnpmLatest && drv != nodeRuntime
               ) (oldAttrs.nativeBuildInputs or [ ]);
               preBuild = "";
               pnpmDeps = null;
@@ -652,6 +588,17 @@
             doCheck = true;
 
             postInstall = ''
+              # Node runtime: the restore worker bundle plus the Playwright packages it
+              # depends on, copied flat out of the pnpm-installed node_modules.
+              mkdir -p $out/share/aperture/restore-worker/node_modules/@playwright
+              cp -r backend/restore-worker/dist $out/share/aperture/restore-worker/
+              cp -rL backend/restore-worker/node_modules/playwright backend/restore-worker/node_modules/playwright-core \
+                $out/share/aperture/restore-worker/node_modules/
+              cp -rL backend/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
+              makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
+                --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
+              makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \
+                --add-flags $out/share/aperture/restore-worker/node_modules/@playwright/mcp/cli.js
               mkdir -p $out/lib/weston
               mkdir -p $TMPDIR/aperture-wayland-protocols
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
@@ -731,7 +678,7 @@
                 --replace-fail '@traefikBin@' ${pkgs.traefik}/bin/traefik
 
               wrapProgram $out/bin/browser-session-wrapper \
-                --prefix PATH : ${
+                --prefix PATH : $out/bin:${
                   lib.makeBinPath [
                     pkgs.bubblewrap
                     runtimeGstreamer
@@ -768,7 +715,7 @@
           pname = "aperture-dev";
           version = sourceVersion;
           inherit src;
-          vendorHash = "sha256-pqzCEvB5osfXnZcpkN+DtaXAwkSIJIEjqwlLgiYFJWA=";
+          vendorHash = "sha256-al/Q8x2ZpTB1PdVGhHYmoREnKJTd/3+7Au9KQx+DQPI=";
           subPackages = [ "cmd/aperture-dev" ];
           env.CGO_ENABLED = "0";
           doCheck = false;
@@ -889,7 +836,6 @@
               maxLayers = 120;
               contents = [
                 aperture
-                agentBrowser
                 pkgs.traefik
                 runtimeChromium
                 pkgs.bashInteractive
@@ -903,7 +849,7 @@
                 pkgs.cacert
               ]
               ++ lib.optionals development [
-                pkgs.nodejs_22
+                nodeRuntime
                 pnpmLatest
               ]
               ++ browserFonts
@@ -992,7 +938,6 @@
                     lib.makeBinPath (
                       [
                         aperture
-                        agentBrowser
                         pkgs.traefik
                         runtimeChromium
                         pkgs.bashInteractive
@@ -1004,7 +949,7 @@
                         pkgs.sudo
                       ]
                       ++ lib.optionals development [
-                        pkgs.nodejs_22
+                        nodeRuntime
                         pnpmLatest
                       ]
                     )
@@ -1152,7 +1097,7 @@
             pkgs.golangci-lint
             pkgs.gopls
             pkgs.goreleaser
-            pkgs.nodejs_22
+            nodeRuntime
             pnpmLatest
             pkgs.pkg-config
             pkgs.sqlite
@@ -1166,14 +1111,12 @@
             pkgs.pixman
             pkgs.wayland.dev
             patchedWeston
-            agentBrowser
           ];
         };
 
         packages = {
           default = aperture;
           aperture = aperture;
-          agent-browser = agentBrowser;
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

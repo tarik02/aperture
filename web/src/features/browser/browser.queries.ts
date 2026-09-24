@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "#/lib/api/client.ts";
+import { apiClient } from "@aperture/api-client";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys } from "#/lib/api/query-keys.ts";
-import type { ApiCredentials } from "#/lib/api/client.ts";
+import type { ApiCredentials } from "@aperture/api-client";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {

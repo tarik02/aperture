@@ -115,6 +115,35 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 	return port, s.releaseInhibitor(sessionRow.ID, release), nil
 }
 
+// AcquireWrapperControl wakes a tenant-owned session and returns its internal
+// wrapper endpoint while holding an activity inhibitor.
+func (s *Service) AcquireWrapperControl(ctx context.Context, tenantID, sessionID string) (int, string, func(), error) {
+	unlock := s.repo.LockSession(sessionID)
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		unlock()
+		return 0, "", nil, err
+	}
+	release := s.acquireInhibitor(sessionID)
+	unlock()
+
+	sessionRow, err = s.ensureSessionRunning(ctx, sessionRow)
+	if err != nil {
+		release()
+		return 0, "", nil, err
+	}
+	port, controlToken, err := wrapperControl(sessionRow)
+	if err != nil {
+		release()
+		return 0, "", nil, err
+	}
+	if err := s.touchConnected(ctx, sessionRow); err != nil {
+		release()
+		return 0, "", nil, err
+	}
+	return port, controlToken, s.releaseInhibitor(sessionRow.ID, release), nil
+}
+
 // SuspendIdleSessions stops running sessions that have no recent connection activity.
 func (s *Service) SuspendIdleSessions(ctx context.Context) (int, error) {
 	cutoff := s.now().UTC().Add(-defaultSuspendAfter)
@@ -325,14 +354,13 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 
 	// A waking session stays suspended until its CDP endpoint answers, so it
 	// never reports running while its browser is still starting.
-	cleanupCtx := context.WithoutCancel(ctx)
 	if err := s.browser.Start(ctx, sessionRow.ID); err != nil {
-		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
 
 	if err := s.waitForCDPReady(ctx, runtimeEnv.WrapperPort); err != nil {
-		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
 
@@ -350,7 +378,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 	sessionRow.LastConnectedAt = &startedAt
 
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		_ = s.markReopenFailedRetained(cleanupCtx, sessionRow, err)
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return err
 	}
 	if err := s.traefik.Reconcile(ctx); err != nil {
@@ -401,7 +429,6 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 		}
 	}
 
-	_ = s.retireMediaSession(latest.ID)
 	if err := s.browser.Stop(ctx, latest.ID); err != nil {
 		return false, err
 	}
@@ -418,7 +445,6 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	if err := s.repo.UpdateSession(ctx, latest); err != nil {
 		return false, err
 	}
-	s.closeMediaSession(latest.ID)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return false, err
 	}

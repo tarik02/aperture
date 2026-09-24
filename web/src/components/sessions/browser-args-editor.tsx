@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { Button } from "#/components/ui/button.tsx";
-import { Field, FieldGroup, FieldLabel } from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Field, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
 import {
   Table,
   TableBody,
@@ -10,7 +10,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "#/components/ui/table.tsx";
+} from "@aperture/ui/components/table";
 
 type BrowserArgsEditorProps = {
   args: string[];

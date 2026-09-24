@@ -19,7 +19,7 @@ info:
 
     ## Errors
 
-    Errors use `{ "error": { "code": "...", "message": "..." } }`. Each operation enumerates its possible stable codes; `ErrorCode` is the complete catalog. Request bodies are limited to 1 MiB.
+    Errors use `{ "error": { "code": "...", "message": "..." } }`. Each operation enumerates its possible stable codes; `ErrorCode` is the complete catalog. Request bodies are limited to 1 MiB unless an operation documents a larger limit.
 servers:
   - url: /
 security:
@@ -547,11 +547,16 @@ paths:
               property: baseSnapshotName
               operator: non_empty
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed]
-      description: Starts a browser with a retained overlay. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, base_snapshot_not_found, base_snapshot_deleted, session_service_unavailable, overlay_mount_failed, browser_start_failed, browser_initialization_failed]
+      description: Starts a browser with a retained overlay, then optionally imports browser storage and replaces the startup page with initial browser targets. Imported storage overlays the base snapshot. Set `waitForReady=false` to receive the session and its credentials in the `creating` state while startup continues. A resource-restricted token may start a blank session or use a granted base snapshot. The new session is not added to its resource allowlist, but the returned session token remains usable. Failed startup may leave a reopenable `failed` session.
+      parameters:
+        - name: waitForReady
+          in: query
+          description: Wait for browser startup and state restoration before returning. Defaults to true.
+          schema: {type: boolean, default: true}
       requestBody: {$ref: '#/components/requestBodies/CreateSession'}
       responses:
-        '201': {description: Created session, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
+        '201': {description: Created session. Its status is `creating` when `waitForReady=false` and startup is still in progress., content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionResult'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/bulk:
     parameters:
@@ -742,6 +747,78 @@ paths:
       responses:
         '200': {description: Updated remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings:
+    parameters:
+      - {$ref: '#/components/parameters/SessionId'}
+      - {$ref: '#/components/parameters/SelectedTenantId'}
+    get:
+      operationId: listSessionRecordings
+      tags: [sessions]
+      summary: List session recordings
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
+      description: Lists logical recordings without exposing host filesystem paths.
+      responses:
+        '200':
+          description: Session recordings
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Recording'}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createSessionRecording
+      tags: [sessions]
+      summary: Start a session recording
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Starts a tab recording of one ready top-level target.
+      requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
+      responses:
+        '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}:
+    get:
+      operationId: getSessionRecording
+      tags: [sessions]
+      summary: Get a session recording
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, session_service_unavailable, browser_control_failed]
+      description: Returns one logical recording and its current top-level target without exposing host filesystem paths.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200': {description: Session recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/recordings/{recordingId}/retarget:
+    post:
+      operationId: retargetSessionRecording
+      tags: [sessions]
+      summary: Retarget a session recording
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
+      description: Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/RecordingId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/RetargetSessionRecording'}
+      responses:
+        '200': {description: Retargeted recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/recordings/{recordingId}/stop:
     post:
       operationId: stopSessionRecording
@@ -751,7 +828,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, session_service_unavailable, browser_control_failed]
+      x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
       description: Stops the selected recording without transferring its media data and returns the resulting session file.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1081,7 +1158,7 @@ components:
       content: {application/json: {schema: {$ref: '#/components/schemas/CreateTenantTokenInput'}}}
     CreateSession:
       required: true
-      description: Browser session configuration. The JSON body must not exceed 1 MiB.
+      description: Browser session configuration. The JSON body must not exceed 64 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionInput'}}}
     SessionBulk:
       required: true
@@ -1103,6 +1180,14 @@ components:
       required: true
       description: Session file path and optional signed URL lifetime. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/SessionFileDownloadURLInput'}}}
+    CreateSessionRecording:
+      required: true
+      description: Ready top-level target and optional recording settings. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionRecordingInput'}}}
+    RetargetSessionRecording:
+      required: true
+      description: Ready destination top-level target. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/RetargetSessionRecordingInput'}}}
     SetCursorVisibility:
       required: true
       description: Remote cursor visibility. The JSON body must not exceed 1 MiB.
@@ -1157,6 +1242,9 @@ components:
             browserStartFailed:
               summary: 502 · browser failed to start
               value: {error: {code: browser_start_failed, message: browser failed to start}}
+            browserInitializationFailed:
+              summary: 502 · browser startup state could not be applied
+              value: {error: {code: browser_initialization_failed, message: browser initialization failed}}
   schemas:
     UUIDv7:
       type: string
@@ -1290,8 +1378,10 @@ components:
         - session_invalid_state
         - session_not_running
         - recording_not_found
+        - recording_invalid_state
         - session_file_not_found
         - browser_start_failed
+        - browser_initialization_failed
         - snapshot_not_found
         - snapshot_name_conflict
         - snapshot_deleted
@@ -1340,8 +1430,10 @@ components:
         session_invalid_state: 409
         session_not_running: 409
         recording_not_found: 404
+        recording_invalid_state: 409
         session_file_not_found: 404
         browser_start_failed: 502
+        browser_initialization_failed: 502
         snapshot_not_found: 404
         snapshot_name_conflict: 409
         snapshot_deleted: 409
@@ -1767,6 +1859,330 @@ components:
           description: Additional Chromium command-line arguments. Aperture rejects arguments that conflict with supervisor-owned behavior or deployment policy.
           items: {type: string}
           example: ['--lang=en-US']
+    InitialBrowserTarget:
+      type: object
+      description: HTTP page and target-scoped state opened during session creation.
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+          description: Absolute HTTP or HTTPS URL without embedded credentials.
+          example: https://example.com/account
+        sessionStorage:
+          type: array
+          description: Per-origin session storage installed in target frames before page scripts execute.
+          items: {$ref: '#/components/schemas/InitialTargetStorageOrigin'}
+        scroll:
+          $ref: '#/components/schemas/InitialBrowserScrollPosition'
+        documentState:
+          $ref: '#/components/schemas/InitialBrowserDocumentState'
+        openerTargetIndex:
+          type: integer
+          minimum: 0
+          description: Index of another initial target that opened this target.
+        active:
+          type: boolean
+          default: false
+          description: Select this target for the first connected session client. At most one target may be active.
+    InitialBrowserScrollPosition:
+      type: object
+      required: [x, y]
+      properties:
+        x: {type: number}
+        y: {type: number}
+    InitialBrowserElementPathStep:
+      type: object
+      required: [tag, index]
+      properties:
+        tag: {type: string, pattern: '^[a-z][a-z0-9-]*$'}
+        index: {type: integer, minimum: 0}
+    InitialBrowserElementLocator:
+      type: object
+      description: Semantic element identity with a structural fallback. It is not a CSS selector.
+      required: [tag, path]
+      properties:
+        tag: {type: string, pattern: '^[a-z][a-z0-9-]*$'}
+        id: {type: string}
+        name: {type: string}
+        inputType: {type: string}
+        autocomplete: {type: string}
+        ariaLabel: {type: string}
+        placeholder: {type: string}
+        path:
+          type: array
+          maxItems: 256
+          items: {$ref: '#/components/schemas/InitialBrowserElementPathStep'}
+    InitialBrowserControlSelection:
+      type: object
+      required: [start, end, direction]
+      properties:
+        start: {type: integer, minimum: 0}
+        end: {type: integer, minimum: 0}
+        direction: {type: string, enum: [forward, backward, none]}
+    InitialBrowserControlState:
+      type: object
+      required: [locator, value]
+      properties:
+        locator: {$ref: '#/components/schemas/InitialBrowserElementLocator'}
+        value:
+          type: string
+          x-sensitive: true
+        checked: {type: boolean}
+        selectedIndices:
+          type: array
+          items: {type: integer, minimum: 0}
+        selection: {$ref: '#/components/schemas/InitialBrowserControlSelection'}
+    InitialBrowserContentEditableState:
+      type: object
+      required: [locator, html]
+      properties:
+        locator: {$ref: '#/components/schemas/InitialBrowserElementLocator'}
+        html:
+          type: string
+          x-sensitive: true
+    InitialBrowserElementScrollPosition:
+      type: object
+      required: [locator, x, y]
+      properties:
+        locator: {$ref: '#/components/schemas/InitialBrowserElementLocator'}
+        x: {type: number}
+        y: {type: number}
+    InitialBrowserSelectionEndpoint:
+      type: object
+      required: [locator, nodePath, offset]
+      properties:
+        locator: {$ref: '#/components/schemas/InitialBrowserElementLocator'}
+        nodePath:
+          type: array
+          maxItems: 256
+          items: {type: integer, minimum: 0}
+        offset: {type: integer, minimum: 0}
+    InitialBrowserDocumentSelection:
+      type: object
+      required: [anchor, focus]
+      properties:
+        anchor: {$ref: '#/components/schemas/InitialBrowserSelectionEndpoint'}
+        focus: {$ref: '#/components/schemas/InitialBrowserSelectionEndpoint'}
+    InitialBrowserDocumentState:
+      type: object
+      description: Sensitive top-document state replayed during initial navigation.
+      required: [version, controls, contentEditables, scrollPositions]
+      properties:
+        version: {type: integer, enum: [1]}
+        windowName:
+          type: string
+          x-sensitive: true
+        historyState:
+          type: string
+          x-sensitive: true
+          description: JSON-encoded structured-clone history state.
+        controls:
+          type: array
+          maxItems: 10000
+          items: {$ref: '#/components/schemas/InitialBrowserControlState'}
+        contentEditables:
+          type: array
+          maxItems: 10000
+          items: {$ref: '#/components/schemas/InitialBrowserContentEditableState'}
+        scrollPositions:
+          type: array
+          maxItems: 10000
+          items: {$ref: '#/components/schemas/InitialBrowserElementScrollPosition'}
+        focus: {$ref: '#/components/schemas/InitialBrowserElementLocator'}
+        selection: {$ref: '#/components/schemas/InitialBrowserDocumentSelection'}
+    BrowserCookieSameSite:
+      type: string
+      enum: [Strict, Lax, None]
+    InitialBrowserCookie:
+      type: object
+      description: Cookie imported into the new browser profile.
+      required: [name, value, domain, path]
+      properties:
+        name: {type: string, minLength: 1}
+        value:
+          type: string
+          x-sensitive: true
+          description: Cookie value. Never log this field.
+        domain: {type: string, minLength: 1, example: .example.com}
+        hostOnly:
+          type: boolean
+          default: false
+          description: Scope the cookie to exactly `domain`, without subdomains. `domain` must then be a plain hostname.
+        path: {type: string, pattern: '^/', example: /}
+        expires:
+          type: number
+          exclusiveMinimum: 0
+          description: Unix timestamp in seconds. Omit for a session cookie.
+        httpOnly: {type: boolean, default: false}
+        secure: {type: boolean, default: false}
+        sameSite: {$ref: '#/components/schemas/BrowserCookieSameSite'}
+        partitionKey:
+          $ref: '#/components/schemas/InitialBrowserCookiePartitionKey'
+    InitialBrowserCookiePartitionKey:
+      type: object
+      required: [topLevelSite]
+      properties:
+        topLevelSite:
+          type: string
+          format: uri
+          pattern: '^https?://[^/]+$'
+        hasCrossSiteAncestor: {type: boolean}
+    BrowserStorageEntry:
+      type: object
+      required: [name, value]
+      properties:
+        name: {type: string}
+        value:
+          type: string
+          x-sensitive: true
+          description: Browser storage value. Never log this field.
+    InitialTargetStorageOrigin:
+      type: object
+      required: [origin, entries]
+      properties:
+        origin:
+          type: string
+          format: uri
+          pattern: '^https?://[^/]+$'
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/BrowserStorageEntry'}
+    InitialIndexedDBKeyPath:
+      type: object
+      description: Object-store key path. String paths contain one value; array paths contain at least one.
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [none, string, array]}
+        value:
+          type: array
+          items: {type: string}
+    InitialIndexedDBIndexKeyPath:
+      type: object
+      description: Index key path. String paths contain one value; array paths contain at least one.
+      required: [kind, value]
+      properties:
+        kind: {type: string, enum: [string, array]}
+        value:
+          type: array
+          minItems: 1
+          items: {type: string}
+    InitialIndexedDBIndex:
+      type: object
+      required: [name, keyPath, unique, multiEntry]
+      properties:
+        name: {type: string}
+        keyPath: {$ref: '#/components/schemas/InitialIndexedDBIndexKeyPath'}
+        unique: {type: boolean}
+        multiEntry: {type: boolean}
+    InitialIndexedDBRecord:
+      type: object
+      required: [key, value]
+      properties:
+        key:
+          type: string
+          x-sensitive: true
+          description: JSON-encoded structured-clone key.
+        value:
+          type: string
+          x-sensitive: true
+          description: JSON-encoded structured-clone value.
+    InitialIndexedDBObjectStore:
+      type: object
+      required: [name, keyPath, autoIncrement, indexes, records]
+      properties:
+        name: {type: string}
+        keyPath: {$ref: '#/components/schemas/InitialIndexedDBKeyPath'}
+        autoIncrement: {type: boolean}
+        indexes:
+          type: array
+          items: {$ref: '#/components/schemas/InitialIndexedDBIndex'}
+        records:
+          type: array
+          items: {$ref: '#/components/schemas/InitialIndexedDBRecord'}
+    InitialIndexedDBDatabase:
+      type: object
+      required: [name, version, objectStores]
+      properties:
+        name: {type: string}
+        version: {type: integer, minimum: 1}
+        objectStores:
+          type: array
+          items: {$ref: '#/components/schemas/InitialIndexedDBObjectStore'}
+    InitialCacheStorageEntry:
+      type: object
+      required: [url, requestHeaders, responseHeaders, responseStatus, responseStatusText, responseBody]
+      properties:
+        url: {type: string, format: uri}
+        requestHeaders: {$ref: '#/components/schemas/StringMap'}
+        responseHeaders: {$ref: '#/components/schemas/StringMap'}
+        responseStatus: {type: integer, minimum: 100, maximum: 599}
+        responseStatusText: {type: string}
+        responseBody:
+          type: string
+          contentEncoding: base64
+          x-sensitive: true
+    InitialCacheStorageCache:
+      type: object
+      required: [name, entries]
+      properties:
+        name: {type: string}
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/InitialCacheStorageEntry'}
+    InitialOPFSFile:
+      type: object
+      required: [path, body]
+      properties:
+        path: {type: string, minLength: 1}
+        body:
+          type: string
+          contentEncoding: base64
+          x-sensitive: true
+    InitialStorageOrigin:
+      type: object
+      description: Profile-scoped browser storage imported for one exact HTTP origin and ancestor partition.
+      required: [origin, localStorage]
+      properties:
+        origin:
+          type: string
+          format: uri
+          pattern: '^https?://[^/]+$'
+          example: https://example.com
+        ancestorOrigins:
+          type: array
+          maxItems: 32
+          description: Top-down HTTP origin chain for partitioned storage. Omitted for a top-level origin.
+          items:
+            type: string
+            format: uri
+            pattern: '^https?://[^/]+$'
+        localStorage:
+          type: array
+          items: {$ref: '#/components/schemas/BrowserStorageEntry'}
+        indexedDB:
+          type: array
+          items: {$ref: '#/components/schemas/InitialIndexedDBDatabase'}
+        cacheStorage:
+          type: array
+          items: {$ref: '#/components/schemas/InitialCacheStorageCache'}
+        opfs:
+          type: array
+          items: {$ref: '#/components/schemas/InitialOPFSFile'}
+    InitialBrowserStorageState:
+      type: object
+      description: Profile-scoped browser storage imported before initial browser targets are opened.
+      required: [cookies, origins]
+      properties:
+        cookies:
+          type: array
+          maxItems: 10000
+          items: {$ref: '#/components/schemas/InitialBrowserCookie'}
+        origins:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/InitialStorageOrigin'}
     CreateSessionInput:
       type: object
       description: Configuration for a new retained browser session.
@@ -1781,6 +2197,12 @@ components:
           description: Optional operator-facing label for the session.
           example: checkout smoke test
         browser: {$ref: '#/components/schemas/BrowserConfig'}
+        initialTargets:
+          type: array
+          maxItems: 50
+          description: Browser targets that replace the browser's startup page after storage import. Result order follows input order; opener dependencies may be created first.
+          items: {$ref: '#/components/schemas/InitialBrowserTarget'}
+        storageState: {$ref: '#/components/schemas/InitialBrowserStorageState'}
         tags:
           allOf: [{$ref: '#/components/schemas/StringMap'}]
           description: Initial session tags.
@@ -1789,6 +2211,10 @@ components:
         baseSnapshotName: signed-in-base
         label: checkout smoke test
         browser: {channel: chromium, args: ['--lang=en-US']}
+        initialTargets: [{url: https://example.com/account}]
+        storageState:
+          cookies: []
+          origins: [{origin: https://example.com, localStorage: [{name: access-token, value: REDACTED}]}]
         tags: {environment: staging, suite: checkout}
     IceServer:
       type: object
@@ -2059,6 +2485,87 @@ components:
         visible:
           type: boolean
           description: Whether to include the remote cursor in live streams and recordings.
+    CreateSessionRecordingInput:
+      type: object
+      description: Top-level target and optional recording settings.
+      required: [targetId]
+      properties:
+        targetId:
+          type: string
+          minLength: 1
+          description: Identifier of the ready top-level target to record.
+        fps:
+          type: integer
+          description: Requested frames per second. Omit or use a non-positive value for the instance default.
+          example: 60
+        bitrateKbps:
+          type: integer
+          description: Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.
+          example: 6000
+        codec:
+          type: string
+          enum: [vp8, h264-va]
+          description: Video codec. Omit for the instance default.
+          example: vp8
+    RetargetSessionRecordingInput:
+      type: object
+      description: Destination for a running tab recording.
+      required: [targetId]
+      properties:
+        targetId:
+          type: string
+          minLength: 1
+          description: Identifier of the ready destination top-level target.
+    Recording:
+      type: object
+      description: One logical recording of a top-level target.
+      required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
+      properties:
+        recordingId:
+          type: string
+          format: uuid
+          description: Stable recording identifier retained across target changes.
+        mode:
+          type: string
+          enum: [tab, viewer]
+          description: Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
+        targetId:
+          type: string
+          description: Identifier of the top-level target currently recorded.
+        captureGeneration:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Assignment generation for the current top-level target.
+        status:
+          type: string
+          enum: [starting, running, stopped, failed]
+        stopReason:
+          type: string
+          description: Lifecycle reason recorded after the recording stops or fails.
+        relativePath:
+          type: string
+          description: Path below the session root; absolute host paths are never exposed.
+          example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
+        startedAt:
+          type: string
+          format: date-time
+        stoppedAt:
+          type: string
+          format: date-time
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        fps:
+          type: integer
+          minimum: 1
+        bitrateKbps:
+          type: integer
+          minimum: 1
+        codec:
+          type: string
+          enum: [vp8, h264-va]
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

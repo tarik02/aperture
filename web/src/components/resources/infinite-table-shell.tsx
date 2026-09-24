@@ -2,14 +2,14 @@ import { autoUpdate } from "@floating-ui/dom";
 import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query";
 import { Inbox } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
-import { Alert, AlertDescription } from "#/components/ui/alert.tsx";
-import { Button } from "#/components/ui/button.tsx";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "#/components/ui/empty.tsx";
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Skeleton } from "#/components/ui/skeleton.tsx";
-import { TableCell, TableRow } from "#/components/ui/table.tsx";
-import type { PaginatedResponse } from "#/lib/api/pagination.ts";
-import { cn } from "#/lib/utils.ts";
+import { Alert, AlertDescription } from "@aperture/ui/components/alert";
+import { Button } from "@aperture/ui/components/button";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@aperture/ui/components/empty";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Skeleton } from "@aperture/ui/components/skeleton";
+import { TableCell, TableRow } from "@aperture/ui/components/table";
+import type { PaginatedResponse } from "@aperture/api-client";
+import { cn } from "@aperture/ui/utils";
 
 type TableSkeletonColumn = {
   cellClassName?: string;

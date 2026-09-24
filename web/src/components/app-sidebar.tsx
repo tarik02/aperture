@@ -15,7 +15,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "#/components/ui/sidebar.tsx";
+} from "@aperture/ui/components/sidebar";
 
 function isNavActive(pathname: string, to: string) {
   if (to === "/") {

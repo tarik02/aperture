@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
-import { Button } from "#/components/ui/button.tsx";
+import { Button } from "@aperture/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "#/components/ui/dialog.tsx";
+} from "@aperture/ui/components/dialog";
 import {
   Field,
   FieldDescription,
@@ -18,11 +18,11 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-} from "#/components/ui/field.tsx";
-import { Input } from "#/components/ui/input.tsx";
-import { ToggleGroup, ToggleGroupItem } from "#/components/ui/toggle-group.tsx";
+} from "@aperture/ui/components/field";
+import { Input } from "@aperture/ui/components/input";
+import { ToggleGroup, ToggleGroupItem } from "@aperture/ui/components/toggle-group";
 import { useUpsertTenantMembershipMutation } from "#/features/user/user.mutations.ts";
-import type { TenantMembership } from "#/lib/api/schemas.ts";
+import type { TenantMembership } from "@aperture/api-client";
 import { tenantScopeOptions } from "#/lib/scopes.ts";
 
 type MembershipDialogProps = {

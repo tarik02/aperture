@@ -1,6 +1,6 @@
-import { Button } from "#/components/ui/button.tsx";
-import { DialogFooter, DialogHeader, DialogTitle } from "#/components/ui/dialog.tsx";
-import { TagEditor, entriesToTags } from "#/components/resources/tag-editor.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { DialogFooter, DialogHeader, DialogTitle } from "@aperture/ui/components/dialog";
+import { TagEditor, entriesToTags } from "@aperture/ui/components/tag-editor";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
 

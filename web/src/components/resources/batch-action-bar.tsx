@@ -1,8 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 import { X } from "lucide-react";
-import { Button } from "#/components/ui/button.tsx";
-import { Separator } from "#/components/ui/separator.tsx";
-import { useSidebar } from "#/components/ui/sidebar.tsx";
+import { Button } from "@aperture/ui/components/button";
+import { Separator } from "@aperture/ui/components/separator";
+import { useSidebar } from "@aperture/ui/components/sidebar";
 
 type BatchActionBarProps = {
   selectedCount: number;

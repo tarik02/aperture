@@ -1,5 +1,5 @@
-import { ScrollArea } from "#/components/ui/scroll-area.tsx";
-import { Table, TableBody, TableCell, TableRow } from "#/components/ui/table.tsx";
+import { ScrollArea } from "@aperture/ui/components/scroll-area";
+import { Table, TableBody, TableCell, TableRow } from "@aperture/ui/components/table";
 
 type TagBadgesProps = {
   tags?: Record<string, string>;
