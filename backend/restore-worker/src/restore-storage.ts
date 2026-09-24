@@ -6,8 +6,10 @@ import { canonicalOrigin, urlOrigin, type Capsule, type StorageOrigin } from "./
 const minute = 60_000;
 const emptyDocument = "<!doctype html><meta charset=utf-8><title>Aperture storage import</title>";
 
+// Storage replaced for an imported origin. Cookies are not cleared: they are imported
+// separately and additively, so an origin import keeps an existing login.
 function storageTypes(origin: StorageOrigin): string {
-  const types = ["cookies", "local_storage"];
+  const types = ["local_storage"];
   if (origin.indexedDB !== undefined) types.push("indexeddb");
   if (origin.cacheStorage !== undefined) types.push("cache_storage");
   if (origin.opfs !== undefined) types.push("file_systems");

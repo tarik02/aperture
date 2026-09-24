@@ -1012,6 +1012,16 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 
 // ReconcileStartup aligns DB session state with systemd and runtime files after restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
+	creating, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusCreating)
+	if err != nil {
+		return err
+	}
+	for _, sessionRow := range creating {
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found interrupted session creation", nil); err != nil {
+			return err
+		}
+	}
+
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
 		return err

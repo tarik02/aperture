@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/target"
@@ -452,7 +453,7 @@ func (browser *liveSessionBrowser) observeEvent(client *liveSessionCDP, event li
 		browser.setSessionLoading(string(event.SessionID), false)
 	case *page.EventFrameNavigated:
 		browser.setSessionLoading(string(event.SessionID), false)
-		browser.releaseInitialSessionStorageScript(event.SessionID, value)
+		browser.releaseInitialSessionStorageFrame(event.SessionID, value.Frame)
 	}
 }
 
@@ -497,16 +498,41 @@ func (browser *liveSessionBrowser) installInitialSessionStorageScripts(ctx conte
 			return err
 		}
 	}
+
+	// An origin may have loaded after the worker reported it as pending but before the
+	// scripts above were registered; its navigation event then found nothing to release.
+	var frames *page.FrameTree
+	if err := browser.execute(sessionID, func(ctx context.Context) error {
+		var err error
+		frames, err = page.GetFrameTree().Do(ctx)
+		return err
+	}); err != nil {
+		return err
+	}
+	for _, frame := range flattenFrames(frames) {
+		browser.releaseInitialSessionStorageFrame(sessionID, frame)
+	}
 	return nil
 }
 
-// releaseInitialSessionStorageScript removes a target's session storage preload
-// script after its origin has loaded once, so later navigations keep page-written data.
-func (browser *liveSessionBrowser) releaseInitialSessionStorageScript(sessionID target.SessionID, event *page.EventFrameNavigated) {
-	if event.Frame == nil {
+func flattenFrames(tree *page.FrameTree) []*cdp.Frame {
+	if tree == nil {
+		return nil
+	}
+	frames := []*cdp.Frame{tree.Frame}
+	for _, child := range tree.ChildFrames {
+		frames = append(frames, flattenFrames(child)...)
+	}
+	return frames
+}
+
+// releaseInitialSessionStorageFrame removes a target's session storage preload
+// script once a frame has loaded its origin, so later navigations keep page-written data.
+func (browser *liveSessionBrowser) releaseInitialSessionStorageFrame(sessionID target.SessionID, frame *cdp.Frame) {
+	if frame == nil {
 		return
 	}
-	parsed, err := url.Parse(event.Frame.URL)
+	parsed, err := url.Parse(frame.URL)
 	if err != nil {
 		return
 	}
