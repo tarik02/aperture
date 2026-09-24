@@ -23,10 +23,6 @@ export class ApiRequestError extends Schema.TaggedError<ApiRequestError>()("ApiR
 const invalidResponse = (status: number) =>
   new ApiRequestError({ code: "internal_error", message: "Invalid response", status });
 
-/**
- * Maps HTTP and decoding failures to ApiRequestError. Error responses keep the code and
- * message of the server's error body.
- */
 const networkError = new ApiRequestError({
   code: "network_error",
   message: "The server could not be reached",
