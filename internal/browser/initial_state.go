@@ -3,6 +3,7 @@ package browser
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 )
 
 const MaxSessionInitializationBytes = 64 * 1024 * 1024
@@ -14,9 +15,12 @@ type SessionInitialization struct {
 	StorageState json.RawMessage `json:"storageState,omitempty"`
 }
 
+// Empty reports whether session creation can skip browser initialization.
 func (input SessionInitialization) Empty() bool {
-	targets := bytes.TrimSpace(input.Targets)
-	storage := bytes.TrimSpace(input.StorageState)
-	return (len(targets) == 0 || bytes.Equal(targets, []byte("[]")) || bytes.Equal(targets, []byte("null"))) &&
-		(len(storage) == 0 || bytes.Equal(storage, []byte("null")))
+	return emptyJSON(input.Targets, "[]") && emptyJSON(input.StorageState)
+}
+
+func emptyJSON(raw json.RawMessage, emptyValues ...string) bool {
+	value := string(bytes.TrimSpace(raw))
+	return value == "" || value == "null" || slices.Contains(emptyValues, value)
 }

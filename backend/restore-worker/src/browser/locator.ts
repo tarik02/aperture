@@ -10,41 +10,22 @@ export interface Locator {
 }
 
 export function resolveLocator(locator: Locator): HTMLElement | null {
-  const compatible = (element: Element): element is HTMLElement => {
-    if (!(element instanceof HTMLElement) || element.localName !== locator.tag) return false;
-    if (
-      locator.inputType !== undefined &&
-      (!(element instanceof HTMLInputElement) || element.type !== locator.inputType)
-    ) {
-      return false;
-    }
+  const compatible = (element: Element): element is HTMLElement =>
+    element instanceof HTMLElement &&
+    element.localName === locator.tag &&
+    (locator.inputType === undefined ||
+      (element instanceof HTMLInputElement && element.type === locator.inputType));
 
-    return true;
-  };
-
-  const sameIdentity = (element: Element): boolean => {
-    if (locator.name !== undefined && element.getAttribute("name") !== locator.name) return false;
-    if (
-      locator.autocomplete !== undefined &&
-      element.getAttribute("autocomplete") !== locator.autocomplete
-    ) {
-      return false;
-    }
-    if (
-      locator.ariaLabel !== undefined &&
-      element.getAttribute("aria-label") !== locator.ariaLabel
-    ) {
-      return false;
-    }
-    if (
-      locator.placeholder !== undefined &&
-      element.getAttribute("placeholder") !== locator.placeholder
-    ) {
-      return false;
-    }
-
-    return true;
-  };
+  const identity = (
+    [
+      ["name", locator.name],
+      ["autocomplete", locator.autocomplete],
+      ["aria-label", locator.ariaLabel],
+      ["placeholder", locator.placeholder],
+    ] as const
+  ).filter(([, value]) => value !== undefined);
+  const sameIdentity = (element: Element): boolean =>
+    identity.every(([attribute, value]) => element.getAttribute(attribute) === value);
 
   const candidates = Array.from(document.getElementsByTagName(locator.tag)).filter(compatible);
   if (locator.id !== undefined) {
@@ -52,13 +33,7 @@ export function resolveLocator(locator: Locator): HTMLElement | null {
     if (byID.length === 1) return byID[0];
   }
 
-  const hasIdentity =
-    locator.name !== undefined ||
-    locator.inputType !== undefined ||
-    locator.autocomplete !== undefined ||
-    locator.ariaLabel !== undefined ||
-    locator.placeholder !== undefined;
-  if (hasIdentity) {
+  if (identity.length > 0 || locator.inputType !== undefined) {
     const semantic = candidates.filter(sameIdentity);
     if (semantic.length === 1) return semantic[0];
   }
