@@ -27,13 +27,17 @@ interface CapturedTabState {
 const preferredPayloadBytes = 48 * 1024 * 1024;
 
 export async function requestCapturePermissions(tabs: chrome.tabs.Tab[]): Promise<void> {
-  if (tabs.length === 0) {
-    throw new Error("No web pages are selected");
-  }
-  const origins = [...new Set(tabs.map(tabOriginPattern))];
+  const origins = capturePermissionOrigins(tabs);
   if (!(await chrome.permissions.request({ origins }))) {
     throw new Error("Access to the selected websites was not granted");
   }
+}
+
+export function capturePermissionOrigins(tabs: chrome.tabs.Tab[]): string[] {
+  if (tabs.length === 0) {
+    throw new Error("No web pages are selected");
+  }
+  return [...new Set(tabs.map(tabOriginPattern))];
 }
 
 export async function captureBrowserState(

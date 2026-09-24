@@ -538,6 +538,7 @@ func (s *Service) runtimeEnvValues(
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
+		BrowserRestoreDiagnostics:  s.cfg.BrowserRestoreDiagnostics,
 		ProxyUpstream:              string(proxyAssignment.NormalizedUpstream()),
 		ProxyURL:                   proxyAssignment.URL,
 		ProxyTunnelURL:             proxyAssignment.TunnelURL,

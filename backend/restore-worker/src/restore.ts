@@ -1,8 +1,9 @@
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
-import type { Browser } from "playwright-core";
+import type { Browser, CDPSession } from "playwright-core";
 import { chromium } from "playwright-core";
 import type { z } from "zod";
+import { errorMessage } from "./browser/error.js";
 import { restoreStorage } from "./restore-storage.js";
 import { restoreTargets, type TargetResult } from "./restore-targets.js";
 import { capsuleSchema, type Capsule } from "./schema.js";
@@ -11,6 +12,42 @@ const usage = "usage: aperture-browser-restore validate <capsule> | restore <cdp
 
 class InvalidCapsule extends Error {}
 class UsageError extends Error {}
+
+interface CookieDiagnosticSource {
+  name: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  sameSite?: string;
+  hostOnly?: boolean;
+  partitionKey?: unknown;
+}
+
+function logCookies(stage: string, cookies: readonly CookieDiagnosticSource[]): void {
+  if (process.env.BROWSER_RESTORE_DIAGNOSTICS !== "1") return;
+
+  const metadata = cookies.map((cookie) => ({
+    name: cookie.name,
+    domain: cookie.domain,
+    path: cookie.path,
+    secure: cookie.secure,
+    httpOnly: cookie.httpOnly,
+    sameSite: cookie.sameSite,
+    hostOnly: cookie.hostOnly ?? !cookie.domain.startsWith("."),
+    partitioned: cookie.partitionKey != null,
+  }));
+  process.stderr.write(`browser restore cookies ${stage}: ${JSON.stringify(metadata)}\n`);
+}
+
+async function logBrowserCookies(stage: string, browserCDP: CDPSession): Promise<void> {
+  if (process.env.BROWSER_RESTORE_DIAGNOSTICS !== "1") return;
+
+  const result = (await browserCDP.send("Storage.getCookies")) as {
+    cookies: CookieDiagnosticSource[];
+  };
+  logCookies(stage, result.cookies);
+}
 
 async function readCapsule(path: string): Promise<Capsule> {
   const text = await readFile(path, "utf8");
@@ -45,10 +82,14 @@ async function restore(browser: Browser, capsule: Capsule): Promise<TargetResult
 
   const browserCDP = await browser.newBrowserCDPSession();
   if (capsule.storageState) {
+    logCookies("received", capsule.storageState.cookies);
     await restoreStorage(context, browserCDP, capsule.storageState);
+    await logBrowserCookies("after storage restore", browserCDP);
   }
 
-  return restoreTargets(context, browserCDP, capsule.initialTargets ?? []);
+  const result = await restoreTargets(context, browserCDP, capsule.initialTargets ?? []);
+  if (capsule.storageState) await logBrowserCookies("after target navigation", browserCDP);
+  return result;
 }
 
 async function main([command, ...args]: string[]): Promise<void> {
@@ -89,6 +130,7 @@ main(process.argv.slice(2)).catch((error: unknown) => {
   // Exit code 2 tells Go that the capsule itself is invalid; stderr then holds the reason.
   if (error instanceof InvalidCapsule) exit(2, error.message);
   else if (error instanceof UsageError) exit(64, error.message);
-  // Other failures stay generic because their details may contain restored browser data.
-  else exit(1, "browser restore failed");
+  // Go only forwards this diagnostic to local logs when explicitly enabled. Public API
+  // errors stay generic because details may contain restored browser data.
+  else exit(1, errorMessage(error));
 });

@@ -423,6 +423,7 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		args,
 		"--env", "APERTURE_CONFIG_SOURCE=",
 		"--env", fmt.Sprintf("APERTURE_DEV_PROXY_TARGET=http://127.0.0.1:%d", backendContainerPort),
+		"--env", "APERTURE_BROWSER_RESTORE_DIAGNOSTICS=true",
 		"--env", fmt.Sprintf("APERTURE_EXTERNAL_BASE_URL=http://%s:%d", opts.bindAddress, opts.port),
 		"--env", "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+opts.bindAddress,
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN=%d", opts.udpPortMin),

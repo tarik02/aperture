@@ -63,8 +63,11 @@ export function TabsScreen({ popup }: { popup: Popup }) {
                         tab={tab}
                         tabId={tab.id}
                         selected={draft.draftTabIds.includes(tab.id)}
-                        disabled={busy || tab.id === popup.currentTab?.id}
+                        active={draft.draftTabIds[0] === tab.id}
+                        busy={busy}
+                        selectionLocked={tab.id === popup.currentTab?.id}
                         onToggle={actions.toggleDraftTab}
+                        onActivate={actions.activateDraftTab}
                       />
                     ),
                   )}
@@ -90,11 +93,23 @@ interface TabRowProps {
   tab: chrome.tabs.Tab;
   tabId: number;
   selected: boolean;
-  disabled: boolean;
+  active: boolean;
+  busy: boolean;
+  selectionLocked: boolean;
   onToggle: (tabId: number, checked: boolean) => void;
+  onActivate: (tabId: number) => void;
 }
 
-function TabRow({ tab, tabId, selected, disabled, onToggle }: TabRowProps) {
+function TabRow({
+  tab,
+  tabId,
+  selected,
+  active,
+  busy,
+  selectionLocked,
+  onToggle,
+  onActivate,
+}: TabRowProps) {
   const inputId = `tab-${tabId}`;
 
   return (
@@ -108,7 +123,7 @@ function TabRow({ tab, tabId, selected, disabled, onToggle }: TabRowProps) {
       <Checkbox
         id={inputId}
         checked={selected}
-        disabled={disabled}
+        disabled={busy || selectionLocked}
         onCheckedChange={(checked) => onToggle(tabId, checked)}
       />
       <FieldLabel htmlFor={inputId} className="min-w-0 items-center gap-2">
@@ -120,6 +135,17 @@ function TabRow({ tab, tabId, selected, disabled, onToggle }: TabRowProps) {
           </span>
         </span>
       </FieldLabel>
+      <Button
+        type="button"
+        variant={active ? "secondary" : "ghost"}
+        size="sm"
+        className="h-7 shrink-0 px-2 text-xs"
+        disabled={busy || !selected || active}
+        aria-pressed={active}
+        onClick={() => onActivate(tabId)}
+      >
+        {active ? "Opens first" : "Open first"}
+      </Button>
     </Field>
   );
 }

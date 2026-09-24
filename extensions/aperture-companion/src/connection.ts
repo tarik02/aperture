@@ -45,19 +45,26 @@ export interface CreateSessionOptions {
 const connectionStoreKey = "apertureConnections";
 const connectionDraftKey = "apertureConnectionDraft";
 
-export async function connect(originInput: string, token: string): Promise<Connection> {
+export function normalizeConnectionOrigin(originInput: string): string {
   const parsedOrigin = new URL(originInput.trim());
   if (parsedOrigin.protocol !== "http:" && parsedOrigin.protocol !== "https:") {
     throw new Error("Aperture URL must use HTTP or HTTPS");
   }
-  const origin = parsedOrigin.origin;
+  return parsedOrigin.origin;
+}
+
+export async function requestConnectionPermission(originInput: string): Promise<void> {
+  const origin = normalizeConnectionOrigin(originInput);
+  if (!(await chrome.permissions.request({ origins: [`${origin}/*`] }))) {
+    throw new Error("Access to the Aperture instance was not granted");
+  }
+}
+
+export async function connect(originInput: string, token: string): Promise<Connection> {
+  const origin = normalizeConnectionOrigin(originInput);
   const normalizedToken = token.trim();
   if (normalizedToken === "") {
     throw new Error("API token is required");
-  }
-  const permission = await chrome.permissions.request({ origins: [`${origin}/*`] });
-  if (!permission) {
-    throw new Error("Access to the Aperture instance was not granted");
   }
 
   const client = createApiClient({ baseUrl: origin });

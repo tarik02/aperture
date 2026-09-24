@@ -17,6 +17,10 @@ export function targetPreloadSource(state: TargetPreload): string {
   return source(sources.target, "ApertureTargetRestore", state);
 }
 
+export function targetHistoryStateSource(encoded: string): string {
+  return `(() => {\n${sources.target}\nreturn ApertureTargetRestore.restoreHistoryState(${JSON.stringify(encoded)});\n})()`;
+}
+
 export function sessionStorageSource(state: unknown): string {
   return source(sources.sessionStorage, "ApertureSessionStorageRestore", state);
 }

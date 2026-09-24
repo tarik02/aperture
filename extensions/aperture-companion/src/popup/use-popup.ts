@@ -1,16 +1,21 @@
 import { entriesToTags, type TagEntry } from "@aperture/ui/components/tag-editor";
 import { useEffect, useState, type FormEvent } from "react";
 import { requestCapturePermissions } from "../capture.ts";
-import { teleportTabsResultSchema, type TeleportTabsCommand } from "../commands.ts";
 import {
-  connect,
+  connectResultSchema,
+  teleportTabsResultSchema,
+  type TeleportTabsCommand,
+} from "../commands.ts";
+import {
   getConnection,
   getConnectionDraft,
   hasScope,
   listConnections,
   listSnapshots,
+  normalizeConnectionOrigin,
   removeConnection,
   reorderConnection,
+  requestConnectionPermission,
   saveConnection,
   saveConnectionDraft,
   selectConnection,
@@ -258,8 +263,32 @@ export function usePopup() {
     async connect(event: FormEvent<HTMLFormElement>) {
       event.preventDefault();
       await run("connect", async () => {
-        const connected = await connect(connectionDraft.origin, connectionDraft.token);
-        setConnections(await listConnections());
+        normalizeConnectionOrigin(connectionDraft.origin);
+        if (connectionDraft.token.trim() === "") {
+          throw new Error("API token is required");
+        }
+        const responsePromise = chrome.runtime.sendMessage({
+          type: "connect",
+          id: crypto.randomUUID(),
+          origin: connectionDraft.origin,
+          token: connectionDraft.token,
+        });
+        try {
+          await requestConnectionPermission(connectionDraft.origin);
+        } catch (error) {
+          void responsePromise.catch(() => undefined);
+          throw error;
+        }
+        const response = connectResultSchema.parse(await responsePromise);
+        if (!response.ok) {
+          throw new Error(response.error);
+        }
+        const storedConnections = await listConnections();
+        const connected = storedConnections.find(({ id }) => id === response.connectionId);
+        if (connected === undefined) {
+          throw new Error("The Aperture connection is unavailable");
+        }
+        setConnections(storedConnections);
         setConnection(connected);
         setConnectionDraft((current) => ({ ...current, token: "" }));
         setScreen("home");
@@ -348,8 +377,17 @@ export function usePopup() {
       setDraft((current) => ({
         ...current,
         draftTabIds: checked
-          ? [...new Set([...current.draftTabIds, tabId])]
+          ? [tabId, ...current.draftTabIds.filter((id) => id !== tabId)]
           : current.draftTabIds.filter((id) => id !== tabId),
+      }));
+    },
+
+    activateDraftTab(tabId: number) {
+      setDraft((current) => ({
+        ...current,
+        draftTabIds: current.draftTabIds.includes(tabId)
+          ? [tabId, ...current.draftTabIds.filter((id) => id !== tabId)]
+          : current.draftTabIds,
       }));
     },
 
@@ -368,22 +406,25 @@ export function usePopup() {
 
     async teleport() {
       await run("teleport", async () => {
-        const tabs = requireSelectedTabs(selectedOrCurrentTabIds());
+        const selectedTabIds = selectedOrCurrentTabIds();
+        const tabs = requireSelectedTabs(selectedTabIds);
         const currentTabId = requireCurrentTabId();
         if (!tabs.some((tab) => tab.id === currentTabId)) {
           throw new Error("Select the current tab to teleport its browser state");
         }
-        await requestCapturePermissions(tabs);
+        const activeTabId =
+          selectedTabIds.find((tabId) => tabs.some((tab) => tab.id === tabId)) ?? currentTabId;
         const { destination } = draft;
         const name = draft.resourceName.trim();
         if (destination === "snapshot" && name === "") {
           updateDraft({ advanced: true });
           throw new Error("Snapshot name is required");
         }
-        const result = await sendTeleport({
+        const resultPromise = sendTeleport({
           type: "teleport-tabs",
+          id: crypto.randomUUID(),
           tabIds: tabs.map(requireTabId),
-          authenticatedTabId: currentTabId,
+          activeTabId,
           destination,
           label: name,
           tags: entriesToTags(draft.tags),
@@ -391,6 +432,13 @@ export function usePopup() {
             ? { snapshotName: name, description: draft.description.trim() }
             : {}),
         });
+        try {
+          await requestCapturePermissions(tabs);
+        } catch (error) {
+          void resultPromise.catch(() => undefined);
+          throw error;
+        }
+        const result = await resultPromise;
         setDraft(initialDraft(currentTab));
         setScreen("home");
         setStatus(teleportCreatedStatus(destination, result.warnings));

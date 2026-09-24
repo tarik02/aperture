@@ -44,7 +44,7 @@ func ValidateSessionInitialization(ctx context.Context, capsule []byte) error {
 	var stderr bytes.Buffer
 	command := exec.CommandContext(ctx, worker, "validate", path)
 	command.Stderr = &stderr
-	return restoreWorkerError(ctx, &stderr, command.Run())
+	return restoreWorkerError(ctx, &stderr, command.Run(), false)
 }
 
 type restoreWorkerResult struct {
@@ -101,7 +101,7 @@ func runRestoreWorker(ctx context.Context, cdpPort int, capsule []byte, browser 
 
 	line, err := reader.ReadBytes('\n')
 	if errors.Is(err, io.EOF) {
-		if err := restoreWorkerError(ctx, &stderr, finish(false)); err != nil {
+		if err := restoreWorkerError(ctx, &stderr, finish(false), browser.runtime.values.BrowserRestoreDiagnostics); err != nil {
 			return restoreWorkerResult{}, err
 		}
 		return restoreWorkerResult{}, errors.New("browser restore worker exited without a result")
@@ -124,7 +124,7 @@ func runRestoreWorker(ctx context.Context, cdpPort int, capsule []byte, browser 
 
 	_ = handoff.Close()
 	extraBytes, readErr := io.Copy(io.Discard, reader)
-	if err := restoreWorkerError(ctx, &stderr, command.Wait()); err != nil {
+	if err := restoreWorkerError(ctx, &stderr, command.Wait(), browser.runtime.values.BrowserRestoreDiagnostics); err != nil {
 		return restoreWorkerResult{}, err
 	}
 	if readErr != nil || extraBytes != 0 {
@@ -166,20 +166,23 @@ func writeCapsuleFile(capsule []byte) (string, func(), error) {
 
 // restoreWorkerError converts the worker's exit status into an error. Exit code 2
 // means the capsule is invalid and stderr names the offending field.
-func restoreWorkerError(ctx context.Context, stderr *bytes.Buffer, err error) error {
+func restoreWorkerError(ctx context.Context, stderr *bytes.Buffer, err error, diagnostics bool) error {
+	message := strings.TrimSpace(stderr.String())
 	if err == nil {
+		if diagnostics && message != "" {
+			fmt.Fprintf(os.Stderr, "browser-session-wrapper: restore worker diagnostics: %s\n", message)
+		}
 		return nil
 	}
 	if ctx.Err() != nil {
 		return fmt.Errorf("browser restore worker stopped: %w", ctx.Err())
 	}
-	message := strings.TrimSpace(stderr.String())
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 2 {
 		return fmt.Errorf("%w: %s", ErrInvalidSessionInitialization, message)
 	}
-	if message != "" {
-		return fmt.Errorf("browser restore worker failed: %s", message)
+	if diagnostics && message != "" {
+		fmt.Fprintf(os.Stderr, "browser-session-wrapper: restore worker failed: %s\n", message)
 	}
-	return fmt.Errorf("browser restore worker failed: %w", err)
+	return errors.New("browser restore worker failed")
 }

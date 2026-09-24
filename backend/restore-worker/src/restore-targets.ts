@@ -1,7 +1,11 @@
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
 import { cdpForPage, type FrameTree, type TargetInfo } from "./cdp.js";
 import { preloadErrorKey, windowOpenKey } from "./browser/page-keys.js";
-import { sessionStorageSource, targetPreloadSource } from "./payload-source.js";
+import {
+  sessionStorageSource,
+  targetHistoryStateSource,
+  targetPreloadSource,
+} from "./payload-source.js";
 import { restoreDocument } from "./restore-document.js";
 import { canonicalOrigin, urlOrigin, type Target } from "./schema.js";
 
@@ -64,13 +68,22 @@ async function createTarget(
       targetPreloadSource({
         url: target.url,
         windowName: target.documentState?.windowName,
-        historyState: target.documentState?.historyState,
       }),
     );
 
-    await page.goto(target.url, { waitUntil: "domcontentloaded", timeout: minute });
+    await page.goto(target.url, { waitUntil: "commit", timeout: minute });
     await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: targetScript });
     await checkPreload(page);
+
+    const historyState = target.documentState?.historyState;
+    if (historyState !== undefined && page.url() === new URL(target.url).href) {
+      const error = (await page.evaluate(targetHistoryStateSource(historyState))) as
+        | string
+        | undefined;
+      if (error) throw new Error(`restore initial document state: ${error}`);
+    }
+
+    await page.waitForLoadState("domcontentloaded", { timeout: minute });
     await restoreDocument(page, target);
 
     // Session storage for origins that already loaded is in place. The rest is handed back

@@ -1420,18 +1420,19 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	}
 
 	values := RuntimeEnvValues{
-		SessionID:         *required["APERTURE_SESSION_ID"],
-		ExternalBaseURL:   strings.TrimSpace(os.Getenv("EXTERNAL_BASE_URL")),
-		SessionToken:      strings.TrimSpace(os.Getenv("SESSION_TOKEN")),
-		SessionTokenPath:  strings.TrimSpace(os.Getenv("SESSION_TOKEN_PATH")),
-		InternalAPIURL:    strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
-		MergedUserDataDir: *required["MERGED_USER_DATA_DIR"],
-		UpperDir:          strings.TrimSpace(os.Getenv("UPPER_DIR")),
-		DownloadsDir:      *required["DOWNLOADS_DIR"],
-		RecordingsDir:     *required["RECORDINGS_DIR"],
-		CacheDir:          *required["CACHE_DIR"],
-		ArtifactsDir:      *required["ARTIFACTS_DIR"],
-		BrowserExecutable: *required["BROWSER_EXECUTABLE"],
+		SessionID:                 *required["APERTURE_SESSION_ID"],
+		ExternalBaseURL:           strings.TrimSpace(os.Getenv("EXTERNAL_BASE_URL")),
+		SessionToken:              strings.TrimSpace(os.Getenv("SESSION_TOKEN")),
+		SessionTokenPath:          strings.TrimSpace(os.Getenv("SESSION_TOKEN_PATH")),
+		InternalAPIURL:            strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
+		MergedUserDataDir:         *required["MERGED_USER_DATA_DIR"],
+		UpperDir:                  strings.TrimSpace(os.Getenv("UPPER_DIR")),
+		DownloadsDir:              *required["DOWNLOADS_DIR"],
+		RecordingsDir:             *required["RECORDINGS_DIR"],
+		CacheDir:                  *required["CACHE_DIR"],
+		ArtifactsDir:              *required["ARTIFACTS_DIR"],
+		BrowserExecutable:         *required["BROWSER_EXECUTABLE"],
+		BrowserRestoreDiagnostics: strings.TrimSpace(os.Getenv("BROWSER_RESTORE_DIAGNOSTICS")) == "1",
 	}
 
 	if _, err := fmt.Sscanf(portRaw, "%d", &values.CDPPort); err != nil {

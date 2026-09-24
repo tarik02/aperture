@@ -55,6 +55,8 @@ export function teleportProgressLabel(
 ): string {
   if (operation?.status === "running" && isTeleportOperationRunning(operation)) {
     switch (operation.stage) {
+      case "requesting-access":
+        return "Waiting for site access…";
       case "capturing":
         return "Capturing state…";
       case "creating-session":

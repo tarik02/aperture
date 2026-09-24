@@ -7,6 +7,7 @@ const operationBaseSchema = z.object({
 });
 
 const teleportStageSchema = z.enum([
+  "requesting-access",
   "capturing",
   "creating-session",
   "creating-snapshot",
