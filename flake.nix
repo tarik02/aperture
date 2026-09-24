@@ -17,6 +17,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        nodeRuntime = pkgs.nodejs_26;
 
         goLatest = pkgs.go_1_26.overrideAttrs (_: {
           version = "1.26.5";
@@ -27,6 +28,7 @@
         });
 
         pnpmLatest = pkgs.pnpm.override {
+          nodejs-slim = nodeRuntime;
           version = "11.13.0";
           hash = "sha256-hlx2vZERpFykH27u1AZ/8Ozf7p6sg6rSQXnIP/6+dZk=";
         };
@@ -62,6 +64,14 @@
           rel == "result"
           || rel == "node_modules"
           || lib.hasPrefix "node_modules/" rel
+          || rel == "packages/browser-state/node_modules"
+          || lib.hasPrefix "packages/browser-state/node_modules/" rel
+          || rel == "packages/api-schema/node_modules"
+          || lib.hasPrefix "packages/api-schema/node_modules/" rel
+          || rel == "backend/restore-worker/node_modules"
+          || lib.hasPrefix "backend/restore-worker/node_modules/" rel
+          || rel == "backend/restore-worker/dist"
+          || lib.hasPrefix "backend/restore-worker/dist/" rel
           || rel == "web/node_modules"
           || lib.hasPrefix "web/node_modules/" rel
           || rel == "web/dist"
@@ -462,29 +472,6 @@
               ];
             });
 
-        playwrightMCP = pkgs.buildNpmPackage rec {
-          pname = "playwright-mcp";
-          version = "0.0.82";
-
-          src = pkgs.fetchFromGitHub {
-            owner = "Microsoft";
-            repo = "playwright-mcp";
-            tag = "v${version}";
-            hash = "sha256-O/Z/ufrtcbLInCnlZ1RhW2XsSTKQEn9KMUN+sC+DqdM=";
-          };
-
-          npmDepsHash = "sha256-9ezjwWu4tXgO868iDMT9Cst5Ke9ADISvbNbeEOJNmxw=";
-          npmInstallFlags = [ "--ignore-scripts" ];
-          dontNpmBuild = true;
-
-          meta = with lib; {
-            description = "Playwright browser automation tools for MCP";
-            homepage = "https://github.com/microsoft/playwright-mcp";
-            license = licenses.asl20;
-            mainProgram = "playwright-mcp";
-          };
-        };
-
         s6OverlayVersion = "3.2.3.1";
         s6OverlayArch =
           if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then
@@ -547,16 +534,19 @@
               pnpm = pnpmLatest;
               fetcherVersion = 4;
               pnpmWorkspaces = [
+                "@aperture/restore-worker"
+                "@aperture/api-schema"
+                "@aperture/browser-state"
                 "@aperture/api-client"
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-QIfA0DxEbFVtrr+H2qisu2mfluXLErMbjPTBXjeMc4Q=";
+              hash = "sha256-B48f/lbmr8y26FxMsk+X3uAj6BsCzCQVErhmKnjDgyE=";
             };
 
             nativeBuildInputs = [
               pkgs.makeWrapper
-              pkgs.nodejs_22
+              nodeRuntime
               pnpmLatest
               pkgs.pnpmConfigHook
               pkgs.pkg-config
@@ -581,6 +571,7 @@
             ];
 
             preBuild = ''
+              pnpm --filter @aperture/restore-worker build
               pnpm --filter @aperture/web build
               test -f web/dist/client/index.html
             '';
@@ -588,7 +579,7 @@
             # Vendor derivation only needs Go modules, not frontend dependencies.
             overrideModAttrs = oldAttrs: {
               nativeBuildInputs = builtins.filter (
-                drv: drv != pkgs.pnpmConfigHook && drv != pnpmLatest && drv != pkgs.nodejs_22
+                drv: drv != pkgs.pnpmConfigHook && drv != pnpmLatest && drv != nodeRuntime
               ) (oldAttrs.nativeBuildInputs or [ ]);
               preBuild = "";
               pnpmDeps = null;
@@ -597,6 +588,17 @@
             doCheck = true;
 
             postInstall = ''
+              # Node runtime: the restore worker bundle plus the Playwright packages it
+              # depends on, copied flat out of the pnpm-installed node_modules.
+              mkdir -p $out/share/aperture/restore-worker/node_modules/@playwright
+              cp -r backend/restore-worker/dist $out/share/aperture/restore-worker/
+              cp -rL backend/restore-worker/node_modules/playwright backend/restore-worker/node_modules/playwright-core \
+                $out/share/aperture/restore-worker/node_modules/
+              cp -rL backend/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
+              makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
+                --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
+              makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \
+                --add-flags $out/share/aperture/restore-worker/node_modules/@playwright/mcp/cli.js
               mkdir -p $out/lib/weston
               mkdir -p $TMPDIR/aperture-wayland-protocols
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
@@ -676,10 +678,9 @@
                 --replace-fail '@traefikBin@' ${pkgs.traefik}/bin/traefik
 
               wrapProgram $out/bin/browser-session-wrapper \
-                --prefix PATH : ${
+                --prefix PATH : $out/bin:${
                   lib.makeBinPath [
                     pkgs.bubblewrap
-                    playwrightMCP
                     runtimeGstreamer
                     patchedWeston
                     runtimePipewire
@@ -835,7 +836,6 @@
               maxLayers = 120;
               contents = [
                 aperture
-                playwrightMCP
                 pkgs.traefik
                 runtimeChromium
                 pkgs.bashInteractive
@@ -849,7 +849,7 @@
                 pkgs.cacert
               ]
               ++ lib.optionals development [
-                pkgs.nodejs_22
+                nodeRuntime
                 pnpmLatest
               ]
               ++ browserFonts
@@ -938,7 +938,6 @@
                     lib.makeBinPath (
                       [
                         aperture
-                        playwrightMCP
                         pkgs.traefik
                         runtimeChromium
                         pkgs.bashInteractive
@@ -950,7 +949,7 @@
                         pkgs.sudo
                       ]
                       ++ lib.optionals development [
-                        pkgs.nodejs_22
+                        nodeRuntime
                         pnpmLatest
                       ]
                     )
@@ -1098,7 +1097,7 @@
             pkgs.golangci-lint
             pkgs.gopls
             pkgs.goreleaser
-            pkgs.nodejs_22
+            nodeRuntime
             pnpmLatest
             pkgs.pkg-config
             pkgs.sqlite
@@ -1112,14 +1111,12 @@
             pkgs.pixman
             pkgs.wayland.dev
             patchedWeston
-            playwrightMCP
           ];
         };
 
         packages = {
           default = aperture;
           aperture = aperture;
-          playwright-mcp = playwrightMCP;
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

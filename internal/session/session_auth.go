@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/aperture/aperture/internal/db"
@@ -28,7 +29,18 @@ func (s *Service) ValidateSessionTokenForwardAuth(ctx context.Context, routeSess
 	return s.WakeAuthorizedSession(ctx, routeSessionID, authorization)
 }
 
+// authorizedSession authorizes a session token for a session clients may use.
 func (s *Service) authorizedSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, error) {
+	return s.tokenSession(ctx, routeSessionID, authorization, db.SessionStatusRunning, db.SessionStatusSuspended)
+}
+
+// wrapperSession authorizes the session's own browser wrapper, which already
+// calls Aperture while the session is still being created.
+func (s *Service) wrapperSession(ctx context.Context, routeSessionID, authorization string) (*db.Session, error) {
+	return s.tokenSession(ctx, routeSessionID, authorization, db.SessionStatusCreating, db.SessionStatusRunning, db.SessionStatusSuspended)
+}
+
+func (s *Service) tokenSession(ctx context.Context, routeSessionID, authorization string, allowedStatuses ...string) (*db.Session, error) {
 	routeSessionID = strings.TrimSpace(routeSessionID)
 	if routeSessionID == "" {
 		return nil, ErrNotFound
@@ -68,7 +80,7 @@ func (s *Service) authorizedSession(ctx context.Context, routeSessionID, authori
 	if sessionRow == nil {
 		return nil, ErrNotFound
 	}
-	if sessionRow.Status != db.SessionStatusRunning && sessionRow.Status != db.SessionStatusSuspended {
+	if !slices.Contains(allowedStatuses, sessionRow.Status) {
 		return nil, ErrNotRunning
 	}
 	if isExpired(sessionRow.ExpiresAt, s.now().UTC()) {

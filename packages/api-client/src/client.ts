@@ -38,7 +38,6 @@ import {
 import type { ResourceGrant, ResourceMode } from "./schemas.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
-const sessionCreateBodyMaxBytes = 64 * 1024 * 1024;
 
 type ApiClientConfig = {
   baseUrl: string;
@@ -370,11 +369,71 @@ export type EventsListParams = {
   resourceId?: string;
 };
 
-export type InitialBrowserTarget = {
+export interface InitialBrowserTarget {
   url: string;
-};
+  sessionStorage?: Array<{ origin: string; entries: BrowserStorageEntry[] }>;
+  scroll?: { x: number; y: number };
+  documentState?: InitialBrowserDocumentState;
+  openerTargetIndex?: number;
+  active?: boolean;
+}
 
-export type InitialBrowserCookie = {
+export interface InitialBrowserElementLocator {
+  tag: string;
+  id?: string;
+  name?: string;
+  inputType?: string;
+  autocomplete?: string;
+  ariaLabel?: string;
+  placeholder?: string;
+  path: Array<{ tag: string; index: number }>;
+}
+
+export interface InitialBrowserControlSelection {
+  start: number;
+  end: number;
+  direction: "forward" | "backward" | "none";
+}
+
+export interface InitialBrowserControlState {
+  locator: InitialBrowserElementLocator;
+  value: string;
+  checked?: boolean;
+  selectedIndices?: number[];
+  selection?: InitialBrowserControlSelection;
+}
+
+export interface InitialBrowserSelectionEndpoint {
+  locator: InitialBrowserElementLocator;
+  nodePath: number[];
+  offset: number;
+}
+
+export interface InitialBrowserDocumentState {
+  version: 1;
+  windowName?: string;
+  historyState?: string;
+  controls: InitialBrowserControlState[];
+  contentEditables: Array<{ locator: InitialBrowserElementLocator; html: string }>;
+  scrollPositions: Array<{ locator: InitialBrowserElementLocator; x: number; y: number }>;
+  focus?: InitialBrowserElementLocator;
+  selection?: {
+    anchor: InitialBrowserSelectionEndpoint;
+    focus: InitialBrowserSelectionEndpoint;
+  };
+}
+
+export interface BrowserStorageEntry {
+  name: string;
+  value: string;
+}
+
+export interface InitialBrowserCookiePartitionKey {
+  topLevelSite: string;
+  hasCrossSiteAncestor?: boolean;
+}
+
+export interface InitialBrowserCookie {
   name: string;
   value: string;
   domain: string;
@@ -383,15 +442,68 @@ export type InitialBrowserCookie = {
   httpOnly?: boolean;
   secure?: boolean;
   sameSite?: "Strict" | "Lax" | "None";
-};
+  partitionKey?: InitialBrowserCookiePartitionKey;
+}
 
-export type InitialBrowserStorageState = {
+export interface InitialIndexedDBKeyPath {
+  kind: "none" | "string" | "array";
+  value?: string[];
+}
+
+export interface InitialIndexedDBIndexKeyPath {
+  kind: "string" | "array";
+  value: string[];
+}
+
+export interface InitialIndexedDBIndex {
+  name: string;
+  keyPath: InitialIndexedDBIndexKeyPath;
+  unique: boolean;
+  multiEntry: boolean;
+}
+
+export interface InitialIndexedDBObjectStore {
+  name: string;
+  keyPath: InitialIndexedDBKeyPath;
+  autoIncrement: boolean;
+  indexes: InitialIndexedDBIndex[];
+  records: Array<{ key: string; value: string }>;
+}
+
+export interface InitialIndexedDBDatabase {
+  name: string;
+  version: number;
+  objectStores: InitialIndexedDBObjectStore[];
+}
+
+export interface InitialCacheStorageCache {
+  name: string;
+  entries: Array<{
+    url: string;
+    requestHeaders: Record<string, string>;
+    responseHeaders: Record<string, string>;
+    responseStatus: number;
+    responseStatusText: string;
+    responseBody: string;
+  }>;
+}
+
+export interface InitialOPFSFile {
+  path: string;
+  body: string;
+}
+
+export interface InitialBrowserStorageState {
   cookies: InitialBrowserCookie[];
   origins: Array<{
     origin: string;
-    localStorage: Array<{ name: string; value: string }>;
+    ancestorOrigins?: string[];
+    localStorage: BrowserStorageEntry[];
+    indexedDB?: InitialIndexedDBDatabase[];
+    cacheStorage?: InitialCacheStorageCache[];
+    opfs?: InitialOPFSFile[];
   }>;
-};
+}
 
 export type CreateSessionInput = {
   baseSnapshotName?: string | null;
@@ -853,13 +965,6 @@ export function createApiClient(options: ApiClientOptions = {}) {
         ...(input.storageState === undefined ? {} : { storageState: input.storageState }),
         tags: input.tags ?? {},
       };
-      if (new TextEncoder().encode(JSON.stringify(body)).byteLength > sessionCreateBodyMaxBytes) {
-        throw new ApiRequestError(
-          "validation_failed",
-          "The browser state exceeds Aperture's 64 MiB session creation limit",
-          0,
-        );
-      }
       return request(config, {
         method: "POST",
         path: "/api/sessions",

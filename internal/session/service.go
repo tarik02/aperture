@@ -30,6 +30,7 @@ const (
 	cdpReadyPollInterval   = 500 * time.Millisecond
 	cdpReadyRequestTime    = 2 * time.Second
 	defaultSuspendAfter    = 15 * time.Minute
+	failureCleanupTimeout  = 30 * time.Second
 )
 
 // OverlayClient mounts and unmounts session overlays.
@@ -118,9 +119,6 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
 		return nil, err
 	}
-	if err := input.Initialization.Validate(); err != nil {
-		return nil, err
-	}
 	if err := input.Proxy.Validate(); err != nil {
 		return nil, err
 	}
@@ -150,11 +148,23 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		nameCopy := snapshot.Name
 		baseSnapshotName = &nameCopy
 	}
+	initializationPayload, err := encodeBrowserInitialization(input.Initialization)
+	if err != nil {
+		return nil, err
+	}
+	// Reject invalid browser state before anything is allocated for the session.
+	if len(initializationPayload) != 0 {
+		if err := browser.ValidateSessionInitialization(ctx, initializationPayload); err != nil {
+			return nil, err
+		}
+	}
 
 	sessionID, err := ids.NewUUIDv7()
 	if err != nil {
 		return nil, err
 	}
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
 
 	layout, err := paths.Session(s.cfg, sessionID)
 	if err != nil {
@@ -296,7 +306,6 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 
 	runtimePath := layout.RuntimeEnv
 	startedAt := now.Format(time.RFC3339Nano)
-	sessionRow.Status = db.SessionStatusRunning
 	sessionRow.StartedAt = &startedAt
 	sessionRow.StoppedAt = nil
 	sessionRow.DeletedAt = nil
@@ -317,15 +326,24 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 		_ = s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
-	if !input.Initialization.Empty() {
+	if len(initializationPayload) != 0 {
 		if err := s.waitForRuntimeReady(ctx, port, wrapperPort); err != nil {
 			_ = s.markFailed(ctx, sessionRow, "browser wrapper did not become ready", err)
 			return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 		}
-		if err := pushBrowserInitialization(ctx, wrapperPort, wrapperControlToken, input.Initialization); err != nil {
+		if err := pushBrowserInitialization(ctx, wrapperPort, wrapperControlToken, initializationPayload); err != nil {
 			_ = s.markFailed(ctx, sessionRow, "browser initialization failed", err)
+			if errors.Is(err, ErrBrowserStateInvalid) {
+				return nil, err
+			}
 			return nil, fmt.Errorf("%w: %v", ErrBrowserInitialize, err)
 		}
+	}
+
+	sessionRow.Status = db.SessionStatusRunning
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.markFailed(ctx, sessionRow, "session activation failed", err)
+		return nil, err
 	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
@@ -797,7 +815,7 @@ type UploadedFileEvent struct {
 }
 
 func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authorization string, files []UploadedFileEvent, actorKind, clientIP string) error {
-	sessionRow, err := s.authorizedSession(ctx, sessionID, authorization)
+	sessionRow, err := s.wrapperSession(ctx, sessionID, authorization)
 	if err != nil {
 		return err
 	}
@@ -827,7 +845,7 @@ func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authoriza
 }
 
 func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authorization string) ([]UploadedFileEvent, error) {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return nil, err
 	}
 	events, err := s.repo.ListEventsForResourceType(ctx, "session", sessionID, "session.file_upload_pending")
@@ -849,14 +867,14 @@ func (s *Service) ListPendingFileUploads(ctx context.Context, sessionID, authori
 }
 
 func (s *Service) FinalizeFilesUploaded(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.FinalizeEvents(ctx, "session", sessionID, "session.file_upload_pending", "session.file_uploaded", "file uploaded", eventIDs)
 }
 
 func (s *Service) CancelPendingFileUploads(ctx context.Context, sessionID, authorization string, eventIDs []string) error {
-	if _, err := s.authorizedSession(ctx, sessionID, authorization); err != nil {
+	if _, err := s.wrapperSession(ctx, sessionID, authorization); err != nil {
 		return err
 	}
 	return s.repo.DeletePendingEvents(ctx, "session", sessionID, "session.file_upload_pending", eventIDs)
@@ -994,6 +1012,16 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 
 // ReconcileStartup aligns DB session state with systemd and runtime files after restart.
 func (s *Service) ReconcileStartup(ctx context.Context) error {
+	creating, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusCreating)
+	if err != nil {
+		return err
+	}
+	for _, sessionRow := range creating {
+		if err := s.markFailedRetained(ctx, &sessionRow, "startup reconciliation found interrupted session creation", nil); err != nil {
+			return err
+		}
+	}
+
 	sessions, err := s.repo.ListSessionsByStatus(ctx, db.SessionStatusRunning)
 	if err != nil {
 		return err
@@ -1220,7 +1248,10 @@ func (s *Service) markFailed(ctx context.Context, sessionRow *db.Session, messag
 }
 
 func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session, message string, cause error) error {
-	_ = s.browser.Stop(ctx, sessionRow.ID)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failureCleanupTimeout)
+	defer cancel()
+
+	_ = s.browser.Stop(cleanupCtx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
@@ -1229,23 +1260,26 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
-	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
-	if err := s.traefik.Reconcile(ctx); err != nil {
-		return err
-	}
-
-	if err := s.appendEvent(ctx, sessionRow, "session.failed", message, cause); err != nil {
+	if err := s.traefik.Reconcile(cleanupCtx); err != nil {
 		return err
 	}
 
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	if err := s.appendEvent(cleanupCtx, sessionRow, "session.failed", message, cause); err != nil {
+		return err
+	}
+
+	_ = s.unmountOverlay(cleanupCtx, sessionRow.ID)
 	return nil
 }
 
 func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.Session, cause error) error {
-	_ = s.browser.Stop(ctx, sessionRow.ID)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failureCleanupTimeout)
+	defer cancel()
+
+	_ = s.browser.Stop(cleanupCtx, sessionRow.ID)
 	_ = s.browser.RemoveRuntimeEnv(sessionRow.ID)
 
 	now := s.now().UTC().Format(time.RFC3339Nano)
@@ -1254,17 +1288,17 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	sessionRow.SuspendedAt = nil
 	sessionRow.RuntimeEnvPath = nil
 	sessionRow.CurrentCDPPort = nil
-	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
-	if err := s.traefik.Reconcile(ctx); err != nil {
+	if err := s.traefik.Reconcile(cleanupCtx); err != nil {
 		return err
 	}
-	if err := s.appendEvent(ctx, sessionRow, "session.reopen_failed", "session reopen failed", cause); err != nil {
+	if err := s.appendEvent(cleanupCtx, sessionRow, "session.reopen_failed", "session reopen failed", cause); err != nil {
 		return err
 	}
 
-	_ = s.unmountOverlay(ctx, sessionRow.ID)
+	_ = s.unmountOverlay(cleanupCtx, sessionRow.ID)
 	return nil
 }
 
