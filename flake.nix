@@ -18,8 +18,6 @@
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
         nodeRuntime = pkgs.nodejs_26;
-        playwrightCoreVersion =
-          (builtins.fromJSON (builtins.readFile ./backend/restore-worker/package.json)).devDependencies."playwright-core";
 
         goLatest = pkgs.go_1_26.overrideAttrs (_: {
           version = "1.26.5";
@@ -474,35 +472,6 @@
               ];
             });
 
-        playwrightMCP = (pkgs.buildNpmPackage.override { nodejs = nodeRuntime; }) rec {
-          pname = "playwright-mcp";
-          version = "0.0.82";
-
-          src = pkgs.fetchFromGitHub {
-            owner = "Microsoft";
-            repo = "playwright-mcp";
-            tag = "v${version}";
-            hash = "sha256-O/Z/ufrtcbLInCnlZ1RhW2XsSTKQEn9KMUN+sC+DqdM=";
-          };
-
-          npmDepsHash = "sha256-9ezjwWu4tXgO868iDMT9Cst5Ke9ADISvbNbeEOJNmxw=";
-          npmInstallFlags = [ "--ignore-scripts" ];
-          dontNpmBuild = true;
-          postInstall = ''
-            test -f $out/lib/node_modules/@playwright/mcp/node_modules/playwright-core/package.json
-            test "$(node -p "require(process.argv[1]).version" "$out/lib/node_modules/@playwright/mcp/node_modules/playwright-core/package.json")" = "${playwrightCoreVersion}"
-            mkdir -p $out/share/aperture
-            ln -s $out/lib/node_modules/@playwright/mcp/node_modules/playwright-core $out/share/aperture/playwright-core
-          '';
-
-          meta = with lib; {
-            description = "Playwright browser automation tools for MCP";
-            homepage = "https://github.com/microsoft/playwright-mcp";
-            license = licenses.asl20;
-            mainProgram = "playwright-mcp";
-          };
-        };
-
         s6OverlayVersion = "3.2.3.1";
         s6OverlayArch =
           if pkgs.stdenv.hostPlatform.system == "x86_64-linux" then
@@ -572,7 +541,7 @@
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-j2g0E9bS4Tbbn1EEKUEt//nNYZnFzpr+1AkLWFs1WY8=";
+              hash = lib.fakeHash;
             };
 
             nativeBuildInputs = [
@@ -619,14 +588,14 @@
             doCheck = true;
 
             postInstall = ''
-              mkdir -p $out/share/aperture/restore-worker/node_modules
-              cp backend/restore-worker/dist/*.js backend/restore-worker/dist/restore.mjs $out/share/aperture/restore-worker/
-              ln -s ${playwrightMCP}/share/aperture/playwright-core $out/share/aperture/restore-worker/node_modules/playwright-core
-              cat > $out/bin/aperture-browser-restore <<EOF
-              #!${pkgs.runtimeShell}
-              exec ${nodeRuntime}/bin/node $out/share/aperture/restore-worker/restore.mjs "\$@"
-              EOF
-              chmod 0755 $out/bin/aperture-browser-restore
+              # Node runtime: the restore worker bundle plus Playwright and Playwright MCP.
+              pnpm --filter @aperture/restore-worker deploy --legacy --prod --offline $out/share/aperture/restore-worker
+              # Drop the deployed package's link back into the build tree.
+              find $out/share/aperture/restore-worker -xtype l -delete
+              makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
+                --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
+              makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \
+                --add-flags $out/share/aperture/restore-worker/node_modules/@playwright/mcp/cli.js
               mkdir -p $out/lib/weston
               mkdir -p $TMPDIR/aperture-wayland-protocols
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
@@ -706,10 +675,9 @@
                 --replace-fail '@traefikBin@' ${pkgs.traefik}/bin/traefik
 
               wrapProgram $out/bin/browser-session-wrapper \
-                --prefix PATH : ${
+                --prefix PATH : $out/bin:${
                   lib.makeBinPath [
                     pkgs.bubblewrap
-                    playwrightMCP
                     runtimeGstreamer
                     patchedWeston
                     runtimePipewire
@@ -865,7 +833,6 @@
               maxLayers = 120;
               contents = [
                 aperture
-                playwrightMCP
                 pkgs.traefik
                 runtimeChromium
                 pkgs.bashInteractive
@@ -968,7 +935,6 @@
                     lib.makeBinPath (
                       [
                         aperture
-                        playwrightMCP
                         pkgs.traefik
                         runtimeChromium
                         pkgs.bashInteractive
@@ -1142,14 +1108,12 @@
             pkgs.pixman
             pkgs.wayland.dev
             patchedWeston
-            playwrightMCP
           ];
         };
 
         packages = {
           default = aperture;
           aperture = aperture;
-          playwright-mcp = playwrightMCP;
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
