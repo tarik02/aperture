@@ -1,7 +1,7 @@
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
 import { cdpForPage, type FrameTree, type TargetInfo } from "./cdp.js";
 import { sessionStorageSource, targetStateSource } from "./payload-source.js";
-import { canonicalOrigin, type Target } from "./schema.js";
+import { canonicalOrigin, urlOrigin, type Target } from "./schema.js";
 
 const tabWindowEnforcerOrigin = "chrome-extension://imdifnnggmlpoochobfcpghdppldpmjl/";
 const minute = 60_000;
@@ -10,11 +10,6 @@ export interface TargetResult {
   targetIds: string[];
   activeIndex: number;
   sessionStorageSources: Record<string, Record<string, string>>;
-}
-
-interface PreloadScript {
-  identifier: string;
-  source: string;
 }
 
 interface CreatedTarget {
@@ -53,36 +48,44 @@ async function waitForNavigation(page: Page, documentState: boolean): Promise<vo
   }
 }
 
+async function addPreloadScript(cdp: CDPSession, source: string): Promise<string> {
+  const added = (await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source })) as {
+    identifier?: string;
+  };
+  if (!added.identifier) throw new Error("browser omitted the preload script identifier");
+  return added.identifier;
+}
+
 async function createTarget(
   context: BrowserContext,
   target: Target,
   opener?: Page,
 ): Promise<CreatedTarget> {
   const page = opener ? await createPopup(opener) : await context.newPage();
-  const scripts: Record<string, PreloadScript> = {};
 
   try {
     const { cdp, id } = await cdpForPage(context, page);
     await cdp.send("Page.enable");
+
+    const sessionStorageScripts = [];
     for (const state of target.sessionStorage ?? []) {
       const origin = canonicalOrigin(state.origin)!;
       const source = sessionStorageSource({ ...state, origin });
-      const added = (await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source })) as {
-        identifier?: string;
-      };
-      if (!added.identifier)
-        throw new Error("browser omitted the session storage preload script identifier");
-      scripts[origin] = { identifier: added.identifier, source };
+      sessionStorageScripts.push({
+        origin,
+        source,
+        identifier: await addPreloadScript(cdp, source),
+      });
     }
 
-    const added = (await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: targetStateSource({
+    const targetScript = await addPreloadScript(
+      cdp,
+      targetStateSource({
         url: target.url,
         scroll: target.scroll,
         documentState: target.documentState,
       }),
-    })) as { identifier?: string };
-    if (!added.identifier) throw new Error("browser omitted the target preload script identifier");
+    );
 
     const navigation = (await cdp.send("Page.navigate", { url: target.url })) as {
       errorText?: string;
@@ -90,20 +93,22 @@ async function createTarget(
     if (navigation.errorText) throw new Error(`navigate initial target: ${navigation.errorText}`);
 
     await waitForNavigation(page, target.documentState != null);
-    await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: added.identifier });
+    await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: targetScript });
 
+    // Session storage for origins that already loaded is in place. The rest is handed back
+    // so Go can keep injecting it until those origins first load in this target.
     const tree = (await cdp.send("Page.getFrameTree")) as { frameTree: FrameTree };
-    const loaded = new Set<string>();
-    collectOrigins(tree.frameTree, loaded);
+    const loaded = frameOrigins(tree.frameTree);
     const sources: Record<string, string> = {};
-
-    for (const [origin, script] of Object.entries(scripts)) {
-      if (!loaded.has(origin)) continue;
-      await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: script.identifier });
-      delete scripts[origin];
+    for (const script of sessionStorageScripts) {
+      if (loaded.has(script.origin)) {
+        await cdp.send("Page.removeScriptToEvaluateOnNewDocument", {
+          identifier: script.identifier,
+        });
+      } else {
+        sources[script.origin] = script.source;
+      }
     }
-
-    for (const [origin, script] of Object.entries(scripts)) sources[origin] = script.source;
 
     return { page, id, sources };
   } catch (error) {
@@ -112,14 +117,11 @@ async function createTarget(
   }
 }
 
-function collectOrigins(tree: FrameTree, origins: Set<string>): void {
-  try {
-    const origin = canonicalOrigin(new URL(tree.frame.url).origin);
-    if (origin) origins.add(origin);
-  } catch {
-    /* about:blank */
-  }
-  tree.childFrames?.forEach((child) => collectOrigins(child, origins));
+function frameOrigins(tree: FrameTree, origins = new Set<string>()): Set<string> {
+  const origin = urlOrigin(tree.frame.url);
+  if (origin) origins.add(origin);
+  for (const child of tree.childFrames ?? []) frameOrigins(child, origins);
+  return origins;
 }
 
 async function createPopup(opener: Page): Promise<Page> {

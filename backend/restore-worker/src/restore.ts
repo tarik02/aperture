@@ -8,20 +8,19 @@ import { capsuleSchema, type Capsule } from "./schema.js";
 class InvalidCapsule extends Error {}
 
 async function readCapsule(lines: AsyncIterator<string>): Promise<Capsule> {
+  const line = await lines.next();
+  if (line.done) throw new InvalidCapsule();
+
   let parsed: unknown;
   try {
-    const line = await lines.next();
-    if (line.done) throw new InvalidCapsule();
-
+    // Treat explicit nulls like omitted optional fields.
     parsed = JSON.parse(line.value, (_key, value: unknown) => (value === null ? undefined : value));
   } catch {
     throw new InvalidCapsule();
   }
 
   const result = capsuleSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new InvalidCapsule();
-  }
+  if (!result.success) throw new InvalidCapsule();
   return result.data;
 }
 
@@ -63,11 +62,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  const exitCode = error instanceof InvalidCapsule ? 2 : 1;
-  process.stderr.write(
+  // Exit code 2 tells Go that the request itself was invalid.
+  const [exitCode, message] =
     error instanceof InvalidCapsule
-      ? "invalid browser initialization\n"
-      : "browser restore failed\n",
-    () => process.exit(exitCode),
-  );
+      ? [2, "invalid browser initialization"]
+      : [1, "browser restore failed"];
+  process.stderr.write(`${message}\n`, () => process.exit(exitCode));
 });

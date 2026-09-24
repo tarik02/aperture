@@ -101,45 +101,47 @@ func (r *wrapperRuntime) runRestoreWorker(
 		return restoreWorkerResult{}, fmt.Errorf("start browser restore worker: %w", err)
 	}
 	reader := bufio.NewReader(stdout)
-	stop := func() error {
+	// finish closes the worker input and waits for the worker to exit. kill aborts
+	// a worker that may still be restoring.
+	finish := func(kill bool) error {
 		_ = stdin.Close()
-		_ = command.Process.Kill()
+		if kill {
+			_ = command.Process.Kill()
+		}
 		_, _ = io.Copy(io.Discard, reader)
 		return command.Wait()
 	}
-	finishAfterInputError := func(writeErr error) error {
-		_ = stdin.Close()
-		_, _ = io.Copy(io.Discard, reader)
-		return restoreWorkerFailure(ctx, stderr, errors.Join(writeErr, command.Wait()))
-	}
 
-	if _, err := stdin.Write(capsule); err != nil {
-		return restoreWorkerResult{}, finishAfterInputError(err)
+	// The capsule and the worker's result are each a single JSON line. Closing
+	// stdin afterwards tells the worker that Go has taken over its preload scripts.
+	_, err = stdin.Write(capsule)
+	if err == nil {
+		_, err = stdin.Write([]byte{'\n'})
 	}
-	if _, err := stdin.Write([]byte{'\n'}); err != nil {
-		return restoreWorkerResult{}, finishAfterInputError(err)
+	if err != nil {
+		return restoreWorkerResult{}, restoreWorkerFailure(ctx, stderr, errors.Join(err, finish(false)))
 	}
 
 	line, err := reader.ReadBytes('\n')
+	if errors.Is(err, io.EOF) {
+		return restoreWorkerResult{}, restoreWorkerFailure(ctx, stderr, finish(false))
+	}
 	if err != nil {
-		_ = stdin.Close()
-		if errors.Is(err, io.EOF) {
-			return restoreWorkerResult{}, restoreWorkerFailure(ctx, stderr, command.Wait())
-		}
-		return restoreWorkerResult{}, errors.Join(err, stop())
+		return restoreWorkerResult{}, errors.Join(err, finish(true))
 	}
 
 	var result restoreWorkerResult
 	if err := json.Unmarshal(line, &result); err != nil {
-		_ = stop()
+		_ = finish(true)
 		return restoreWorkerResult{}, errors.New("browser restore worker returned an invalid result")
 	}
 	for targetID, sources := range result.SessionStorageSources {
 		if err := browser.installInitialSessionStorageScripts(ctx, targetID, sources); err != nil {
-			_ = stop()
+			_ = finish(true)
 			return restoreWorkerResult{}, err
 		}
 	}
+
 	_ = stdin.Close()
 	extraBytes, readErr := io.Copy(io.Discard, reader)
 	if err := command.Wait(); err != nil {

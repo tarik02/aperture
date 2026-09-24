@@ -195,21 +195,9 @@ const storageOrigin = z
     opfs: z.array(opfsFile).optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.indexedDB)
-      unique(
-        value.indexedDB.map((item) => item.name),
-        ctx,
-      );
-    if (value.cacheStorage)
-      unique(
-        value.cacheStorage.map((item) => item.name),
-        ctx,
-      );
-    if (value.opfs)
-      unique(
-        value.opfs.map((item) => item.path),
-        ctx,
-      );
+    unique(value.indexedDB?.map((item) => item.name) ?? [], ctx);
+    unique(value.cacheStorage?.map((item) => item.name) ?? [], ctx);
+    unique(value.opfs?.map((item) => item.path) ?? [], ctx);
   });
 
 const cookie = z
@@ -281,12 +269,9 @@ const target = z
     openerTargetIndex: nonNegative.optional(),
     active: z.boolean().optional(),
   })
-  .superRefine((value, ctx) => {
-    unique(
-      (value.sessionStorage ?? []).map((item) => canonicalOrigin(item.origin)),
-      ctx,
-    );
-  });
+  .superRefine((value, ctx) =>
+    unique(value.sessionStorage?.map((item) => canonicalOrigin(item.origin)) ?? [], ctx),
+  );
 
 export const capsuleSchema = z
   .strictObject({
@@ -298,29 +283,21 @@ export const capsuleSchema = z
     if (targets.filter((item) => item.active).length > 1)
       issue(ctx, "initialTargets must contain at most one active target");
 
-    const visiting = new Set<number>();
-    const visited = new Set<number>();
+    targets.forEach(({ openerTargetIndex: opener }, index) => {
+      if (opener != null && (opener >= targets.length || opener === index))
+        issue(ctx, `initialTargets[${index}].openerTargetIndex is invalid`);
+    });
 
-    const visit = (index: number): void => {
-      if (visited.has(index)) return;
-      if (visiting.has(index)) {
-        issue(ctx, "initialTargets opener relationships must not contain a cycle");
-        return;
+    // Every target has at most one opener, so a chain longer than the list must loop.
+    const cyclic = targets.some((_, start) => {
+      let current: number | undefined = start;
+      for (let steps = 0; current != null; steps++) {
+        if (steps > targets.length) return true;
+        current = targets[current]?.openerTargetIndex;
       }
-
-      visiting.add(index);
-      const opener = targets[index]?.openerTargetIndex;
-      if (opener != null) {
-        if (opener >= targets.length || opener === index)
-          issue(ctx, `initialTargets[${index}].openerTargetIndex is invalid`);
-        else visit(opener);
-      }
-
-      visiting.delete(index);
-      visited.add(index);
-    };
-
-    targets.forEach((_, index) => visit(index));
+      return false;
+    });
+    if (cyclic) issue(ctx, "initialTargets opener relationships must not contain a cycle");
   });
 
 export type Capsule = z.infer<typeof capsuleSchema>;
@@ -336,6 +313,11 @@ export function canonicalOrigin(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Returns the canonical HTTP(S) origin of a URL, or null for anything else (e.g. about:blank). */
+export function urlOrigin(url: string): string | null {
+  return URL.canParse(url) ? canonicalOrigin(new URL(url).origin) : null;
 }
 
 function validJSON(value: string): boolean {

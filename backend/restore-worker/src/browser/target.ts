@@ -1,133 +1,120 @@
 import { decodeStructuredClone } from "@aperture/browser-state";
 import type { Target } from "../schema.js";
 import { createDocumentReplay } from "./document-state.js";
+import { errorMessage } from "./error.js";
+
+const statusMarker = Symbol.for("aperture.initial-document-state");
+const interruptEvents = ["beforeinput", "keydown", "pointerdown"];
+
+function onDOMContentLoaded(callback: () => void): void {
+  if (document.readyState === "loading") {
+    addEventListener("DOMContentLoaded", callback, { once: true });
+  } else {
+    callback();
+  }
+}
 
 export function run(state: Target): void {
   if (window.top !== window) return;
 
   Reflect.set(window, Symbol.for("aperture.initial-window-open"), window.open.bind(window));
-  const marker = Symbol.for("aperture.initial-document-state");
-  const documentState = state.documentState;
-  if (documentState) Reflect.set(window, marker, { status: "pending" });
 
-  const fail = (error: unknown): void => {
-    Reflect.set(window, marker, {
-      status: "failed",
-      error: error instanceof Error ? error.name + ": " + error.message : String(error),
-    });
+  // The worker polls this marker only when the target carries document state.
+  const { documentState } = state;
+  const setStatus = (status: "pending" | "succeeded" | "failed", error?: unknown): void => {
+    if (!documentState) return;
+    Reflect.set(
+      window,
+      statusMarker,
+      status === "failed" ? { status, error: errorMessage(error) } : { status },
+    );
   };
+  setStatus("pending");
 
   try {
-    const restoreTarget = location.href === new URL(state.url).href;
-    const restoreDocument = Boolean(documentState && restoreTarget);
-    const documentReplay = createDocumentReplay(state);
-
-    if (restoreDocument && documentState?.windowName !== undefined) {
-      window.name = String(documentState.windowName);
+    // The navigation ended up on a different URL, so the saved document state does not apply.
+    if (location.href !== new URL(state.url).href) {
+      onDOMContentLoaded(() => setStatus("succeeded"));
+      return;
     }
 
-    let historyRestored = false;
-    const restoreHistory = (): void => {
-      if (!historyRestored && restoreDocument && documentState?.historyState !== undefined) {
-        history.replaceState(decodeStructuredClone(String(documentState.historyState)), "");
-        historyRestored = true;
-      }
-    };
+    const documentReplay = createDocumentReplay(state);
+    if (documentState?.windowName !== undefined) window.name = documentState.windowName;
 
+    // Stop replaying as soon as the user starts interacting with the page.
     let interrupted = false;
     let hydrated = false;
     let observer: MutationObserver | undefined;
-    const interruptEvents = ["beforeinput", "keydown", "pointerdown"];
-
-    const stop = (): void => {
+    const interrupt = (event: Event): void => {
+      if (!event.isTrusted) return;
       interrupted = true;
       observer?.disconnect();
-      for (const eventName of interruptEvents) {
-        removeEventListener(eventName, interrupt, true);
-      }
+      for (const eventName of interruptEvents) removeEventListener(eventName, interrupt, true);
     };
-
-    const interrupt = (event: Event): void => {
-      if (event.isTrusted) stop();
-    };
-
     for (const eventName of interruptEvents) {
       addEventListener(eventName, interrupt, { capture: true });
     }
 
     const replay = (dispatchEvents: boolean): void => {
-      if (interrupted || !restoreTarget) return;
-      documentReplay.replay(dispatchEvents);
-    };
-
-    const start = (): void => {
-      if (restoreTarget) {
-        restoreHistory();
-        replay(false);
-      }
-
-      if (restoreDocument) {
-        let scheduled = false;
-        observer = new MutationObserver(() => {
-          if (scheduled || interrupted) return;
-
-          scheduled = true;
-          requestAnimationFrame(() => {
-            scheduled = false;
-            replay(hydrated);
-          });
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
-        setTimeout(() => observer?.disconnect(), 5000);
-      }
+      if (!interrupted) documentReplay.replay(dispatchEvents);
     };
 
     const finalReplay = (): void => {
       hydrated = true;
-      replay(true);
+      if (interrupted) return;
 
-      if (!interrupted && restoreDocument) {
+      documentReplay.replay(true);
+      if (documentState) {
         documentReplay.restoreFocusAndSelection();
         documentReplay.restoreScroll();
       }
     };
 
-    const complete = (): void => {
+    // Frameworks may re-render the page while hydrating, so keep replaying on DOM changes
+    // for a few seconds. Events are dispatched only once the page scripts can handle them.
+    const observeHydration = (): void => {
+      let scheduled = false;
+      observer = new MutationObserver(() => {
+        if (scheduled || interrupted) return;
+
+        scheduled = true;
+        requestAnimationFrame(() => {
+          scheduled = false;
+          replay(hydrated);
+        });
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      setTimeout(() => observer?.disconnect(), 5000);
+    };
+
+    const retry = (): void => {
       try {
         finalReplay();
-        if (documentState) Reflect.set(window, marker, { status: "succeeded" });
-      } catch (error) {
-        fail(error);
+      } catch {
+        // The document can change again after the initial replay.
       }
+    };
 
-      const retry = (): void => {
-        try {
-          finalReplay();
-        } catch {
-          // The document can change again after the initial replay.
+    onDOMContentLoaded(() => {
+      try {
+        if (documentState?.historyState !== undefined) {
+          history.replaceState(decodeStructuredClone(documentState.historyState), "");
         }
-      };
+        replay(false);
+        if (documentState) observeHydration();
+
+        finalReplay();
+        setStatus("succeeded");
+      } catch (error) {
+        setStatus("failed", error);
+        return;
+      }
 
       requestAnimationFrame(() => requestAnimationFrame(retry));
       setTimeout(retry, 100);
       setTimeout(retry, 500);
-    };
-
-    const ready = (): void => {
-      try {
-        start();
-        complete();
-      } catch (error) {
-        fail(error);
-      }
-    };
-
-    if (document.readyState === "loading") {
-      addEventListener("DOMContentLoaded", ready, { once: true });
-    } else {
-      ready();
-    }
+    });
   } catch (error) {
-    if (documentState) fail(error);
+    setStatus("failed", error);
   }
 }
