@@ -1,9 +1,9 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { FetchHttpClient, HttpClient } from "effect/unstable/http";
-import { ApiClient, type ApiRequestError } from "@aperture/api-client";
+import { ApiClient, apiClientLayer, type ApiRequestError } from "@aperture/api-client";
 
 const AppLayer = Layer.mergeAll(
-  ApiClient.layer(),
+  apiClientLayer,
   // Requests stay on this origin; there is no collector for trace headers.
   Layer.succeed(HttpClient.TracerPropagationEnabled, false),
 ).pipe(Layer.provide(FetchHttpClient.layer));
