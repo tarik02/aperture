@@ -40,6 +40,7 @@ export default defineConfig({
   environments: {
     target: browserPayload("target", "ApertureTargetRestore", [devalueLicense]),
     sessionStorage: browserPayload("session-storage", "ApertureSessionStorageRestore", []),
+    document: browserPayload("document", "ApertureDocument", []),
     originStorage: browserPayload("origin-storage", "ApertureOriginStorageRestore", [
       devalueLicense,
       idbLicense,

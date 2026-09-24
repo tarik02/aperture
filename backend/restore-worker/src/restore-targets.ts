@@ -1,7 +1,8 @@
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
 import { cdpForPage, type FrameTree, type TargetInfo } from "./cdp.js";
-import { documentStatusKey, windowOpenKey } from "./browser/page-keys.js";
-import { sessionStorageSource, targetStateSource } from "./payload-source.js";
+import { preloadErrorKey, windowOpenKey } from "./browser/page-keys.js";
+import { sessionStorageSource, targetPreloadSource } from "./payload-source.js";
+import { restoreDocument } from "./restore-document.js";
 import { canonicalOrigin, urlOrigin, type Target } from "./schema.js";
 
 const tabWindowEnforcerOrigin = "chrome-extension://imdifnnggmlpoochobfcpghdppldpmjl/";
@@ -19,32 +20,13 @@ interface CreatedTarget {
   sources: Record<string, string>;
 }
 
-interface NavigationResult {
-  status: "succeeded" | "failed";
-  error?: string;
-}
-
-async function waitForNavigation(page: Page, documentState: boolean): Promise<void> {
-  const ready = await page.waitForFunction(
-    ({ expectDocumentState, statusKey }) => {
-      if (location.href === "about:blank") return false;
-      if (!expectDocumentState) return { status: "succeeded" };
-
-      const marker = Reflect.get(window, Symbol.for(statusKey)) as NavigationResult | undefined;
-      return marker?.status === "succeeded" || marker?.status === "failed" ? marker : false;
-    },
-    { expectDocumentState: documentState, statusKey: documentStatusKey },
-    { timeout: minute },
+// Fails the target when the preload could not apply history state or window.name.
+async function checkPreload(page: Page): Promise<void> {
+  const error = await page.evaluate(
+    (key) => Reflect.get(window, Symbol.for(key)) as string | undefined,
+    preloadErrorKey,
   );
-
-  try {
-    const result = (await ready.jsonValue()) as NavigationResult;
-    if (result.status === "failed") {
-      throw new Error(`restore initial document state: ${result.error}`);
-    }
-  } finally {
-    await ready.dispose().catch(() => undefined);
-  }
+  if (error) throw new Error(`restore initial document state: ${error}`);
 }
 
 async function addPreloadScript(cdp: CDPSession, source: string): Promise<string> {
@@ -79,20 +61,17 @@ async function createTarget(
 
     const targetScript = await addPreloadScript(
       cdp,
-      targetStateSource({
+      targetPreloadSource({
         url: target.url,
-        scroll: target.scroll,
-        documentState: target.documentState,
+        windowName: target.documentState?.windowName,
+        historyState: target.documentState?.historyState,
       }),
     );
 
-    const navigation = (await cdp.send("Page.navigate", { url: target.url })) as {
-      errorText?: string;
-    };
-    if (navigation.errorText) throw new Error(`navigate initial target: ${navigation.errorText}`);
-
-    await waitForNavigation(page, target.documentState != null);
+    await page.goto(target.url, { waitUntil: "domcontentloaded", timeout: minute });
     await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: targetScript });
+    await checkPreload(page);
+    await restoreDocument(page, target);
 
     // Session storage for origins that already loaded is in place. The rest is handed back
     // so Go can keep injecting it until those origins first load in this target.
@@ -130,7 +109,7 @@ async function removePageKeys(page: Page): Promise<void> {
       (keys) => {
         for (const key of keys) Reflect.deleteProperty(window, Symbol.for(key));
       },
-      [windowOpenKey, documentStatusKey],
+      [windowOpenKey, preloadErrorKey],
     )
     .catch(() => undefined);
 }
