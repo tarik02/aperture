@@ -3,9 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm generate:icons && vp build && node scripts/build-codecs.mjs",
-    "build:codecs": "node scripts/build-codecs.mjs",
-    "generate:icons": "node scripts/generate-icons.mjs",
+    "build": "pnpm generate:icons && vp build",
+    "generate:icons": "node scripts/generate-icons.ts",
     "typecheck": "tsgo --noEmit",
     "lint": "vp lint",
     "format:check": "vp fmt --check"
