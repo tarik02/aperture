@@ -25,7 +25,12 @@ export function SessionListPane({
     () =>
       query.data?.pages
         .flatMap((page) => page.data)
-        .filter((session) => session.status === "running" || session.status === "suspended") ?? [],
+        .filter(
+          (session) =>
+            session.status === "creating" ||
+            session.status === "running" ||
+            session.status === "suspended",
+        ) ?? [],
     [query.data],
   );
 
