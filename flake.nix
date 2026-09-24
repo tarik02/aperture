@@ -541,7 +541,7 @@
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = lib.fakeHash;
+              hash = "sha256-04Aa5ugB3r7TDS7O1KpilkaYfCgsE7/pRMejB2/yIvw=";
             };
 
             nativeBuildInputs = [
