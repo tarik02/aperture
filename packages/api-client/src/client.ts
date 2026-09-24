@@ -517,6 +517,10 @@ export type CreateSessionInput = {
   tags?: Record<string, string>;
 };
 
+export interface CreateSessionOptions {
+  waitForReady?: boolean;
+}
+
 export type PromoteSessionInput = {
   name: string;
   description?: string | null;
@@ -953,7 +957,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
       });
     },
 
-    createSession(credentials: ApiCredentials, input: CreateSessionInput) {
+    createSession(
+      credentials: ApiCredentials,
+      input: CreateSessionInput,
+      options: CreateSessionOptions = {},
+    ) {
       const body = {
         baseSnapshotName: input.baseSnapshotName ?? null,
         label: input.label ?? null,
@@ -971,6 +979,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
         schema: createSessionResponseSchema,
         credentials,
         tenantHeader: "tenant-scoped",
+        query: { waitForReady: options.waitForReady },
         body,
       });
     },

@@ -440,12 +440,13 @@ func (s openAPIServer) ListSessions(ctx context.Context, _ generated.ListSession
 	return openAPIPassthroughResponse{}, nil
 }
 
-func (s openAPIServer) CreateSession(ctx context.Context, _ generated.CreateSessionRequestObject) (generated.CreateSessionResponseObject, error) {
+func (s openAPIServer) CreateSession(ctx context.Context, request generated.CreateSessionRequestObject) (generated.CreateSessionResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
 		return nil, errOpenAPIContext
 	}
-	s.server.createSession(c)
+	waitForReady := request.Params.WaitForReady == nil || *request.Params.WaitForReady
+	s.server.createSession(c, waitForReady)
 	return openAPIPassthroughResponse{}, nil
 }
 

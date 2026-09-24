@@ -116,6 +116,37 @@ type SessionMediaView struct {
 
 // Create creates and starts a browser session.
 func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, error) {
+	return s.create(ctx, input, nil)
+}
+
+// CreateAsync creates a session record and starts its browser in the background.
+func (s *Service) CreateAsync(ctx context.Context, input CreateInput) (*SessionView, error) {
+	type createResult struct {
+		view *SessionView
+		err  error
+	}
+
+	created := make(chan createResult, 1)
+	go func() {
+		notified := false
+		view, err := s.create(context.WithoutCancel(ctx), input, func(view *SessionView) {
+			notified = true
+			created <- createResult{view: view}
+		})
+		if !notified {
+			created <- createResult{view: view, err: err}
+		}
+	}()
+
+	result := <-created
+	return result.view, result.err
+}
+
+func (s *Service) create(
+	ctx context.Context,
+	input CreateInput,
+	onCreated func(*SessionView),
+) (*SessionView, error) {
 	if err := browser.ValidateBrowserArgs(input.BrowserArgs); err != nil {
 		return nil, err
 	}
@@ -221,6 +252,16 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 
 	if err := s.replaceTags(ctx, sessionID, input.Tags); err != nil {
 		return nil, err
+	}
+	if onCreated != nil {
+		onCreated(&SessionView{
+			Session:          *sessionRow,
+			Tags:             input.Tags,
+			BaseSnapshotName: baseSnapshotName,
+			CDPURL:           s.cdpURL(sessionID),
+			SessionToken:     rawSessionToken,
+			Media:            s.sessionMediaView(*sessionRow),
+		})
 	}
 
 	if err := s.mountOverlay(ctx, sessionID, baseSnapshotID); err != nil {

@@ -762,7 +762,9 @@ function SessionActionsMenu({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              {session.status === "running" || session.status === "suspended" ? (
+              {session.status === "creating" ||
+              session.status === "running" ||
+              session.status === "suspended" ? (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <AppWindow />
