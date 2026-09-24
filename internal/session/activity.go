@@ -17,8 +17,6 @@ import (
 	"github.com/aperture/aperture/internal/paths"
 )
 
-const wakeTimeout = 30 * time.Second
-
 type wakeCall struct {
 	done chan struct{}
 	err  error
@@ -354,6 +352,18 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 		return err
 	}
 
+	// A waking session stays suspended until its CDP endpoint answers, so it
+	// never reports running while its browser is still starting.
+	if err := s.browser.Start(ctx, sessionRow.ID); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
+	if err := s.waitForCDPReady(ctx, runtimeEnv.WrapperPort); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
 	now := s.now().UTC()
 	startedAt := now.Format(time.RFC3339Nano)
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
@@ -368,17 +378,8 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 	sessionRow.LastConnectedAt = &startedAt
 
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
-		_ = s.cleanupPreparedRuntime(ctx, sessionRow.ID)
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return err
-	}
-	if err := s.browser.Start(ctx, sessionRow.ID); err != nil {
-		sessionRow.StartedAt = nil
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
-	}
-	if err := s.waitForRuntimeReady(ctx, runtimeEnv.CDPPort, runtimeEnv.WrapperPort); err != nil {
-		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
-		return fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
@@ -687,52 +688,6 @@ func (s *Service) touchConnectedByID(ctx context.Context, sessionID string) erro
 		return nil
 	}
 	return s.touchConnected(ctx, sessionRow)
-}
-
-func (s *Service) waitForRuntimeReady(ctx context.Context, cdpPort, wrapperPort int) error {
-	ctx, cancel := context.WithTimeout(ctx, wakeTimeout)
-	defer cancel()
-	if err := waitForHTTP(ctx, fmt.Sprintf("http://127.0.0.1:%d/json/version", cdpPort)); err != nil {
-		return fmt.Errorf("wait for cdp: %w", err)
-	}
-	if err := waitForHTTP(ctx, fmt.Sprintf("http://127.0.0.1:%d/health", wrapperPort)); err != nil {
-		return fmt.Errorf("wait for wrapper: %w", err)
-	}
-	return nil
-}
-
-func waitForHTTP(ctx context.Context, url string) error {
-	client := &http.Client{Timeout: time.Second}
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-
-	var lastErr error
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return err
-		}
-		resp, err := client.Do(req)
-		if err == nil {
-			if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-				_ = resp.Body.Close()
-				return nil
-			}
-			lastErr = fmt.Errorf("status %s", resp.Status)
-			_ = resp.Body.Close()
-		} else {
-			lastErr = err
-		}
-
-		select {
-		case <-ctx.Done():
-			if lastErr != nil {
-				return lastErr
-			}
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
 }
 
 func mediaViewAvailable(status string) bool {

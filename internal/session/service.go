@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,9 +25,6 @@ import (
 
 const (
 	defaultMonitorInterval = 15 * time.Second
-	cdpReadyTimeout        = 45 * time.Second
-	cdpReadyPollInterval   = 500 * time.Millisecond
-	cdpReadyRequestTime    = 2 * time.Second
 	defaultSuspendAfter    = 15 * time.Minute
 	failureCleanupTimeout  = 30 * time.Second
 )
@@ -38,8 +34,6 @@ type OverlayClient interface {
 	Mount(ctx context.Context, sessionID string, baseSnapshotID *string) error
 	Unmount(ctx context.Context, sessionID string) error
 }
-
-type CDPReadyWaiter func(ctx context.Context, port int) error
 
 // Service owns session lifecycle orchestration.
 type Service struct {
@@ -363,15 +357,13 @@ func (s *Service) create(
 		_ = s.markFailed(ctx, sessionRow, "browser start failed", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
-	if err := s.waitForCDPReady(ctx, port); err != nil {
+	// The probe goes through the wrapper, so it also proves the wrapper API that
+	// browser initialization talks to is listening.
+	if err := s.waitForCDPReady(ctx, wrapperPort); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "browser cdp endpoint did not become ready", err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
 	}
 	if len(initializationPayload) != 0 {
-		if err := s.waitForRuntimeReady(ctx, port, wrapperPort); err != nil {
-			_ = s.markFailed(ctx, sessionRow, "browser wrapper did not become ready", err)
-			return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
-		}
 		if err := pushBrowserInitialization(ctx, wrapperPort, wrapperControlToken, initializationPayload); err != nil {
 			_ = s.markFailed(ctx, sessionRow, "browser initialization failed", err)
 			if errors.Is(err, ErrBrowserStateInvalid) {
@@ -515,35 +507,6 @@ func normalizedOptionalString(value *string) *string {
 		return nil
 	}
 	return &trimmed
-}
-
-func waitForCDPEndpoint(ctx context.Context, port int) error {
-	ctx, cancel := context.WithTimeout(ctx, cdpReadyTimeout)
-	defer cancel()
-
-	client := &http.Client{Timeout: cdpReadyRequestTime}
-	url := fmt.Sprintf("http://127.0.0.1:%d/json/version", port)
-
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return err
-		}
-		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			_ = resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for cdp endpoint %s: %w", url, ctx.Err())
-		case <-time.After(cdpReadyPollInterval):
-		}
-	}
 }
 
 // Delete tombstones a session and stops its browser.
@@ -747,7 +710,9 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	expiresAt := now.Add(time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 	runtimePath := layout.RuntimeEnv
 
-	sessionRow.Status = db.SessionStatusRunning
+	// A reopened session reports creating while its browser starts; it only
+	// reaches running once its CDP endpoint answers.
+	sessionRow.Status = db.SessionStatusCreating
 	sessionRow.DeletedAt = nil
 	sessionRow.StoppedAt = nil
 	sessionRow.StartedAt = &startedAt
@@ -766,6 +731,16 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		sessionRow.StartedAt = nil
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+	if err := s.waitForCDPReady(ctx, wrapperPort); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, fmt.Errorf("%w: %v", ErrBrowserStart, err)
+	}
+
+	sessionRow.Status = db.SessionStatusRunning
+	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
+		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
+		return nil, err
 	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {

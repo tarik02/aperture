@@ -68,8 +68,8 @@ export const zResourceGrant = z.object({
 /**
  * Session lifecycle state:
  *
- * - `creating`: browser startup is in progress.
- * - `running`: browser and routing are available.
+ * - `creating`: browser startup is in progress; the CDP endpoint does not answer yet.
+ * - `running`: browser and routing are available and the CDP endpoint answers.
  * - `suspended`: browser is intentionally stopped while retained state remains available.
  * - `deleted`: session is soft-deleted and may be reopened while retained.
  * - `expired`: retention elapsed and the session can no longer be used.
