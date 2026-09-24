@@ -152,6 +152,12 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*SessionView, 
 	if err != nil {
 		return nil, err
 	}
+	// Reject invalid browser state before anything is allocated for the session.
+	if len(initializationPayload) != 0 {
+		if err := browser.ValidateSessionInitialization(ctx, initializationPayload); err != nil {
+			return nil, err
+		}
+	}
 
 	sessionID, err := ids.NewUUIDv7()
 	if err != nil {

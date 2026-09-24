@@ -1,0 +1,11 @@
+{
+  "name": "@aperture/api-schema",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/zod.gen.ts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

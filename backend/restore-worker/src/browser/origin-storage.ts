@@ -4,16 +4,16 @@ import type { StorageOrigin } from "../schema.js";
 import { errorMessage } from "./error.js";
 
 type DatabaseState = NonNullable<StorageOrigin["indexedDB"]>[number];
-type StoreState = DatabaseState["objectStores"][number];
-type IndexKeyPathState = StoreState["indexes"][number]["keyPath"];
 
 interface RestoreResult {
   status: "succeeded" | "failed";
   error?: string;
 }
 
-function keyPath(specification: IndexKeyPathState): string | string[] {
-  return specification.kind === "string" ? specification.value[0] : specification.value;
+// The capsule schema guarantees the value arity for each kind.
+function keyPath(specification: { kind: string; value?: string[] }): string | string[] | null {
+  if (specification.kind === "none") return null;
+  return specification.kind === "string" ? specification.value![0] : specification.value!;
 }
 
 function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
@@ -27,12 +27,12 @@ function openDatabase(database: DatabaseState): Promise<IDBPDatabase> {
       upgrade(opened) {
         for (const storeState of database.objectStores) {
           const store = opened.createObjectStore(storeState.name, {
-            keyPath: storeState.keyPath.kind === "none" ? null : keyPath(storeState.keyPath),
+            keyPath: keyPath(storeState.keyPath),
             autoIncrement: storeState.autoIncrement,
           });
 
           for (const index of storeState.indexes) {
-            store.createIndex(index.name, keyPath(index.keyPath), {
+            store.createIndex(index.name, keyPath(index.keyPath)!, {
               unique: index.unique,
               multiEntry: index.multiEntry,
             });

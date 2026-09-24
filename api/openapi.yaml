@@ -1891,14 +1891,14 @@ components:
       type: object
       required: [tag, index]
       properties:
-        tag: {type: string, minLength: 1}
+        tag: {type: string, pattern: '^[a-z][a-z0-9-]*$'}
         index: {type: integer, minimum: 0}
     InitialBrowserElementLocator:
       type: object
       description: Semantic element identity with a structural fallback. It is not a CSS selector.
       required: [tag, path]
       properties:
-        tag: {type: string, minLength: 1}
+        tag: {type: string, pattern: '^[a-z][a-z0-9-]*$'}
         id: {type: string}
         name: {type: string}
         inputType: {type: string}
@@ -1907,6 +1907,7 @@ components:
         placeholder: {type: string}
         path:
           type: array
+          maxItems: 256
           items: {$ref: '#/components/schemas/InitialBrowserElementPathStep'}
     InitialBrowserControlSelection:
       type: object
@@ -1950,6 +1951,7 @@ components:
         locator: {$ref: '#/components/schemas/InitialBrowserElementLocator'}
         nodePath:
           type: array
+          maxItems: 256
           items: {type: integer, minimum: 0}
         offset: {type: integer, minimum: 0}
     InitialBrowserDocumentSelection:
@@ -1973,12 +1975,15 @@ components:
           description: JSON-encoded structured-clone history state.
         controls:
           type: array
+          maxItems: 10000
           items: {$ref: '#/components/schemas/InitialBrowserControlState'}
         contentEditables:
           type: array
+          maxItems: 10000
           items: {$ref: '#/components/schemas/InitialBrowserContentEditableState'}
         scrollPositions:
           type: array
+          maxItems: 10000
           items: {$ref: '#/components/schemas/InitialBrowserElementScrollPosition'}
         focus: {$ref: '#/components/schemas/InitialBrowserElementLocator'}
         selection: {$ref: '#/components/schemas/InitialBrowserDocumentSelection'}
@@ -1996,6 +2001,10 @@ components:
           x-sensitive: true
           description: Cookie value. Never log this field.
         domain: {type: string, minLength: 1, example: .example.com}
+        hostOnly:
+          type: boolean
+          default: false
+          description: Scope the cookie to exactly `domain`, without subdomains. `domain` must then be a plain hostname.
         path: {type: string, pattern: '^/', example: /}
         expires:
           type: number

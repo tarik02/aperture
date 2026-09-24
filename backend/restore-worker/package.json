@@ -9,6 +9,7 @@
     "format:check": "vp fmt --check"
   },
   "dependencies": {
+    "@aperture/api-schema": "workspace:*",
     "@aperture/browser-state": "workspace:*",
     "idb": "8.0.3",
     "zod": "^4.4.3"

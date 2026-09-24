@@ -6,8 +6,9 @@ const sources = {
   originStorage: readFileSync(new URL("./origin-storage.js", import.meta.url), "utf8"),
 };
 
+// Each bundle declares its global name with `var`; the function scope keeps it out of the page.
 function source(bundle: string, entrypoint: string, state: unknown): string {
-  return `${bundle}\n${entrypoint}.run(${JSON.stringify(state)})`;
+  return `(() => {\n${bundle}\nreturn ${entrypoint}.run(${JSON.stringify(state)});\n})()`;
 }
 
 export function targetStateSource(state: unknown): string {

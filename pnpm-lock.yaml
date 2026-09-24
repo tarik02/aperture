@@ -18,6 +18,9 @@ importers:
 
   backend/restore-worker:
     dependencies:
+      '@aperture/api-schema':
+        specifier: workspace:*
+        version: link:../../packages/api-schema
       '@aperture/browser-state':
         specifier: workspace:*
         version: link:../../packages/browser-state
@@ -62,6 +65,12 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 0.2.4(@types/node@26.1.1)(jiti@2.7.0)(typescript@6.0.3)(vite@8.3.0(@types/node@26.1.1)(jiti@2.7.0))
+
+  packages/api-schema:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/browser-state:
     dependencies:

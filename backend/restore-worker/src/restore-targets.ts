@@ -1,5 +1,6 @@
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
 import { cdpForPage, type FrameTree, type TargetInfo } from "./cdp.js";
+import { documentStatusKey, windowOpenKey } from "./browser/page-keys.js";
 import { sessionStorageSource, targetStateSource } from "./payload-source.js";
 import { canonicalOrigin, urlOrigin, type Target } from "./schema.js";
 
@@ -25,16 +26,14 @@ interface NavigationResult {
 
 async function waitForNavigation(page: Page, documentState: boolean): Promise<void> {
   const ready = await page.waitForFunction(
-    (expectDocumentState) => {
+    ({ expectDocumentState, statusKey }) => {
       if (location.href === "about:blank") return false;
       if (!expectDocumentState) return { status: "succeeded" };
 
-      const marker = Reflect.get(window, Symbol.for("aperture.initial-document-state")) as
-        | NavigationResult
-        | undefined;
+      const marker = Reflect.get(window, Symbol.for(statusKey)) as NavigationResult | undefined;
       return marker?.status === "succeeded" || marker?.status === "failed" ? marker : false;
     },
-    documentState,
+    { expectDocumentState: documentState, statusKey: documentStatusKey },
     { timeout: minute },
   );
 
@@ -124,14 +123,25 @@ function frameOrigins(tree: FrameTree, origins = new Set<string>()): Set<string>
   return origins;
 }
 
+// Removes what the target payload left on the page for the worker.
+async function removePageKeys(page: Page): Promise<void> {
+  await page
+    .evaluate(
+      (keys) => {
+        for (const key of keys) Reflect.deleteProperty(window, Symbol.for(key));
+      },
+      [windowOpenKey, documentStatusKey],
+    )
+    .catch(() => undefined);
+}
+
 async function createPopup(opener: Page): Promise<Page> {
   const cdp = await opener.context().newCDPSession(opener);
   try {
     const [popup, evaluation] = await Promise.all([
       opener.waitForEvent("popup", { timeout: 15_000 }),
       cdp.send("Runtime.evaluate", {
-        expression:
-          'globalThis[Symbol.for("aperture.initial-window-open")]("about:blank", "_blank") !== null',
+        expression: `globalThis[Symbol.for(${JSON.stringify(windowOpenKey)})]("about:blank", "_blank") !== null`,
         returnByValue: true,
         userGesture: true,
       }) as Promise<{ result?: { value?: boolean }; exceptionDetails?: unknown }>,
@@ -188,6 +198,8 @@ export async function restoreTargets(
 
     if (!progress) throw new Error("initial target opener graph could not be resolved");
   }
+
+  await Promise.all([...created.values()].map((target) => removePageKeys(target.page)));
 
   for (const id of existingIDs) {
     await browserCDP.send("Target.closeTarget", { targetId: id });

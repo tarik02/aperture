@@ -2,9 +2,10 @@ import { decodeStructuredClone } from "@aperture/browser-state";
 import type { Target } from "../schema.js";
 import { createDocumentReplay } from "./document-state.js";
 import { errorMessage } from "./error.js";
+import { documentStatusKey, windowOpenKey } from "./page-keys.js";
 
-const statusMarker = Symbol.for("aperture.initial-document-state");
 const interruptEvents = ["beforeinput", "keydown", "pointerdown"];
+const replayDuration = 5000;
 
 function onDOMContentLoaded(callback: () => void): void {
   if (document.readyState === "loading") {
@@ -17,7 +18,8 @@ function onDOMContentLoaded(callback: () => void): void {
 export function run(state: Target): void {
   if (window.top !== window) return;
 
-  Reflect.set(window, Symbol.for("aperture.initial-window-open"), window.open.bind(window));
+  // The worker opens popup targets through the unpatched window.open.
+  Reflect.set(window, Symbol.for(windowOpenKey), window.open.bind(window));
 
   // The worker polls this marker only when the target carries document state.
   const { documentState } = state;
@@ -25,7 +27,7 @@ export function run(state: Target): void {
     if (!documentState) return;
     Reflect.set(
       window,
-      statusMarker,
+      Symbol.for(documentStatusKey),
       status === "failed" ? { status, error: errorMessage(error) } : { status },
     );
   };
@@ -41,27 +43,29 @@ export function run(state: Target): void {
     const documentReplay = createDocumentReplay(state);
     if (documentState?.windowName !== undefined) window.name = documentState.windowName;
 
-    // Stop replaying as soon as the user starts interacting with the page.
-    let interrupted = false;
+    // Replay runs for a few seconds after load and stops early once the user interacts.
+    let stopped = false;
     let hydrated = false;
     let observer: MutationObserver | undefined;
-    const interrupt = (event: Event): void => {
-      if (!event.isTrusted) return;
-      interrupted = true;
+    const stop = (): void => {
+      stopped = true;
       observer?.disconnect();
       for (const eventName of interruptEvents) removeEventListener(eventName, interrupt, true);
+    };
+    const interrupt = (event: Event): void => {
+      if (event.isTrusted) stop();
     };
     for (const eventName of interruptEvents) {
       addEventListener(eventName, interrupt, { capture: true });
     }
 
     const replay = (dispatchEvents: boolean): void => {
-      if (!interrupted) documentReplay.replay(dispatchEvents);
+      if (!stopped) documentReplay.replay(dispatchEvents);
     };
 
     const finalReplay = (): void => {
       hydrated = true;
-      if (interrupted) return;
+      if (stopped) return;
 
       documentReplay.replay(true);
       if (documentState) {
@@ -70,12 +74,12 @@ export function run(state: Target): void {
       }
     };
 
-    // Frameworks may re-render the page while hydrating, so keep replaying on DOM changes
-    // for a few seconds. Events are dispatched only once the page scripts can handle them.
+    // Frameworks may re-render the page while hydrating, so keep replaying on DOM changes.
+    // Events are dispatched only once the page scripts can handle them.
     const observeHydration = (): void => {
       let scheduled = false;
       observer = new MutationObserver(() => {
-        if (scheduled || interrupted) return;
+        if (scheduled || stopped) return;
 
         scheduled = true;
         requestAnimationFrame(() => {
@@ -84,7 +88,6 @@ export function run(state: Target): void {
         });
       });
       observer.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => observer?.disconnect(), 5000);
     };
 
     const retry = (): void => {
@@ -96,6 +99,7 @@ export function run(state: Target): void {
     };
 
     onDOMContentLoaded(() => {
+      setTimeout(stop, replayDuration);
       try {
         if (documentState?.historyState !== undefined) {
           history.replaceState(decodeStructuredClone(documentState.historyState), "");

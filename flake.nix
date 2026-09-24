@@ -68,6 +68,8 @@
           || lib.hasPrefix "node_modules/" rel
           || rel == "packages/browser-state/node_modules"
           || lib.hasPrefix "packages/browser-state/node_modules/" rel
+          || rel == "packages/api-schema/node_modules"
+          || lib.hasPrefix "packages/api-schema/node_modules/" rel
           || rel == "backend/restore-worker/node_modules"
           || lib.hasPrefix "backend/restore-worker/node_modules/" rel
           || rel == "backend/restore-worker/dist"
@@ -564,6 +566,7 @@
               fetcherVersion = 4;
               pnpmWorkspaces = [
                 "@aperture/restore-worker"
+                "@aperture/api-schema"
                 "@aperture/browser-state"
                 "@aperture/api-client"
                 "@aperture/ui"
