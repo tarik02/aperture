@@ -86,7 +86,6 @@ function ShareRoute() {
     );
   }
 
-  // A new revision reloads the session, e.g. after the link in the address bar changes.
   return <SharedSession key={capability.revision} token={capability.token} />;
 }
 

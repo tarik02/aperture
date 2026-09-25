@@ -1,8 +1,3 @@
-// Fails when a workspace package.json names a dependency version directly: versions
-// belong in the catalogs in pnpm-workspace.yaml (`catalog:` or `catalog:<name>`), and
-// workspace packages are referenced with `workspace:`.
-//
-// Usage: node scripts/check-catalog.ts
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Console from "effect/Console";

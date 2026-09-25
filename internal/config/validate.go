@@ -314,8 +314,6 @@ func validateDeployURL(name, value string) []error {
 	return nil
 }
 
-// validateEmbedOrigin accepts "*" or an exact http(s) origin such as
-// "https://app.example.com" or "http://localhost:3000".
 func validateEmbedOrigin(origin string) error {
 	if origin == "*" {
 		return nil

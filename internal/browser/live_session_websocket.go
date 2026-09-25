@@ -320,8 +320,6 @@ func newLiveSessionResumeSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(secret), nil
 }
 
-// embedOriginPatterns turns the configured embed origins into the host patterns the
-// WebSocket handshake accepts besides its own origin; "*" allows any origin.
 func embedOriginPatterns(origins []string) []string {
 	patterns := make([]string, 0, len(origins))
 	for _, origin := range origins {

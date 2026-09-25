@@ -84,8 +84,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		},
 	}
 
-	// Pages on the embed origins call the session endpoints a share token opens. The
-	// middleware answers CORS preflights itself, so it runs before authentication.
 	embedCORS := ""
 	if len(cfg.EmbedAllowedOrigins) > 0 {
 		embedCORS = "aperture-embed-cors"
@@ -227,7 +225,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			rule        string
 			auth        string
 			middlewares []string
-			// Reachable with a share token, so embeds on other origins may call it.
 			embeddable bool
 		}{
 			{
@@ -382,7 +379,6 @@ func liveSessionForwardAuthRequestHeaders() []string {
 	}
 }
 
-// routeMiddlewares puts the embed CORS middleware, when there is one, before auth.
 func routeMiddlewares(embeddable bool, embedCORS, auth string, rest []string) []string {
 	middlewares := make([]string, 0, len(rest)+2)
 	if embeddable && embedCORS != "" {

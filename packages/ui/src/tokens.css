@@ -1,7 +1,3 @@
-/*
- * Theme colors and radius for everything inside `.aperture-root` (the web app puts it on
- * <html>). `.dark` on the root or an ancestor switches to the dark palette.
- */
 .aperture-root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);

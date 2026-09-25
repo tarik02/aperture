@@ -7,11 +7,9 @@ import { apiClientLayer, baseUrlLayer, type ApiServices } from "@aperture-browse
 export type ApertureRuntime = ManagedRuntime.ManagedRuntime<ApiServices, never>;
 
 export interface ApertureRuntimeOptions {
-  /** The Aperture instance to talk to; defaults to the page's own origin. */
   readonly baseUrl?: string;
 }
 
-/** Builds a runtime with every Aperture API service, sending requests with fetch. */
 export const makeApertureRuntime = (options: ApertureRuntimeOptions = {}): ApertureRuntime =>
   ManagedRuntime.make(
     Layer.mergeAll(
@@ -19,7 +17,6 @@ export const makeApertureRuntime = (options: ApertureRuntimeOptions = {}): Apert
         Layer.provide(options.baseUrl ? baseUrlLayer(options.baseUrl) : Layer.empty),
         Layer.provide(FetchHttpClient.layer),
       ),
-      // There is no collector for trace headers.
       Layer.succeed(HttpClient.TracerPropagationEnabled, false),
     ),
   );

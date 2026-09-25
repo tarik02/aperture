@@ -73,7 +73,6 @@ export interface CollaborationControl {
 
 interface UseLiveSessionOptions {
   sessionId: string | null;
-  /** The name owners appear under to collaborators; guests get a generated one. */
   displayName?: string | null;
   credentials: ApiCredentials | null;
   sessionToken?: string;

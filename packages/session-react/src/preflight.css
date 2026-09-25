@@ -1,4 +1,3 @@
-/* Tailwind's preflight, reduced to what the components rely on and scoped to the root. */
 @layer base {
   .aperture-root {
     font-family: var(--font-sans);

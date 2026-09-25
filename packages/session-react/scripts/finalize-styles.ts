@@ -1,5 +1,3 @@
-// Finishes dist/styles.css for embedding: Tailwind's remaining theme variables move from
-// :root onto .aperture-root, and the font files its relative url()s name are copied.
 import { createRequire } from "node:module";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";

@@ -23,14 +23,12 @@ import { RuntimeProvider, useFork } from "./effect.tsx";
 import { useBrowserControl } from "./hooks/use-browser-control.ts";
 import { makeApertureRuntime, type ApertureRuntime } from "./runtime.ts";
 
-/** What a share link's token grants: one session, as an editor or a viewer. */
 export interface ShareToken {
   readonly token: string;
   readonly sessionId: string;
   readonly role: "editor" | "viewer";
 }
 
-/** Reads an editor (`ape_…`) or viewer (`apv_…`) share token; null if it is malformed. */
 export function parseShareToken(token: string): ShareToken | null {
   const sessionId = token.slice(4, 40);
   const role = token.startsWith("ape_") ? "editor" : token.startsWith("apv_") ? "viewer" : null;
@@ -41,31 +39,18 @@ export function parseShareToken(token: string): ShareToken | null {
 }
 
 export interface SharedSessionProps {
-  /** A share link's editor (`ape_…`) or viewer (`apv_…`) token. */
   readonly token: string;
-  /** Shows the tab strip (default); without it only the active tab is shown. */
   readonly tabs?: boolean;
-  /** Rendered at the start of the title bar. */
   readonly leading?: ReactNode;
 }
 
 export interface ApertureSessionProps extends SharedSessionProps {
-  /** The Aperture instance the token belongs to; defaults to the page's own origin. */
   readonly baseUrl?: string;
-  /** Light or dark colors; "system" (the default) follows the OS setting. */
   readonly theme?: "light" | "dark" | "system";
-  /** Renders a toaster for the session's notifications (default). */
   readonly toaster?: boolean;
-  /** Classes for the root element, which fills its container by default. */
   readonly className?: string;
 }
 
-/**
- * A shared Aperture session, ready to embed: it brings its own runtime, tooltips, toasts
- * and styling root (import `@aperture-browser/session-react/styles.css` once). Popups
- * render inside the root. Inside an app that already provides all of this, use
- * `SharedSession`.
- */
 export function ApertureSession({
   baseUrl,
   theme = "system",
@@ -135,7 +120,6 @@ type StatusState =
   | { readonly kind: "unavailable" }
   | { readonly kind: "ready"; readonly status: BrowserStatus };
 
-/** A shared session inside an app that provides the runtime and tooltips. */
 export function SharedSession({ token, tabs, leading }: SharedSessionProps) {
   const share = useMemo(() => parseShareToken(token), [token]);
   const credentials = useMemo<ApiCredentials | null>(
@@ -248,7 +232,6 @@ function SharedBrowser({
       <BrowserControlPane
         control={control}
         collaborationRole={share.role}
-        // Share tokens never authorize CDP, so DevTools stays unavailable.
         cdpUrl={null}
         shareUrls={null}
         leading={leading}
@@ -258,7 +241,6 @@ function SharedBrowser({
   );
 }
 
-/** The DevTools endpoint for a session, authorized by `sessionToken` in its path. */
 export function devToolsUrl(origin: string, cdpUrl: string, sessionToken: string): string {
   const sourceUrl = new URL(cdpUrl, origin);
   const url = new URL(origin);

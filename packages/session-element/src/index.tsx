@@ -2,8 +2,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { ApertureSession } from "@aperture-browser/session-react";
 import styles from "@aperture-browser/session-react/styles.css?inline";
 
-// Browsers ignore @font-face and @property inside shadow roots, so those rules are added
-// to the document once; everything else stays in each element's shadow root.
 const documentRules = /@(?:font-face|property)[^{]*\{[^}]*\}/g;
 const installedDocuments = new WeakSet<Document>();
 
@@ -26,17 +24,6 @@ const hostStyles = `
 
 type Theme = "light" | "dark" | "system";
 
-/**
- * `<aperture-session token="…">`: a shared Aperture session in its own shadow root.
- *
- * Attributes:
- * - `token`: a share link's editor (`ape_…`) or viewer (`apv_…`) token;
- * - `base-url`: the Aperture instance, when it is not the page's own origin;
- * - `theme`: `light`, `dark` or `system` (the default);
- * - `hide-tabs`: shows the active tab only, without the tab strip.
- *
- * The element fills the size its styles give it.
- */
 export class ApertureSessionElement extends HTMLElement {
   static readonly observedAttributes = ["token", "base-url", "theme", "hide-tabs"];
 

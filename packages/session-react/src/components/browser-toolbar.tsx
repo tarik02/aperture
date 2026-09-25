@@ -34,9 +34,7 @@ import { CollaborationPresence } from "./collaboration-presence.tsx";
 
 interface BrowserToolbarProps {
   control: UseBrowserControlResult;
-  /** Rendered at the start of the title bar, before the tabs. */
   leading?: ReactNode;
-  /** Shows the tab strip; without it the pane shows the active tab only. */
   tabs: boolean;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;

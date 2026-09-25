@@ -26,10 +26,6 @@ export class RuntimeProviderMissingError extends Data.TaggedError("RuntimeProvid
   override readonly message = "useRuntime must be used inside RuntimeProvider";
 }
 
-/**
- * Makes the runtime available to the hooks below. `baseUrl` is the Aperture instance the
- * runtime's API services talk to, when it is not the page's own origin.
- */
 export function RuntimeProvider({
   runtime,
   baseUrl,
@@ -55,7 +51,6 @@ export function useRuntime(): ApertureRuntime {
   return useRuntimeContext().runtime;
 }
 
-/** The Aperture instance the runtime talks to; undefined for the page's own origin. */
 export function useBaseUrl(): string | undefined {
   return useRuntimeContext().baseUrl;
 }

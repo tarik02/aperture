@@ -27,17 +27,6 @@ export const apiClientLayer = Layer.mergeAll(
 
 export type ApiServices = Layer.Success<typeof apiClientLayer>;
 
-/**
- * Sends requests to the Aperture instance at `baseUrl`, for apps not served from it. It
- * decorates the HttpClient the API services use:
- *
- * ```ts
- * apiClientLayer.pipe(
- *   Layer.provide(baseUrlLayer("https://aperture.example.com")),
- *   Layer.provide(FetchHttpClient.layer),
- * )
- * ```
- */
 export const baseUrlLayer = (baseUrl: string) =>
   Layer.effect(
     HttpClient.HttpClient,

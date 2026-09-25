@@ -48,7 +48,6 @@ interface LiveSessionConnectionCallbacks {
 }
 
 interface LiveSessionConnectionOptions {
-  /** The Aperture instance to connect to; defaults to the page's own origin. */
   baseUrl?: string;
   sessionId: string;
   credentials: ApiCredentials;

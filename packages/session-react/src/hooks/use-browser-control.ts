@@ -28,7 +28,6 @@ import { useEffectCallback, useRuntime } from "../effect.tsx";
 interface UseBrowserControlOptions {
   sessionId: string | null;
   credentials: ApiCredentials | null;
-  /** The name owners appear under to collaborators. */
   displayName?: string | null;
   sessionToken?: string;
   collaborationRole?: CollaborationRole;

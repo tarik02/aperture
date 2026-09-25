@@ -1,9 +1,7 @@
 import { defineConfig } from "vite-plus";
 
-// Formatting and lint rules for the whole workspace; `vp fmt` and `vp lint` run from the root.
 export default defineConfig({
   fmt: {
-    // The Go side, the OpenAPI spec and the docs keep their own formatting.
     ignorePatterns: [
       "**/*.gen.ts",
       "*.md",

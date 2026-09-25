@@ -526,7 +526,6 @@ func shellUnquote(value string) (string, error) {
 	return value, nil
 }
 
-// splitEmbedAllowedOrigins reads the comma-separated EMBED_ALLOWED_ORIGINS value.
 func splitEmbedAllowedOrigins(value string) []string {
 	var origins []string
 	for _, origin := range strings.Split(value, ",") {

@@ -13,9 +13,7 @@ import {
 
 type BrowserControlPaneProps = {
   control: UseBrowserControlResult;
-  /** Rendered at the start of the title bar, e.g. a link back to the host app. */
   leading?: ReactNode;
-  /** Shows the tab strip (default); without it the pane shows the active tab only. */
   tabs?: boolean;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;

@@ -36,7 +36,6 @@ interface SessionWorkbenchProps {
 
 const emptyIceServers: readonly IceServer[] = [];
 
-/** The owner's view of one of their sessions. Shared links use SharedSession instead. */
 export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   const credentials = useApiCredentials();
   const principal = useAuthSessionStore(selectPrincipal);
