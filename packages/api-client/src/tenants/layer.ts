@@ -1,11 +1,11 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
-import { paginate } from "../pagination.ts";
+import { paginated } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
+import type { Tenant } from "../schemas.ts";
 import { TenantsApi, type TenantsFilter, type TenantsListParams } from "./service.ts";
 
 export const makeTenantsApi = Effect.gen(function* () {
@@ -29,14 +29,21 @@ export const makeTenantsApi = Effect.gen(function* () {
       .pipe(authorize(Authorization.of(credentials)));
   });
 
-  const streamTenants = (credentials: ApiCredentials, filter: TenantsFilter = {}) =>
-    paginate(filter, (params) => listTenants(credentials, params));
+  const tenants = paginated<TenantsFilter, Tenant>(listTenants);
 
-  const listAllTenants = Effect.fn("TenantsApi.listAllTenants")(function* (
+  const getCurrentTenant = Effect.fn("TenantsApi.getCurrentTenant")(function* (
     credentials: ApiCredentials,
-    filter: TenantsFilter = {},
   ) {
-    return yield* Stream.runCollect(streamTenants(credentials, filter));
+    return yield* api.getTenant(undefined).pipe(authorize(Authorization.of(credentials)));
+  });
+
+  const updateCurrentTenant = Effect.fn("TenantsApi.updateCurrentTenant")(function* (
+    credentials: ApiCredentials,
+    input: Api.TenantInput,
+  ) {
+    return yield* api
+      .updateSelectedTenant({ payload: input })
+      .pipe(authorize(Authorization.of(credentials)));
   });
 
   const createTenant = Effect.fn("TenantsApi.createTenant")(function* (
@@ -78,12 +85,14 @@ export const makeTenantsApi = Effect.gen(function* () {
 
   return TenantsApi.of({
     listTenants,
-    streamTenants,
-    listAllTenants,
+    streamTenants: tenants.stream,
+    listAllTenants: tenants.listAll,
     createTenant,
     updateTenant,
     deleteTenant,
     restoreTenant,
+    getCurrentTenant,
+    updateCurrentTenant,
   });
 });
 

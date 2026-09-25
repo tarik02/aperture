@@ -1,35 +1,41 @@
 import * as Context from "effect/Context";
-import type * as Effect from "effect/Effect";
-import type * as Stream from "effect/Stream";
-import type { ApiCredentials } from "../authorization/service.ts";
-import type { ApiRequestError } from "../errors.ts";
-import type { EventsPage, ResourceEvent } from "../schemas.ts";
+import type * as Api from "@aperture-browser/api-schema";
+import type { PageCursor, PaginatedList } from "../pagination.ts";
+import type { AuditEvent, ResourceEvent } from "../schemas.ts";
 
-export interface EventsListParams {
+export interface EventsFilter {
   limit?: number;
-  cursor?: string;
   resourceType?: string;
   resourceId?: string;
 }
 
-export type EventsFilter = Omit<EventsListParams, "cursor">;
+export type EventsListParams = EventsFilter & PageCursor;
 
-/** The tenant's resource event log. */
+type EventsList = PaginatedList<EventsFilter, ResourceEvent>;
+
+export interface AuditEventsFilter {
+  limit?: number;
+  tenantId?: string;
+  actorType?: Api.PrincipalType;
+  actorId?: string;
+  action?: string;
+  resourceType?: string;
+  resourceId?: string;
+}
+
+export type AuditEventsListParams = AuditEventsFilter & PageCursor;
+
+type AuditEventsList = PaginatedList<AuditEventsFilter, AuditEvent>;
+
+/** The tenant's resource event log, and the deployment-wide audit log. */
 export class EventsApi extends Context.Service<
   EventsApi,
   {
-    readonly listEvents: (
-      credentials: ApiCredentials,
-      params?: EventsListParams,
-    ) => Effect.Effect<EventsPage, ApiRequestError>;
-    /** Every matching event, newest first, fetching pages as the stream is pulled. */
-    readonly streamEvents: (
-      credentials: ApiCredentials,
-      filter?: EventsFilter,
-    ) => Stream.Stream<ResourceEvent, ApiRequestError>;
-    readonly listAllEvents: (
-      credentials: ApiCredentials,
-      filter?: EventsFilter,
-    ) => Effect.Effect<ReadonlyArray<ResourceEvent>, ApiRequestError>;
+    readonly listEvents: EventsList["list"];
+    readonly streamEvents: EventsList["stream"];
+    readonly listAllEvents: EventsList["listAll"];
+    readonly listAuditEvents: AuditEventsList["list"];
+    readonly streamAuditEvents: AuditEventsList["stream"];
+    readonly listAllAuditEvents: AuditEventsList["listAll"];
   }
 >()("@aperture-browser/api-client/EventsApi") {}

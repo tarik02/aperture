@@ -1,20 +1,21 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
-import { paginate } from "../pagination.ts";
+import { paginated } from "../pagination.ts";
 import { compactQuery, tagQuery } from "../query.ts";
-import type { UpdateProxyConfig } from "../schemas.ts";
+import type { Session, UpdateProxyConfig } from "../schemas.ts";
 import { BrowserStatus } from "./schemas.ts";
 import {
   SessionsApi,
   type CreateSessionInput,
   type CreateSessionOptions,
+  type CreateSessionRecordingInput,
   type DownloadedFile,
   type PromoteSessionInput,
+  type SessionFileDownloadURLInput,
   type SessionsFilter,
   type SessionsListParams,
 } from "./service.ts";
@@ -47,15 +48,7 @@ export const makeSessionsApi = Effect.gen(function* () {
       .pipe(tenantScoped(credentials));
   });
 
-  const streamSessions = (credentials: ApiCredentials, filter: SessionsFilter = {}) =>
-    paginate(filter, (params) => listSessions(credentials, params));
-
-  const listAllSessions = Effect.fn("SessionsApi.listAllSessions")(function* (
-    credentials: ApiCredentials,
-    filter: SessionsFilter = {},
-  ) {
-    return yield* Stream.runCollect(streamSessions(credentials, filter));
-  });
+  const sessions = paginated<SessionsFilter, Session>(listSessions);
 
   const getSession = Effect.fn("SessionsApi.getSession")(function* (
     credentials: ApiCredentials,
@@ -167,6 +160,79 @@ export const makeSessionsApi = Effect.gen(function* () {
       .pipe(tenantScoped(credentials));
   });
 
+  const getSessionCursor = Effect.fn("SessionsApi.getSessionCursor")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+  ) {
+    return yield* api.getSessionCursor(sessionId, undefined).pipe(tenantScoped(credentials));
+  });
+
+  const setSessionCursor = Effect.fn("SessionsApi.setSessionCursor")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    visible: boolean,
+  ) {
+    return yield* api
+      .setSessionCursor(sessionId, { payload: { visible } })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const listSessionRecordings = Effect.fn("SessionsApi.listSessionRecordings")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+  ) {
+    return yield* api.listSessionRecordings(sessionId, undefined).pipe(tenantScoped(credentials));
+  });
+
+  const createSessionRecording = Effect.fn("SessionsApi.createSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    input: CreateSessionRecordingInput,
+  ) {
+    return yield* api
+      .createSessionRecording(sessionId, { payload: input })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const getSessionRecording = Effect.fn("SessionsApi.getSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+  ) {
+    return yield* api
+      .getSessionRecording(sessionId, recordingId, undefined)
+      .pipe(tenantScoped(credentials));
+  });
+
+  const retargetSessionRecording = Effect.fn("SessionsApi.retargetSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    targetId: string,
+  ) {
+    return yield* api
+      .retargetSessionRecording(sessionId, recordingId, { payload: { targetId } })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const stopSessionRecording = Effect.fn("SessionsApi.stopSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+  ) {
+    return yield* api
+      .stopSessionRecording(sessionId, recordingId, undefined)
+      .pipe(tenantScoped(credentials));
+  });
+
+  const createSessionFileDownloadURL = Effect.fn("SessionsApi.createSessionFileDownloadURL")(
+    function* (credentials: ApiCredentials, sessionId: string, input: SessionFileDownloadURLInput) {
+      return yield* api
+        .createSessionFileDownloadURL(sessionId, { payload: input })
+        .pipe(tenantScoped(credentials));
+    },
+  );
+
   const getBrowserChannels = Effect.fn("SessionsApi.getBrowserChannels")(function* (
     credentials: ApiCredentials,
   ) {
@@ -212,8 +278,8 @@ export const makeSessionsApi = Effect.gen(function* () {
 
   return SessionsApi.of({
     listSessions,
-    streamSessions,
-    listAllSessions,
+    streamSessions: sessions.stream,
+    listAllSessions: sessions.listAll,
     getSession,
     getSessionsBulk,
     createSession,
@@ -225,6 +291,14 @@ export const makeSessionsApi = Effect.gen(function* () {
     replaceSessionTags,
     updateSessionProxy,
     promoteSession,
+    getSessionCursor,
+    setSessionCursor,
+    listSessionRecordings,
+    createSessionRecording,
+    getSessionRecording,
+    retargetSessionRecording,
+    stopSessionRecording,
+    createSessionFileDownloadURL,
     getBrowserChannels,
     getBrowserStatus,
     downloadSessionRecording,

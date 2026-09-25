@@ -18,7 +18,7 @@ import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { Passkey } from "@aperture-browser/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
 import { AuthApi } from "@aperture-browser/api-client";
-import { registerPasskey } from "@aperture-browser/api-client/passkeys";
+import { PasskeyCeremonyError, registerPasskey } from "@aperture-browser/api-client/passkeys";
 import { useRunApi } from "@aperture-browser/session-react";
 
 type PendingAction =
@@ -66,6 +66,10 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
       setName("");
       toast.success("Passkey added");
     } catch (error) {
+      if (error instanceof PasskeyCeremonyError && error.reason === "cancelled") {
+        toast(error.message);
+        return;
+      }
       toast.error(error instanceof Error ? error.message : "Passkey registration failed");
     } finally {
       setPendingAction(null);

@@ -1,13 +1,12 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
-import { ApiRequestError } from "../errors.ts";
-import { paginate } from "../pagination.ts";
+import { paginated } from "../pagination.ts";
 import { compactQuery, tagQuery } from "../query.ts";
+import type { Snapshot } from "../schemas.ts";
 import {
   SnapshotsApi,
   type SnapshotsFilter,
@@ -40,15 +39,7 @@ export const makeSnapshotsApi = Effect.gen(function* () {
       .pipe(tenantScoped(credentials));
   });
 
-  const streamSnapshots = (credentials: ApiCredentials, filter: SnapshotsFilter = {}) =>
-    paginate(filter, (params) => listSnapshots(credentials, params));
-
-  const listAllSnapshots = Effect.fn("SnapshotsApi.listAllSnapshots")(function* (
-    credentials: ApiCredentials,
-    filter: SnapshotsFilter = {},
-  ) {
-    return yield* Stream.runCollect(streamSnapshots(credentials, filter));
-  });
+  const snapshots = paginated<SnapshotsFilter, Snapshot>(listSnapshots);
 
   // The API has no lookup by name; its name filter is a case-insensitive substring match,
   // so the exact name is picked from the filtered pages.
@@ -56,18 +47,10 @@ export const makeSnapshotsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     name: string,
   ) {
-    const snapshot = yield* streamSnapshots(credentials, { name, limit: 100 }).pipe(
+    return yield* snapshots.stream(credentials, { name, limit: 100 }).pipe(
       Stream.filter((candidate) => candidate.name === name),
       Stream.runHead,
     );
-    if (Option.isNone(snapshot)) {
-      return yield* new ApiRequestError({
-        code: "snapshot_not_found",
-        message: "snapshot not found",
-        status: 404,
-      });
-    }
-    return snapshot.value;
   });
 
   const updateSnapshot = Effect.fn("SnapshotsApi.updateSnapshot")(function* (
@@ -104,8 +87,8 @@ export const makeSnapshotsApi = Effect.gen(function* () {
 
   return SnapshotsApi.of({
     listSnapshots,
-    streamSnapshots,
-    listAllSnapshots,
+    streamSnapshots: snapshots.stream,
+    listAllSnapshots: snapshots.listAll,
     getSnapshotByName,
     updateSnapshot,
     replaceSnapshotTags,

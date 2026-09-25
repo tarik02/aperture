@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import type { ApiCredentials } from "./authorization/service.ts";
+import type { ApiRequestError } from "./errors.ts";
 import type { PageMeta } from "./schemas.ts";
 
 export interface PaginatedResponse<T> {
@@ -8,9 +10,29 @@ export interface PaginatedResponse<T> {
   readonly meta: PageMeta;
 }
 
-export interface ListQueryParams {
-  limit?: number;
+/** The opaque `nextCursor` of the previous page, sent along with the same filter. */
+export interface PageCursor {
   cursor?: string;
+}
+
+/**
+ * The calls every cursor-paginated list exposes. The filter's `limit` is the page size.
+ * `list` fetches one page; `stream` fetches pages only as the stream is pulled; `listAll`
+ * collects every page.
+ */
+export interface PaginatedList<Filter, T> {
+  readonly list: (
+    credentials: ApiCredentials,
+    params?: Filter & PageCursor,
+  ) => Effect.Effect<PaginatedResponse<T>, ApiRequestError>;
+  readonly stream: (
+    credentials: ApiCredentials,
+    filter?: Filter,
+  ) => Stream.Stream<T, ApiRequestError>;
+  readonly listAll: (
+    credentials: ApiCredentials,
+    filter?: Filter,
+  ) => Effect.Effect<ReadonlyArray<T>, ApiRequestError>;
 }
 
 export function getNextPageParam<T>(page: PaginatedResponse<T>): string | undefined {
@@ -22,23 +44,29 @@ export function flattenInfinitePages<T>(pages: PaginatedResponse<T>[] | undefine
 }
 
 /**
- * Streams every item of a cursor-paginated list. Each page is fetched only when the stream
- * needs more items, with the same filters and the previous page's cursor.
+ * Derives `stream` and `listAll` from the call that fetches one page. That call must also
+ * accept a bare cursor, which every filter allows because all its fields are optional.
  */
-export function paginate<P extends ListQueryParams, T, E>(
-  params: P,
-  listPage: (params: P) => Effect.Effect<PaginatedResponse<T>, E>,
-): Stream.Stream<T, E> {
-  return Stream.paginate(params, (pageParams) =>
-    listPage(pageParams).pipe(
-      Effect.map((page) => {
-        const cursor = getNextPageParam(page);
-        const next =
-          cursor === undefined ? Option.none<P>() : Option.some<P>({ ...params, cursor });
-        return [page.data, next] as const;
-      }),
-    ),
-  );
+export function paginated<Filter, T>(
+  list: (
+    credentials: ApiCredentials,
+    params?: (Filter & PageCursor) | PageCursor,
+  ) => Effect.Effect<PaginatedResponse<T>, ApiRequestError>,
+): PaginatedList<Filter, T> {
+  const stream = (credentials: ApiCredentials, filter?: Filter) =>
+    Stream.paginate<string | undefined, T, ApiRequestError>(undefined, (cursor) =>
+      list(credentials, filter === undefined ? { cursor } : { ...filter, cursor }).pipe(
+        Effect.map((page) => {
+          const next = getNextPageParam(page);
+          return [page.data, next === undefined ? Option.none() : Option.some(next)] as const;
+        }),
+      ),
+    );
+
+  const listAll = (credentials: ApiCredentials, filter?: Filter) =>
+    Stream.runCollect(stream(credentials, filter));
+
+  return { list, stream, listAll };
 }
 
 export const defaultListLimit = 50;

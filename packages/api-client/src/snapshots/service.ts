@@ -1,23 +1,25 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type * as Stream from "effect/Stream";
+import type * as Option from "effect/Option";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
+import type { PageCursor, PaginatedList } from "../pagination.ts";
 import type { TagFilterValue } from "../query.ts";
-import type { Snapshot, SnapshotMutationResponse, SnapshotsPage } from "../schemas.ts";
+import type { Snapshot, SnapshotMutationResponse } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export interface SnapshotsListParams {
+export interface SnapshotsFilter {
   limit?: number;
-  cursor?: string;
   includeDeleted?: boolean;
   deleted?: "active" | "deleted" | "all";
   name?: string;
   tags?: TagFilterValue;
 }
 
-export type SnapshotsFilter = Omit<SnapshotsListParams, "cursor">;
+export type SnapshotsListParams = SnapshotsFilter & PageCursor;
+
+type SnapshotsList = PaginatedList<SnapshotsFilter, Snapshot>;
 
 export interface UpdateSnapshotInput {
   description: string | null;
@@ -27,21 +29,14 @@ export interface UpdateSnapshotInput {
 export class SnapshotsApi extends Context.Service<
   SnapshotsApi,
   {
-    readonly listSnapshots: (
+    readonly listSnapshots: SnapshotsList["list"];
+    readonly streamSnapshots: SnapshotsList["stream"];
+    readonly listAllSnapshots: SnapshotsList["listAll"];
+    /** The active snapshot with exactly this name, if there is one. */
+    readonly getSnapshotByName: (
       credentials: ApiCredentials,
-      params?: SnapshotsListParams,
-    ) => Call<SnapshotsPage>;
-    /** Every matching snapshot, fetching pages as the stream is pulled. */
-    readonly streamSnapshots: (
-      credentials: ApiCredentials,
-      filter?: SnapshotsFilter,
-    ) => Stream.Stream<Snapshot, ApiRequestError>;
-    readonly listAllSnapshots: (
-      credentials: ApiCredentials,
-      filter?: SnapshotsFilter,
-    ) => Call<ReadonlyArray<Snapshot>>;
-    /** The active snapshot with exactly this name; fails with `snapshot_not_found` (404). */
-    readonly getSnapshotByName: (credentials: ApiCredentials, name: string) => Call<Snapshot>;
+      name: string,
+    ) => Call<Option.Option<Snapshot>>;
     readonly updateSnapshot: (
       credentials: ApiCredentials,
       name: string,

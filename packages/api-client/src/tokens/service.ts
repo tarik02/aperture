@@ -1,21 +1,14 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type * as Stream from "effect/Stream";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
-import type {
-  ApiToken,
-  CreateTokenResponse,
-  ResourceGrant,
-  ResourceMode,
-  TokensPage,
-} from "../schemas.ts";
+import type { PageCursor, PaginatedList } from "../pagination.ts";
+import type { ApiToken, CreateTokenResponse, ResourceGrant, ResourceMode } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export interface TokensListParams {
+export interface TokensFilter {
   limit?: number;
-  cursor?: string;
   tenantId?: string;
   name?: string;
   authorityType?: "system_admin" | "tenant";
@@ -23,7 +16,9 @@ export interface TokensListParams {
   scope?: string;
 }
 
-export type TokensFilter = Omit<TokensListParams, "cursor">;
+export type TokensListParams = TokensFilter & PageCursor;
+
+type TokensList = PaginatedList<TokensFilter, ApiToken>;
 
 export interface CreateAdminTokenInput {
   name: string;
@@ -47,37 +42,17 @@ export interface CreateTenantTokenInput {
 export class TokensApi extends Context.Service<
   TokensApi,
   {
-    readonly listAdminTokens: (
-      credentials: ApiCredentials,
-      params?: TokensListParams,
-    ) => Call<TokensPage>;
-    /** Every matching deployment-wide token, fetching pages as the stream is pulled. */
-    readonly streamAdminTokens: (
-      credentials: ApiCredentials,
-      filter?: TokensFilter,
-    ) => Stream.Stream<ApiToken, ApiRequestError>;
-    readonly listAllAdminTokens: (
-      credentials: ApiCredentials,
-      filter?: TokensFilter,
-    ) => Call<ReadonlyArray<ApiToken>>;
+    readonly listAdminTokens: TokensList["list"];
+    readonly streamAdminTokens: TokensList["stream"];
+    readonly listAllAdminTokens: TokensList["listAll"];
     readonly createAdminToken: (
       credentials: ApiCredentials,
       input: CreateAdminTokenInput,
     ) => Call<CreateTokenResponse>;
     readonly revokeAdminToken: (credentials: ApiCredentials, tokenId: string) => Call<void>;
-    readonly listTenantTokens: (
-      credentials: ApiCredentials,
-      params?: TokensListParams,
-    ) => Call<TokensPage>;
-    /** Every matching token of the current tenant, fetching pages as the stream is pulled. */
-    readonly streamTenantTokens: (
-      credentials: ApiCredentials,
-      filter?: TokensFilter,
-    ) => Stream.Stream<ApiToken, ApiRequestError>;
-    readonly listAllTenantTokens: (
-      credentials: ApiCredentials,
-      filter?: TokensFilter,
-    ) => Call<ReadonlyArray<ApiToken>>;
+    readonly listTenantTokens: TokensList["list"];
+    readonly streamTenantTokens: TokensList["stream"];
+    readonly listAllTenantTokens: TokensList["listAll"];
     readonly createTenantToken: (
       credentials: ApiCredentials,
       input: CreateTenantTokenInput,

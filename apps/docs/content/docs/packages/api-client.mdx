@@ -7,7 +7,7 @@ description: Effect services for the Aperture REST API.
 npm install @aperture-browser/api-client effect
 ```
 
-Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsApi`, `UsersApi`, `TokensApi` and `EventsApi`. `apiClientLayer` provides all of them over the `HttpClient` your app supplies, and `baseUrlLayer` points it at an instance on another origin. Failures are `ApiRequestError`s carrying the server's error code and HTTP status.
+Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsApi`, `UsersApi`, `TokensApi`, `EventsApi` and `HealthApi`. `apiClientLayer` provides all of them over the `HttpClient` your app supplies, and `baseUrlLayer` points it at an instance on another origin. Failures are `ApiRequestError`s carrying the server's error code and HTTP status.
 
 ```ts
 import * as Effect from "effect/Effect";
@@ -35,7 +35,7 @@ const page = await Effect.runPromise(program.pipe(Effect.provide(layer)));
 
 ### Fixed credentials
 
-A caller that always acts with the same credentials, such as a server holding one API token, can bind them once. `apertureClientLayer(credentials)` provides `ApertureClient`, which groups `sessions`, `snapshots`, `tenants`, `users`, `tokens` and `events` with the same methods minus the credentials argument. `withCredentials(service, credentials)` binds a single service the same way.
+A caller that always acts with the same credentials, such as a server holding one API token, can bind them once. `apertureClientLayer(credentials)` provides `ApertureClient`, which groups `sessions`, `snapshots`, `tenants`, `users`, `tokens` and `events` with the same methods minus the credentials argument, plus `auth.getAuthMe()` and `health.getHealth()`. `withCredentials(service, credentials)` binds a single service the same way.
 
 ```ts
 import { ApertureClient, apertureClientLayer } from "@aperture-browser/api-client";
@@ -49,7 +49,7 @@ const program = Effect.gen(function* () {
   const client = yield* ApertureClient;
   const base = yield* client.snapshots.getSnapshotByName("signed-in-base");
   const { session } = yield* client.sessions.createSession({
-    baseSnapshotName: base.name,
+    baseSnapshotName: Option.isSome(base) ? base.value.name : null,
     browser: { channel: "chromium" },
     proxy: {
       upstreams: { office: { url: "socks5://proxy.example.com" } },
@@ -62,11 +62,18 @@ const program = Effect.gen(function* () {
 
 ### Pagination
 
-Every paginated list has a `stream…` method (`streamSessions`, `streamSnapshots`, `streamEvents`, …), a `Stream` that fetches the next page only when it is pulled, and a `listAll…` method that collects every page into an array.
+Every paginated list (sessions, snapshots, tenants, users, admin and tenant tokens, events, audit events) has the same three calls, derived from one generic: `listX(params)` fetches one page (pass the previous `meta.nextCursor` as `cursor`), `streamX(filter)` is a `Stream` of items that fetches the next page only when pulled, and `listAllX(filter)` collects every page. The filter is the list params without `cursor`; its `limit` is the page size.
+
+```ts
+const page = yield * client.sessions.listSessions({ status: "running", limit: 20 });
+const all = yield * client.sessions.listAllSessions({ status: "running", limit: 100 });
+```
+
+`getSnapshotByName(name)` returns an `Option`, since the API has no direct lookup by name.
 
 ### Passkeys
 
-Browser passkey sign-in and registration live in `@aperture-browser/api-client/passkeys`, so the main entry does not pull in `@simplewebauthn/browser`. It is an optional peer dependency; install it alongside when you use that entry. `loginWithPasskey()` and `registerPasskey(name)` run the whole WebAuthn ceremony and fail with `PasskeyCeremonyError` when the browser does not complete it.
+Browser passkey sign-in and registration live in `@aperture-browser/api-client/passkeys`, so the main entry does not pull in `@simplewebauthn/browser`. It is an optional peer dependency; install it alongside when you use that entry. `loginWithPasskey()` and `registerPasskey(name)` run the whole WebAuthn ceremony and fail with `PasskeyCeremonyError` when the browser does not complete it. Its `reason` is `cancelled` for a dismissed or timed-out prompt and `failed` otherwise.
 
 The endpoints, their parameters and error codes are in the [REST API reference](/api-reference).
 

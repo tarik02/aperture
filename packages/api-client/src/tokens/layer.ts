@@ -1,11 +1,11 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
-import { paginate } from "../pagination.ts";
+import { paginated } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
+import type { ApiToken } from "../schemas.ts";
 import {
   TokensApi,
   type CreateAdminTokenInput,
@@ -41,15 +41,7 @@ export const makeTokensApi = Effect.gen(function* () {
       .pipe(authorize(Authorization.of(credentials)));
   });
 
-  const streamAdminTokens = (credentials: ApiCredentials, filter: TokensFilter = {}) =>
-    paginate(filter, (params) => listAdminTokens(credentials, params));
-
-  const listAllAdminTokens = Effect.fn("TokensApi.listAllAdminTokens")(function* (
-    credentials: ApiCredentials,
-    filter: TokensFilter = {},
-  ) {
-    return yield* Stream.runCollect(streamAdminTokens(credentials, filter));
-  });
+  const adminTokens = paginated<TokensFilter, ApiToken>(listAdminTokens);
 
   const createAdminToken = Effect.fn("TokensApi.createAdminToken")(function* (
     credentials: ApiCredentials,
@@ -95,15 +87,7 @@ export const makeTokensApi = Effect.gen(function* () {
       .pipe(authorize(Authorization.of(credentials)));
   });
 
-  const streamTenantTokens = (credentials: ApiCredentials, filter: TokensFilter = {}) =>
-    paginate(filter, (params) => listTenantTokens(credentials, params));
-
-  const listAllTenantTokens = Effect.fn("TokensApi.listAllTenantTokens")(function* (
-    credentials: ApiCredentials,
-    filter: TokensFilter = {},
-  ) {
-    return yield* Stream.runCollect(streamTenantTokens(credentials, filter));
-  });
+  const tenantTokens = paginated<TokensFilter, ApiToken>(listTenantTokens);
 
   const createTenantToken = Effect.fn("TokensApi.createTenantToken")(function* (
     credentials: ApiCredentials,
@@ -131,13 +115,13 @@ export const makeTokensApi = Effect.gen(function* () {
 
   return TokensApi.of({
     listAdminTokens,
-    streamAdminTokens,
-    listAllAdminTokens,
+    streamAdminTokens: adminTokens.stream,
+    listAllAdminTokens: adminTokens.listAll,
     createAdminToken,
     revokeAdminToken,
     listTenantTokens,
-    streamTenantTokens,
-    listAllTenantTokens,
+    streamTenantTokens: tenantTokens.stream,
+    listAllTenantTokens: tenantTokens.listAll,
     createTenantToken,
     revokeTenantToken,
   });

@@ -7,6 +7,8 @@ export * from "./client.ts";
 export * from "./errors.ts";
 export * from "./events/layer.ts";
 export * from "./events/service.ts";
+export * from "./health/layer.ts";
+export * from "./health/service.ts";
 export * from "./layer.ts";
 export * from "./pagination.ts";
 export * from "./query.ts";

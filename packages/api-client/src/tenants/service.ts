@@ -1,39 +1,30 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type * as Stream from "effect/Stream";
 import type * as Api from "@aperture-browser/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
-import type { Tenant, TenantsPage } from "../schemas.ts";
+import type { PageCursor, PaginatedList } from "../pagination.ts";
+import type { Tenant } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export interface TenantsListParams {
+export interface TenantsFilter {
   limit?: number;
-  cursor?: string;
   includeDeleted?: boolean;
   deleted?: "active" | "deleted" | "all";
 }
 
-export type TenantsFilter = Omit<TenantsListParams, "cursor">;
+export type TenantsListParams = TenantsFilter & PageCursor;
 
-/** Tenant administration. */
+type TenantsList = PaginatedList<TenantsFilter, Tenant>;
+
+/** Tenant administration, and the tenant a tenant token belongs to. */
 export class TenantsApi extends Context.Service<
   TenantsApi,
   {
-    readonly listTenants: (
-      credentials: ApiCredentials,
-      params?: TenantsListParams,
-    ) => Call<TenantsPage>;
-    /** Every matching tenant, fetching pages as the stream is pulled. */
-    readonly streamTenants: (
-      credentials: ApiCredentials,
-      filter?: TenantsFilter,
-    ) => Stream.Stream<Tenant, ApiRequestError>;
-    readonly listAllTenants: (
-      credentials: ApiCredentials,
-      filter?: TenantsFilter,
-    ) => Call<ReadonlyArray<Tenant>>;
+    readonly listTenants: TenantsList["list"];
+    readonly streamTenants: TenantsList["stream"];
+    readonly listAllTenants: TenantsList["listAll"];
     readonly createTenant: (credentials: ApiCredentials, input: Api.TenantInput) => Call<Tenant>;
     readonly updateTenant: (
       credentials: ApiCredentials,
@@ -42,5 +33,11 @@ export class TenantsApi extends Context.Service<
     ) => Call<Tenant>;
     readonly deleteTenant: (credentials: ApiCredentials, tenantId: string) => Call<Tenant>;
     readonly restoreTenant: (credentials: ApiCredentials, tenantId: string) => Call<Tenant>;
+    /** The tenant of a tenant token. */
+    readonly getCurrentTenant: (credentials: ApiCredentials) => Call<Tenant>;
+    readonly updateCurrentTenant: (
+      credentials: ApiCredentials,
+      input: Api.TenantInput,
+    ) => Call<Tenant>;
   }
 >()("@aperture-browser/api-client/TenantsApi") {}

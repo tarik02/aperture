@@ -15,7 +15,7 @@ import { parseTokenId } from "#/lib/token-id.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import type { LoginMethods } from "@aperture-browser/api-client";
 import { AuthApi } from "@aperture-browser/api-client";
-import { loginWithPasskey } from "@aperture-browser/api-client/passkeys";
+import { loginWithPasskey, PasskeyCeremonyError } from "@aperture-browser/api-client/passkeys";
 import { useRunApi } from "@aperture-browser/session-react";
 
 interface LoginFormProps {
@@ -86,6 +86,10 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
       toast.success("Logged in");
       onDone();
     } catch (error) {
+      if (error instanceof PasskeyCeremonyError && error.reason === "cancelled") {
+        toast(error.message);
+        return;
+      }
       toast.error(error instanceof Error ? error.message : "Passkey login failed");
     } finally {
       setPasskeySubmitting(false);
