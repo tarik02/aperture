@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -43,8 +44,16 @@ func ParseHostPattern(raw string) (HostPattern, error) {
 	if host == "" || (strings.Contains(host, "*") && host != "*" && !isSubdomainWildcard(host)) {
 		return HostPattern{}, fmt.Errorf("invalid host in match %q", raw)
 	}
+	// CIDR ranges, Chromium's <local> and URLs would otherwise be accepted as
+	// hostnames that never match.
+	name := strings.TrimPrefix(host, "*.")
+	if host != "*" && net.ParseIP(name) == nil && !hostnamePattern.MatchString(name) {
+		return HostPattern{}, fmt.Errorf("invalid host in match %q", raw)
+	}
 	return HostPattern{Host: host, Port: port}, nil
 }
+
+var hostnamePattern = regexp.MustCompile(`^[a-z0-9_-]+(\.[a-z0-9_-]+)*$`)
 
 // Matches reports whether a connection to target is covered by the pattern.
 func (p HostPattern) Matches(target Target) bool {

@@ -175,6 +175,89 @@ func (c Config) Redacted() Config {
 	return redacted
 }
 
+// Legacy upstream values: the single-upstream shape proxy configuration had
+// before rules, still spoken by clients and wrappers from that release.
+const (
+	LegacyUpstreamDirect = "direct"
+	LegacyUpstreamProxy  = "proxy"
+	LegacyUpstreamTunnel = "tunnel"
+)
+
+// LegacyAssignment is a configuration in the single-upstream shape. Bypass
+// holds the hosts sent direct, separated by semicolons.
+type LegacyAssignment struct {
+	Upstream   string
+	URL        string
+	TunnelURL  string
+	TunnelAuth string
+	Bypass     string
+}
+
+// Legacy expresses the configuration in the single-upstream shape: leading
+// direct rules become the bypass list and one final "*" rule picks the
+// upstream. It reports false when the rules do not fit that shape; Upstream
+// then approximates the route of the last "*" rule and nothing else is set.
+func (c Config) Legacy() (LegacyAssignment, bool) {
+	normalized := c.normalized()
+	rules := normalized.Rules
+	if len(rules) == 0 {
+		return LegacyAssignment{Upstream: LegacyUpstreamDirect}, true
+	}
+
+	approximate := LegacyAssignment{Upstream: LegacyUpstreamDirect}
+	for _, rule := range rules {
+		if rule.Match == "*" {
+			approximate.Upstream = normalized.legacyUpstreamOf(rule.Via)
+		}
+	}
+
+	last := rules[len(rules)-1]
+	bypass := make([]string, 0, len(rules)-1)
+	for _, rule := range rules[:len(rules)-1] {
+		if rule.Via != ViaDirect {
+			return approximate, false
+		}
+		bypass = append(bypass, rule.Match)
+	}
+	if last.Match != "*" {
+		return approximate, false
+	}
+	assignment := LegacyAssignment{Bypass: strings.Join(bypass, ";")}
+	if upstream, named := normalized.Upstreams[last.Via]; named {
+		if len(normalized.Upstreams) != 1 {
+			return approximate, false
+		}
+		if upstream.IsTunnel() {
+			assignment.Upstream = LegacyUpstreamTunnel
+			assignment.TunnelURL = upstream.URL
+			assignment.TunnelAuth = upstream.Auth
+			return assignment, true
+		}
+		assignment.Upstream = LegacyUpstreamProxy
+		assignment.URL = upstream.URL
+		return assignment, true
+	}
+	if len(normalized.Upstreams) != 0 || !strings.Contains(last.Via, "://") {
+		return approximate, false
+	}
+	assignment.Upstream = LegacyUpstreamProxy
+	assignment.URL = last.Via
+	return assignment, true
+}
+
+func (c Config) legacyUpstreamOf(via string) string {
+	switch via {
+	case ViaDirect, ViaRefuse:
+		return LegacyUpstreamDirect
+	case ViaLocal:
+		return LegacyUpstreamTunnel
+	}
+	if upstream, named := c.Upstreams[via]; named && upstream.IsTunnel() {
+		return LegacyUpstreamTunnel
+	}
+	return LegacyUpstreamProxy
+}
+
 // defaultUpstreamPorts is the port assumed when an upstream proxy URL omits one.
 var defaultUpstreamPorts = map[string]string{
 	"http":    "80",

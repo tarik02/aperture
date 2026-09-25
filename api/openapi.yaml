@@ -2296,6 +2296,39 @@ components:
           type: array
           maxItems: 256
           items: {$ref: '#/components/schemas/ProxyRule'}
+        upstream:
+          type: string
+          enum: [direct, proxy, tunnel]
+          deprecated: true
+          description: |-
+            Legacy single-upstream shape; use `upstreams` and `rules`. Cannot be combined with them. `proxy` becomes a final `*` rule via `url`, `tunnel` a `tunnel` upstream and a final `*` rule via it, each preceded by `direct` rules for the `bypass` entries. `direct` or omitted means no rules.
+          example: tunnel
+        url:
+          type: string
+          deprecated: true
+          description: Legacy upstream proxy URL, required with `upstream` `proxy`. Use `upstreams` and `rules`.
+          example: socks5://user:pass@proxy.example.com:1080
+        tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
+        bypass:
+          type: string
+          deprecated: true
+          description: |-
+            Legacy hosts to send direct, separated by `;` or `,`. Each entry must be a valid rule `match`; a leading `.` means any subdomain. CIDR ranges, `<local>` and scheme prefixes are rejected. Use `upstreams` and `rules`.
+          example: '*.internal.example.com'
+    ProxyTunnelConfig:
+      type: object
+      deprecated: true
+      description: Legacy tunnel endpoint for `upstream` `tunnel`; both fields are required with it. Use a tunnel URL in `upstreams`.
+      properties:
+        url:
+          type: string
+          description: Compound tunnel URL (`ws+yamux+socks5://` or `wss+yamux+socks5://`).
+          example: wss+yamux+socks5://tunnel.example.com/t/019f6cf0-0000-7000-8000-000000000010
+        auth:
+          type: string
+          x-sensitive: true
+          description: Bearer secret for the tunnel handshake. Write-only; never returned.
+          example: REDACTED
     SessionProxyUpstream:
       type: object
       description: A named upstream as stored. The secret is never returned and proxy URL passwords are masked.
@@ -2307,7 +2340,7 @@ components:
     SessionProxy:
       type: object
       description: Stored session egress proxy configuration. Secrets are write-only, so this value cannot be replayed as a write.
-      required: [upstreams, rules]
+      required: [upstreams, rules, upstream]
       properties:
         upstreams:
           type: object
@@ -2315,16 +2348,61 @@ components:
         rules:
           type: array
           items: {$ref: '#/components/schemas/ProxyRule'}
-    UpdateProxyConfig:
-      description: Replacement session egress proxy configuration.
-      allOf:
-        - {$ref: '#/components/schemas/ProxyConfig'}
-        - type: object
+        upstream:
+          type: string
+          enum: [direct, proxy, tunnel]
+          deprecated: true
+          x-go-type-name: SessionProxyLegacyUpstream
+          description: |-
+            Legacy single-upstream view of `rules`; read `upstreams` and `rules` instead. Exact when the rules are optional leading `direct` rules followed by one final `*` rule via an upstream proxy or tunnel, with no other upstreams, and `direct` when there are no rules. Otherwise it approximates the route of the last `*` rule (`local` reads as `tunnel`, `refuse` as `direct`), or `direct` without one, and `url`, `tunnel` and `bypass` are omitted.
+          example: tunnel
+        url:
+          type: string
+          deprecated: true
+          description: Legacy upstream proxy URL with its password masked. Only present when `upstream` is exactly `proxy`.
+          example: socks5://user:xxxxx@proxy.example.com:1080
+        tunnel:
+          type: object
+          deprecated: true
+          description: Legacy tunnel endpoint. Only present when `upstream` is exactly `tunnel`. The secret is never returned.
           properties:
-            drain:
-              type: boolean
-              description: Reset live tunnel streams instead of letting them drain. New connections use the new rules either way.
-              example: false
+            url:
+              type: string
+              example: wss+yamux+socks5://tunnel.example.com/t/019f6cf0-0000-7000-8000-000000000010
+        bypass:
+          type: string
+          deprecated: true
+          description: Legacy `;`-separated matches of the leading `direct` rules. Only present with an exact `proxy` or `tunnel` value.
+          example: '*.internal.example.com'
+    UpdateProxyConfig:
+      type: object
+      description: Replacement session egress proxy configuration. Fields other than `drain` are as in `ProxyConfig`.
+      properties:
+        upstreams:
+          type: object
+          additionalProperties: {$ref: '#/components/schemas/ProxyUpstream'}
+        rules:
+          type: array
+          maxItems: 256
+          items: {$ref: '#/components/schemas/ProxyRule'}
+        upstream:
+          type: string
+          enum: [direct, proxy, tunnel]
+          deprecated: true
+          description: Legacy single-upstream shape; use `upstreams` and `rules`.
+        url:
+          type: string
+          deprecated: true
+          description: Legacy upstream proxy URL; use `upstreams` and `rules`.
+        tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
+        bypass:
+          type: string
+          deprecated: true
+          description: Legacy hosts to send direct; use `upstreams` and `rules`.
+        drain:
+          type: boolean
+          description: Reset live tunnel streams instead of letting them drain. New connections use the new rules either way.
+          example: false
     Session:
       type: object
       description: Browser session state, retention metadata, tags, and currently available access credentials.

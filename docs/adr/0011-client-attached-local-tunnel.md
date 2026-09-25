@@ -44,6 +44,7 @@ ADR 0010 sends all of a session's traffic one way. Two needs didn't fit:
 - **Secrets.** Upstream `auth` is write-only, and proxy URL passwords are masked on read, both in `upstreams` and in inline `via` URLs.
 - **Storage.** The configuration is one JSON column on the session instead of five, and the wrapper gets it as one `PROXY_CONFIG` value. Existing assignments migrate to an equivalent `*` rule.
 - **Updates** keep ADR 0010's semantics: new connections use the new rules, and `drain` resets live outbound tunnels. A tunnel to an upstream whose settings did not change keeps serving across updates.
+- **The legacy shape is still accepted.** Clients built against ADR 0010 are deployed, so the API translates `upstream`, `url`, `tunnel` and `bypass` into rules: `direct` rules for each `bypass` entry, then one `*` rule via the proxy URL or a `tunnel` upstream. Bypass entries that are not valid matches, such as CIDR ranges or `<local>`, are rejected. Mixing the two shapes is rejected. Session reads also return a deprecated `upstream`, exact when the rules have that form and approximate otherwise, and a push to a wrapper started before this change falls back to its assignment endpoint when the rules have that form.
 
 ### Localhost
 

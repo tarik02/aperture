@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -111,13 +112,52 @@ func (s *Service) pushProxyConfig(ctx context.Context, sessionRow *db.Session, c
 	if err != nil {
 		return "", fmt.Errorf("push proxy config: %w", err)
 	}
+	address, err := postWrapperProxy(ctx, port, controlToken, "/proxy/config", payload)
+	if !errors.Is(err, errWrapperRouteMissing) {
+		return address, err
+	}
 
+	// A wrapper started by the release before proxy rules keeps running
+	// across a daemon upgrade and only knows the single-upstream endpoint.
+	legacy, ok := config.Legacy()
+	if !ok {
+		return "", errors.New("push proxy config: the running wrapper predates proxy rules and the configuration has no single-upstream equivalent")
+	}
+	payload, err = json.Marshal(legacyProxyPush{
+		Upstream: legacy.Upstream,
+		URL:      legacy.URL,
+		Tunnel:   legacyProxyPushTunnel{URL: legacy.TunnelURL, Auth: legacy.TunnelAuth},
+		Bypass:   legacy.Bypass,
+		Drain:    drain,
+	})
+	if err != nil {
+		return "", fmt.Errorf("push proxy config: %w", err)
+	}
+	return postWrapperProxy(ctx, port, controlToken, "/proxy/assignment", payload)
+}
+
+var errWrapperRouteMissing = errors.New("wrapper route not found")
+
+type legacyProxyPushTunnel struct {
+	URL  string `json:"url"`
+	Auth string `json:"auth"`
+}
+
+type legacyProxyPush struct {
+	Upstream string                `json:"upstream"`
+	URL      string                `json:"url"`
+	Tunnel   legacyProxyPushTunnel `json:"tunnel"`
+	Bypass   string                `json:"bypass"`
+	Drain    bool                  `json:"drain"`
+}
+
+func postWrapperProxy(ctx context.Context, port int, controlToken, path string, payload []byte) (string, error) {
 	pushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(
 		pushCtx,
 		http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/proxy/config", port),
+		fmt.Sprintf("http://127.0.0.1:%d%s", port, path),
 		bytes.NewReader(payload),
 	)
 	if err != nil {
@@ -134,6 +174,9 @@ func (s *Service) pushProxyConfig(ctx context.Context, sessionRow *db.Session, c
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 	if err != nil {
 		return "", fmt.Errorf("push proxy config: %w", err)
+	}
+	if response.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("push proxy config: %w: %s", errWrapperRouteMissing, path)
 	}
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("push proxy config: unexpected wrapper status %s", response.Status)

@@ -134,6 +134,8 @@ An upstream `url` is a generic `http`/`https`/`socks`/`socks5`/`socks5h` proxy U
 
 `PUT /api/sessions/:sessionId/proxy` replaces the configuration with the same object plus `"drain": true` to reset live tunnel streams instead of letting them finish. Secrets are write-only: session reads return upstream URLs but never `auth`, and proxy URLs come back with their passwords masked (`socks5://user:xxxxx@host:1080`).
 
+The deprecated single-upstream shape, `upstream` (`direct`, `proxy`, `tunnel`) with `url`, `tunnel: {url, auth}` and `bypass`, is still accepted and translated into rules; it cannot be mixed with `upstreams` and `rules`. Reads also carry a deprecated `upstream`, which is approximate when the rules do not fit that shape. Use `upstreams` and `rules` in new code.
+
 `browser.channel` is required. Use `GET /api/browser/channels` rather than assuming a channel name.
 
 A restricted token may create a blank session or use a granted base snapshot. New sessions and promoted snapshots do not extend its allowlist automatically. The returned `sessionToken` still authorizes the new session. Force promotion may replace an existing deleted snapshot tombstone only when that snapshot is granted.

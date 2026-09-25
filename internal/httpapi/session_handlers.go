@@ -88,6 +88,12 @@ func (s *Server) createSession(c *gin.Context, waitForReady bool) {
 		return
 	}
 
+	proxyConfig, err := req.Proxy.config()
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+
 	if req.BaseSnapshotName != nil && strings.TrimSpace(*req.BaseSnapshotName) != "" {
 		principal := c.MustGet("principal").(auth.Principal)
 		if !auth.HasScope(principal.Scopes, auth.ScopeSnapshotsRead) {
@@ -112,7 +118,7 @@ func (s *Server) createSession(c *gin.Context, waitForReady bool) {
 		BrowserArgs:      req.Browser.Args,
 		Initialization:   req.initialization(),
 		Tags:             req.Tags,
-		Proxy:            req.Proxy.config(),
+		Proxy:            proxyConfig,
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -192,8 +198,13 @@ func (s *Server) updateSessionProxy(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
+	proxyConfig, err := req.config()
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
 
-	if _, err := s.Sessions.UpdateProxy(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), req.config(), req.Drain); err != nil {
+	if _, err := s.Sessions.UpdateProxy(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), proxyConfig, req.Drain); err != nil {
 		WriteError(c, err)
 		return
 	}
