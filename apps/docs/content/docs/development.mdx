@@ -118,7 +118,7 @@ This site lives in `apps/docs` ([Fumadocs](https://fumadocs.dev) on TanStack Sta
 pnpm --filter @aperture-browser/docs dev
 ```
 
-Pushes to `master` that touch the docs, the packages or the OpenAPI spec deploy the site to [GitHub Pages](https://tarik02.github.io/aperture). Each Aperture instance also serves its own API reference at `/docs`.
+The `docs` workflow publishes the site to [GitHub Pages](https://tarik02.github.io/aperture) from the `gh-pages` branch. Pushes to `master` that touch the docs, the packages or the OpenAPI spec update the site; pull requests from this repository that touch them get a preview under `pr-preview/pr-<number>/`, linked in a PR comment and removed when the pull request closes. Each Aperture instance also serves its own API reference at `/docs`.
 
 ## Releases
 
