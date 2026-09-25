@@ -1,5 +1,5 @@
 {
-  "name": "@aperture/browser-state",
+  "name": "@aperture-browser/browser-state",
   "private": true,
   "type": "module",
   "exports": {

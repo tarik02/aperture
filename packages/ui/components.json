@@ -11,11 +11,11 @@
     "prefix": ""
   },
   "aliases": {
-    "components": "@aperture/ui/components",
-    "utils": "@aperture/ui/utils",
-    "ui": "@aperture/ui/components",
-    "lib": "@aperture/ui/lib",
-    "hooks": "@aperture/ui/hooks"
+    "components": "@aperture-browser/ui/components",
+    "utils": "@aperture-browser/ui/utils",
+    "ui": "@aperture-browser/ui/components",
+    "lib": "@aperture-browser/ui/lib",
+    "hooks": "@aperture-browser/ui/hooks"
   },
   "iconLibrary": "lucide",
   "rtl": false,

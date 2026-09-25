@@ -23,8 +23,6 @@ jobs:
           go-version-file: go.mod
 
       - uses: pnpm/action-setup@v6.0.9
-        with:
-          package_json_file: web/package.json
 
       - uses: actions/setup-node@v6.4.0
         with:
@@ -44,16 +42,16 @@ jobs:
       - name: Validate and build frontend
         run: |
           pnpm install --frozen-lockfile
-          pnpm --filter @aperture/web generate-routes
-          git diff --exit-code -- web/src/routeTree.gen.ts
-          pnpm --filter @aperture/web format:check
-          pnpm --filter @aperture/web lint
-          pnpm --filter @aperture/web typecheck
-          pnpm --filter @aperture/web build
-          pnpm --filter @aperture/tab-window-enforcer format:check
-          pnpm --filter @aperture/tab-window-enforcer lint
-          pnpm --filter @aperture/tab-window-enforcer typecheck
-          pnpm --filter @aperture/tab-window-enforcer build
+          pnpm --filter @aperture-browser/web generate-routes
+          git diff --exit-code -- apps/web/src/routeTree.gen.ts
+          pnpm --filter @aperture-browser/web format:check
+          pnpm --filter @aperture-browser/web lint
+          pnpm --filter @aperture-browser/web typecheck
+          pnpm --filter @aperture-browser/web build
+          pnpm --filter @aperture-browser/tab-window-enforcer format:check
+          pnpm --filter @aperture-browser/tab-window-enforcer lint
+          pnpm --filter @aperture-browser/tab-window-enforcer typecheck
+          pnpm --filter @aperture-browser/tab-window-enforcer build
 
       - uses: golangci/golangci-lint-action@v9.3.0
         with:

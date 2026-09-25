@@ -5,7 +5,7 @@ project_name: aperture
 before:
   hooks:
     - pnpm install --frozen-lockfile
-    - pnpm --filter @aperture/web build
+    - pnpm --filter @aperture-browser/web build
 
 builds:
   - id: aperture

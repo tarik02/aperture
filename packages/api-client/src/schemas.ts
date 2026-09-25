@@ -1,4 +1,4 @@
-import * as Api from "@aperture/api-schema";
+import * as Api from "@aperture-browser/api-schema";
 
 // Resources described by api/openapi.yaml, under the names the app uses.
 

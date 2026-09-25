@@ -29,8 +29,8 @@
 
         pnpmLatest = pkgs.pnpm.override {
           nodejs-slim = nodeRuntime;
-          version = "11.13.0";
-          hash = "sha256-hlx2vZERpFykH27u1AZ/8Ozf7p6sg6rSQXnIP/6+dZk=";
+          version = "11.27.1";
+          hash = "sha256-1Q+IQeZ+8LHYLnyQskBlbHygTV8aoz8GEIAHyB/XZ2Y=";
         };
 
         buildGoModule = pkgs.buildGoModule.override {
@@ -68,20 +68,20 @@
           || lib.hasPrefix "packages/browser-state/node_modules/" rel
           || rel == "packages/api-schema/node_modules"
           || lib.hasPrefix "packages/api-schema/node_modules/" rel
-          || rel == "backend/restore-worker/node_modules"
-          || lib.hasPrefix "backend/restore-worker/node_modules/" rel
-          || rel == "backend/restore-worker/dist"
-          || lib.hasPrefix "backend/restore-worker/dist/" rel
+          || rel == "apps/restore-worker/node_modules"
+          || lib.hasPrefix "apps/restore-worker/node_modules/" rel
+          || rel == "apps/restore-worker/dist"
+          || lib.hasPrefix "apps/restore-worker/dist/" rel
           || rel == "extensions/tab-window-enforcer/node_modules"
           || lib.hasPrefix "extensions/tab-window-enforcer/node_modules/" rel
           || rel == "extensions/tab-window-enforcer/dist"
           || lib.hasPrefix "extensions/tab-window-enforcer/dist/" rel
-          || rel == "web/node_modules"
-          || lib.hasPrefix "web/node_modules/" rel
-          || rel == "web/dist"
-          || lib.hasPrefix "web/dist/" rel
-          || rel == "web/.output"
-          || lib.hasPrefix "web/.output/" rel
+          || rel == "apps/web/node_modules"
+          || lib.hasPrefix "apps/web/node_modules/" rel
+          || rel == "apps/web/dist"
+          || lib.hasPrefix "apps/web/dist/" rel
+          || rel == "apps/web/.output"
+          || lib.hasPrefix "apps/web/.output/" rel
           || rel == ".scaffold-tmp"
           || lib.hasPrefix ".scaffold-tmp/" rel
           || rel == ".data"
@@ -538,13 +538,13 @@
               pnpm = pnpmLatest;
               fetcherVersion = 4;
               pnpmWorkspaces = [
-                "@aperture/restore-worker"
-                "@aperture/tab-window-enforcer"
-                "@aperture/api-schema"
-                "@aperture/browser-state"
-                "@aperture/api-client"
-                "@aperture/ui"
-                "@aperture/web"
+                "@aperture-browser/restore-worker"
+                "@aperture-browser/tab-window-enforcer"
+                "@aperture-browser/api-schema"
+                "@aperture-browser/browser-state"
+                "@aperture-browser/api-client"
+                "@aperture-browser/ui"
+                "@aperture-browser/web"
               ];
               hash = "sha256-hKwSZnLVC4pu464d8FiV9ydf0W9UuTWdQQp3u+ab+gc=";
             };
@@ -576,10 +576,10 @@
             ];
 
             preBuild = ''
-              pnpm --filter @aperture/restore-worker build
-              pnpm --filter @aperture/tab-window-enforcer build
-              pnpm --filter @aperture/web build
-              test -f web/dist/client/index.html
+              pnpm --filter @aperture-browser/restore-worker build
+              pnpm --filter @aperture-browser/tab-window-enforcer build
+              pnpm --filter @aperture-browser/web build
+              test -f apps/web/dist/client/index.html
             '';
 
             # Vendor derivation only needs Go modules, not frontend dependencies.
@@ -597,10 +597,10 @@
               # Node runtime: the restore worker bundle plus the Playwright packages it
               # depends on, copied flat out of the pnpm-installed node_modules.
               mkdir -p $out/share/aperture/restore-worker/node_modules/@playwright
-              cp -r backend/restore-worker/dist $out/share/aperture/restore-worker/
-              cp -rL backend/restore-worker/node_modules/playwright backend/restore-worker/node_modules/playwright-core \
+              cp -r apps/restore-worker/dist $out/share/aperture/restore-worker/
+              cp -rL apps/restore-worker/node_modules/playwright apps/restore-worker/node_modules/playwright-core \
                 $out/share/aperture/restore-worker/node_modules/
-              cp -rL backend/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
+              cp -rL apps/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
               makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
                 --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
               makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \
@@ -818,8 +818,8 @@
 
               pnpm --dir /workspace \
                 install --frozen-lockfile
-              pnpm --dir /workspace/web generate-routes
-              exec pnpm --dir /workspace/web dev \
+              pnpm --dir /workspace/apps/web generate-routes
+              exec pnpm --dir /workspace/apps/web dev \
                 --host 0.0.0.0 \
                 --port 3000 \
                 --strictPort \

@@ -1,5 +1,5 @@
 {
-  "name": "@aperture/tab-window-enforcer",
+  "name": "@aperture-browser/tab-window-enforcer",
   "private": true,
   "type": "module",
   "scripts": {

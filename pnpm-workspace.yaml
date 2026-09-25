@@ -1,8 +1,7 @@
 packages:
-  - backend/restore-worker
+  - apps/*
   - extensions/*
   - packages/*
-  - web
 
 onlyBuiltDependencies:
   - esbuild

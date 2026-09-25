@@ -22,7 +22,7 @@ import (
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
-	"github.com/aperture/aperture/web"
+	"github.com/aperture/aperture/apps/web"
 	"go.uber.org/zap"
 )
 

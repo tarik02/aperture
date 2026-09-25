@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
-import * as Api from "@aperture/api-schema";
+import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
 import { compactQuery, tagQuery } from "../query.ts";
 import { BrowserStatus } from "./schemas.ts";

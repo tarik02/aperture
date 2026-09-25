@@ -46,7 +46,7 @@ export class NativeHost extends Context.Service<
     /** Sends a request and fails unless Aperture accepts it. */
     readonly request: (message: NativeRequest) => Effect.Effect<void, NativeHostError>;
   }
->()("@aperture/tab-window-enforcer/NativeHost") {
+>()("@aperture-browser/tab-window-enforcer/NativeHost") {
   static readonly layer = Layer.sync(NativeHost, () => {
     // One port, opened on first use and again after the host disconnects.
     let port: chrome.runtime.Port | null = null;

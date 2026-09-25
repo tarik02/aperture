@@ -93,4 +93,4 @@ export class ApiAuthorization extends Context.Service<
     /** Emits whenever the web session is found to be missing, expired or revoked. */
     readonly sessionAuthenticationFailures: Stream.Stream<void>;
   }
->()("@aperture/api-client/ApiAuthorization") {}
+>()("@aperture-browser/api-client/ApiAuthorization") {}

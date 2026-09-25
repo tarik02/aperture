@@ -1,6 +1,6 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type * as Api from "@aperture/api-schema";
+import type * as Api from "@aperture-browser/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { Tenant, TenantsPage } from "../schemas.ts";
@@ -31,4 +31,4 @@ export class TenantsApi extends Context.Service<
     readonly deleteTenant: (credentials: ApiCredentials, tenantId: string) => Call<Tenant>;
     readonly restoreTenant: (credentials: ApiCredentials, tenantId: string) => Call<Tenant>;
   }
->()("@aperture/api-client/TenantsApi") {}
+>()("@aperture-browser/api-client/TenantsApi") {}

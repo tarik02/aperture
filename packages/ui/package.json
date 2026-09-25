@@ -1,5 +1,5 @@
 {
-  "name": "@aperture/ui",
+  "name": "@aperture-browser/ui",
   "private": true,
   "type": "module",
   "exports": {

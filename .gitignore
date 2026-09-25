@@ -3,9 +3,8 @@
 /dist/
 /vendor/
 node_modules/
-web/dist/
-web/.output/
-backend/restore-worker/dist/
+apps/*/dist/
+apps/web/.output/
 extensions/*/dist/
 .scaffold-tmp/
 .data/

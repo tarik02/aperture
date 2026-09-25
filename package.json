@@ -1,0 +1,18 @@
+{
+  "name": "@aperture-browser/workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "format:check": "pnpm -r format:check"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.27.1",
+      "onFail": "download"
+    }
+  }
+}

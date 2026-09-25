@@ -20,4 +20,4 @@ export class EventsApi extends Context.Service<
       params?: EventsListParams,
     ) => Effect.Effect<EventsPage, ApiRequestError>;
   }
->()("@aperture/api-client/EventsApi") {}
+>()("@aperture-browser/api-client/EventsApi") {}
