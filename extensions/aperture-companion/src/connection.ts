@@ -13,6 +13,7 @@ import { credentials, withApi } from "./api.ts";
 import { CompanionError, openTab, requestOrigins } from "./chrome.ts";
 import { NonEmptyString, type Tags } from "./schema.ts";
 import { storedValue } from "./storage.ts";
+import * as UrlPath from "./url-path.ts";
 
 /** An Aperture instance and the API token the extension uses there. */
 export const Connection = Schema.Struct({
@@ -36,7 +37,6 @@ const ConnectionStore = Schema.Struct({
   connections: Schema.Array(Connection),
   activeConnectionId: Schema.NullOr(Schema.String),
 });
-type ConnectionStore = typeof ConnectionStore.Type;
 
 // Tokens stay in local storage, which Chromium never synchronizes.
 const connectionStore = storedValue("local", "apertureConnections", ConnectionStore);
@@ -49,8 +49,6 @@ export const emptyConnectionDraft: ConnectionDraft = { origin: "", token: "" };
 const loadStore = connectionStore.get.pipe(
   Effect.map(Option.getOrElse(() => ({ connections: [], activeConnectionId: null }))),
 );
-
-const unavailable = new CompanionError({ message: "The Aperture connection is unavailable" });
 
 export const normalizeConnectionOrigin = Effect.fnUntraced(function* (input: string) {
   const url = yield* Effect.try({
@@ -152,13 +150,17 @@ export const requireActiveConnection = activeConnection.pipe(
 
 export const selectConnection = Effect.fnUntraced(function* (id: string) {
   const store = yield* loadStore;
-  if (!store.connections.some((connection) => connection.id === id)) return yield* unavailable;
+  if (!store.connections.some((connection) => connection.id === id)) {
+    return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
+  }
   yield* connectionStore.set({ ...store, activeConnectionId: id });
 });
 
 export const saveConnection = Effect.fnUntraced(function* (connection: Connection) {
   const store = yield* loadStore;
-  if (!store.connections.some(({ id }) => id === connection.id)) return yield* unavailable;
+  if (!store.connections.some(({ id }) => id === connection.id)) {
+    return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
+  }
   yield* connectionStore.set({
     ...store,
     connections: store.connections.map((current) =>
@@ -178,11 +180,13 @@ export const removeConnection = Effect.fnUntraced(function* (id: string) {
   });
 });
 
+export type Placement = "before" | "after";
+
 /** Moves a connection before or after another one and returns the new order. */
 export const reorderConnection = Effect.fnUntraced(function* (
   sourceId: string,
   destinationId: string,
-  placement: "before" | "after",
+  placement: Placement,
 ) {
   const store = yield* loadStore;
   const moved = store.connections.find(({ id }) => id === sourceId);
@@ -277,7 +281,7 @@ export const promoteSession = Effect.fn("promoteSession")(
 );
 
 export const openWorkbench = (connection: Connection, sessionId: string) =>
-  openTab(`${connection.origin}/-/sessions/${encodeURIComponent(sessionId)}`);
+  openTab(UrlPath.make`${UrlPath.raw(connection.origin)}/-/sessions/${sessionId}`);
 
 export const openSnapshots = (connection: Connection) =>
-  openTab(`${connection.origin}/-/snapshots/`);
+  openTab(UrlPath.make`${UrlPath.raw(connection.origin)}/-/snapshots/`);

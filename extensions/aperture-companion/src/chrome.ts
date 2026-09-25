@@ -20,8 +20,6 @@ export interface IdentifiedTab extends chrome.tabs.Tab {
   readonly id: number;
 }
 
-export const isIdentifiedTab = (tab: chrome.tabs.Tab): tab is IdentifiedTab => tab.id !== undefined;
-
 /** Only HTTP and HTTPS pages can be captured and restored. */
 export function isWebURL(value: string | undefined): value is string {
   if (value === undefined) return false;

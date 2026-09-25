@@ -40,12 +40,14 @@ const optionalStorage = [
   ["indexedDB", "IndexedDB"],
 ] as const;
 
-const failure = (message: string) => new CompanionError({ message });
-
 const tabOriginPattern = (tab: chrome.tabs.Tab) => {
-  if (tab.url === undefined) return Effect.fail(failure("A selected tab is unavailable"));
+  if (tab.url === undefined) {
+    return Effect.fail(new CompanionError({ message: "A selected tab is unavailable" }));
+  }
   if (!isWebURL(tab.url)) {
-    return Effect.fail(failure("Teleport supports HTTP and HTTPS pages only"));
+    return Effect.fail(
+      new CompanionError({ message: "Teleport supports HTTP and HTTPS pages only" }),
+    );
   }
   return Effect.succeed(`${new URL(tab.url).origin}/*`);
 };
@@ -54,7 +56,7 @@ const tabOriginPattern = (tab: chrome.tabs.Tab) => {
 export const capturePermissionOrigins = Effect.fnUntraced(function* (
   tabs: readonly chrome.tabs.Tab[],
 ) {
-  if (tabs.length === 0) return yield* failure("No web pages are selected");
+  if (tabs.length === 0) return yield* new CompanionError({ message: "No web pages are selected" });
   return [...new Set(yield* Effect.forEach(tabs, tabOriginPattern))];
 });
 
@@ -70,7 +72,9 @@ export const captureBrowserState = Effect.fn("captureBrowserState")(function* (
   tabs: readonly chrome.tabs.Tab[],
   activeTabId: number,
 ) {
-  if (tabs.length === 0) return yield* failure("No browser tabs were selected");
+  if (tabs.length === 0) {
+    return yield* new CompanionError({ message: "No browser tabs were selected" });
+  }
   const pages = yield* Effect.forEach(tabs, captureTab, { concurrency: "unbounded" });
   yield* captureProfileStorage(pages);
   yield* Effect.forEach(pages, ensureNotNavigated, { concurrency: "unbounded", discard: true });
@@ -138,7 +142,9 @@ const capturePageStates = Effect.fnUntraced(function* (
     result !== undefined && isWebURL(result.href) ? [{ ...result, frameId: resultFrameId }] : [],
   );
   if (!captured.some((frame) => frame.frameId === (frameId ?? 0))) {
-    return yield* failure("The requested frame did not return browser state");
+    return yield* new CompanionError({
+      message: "The requested frame did not return browser state",
+    });
   }
   return captured;
 });
@@ -150,16 +156,18 @@ const captureTopDocument = Effect.fnUntraced(function* (tabId: number) {
     chrome.scripting.executeScript({ target, func: captureDocumentState, args: [codecKey] }),
   );
   if (injection?.result === undefined) {
-    return yield* failure("The page did not return document state");
+    return yield* new CompanionError({ message: "The page did not return document state" });
   }
   return injection.result;
 });
 
 const captureTab = Effect.fnUntraced(function* (tab: chrome.tabs.Tab) {
   if (tab.id === undefined || tab.url === undefined) {
-    return yield* failure("A selected tab is unavailable");
+    return yield* new CompanionError({ message: "A selected tab is unavailable" });
   }
-  if (!isWebURL(tab.url)) return yield* failure("Teleport supports HTTP and HTTPS pages only");
+  if (!isWebURL(tab.url)) {
+    return yield* new CompanionError({ message: "Teleport supports HTTP and HTTPS pages only" });
+  }
   const tabId = tab.id;
   const expectedOrigin = new URL(tab.url).origin;
 
@@ -169,14 +177,20 @@ const captureTab = Effect.fnUntraced(function* (tab: chrome.tabs.Tab) {
   );
   const top = frames.find(({ frameId }) => frameId === 0);
   if (top === undefined) {
-    return yield* failure("The selected tab did not return its main frame state");
+    return yield* new CompanionError({
+      message: "The selected tab did not return its main frame state",
+    });
   }
   for (const frame of frames) {
     if (frame.frameId === 0 && frame.ancestorOrigins.length !== 0) {
-      return yield* failure("The selected tab returned an invalid main frame partition");
+      return yield* new CompanionError({
+        message: "The selected tab returned an invalid main frame partition",
+      });
     }
     if (frame.frameId !== 0 && frame.ancestorOrigins[0] !== top.origin) {
-      return yield* failure(`A frame returned an invalid storage partition for ${frame.origin}`);
+      return yield* new CompanionError({
+        message: `A frame returned an invalid storage partition for ${frame.origin}`,
+      });
     }
   }
 
@@ -187,9 +201,9 @@ const captureTab = Effect.fnUntraced(function* (tab: chrome.tabs.Tab) {
     top.origin !== new URL(top.href).origin ||
     top.origin !== expectedOrigin
   ) {
-    return yield* failure(
-      `The tab navigated while its state was being captured: ${tab.title ?? tab.url}`,
-    );
+    return yield* new CompanionError({
+      message: `The tab navigated while its state was being captured: ${tab.title ?? tab.url}`,
+    });
   }
   return { tab: { ...current, id: tabId }, top, frames, document } satisfies CapturedTab;
 });
@@ -220,7 +234,9 @@ const captureProfileStorage = Effect.fnUntraced(function* (tabs: readonly Captur
           profile.origin !== frame.origin ||
           storagePartitionKey(profile) !== partition
         ) {
-          return yield* failure(`A frame navigated while ${frame.origin} was being captured`);
+          return yield* new CompanionError({
+            message: `A frame navigated while ${frame.origin} was being captured`,
+          });
         }
         frame.warnings.push(...profile.warnings);
         if (!profile.webStorageCaptured) continue;
@@ -238,9 +254,9 @@ const captureProfileStorage = Effect.fnUntraced(function* (tabs: readonly Captur
 const ensureNotNavigated = Effect.fnUntraced(function* ({ tab, top }: CapturedTab) {
   const current = yield* getTab(tab.id);
   if (current.url !== top.href) {
-    return yield* failure(
-      `The tab navigated while its state was being captured: ${tab.title ?? top.href}`,
-    );
+    return yield* new CompanionError({
+      message: `The tab navigated while its state was being captured: ${tab.title ?? top.href}`,
+    });
   }
 });
 
@@ -253,7 +269,9 @@ const mergeOrigins = Effect.fnUntraced(function* (pages: readonly CapturedTab[])
     const existing = origins.get(partition);
     if (existing !== undefined) {
       if (JSON.stringify(existing.localStorage) !== JSON.stringify(page.localStorage)) {
-        return yield* failure(`Local storage changed while ${page.origin} was being captured`);
+        return yield* new CompanionError({
+          message: `Local storage changed while ${page.origin} was being captured`,
+        });
       }
       if (page.profileStorageCaptured) {
         if (page.indexedDB !== undefined) existing.indexedDB = page.indexedDB;
@@ -287,7 +305,9 @@ const mergeSessionStorage = Effect.fnUntraced(function* (frames: readonly Captur
     if (existing === undefined) {
       origins.set(frame.origin, { origin: frame.origin, entries: frame.sessionStorage });
     } else if (JSON.stringify(existing.entries) !== JSON.stringify(frame.sessionStorage)) {
-      return yield* failure(`Session storage changed while ${frame.origin} was being captured`);
+      return yield* new CompanionError({
+        message: `Session storage changed while ${frame.origin} was being captured`,
+      });
     }
   }
   return [...origins.values()];
@@ -322,7 +342,11 @@ function trimOptionalStorage(
   }
   return fits()
     ? Effect.void
-    : Effect.fail(failure("The selected tabs contain more than 48 MiB of essential browser state"));
+    : Effect.fail(
+        new CompanionError({
+          message: "The selected tabs contain more than 48 MiB of essential browser state",
+        }),
+      );
 }
 
 function storagePartitionKey(page: CapturedPageState): string {

@@ -7,8 +7,7 @@ import {
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { GripVerticalIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { connectionLabel, type Connection } from "../connection.ts";
-import type { DropPlacement } from "./use-popup.ts";
+import { connectionLabel, type Connection, type Placement } from "../connection.ts";
 
 const connectionDragKind = "aperture-connection";
 
@@ -26,7 +25,7 @@ interface ConnectionRowProps {
   onRequestRemoval: (id: string) => void;
   onCancelRemoval: () => void;
   onRemove: (id: string) => void;
-  onReorder: (sourceId: string, destinationId: string, placement: DropPlacement) => Promise<void>;
+  onReorder: (sourceId: string, destinationId: string, placement: Placement) => Promise<void>;
 }
 
 /** A connection in the connection menu: select it, drag it to reorder, or remove it. */
@@ -44,7 +43,7 @@ export function ConnectionRow({
   const rowRef = useRef<HTMLDivElement | null>(null);
   const dragHandleRef = useRef<HTMLButtonElement | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [dropPlacement, setDropPlacement] = useState<DropPlacement | null>(null);
+  const [dropPlacement, setDropPlacement] = useState<Placement | null>(null);
   const label = connectionLabel(connection);
 
   useEffect(() => {
@@ -181,7 +180,7 @@ function isConnectionDragData(data: Record<string, unknown>): data is Connection
   return data.kind === connectionDragKind && typeof data.connectionId === "string";
 }
 
-function dropPlacementFromClientY(element: Element, clientY: number): DropPlacement {
+function dropPlacementFromClientY(element: Element, clientY: number): Placement {
   const rect = element.getBoundingClientRect();
   return clientY < rect.top + rect.height / 2 ? "before" : "after";
 }

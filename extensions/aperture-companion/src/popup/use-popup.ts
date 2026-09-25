@@ -1,4 +1,8 @@
-import { entriesToTags, type TagEntry } from "@aperture-browser/ui/components/tag-editor";
+import {
+  entriesToTags,
+  tagsToEntries,
+  type TagEntry,
+} from "@aperture-browser/ui/components/tag-editor";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -30,9 +34,10 @@ import {
   selectConnection,
   type Connection,
   type ConnectionDraft,
+  type Placement,
 } from "../connection.ts";
 import { popupState, type PopupScreen, type PopupState } from "../popup-state.ts";
-import type { TeleportDestination } from "../schema.ts";
+import { defaultTeleportTags, type TeleportDestination } from "../schema.ts";
 import {
   clearCompletedTeleportOperation,
   isTeleportRunning,
@@ -57,13 +62,6 @@ import {
 
 export const blankSnapshot = "__blank__";
 
-const defaultTags: TagEntry[] = [
-  { key: "source", value: "aperture-companion" },
-  { key: "action", value: "teleport" },
-];
-
-export type DropPlacement = "before" | "after";
-
 type PendingAction = "connect" | "connection" | "remove" | "reorder" | "channel" | "teleport";
 
 /** Everything the user has set up for the next teleport; persisted across popup reopenings. */
@@ -81,11 +79,9 @@ function initialDraft(currentTab: chrome.tabs.Tab | null): TeleportDraft {
     advanced: false,
     resourceName: currentTab?.title?.trim() ?? "",
     description: "",
-    tags: defaultTags,
+    tags: tagsToEntries(defaultTeleportTags),
   };
 }
-
-const failure = (message: string) => new CompanionError({ message });
 
 /**
  * Hands a command to the service worker, then asks for the access it waits for. Both calls
@@ -257,7 +253,7 @@ export function usePopup() {
 
   const requireCurrentTabId = Effect.suspend(() =>
     currentTab === null || !isWebURL(currentTab.url)
-      ? Effect.fail(failure("The current page cannot be teleported"))
+      ? Effect.fail(new CompanionError({ message: "The current page cannot be teleported" }))
       : requireTabId(currentTab),
   );
 
@@ -268,7 +264,7 @@ export function usePopup() {
         .flatMap((browserWindow) => browserWindow.tabs)
         .filter((tab) => tab.id !== undefined && selected.has(tab.id));
       return tabs.length === 0
-        ? Effect.fail(failure("Select at least one tab"))
+        ? Effect.fail(new CompanionError({ message: "Select at least one tab" }))
         : Effect.succeed(tabs);
     });
 
@@ -292,7 +288,9 @@ export function usePopup() {
         "connect",
         Effect.gen(function* () {
           yield* normalizeConnectionOrigin(origin);
-          if (token.trim() === "") return yield* failure("API token is required");
+          if (token.trim() === "") {
+            return yield* new CompanionError({ message: "API token is required" });
+          }
           const result = yield* sendCommand(
             { type: "connect", id: crypto.randomUUID(), origin, token },
             ConnectResult,
@@ -301,7 +299,7 @@ export function usePopup() {
           const stored = yield* listConnections;
           const connected = stored.find(({ id }) => id === result.connectionId);
           if (connected === undefined) {
-            return yield* failure("The Aperture connection is unavailable");
+            return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
           }
           setConnections(stored);
           setConnection(connected);
@@ -320,7 +318,7 @@ export function usePopup() {
         Effect.gen(function* () {
           const selected = connections.find((candidate) => candidate.id === id);
           if (selected === undefined) {
-            return yield* failure("The Aperture connection is unavailable");
+            return yield* new CompanionError({ message: "The Aperture connection is unavailable" });
           }
           yield* selectConnection(id);
           setConnection(selected);
@@ -348,11 +346,7 @@ export function usePopup() {
       );
     },
 
-    reorderConnection: async (
-      sourceId: string,
-      destinationId: string,
-      placement: DropPlacement,
-    ) => {
+    reorderConnection: async (sourceId: string, destinationId: string, placement: Placement) => {
       await run(
         "reorder",
         reorderConnection(sourceId, destinationId, placement).pipe(
@@ -420,7 +414,7 @@ export function usePopup() {
           const tabs = yield* requireSelectedTabs(draft.draftTabIds);
           const currentTabId = yield* requireCurrentTabId;
           if (!tabs.some((tab) => tab.id === currentTabId)) {
-            return yield* failure("The current tab must stay selected");
+            return yield* new CompanionError({ message: "The current tab must stay selected" });
           }
         }),
       );
@@ -440,7 +434,9 @@ export function usePopup() {
           const tabs = yield* requireSelectedTabs(selectedTabIds);
           const currentTabId = yield* requireCurrentTabId;
           if (!tabs.some((tab) => tab.id === currentTabId)) {
-            return yield* failure("Select the current tab to teleport its browser state");
+            return yield* new CompanionError({
+              message: "Select the current tab to teleport its browser state",
+            });
           }
           const activeTabId =
             selectedTabIds.find((tabId) => tabs.some((tab) => tab.id === tabId)) ?? currentTabId;
@@ -448,7 +444,7 @@ export function usePopup() {
           const name = draft.resourceName.trim();
           if (destination === "snapshot" && name === "") {
             updateDraft({ advanced: true });
-            return yield* failure("Snapshot name is required");
+            return yield* new CompanionError({ message: "Snapshot name is required" });
           }
           const baseSnapshotName =
             draft.selectedSnapshot === blankSnapshot || snapshots === null

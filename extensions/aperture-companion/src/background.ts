@@ -32,11 +32,10 @@ import {
   type PendingCommand,
 } from "./pending-command.ts";
 import { popupState } from "./popup-state.ts";
-import type { TeleportDestination } from "./schema.ts";
+import { defaultTeleportTags, type TeleportDestination } from "./schema.ts";
 import { teleportOperation, type TeleportStage } from "./teleport-operation.ts";
 
 const menuId = "teleport-page-to-aperture";
-const defaultTags = { source: "aperture-companion", action: "teleport" };
 
 const decodeCommand = Schema.decodeUnknownOption(CompanionCommand);
 
@@ -94,29 +93,16 @@ const runTeleport = Effect.fnUntraced(function* (
     setStage: (stage: TeleportStage) => Effect.Effect<void, unknown>,
   ) => Effect.Effect<string[], unknown>,
 ) {
+  const operation = { id, destination, startedAt };
   const setStage = (stage: TeleportStage) =>
-    teleportOperation.set({ id, destination, startedAt, status: "running", stage });
-  return yield* setStage("capturing").pipe(
+    teleportOperation.set({ ...operation, status: "running", stage });
+
+  const warnings = yield* setStage("capturing").pipe(
     Effect.andThen(teleport(setStage)),
-    Effect.tap((warnings) =>
-      Effect.andThen(
-        Effect.ignore(popupState.remove),
-        teleportOperation.set({
-          id,
-          destination,
-          startedAt,
-          status: "succeeded",
-          completedAt: Date.now(),
-          warnings,
-        }),
-      ),
-    ),
     Effect.tapCause((cause) =>
       Effect.ignore(
         teleportOperation.set({
-          id,
-          destination,
-          startedAt,
+          ...operation,
           status: "failed",
           completedAt: Date.now(),
           error: failureMessage(cause),
@@ -124,6 +110,15 @@ const runTeleport = Effect.fnUntraced(function* (
       ),
     ),
   );
+  // The next popup starts from a fresh draft.
+  yield* Effect.ignore(popupState.remove);
+  yield* teleportOperation.set({
+    ...operation,
+    status: "succeeded",
+    completedAt: Date.now(),
+    warnings,
+  });
+  return warnings;
 });
 
 /** Teleports one page into a new session, from the page's context menu. */
@@ -140,7 +135,7 @@ const teleportPage = (tab: chrome.tabs.Tab) =>
         targets: captured.targets,
         storageState: captured.storageState,
         label: tab.title,
-        tags: defaultTags,
+        tags: defaultTeleportTags,
         waitForReady: false,
       });
       yield* setStage("opening");
