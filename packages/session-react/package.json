@@ -41,8 +41,8 @@
     "typecheck": "tsgo --noEmit && tsgo --noEmit -p scripts"
   },
   "dependencies": {
-    "@aperture-browser/api-client": "workspace:^",
-    "@aperture-browser/live-session": "workspace:^",
+    "@aperture-browser/api-client": "workspace:*",
+    "@aperture-browser/live-session": "workspace:*",
     "@atlaskit/pragmatic-drag-and-drop": "catalog:",
     "@base-ui/react": "catalog:",
     "class-variance-authority": "catalog:",
