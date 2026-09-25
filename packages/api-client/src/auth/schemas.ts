@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 // The browser login flows are not part of api/openapi.yaml.
 

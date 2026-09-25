@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { create } from "zustand";
 import type { SessionDetailSection } from "#/components/sessions/session-detail-modals.tsx";
 import { SessionStatus, type CreateSessionResponse, type Session } from "@aperture/api-client";
@@ -11,7 +11,7 @@ export type SessionConfirmAction =
   | { kind: "suspend"; session: Session }
   | { kind: "rotate"; session: Session };
 
-type SessionListPageState = {
+interface SessionListPageState {
   status: SessionStatus | undefined;
   tags: TagFilterValue | undefined;
   detailSession: Session | null;
@@ -29,7 +29,7 @@ type SessionListPageState = {
   clearSelectedSessions: () => void;
   removeSelectedSession: (sessionId: string) => void;
   setConfirmAction: (action: SessionConfirmAction | null) => void;
-};
+}
 
 const isSessionStatus = Schema.is(SessionStatus);
 

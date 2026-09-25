@@ -1,5 +1,8 @@
-import { Effect, Layer } from "effect";
-import { HttpBody, HttpClient, HttpClientResponse } from "effect/unstable/http";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as HttpBody from "effect/unstable/http/HttpBody";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import * as Api from "@aperture/api-schema";
 import {
@@ -24,7 +27,8 @@ import { AuthApi } from "./service.ts";
 const jsonBody = (body: unknown) => ({ body: HttpBody.jsonUnsafe(body) });
 
 export const makeAuthApi = Effect.gen(function* () {
-  const { httpClient, authorize } = yield* ApiAuthorization;
+  const httpClient = yield* HttpClient.HttpClient;
+  const { authorize } = yield* ApiAuthorization;
   const http = HttpClient.filterStatusOk(httpClient);
   const api = Api.make(httpClient);
   const anonymous = authorize(Authorization.anonymous);

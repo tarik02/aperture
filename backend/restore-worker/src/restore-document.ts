@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import type { Playwright } from "effect-playwright";
 import type { ElementHandle, JSHandle } from "playwright-core";
 import type * as DocumentHelpers from "./browser/document.js";

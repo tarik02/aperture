@@ -1,5 +1,6 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
-import { Effect, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import type { CollaborationControl } from "#/hooks/use-live-session.ts";
 import { collaborationPaintLifetimeMs } from "#/hooks/use-live-session.ts";
 import type {
@@ -9,7 +10,7 @@ import type {
 import { cn } from "@aperture/ui/utils";
 import { useFork } from "#/lib/effect/react.tsx";
 
-type CollaborationPaintOverlayProps = {
+interface CollaborationPaintOverlayProps {
   collaboration: CollaborationControl;
   targetId: string;
   enabled: boolean;
@@ -18,7 +19,7 @@ type CollaborationPaintOverlayProps = {
   top: number;
   width: number;
   height: number;
-};
+}
 
 const paintColors = ["#f43f5e", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#8b5cf6"];
 const paintWidth = 4;
@@ -26,7 +27,7 @@ const paintSendIntervalMs = 24;
 const maximumPaintPoints = 2_048;
 const maximumPaintStrokes = 512;
 
-type PaintStroke = {
+interface PaintStroke {
   clientId: string;
   targetId: string;
   color: string;
@@ -34,7 +35,7 @@ type PaintStroke = {
   points: ReadonlyArray<{ x: number; y: number }>;
   updatedAt: number;
   ended: boolean;
-};
+}
 
 export function CollaborationPaintOverlay({
   collaboration,

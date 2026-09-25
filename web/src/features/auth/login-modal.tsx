@@ -4,10 +4,10 @@ import { LoginForm } from "#/features/auth/login-form.tsx";
 import { AuthApi } from "@aperture/api-client";
 import { useRunApi } from "#/lib/effect/react.tsx";
 
-type WelcomeLoginModalProps = {
+interface WelcomeLoginModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
+}
 
 export function WelcomeLoginModal({ open, onOpenChange }: WelcomeLoginModalProps) {
   const runApi = useRunApi();

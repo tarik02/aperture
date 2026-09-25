@@ -1,4 +1,5 @@
-import { Context, type Effect } from "effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 import type * as Api from "@aperture/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
@@ -16,18 +17,18 @@ import type { BrowserStatus } from "./schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export type SessionsListParams = {
+export interface SessionsListParams {
   limit?: number;
   cursor?: string;
   includeDeleted?: boolean;
   status?: Api.SessionStatus;
   tags?: TagFilterValue;
-};
+}
 
 export type InitialBrowserTarget = Api.InitialBrowserTarget;
 export type InitialBrowserStorageState = Api.InitialBrowserStorageState;
 
-export type CreateSessionInput = {
+export interface CreateSessionInput {
   baseSnapshotName?: string | null;
   label?: string | null;
   browser: {
@@ -37,23 +38,23 @@ export type CreateSessionInput = {
   initialTargets?: readonly InitialBrowserTarget[];
   storageState?: InitialBrowserStorageState;
   tags?: Record<string, string>;
-};
+}
 
 export interface CreateSessionOptions {
   waitForReady?: boolean;
 }
 
-export type PromoteSessionInput = {
+export interface PromoteSessionInput {
   name: string;
   description?: string | null;
   force?: boolean;
   tags?: Record<string, string>;
-};
+}
 
-export type DownloadedFile = {
+export interface DownloadedFile {
   blob: Blob;
   filename: string | null;
-};
+}
 
 /** Browser sessions, their live browser, and their recordings. */
 export class SessionsApi extends Context.Service<

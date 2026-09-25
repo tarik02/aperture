@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as Api from "@aperture/api-schema";
 
 // The live session endpoints are not part of api/openapi.yaml.

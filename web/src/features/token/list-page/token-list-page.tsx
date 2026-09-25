@@ -418,14 +418,14 @@ export function TokenListPage() {
   );
 }
 
-type TokenRowProps = {
+interface TokenRowProps {
   token: ApiToken;
   canRevoke: boolean;
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
   onView: () => void;
   onRevoke: () => void;
-};
+}
 
 function TokenRow({
   token,
@@ -498,14 +498,14 @@ function TokenRow({
   );
 }
 
-type TokenViewModalProps = {
+interface TokenViewModalProps {
   token: ApiToken | null;
   open: boolean;
   canRevoke: boolean;
   revokePending: boolean;
   onOpenChange: (open: boolean) => void;
   onRevoke: (token: ApiToken) => void;
-};
+}
 
 function TokenViewModal({
   token,

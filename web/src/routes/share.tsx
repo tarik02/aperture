@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import * as Effect from "effect/Effect";
 import { useEffect, useMemo, useState } from "react";
 import { Link2Off, Loader2 } from "lucide-react";
 import { SessionWorkbench } from "#/components/workbench/session-workbench.tsx";
@@ -16,6 +17,7 @@ import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 import { SessionsApi } from "@aperture/api-client";
 import { useRunApi } from "#/lib/effect/react.tsx";
+import { ApiCredentialsUnavailableError } from "#/hooks/use-api-credentials.ts";
 
 const capabilityStorageKey = "aperture.share.session-token";
 
@@ -104,15 +106,18 @@ function ShareRoute() {
       capability.kind === "ready" ? capability.sessionId : "none",
       capability.kind === "ready" ? capability.revision : 0,
     ),
-    queryFn: ({ signal }) => {
-      if (capability.kind !== "ready" || !credentials) {
-        throw new Error("Session capability unavailable");
-      }
-      return runApi(
-        SessionsApi.use((sessions) => sessions.getBrowserStatus(credentials, capability.sessionId)),
+    queryFn: ({ signal }) =>
+      runApi(
+        Effect.gen(function* () {
+          if (capability.kind !== "ready" || !credentials) {
+            return yield* new ApiCredentialsUnavailableError();
+          }
+          return yield* SessionsApi.use((sessions) =>
+            sessions.getBrowserStatus(credentials, capability.sessionId),
+          );
+        }),
         { signal },
-      );
-    },
+      ),
     enabled: capability.kind === "ready" && credentials !== null,
     retry: false,
   });

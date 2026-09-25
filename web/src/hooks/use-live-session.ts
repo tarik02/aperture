@@ -1,5 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Effect, Option, PubSub, Schema, Stream, SubscriptionRef } from "effect";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { ApiCredentials, IceServer } from "@aperture/api-client";
 import type { Recording } from "@aperture/api-client";
 import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
@@ -26,25 +31,25 @@ import {
 import { useEffectCallback, useFork, useRuntime } from "#/lib/effect/react.tsx";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 
-type InputDimensions = {
+interface InputDimensions {
   width: number;
   height: number;
-};
+}
 
-export type LiveSessionMediaSize = {
+export interface LiveSessionMediaSize {
   width: number;
   height: number;
   deviceScaleFactor: number;
   canvasWidth: number;
   canvasHeight: number;
-};
+}
 
 export type LiveSessionMediaSelection =
   | { kind: "jpeg" }
   | { kind: "webrtc"; quality: LiveSessionPresentationQuality }
   | { kind: "webrtc-retry" };
 
-export type CollaborationControl = {
+export interface CollaborationControl {
   phase: CollaborationPhase;
   role: CollaborationRole;
   clientId: string;
@@ -65,9 +70,9 @@ export type CollaborationControl = {
   sendPaintPoint: (point: CollaborationPaintPoint) => boolean;
   clearCursor: () => boolean;
   sendInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
-};
+}
 
-type UseLiveSessionOptions = {
+interface UseLiveSessionOptions {
   sessionId: string | null;
   credentials: ApiCredentials | null;
   sessionToken?: string;
@@ -75,9 +80,9 @@ type UseLiveSessionOptions = {
   enabled: boolean;
   webrtcSupported: boolean;
   iceServers: readonly IceServer[];
-};
+}
 
-export type LiveSessionControl = {
+export interface LiveSessionControl {
   phase: "idle" | "connecting" | "connected" | "disconnected" | "error";
   targets: readonly LiveSessionTarget[];
   activeTargetId: string | null;
@@ -101,7 +106,7 @@ export type LiveSessionControl = {
     selection: LiveSessionMediaSelection,
   ) => Effect.Effect<void, LiveSessionConnection.LiveSessionError>;
   reconnect: () => void;
-};
+}
 
 const heartbeatIntervalMs = 2_000;
 

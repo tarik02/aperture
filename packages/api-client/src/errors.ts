@@ -1,5 +1,7 @@
-import { Effect, Schema } from "effect";
-import { HttpClientResponse, type HttpClientError } from "effect/unstable/http";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
+import type * as HttpClientError from "effect/unstable/http/HttpClientError";
 
 export const ApiErrorBody = Schema.Struct({
   error: Schema.Struct({

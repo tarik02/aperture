@@ -18,10 +18,10 @@ import type { LoginMethods } from "@aperture/api-client";
 import { AuthApi } from "@aperture/api-client";
 import { useRunApi } from "#/lib/effect/react.tsx";
 
-type LoginFormProps = {
+interface LoginFormProps {
   loginMethods?: LoginMethods["methods"];
   onDone: () => void;
-};
+}
 
 type LoginFormMethod = "password" | "api_token";
 

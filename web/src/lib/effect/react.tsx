@@ -7,11 +7,18 @@ import {
   type DependencyList,
   type ReactNode,
 } from "react";
-import type { Effect, Fiber } from "effect";
-import type { ApiRequestError, ApiServices } from "@aperture/api-client";
+import * as Data from "effect/Data";
+import type * as Effect from "effect/Effect";
+import type * as Fiber from "effect/Fiber";
+import type { ApiServices } from "@aperture/api-client";
 import type { AppRuntime, AppServices } from "#/lib/effect/runtime.ts";
 
 const RuntimeContext = createContext<AppRuntime | null>(null);
+
+/** A hook below needed the app runtime, but no RuntimeProvider is above the component. */
+export class RuntimeProviderMissingError extends Data.TaggedError("RuntimeProviderMissingError") {
+  override readonly message = "useRuntime must be used inside RuntimeProvider";
+}
 
 /** Makes the app runtime available to the hooks below. */
 export function RuntimeProvider({
@@ -27,7 +34,7 @@ export function RuntimeProvider({
 export function useRuntime(): AppRuntime {
   const runtime = useContext(RuntimeContext);
   if (!runtime) {
-    throw new Error("useRuntime must be used inside RuntimeProvider");
+    throw new RuntimeProviderMissingError();
   }
   return runtime;
 }
@@ -95,8 +102,8 @@ export function useEffectCallback<Args extends ReadonlyArray<unknown>>(
 export function useRunApi() {
   const runtime = useRuntime();
   return useCallback(
-    <A,>(
-      call: Effect.Effect<A, ApiRequestError, ApiServices>,
+    <A, E>(
+      call: Effect.Effect<A, E, ApiServices>,
       options?: { readonly signal?: AbortSignal },
     ): Promise<A> => runtime.runPromise(call, options),
     [runtime],

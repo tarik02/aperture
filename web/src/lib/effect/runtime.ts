@@ -1,5 +1,7 @@
-import { Layer, ManagedRuntime } from "effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+import * as HttpClient from "effect/unstable/http/HttpClient";
 import { apiClientLayer } from "@aperture/api-client";
 
 const AppLayer = Layer.mergeAll(

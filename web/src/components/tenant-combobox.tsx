@@ -9,7 +9,7 @@ import { flattenInfinitePages } from "@aperture/api-client";
 import type { Tenant } from "@aperture/api-client";
 import { cn } from "@aperture/ui/utils";
 
-type TenantComboboxProps = {
+interface TenantComboboxProps {
   value: string | null;
   selectedLabel?: string | null;
   onSelect: (tenant: Tenant) => void;
@@ -18,7 +18,7 @@ type TenantComboboxProps = {
   triggerClassName?: string;
   align?: "start" | "center" | "end";
   options?: readonly Tenant[];
-};
+}
 
 export function TenantCombobox({
   value,

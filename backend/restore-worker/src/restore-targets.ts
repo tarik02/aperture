@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { Playwright } from "effect-playwright";
 import {
   cdpForPage,

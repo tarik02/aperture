@@ -1,4 +1,10 @@
-import { Data, Deferred, Effect, Fiber, FiberSet, Option, Schema } from "effect";
+import * as Data from "effect/Data";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as FiberSet from "effect/FiberSet";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { resolveTenantHeader, type ApiCredentials, type IceServer } from "@aperture/api-client";
 import {
   decodeServerMessage,
@@ -16,28 +22,28 @@ export class LiveSessionError extends Data.TaggedError("LiveSessionError")<{
   readonly message: string;
 }> {}
 
-type SessionIdentity = {
+interface SessionIdentity {
   clientId: string;
   resumeSecret: string;
-};
+}
 
-type SessionHelloIdentity = {
+interface SessionHelloIdentity {
   name: string;
   avatarHash: string;
-};
+}
 
 export type LiveSessionTransportKind = "webrtc" | "websocket";
 
-type LiveSessionConnectionCallbacks = {
+interface LiveSessionConnectionCallbacks {
   onPhase: (phase: "connecting" | "connected" | "disconnected" | "error") => void;
   onMessage: (message: LiveSessionServerMessage) => void;
   onFrame: (frame: LiveSessionRasterFrame | null) => void;
   onStream: (stream: MediaStream | null) => void;
   onTransport: (transport: LiveSessionTransportKind | null) => void;
   onError: (message: string) => void;
-};
+}
 
-type LiveSessionConnectionOptions = {
+interface LiveSessionConnectionOptions {
   sessionId: string;
   credentials: ApiCredentials;
   sessionToken?: string;
@@ -45,7 +51,7 @@ type LiveSessionConnectionOptions = {
   iceServers: readonly IceServer[];
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
-};
+}
 
 export interface LiveSessionConnection {
   /** Replaces the current session transport with a fresh one. */
@@ -63,21 +69,21 @@ export interface LiveSessionConnection {
   ) => Effect.Effect<LiveSessionCommandResult, LiveSessionError>;
 }
 
-type TransportRequest = {
+interface TransportRequest {
   kind: LiveSessionTransportKind;
   deferred: Deferred.Deferred<void, LiveSessionError>;
-};
+}
 
 /** Forks a background effect into the connection's scope. */
 type Fork = (effect: Effect.Effect<void>) => Fiber.Fiber<void>;
 
-type TransportCallbacks = {
+interface TransportCallbacks {
   hello: () => Record<string, unknown>;
   message: (transport: SessionTransport, message: LiveSessionServerMessage) => void;
   ready: (transport: SessionTransport) => void;
   failed: (transport: SessionTransport, error: LiveSessionError) => void;
   frame: (transport: SessionTransport, frame: LiveSessionRasterFrame) => void;
-};
+}
 
 interface SessionTransport {
   readonly kind: LiveSessionTransportKind;
@@ -216,6 +222,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
         sessionToken: options.sessionToken,
         iceServers: options.iceServers,
         callbacks: transportCallbacks,
+        fork,
       });
     } catch (cause) {
       candidateFailed("webrtc", setupError(cause, "WebRTC setup failed"));
@@ -666,6 +673,7 @@ class WebRTCSessionTransport implements SessionTransport {
   private readonly realtime: RTCDataChannel;
   private readonly signal: WebSocket;
   private readonly callbacks: TransportCallbacks;
+  private readonly fork: Fork;
   private readonly pendingCandidates: RTCIceCandidateInit[] = [];
   private reliableOpen = false;
   private realtimeOpen = false;
@@ -681,8 +689,10 @@ class WebRTCSessionTransport implements SessionTransport {
     sessionToken?: string;
     iceServers: readonly IceServer[];
     callbacks: TransportCallbacks;
+    fork: Fork;
   }) {
     this.callbacks = options.callbacks;
+    this.fork = options.fork;
     this.connection = new RTCPeerConnection({
       iceServers: options.iceServers.map((server) => ({ ...server, urls: [...server.urls] })),
     });
@@ -748,19 +758,13 @@ class WebRTCSessionTransport implements SessionTransport {
       }
     });
     this.signal.addEventListener("open", () => {
-      void this.connection
-        .createOffer()
-        .then((offer) => this.connection.setLocalDescription(offer))
-        .then(() => {
-          const description = this.connection.localDescription;
-          if (!description?.sdp) {
-            throw new Error("WebRTC offer is unavailable");
-          }
-          this.signal.send(JSON.stringify({ version: 1, type: "offer", sdp: description.sdp }));
-        })
-        .catch((cause: unknown) => {
-          this.fail(cause instanceof Error ? cause.message : "WebRTC negotiation failed");
-        });
+      this.fork(
+        this.sendOffer().pipe(
+          Effect.catchTag("LiveSessionError", (error) =>
+            Effect.sync(() => this.fail(error.message)),
+          ),
+        ),
+      );
     });
     this.signal.addEventListener("message", (event) => this.handleSignal(event));
     this.signal.addEventListener("close", () => this.fail("WebRTC signaling closed"));
@@ -831,23 +835,53 @@ class WebRTCSessionTransport implements SessionTransport {
       return;
     }
     if (signal.type === "answer") {
-      void this.connection
-        .setRemoteDescription({ type: "answer", sdp: signal.sdp })
-        .then(async () => {
-          for (const candidate of this.pendingCandidates.splice(0)) {
-            await this.connection.addIceCandidate(candidate);
-          }
-        })
-        .catch(() => this.fail("WebRTC answer is invalid"));
+      this.fork(
+        Effect.tryPromise(() =>
+          this.connection.setRemoteDescription({ type: "answer", sdp: signal.sdp }),
+        ).pipe(
+          // Candidates that arrived before the answer apply once it is set.
+          Effect.andThen(
+            Effect.suspend(() =>
+              Effect.forEach(
+                this.pendingCandidates.splice(0),
+                (candidate) => Effect.tryPromise(() => this.connection.addIceCandidate(candidate)),
+                { discard: true },
+              ),
+            ),
+          ),
+          Effect.catch(() => Effect.sync(() => this.fail("WebRTC answer is invalid"))),
+        ),
+      );
       return;
     }
     if (!this.connection.remoteDescription) {
       this.pendingCandidates.push(signal.candidate);
       return;
     }
-    void this.connection
-      .addIceCandidate(signal.candidate)
-      .catch(() => this.fail("WebRTC ICE candidate is invalid"));
+    this.fork(
+      Effect.tryPromise(() => this.connection.addIceCandidate(signal.candidate)).pipe(
+        Effect.catch(() => Effect.sync(() => this.fail("WebRTC ICE candidate is invalid"))),
+      ),
+    );
+  }
+
+  private sendOffer(): Effect.Effect<void, LiveSessionError> {
+    return Effect.gen({ self: this }, function* () {
+      const negotiationFailed = (cause: unknown) => setupError(cause, "WebRTC negotiation failed");
+      const offer = yield* Effect.tryPromise({
+        try: () => this.connection.createOffer(),
+        catch: negotiationFailed,
+      });
+      yield* Effect.tryPromise({
+        try: () => this.connection.setLocalDescription(offer),
+        catch: negotiationFailed,
+      });
+      const sdp = this.connection.localDescription?.sdp;
+      if (!sdp) {
+        return yield* new LiveSessionError({ message: "WebRTC offer is unavailable" });
+      }
+      this.signal.send(JSON.stringify({ version: 1, type: "offer", sdp }));
+    });
   }
 
   private maybeReady() {

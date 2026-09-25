@@ -1,16 +1,14 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import {
-  Cause,
-  Data,
-  Effect,
-  FileSystem,
-  Layer,
-  Result,
-  Runtime,
-  Schema,
-  SchemaIssue,
-} from "effect";
+import * as Cause from "effect/Cause";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
+import * as Runtime from "effect/Runtime";
+import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
 import { Playwright } from "effect-playwright";
 import { makeCdp, restoreError } from "./cdp.js";
 import { PayloadSource } from "./payload-source.js";

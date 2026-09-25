@@ -1,4 +1,5 @@
-import { Data, Effect } from "effect";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
 import { Playwright } from "effect-playwright";
 import { errors, type CDPSession } from "playwright-core";
 

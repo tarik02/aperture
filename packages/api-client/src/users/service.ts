@@ -1,22 +1,23 @@
-import { Context, type Effect } from "effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { TenantMembership, User, UserInvitation, UsersPage } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export type UsersListParams = {
+export interface UsersListParams {
   limit?: number;
   cursor?: string;
   query?: string;
   disabled?: "active" | "disabled" | "all";
-};
+}
 
-export type UserInput = {
+export interface UserInput {
   email: string | null;
   displayName: string;
   isSystemAdmin: boolean;
-};
+}
 
 /** User administration and tenant memberships. */
 export class UsersApi extends Context.Service<

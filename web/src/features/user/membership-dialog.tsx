@@ -25,7 +25,7 @@ import { useUpsertTenantMembershipMutation } from "#/features/user/user.mutation
 import type { TenantMembership } from "@aperture/api-client";
 import { tenantScopeOptions } from "#/lib/scopes.ts";
 
-type MembershipDialogProps = {
+interface MembershipDialogProps {
   open: boolean;
   userId: string;
   membership?: TenantMembership | null;
@@ -33,7 +33,7 @@ type MembershipDialogProps = {
   existingTenantIds: string[];
   onOpenChange: (open: boolean) => void;
   onOpenChangeComplete: (open: boolean) => void;
-};
+}
 
 export function MembershipDialog({
   open,

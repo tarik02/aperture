@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { Effect, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import { ApiAuthorization, AuthApi } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import { useFork } from "#/lib/effect/react.tsx";

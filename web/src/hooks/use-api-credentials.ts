@@ -1,6 +1,14 @@
 import { useMemo } from "react";
+import * as Data from "effect/Data";
 import type { ApiCredentials } from "@aperture/api-client";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
+
+/** A query ran before the credentials it needs were available. */
+export class ApiCredentialsUnavailableError extends Data.TaggedError(
+  "ApiCredentialsUnavailableError",
+) {
+  override readonly message = "API credentials are unavailable";
+}
 
 export function useApiCredentials(): ApiCredentials | null {
   const auth = useAuthSessionStore(selectAuth);

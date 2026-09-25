@@ -1,4 +1,5 @@
-import { Deferred, Effect } from "effect";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
 import { Playwright } from "effect-playwright";
 import type { Frame, Route } from "playwright-core";
 import {

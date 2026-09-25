@@ -1,5 +1,7 @@
-import { Effect, Layer } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import * as Api from "@aperture/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
 import { compactQuery, tagQuery } from "../query.ts";
@@ -17,7 +19,8 @@ const contentDispositionFilename = (header: string | undefined): string | null =
   header?.match(/filename="([^"]+)"/)?.[1] ?? null;
 
 export const makeSessionsApi = Effect.gen(function* () {
-  const { httpClient, authorize } = yield* ApiAuthorization;
+  const httpClient = yield* HttpClient.HttpClient;
+  const { authorize } = yield* ApiAuthorization;
   const http = HttpClient.filterStatusOk(httpClient);
   const api = Api.make(httpClient);
   const tenantScoped = (credentials: ApiCredentials) =>

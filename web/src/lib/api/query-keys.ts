@@ -25,49 +25,49 @@ export const queryKeys = {
     ["events", tenantId, filters] as const,
 };
 
-export type TenantsFilters = {
+export interface TenantsFilters {
   includeDeleted?: boolean;
   deleted?: DeletedFilterValue;
   limit?: number;
-};
+}
 
-export type UsersFilters = {
+export interface UsersFilters {
   query?: string;
   disabled?: UserDisabledFilterValue;
   limit?: number;
-};
+}
 
-export type SessionsFilters = {
+export interface SessionsFilters {
   includeDeleted?: boolean;
   status?: SessionStatus;
   tags?: TagFilterValue;
   limit?: number;
-};
+}
 
-export type SnapshotsFilters = {
+export interface SnapshotsFilters {
   includeDeleted?: boolean;
   deleted?: DeletedFilterValue;
   name?: string;
   tags?: TagFilterValue;
   limit?: number;
-};
+}
 
-export type TokensFilters = {
+export interface TokensFilters {
   tenantId?: string;
   name?: string;
   authorityType?: "system_admin" | "tenant";
   revoked?: TokenRevokedFilterValue;
   scope?: string;
   limit?: number;
-};
+}
 
 export type TokensQueryMode = "admin" | "tenant";
 export type DeletedFilterValue = "active" | "deleted" | "all";
 export type UserDisabledFilterValue = "active" | "disabled" | "all";
 export type TokenRevokedFilterValue = "all" | "active" | "revoked";
 
-export type EventsFilters = {
+export interface EventsFilters {
   resourceType?: string;
   resourceId?: string;
   limit?: number;
-};
+}

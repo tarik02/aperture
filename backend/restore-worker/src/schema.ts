@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 import { CreateSessionInput } from "@aperture/api-schema";
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 // Structure and simple limits come from api/openapi.yaml through @aperture/api-schema.
 // The checks below cover the rules OpenAPI cannot express.

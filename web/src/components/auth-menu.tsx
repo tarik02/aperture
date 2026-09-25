@@ -26,9 +26,9 @@ import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { AuthApi } from "@aperture/api-client";
 import { useRunApi } from "#/lib/effect/react.tsx";
 
-type AuthMenuProps = {
+interface AuthMenuProps {
   className?: string;
-};
+}
 
 export function AuthMenu({ className }: AuthMenuProps) {
   const runApi = useRunApi();

@@ -3,10 +3,12 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as OpenApiGenerator from "@effect/openapi-generator/OpenApiGenerator";
-import { Console, Effect, FileSystem } from "effect";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import type * as JsonSchema from "effect/JsonSchema";
 import * as Yaml from "effect/unstable/encoding/Yaml";
-import type { OpenAPISpec } from "effect/unstable/httpapi/OpenApi";
+import type * as OpenApi from "effect/unstable/httpapi/OpenApi";
 
 const spec = new URL("../../../api/openapi.yaml", import.meta.url);
 const output = new URL("../src/api.gen.ts", import.meta.url);
@@ -35,7 +37,7 @@ const program = Effect.gen(function* () {
   const generator = yield* OpenApiGenerator.OpenApiGenerator;
 
   const warnings: OpenApiGenerator.OpenApiGeneratorWarning[] = [];
-  const document = Yaml.parse(yield* fs.readFileString(spec.pathname)) as OpenAPISpec;
+  const document = Yaml.parse(yield* fs.readFileString(spec.pathname)) as OpenApi.OpenAPISpec;
   const source = yield* generator.generate(document, {
     name: "ApertureApi",
     format: "httpclient",

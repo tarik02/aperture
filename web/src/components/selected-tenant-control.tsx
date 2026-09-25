@@ -6,10 +6,10 @@ import { cn } from "@aperture/ui/utils";
 import { AuthApi } from "@aperture/api-client";
 import { useRunApi } from "#/lib/effect/react.tsx";
 
-type SelectedTenantControlProps = {
+interface SelectedTenantControlProps {
   triggerClassName?: string;
   align?: "start" | "center" | "end";
-};
+}
 
 export function SelectedTenantControl({
   triggerClassName,

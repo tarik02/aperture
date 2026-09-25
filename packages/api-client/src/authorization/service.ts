@@ -1,14 +1,17 @@
-import { Context, type Effect, type Schema, type Stream } from "effect";
-import type { HttpClient, HttpClientError } from "effect/unstable/http";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import type * as Schema from "effect/Schema";
+import type * as Stream from "effect/Stream";
+import type * as HttpClientError from "effect/unstable/http/HttpClientError";
 import type { ApiRequestError } from "../errors.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";
 
-type CredentialContext = {
+interface CredentialContext {
   authorityType: "system_admin" | "tenant" | null;
   tenantId: string | null;
   selectedTenantId: string | null;
-};
+}
 
 export type ApiCredentials =
   | (CredentialContext & {
@@ -57,11 +60,11 @@ export function resolveTenantHeader(
 }
 
 /** How a request authenticates, and which tenant it acts for. */
-export type Authorization = {
+export interface Authorization {
   readonly credentials?: ApiCredentials;
   readonly bearerToken?: string;
   readonly tenantHeader?: TenantHeaderMode;
-};
+}
 
 export const Authorization = {
   anonymous: {} as Authorization,
@@ -74,14 +77,13 @@ export const Authorization = {
 };
 
 /**
- * Authenticates API calls. Every request sent through `httpClient` inside `authorize`
- * carries that call's credentials and tenant, so callers never touch headers.
+ * Authenticates API calls. Inside `authorize`, every request sent through the HttpClient
+ * that `authorizedHttpClientLayer` provides carries that call's credentials and tenant, so
+ * callers never touch headers.
  */
 export class ApiAuthorization extends Context.Service<
   ApiAuthorization,
   {
-    /** The HttpClient API calls send their requests through. */
-    readonly httpClient: HttpClient.HttpClient;
     /** Runs a call with the given authorization and maps its failures to ApiRequestError. */
     readonly authorize: (
       authorization: Authorization,

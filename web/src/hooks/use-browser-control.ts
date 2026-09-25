@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Effect, type Stream } from "effect";
+import * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 import { toast } from "sonner";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import {
@@ -25,7 +26,7 @@ import {
 } from "#/lib/control/viewport.ts";
 import { useEffectCallback, useRuntime } from "#/lib/effect/react.tsx";
 
-type UseBrowserControlOptions = {
+interface UseBrowserControlOptions {
   sessionId: string | null;
   credentials?: ApiCredentials;
   sessionToken?: string;
@@ -33,17 +34,17 @@ type UseBrowserControlOptions = {
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: readonly IceServer[];
-};
+}
 
-type BrowserViewportSize = {
+interface BrowserViewportSize {
   width: number;
   height: number;
-};
+}
 
 export type BrowserMediaPath = "webrtc-live" | "websocket-live";
 export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
-export type UseBrowserControlResult = {
+export interface UseBrowserControlResult {
   phase: LiveSessionControl["phase"];
   targets: readonly LiveSessionTarget[];
   activeTargetId: string | null;
@@ -99,7 +100,7 @@ export type UseBrowserControlResult = {
   cancelRecording: (recordingId: string) => void;
   setRemoteCursorEnabled: (enabled: boolean) => void;
   reconnect: () => void;
-};
+}
 
 const emptyIceServers: readonly IceServer[] = [];
 

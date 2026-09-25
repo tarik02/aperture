@@ -1,4 +1,8 @@
-import { Cause, Effect, ManagedRuntime, Queue, Stream } from "effect";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
 import { NativeHost } from "./native-host.ts";
 import { forgetManagedWindow, reconcile } from "./reconcile.ts";
 

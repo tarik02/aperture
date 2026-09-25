@@ -1,11 +1,12 @@
-import { Context, type Effect } from "effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { CreateTokenResponse, ResourceGrant, ResourceMode, TokensPage } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export type TokensListParams = {
+export interface TokensListParams {
   limit?: number;
   cursor?: string;
   tenantId?: string;
@@ -13,9 +14,9 @@ export type TokensListParams = {
   authorityType?: "system_admin" | "tenant";
   revoked?: "all" | "active" | "revoked";
   scope?: string;
-};
+}
 
-export type CreateAdminTokenInput = {
+export interface CreateAdminTokenInput {
   name: string;
   authorityType: "system_admin" | "tenant";
   tenantId?: string | null;
@@ -23,15 +24,15 @@ export type CreateAdminTokenInput = {
   resourceMode: ResourceMode;
   resourceGrants: ResourceGrant[];
   expiresAt?: string | null;
-};
+}
 
-export type CreateTenantTokenInput = {
+export interface CreateTenantTokenInput {
   name: string;
   scopes: string[];
   resourceMode: ResourceMode;
   resourceGrants: ResourceGrant[];
   expiresAt?: string | null;
-};
+}
 
 /** API tokens, issued either deployment-wide or within the current tenant. */
 export class TokensApi extends Context.Service<

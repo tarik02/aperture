@@ -22,10 +22,10 @@ type PendingAction =
   | { kind: "delete"; passkeyId: string }
   | null;
 
-type PasskeyModalProps = {
+interface PasskeyModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
+}
 
 export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
   const runApi = useRunApi();

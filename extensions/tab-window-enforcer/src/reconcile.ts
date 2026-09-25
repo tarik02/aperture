@@ -1,5 +1,12 @@
-import { Effect } from "effect";
-import { chromeCall, isMarkerTab, isUserTab, markerURL, type IdentifiedTab } from "./chrome.ts";
+import * as Effect from "effect/Effect";
+import {
+  chromeCall,
+  isMarkerTab,
+  isUserTab,
+  MarkerWindowError,
+  markerURL,
+  type IdentifiedTab,
+} from "./chrome.ts";
 import { loadManagedWindows, saveManagedWindows, type ManagedWindows } from "./managed-windows.ts";
 import { NativeHost } from "./native-host.ts";
 
@@ -102,7 +109,7 @@ const createMarkerWindow = Effect.gen(function* () {
   );
   const markerTabId = window?.tabs?.[0]?.id;
   if (window?.id === undefined || markerTabId === undefined) {
-    return yield* Effect.die(new Error("Chromium did not create the Aperture marker window"));
+    return yield* new MarkerWindowError();
   }
   return { windowId: window.id, markerTabId };
 });

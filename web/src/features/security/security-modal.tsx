@@ -29,10 +29,10 @@ type PendingAction =
   | "disable-totp"
   | null;
 
-type SecurityModalProps = {
+interface SecurityModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
+}
 
 export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
   const runApi = useRunApi();

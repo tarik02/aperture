@@ -12,7 +12,8 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
-import { Effect, Schedule } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schedule from "effect/Schedule";
 import { Button } from "@aperture/ui/components/button";
 import {
   ContextMenu,
@@ -33,7 +34,7 @@ import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 import { CollaborationPresence } from "#/components/workbench/collaboration-presence.tsx";
 
-type BrowserToolbarProps = {
+interface BrowserToolbarProps {
   control: UseBrowserControlResult;
   guestMode: boolean;
   collaborationRole: CollaborationRole;
@@ -49,7 +50,7 @@ type BrowserToolbarProps = {
   onDevToolsOpenChange: (open: boolean) => void;
   onDevToolsDockChange: (dock: DevToolsDock) => void;
   onSessionDetails?: () => void;
-};
+}
 
 export function BrowserToolbar({
   control,

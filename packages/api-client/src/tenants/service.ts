@@ -1,4 +1,5 @@
-import { Context, type Effect } from "effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 import type * as Api from "@aperture/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
@@ -6,12 +7,12 @@ import type { Tenant, TenantsPage } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export type TenantsListParams = {
+export interface TenantsListParams {
   limit?: number;
   cursor?: string;
   includeDeleted?: boolean;
   deleted?: "active" | "deleted" | "all";
-};
+}
 
 /** Tenant administration. */
 export class TenantsApi extends Context.Service<

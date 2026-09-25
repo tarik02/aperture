@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Effect, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import { Loader2, MousePointer2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@aperture/ui/components/badge";
@@ -16,26 +17,29 @@ import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
 import { useFork } from "#/lib/effect/react.tsx";
 
-type BrowserViewportProps = {
+interface BrowserViewportProps {
   control: UseBrowserControlResult;
   viewport: ViewportPreset;
   localCursorEnabled: boolean;
   paintingEnabled: boolean;
   onPaintingEnabledChange: (enabled: boolean) => void;
-};
+}
 
 type MouseButton = "left" | "middle" | "right" | "none";
-type ViewportPoint = { x: number; y: number };
+interface ViewportPoint {
+  x: number;
+  y: number;
+}
 type FrameMetadata = Pick<LiveSessionRasterFrame, "width" | "height">;
-type RasterFrameDecoder = {
+interface RasterFrameDecoder {
   decodingFrame: LiveSessionRasterFrame | null;
   generation: number;
   pending: LiveSessionRasterFrame | null;
-};
-type PressedKey = {
+}
+interface PressedKey {
   targetId: string;
   input: ReturnType<typeof keyboardInputMessage>;
-};
+}
 
 const MULTI_CLICK_MS = 500;
 const MULTI_CLICK_DISTANCE = 5;

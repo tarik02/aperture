@@ -1,6 +1,11 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture/api-client";
-import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
+import * as Effect from "effect/Effect";
+import {
+  ApiCredentialsUnavailableError,
+  isTenantScopedQueryReady,
+  useApiCredentials,
+} from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type SessionsFilters } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
 import { SessionsApi } from "@aperture/api-client";
@@ -72,15 +77,16 @@ export function useSessionQuery(sessionId: string | undefined) {
 
   return useQuery({
     queryKey: queryKeys.session(tenantKey, sessionId ?? "none"),
-    queryFn: ({ signal }) => {
-      if (!credentials || !sessionId) {
-        throw new Error("Session credentials unavailable");
-      }
-      return runApi(
-        SessionsApi.use((sessions) => sessions.getSession(credentials, sessionId)),
+    queryFn: ({ signal }) =>
+      runApi(
+        Effect.gen(function* () {
+          if (!credentials || !sessionId) {
+            return yield* new ApiCredentialsUnavailableError();
+          }
+          return yield* SessionsApi.use((sessions) => sessions.getSession(credentials, sessionId));
+        }),
         { signal },
-      );
-    },
+      ),
     enabled: Boolean(sessionId && isTenantScopedQueryReady(credentials)),
     refetchInterval: (query) => (query.state.data?.status === "creating" ? 500 : false),
   });

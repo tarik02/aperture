@@ -26,14 +26,14 @@ import type { ApiCredentials, IceServer } from "@aperture/api-client";
 import type { Session } from "@aperture/api-client";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 
-type SessionWorkbenchProps = {
+interface SessionWorkbenchProps {
   sessionId: string;
   capability?: {
     credentials: ApiCredentials;
     role: Exclude<CollaborationRole, "owner">;
     session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "sessionToken">;
   };
-};
+}
 
 const emptyIceServers: readonly IceServer[] = [];
 

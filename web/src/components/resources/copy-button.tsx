@@ -1,19 +1,20 @@
 import { Check, Copy } from "lucide-react";
 import type { ReactElement } from "react";
 import { useState } from "react";
-import { Effect } from "effect";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
 import { toast } from "sonner";
 import { Button } from "@aperture/ui/components/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
-import { useFork } from "#/lib/effect/react.tsx";
+import { useEffectCallback, useFork } from "#/lib/effect/react.tsx";
 
-type CopyButtonProps = {
+interface CopyButtonProps {
   value: string;
   label?: string;
   className?: string;
   disabled?: boolean;
   render?: ReactElement;
-};
+}
 
 const COPY_RESET_MS = 2400;
 
@@ -34,15 +35,10 @@ export function CopyButton({
     [copied],
   );
 
-  async function handleCopy() {
-    try {
-      await copyText(value);
-      setCopied(true);
-    } catch (error) {
-      console.warn("Copy failed", error);
-      toast.error("Copy failed");
-    }
-  }
+  const handleCopy = useEffectCallback(
+    () => copyTextWithToast(value, () => setCopied(true)),
+    [value],
+  );
 
   return (
     <Tooltip>
@@ -52,7 +48,7 @@ export function CopyButton({
         className={className}
         aria-label={copied ? "Copied" : label}
         disabled={disabled}
-        onClick={() => void handleCopy()}
+        onClick={() => handleCopy()}
       >
         {copied ? <Check /> : <Copy />}
       </TooltipTrigger>
@@ -61,26 +57,46 @@ export function CopyButton({
   );
 }
 
-export async function copyText(value: string) {
-  const clipboard = navigator.clipboard;
-  if (clipboard?.writeText) {
-    await clipboard.writeText(value);
-    return;
-  }
-
-  const textArea = document.createElement("textarea");
-  textArea.value = value;
-  textArea.readOnly = true;
-  textArea.style.position = "fixed";
-  textArea.style.top = "0";
-  textArea.style.left = "-9999px";
-
-  document.body.append(textArea);
-  textArea.select();
-  const copied = document.execCommand("copy");
-  textArea.remove();
-
-  if (!copied) {
-    throw new Error("clipboard write is unavailable");
-  }
+/** The browser refused to write to the clipboard. */
+export class ClipboardError extends Data.TaggedError("ClipboardError")<{
+  readonly cause?: unknown;
+}> {
+  override readonly message = "Clipboard write is unavailable";
 }
+
+export const copyText = (value: string): Effect.Effect<void, ClipboardError> =>
+  Effect.suspend(() => {
+    const clipboard = navigator.clipboard;
+    if (clipboard?.writeText) {
+      return Effect.tryPromise({
+        try: () => clipboard.writeText(value),
+        catch: (cause) => new ClipboardError({ cause }),
+      });
+    }
+
+    const textArea = document.createElement("textarea");
+    textArea.value = value;
+    textArea.readOnly = true;
+    textArea.style.position = "fixed";
+    textArea.style.top = "0";
+    textArea.style.left = "-9999px";
+
+    document.body.append(textArea);
+    textArea.select();
+    const copied = document.execCommand("copy");
+    textArea.remove();
+
+    return copied ? Effect.void : Effect.fail(new ClipboardError({}));
+  });
+
+/** Copies `value`, then runs `onCopied`, or shows an error toast if the copy fails. */
+export const copyTextWithToast = (value: string, onCopied: () => void = () => {}) =>
+  copyText(value).pipe(
+    Effect.andThen(Effect.sync(onCopied)),
+    Effect.catchTag("ClipboardError", (error) =>
+      Effect.sync(() => {
+        console.warn("Copy failed", error);
+        toast.error("Copy failed");
+      }),
+    ),
+  );

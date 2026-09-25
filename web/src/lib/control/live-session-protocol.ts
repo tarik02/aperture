@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { Recording } from "@aperture/api-client";
 
 export const LIVE_SESSION_PROTOCOL = "aperture-session.v1";
@@ -7,16 +8,16 @@ export type CollaborationRole = "owner" | "editor" | "viewer";
 export type CollaborationLeaseMode = "implicit" | "explicit";
 export type CollaborationPhase = "idle" | "connecting" | "connected" | "disconnected";
 
-export type CollaborationCursor = {
+export interface CollaborationCursor {
   clientId: string;
   targetId: string;
   x: number;
   y: number;
-};
+}
 
 export type CollaborationPaintPhase = "start" | "move" | "end";
 
-export type CollaborationPaintPoint = {
+export interface CollaborationPaintPoint {
   targetId: string;
   strokeId: string;
   color: string;
@@ -24,16 +25,16 @@ export type CollaborationPaintPoint = {
   phase: CollaborationPaintPhase;
   x: number;
   y: number;
-};
+}
 
 export type CollaborationPaintEvent =
   | { type: "point"; message: CollaborationPaintPoint & { clientId: string } }
   | { type: "clear" };
 
-export type CollaborationError = {
+export interface CollaborationError {
   code: string;
   message: string;
-};
+}
 
 /**
  * Server messages are decoded strictly: an unknown property means the server speaks a

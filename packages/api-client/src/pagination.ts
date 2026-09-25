@@ -1,14 +1,14 @@
 import type { PageMeta } from "./schemas.ts";
 
-export type PaginatedResponse<T> = {
+export interface PaginatedResponse<T> {
   readonly data: ReadonlyArray<T>;
   readonly meta: PageMeta;
-};
+}
 
-export type ListQueryParams = {
+export interface ListQueryParams {
   limit?: number;
   cursor?: string;
-};
+}
 
 export function getNextPageParam<T>(page: PaginatedResponse<T>): string | undefined {
   return page.meta.hasMore ? page.meta.nextCursor : undefined;

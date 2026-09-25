@@ -1,11 +1,14 @@
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
 import { compactQuery } from "../query.ts";
 import { EventsApi, type EventsListParams } from "./service.ts";
 
 export const makeEventsApi = Effect.gen(function* () {
-  const { httpClient, authorize } = yield* ApiAuthorization;
+  const httpClient = yield* HttpClient.HttpClient;
+  const { authorize } = yield* ApiAuthorization;
   const api = Api.make(httpClient);
 
   const listEvents = Effect.fn("EventsApi.listEvents")(function* (
