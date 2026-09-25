@@ -3,6 +3,7 @@ export * from "./auth/schemas.ts";
 export * from "./auth/service.ts";
 export * from "./authorization/layer.ts";
 export * from "./authorization/service.ts";
+export * from "./client.ts";
 export * from "./errors.ts";
 export * from "./events/layer.ts";
 export * from "./events/service.ts";

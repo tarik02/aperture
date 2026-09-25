@@ -1,10 +1,12 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
+import { paginate } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
-import { UsersApi, type UserInput, type UsersListParams } from "./service.ts";
+import { UsersApi, type UserInput, type UsersFilter, type UsersListParams } from "./service.ts";
 
 export const makeUsersApi = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -25,6 +27,16 @@ export const makeUsersApi = Effect.gen(function* () {
         }),
       })
       .pipe(authorize(Authorization.of(credentials)));
+  });
+
+  const streamUsers = (credentials: ApiCredentials, filter: UsersFilter = {}) =>
+    paginate(filter, (params) => listUsers(credentials, params));
+
+  const listAllUsers = Effect.fn("UsersApi.listAllUsers")(function* (
+    credentials: ApiCredentials,
+    filter: UsersFilter = {},
+  ) {
+    return yield* Stream.runCollect(streamUsers(credentials, filter));
   });
 
   const createUser = Effect.fn("UsersApi.createUser")(function* (
@@ -108,6 +120,8 @@ export const makeUsersApi = Effect.gen(function* () {
 
   return UsersApi.of({
     listUsers,
+    streamUsers,
+    listAllUsers,
     createUser,
     getUser,
     updateUser,

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { startRegistration } from "@simplewebauthn/browser";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Fingerprint, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +18,7 @@ import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { Passkey } from "@aperture-browser/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
 import { AuthApi } from "@aperture-browser/api-client";
+import { registerPasskey } from "@aperture-browser/api-client/passkeys";
 import { useRunApi } from "@aperture-browser/session-react";
 
 type PendingAction =
@@ -61,11 +61,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
 
     setPendingAction({ kind: "register" });
     try {
-      const options = await runApi(
-        AuthApi.use((auth) => auth.beginPasskeyRegistration(passkeyName)),
-      );
-      const credential = await startRegistration({ optionsJSON: options.publicKey });
-      await runApi(AuthApi.use((auth) => auth.finishPasskeyRegistration(credential)));
+      await runApi(registerPasskey(passkeyName));
       await queryClient.invalidateQueries({ queryKey: passkeysQueryKey });
       setName("");
       toast.success("Passkey added");

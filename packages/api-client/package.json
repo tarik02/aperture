@@ -16,13 +16,18 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./passkeys": "./src/passkeys.ts"
   },
   "publishConfig": {
     "exports": {
       ".": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      },
+      "./passkeys": {
+        "types": "./dist/passkeys.d.ts",
+        "default": "./dist/passkeys.js"
       }
     },
     "access": "public"
@@ -32,14 +37,20 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@aperture-browser/api-schema": "workspace:*",
-    "@simplewebauthn/browser": "catalog:"
+    "@aperture-browser/api-schema": "workspace:*"
   },
   "devDependencies": {
+    "@simplewebauthn/browser": "catalog:",
     "effect": "catalog:",
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@simplewebauthn/browser": "catalog:peers",
     "effect": "catalog:peers"
+  },
+  "peerDependenciesMeta": {
+    "@simplewebauthn/browser": {
+      "optional": true
+    }
   }
 }

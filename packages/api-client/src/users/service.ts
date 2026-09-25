@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { TenantMembership, User, UserInvitation, UsersPage } from "../schemas.ts";
@@ -13,6 +14,8 @@ export interface UsersListParams {
   disabled?: "active" | "disabled" | "all";
 }
 
+export type UsersFilter = Omit<UsersListParams, "cursor">;
+
 export interface UserInput {
   email: string | null;
   displayName: string;
@@ -24,6 +27,15 @@ export class UsersApi extends Context.Service<
   UsersApi,
   {
     readonly listUsers: (credentials: ApiCredentials, params?: UsersListParams) => Call<UsersPage>;
+    /** Every matching user, fetching pages as the stream is pulled. */
+    readonly streamUsers: (
+      credentials: ApiCredentials,
+      filter?: UsersFilter,
+    ) => Stream.Stream<User, ApiRequestError>;
+    readonly listAllUsers: (
+      credentials: ApiCredentials,
+      filter?: UsersFilter,
+    ) => Call<ReadonlyArray<User>>;
     readonly createUser: (credentials: ApiCredentials, input: UserInput) => Call<User>;
     readonly getUser: (credentials: ApiCredentials, userId: string) => Call<User>;
     readonly updateUser: (

@@ -1,13 +1,16 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
+import { paginate } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
 import {
   TokensApi,
   type CreateAdminTokenInput,
   type CreateTenantTokenInput,
+  type TokensFilter,
   type TokensListParams,
 } from "./service.ts";
 
@@ -36,6 +39,16 @@ export const makeTokensApi = Effect.gen(function* () {
         }) as typeof Api.ListAdminTokensParams.Encoded,
       })
       .pipe(authorize(Authorization.of(credentials)));
+  });
+
+  const streamAdminTokens = (credentials: ApiCredentials, filter: TokensFilter = {}) =>
+    paginate(filter, (params) => listAdminTokens(credentials, params));
+
+  const listAllAdminTokens = Effect.fn("TokensApi.listAllAdminTokens")(function* (
+    credentials: ApiCredentials,
+    filter: TokensFilter = {},
+  ) {
+    return yield* Stream.runCollect(streamAdminTokens(credentials, filter));
   });
 
   const createAdminToken = Effect.fn("TokensApi.createAdminToken")(function* (
@@ -82,6 +95,16 @@ export const makeTokensApi = Effect.gen(function* () {
       .pipe(authorize(Authorization.of(credentials)));
   });
 
+  const streamTenantTokens = (credentials: ApiCredentials, filter: TokensFilter = {}) =>
+    paginate(filter, (params) => listTenantTokens(credentials, params));
+
+  const listAllTenantTokens = Effect.fn("TokensApi.listAllTenantTokens")(function* (
+    credentials: ApiCredentials,
+    filter: TokensFilter = {},
+  ) {
+    return yield* Stream.runCollect(streamTenantTokens(credentials, filter));
+  });
+
   const createTenantToken = Effect.fn("TokensApi.createTenantToken")(function* (
     credentials: ApiCredentials,
     input: CreateTenantTokenInput,
@@ -108,9 +131,13 @@ export const makeTokensApi = Effect.gen(function* () {
 
   return TokensApi.of({
     listAdminTokens,
+    streamAdminTokens,
+    listAllAdminTokens,
     createAdminToken,
     revokeAdminToken,
     listTenantTokens,
+    streamTenantTokens,
+    listAllTenantTokens,
     createTenantToken,
     revokeTenantToken,
   });

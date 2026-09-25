@@ -1,10 +1,12 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
+import { paginate } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
-import { TenantsApi, type TenantsListParams } from "./service.ts";
+import { TenantsApi, type TenantsFilter, type TenantsListParams } from "./service.ts";
 
 export const makeTenantsApi = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -25,6 +27,16 @@ export const makeTenantsApi = Effect.gen(function* () {
         }),
       })
       .pipe(authorize(Authorization.of(credentials)));
+  });
+
+  const streamTenants = (credentials: ApiCredentials, filter: TenantsFilter = {}) =>
+    paginate(filter, (params) => listTenants(credentials, params));
+
+  const listAllTenants = Effect.fn("TenantsApi.listAllTenants")(function* (
+    credentials: ApiCredentials,
+    filter: TenantsFilter = {},
+  ) {
+    return yield* Stream.runCollect(streamTenants(credentials, filter));
   });
 
   const createTenant = Effect.fn("TenantsApi.createTenant")(function* (
@@ -64,7 +76,15 @@ export const makeTenantsApi = Effect.gen(function* () {
       .pipe(authorize(Authorization.of(credentials)));
   });
 
-  return TenantsApi.of({ listTenants, createTenant, updateTenant, deleteTenant, restoreTenant });
+  return TenantsApi.of({
+    listTenants,
+    streamTenants,
+    listAllTenants,
+    createTenant,
+    updateTenant,
+    deleteTenant,
+    restoreTenant,
+  });
 });
 
 export const tenantsApiLayer = Layer.effect(TenantsApi, makeTenantsApi);

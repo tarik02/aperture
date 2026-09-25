@@ -33,6 +33,41 @@ const layer = apiClientLayer.pipe(
 const page = await Effect.runPromise(program.pipe(Effect.provide(layer)));
 ```
 
+### Fixed credentials
+
+A caller that always acts with the same credentials, such as a server holding one API token, can bind them once. `apertureClientLayer(credentials)` provides `ApertureClient`, which groups `sessions`, `snapshots`, `tenants`, `users`, `tokens` and `events` with the same methods minus the credentials argument. `withCredentials(service, credentials)` binds a single service the same way.
+
+```ts
+import { ApertureClient, apertureClientLayer } from "@aperture-browser/api-client";
+
+const layer = apertureClientLayer(credentials).pipe(
+  Layer.provide(baseUrlLayer("https://aperture.example.com")),
+  Layer.provide(FetchHttpClient.layer),
+);
+
+const program = Effect.gen(function* () {
+  const client = yield* ApertureClient;
+  const base = yield* client.snapshots.getSnapshotByName("signed-in-base");
+  const { session } = yield* client.sessions.createSession({
+    baseSnapshotName: base.name,
+    browser: { channel: "chromium" },
+    proxy: {
+      upstreams: { office: { url: "socks5://proxy.example.com" } },
+      rules: [{ match: "*", via: "office" }],
+    },
+  });
+  yield* client.sessions.updateSessionProxy(session.id, { rules: [] });
+});
+```
+
+### Pagination
+
+Every paginated list has a `stream…` method (`streamSessions`, `streamSnapshots`, `streamEvents`, …), a `Stream` that fetches the next page only when it is pulled, and a `listAll…` method that collects every page into an array.
+
+### Passkeys
+
+Browser passkey sign-in and registration live in `@aperture-browser/api-client/passkeys`, so the main entry does not pull in `@simplewebauthn/browser`. It is an optional peer dependency; install it alongside when you use that entry. `loginWithPasskey()` and `registerPasskey(name)` run the whole WebAuthn ceremony and fail with `PasskeyCeremonyError` when the browser does not complete it.
+
 The endpoints, their parameters and error codes are in the [REST API reference](/api-reference).
 
 ## api-schema

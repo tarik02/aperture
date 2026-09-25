@@ -607,10 +607,10 @@ importers:
       '@aperture-browser/api-schema':
         specifier: workspace:*
         version: link:../api-schema
+    devDependencies:
       '@simplewebauthn/browser':
         specifier: 'catalog:'
         version: 13.3.0
-    devDependencies:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117

@@ -1,8 +1,15 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
-import type { CreateTokenResponse, ResourceGrant, ResourceMode, TokensPage } from "../schemas.ts";
+import type {
+  ApiToken,
+  CreateTokenResponse,
+  ResourceGrant,
+  ResourceMode,
+  TokensPage,
+} from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
@@ -15,6 +22,8 @@ export interface TokensListParams {
   revoked?: "all" | "active" | "revoked";
   scope?: string;
 }
+
+export type TokensFilter = Omit<TokensListParams, "cursor">;
 
 export interface CreateAdminTokenInput {
   name: string;
@@ -42,6 +51,15 @@ export class TokensApi extends Context.Service<
       credentials: ApiCredentials,
       params?: TokensListParams,
     ) => Call<TokensPage>;
+    /** Every matching deployment-wide token, fetching pages as the stream is pulled. */
+    readonly streamAdminTokens: (
+      credentials: ApiCredentials,
+      filter?: TokensFilter,
+    ) => Stream.Stream<ApiToken, ApiRequestError>;
+    readonly listAllAdminTokens: (
+      credentials: ApiCredentials,
+      filter?: TokensFilter,
+    ) => Call<ReadonlyArray<ApiToken>>;
     readonly createAdminToken: (
       credentials: ApiCredentials,
       input: CreateAdminTokenInput,
@@ -51,6 +69,15 @@ export class TokensApi extends Context.Service<
       credentials: ApiCredentials,
       params?: TokensListParams,
     ) => Call<TokensPage>;
+    /** Every matching token of the current tenant, fetching pages as the stream is pulled. */
+    readonly streamTenantTokens: (
+      credentials: ApiCredentials,
+      filter?: TokensFilter,
+    ) => Stream.Stream<ApiToken, ApiRequestError>;
+    readonly listAllTenantTokens: (
+      credentials: ApiCredentials,
+      filter?: TokensFilter,
+    ) => Call<ReadonlyArray<ApiToken>>;
     readonly createTenantToken: (
       credentials: ApiCredentials,
       input: CreateTenantTokenInput,

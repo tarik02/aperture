@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 import type * as Api from "@aperture-browser/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
@@ -8,10 +9,12 @@ import type {
   BrowserChannelsResponse,
   CreateSessionResponse,
   PromoteSessionResponse,
+  ProxyConfig,
   Session,
   SessionMutationResponse,
   SessionsBulkResponse,
   SessionsPage,
+  UpdateProxyConfig,
 } from "../schemas.ts";
 import type { BrowserStatus } from "./schemas.ts";
 
@@ -24,6 +27,8 @@ export interface SessionsListParams {
   status?: Api.SessionStatus;
   tags?: TagFilterValue;
 }
+
+export type SessionsFilter = Omit<SessionsListParams, "cursor">;
 
 export type InitialBrowserTarget = Api.InitialBrowserTarget;
 export type InitialBrowserStorageState = Api.InitialBrowserStorageState;
@@ -38,6 +43,7 @@ export interface CreateSessionInput {
   initialTargets?: readonly InitialBrowserTarget[];
   storageState?: InitialBrowserStorageState;
   tags?: Record<string, string>;
+  proxy?: ProxyConfig;
 }
 
 export interface CreateSessionOptions {
@@ -64,6 +70,15 @@ export class SessionsApi extends Context.Service<
       credentials: ApiCredentials,
       params?: SessionsListParams,
     ) => Call<SessionsPage>;
+    /** Every matching session, fetching pages as the stream is pulled. */
+    readonly streamSessions: (
+      credentials: ApiCredentials,
+      filter?: SessionsFilter,
+    ) => Stream.Stream<Session, ApiRequestError>;
+    readonly listAllSessions: (
+      credentials: ApiCredentials,
+      filter?: SessionsFilter,
+    ) => Call<ReadonlyArray<Session>>;
     readonly getSession: (credentials: ApiCredentials, sessionId: string) => Call<Session>;
     readonly getSessionsBulk: (
       credentials: ApiCredentials,
@@ -99,6 +114,12 @@ export class SessionsApi extends Context.Service<
       credentials: ApiCredentials,
       sessionId: string,
       tags: Record<string, string>,
+    ) => Call<SessionMutationResponse>;
+    /** Replaces the session's egress proxy; new connections use it immediately. */
+    readonly updateSessionProxy: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      proxy: UpdateProxyConfig,
     ) => Call<SessionMutationResponse>;
     readonly promoteSession: (
       credentials: ApiCredentials,

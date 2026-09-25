@@ -1,12 +1,23 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { AuthMeResponse } from "../schemas.ts";
 import type * as S from "./schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
+
+/**
+ * A WebAuthn credential serialized to JSON by the browser ceremony, as
+ * `@aperture-browser/api-client/passkeys` produces it. The server verifies its contents.
+ */
+export interface PasskeyCredentialJSON {
+  readonly id: string;
+  readonly rawId: string;
+  readonly type: "public-key";
+  readonly response: object;
+  readonly clientExtensionResults: object;
+}
 
 /** Browser login, account security, and the current principal. */
 export class AuthApi extends Context.Service<
@@ -17,7 +28,7 @@ export class AuthApi extends Context.Service<
     readonly completePasswordMFA: (code: string) => Call<void>;
     readonly loginWithAPIToken: (token: string) => Call<void>;
     readonly beginPasskeyLogin: () => Call<S.PasskeyLoginOptions>;
-    readonly finishPasskeyLogin: (credential: AuthenticationResponseJSON) => Call<void>;
+    readonly finishPasskeyLogin: (credential: PasskeyCredentialJSON) => Call<void>;
     readonly acceptUserInvitation: (token: string, password: string) => Call<void>;
     readonly logoutWebSession: () => Call<void>;
 
@@ -31,7 +42,7 @@ export class AuthApi extends Context.Service<
     readonly listPasskeys: () => Call<S.Passkeys>;
     readonly beginPasskeyRegistration: (name: string) => Call<S.PasskeyRegistrationOptions>;
     readonly finishPasskeyRegistration: (
-      credential: RegistrationResponseJSON,
+      credential: PasskeyCredentialJSON,
     ) => Call<S.PasskeyMutation>;
     readonly renamePasskey: (passkeyId: string, name: string) => Call<S.PasskeyMutation>;
     readonly deletePasskey: (passkeyId: string) => Call<void>;
