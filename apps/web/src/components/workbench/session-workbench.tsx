@@ -15,6 +15,7 @@ import { Spinner } from "@aperture-browser/ui/components/spinner";
 import {
   BrowserControlPane,
   devToolsUrl,
+  showNotice,
   useBrowserControl,
 } from "@aperture-browser/session-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
@@ -78,6 +79,7 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
     webrtcProducerSupported:
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
     webrtcIceServers: selectedSession?.media.iceServers ?? emptyIceServers,
+    onNotice: showNotice,
   });
 
   useEffect(() => {

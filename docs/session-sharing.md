@@ -25,7 +25,7 @@ Other web apps can show a shared session with the npm packages built from this r
 - `@aperture-browser/session-react` exports `ApertureSession` for React apps, styled by `@aperture-browser/session-react/styles.css`.
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element/dist/aperture-session.js"></script>
 <aperture-session
   base-url="https://aperture.example"
   token="apv_<session-id>_<secret>"
@@ -33,7 +33,7 @@ Other web apps can show a shared session with the npm packages built from this r
 ></aperture-session>
 ```
 
-Both take an editor or viewer token and grant exactly what the share link grants. `hide-tabs` (or `tabs={false}`) shows the active tab without the tab strip.
+Both take an editor or viewer token and grant exactly what the share link grants. Parts of the UI can be turned off (`hide="tabs menus"`, or `features={{ tabs: false, menus: false }}`). For your own controls, the headless `<aperture-session-view>` and `@aperture-browser/session-react/headless` render only the browser and expose its tabs and navigation through an API.
 
 A page on another origin can only reach the session routes if its origin is listed in `embed_allowed_origins`:
 

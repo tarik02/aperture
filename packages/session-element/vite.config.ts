@@ -7,7 +7,16 @@ export default defineConfig({
   build: {
     target: "es2023",
     assetsInlineLimit: () => true,
-    lib: { entry: "src/index.tsx", formats: ["es"], fileName: () => "aperture-session.js" },
-    rolldownOptions: { output: { minify: true } },
+    lib: {
+      entry: { "aperture-session": "src/index.tsx", "aperture-session-view": "src/headless.tsx" },
+      formats: ["es"],
+      fileName: (_format, name) => `${name}.js`,
+    },
+    rolldownOptions: {
+      output: {
+        minify: true,
+        chunkFileNames: "aperture-[hash].js",
+      },
+    },
   },
 });

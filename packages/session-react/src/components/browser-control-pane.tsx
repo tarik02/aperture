@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 import type { CollaborationRole } from "@aperture-browser/live-session";
+import { resolveSessionFeatures, type SessionFeatures } from "../features.ts";
 import { BrowserToolbar } from "./browser-toolbar.tsx";
 import { BrowserViewport } from "./browser-viewport.tsx";
 import { BrowserDevToolsPane, type DevToolsDock } from "./browser-devtools-pane.tsx";
@@ -14,7 +15,7 @@ import {
 type BrowserControlPaneProps = {
   control: UseBrowserControlResult;
   leading?: ReactNode;
-  tabs?: boolean;
+  features?: SessionFeatures;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
@@ -26,19 +27,21 @@ const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
 export function BrowserControlPane({
   control,
   leading,
-  tabs = true,
+  features: featureOverrides,
   collaborationRole,
   cdpUrl,
   shareUrls,
   onSessionDetails,
 }: BrowserControlPaneProps) {
+  const features = resolveSessionFeatures(featureOverrides);
   const [localCursorEnabled, setLocalCursorEnabled] = useState(true);
   const [paintingEnabled, setPaintingEnabled] = useState(false);
   const [devToolsTargetIds, setDevToolsTargetIds] = useState<ReadonlySet<string>>(() => new Set());
   const [devToolsDock, setDevToolsDock] = useState<DevToolsDock>("bottom");
   const devToolsPanelRef = usePanelRef();
   const activeTargetId = control.activeTargetId;
-  const devToolsOpen = activeTargetId !== null && devToolsTargetIds.has(activeTargetId);
+  const devToolsOpen =
+    features.devTools && activeTargetId !== null && devToolsTargetIds.has(activeTargetId);
 
   useEffect(() => {
     try {
@@ -107,7 +110,7 @@ export function BrowserControlPane({
       <BrowserToolbar
         control={control}
         leading={leading}
-        tabs={tabs}
+        features={features}
         collaborationRole={collaborationRole}
         cdpUrl={cdpUrl}
         shareUrls={shareUrls}
@@ -131,8 +134,9 @@ export function BrowserControlPane({
             control={control}
             viewport={control.viewport}
             localCursorEnabled={localCursorEnabled}
-            paintingEnabled={paintingEnabled}
+            paintingEnabled={features.drawing && paintingEnabled}
             onPaintingEnabledChange={setPaintingEnabled}
+            statusBadge={features.statusBadge}
           />
         </ResizablePanel>
         <ResizableHandle withHandle disabled={!devToolsOpen} hidden={!devToolsOpen} />
@@ -143,7 +147,7 @@ export function BrowserControlPane({
           defaultSize="40%"
           minSize="20%"
         >
-          {Array.from(devToolsTargetIds, (targetId) => (
+          {Array.from(features.devTools ? devToolsTargetIds : [], (targetId) => (
             <div
               key={targetId}
               className="h-full min-h-0 w-full min-w-0"

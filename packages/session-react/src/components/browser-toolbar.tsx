@@ -26,6 +26,7 @@ import { InputGroup, InputGroupInput } from "@aperture-browser/ui/components/inp
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 import { useFork } from "../effect.tsx";
+import type { ResolvedSessionFeatures } from "../features.ts";
 import { BrowserTabStrip } from "./browser-tab-strip.tsx";
 import { BrowserMenus } from "./browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "./browser-devtools-pane.tsx";
@@ -35,7 +36,7 @@ import { CollaborationPresence } from "./collaboration-presence.tsx";
 interface BrowserToolbarProps {
   control: UseBrowserControlResult;
   leading?: ReactNode;
-  tabs: boolean;
+  features: ResolvedSessionFeatures;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
@@ -54,7 +55,7 @@ interface BrowserToolbarProps {
 export function BrowserToolbar({
   control,
   leading,
-  tabs,
+  features,
   collaborationRole,
   cdpUrl,
   shareUrls,
@@ -107,121 +108,145 @@ export function BrowserToolbar({
 
   return (
     <div className="flex min-w-0 flex-col bg-background">
-      <div
-        data-workbench-titlebar
-        className="flex min-w-0 shrink-0 items-stretch border-b bg-muted/35"
-      >
-        {leading}
-        {tabs ? (
-          <BrowserTabStrip
-            targets={control.targets}
-            activeTargetId={control.activeTargetId}
-            recordingTargetIds={recordingTargetIds}
-            devToolsTargetIds={devToolsTargetIds}
-            disabled={!connected}
-            mutationDisabled={!browserMutationEnabled}
-            onActivate={control.activateTarget}
-            onCreate={() => control.createTarget("about:blank")}
-            onDuplicate={control.duplicateTarget}
-            onClose={control.closeTarget}
-            onReload={control.reload}
-            onReorder={control.reorderTargets}
-          />
-        ) : (
-          <div className="min-w-0 flex-1" />
-        )}
-        <CollaborationPresence collaboration={control.collaboration} />
-      </div>
-      <div className="flex h-9 items-center gap-1 px-1.5">
-        <div className="flex shrink-0 items-center gap-0.5">
-          <ToolbarButton
-            label="Back"
-            disabled={!browserMutationEnabled}
-            onClick={() => control.historyBack()}
-          >
-            <ArrowLeft />
-          </ToolbarButton>
-          <ToolbarButton
-            label="Forward"
-            disabled={!browserMutationEnabled}
-            onClick={() => control.historyForward()}
-          >
-            <ArrowRight />
-          </ToolbarButton>
-          <ToolbarButton
-            label={loading ? "Stop loading" : "Reload"}
-            disabled={!browserMutationEnabled}
-            onClick={() => {
-              if (loading) {
-                control.stopLoading();
-              } else if (control.activeTargetId) {
-                control.reload(control.activeTargetId);
-              }
-            }}
-          >
-            {loading ? <Square /> : <RefreshCw />}
-          </ToolbarButton>
+      {leading || features.tabs || features.presence ? (
+        <div
+          data-workbench-titlebar
+          className="flex min-w-0 shrink-0 items-stretch border-b bg-muted/35"
+        >
+          {leading}
+          {features.tabs ? (
+            <BrowserTabStrip
+              targets={control.targets}
+              activeTargetId={control.activeTargetId}
+              recordingTargetIds={recordingTargetIds}
+              devToolsTargetIds={devToolsTargetIds}
+              disabled={!connected}
+              mutationDisabled={!browserMutationEnabled}
+              onActivate={control.activateTarget}
+              onCreate={() => control.createTarget("about:blank")}
+              onDuplicate={control.duplicateTarget}
+              onClose={control.closeTarget}
+              onReload={control.reload}
+              onReorder={control.reorderTargets}
+            />
+          ) : (
+            <div className="min-w-0 flex-1" />
+          )}
+          {features.presence ? (
+            <CollaborationPresence collaboration={control.collaboration} />
+          ) : null}
         </div>
-        <InputGroup className="h-7 border-transparent bg-transparent transition-colors hover:border-input/50 hover:bg-muted/35 has-[[data-slot=input-group-control]:focus-visible]:border-input/70 has-[[data-slot=input-group-control]:focus-visible]:bg-background has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 dark:hover:bg-input/20">
-          <InputGroupInput
-            value={urlDraft ?? displayUrl}
-            onChange={(event) => setUrlDraft(event.target.value)}
-            onFocus={(event) => event.currentTarget.select()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                handleNavigate(event.currentTarget.value);
-              }
-            }}
-            placeholder="URL"
-            className="h-7 px-2 font-mono text-xs text-muted-foreground transition-colors focus-visible:text-foreground"
-            disabled={!browserMutationEnabled}
-          />
-        </InputGroup>
-        {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant={paintingEnabled ? "secondary" : "ghost"}
-                size="icon-sm"
-                className="shrink-0"
-                disabled={!paintingEnabled && !drawingAvailable}
-                aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-                aria-pressed={paintingEnabled}
-                onClick={() => onPaintingEnabledChange(!paintingEnabled)}
+      ) : null}
+      {features.navigation ||
+      features.addressBar ||
+      features.drawing ||
+      features.devTools ||
+      features.menus ? (
+        <div className="flex h-9 items-center gap-1 px-1.5">
+          {features.navigation ? (
+            <div className="flex shrink-0 items-center gap-0.5">
+              <ToolbarButton
+                label="Back"
+                disabled={!browserMutationEnabled}
+                onClick={() => control.historyBack()}
+              >
+                <ArrowLeft />
+              </ToolbarButton>
+              <ToolbarButton
+                label="Forward"
+                disabled={!browserMutationEnabled}
+                onClick={() => control.historyForward()}
+              >
+                <ArrowRight />
+              </ToolbarButton>
+              <ToolbarButton
+                label={loading ? "Stop loading" : "Reload"}
+                disabled={!browserMutationEnabled}
+                onClick={() => {
+                  if (loading) {
+                    control.stopLoading();
+                  } else if (control.activeTargetId) {
+                    control.reload(control.activeTargetId);
+                  }
+                }}
+              >
+                {loading ? <Square /> : <RefreshCw />}
+              </ToolbarButton>
+            </div>
+          ) : null}
+          {features.addressBar ? (
+            <InputGroup className="h-7 border-transparent bg-transparent transition-colors hover:border-input/50 hover:bg-muted/35 has-[[data-slot=input-group-control]:focus-visible]:border-input/70 has-[[data-slot=input-group-control]:focus-visible]:bg-background has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 dark:hover:bg-input/20">
+              <InputGroupInput
+                value={urlDraft ?? displayUrl}
+                onChange={(event) => setUrlDraft(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleNavigate(event.currentTarget.value);
+                  }
+                }}
+                placeholder="URL"
+                className="h-7 px-2 font-mono text-xs text-muted-foreground transition-colors focus-visible:text-foreground"
+                disabled={!browserMutationEnabled}
               />
-            }
-          >
-            <Pencil />
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
-          </TooltipContent>
-        </Tooltip>
-        <DevToolsButton
-          open={devToolsOpen}
-          dock={devToolsDock}
-          available={
-            collaborationRole === "owner" && connected && Boolean(cdpUrl && control.activeTargetId)
-          }
-          onOpenChange={onDevToolsOpenChange}
-          onDockChange={onDevToolsDockChange}
-        />
-        <BrowserMenus
-          control={control}
-          cdpUrl={cdpUrl}
-          shareUrls={shareUrls}
-          busy={busy}
-          connected={connected}
-          localCursorEnabled={localCursorEnabled}
-          onLocalCursorChange={onLocalCursorChange}
-          onReconnect={() => control.reconnect()}
-          onSessionDetails={onSessionDetails}
-          now={recordingNow}
-        />
-      </div>
+            </InputGroup>
+          ) : (
+            <div className="min-w-0 flex-1" />
+          )}
+          {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+          {features.drawing ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant={paintingEnabled ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    className="shrink-0"
+                    disabled={!paintingEnabled && !drawingAvailable}
+                    aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+                    aria-pressed={paintingEnabled}
+                    onClick={() => onPaintingEnabledChange(!paintingEnabled)}
+                  />
+                }
+              >
+                <Pencil />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+          {features.devTools ? (
+            <DevToolsButton
+              open={devToolsOpen}
+              dock={devToolsDock}
+              available={
+                collaborationRole === "owner" &&
+                connected &&
+                Boolean(cdpUrl && control.activeTargetId)
+              }
+              onOpenChange={onDevToolsOpenChange}
+              onDockChange={onDevToolsDockChange}
+            />
+          ) : null}
+          {features.menus ? (
+            <BrowserMenus
+              control={control}
+              cdpUrl={cdpUrl}
+              shareUrls={shareUrls}
+              busy={busy}
+              connected={connected}
+              localCursorEnabled={localCursorEnabled}
+              onLocalCursorChange={onLocalCursorChange}
+              onReconnect={() => control.reconnect()}
+              onSessionDetails={onSessionDetails}
+              now={recordingNow}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

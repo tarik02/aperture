@@ -7,7 +7,6 @@ import type {
   CollaborationPaintEvent,
   CollaborationPaintPoint,
 } from "@aperture-browser/live-session";
-import { cn } from "@aperture-browser/ui/utils";
 import { useFork } from "../effect.tsx";
 
 interface CollaborationPaintOverlayProps {
@@ -302,12 +301,18 @@ export function CollaborationPaintOverlay({
     <canvas
       ref={canvasRef}
       tabIndex={-1}
-      className={cn(
-        "absolute z-20 touch-none",
-        enabled ? "cursor-crosshair" : "pointer-events-none",
-        !visible && "invisible",
-      )}
-      style={{ left, top, width, height }}
+      style={{
+        position: "absolute",
+        zIndex: 20,
+        touchAction: "none",
+        cursor: enabled ? "crosshair" : undefined,
+        pointerEvents: enabled ? undefined : "none",
+        visibility: visible ? undefined : "hidden",
+        left,
+        top,
+        width,
+        height,
+      }}
       aria-label="Shared drawing overlay"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

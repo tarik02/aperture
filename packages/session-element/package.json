@@ -1,7 +1,7 @@
 {
   "name": "@aperture-browser/session-element",
   "version": "0.0.0",
-  "description": "<aperture-session>: a custom element that embeds a live Aperture browser session in any page, isolated in Shadow DOM.",
+  "description": "Custom elements that embed a live Aperture browser session in any page: <aperture-session> with the full session UI, and the headless <aperture-session-view>.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
   "license": "MIT",
@@ -19,6 +19,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/aperture-session.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "default": "./dist/aperture-session-view.js"
     }
   },
   "publishConfig": {

@@ -1,5 +1,5 @@
 import { createRoot, type Root } from "react-dom/client";
-import { ApertureSession } from "@aperture-browser/session-react";
+import { ApertureSession, type SessionFeatures } from "@aperture-browser/session-react";
 import styles from "@aperture-browser/session-react/styles.css?inline";
 
 const documentRules = /@(?:font-face|property)[^{]*\{[^}]*\}/g;
@@ -24,8 +24,28 @@ const hostStyles = `
 
 type Theme = "light" | "dark" | "system";
 
+const hideableFeatures = {
+  tabs: "tabs",
+  navigation: "navigation",
+  "address-bar": "addressBar",
+  presence: "presence",
+  drawing: "drawing",
+  menus: "menus",
+  "status-badge": "statusBadge",
+} as const satisfies Record<string, keyof SessionFeatures>;
+
+function hiddenFeatures(value: string | null): SessionFeatures {
+  const features: { -readonly [K in keyof SessionFeatures]: SessionFeatures[K] } = {};
+  for (const name of value?.split(/\s+/) ?? []) {
+    if (name in hideableFeatures) {
+      features[hideableFeatures[name as keyof typeof hideableFeatures]] = false;
+    }
+  }
+  return features;
+}
+
 export class ApertureSessionElement extends HTMLElement {
-  static readonly observedAttributes = ["token", "base-url", "theme", "hide-tabs"];
+  static readonly observedAttributes = ["token", "base-url", "theme", "hide"];
 
   #root: Root | null = null;
 
@@ -61,7 +81,8 @@ export class ApertureSessionElement extends HTMLElement {
           token={token}
           baseUrl={this.getAttribute("base-url") ?? undefined}
           theme={theme === "light" || theme === "dark" ? (theme as Theme) : "system"}
-          tabs={!this.hasAttribute("hide-tabs")}
+          features={hiddenFeatures(this.getAttribute("hide"))}
+          toaster={!this.getAttribute("hide")?.split(/\s+/).includes("toaster")}
         />
       ) : null,
     );

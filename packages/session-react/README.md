@@ -22,13 +22,51 @@ export function SharedBrowser({ token }: { token: string }) {
 `token` is a share link's editor (`ape_…`) or viewer (`apv_…`) token; the component grants exactly what the link grants. Props:
 
 - `baseUrl`: the Aperture instance, when it is not the page's own origin. The instance must list your origin in `embed_allowed_origins`.
-- `tabs`: `false` shows the active tab without the tab strip.
+- `features`: turns parts of the UI off, e.g. `{ tabs: false, menus: false }`. Each defaults to on: `tabs`, `navigation` (back, forward, reload), `addressBar`, `presence` (who else is connected), `drawing`, `menus` (stream, viewport, recording and input settings), `statusBadge`.
 - `theme`: `"light"`, `"dark"` or `"system"` (the default).
 - `toaster`: `false` if your app renders its own [sonner](https://sonner.emilkowal.ski) toaster.
 
 ## Styles
 
 `styles.css` styles everything inside the component's `.aperture-root` element: theme colors, a scoped reset and the Geist font. It does not touch your page's `html`, `body` or `:root`, and menus and tooltips render inside the root. It does include Tailwind utility classes, which your own unlayered CSS can override. For full isolation use [`@aperture-browser/session-element`](https://www.npmjs.com/package/@aperture-browser/session-element), which renders into Shadow DOM.
+
+## Headless
+
+`@aperture-browser/session-react/headless` has the session without any UI: no tab strip, toolbar, menus, stylesheet or UI dependencies. Build your own controls around it.
+
+```tsx
+import {
+  ApertureProvider,
+  SessionViewport,
+  useSharedSession,
+} from "@aperture-browser/session-react/headless";
+
+function Browser({ token }: { token: string }) {
+  const { status, control } = useSharedSession({ token, onNotice: console.warn });
+  if (status !== "ready") return <p>{status}</p>;
+  return (
+    <>
+      {control.targets.map((tab) => (
+        <button key={tab.id} onClick={() => control.activateTarget(tab.id)}>
+          {tab.title}
+        </button>
+      ))}
+      <button onClick={() => control.historyBack()}>Back</button>
+      <SessionViewport control={control} style={{ height: 600 }} />
+    </>
+  );
+}
+
+export const App = ({ token }: { token: string }) => (
+  <ApertureProvider baseUrl="https://aperture.example">
+    <Browser token={token} />
+  </ApertureProvider>
+);
+```
+
+- `useSharedSession` resolves the token (`status` is `loading`, `ready`, `invalid`, `expired` or `unavailable`) and connects once it is ready. `control` lists the tabs and navigates, opens, closes and activates them.
+- `SessionViewport` shows the active tab and forwards input to it. It is styled inline and takes `className` and `style`. `renderOverlay` receives the connection status, a placeholder reason while there is no picture yet, and cursor hints, for drawing your own overlays.
+- `onNotice` receives the errors and confirmations the full UI shows as toasts.
 
 ## Lower-level pieces
 

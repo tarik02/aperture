@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
-import { toast } from "sonner";
 import {
   useLiveSession,
   type CollaborationControl,
@@ -25,6 +24,11 @@ import {
 } from "@aperture-browser/live-session";
 import { useEffectCallback, useRuntime } from "../effect.tsx";
 
+export interface SessionNotice {
+  readonly level: "error" | "success";
+  readonly message: string;
+}
+
 interface UseBrowserControlOptions {
   sessionId: string | null;
   credentials: ApiCredentials | null;
@@ -34,6 +38,7 @@ interface UseBrowserControlOptions {
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: readonly IceServer[];
+  onNotice?: (notice: SessionNotice) => void;
 }
 
 interface BrowserViewportSize {
@@ -113,8 +118,13 @@ export function useBrowserControl({
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
+  onNotice,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const runtime = useRuntime();
+  const onNoticeRef = useRef(onNotice);
+  onNoticeRef.current = onNotice;
+  const notify = (level: SessionNotice["level"], message: string) =>
+    Effect.sync(() => onNoticeRef.current?.({ level, message }));
   const live = useLiveSession({
     sessionId,
     displayName,
@@ -215,10 +225,7 @@ export function useBrowserControl({
         live.request("target.create", { url }).pipe(
           Effect.map((result) => result.targetId ?? null),
           Effect.catch((error) =>
-            Effect.sync(() => {
-              toast.error(errorMessage(error, "Tab could not be created"));
-              return null;
-            }),
+            notify("error", errorMessage(error, "Tab could not be created")).pipe(Effect.as(null)),
           ),
         ),
       ),
@@ -359,7 +366,7 @@ export function useBrowserControl({
     failure: string,
   ) =>
     effect.pipe(
-      Effect.catch((error) => Effect.sync(() => toast.error(errorMessage(error, failure)))),
+      Effect.catch((error) => notify("error", errorMessage(error, failure))),
       Effect.ensuring(Effect.sync(() => setRecordingBusy(false))),
     );
 
@@ -401,7 +408,7 @@ export function useBrowserControl({
               filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
             );
           }),
-          Effect.andThen(Effect.sync(() => toast.success("Recording saved"))),
+          Effect.andThen(notify("success", "Recording saved")),
         ),
         "Recording failed to stop",
       ),
@@ -423,7 +430,7 @@ export function useBrowserControl({
       settleRecording(
         live
           .request("recording.cancel", { recordingId })
-          .pipe(Effect.andThen(Effect.sync(() => toast.success("Recording stopped")))),
+          .pipe(Effect.andThen(notify("success", "Recording stopped"))),
         "Recording failed to stop",
       ),
     [live],
@@ -445,9 +452,7 @@ export function useBrowserControl({
         .request("presentation.cursor.set", { visible })
         .pipe(
           Effect.catch((error) =>
-            Effect.sync(() =>
-              toast.error(errorMessage(error, "Remote cursor could not be updated")),
-            ),
+            notify("error", errorMessage(error, "Remote cursor could not be updated")),
           ),
         ),
     [live],
@@ -467,9 +472,7 @@ export function useBrowserControl({
         .selectPresentation(selection)
         .pipe(
           Effect.catch((error) =>
-            Effect.sync(() =>
-              toast.error(errorMessage(error, "Presentation could not be updated")),
-            ),
+            notify("error", errorMessage(error, "Presentation could not be updated")),
           ),
         ),
     [live],
