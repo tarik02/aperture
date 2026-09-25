@@ -669,7 +669,7 @@ importers:
   packages/api-client:
     dependencies:
       '@aperture-browser/api-schema':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../api-schema
       '@simplewebauthn/browser':
         specifier: 'catalog:'
@@ -709,7 +709,7 @@ importers:
   packages/live-session:
     dependencies:
       '@aperture-browser/api-client':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../api-client
     devDependencies:
       effect:
@@ -755,10 +755,10 @@ importers:
   packages/session-react:
     dependencies:
       '@aperture-browser/api-client':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../api-client
       '@aperture-browser/live-session':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../live-session
       '@atlaskit/pragmatic-drag-and-drop':
         specifier: 'catalog:'

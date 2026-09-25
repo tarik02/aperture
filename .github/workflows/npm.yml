@@ -15,7 +15,11 @@ concurrency:
 jobs:
   pack:
     name: pack packages
-    if: ${{ !github.event.release.prerelease }}
+    # Nightlies are the only prereleases published to npm; any other would need its
+    # own dist-tag.
+    if: >-
+      !github.event.release.prerelease ||
+      startsWith(github.event.release.tag_name, 'v0.0.0-nightly.')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.0
@@ -33,10 +37,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm --filter "./packages/**" build
+
+      # Nothing bumps package.json for nightlies. Internal deps use workspace:*, so
+      # pack pins them to this version too.
+      - name: Set nightly version
+        if: github.event.release.prerelease
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: pnpm --recursive --filter "./packages/**" exec npm pkg set version="${RELEASE_TAG#v}"
+
       - name: Pack packages
-        run: |
-          pnpm --filter "./packages/**" build
-          pnpm --filter "./packages/**" pack --recursive --pack-destination "$RUNNER_TEMP/packages"
+        run: pnpm --filter "./packages/**" pack --recursive --pack-destination "$RUNNER_TEMP/packages"
 
       - uses: actions/upload-artifact@v7.0.1
         with:
@@ -75,9 +87,14 @@ jobs:
 
       - name: Publish packages
         env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           version="${RELEASE_TAG#v}"
+          tag="latest"
+          if [ "$PRERELEASE" = "true" ]; then
+            tag="nightly"
+          fi
           for manifest in packages/*/package.json; do
             jq -e '.private != true' "$manifest" > /dev/null || continue
             name="$(jq -r .name "$manifest")"
@@ -91,6 +108,6 @@ jobs:
               echo "$name@$version is already published"
               continue
             fi
-            pnpm publish "$tarball" --access public --no-git-checks
+            pnpm publish "$tarball" --access public --tag "$tag" --no-git-checks
           done
-          echo "Published \`$version\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Published \`$version\` under the \`$tag\` dist-tag." >> "$GITHUB_STEP_SUMMARY"
