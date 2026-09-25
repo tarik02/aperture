@@ -118,7 +118,7 @@ This site lives in `apps/docs` ([Fumadocs](https://fumadocs.dev) on TanStack Sta
 pnpm --filter @aperture-browser/docs dev
 ```
 
-The `docs` workflow publishes the site to [GitHub Pages](https://tarik02.github.io/aperture) from the `gh-pages` branch. Pushes to `master` that touch the docs, the packages or the OpenAPI spec update the site; pull requests from this repository that touch them get a preview under `pr-preview/pr-<number>/`, linked in a PR comment and removed when the pull request closes. Each Aperture instance also serves its own API reference at `/docs`.
+The `docs` workflow builds the site and deploys it to [Cloudflare Pages](https://aperture-docs.pages.dev) with `wrangler pages deploy`. Pushes to `master` that touch the docs, the packages or the OpenAPI spec update the production site; pull requests from this repository that touch them get a preview deployment on the `pr-<number>` branch alias, linked in a PR comment. Deploys need the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. Each Aperture instance also serves its own API reference at `/docs`.
 
 ## Releases
 

@@ -15,4 +15,4 @@ Custom elements that embed a live [Aperture](https://github.com/tarik02/aperture
 ></aperture-session>
 ```
 
-Documentation: https://tarik02.github.io/aperture/docs/packages/session-element
+Documentation: https://aperture-docs.pages.dev/docs/packages/session-element

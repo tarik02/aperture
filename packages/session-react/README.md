@@ -21,4 +21,4 @@ export function SharedBrowser({ token }: { token: string }) {
 
 `@aperture-browser/session-react/headless` has the same session without any UI, for apps that build their own controls.
 
-Documentation: https://tarik02.github.io/aperture/docs/packages/session-react
+Documentation: https://aperture-docs.pages.dev/docs/packages/session-react

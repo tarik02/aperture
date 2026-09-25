@@ -5,7 +5,6 @@ import { fumadocsMdx } from "fumadocs-mdx/vite";
 import { defineConfig, lazyPlugins } from "vite-plus";
 
 export default defineConfig({
-  base: process.env.DOCS_BASE_PATH ?? "/",
   resolve: { tsconfigPaths: true },
   plugins: lazyPlugins(() => [
     fumadocsMdx(),

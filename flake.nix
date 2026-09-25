@@ -1008,7 +1008,7 @@
                   "org.opencontainers.image.description" = "Chromium session supervisor";
                   "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
                   "org.opencontainers.image.documentation" =
-                    "https://tarik02.github.io/aperture/docs/docker";
+                    "https://aperture-docs.pages.dev/docs/docker";
                   "org.opencontainers.image.licenses" = "MIT";
                   "org.opencontainers.image.revision" = sourceRevision;
                   "org.opencontainers.image.version" = deployVersion;
