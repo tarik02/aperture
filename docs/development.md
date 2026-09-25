@@ -105,6 +105,8 @@ pnpm install
 pnpm format:check && pnpm lint && pnpm typecheck && pnpm build
 ```
 
+Dependency versions live in the catalogs in `pnpm-workspace.yaml`; manifests reference them as `catalog:` (or `catalog:peers` for the peer ranges of published packages). `pnpm add` does this automatically, and `pnpm lint` fails on a manifest that names a version directly.
+
 ## Releases
 
 release-please cuts a release when its pull request merges. Besides the binaries and the Docker image, a release:

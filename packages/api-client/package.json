@@ -33,13 +33,13 @@
   },
   "dependencies": {
     "@aperture-browser/api-schema": "workspace:^",
-    "@simplewebauthn/browser": "13.3.0"
+    "@simplewebauthn/browser": "catalog:"
   },
   "devDependencies": {
     "effect": "catalog:",
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
-    "effect": "^4.0.0-rc.117"
+    "effect": "catalog:peers"
   }
 }

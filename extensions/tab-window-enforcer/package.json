@@ -8,7 +8,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
-    "@types/chrome": "0.3.0",
+    "@types/chrome": "catalog:",
     "effect": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"

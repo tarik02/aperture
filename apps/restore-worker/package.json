@@ -8,18 +8,18 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@playwright/mcp": "0.0.82",
-    "playwright": "1.64.0-alpha-1789764292000",
-    "playwright-core": "1.64.0-alpha-1789764292000"
+    "@playwright/mcp": "catalog:",
+    "playwright": "catalog:",
+    "playwright-core": "catalog:"
   },
   "devDependencies": {
     "@aperture-browser/api-schema": "workspace:*",
     "@aperture-browser/browser-state": "workspace:*",
     "@effect/platform-node": "catalog:",
-    "@types/node": "^26.1.1",
+    "@types/node": "catalog:",
     "effect": "catalog:",
     "effect-playwright": "catalog:",
-    "idb": "8.0.3",
+    "idb": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

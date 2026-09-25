@@ -5,7 +5,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "lint": "vp lint",
+    "lint": "vp lint && node scripts/check-catalog.mjs",
     "format": "vp fmt",
     "format:check": "vp fmt --check"
   },

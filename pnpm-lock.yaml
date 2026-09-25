@@ -205,30 +205,135 @@ settings:
 
 catalogs:
   default:
+    '@atlaskit/pragmatic-drag-and-drop':
+      specifier: ^2.0.1
+      version: 2.0.1
+    '@base-ui/react':
+      specifier: ^1.6.0
+      version: 1.6.0
     '@effect/openapi-generator':
       specifier: 4.0.0-rc.117
       version: 4.0.0-rc.117
     '@effect/platform-node':
       specifier: 4.0.0-rc.117
       version: 4.0.0-rc.117
+    '@floating-ui/dom':
+      specifier: ^1.8.0
+      version: 1.8.0
+    '@fontsource-variable/geist':
+      specifier: ^5.2.9
+      version: 5.2.9
+    '@playwright/mcp':
+      specifier: 0.0.82
+      version: 0.0.82
+    '@simplewebauthn/browser':
+      specifier: 13.3.0
+      version: 13.3.0
+    '@tailwindcss/cli':
+      specifier: ^4.3.2
+      version: 4.3.3
+    '@tailwindcss/vite':
+      specifier: ^4.3.2
+      version: 4.3.2
+    '@tanstack/react-hotkeys':
+      specifier: ^0.10.0
+      version: 0.10.0
+    '@tanstack/react-query':
+      specifier: ^5.101.2
+      version: 5.101.2
+    '@tanstack/react-router':
+      specifier: ^1.170.17
+      version: 1.170.17
+    '@tanstack/react-start':
+      specifier: ^1.168.27
+      version: 1.168.27
+    '@tanstack/router-cli':
+      specifier: ^1.167.18
+      version: 1.167.18
+    '@types/chrome':
+      specifier: 0.3.0
+      version: 0.3.0
+    '@types/node':
+      specifier: ^26.1.1
+      version: 26.1.1
+    '@types/react':
+      specifier: ^19.2.17
+      version: 19.2.17
+    '@types/react-dom':
+      specifier: ^19.2.3
+      version: 19.2.3
     '@typescript/native-preview':
       specifier: 7.0.0-dev.20260707.2
       version: 7.0.0-dev.20260707.2
+    '@vitejs/plugin-react':
+      specifier: ^6.0.3
+      version: 6.0.3
+    class-variance-authority:
+      specifier: ^0.7.1
+      version: 0.7.1
+    clsx:
+      specifier: ^2.1.1
+      version: 2.1.1
+    devalue:
+      specifier: 6.0.2
+      version: 6.0.2
     effect:
       specifier: 4.0.0-rc.117
       version: 4.0.0-rc.117
     effect-playwright:
       specifier: 0.8.0-2
       version: 0.8.0-2
+    idb:
+      specifier: 8.0.3
+      version: 8.0.3
+    lucide-react:
+      specifier: ^1.24.0
+      version: 1.24.0
+    next-themes:
+      specifier: ^0.4.6
+      version: 0.4.6
+    playwright:
+      specifier: 1.64.0-alpha-1789764292000
+      version: 1.64.0-alpha-1789764292000
+    playwright-core:
+      specifier: 1.64.0-alpha-1789764292000
+      version: 1.64.0-alpha-1789764292000
     publint:
       specifier: 0.3.24
       version: 0.3.24
+    react:
+      specifier: ^19.2.7
+      version: 19.2.7
+    react-dom:
+      specifier: ^19.2.7
+      version: 19.2.7
+    react-resizable-panels:
+      specifier: ^4.12.2
+      version: 4.12.2
+    shadcn:
+      specifier: ^4.13.0
+      version: 4.13.0
+    sonner:
+      specifier: ^2.0.7
+      version: 2.0.7
+    tailwind-merge:
+      specifier: ^3.6.0
+      version: 3.6.0
+    tailwindcss:
+      specifier: ^4.3.2
+      version: 4.3.3
+    tw-animate-css:
+      specifier: ^1.4.0
+      version: 1.4.0
     typescript:
       specifier: ^6.0.3
       version: 6.0.3
     vite-plus:
       specifier: 0.2.4
       version: 0.2.4
+    zustand:
+      specifier: ^5.0.14
+      version: 5.0.14
 
 overrides:
   effect-playwright>playwright-core: 1.64.0-alpha-1789764292000
@@ -260,13 +365,13 @@ importers:
   apps/restore-worker:
     dependencies:
       '@playwright/mcp':
-        specifier: 0.0.82
+        specifier: 'catalog:'
         version: 0.0.82
       playwright:
-        specifier: 1.64.0-alpha-1789764292000
+        specifier: 'catalog:'
         version: 1.64.0-alpha-1789764292000
       playwright-core:
-        specifier: 1.64.0-alpha-1789764292000
+        specifier: 'catalog:'
         version: 1.64.0-alpha-1789764292000
     devDependencies:
       '@aperture-browser/api-schema':
@@ -279,7 +384,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.0-rc.117(effect@4.0.0-rc.117)(redis@6.2.1)
       '@types/node':
-        specifier: ^26.1.1
+        specifier: 'catalog:'
         version: 26.1.1
       effect:
         specifier: 'catalog:'
@@ -288,7 +393,7 @@ importers:
         specifier: 'catalog:'
         version: 0.8.0-2(effect@4.0.0-rc.117)
       idb:
-        specifier: 8.0.3
+        specifier: 'catalog:'
         version: 8.0.3
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.4
@@ -312,74 +417,74 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@atlaskit/pragmatic-drag-and-drop':
-        specifier: ^2.0.1
+        specifier: 'catalog:'
         version: 2.0.1
       '@floating-ui/dom':
-        specifier: ^1.8.0
+        specifier: 'catalog:'
         version: 1.8.0
       '@simplewebauthn/browser':
-        specifier: 13.3.0
+        specifier: 'catalog:'
         version: 13.3.0
       '@tailwindcss/vite':
-        specifier: ^4.3.2
+        specifier: 'catalog:'
         version: 4.3.2(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.1.1)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))
       '@tanstack/react-hotkeys':
-        specifier: ^0.10.0
+        specifier: 'catalog:'
         version: 0.10.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@tanstack/react-query':
-        specifier: ^5.101.2
+        specifier: 'catalog:'
         version: 5.101.2(react@19.2.7)
       '@tanstack/react-router':
-        specifier: ^1.170.17
+        specifier: 'catalog:'
         version: 1.170.17(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@tanstack/react-start':
-        specifier: ^1.168.27
+        specifier: 'catalog:'
         version: 1.168.27(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.1.1)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rolldown@1.2.9)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
       lucide-react:
-        specifier: ^1.24.0
+        specifier: 'catalog:'
         version: 1.24.0(react@19.2.7)
       next-themes:
-        specifier: ^0.4.6
+        specifier: 'catalog:'
         version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7
       react-dom:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7(react@19.2.7)
       react-resizable-panels:
-        specifier: ^4.12.2
+        specifier: 'catalog:'
         version: 4.12.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       shadcn:
-        specifier: ^4.13.0
+        specifier: 'catalog:'
         version: 4.13.0(typescript@6.0.3)
       sonner:
-        specifier: ^2.0.7
+        specifier: 'catalog:'
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       tailwindcss:
-        specifier: ^4.3.2
-        version: 4.3.2
+        specifier: 'catalog:'
+        version: 4.3.3
       zustand:
-        specifier: ^5.0.14
+        specifier: 'catalog:'
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
     devDependencies:
       '@tanstack/router-cli':
-        specifier: ^1.167.18
+        specifier: 'catalog:'
         version: 1.167.18
       '@types/node':
-        specifier: ^26.1.1
+        specifier: 'catalog:'
         version: 26.1.1
       '@types/react':
-        specifier: ^19.2.17
+        specifier: 'catalog:'
         version: 19.2.17
       '@types/react-dom':
-        specifier: ^19.2.3
+        specifier: 'catalog:'
         version: 19.2.3(@types/react@19.2.17)
       '@vitejs/plugin-react':
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.1.1)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.4
@@ -391,7 +496,7 @@ importers:
   extensions/tab-window-enforcer:
     devDependencies:
       '@types/chrome':
-        specifier: 0.3.0
+        specifier: 'catalog:'
         version: 0.3.0
       effect:
         specifier: 'catalog:'
@@ -409,7 +514,7 @@ importers:
         specifier: workspace:^
         version: link:../api-schema
       '@simplewebauthn/browser':
-        specifier: 13.3.0
+        specifier: 'catalog:'
         version: 13.3.0
     devDependencies:
       effect:
@@ -428,7 +533,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.0-rc.117(effect@4.0.0-rc.117)(redis@6.2.1)
       '@types/node':
-        specifier: ^26.1.1
+        specifier: 'catalog:'
         version: 26.1.1
       effect:
         specifier: 'catalog:'
@@ -440,7 +545,7 @@ importers:
   packages/browser-state:
     dependencies:
       devalue:
-        specifier: 6.0.2
+        specifier: 'catalog:'
         version: 6.0.2
 
   packages/live-session:
@@ -462,25 +567,25 @@ importers:
         specifier: workspace:*
         version: link:../session-react
       '@tailwindcss/vite':
-        specifier: ^4.3.2
+        specifier: 'catalog:'
         version: 4.3.2(@voidzero-dev/vite-plus-core@0.2.4(@types/node@26.1.1)(jiti@2.7.0)(publint@0.3.24)(typescript@6.0.3))
       '@types/react':
-        specifier: ^19.2.17
+        specifier: 'catalog:'
         version: 19.2.17
       '@types/react-dom':
-        specifier: ^19.2.3
+        specifier: 'catalog:'
         version: 19.2.3(@types/react@19.2.17)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
       react:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7
       react-dom:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7(react@19.2.7)
       tailwindcss:
-        specifier: ^4.3.2
+        specifier: 'catalog:'
         version: 4.3.3
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.4
@@ -498,65 +603,65 @@ importers:
         specifier: workspace:^
         version: link:../live-session
       '@atlaskit/pragmatic-drag-and-drop':
-        specifier: ^2.0.1
+        specifier: 'catalog:'
         version: 2.0.1
       '@base-ui/react':
-        specifier: ^1.6.0
+        specifier: 'catalog:'
         version: 1.6.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       class-variance-authority:
-        specifier: ^0.7.1
+        specifier: 'catalog:'
         version: 0.7.1
       clsx:
-        specifier: ^2.1.1
+        specifier: 'catalog:'
         version: 2.1.1
       lucide-react:
-        specifier: ^1.24.0
+        specifier: 'catalog:'
         version: 1.24.0(react@19.2.7)
       next-themes:
-        specifier: ^0.4.6
+        specifier: 'catalog:'
         version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react-resizable-panels:
-        specifier: ^4.12.2
+        specifier: 'catalog:'
         version: 4.12.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
-        specifier: ^2.0.7
+        specifier: 'catalog:'
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       tailwind-merge:
-        specifier: ^3.6.0
+        specifier: 'catalog:'
         version: 3.6.0
     devDependencies:
       '@aperture-browser/ui':
         specifier: workspace:*
         version: link:../ui
       '@fontsource-variable/geist':
-        specifier: ^5.2.9
+        specifier: 'catalog:'
         version: 5.2.9
       '@tailwindcss/cli':
-        specifier: ^4.3.2
+        specifier: 'catalog:'
         version: 4.3.3
       '@types/node':
-        specifier: ^26.1.1
+        specifier: 'catalog:'
         version: 26.1.1
       '@types/react':
-        specifier: ^19.2.17
+        specifier: 'catalog:'
         version: 19.2.17
       '@types/react-dom':
-        specifier: ^19.2.3
+        specifier: 'catalog:'
         version: 19.2.3(@types/react@19.2.17)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
       react:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7
       react-dom:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7(react@19.2.7)
       tailwindcss:
-        specifier: ^4.3.2
-        version: 4.3.2
+        specifier: 'catalog:'
+        version: 4.3.3
       tw-animate-css:
-        specifier: ^1.4.0
+        specifier: 'catalog:'
         version: 1.4.0
       vite-plus:
         specifier: 'catalog:'
@@ -565,50 +670,50 @@ importers:
   packages/ui:
     dependencies:
       '@base-ui/react':
-        specifier: ^1.6.0
+        specifier: 'catalog:'
         version: 1.6.0(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@fontsource-variable/geist':
-        specifier: ^5.2.9
+        specifier: 'catalog:'
         version: 5.2.9
       class-variance-authority:
-        specifier: ^0.7.1
+        specifier: 'catalog:'
         version: 0.7.1
       clsx:
-        specifier: ^2.1.1
+        specifier: 'catalog:'
         version: 2.1.1
       lucide-react:
-        specifier: ^1.24.0
+        specifier: 'catalog:'
         version: 1.24.0(react@19.2.7)
       next-themes:
-        specifier: ^0.4.6
+        specifier: 'catalog:'
         version: 0.4.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react-resizable-panels:
-        specifier: ^4.12.2
+        specifier: 'catalog:'
         version: 4.12.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       sonner:
-        specifier: ^2.0.7
+        specifier: 'catalog:'
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       tailwind-merge:
-        specifier: ^3.6.0
+        specifier: 'catalog:'
         version: 3.6.0
       tailwindcss:
-        specifier: ^4.3.2
-        version: 4.3.2
+        specifier: 'catalog:'
+        version: 4.3.3
       tw-animate-css:
-        specifier: ^1.4.0
+        specifier: 'catalog:'
         version: 1.4.0
     devDependencies:
       '@types/react':
-        specifier: ^19.2.17
+        specifier: 'catalog:'
         version: 19.2.17
       '@types/react-dom':
-        specifier: ^19.2.3
+        specifier: 'catalog:'
         version: 19.2.3(@types/react@19.2.17)
       react:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7
       react-dom:
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.2.7(react@19.2.7)
 
 packages:

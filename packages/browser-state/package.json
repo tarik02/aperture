@@ -10,6 +10,6 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "devalue": "6.0.2"
+    "devalue": "catalog:"
   }
 }
