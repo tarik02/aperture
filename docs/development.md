@@ -122,7 +122,7 @@ Adding one of these labels to a pull request starts a build of its head commit:
 
 | Label | Result |
 |---|---|
-| `build-binaries` | The release archives, as a workflow artifact |
+| `build-binaries` | The release archives and extension zips, as a workflow artifact |
 | `build-docker` | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment |
 | `publish-npm` | The npm packages at `0.0.0-pr.<number>.<sha>` under the `pr-<number>` dist-tag |
 

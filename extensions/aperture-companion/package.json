@@ -1,0 +1,36 @@
+{
+  "name": "@aperture-browser/companion",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/generate-icons.ts && vp build",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p scripts"
+  },
+  "dependencies": {
+    "@aperture-browser/api-client": "workspace:*",
+    "@aperture-browser/api-schema": "workspace:*",
+    "@aperture-browser/browser-state": "workspace:*",
+    "@aperture-browser/ui": "workspace:*",
+    "@atlaskit/pragmatic-drag-and-drop": "catalog:",
+    "effect": "catalog:",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@resvg/resvg-js": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@types/chrome": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "aperture": {
+    "releaseZip": true
+  }
+}

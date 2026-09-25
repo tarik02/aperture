@@ -72,6 +72,10 @@
           || lib.hasPrefix "apps/restore-worker/node_modules/" rel
           || rel == "apps/restore-worker/dist"
           || lib.hasPrefix "apps/restore-worker/dist/" rel
+          || rel == "extensions/aperture-companion/node_modules"
+          || lib.hasPrefix "extensions/aperture-companion/node_modules/" rel
+          || rel == "extensions/aperture-companion/dist"
+          || lib.hasPrefix "extensions/aperture-companion/dist/" rel
           || rel == "extensions/tab-window-enforcer/node_modules"
           || lib.hasPrefix "extensions/tab-window-enforcer/node_modules/" rel
           || rel == "extensions/tab-window-enforcer/dist"
@@ -518,8 +522,60 @@
           else
             null;
 
+        # One fetch of the pnpm workspace, shared by every package built from it.
+        workspacePnpmDeps = pkgs.fetchPnpmDeps {
+          pname = "aperture-workspace";
+          version = deployVersion;
+          inherit src;
+          pnpm = pnpmLatest;
+          fetcherVersion = 4;
+          pnpmWorkspaces = [
+            "@aperture-browser/restore-worker"
+            "@aperture-browser/tab-window-enforcer"
+            "@aperture-browser/companion"
+            "@aperture-browser/api-schema"
+            "@aperture-browser/browser-state"
+            "@aperture-browser/api-client"
+            "@aperture-browser/live-session"
+            "@aperture-browser/session-react"
+            "@aperture-browser/ui"
+            "@aperture-browser/web"
+          ];
+          hash = "sha256-/ECaqIYav6iKhiB3vw3wCMcmR2qG9Q5eCWu+rKrMumA=";
+        };
+
+        # The Aperture Companion browser extension, unpacked.
+        apertureCompanion = pkgs.stdenvNoCC.mkDerivation {
+          pname = "aperture-companion";
+          version = deployVersion;
+          inherit src;
+
+          pnpmDeps = workspacePnpmDeps;
+
+          nativeBuildInputs = [
+            nodeRuntime
+            pnpmLatest
+            pkgs.pnpmConfigHook
+          ];
+
+          env.CI = "true";
+
+          buildPhase = ''
+            runHook preBuild
+            pnpm --filter @aperture-browser/companion build
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/share/aperture/aperture-companion
+            cp -R extensions/aperture-companion/dist/. $out/share/aperture/aperture-companion/
+            runHook postInstall
+          '';
+        };
+
         aperture =
-          (buildGoModule (finalAttrs: {
+          (buildGoModule {
             pname = "aperture";
             version = deployVersion;
             inherit src;
@@ -533,23 +589,7 @@
               "cmd/browser-session-wrapper"
             ];
 
-            pnpmDeps = pkgs.fetchPnpmDeps {
-              inherit (finalAttrs) pname version src;
-              pnpm = pnpmLatest;
-              fetcherVersion = 4;
-              pnpmWorkspaces = [
-                "@aperture-browser/restore-worker"
-                "@aperture-browser/tab-window-enforcer"
-                "@aperture-browser/api-schema"
-                "@aperture-browser/browser-state"
-                "@aperture-browser/api-client"
-                "@aperture-browser/live-session"
-                "@aperture-browser/session-react"
-                "@aperture-browser/ui"
-                "@aperture-browser/web"
-              ];
-              hash = "sha256-OvSrkUrHWHCAlykZbhQIZUHwXDIU74m9g9qGUQfkMrs=";
-            };
+            pnpmDeps = workspacePnpmDeps;
 
             nativeBuildInputs = [
               pkgs.makeWrapper
@@ -712,7 +752,7 @@
               description = "chromium session supervisor";
               license = licenses.mit;
             };
-          })).overrideAttrs
+          }).overrideAttrs
             (oldAttrs: {
               checkPhase = ''
                 runHook preCheck
@@ -1127,6 +1167,7 @@
         packages = {
           default = aperture;
           aperture = aperture;
+          aperture-companion = apertureCompanion;
           patched-weston = patchedWeston;
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
@@ -1150,6 +1191,7 @@
 
         checks = {
           default = aperture;
+          aperture-companion = apertureCompanion;
           aperture-dev = apertureDev;
         };
       }
