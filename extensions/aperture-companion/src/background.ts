@@ -9,7 +9,12 @@ import {
   requestCapturePermissions,
 } from "./capture.ts";
 import { chromeCall, CompanionError, getTab, hasOrigins, isWebURL } from "./chrome.ts";
-import { CompanionCommand, type TeleportTabsCommand } from "./commands.ts";
+import {
+  CompanionCommand,
+  ConnectResult,
+  TeleportTabsResult,
+  type TeleportTabsCommand,
+} from "./commands.ts";
 import {
   connect,
   connectionOriginPattern,
@@ -19,7 +24,7 @@ import {
   promoteSession,
   requireActiveConnection,
 } from "./connection.ts";
-import { failureMessage } from "./errors.ts";
+import { commandError, failureMessage } from "./errors.ts";
 import {
   listPendingCommands,
   pendingCommand,
@@ -40,12 +45,18 @@ const decodeCommand = Schema.decodeUnknownOption(CompanionCommand);
 const responders = new Map<string, (response: unknown) => void>();
 const runningCommandIds = new Set<string>();
 
-const respond = (id: string, response: unknown) =>
-  Effect.sync(() => {
-    const responder = responders.get(id);
-    responders.delete(id);
-    responder?.(response);
-  });
+// Results are encoded, since messages lose the prototype of error classes.
+const respond = <A, I>(id: string, schema: Schema.Codec<A, I>, response: A) =>
+  Schema.encodeEffect(schema)(response).pipe(
+    Effect.orDie,
+    Effect.flatMap((encoded) =>
+      Effect.sync(() => {
+        const responder = responders.get(id);
+        responders.delete(id);
+        responder?.(encoded);
+      }),
+    ),
+  );
 
 const run = <A, E>(effect: Effect.Effect<A, E>) =>
   Effect.runFork(
@@ -186,7 +197,7 @@ const failCommand = Effect.fnUntraced(function* (
   startedAt: number,
   cause: Cause.Cause<unknown>,
 ) {
-  const error = failureMessage(cause);
+  const error = commandError(cause);
   if (command.type === "teleport-tabs") {
     yield* Effect.ignore(
       teleportOperation.set({
@@ -195,21 +206,23 @@ const failCommand = Effect.fnUntraced(function* (
         startedAt,
         status: "failed",
         completedAt: Date.now(),
-        error,
+        error: error.message,
       }),
     );
     yield* showFailureBadge;
+    yield* respond(command.id, TeleportTabsResult, { ok: false, error });
+  } else {
+    yield* respond(command.id, ConnectResult, { ok: false, error });
   }
-  yield* respond(command.id, { ok: false, error });
 });
 
 const runPendingCommand = Effect.fnUntraced(function* ({ command, createdAt }: PendingCommand) {
   if (command.type === "connect") {
     const connection = yield* connect(command.origin, command.token);
-    yield* respond(command.id, { ok: true, connectionId: connection.id });
+    yield* respond(command.id, ConnectResult, { ok: true, connectionId: connection.id });
   } else {
     const warnings = yield* teleportTabs(command, createdAt);
-    yield* respond(command.id, { ok: true, warnings });
+    yield* respond(command.id, TeleportTabsResult, { ok: true, warnings });
   }
 });
 

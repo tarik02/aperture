@@ -1,4 +1,6 @@
+import { ApiRequestError } from "@aperture-browser/api-client";
 import * as Schema from "effect/Schema";
+import { CompanionError } from "./chrome.ts";
 import { NonEmptyString, TabId, Tags, TeleportDestination } from "./schema.ts";
 
 // Messages the popup sends to the service worker, which runs them once the user grants the
@@ -41,16 +43,21 @@ export type TeleportTabsCommand = typeof TeleportTabsCommand.Type;
 export const CompanionCommand = Schema.Union([ConnectCommand, TeleportTabsCommand]);
 export type CompanionCommand = typeof CompanionCommand.Type;
 
-const Failed = Schema.Struct({ ok: Schema.Literal(false), error: NonEmptyString });
+/** Why a command failed, as a tagged error the popup decodes back into its class. */
+export const CommandError = Schema.Union([CompanionError, ApiRequestError]);
+export type CommandError = typeof CommandError.Type;
+
+export const CommandFailed = Schema.Struct({ ok: Schema.Literal(false), error: CommandError });
+export type CommandFailed = typeof CommandFailed.Type;
 
 export const ConnectResult = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(true), connectionId: NonEmptyString }),
-  Failed,
+  CommandFailed,
 ]);
 export type ConnectResult = typeof ConnectResult.Type;
 
 export const TeleportTabsResult = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(true), warnings: Schema.Array(Schema.String) }),
-  Failed,
+  CommandFailed,
 ]);
 export type TeleportTabsResult = typeof TeleportTabsResult.Type;

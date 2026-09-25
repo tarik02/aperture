@@ -11,6 +11,7 @@ import { chromeCall, CompanionError, isWebURL, type ChromeError } from "../chrom
 import {
   ConnectResult,
   TeleportTabsResult,
+  type CommandFailed,
   type CompanionCommand,
   type TeleportTabsCommand,
 } from "../commands.ts";
@@ -91,7 +92,7 @@ const failure = (message: string) => new CompanionError({ message });
  * happen before the fiber first yields, while the click still counts as a user gesture.
  * Chromium may close the popup to ask; the worker then carries on with the command alone.
  */
-const sendCommand = <A extends { readonly ok: boolean }, I>(
+const sendCommand = <A extends { readonly ok: true } | CommandFailed, I>(
   command: CompanionCommand,
   resultSchema: Schema.Codec<A, I>,
   requestAccess: Effect.Effect<void, CompanionError | ChromeError>,
@@ -106,11 +107,11 @@ const sendCommand = <A extends { readonly ok: boolean }, I>(
     yield* requestAccess;
     const message = yield* chromeCall("runtime.sendMessage", () => response);
     const result = yield* Schema.decodeUnknownEffect(resultSchema)(message);
-    if (!result.ok) {
-      return yield* failure((result as A & { readonly error: string }).error);
-    }
-    return result as Extract<A, { readonly ok: true }>;
+    if (isFailed(result)) return yield* Effect.fail(result.error);
+    return result as Exclude<A, CommandFailed>;
   });
+
+const isFailed = (result: { readonly ok: boolean }): result is CommandFailed => !result.ok;
 
 export type Popup = ReturnType<typeof usePopup>;
 
