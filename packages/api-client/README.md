@@ -34,4 +34,4 @@ const page = await Effect.runPromise(program.pipe(Effect.provide(layer)));
 
 Requires `effect` 4.
 
-Documentation: https://aperture-docs-1sd.pages.dev/docs/packages/api-client
+Documentation: https://aperture-browser-docs.pages.dev/docs/packages/api-client

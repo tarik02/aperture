@@ -74,7 +74,7 @@ jobs:
           wranglerVersion: 4.140.0
           command: >-
             pages deploy ${{ runner.temp }}/docs-site
-            --project-name=aperture-docs
+            --project-name=aperture-browser-docs
             --branch=${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'master' }}
             --commit-hash=${{ github.event.pull_request.head.sha || github.sha }}
 
