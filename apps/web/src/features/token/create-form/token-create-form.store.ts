@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import type { CreateTokenResponse, ResourceGrant, ResourceMode } from "@aperture-browser/api-client";
+import type {
+  CreateTokenResponse,
+  ResourceGrant,
+  ResourceMode,
+} from "@aperture-browser/api-client";
 
 type TokenCreateFormData = {
   name: string;

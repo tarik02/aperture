@@ -1,7 +1,11 @@
 import { useMemo, useState } from "react";
 import { Building2, Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@aperture-browser/ui/components/input-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@aperture-browser/ui/components/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@aperture-browser/ui/components/popover";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { useTenantsInfiniteQuery } from "#/features/tenant/tenant.queries.ts";

@@ -6,7 +6,8 @@
     ".": "./src/api.gen.ts"
   },
   "scripts": {
-    "generate": "node scripts/generate.ts"
+    "generate": "node scripts/generate.ts",
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "effect": "catalog:"
@@ -14,7 +15,6 @@
   "devDependencies": {
     "@effect/openapi-generator": "catalog:",
     "@effect/platform-node": "catalog:",
-    "typescript": "^6.0.3",
     "@types/node": "^26.1.1"
   }
 }

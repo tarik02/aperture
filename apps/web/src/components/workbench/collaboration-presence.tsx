@@ -1,5 +1,10 @@
 import { Lock, Radio } from "lucide-react";
-import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "@aperture-browser/ui/components/avatar";
+import {
+  Avatar,
+  AvatarBadge,
+  AvatarFallback,
+  AvatarImage,
+} from "@aperture-browser/ui/components/avatar";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
   Popover,

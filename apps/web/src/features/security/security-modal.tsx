@@ -6,7 +6,12 @@ import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { CopyButton } from "#/components/resources/copy-button.tsx";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@aperture-browser/ui/components/dialog";
 import { Field, FieldGroup, FieldLabel } from "@aperture-browser/ui/components/field";
 import { Input } from "@aperture-browser/ui/components/input";
 import { Skeleton } from "@aperture-browser/ui/components/skeleton";

@@ -125,6 +125,8 @@ function nativeSet<T extends HTMLElement>(
   property: string,
   value: string | boolean,
 ): void {
+  // The native setter is called with the element as `this` below.
+  // oxlint-disable-next-line typescript/unbound-method
   const setter = Object.getOwnPropertyDescriptor(constructor.prototype, property)?.set;
   if (!setter) throw new Error(`browser omitted the native ${property} setter`);
   setter.call(element, value);

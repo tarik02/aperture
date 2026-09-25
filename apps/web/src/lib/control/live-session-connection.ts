@@ -5,7 +5,11 @@ import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { resolveTenantHeader, type ApiCredentials, type IceServer } from "@aperture-browser/api-client";
+import {
+  resolveTenantHeader,
+  type ApiCredentials,
+  type IceServer,
+} from "@aperture-browser/api-client";
 import {
   decodeServerMessage,
   LIVE_SESSION_PROTOCOL,

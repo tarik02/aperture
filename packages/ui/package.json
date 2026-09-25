@@ -8,9 +8,7 @@
     "./utils": "./src/utils.ts"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
-    "lint": "vp lint",
-    "format:check": "vp fmt --check"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -28,11 +26,8 @@
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "typescript": "^6.0.3",
-    "vite-plus": "catalog:"
+    "react-dom": "^19.2.7"
   },
   "peerDependencies": {
     "react": "^19.2.7",

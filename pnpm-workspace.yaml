@@ -7,11 +7,13 @@ onlyBuiltDependencies:
   - esbuild
 
 catalog:
+  "@typescript/native-preview": 7.0.0-dev.20260707.2
   "@effect/language-service": 0.87.2
   "@effect/openapi-generator": 4.0.0-rc.117
   "@effect/platform-node": 4.0.0-rc.117
   effect: 4.0.0-rc.117
   effect-playwright: 0.8.0-2
+  typescript: ^6.0.3
   vite: npm:@voidzero-dev/vite-plus-core@0.2.4
   vitest: 4.1.10
   vite-plus: 0.2.4
@@ -36,14 +38,14 @@ peerDependencyRules:
     vitest: "*"
 
 minimumReleaseAgeExclude:
-  - '@typescript/native-preview-darwin-arm64@7.0.0-dev.20260707.2'
-  - '@typescript/native-preview-darwin-x64@7.0.0-dev.20260707.2'
-  - '@typescript/native-preview-linux-arm64@7.0.0-dev.20260707.2'
-  - '@typescript/native-preview-linux-arm@7.0.0-dev.20260707.2'
-  - '@typescript/native-preview-linux-x64@7.0.0-dev.20260707.2'
-  - '@typescript/native-preview-win32-arm64@7.0.0-dev.20260707.2'
-  - '@typescript/native-preview-win32-x64@7.0.0-dev.20260707.2'
-  - '@typescript/native-preview@7.0.0-dev.20260707.2'
+  - "@typescript/native-preview-darwin-arm64@7.0.0-dev.20260707.2"
+  - "@typescript/native-preview-darwin-x64@7.0.0-dev.20260707.2"
+  - "@typescript/native-preview-linux-arm64@7.0.0-dev.20260707.2"
+  - "@typescript/native-preview-linux-arm@7.0.0-dev.20260707.2"
+  - "@typescript/native-preview-linux-x64@7.0.0-dev.20260707.2"
+  - "@typescript/native-preview-win32-arm64@7.0.0-dev.20260707.2"
+  - "@typescript/native-preview-win32-x64@7.0.0-dev.20260707.2"
+  - "@typescript/native-preview@7.0.0-dev.20260707.2"
   - devalue@6.0.2
 
 allowBuilds:

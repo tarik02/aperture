@@ -4,14 +4,11 @@
   "type": "module",
   "scripts": {
     "build": "vp build",
-    "typecheck": "tsc --noEmit",
-    "lint": "vp lint",
-    "format:check": "vp fmt --check"
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
     "@types/chrome": "0.3.0",
     "effect": "catalog:",
-    "typescript": "^6.0.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

@@ -1,6 +1,10 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture-browser/api-client";
+import {
+  defaultListLimit,
+  getNextPageParam,
+  listQueryDefaults,
+} from "@aperture-browser/api-client";
 import { queryKeys, type UsersFilters } from "#/lib/api/query-keys.ts";
 import { UsersApi } from "@aperture-browser/api-client";
 import { useRunApi } from "#/lib/effect/react.tsx";

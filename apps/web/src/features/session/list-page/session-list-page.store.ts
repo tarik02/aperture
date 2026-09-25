@@ -1,7 +1,11 @@
 import * as Schema from "effect/Schema";
 import { create } from "zustand";
 import type { SessionDetailSection } from "#/components/sessions/session-detail-modals.tsx";
-import { SessionStatus, type CreateSessionResponse, type Session } from "@aperture-browser/api-client";
+import {
+  SessionStatus,
+  type CreateSessionResponse,
+  type Session,
+} from "@aperture-browser/api-client";
 import type { TagFilterValue } from "#/lib/tag-filter.ts";
 
 export type SessionConfirmAction =

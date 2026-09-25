@@ -27,7 +27,12 @@ import {
 } from "@aperture-browser/ui/components/tag-editor";
 import { ConnectionPanel } from "#/components/sessions/connection-panel.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@aperture-browser/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,

@@ -39,19 +39,15 @@ jobs:
             libgstreamer-plugins-base1.0-dev \
             pkg-config
 
-      - name: Validate and build frontend
+      - name: Validate and build TypeScript packages
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter @aperture-browser/web generate-routes
           git diff --exit-code -- apps/web/src/routeTree.gen.ts
-          pnpm --filter @aperture-browser/web format:check
-          pnpm --filter @aperture-browser/web lint
-          pnpm --filter @aperture-browser/web typecheck
-          pnpm --filter @aperture-browser/web build
-          pnpm --filter @aperture-browser/tab-window-enforcer format:check
-          pnpm --filter @aperture-browser/tab-window-enforcer lint
-          pnpm --filter @aperture-browser/tab-window-enforcer typecheck
-          pnpm --filter @aperture-browser/tab-window-enforcer build
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm build
 
       - uses: golangci/golangci-lint-action@v9.3.0
         with:

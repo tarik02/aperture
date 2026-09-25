@@ -4,9 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "vp build",
-    "typecheck": "tsc --noEmit",
-    "lint": "vp lint",
-    "format:check": "vp fmt --check"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@playwright/mcp": "0.0.82",
@@ -21,7 +19,6 @@
     "effect": "catalog:",
     "effect-playwright": "catalog:",
     "idb": "8.0.3",
-    "typescript": "^6.0.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

@@ -8,7 +8,11 @@ import {
 } from "#/components/resources/infinite-table-shell.tsx";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@aperture-browser/ui/components/input-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@aperture-browser/ui/components/input-group";
 import {
   Select,
   SelectContent,

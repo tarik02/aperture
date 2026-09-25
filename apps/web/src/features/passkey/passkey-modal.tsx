@@ -5,7 +5,12 @@ import { Check, Fingerprint, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { Button } from "@aperture-browser/ui/components/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@aperture-browser/ui/components/dialog";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@aperture-browser/ui/components/empty";
 import { Field, FieldGroup, FieldLabel } from "@aperture-browser/ui/components/field";
 import { Input } from "@aperture-browser/ui/components/input";

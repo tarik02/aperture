@@ -6,15 +6,6 @@ import viteReact from "@vitejs/plugin-react";
 const devProxyTarget = process.env.APERTURE_DEV_PROXY_TARGET;
 
 const config = defineConfig({
-  fmt: {
-    ignorePatterns: ["src/routeTree.gen.ts"],
-  },
-  lint: {
-    ignorePatterns: ["dist/**", "src/routeTree.gen.ts"],
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
-    options: { typeAware: true, typeCheck: true },
-  },
   resolve: { tsconfigPaths: true },
   build: {
     outDir: "dist",

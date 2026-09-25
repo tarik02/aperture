@@ -6,18 +6,12 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
-    "lint": "vp lint",
-    "format:check": "vp fmt --check"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@aperture-browser/api-schema": "workspace:*",
     "@simplewebauthn/browser": "13.3.0",
     "effect": "catalog:"
   },
-  "devDependencies": {
-    "@typescript/native-preview": "7.0.0-dev.20260707.2",
-    "typescript": "^6.0.3",
-    "vite-plus": "catalog:"
-  }
+  "devDependencies": {}
 }

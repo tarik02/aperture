@@ -9,9 +9,7 @@
     "dev": "vp dev --port 3000",
     "generate-routes": "tsr generate",
     "build": "vp build",
-    "typecheck": "tsgo --noEmit",
-    "lint": "vp lint",
-    "format:check": "vp fmt --check"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@aperture-browser/api-client": "workspace:*",
@@ -40,9 +38,7 @@
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "@vitejs/plugin-react": "^6.0.3",
-    "typescript": "^6.0.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

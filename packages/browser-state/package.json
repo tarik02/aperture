@@ -5,6 +5,9 @@
   "exports": {
     ".": "./src/structured-clone-codec.ts"
   },
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
   "dependencies": {
     "devalue": "6.0.2"
   }

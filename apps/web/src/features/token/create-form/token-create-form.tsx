@@ -19,7 +19,11 @@ import {
 } from "@aperture-browser/ui/components/combobox";
 import { DialogFooter, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@aperture-browser/ui/components/field";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@aperture-browser/ui/components/input-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@aperture-browser/ui/components/input-group";
 import { Input } from "@aperture-browser/ui/components/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@aperture-browser/ui/components/popover";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";

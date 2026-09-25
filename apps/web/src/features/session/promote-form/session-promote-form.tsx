@@ -28,7 +28,11 @@ import {
 } from "@aperture-browser/ui/components/field";
 import { Switch } from "@aperture-browser/ui/components/switch";
 import { Textarea } from "@aperture-browser/ui/components/textarea";
-import { TagEditor, entriesToTags, tagsToEntries } from "@aperture-browser/ui/components/tag-editor";
+import {
+  TagEditor,
+  entriesToTags,
+  tagsToEntries,
+} from "@aperture-browser/ui/components/tag-editor";
 import {
   usePromoteSessionMutation,
   useSuspendSessionMutation,

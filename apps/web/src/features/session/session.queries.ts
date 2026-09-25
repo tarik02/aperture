@@ -1,5 +1,9 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture-browser/api-client";
+import {
+  defaultListLimit,
+  getNextPageParam,
+  listQueryDefaults,
+} from "@aperture-browser/api-client";
 import * as Effect from "effect/Effect";
 import {
   ApiCredentialsUnavailableError,

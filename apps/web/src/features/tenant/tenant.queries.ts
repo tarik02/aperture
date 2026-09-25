@@ -1,5 +1,9 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture-browser/api-client";
+import {
+  defaultListLimit,
+  getNextPageParam,
+  listQueryDefaults,
+} from "@aperture-browser/api-client";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type TenantsFilters } from "#/lib/api/query-keys.ts";
 import { TenantsApi } from "@aperture-browser/api-client";
