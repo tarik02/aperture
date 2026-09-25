@@ -578,6 +578,10 @@
             ];
 
             preBuild = ''
+              # pnpm 11.27.1's bin shims run readlink, sed, uname and printf through
+              # `command -p`, which only searches /bin and /usr/bin. The build sandbox has
+              # neither, so the shims look the tools up on PATH here instead.
+              find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
               pnpm --filter @aperture-browser/restore-worker build
               pnpm --filter @aperture-browser/tab-window-enforcer build
               pnpm --filter @aperture-browser/web build
