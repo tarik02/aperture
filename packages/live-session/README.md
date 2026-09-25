@@ -8,4 +8,4 @@ The framework-agnostic client for [Aperture](https://github.com/tarik02/aperture
 
 For a ready-made UI, see [`@aperture-browser/session-react`](https://www.npmjs.com/package/@aperture-browser/session-react). Requires `effect` 4.
 
-Documentation: https://aperture-docs.pages.dev/docs/packages/live-session
+Documentation: https://aperture-docs-1sd.pages.dev/docs/packages/live-session
