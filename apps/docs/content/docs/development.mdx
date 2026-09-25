@@ -1,4 +1,7 @@
-# Development
+---
+title: Development
+description: Run the complete stack from source, work on the TypeScript workspace, and cut releases.
+---
 
 Use the default development shell for project tooling:
 
@@ -98,7 +101,7 @@ Use `nix run .#dev -- --help` or `nix run .#dev-gpu -- --help` for the complete 
 
 ## TypeScript workspace
 
-The pnpm workspace holds the web app and the restore worker (`apps/`), the browser extensions (`extensions/`) and the shared packages (`packages/`). From the repository root:
+The pnpm workspace holds the web app, this documentation site and the restore worker (`apps/`), the browser extensions (`extensions/`) and the shared packages (`packages/`). From the repository root:
 
 ```bash
 pnpm install
@@ -106,6 +109,16 @@ pnpm format:check && pnpm lint && pnpm typecheck && pnpm build
 ```
 
 Dependency versions live in the catalogs in `pnpm-workspace.yaml`; manifests reference them as `catalog:` (or `catalog:peers` for the peer ranges of published packages). `pnpm add` does this automatically, and `pnpm lint` fails on a manifest that names a version directly.
+
+### Documentation
+
+This site lives in `apps/docs` ([Fumadocs](https://fumadocs.dev) on TanStack Start). Pages are MDX files in `apps/docs/content/docs`; the package pages generate their type tables from the packages' sources with `<auto-type-table>`, and the [REST API reference](/api-reference) renders `api/openapi.yaml` with Scalar.
+
+```bash
+pnpm --filter @aperture-browser/docs dev
+```
+
+Pushes to `master` that touch the docs, the packages or the OpenAPI spec deploy the site to [GitHub Pages](https://tarik02.github.io/aperture). Each Aperture instance also serves its own API reference at `/docs`.
 
 ## Releases
 
@@ -120,11 +133,11 @@ The `npm.yml` workflow publishes the packages when the release is published. It 
 
 Adding one of these labels to a pull request starts a build of its head commit:
 
-| Label | Result |
-|---|---|
-| `build-binaries` | The release archives, as a workflow artifact |
-| `build-docker` | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment |
-| `publish-npm` | The npm packages at `0.0.0-pr.<number>.<sha>` under the `pr-<number>` dist-tag |
+| Label            | Result                                                                         |
+| ---------------- | ------------------------------------------------------------------------------ |
+| `build-binaries` | The release archives, as a workflow artifact                                   |
+| `build-docker`   | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment             |
+| `publish-npm`    | The npm packages at `0.0.0-pr.<number>.<sha>` under the `pr-<number>` dist-tag |
 
 Each of those workflows runs on `pull_request_target`, so its definition comes from the default branch, its runs show on the pull request, and pull requests from forks build too. A shared gate job removes the label and stops the run unless whoever added it has write access. The build then checks out the pull request's head commit. Adding a label approves running that commit with the workflow's credentials, so review it first.
 

@@ -1,0 +1,30 @@
+---
+title: Overview
+description: What Aperture is and where to go next.
+---
+
+Aperture supervises Chromium sessions on a Linux host. It starts browsers on demand, keeps their state between runs, and exposes each one over the Chrome DevTools Protocol, a live WebRTC or WebSocket view, and a REST API.
+
+<Cards>
+  <Card title="Install with Nix" href="/docs/installation">
+    Run Aperture as a per-user service on NixOS or any Linux host with user systemd.
+  </Card>
+  <Card title="Run in Docker" href="/docs/docker">
+    One container with Chromium, the media stack and Traefik, with software or GPU rendering.
+  </Card>
+  <Card title="Share and embed sessions" href="/docs/session-sharing">
+    Give editor or viewer links to a live session, or embed it in your own app.
+  </Card>
+  <Card title="REST API" href="/api-reference">
+    Every endpoint, generated from the OpenAPI spec.
+  </Card>
+</Cards>
+
+## npm packages
+
+| Package                                                               | Use it to                                                       |
+| --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| [`@aperture-browser/session-element`](/docs/packages/session-element) | Embed a session in any page with a custom element               |
+| [`@aperture-browser/session-react`](/docs/packages/session-react)     | Embed a session in a React app, with or without the built-in UI |
+| [`@aperture-browser/api-client`](/docs/packages/api-client)           | Call the REST API from Effect                                   |
+| [`@aperture-browser/live-session`](/docs/packages/live-session)       | Speak the live-session protocol without a UI framework          |

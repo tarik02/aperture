@@ -1,13 +1,16 @@
-# Docker
+---
+title: Docker
+description: Run Aperture as a single container, with software or GPU rendering.
+---
 
 The Docker images contain Chromium, the WebRTC media stack, the patched Weston compositor, GStreamer, PipeWire/WirePlumber, bubblewrap, Playwright MCP, Traefik, and s6-overlay.
 
 Aperture publishes two variants:
 
-| Tag | Architectures | Rendering and media |
-| --- | --- | --- |
-| `<tag>` | amd64, arm64 | Weston pixman, Chromium SwiftShader, and VP8 by default; Intel OpenGL and VA-API H.264 on amd64 when the GPU override is active |
-| `<tag>-gpu` | amd64, arm64 | Broad Mesa hardware drivers, H.264 VA or VP8 |
+| Tag         | Architectures | Rendering and media                                                                                                             |
+| ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `<tag>`     | amd64, arm64  | Weston pixman, Chromium SwiftShader, and VP8 by default; Intel OpenGL and VA-API H.264 on amd64 when the GPU override is active |
+| `<tag>-gpu` | amd64, arm64  | Broad Mesa hardware drivers, H.264 VA or VP8                                                                                    |
 
 The base image has no Mesa software rasterizers. Chromium uses its bundled SwiftShader while Weston uses pixman. On amd64, the base image also contains Intel OpenGL and VA-API drivers without Vulkan. The GPU override activates them. The `-gpu` image has broader hardware support. Both images omit llvmpipe, softpipe, and Lavapipe.
 

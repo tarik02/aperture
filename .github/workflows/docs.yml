@@ -1,0 +1,65 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - apps/docs/**
+      - packages/**
+      - api/openapi.yaml
+      - pnpm-lock.yaml
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build docs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - id: pages
+        uses: actions/configure-pages@v6.0.0
+
+      - name: Build
+        env:
+          DOCS_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @aperture-browser/docs build
+
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: apps/docs/dist/client
+
+  deploy:
+    name: deploy docs
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5.0.1

@@ -1,0 +1,106 @@
+---
+title: session-element
+description: Custom elements that embed a live Aperture session in any page, isolated in Shadow DOM.
+---
+
+Two custom elements render a session into Shadow DOM, so the page's styles and the session's never mix. Each bundles React and everything else it needs.
+
+- `<aperture-session>`: the session with its UI: tabs, toolbar and menus.
+- `<aperture-session-view>`: the session alone, for pages that build their own controls. It skips the UI kit and stylesheet, so it is much smaller.
+
+Both load a shared module next to them, so a page that uses both loads React and the session core once. When Aperture runs on another origin, it must list your origin in [`embed_allowed_origins`](/docs/session-sharing#embedding).
+
+## `<aperture-session>`
+
+```html
+<script
+  type="module"
+  src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element/dist/aperture-session.js"
+></script>
+
+<aperture-session
+  base-url="https://aperture.example"
+  token="apv_…"
+  style="display: block; height: 600px"
+></aperture-session>
+```
+
+Or from a bundler: `import "@aperture-browser/session-element";`.
+
+| Attribute  |                                                                                                                                                    |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token`    | A share link's editor (`ape_…`) or viewer (`apv_…`) token. The element grants exactly what the link grants.                                        |
+| `base-url` | The Aperture instance, when it is not the page's own origin.                                                                                       |
+| `hide`     | Parts of the UI to leave out, separated by spaces: `tabs`, `navigation`, `address-bar`, `presence`, `drawing`, `menus`, `status-badge`, `toaster`. |
+| `theme`    | `light`, `dark` or `system` (the default).                                                                                                         |
+
+The `features` property takes the same switches as [session-react](/docs/packages/session-react#features)'s `features` prop, e.g. `element.features = { tabs: false, addressBar: false }`. It is applied on top of `hide`.
+
+<auto-type-table
+  cwd
+  path="../../packages/session-element/src/index.tsx"
+  name="ApertureSessionFeatures"
+/>
+
+The element fills the size you give it. It uses the page's font; set `--aperture-font-sans` and `--aperture-font-mono` (used for URLs) on the element to pick others. It adds one `<style>` to the page for its CSS custom property registrations, which browsers ignore inside shadow roots.
+
+## `<aperture-session-view>`
+
+```html
+<script
+  type="module"
+  src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element/dist/aperture-session-view.js"
+></script>
+
+<aperture-session-view
+  id="session"
+  base-url="https://aperture.example"
+  token="ape_…"
+></aperture-session-view>
+
+<script type="module">
+  const session = document.getElementById("session");
+  session.addEventListener("aperture-change", ({ detail }) => {
+    console.log(detail.status, detail.tabs, detail.activeTabId);
+  });
+  await session.whenConnected();
+  await session.navigate("https://example.com");
+</script>
+```
+
+Or from a bundler: `import "@aperture-browser/session-element/headless";`.
+
+It takes the `token` and `base-url` attributes and shows the active tab, forwarding input to it.
+
+### State
+
+`snapshot` holds the current state, and the `aperture-change` event carries each new one. `status` is `loading`, `ready`, `invalid`, `expired` or `unavailable`.
+
+<auto-type-table
+  cwd
+  path="../../packages/session-element/src/headless.tsx"
+  name="ApertureSessionSnapshot"
+/>
+
+<auto-type-table cwd path="../../packages/session-element/src/headless.tsx" name="ApertureTab" />
+
+### Methods
+
+| Method                                      | Resolves with                                      |
+| ------------------------------------------- | -------------------------------------------------- |
+| `navigate(url)`                             | nothing                                            |
+| `back()`, `forward()`, `reload()`, `stop()` | nothing                                            |
+| `openTab(url?)`                             | the new tab's id                                   |
+| `closeTab(id)`                              | nothing                                            |
+| `activateTab(id)`                           | nothing, once `snapshot.activeTabId` shows the tab |
+| `whenConnected()`                           | the snapshot, once the session is connected        |
+
+They act on the active tab where it applies and resolve once Aperture has carried the command out. They reject with an `Error` (`_tag` `LiveSessionError`) whose `message` says why: the session is not connected yet, or Aperture refused the command, for example a viewer token trying to navigate. `whenConnected()` rejects if the token turns out invalid, expired or unavailable. `reconnect()` drops the connection and opens it again.
+
+### Notices
+
+The `aperture-notice` event carries the errors and confirmations that `<aperture-session>` would show as toasts.
+
+<auto-type-table cwd path="../../packages/session-element/src/headless.tsx" name="ApertureNotice" />
+
+React apps that want to share their own React copy can use [session-react](/docs/packages/session-react) instead, which has the same full and headless split.

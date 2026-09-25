@@ -7,3 +7,5 @@ The framework-agnostic client for [Aperture](https://github.com/tarik02/aperture
 - helpers that map DOM keyboard and pointer events to browser input messages, and viewport math.
 
 For a ready-made UI, see [`@aperture-browser/session-react`](https://www.npmjs.com/package/@aperture-browser/session-react). Requires `effect` 4.
+
+Documentation: https://tarik02.github.io/aperture/docs/packages/live-session
