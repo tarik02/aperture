@@ -39,14 +39,13 @@ jobs:
 
       - run: pnpm --filter "./packages/**" build
 
-      # Nothing bumps package.json for nightlies. Runs after the build: it rewrites
-      # workspace specifiers, and pnpm re-checks the frozen lockfile against them
-      # before running scripts.
+      # Nothing bumps package.json for nightlies. Internal deps use workspace:*, so
+      # pack pins them to this version too.
       - name: Set nightly version
         if: github.event.release.prerelease
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: node scripts/set-snapshot-version.ts "${RELEASE_TAG#v}"
+        run: pnpm --recursive --filter "./packages/**" exec npm pkg set version="${RELEASE_TAG#v}"
 
       - name: Pack packages
         run: pnpm --filter "./packages/**" pack --recursive --pack-destination "$RUNNER_TEMP/packages"

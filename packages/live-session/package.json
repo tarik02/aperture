@@ -32,7 +32,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@aperture-browser/api-client": "workspace:^"
+    "@aperture-browser/api-client": "workspace:*"
   },
   "devDependencies": {
     "effect": "catalog:",
