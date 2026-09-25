@@ -59,6 +59,11 @@ jobs:
 
       - uses: cachix/install-nix-action@v31.10.7
 
+      - uses: cachix/cachix-action@v17
+        with:
+          name: aperture-browser
+          skipPush: true
+
       - uses: docker/login-action@v4.1.0
         with:
           registry: ghcr.io

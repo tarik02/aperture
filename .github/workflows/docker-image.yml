@@ -15,6 +15,10 @@ on:
         description: Newline-separated GHCR tags
         required: true
         type: string
+    secrets:
+      CACHIX_AUTH_TOKEN:
+        description: Token for pushing to the aperture-browser Cachix cache
+        required: false
 
 permissions:
   contents: read
@@ -57,10 +61,18 @@ jobs:
 
       - uses: cachix/install-nix-action@v31.10.7
 
-      - uses: DeterminateSystems/magic-nix-cache-action@v14
+      - name: Resolve cached dependencies
+        id: deps
+        run: echo "path=$(nix eval --raw "path:.#docker-build-deps.outPath")" >> "$GITHUB_OUTPUT"
+
+      # Only master pushes, and only the custom dependencies: the image itself changes with
+      # every commit and would fill the cache.
+      - uses: cachix/cachix-action@v17
         with:
-          diagnostic-endpoint: ""
-          use-flakehub: false
+          name: aperture-browser
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.ref != 'refs/heads/master' }}
+          pathsToPush: ${{ steps.deps.outputs.path }}
 
       - uses: docker/login-action@v4.1.0
         with:
@@ -76,6 +88,11 @@ jobs:
           printf '%s' "$VERSION" > .aperture-deploy-version
           printf '%s' "$(git rev-parse HEAD)" > .aperture-source-revision
           nix build "path:.#$NIX_ATTRIBUTE" --print-build-logs
+
+      # Each image needs only part of them; Cachix pushes this whole set when the job ends.
+      - name: Build cached dependencies
+        if: github.ref == 'refs/heads/master'
+        run: nix build "path:.#docker-build-deps" --no-link --print-build-logs
 
       - name: Push architecture image
         id: push
