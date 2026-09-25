@@ -14,6 +14,7 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
 import { Playwright } from "effect-playwright";
+import { errorMessage } from "./browser/error.js";
 import { makeCdp, restoreError } from "./cdp.js";
 import { PayloadSource } from "./payload-source.js";
 import { restoreStorage } from "./restore-storage.js";
@@ -31,9 +32,18 @@ class UsageError extends Data.TaggedError("UsageError")<{ readonly message: stri
   readonly [Runtime.errorExitCode] = 64;
 }
 
-// Other failures stay generic because their details may contain restored browser data.
+// Go logs this failure's bounded diagnostic locally and keeps the public API error generic.
 class RestoreFailed extends Data.TaggedError("RestoreFailed")<{ readonly message: string }> {
   readonly [Runtime.errorExitCode] = 1;
+}
+
+// Strips URLs and file paths, which may carry restored browser data, from a failure.
+function diagnosticMessage(error: unknown): string {
+  return errorMessage(error)
+    .replaceAll(/\b(?:https?|wss?|file):\/\/\S+|\b(?:blob|data):\S+/giu, "[url]")
+    .replaceAll(/(^|\s)\/(?:[^\s/]+\/)+\S*/gu, "$1[path]")
+    .replaceAll(/\s+/gu, " ")
+    .slice(0, 2048);
 }
 
 const decodeCapsule = Schema.decodeUnknownResult(Capsule);
@@ -116,7 +126,7 @@ const program = main().pipe(
       const reported =
         error instanceof InvalidCapsule || error instanceof UsageError
           ? error
-          : new RestoreFailed({ message: "browser restore failed" });
+          : new RestoreFailed({ message: diagnosticMessage(error) });
       return Stdio.Stdio.use((stdio) =>
         Stream.make(`${reported.message}\n`).pipe(Stream.run(stdio.stderr())),
       ).pipe(Effect.ignore, Effect.andThen(Effect.fail(reported)));

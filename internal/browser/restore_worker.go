@@ -165,12 +165,14 @@ func writeCapsuleFile(capsule []byte) (string, func(), error) {
 }
 
 // restoreWorkerError converts the worker's exit status into an error. Exit code 2
-// means the capsule is invalid and stderr names the offending field.
+// means the capsule is invalid and stderr names the offending field; any other
+// failure's diagnostic is logged locally.
 func restoreWorkerError(ctx context.Context, stderr *bytes.Buffer, err error) error {
 	if err == nil {
 		return nil
 	}
 	if ctx.Err() != nil {
+		fmt.Fprintf(os.Stderr, "browser-session-wrapper: restore worker stopped: %v\n", ctx.Err())
 		return fmt.Errorf("browser restore worker stopped: %w", ctx.Err())
 	}
 	message := strings.TrimSpace(stderr.String())
@@ -178,8 +180,11 @@ func restoreWorkerError(ctx context.Context, stderr *bytes.Buffer, err error) er
 	if errors.As(err, &exit) && exit.ExitCode() == 2 {
 		return fmt.Errorf("%w: %s", ErrInvalidSessionInitialization, message)
 	}
+	// Any other diagnostic stays in the local log: the API error remains generic.
 	if message != "" {
-		return fmt.Errorf("browser restore worker failed: %s", message)
+		fmt.Fprintf(os.Stderr, "browser-session-wrapper: restore worker failed: %s\n", message)
+	} else {
+		fmt.Fprintf(os.Stderr, "browser-session-wrapper: restore worker failed: %v\n", err)
 	}
-	return fmt.Errorf("browser restore worker failed: %w", err)
+	return errors.New("browser restore worker failed")
 }

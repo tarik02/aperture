@@ -28,7 +28,7 @@ interface CreatedTarget {
   sources: Record<string, string>;
 }
 
-// Fails the target when the preload could not apply history state or window.name.
+// Fails the target when the preload could not apply window.name.
 const checkPreload = Effect.fnUntraced(function* (page: Playwright.Page) {
   const error = yield* page.evaluate(
     (key) => Reflect.get(window, Symbol.for(key)) as string | undefined,
@@ -75,13 +75,22 @@ const createTarget = Effect.fnUntraced(function* (
       payloads.target({
         url: target.url,
         windowName: target.documentState?.windowName,
-        historyState: target.documentState?.historyState,
       }),
     );
 
-    yield* page.goto(target.url, { waitUntil: "domcontentloaded", timeout: minute });
+    yield* page.goto(target.url, { waitUntil: "commit", timeout: minute });
     yield* cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: targetScript });
     yield* checkPreload(page);
+
+    const historyState = target.documentState?.historyState;
+    if (historyState !== undefined && page.url() === new URL(target.url).href) {
+      const error = yield* page.evaluate<string | undefined>(
+        payloads.targetHistoryState(historyState),
+      );
+      if (error) return yield* restoreError(`restore initial document state: ${error}`);
+    }
+
+    yield* page.waitForLoadState("domcontentloaded", { timeout: minute });
     yield* restoreDocument(page, target);
 
     // Session storage for origins that already loaded is in place. The rest is handed back

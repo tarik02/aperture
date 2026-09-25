@@ -15,6 +15,8 @@ export class PayloadSource extends Context.Service<
   PayloadSource,
   {
     readonly target: (state: TargetPreload) => string;
+    /** Applies saved history state to a committed document; evaluates to an error or undefined. */
+    readonly targetHistoryState: (encoded: string) => string;
     readonly sessionStorage: (state: unknown) => string;
     readonly originStorage: (state: unknown) => string;
     /** Evaluates to the src/browser/document.ts module, for use through a JSHandle. */
@@ -39,6 +41,8 @@ export class PayloadSource extends Context.Service<
 
       return PayloadSource.of({
         target: (state) => source(target, "ApertureTargetRestore", state),
+        targetHistoryState: (encoded) =>
+          `(() => {\n${target}\nreturn ApertureTargetRestore.restoreHistoryState(${JSON.stringify(encoded)});\n})()`,
         sessionStorage: (state) => source(sessionStorage, "ApertureSessionStorageRestore", state),
         originStorage: (state) => source(originStorage, "ApertureOriginStorageRestore", state),
         documentHelpers: () => `(() => {\n${document}\nreturn ApertureDocument;\n})()`,

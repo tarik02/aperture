@@ -5,7 +5,6 @@ import { preloadErrorKey, windowOpenKey } from "./page-keys.js";
 export interface TargetPreload {
   url: string;
   windowName?: string;
-  historyState?: string;
 }
 
 // Runs before page scripts: state that pages read while starting up has to be in place
@@ -21,10 +20,17 @@ export function run(state: TargetPreload): void {
 
   try {
     if (state.windowName !== undefined) window.name = state.windowName;
-    if (state.historyState !== undefined) {
-      history.replaceState(decodeStructuredClone(state.historyState), "");
-    }
   } catch (error) {
     Reflect.set(window, Symbol.for(preloadErrorKey), errorMessage(error));
+  }
+}
+
+// A same-document navigation from a pending-commit RenderFrameHost is invalid Chromium
+// IPC. The worker calls this only after the cross-document navigation has committed.
+export function restoreHistoryState(encoded: string): string | undefined {
+  try {
+    history.replaceState(decodeStructuredClone(encoded), "");
+  } catch (error) {
+    return errorMessage(error);
   }
 }
