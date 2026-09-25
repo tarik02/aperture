@@ -10,8 +10,17 @@ These public routes are forwarded to the running session:
 - `GET /sessions/:sessionId/browser/status` — `sessions:read`
 - `POST /sessions/:sessionId/browser/viewport` — `sessions:write`
 - `GET /sessions/:sessionId/webrtc/signal` — WebRTC signaling WebSocket
+- `GET /sessions/:sessionId/tunnel` — local tunnel WebSocket; `sessionToken` or `sessions:write`
 
 Use an authorized API bearer token and tenant header, or the bound `sessionToken`, for routed live-session requests.
+
+## Local tunnel
+
+A local tunnel carries browser connections over one client-opened WebSocket and dials them on the client's machine, so the browser can reach, for example, a dev server on a developer's laptop. The session's [proxy rules](control-plane.md) decide which connections it carries: those whose rule has `"via": "local"`, such as `{ "match": "localhost:3000", "via": "local" }`. Open `GET /sessions/:sessionId/tunnel` with the `aperture-tunnel.v1` subprotocol to attach.
+
+The browser reaches the client's services as `localhost`, never `127.0.0.1` or `[::1]`: loopback IPs bypass the session proxy.
+
+After the upgrade, binary WebSocket messages carry a yamux session in which the client is the yamux server. Aperture opens one stream per matching browser connection. Each stream carries a SOCKS5 session: a no-auth greeting, then a `CONNECT` with the target. The client dials the target and replies as a SOCKS5 server would. `via: local` connections fail while no client is attached. A new attach replaces the session's previous local tunnel.
 
 ## Live-session protocol
 

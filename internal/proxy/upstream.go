@@ -32,23 +32,14 @@ func (DirectDialer) DialContext(ctx context.Context, network, address string) (n
 	return d.DialContext(ctx, network, address)
 }
 
-// NewUpstreamDialer builds the dialer for a validated proxy assignment.
-// Direct mode returns a DirectDialer; proxy mode returns a client for the
-// generic upstream URL; tunnel mode is owned by the tunnel manager and
-// returns an error here.
-func NewUpstreamDialer(a Assignment) (Dialer, error) {
-	switch a.NormalizedUpstream() {
-	case UpstreamDirect:
-		return DirectDialer{}, nil
-	case UpstreamProxy:
-		u, err := ParseUpstreamProxyURL(a.URL)
-		if err != nil {
-			return nil, err
-		}
-		return dialerForUpstreamURL(u)
-	default:
-		return nil, fmt.Errorf("proxy: upstream %q is not a static dialer", string(a.Upstream))
+// NewUpstreamDialer builds a client for a generic upstream proxy URL. Tunnel
+// upstreams are owned by the manager and are not static dialers.
+func NewUpstreamDialer(rawURL string) (Dialer, error) {
+	u, err := ParseUpstreamProxyURL(rawURL)
+	if err != nil {
+		return nil, err
 	}
+	return dialerForUpstreamURL(u)
 }
 
 func dialerForUpstreamURL(u *url.URL) (Dialer, error) {

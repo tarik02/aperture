@@ -2,6 +2,8 @@ package db
 
 import (
 	"github.com/uptrace/bun"
+
+	"github.com/aperture/aperture/internal/proxy"
 )
 
 // SchemaMigration tracks applied SQL migrations.
@@ -216,19 +218,17 @@ type Session struct {
 	CurrentCDPPort  *int    `bun:"current_cdp_port"`
 	BrowserChannel  string  `bun:"browser_channel,notnull"`
 	BrowserArgsJSON string  `bun:"browser_args_json,notnull"`
-	ProxyUpstream   string  `bun:"proxy_upstream,notnull,default:'direct'"`
-	ProxyURL        *string `bun:"proxy_url"`
-	ProxyTunnelURL  *string `bun:"proxy_tunnel_url"`
-	ProxyTunnelAuth *string `bun:"proxy_tunnel_auth"`
-	ProxyBypass     *string `bun:"proxy_bypass"`
-	CreatedAt       string  `bun:"created_at,notnull"`
-	StartedAt       *string `bun:"started_at"`
-	StoppedAt       *string `bun:"stopped_at"`
-	DeletedAt       *string `bun:"deleted_at"`
-	ExpiresAt       string  `bun:"expires_at,notnull"`
-	ExpiredAt       *string `bun:"expired_at"`
-	LastConnectedAt *string `bun:"last_connected_at"`
-	SuspendedAt     *string `bun:"suspended_at"`
+	// ProxyConfig is stored as JSON, secrets included; NULL is the default
+	// configuration.
+	ProxyConfig     *proxy.Config `bun:"proxy_config"`
+	CreatedAt       string        `bun:"created_at,notnull"`
+	StartedAt       *string       `bun:"started_at"`
+	StoppedAt       *string       `bun:"stopped_at"`
+	DeletedAt       *string       `bun:"deleted_at"`
+	ExpiresAt       string        `bun:"expires_at,notnull"`
+	ExpiredAt       *string       `bun:"expired_at"`
+	LastConnectedAt *string       `bun:"last_connected_at"`
+	SuspendedAt     *string       `bun:"suspended_at"`
 }
 
 // SessionToken maps the session_tokens table.

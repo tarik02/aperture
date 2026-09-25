@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/mail"
 	"strings"
 	"time"
@@ -324,30 +325,129 @@ func (r createSessionRequest) initialization() browser.SessionInitialization {
 	return browser.SessionInitialization{Targets: r.InitialTargets, StorageState: r.StorageState}
 }
 
-type proxyTunnelRequest struct {
+type proxyUpstreamRequest struct {
 	URL  string `json:"url"`
 	Auth string `json:"auth"`
 }
 
-type proxyConfigRequest struct {
-	Upstream string             `json:"upstream"`
-	URL      string             `json:"url"`
-	Tunnel   proxyTunnelRequest `json:"tunnel"`
-	Bypass   string             `json:"bypass"`
+type proxyRuleRequest struct {
+	Match string `json:"match"`
+	Via   string `json:"via"`
 }
 
-func (r proxyConfigRequest) assignment() proxy.Assignment {
-	return proxy.Assignment{
-		Upstream:   proxy.Upstream(strings.TrimSpace(r.Upstream)),
-		URL:        strings.TrimSpace(r.URL),
-		TunnelURL:  strings.TrimSpace(r.Tunnel.URL),
-		TunnelAuth: r.Tunnel.Auth,
-		Bypass:     strings.TrimSpace(r.Bypass),
+type proxyConfigRequest struct {
+	Upstreams map[string]proxyUpstreamRequest `json:"upstreams"`
+	Rules     []proxyRuleRequest              `json:"rules"`
+
+	// The single-upstream shape from before rules. Clients built against it
+	// are still deployed, so it is accepted and translated into rules.
+	Upstream *string               `json:"upstream"`
+	URL      *string               `json:"url"`
+	Tunnel   *proxyUpstreamRequest `json:"tunnel"`
+	Bypass   *string               `json:"bypass"`
+}
+
+func (r proxyConfigRequest) config() (proxy.Config, error) {
+	if r.Upstream != nil || r.URL != nil || r.Tunnel != nil || r.Bypass != nil {
+		if r.Upstreams != nil || r.Rules != nil {
+			return proxy.Config{}, validationError("proxy upstream, url, tunnel and bypass cannot be combined with upstreams and rules")
+		}
+		return r.legacyConfig()
 	}
+
+	config := proxy.Config{}
+	if len(r.Upstreams) > 0 {
+		config.Upstreams = make(map[string]proxy.UpstreamConfig, len(r.Upstreams))
+		for name, upstream := range r.Upstreams {
+			config.Upstreams[name] = proxy.UpstreamConfig{URL: strings.TrimSpace(upstream.URL), Auth: upstream.Auth}
+		}
+	}
+	for _, rule := range r.Rules {
+		config.Rules = append(config.Rules, proxy.Rule{Match: strings.TrimSpace(rule.Match), Via: strings.TrimSpace(rule.Via)})
+	}
+	return config, nil
+}
+
+// legacyConfig translates the single-upstream shape into rules. The final "*"
+// rule never matches localhost, as Chromium used to bypass loopback.
+func (r proxyConfigRequest) legacyConfig() (proxy.Config, error) {
+	upstream := ""
+	if r.Upstream != nil {
+		upstream = strings.TrimSpace(*r.Upstream)
+	}
+	proxyURL := ""
+	if r.URL != nil {
+		proxyURL = strings.TrimSpace(*r.URL)
+	}
+	tunnel := proxyUpstreamRequest{}
+	if r.Tunnel != nil {
+		tunnel = proxyUpstreamRequest{URL: strings.TrimSpace(r.Tunnel.URL), Auth: r.Tunnel.Auth}
+	}
+	hasTunnel := tunnel.URL != "" || strings.TrimSpace(tunnel.Auth) != ""
+
+	config := proxy.Config{}
+	via := ""
+	switch upstream {
+	case "", proxy.LegacyUpstreamDirect:
+		if proxyURL != "" {
+			return proxy.Config{}, validationError("proxy url is only valid with upstream=proxy")
+		}
+		if hasTunnel {
+			return proxy.Config{}, validationError("tunnel settings are only valid with upstream=tunnel")
+		}
+		return config, nil
+	case proxy.LegacyUpstreamProxy:
+		if proxyURL == "" {
+			return proxy.Config{}, validationError("proxy url is required with upstream=proxy")
+		}
+		if hasTunnel {
+			return proxy.Config{}, validationError("tunnel settings are only valid with upstream=tunnel")
+		}
+		via = proxyURL
+	case proxy.LegacyUpstreamTunnel:
+		if proxyURL != "" {
+			return proxy.Config{}, validationError("proxy url is only valid with upstream=proxy")
+		}
+		if tunnel.URL == "" {
+			return proxy.Config{}, validationError("tunnel url is required with upstream=tunnel")
+		}
+		if strings.TrimSpace(tunnel.Auth) == "" {
+			return proxy.Config{}, validationError("tunnel auth is required with upstream=tunnel")
+		}
+		via = proxy.LegacyUpstreamTunnel
+		config.Upstreams = map[string]proxy.UpstreamConfig{via: {URL: tunnel.URL, Auth: tunnel.Auth}}
+	default:
+		return proxy.Config{}, validationError(fmt.Sprintf("unknown proxy upstream %q", upstream))
+	}
+
+	if r.Bypass != nil {
+		separators := func(c rune) bool { return c == ';' || c == ',' }
+		for _, entry := range strings.FieldsFunc(*r.Bypass, separators) {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			match := entry
+			// Chromium reads a leading dot as any subdomain.
+			if strings.HasPrefix(match, ".") {
+				match = "*" + match
+			}
+			if _, err := proxy.ParseHostPattern(match); err != nil {
+				return proxy.Config{}, validationError(fmt.Sprintf("unsupported proxy bypass entry %q: use upstreams and rules instead", entry))
+			}
+			config.Rules = append(config.Rules, proxy.Rule{Match: match, Via: proxy.ViaDirect})
+		}
+	}
+	config.Rules = append(config.Rules, proxy.Rule{Match: "*", Via: via})
+	return config, nil
 }
 
 func (r proxyConfigRequest) Validate() error {
-	if err := r.assignment().Validate(); err != nil {
+	config, err := r.config()
+	if err != nil {
+		return err
+	}
+	if err := config.Validate(); err != nil {
 		return validationError(err.Error())
 	}
 	return nil
@@ -358,33 +458,48 @@ type updateProxyRequest struct {
 	Drain bool `json:"drain"`
 }
 
-type sessionProxyTunnelView struct {
-	URL string `json:"url,omitempty"`
+type sessionProxyUpstreamView struct {
+	URL string `json:"url"`
+}
+
+type sessionProxyRuleView struct {
+	Match string `json:"match"`
+	Via   string `json:"via"`
 }
 
 type sessionProxyView struct {
-	Upstream string                  `json:"upstream"`
-	URL      string                  `json:"url,omitempty"`
-	Tunnel   *sessionProxyTunnelView `json:"tunnel,omitempty"`
-	Bypass   string                  `json:"bypass,omitempty"`
+	Upstreams map[string]sessionProxyUpstreamView `json:"upstreams"`
+	Rules     []sessionProxyRuleView              `json:"rules"`
+
+	// The single-upstream shape, kept for clients that still decode it and
+	// require upstream.
+	Upstream string                    `json:"upstream"`
+	URL      string                    `json:"url,omitempty"`
+	Tunnel   *sessionProxyUpstreamView `json:"tunnel,omitempty"`
+	Bypass   string                    `json:"bypass,omitempty"`
 }
 
-// toSessionProxyView renders the stored assignment without secrets. Tunnel
-// auth is write-only and never appears in responses; an upstream proxy URL
-// comes back with its password masked.
-func toSessionProxyView(upstream, url, tunnelURL, bypass string) *sessionProxyView {
-	view := &sessionProxyView{Upstream: upstream}
-	if upstream == "" {
-		view.Upstream = string(proxy.UpstreamDirect)
+// toSessionProxyView renders the stored configuration without secrets. Tunnel
+// auth is write-only and never appears in responses; proxy URLs come back with
+// their passwords masked.
+func toSessionProxyView(config proxy.Config) *sessionProxyView {
+	redacted := config.Redacted()
+	legacy, _ := redacted.Legacy()
+	view := &sessionProxyView{
+		Upstreams: make(map[string]sessionProxyUpstreamView, len(redacted.Upstreams)),
+		Rules:     make([]sessionProxyRuleView, 0, len(redacted.Rules)),
+		Upstream:  legacy.Upstream,
+		URL:       legacy.URL,
+		Bypass:    legacy.Bypass,
 	}
-	if strings.TrimSpace(url) != "" {
-		view.URL = proxy.RedactedURL(url)
+	if legacy.TunnelURL != "" {
+		view.Tunnel = &sessionProxyUpstreamView{URL: legacy.TunnelURL}
 	}
-	if strings.TrimSpace(tunnelURL) != "" {
-		view.Tunnel = &sessionProxyTunnelView{URL: tunnelURL}
+	for name, upstream := range redacted.Upstreams {
+		view.Upstreams[name] = sessionProxyUpstreamView{URL: upstream.URL}
 	}
-	if strings.TrimSpace(bypass) != "" {
-		view.Bypass = bypass
+	for _, rule := range redacted.Rules {
+		view.Rules = append(view.Rules, sessionProxyRuleView{Match: rule.Match, Via: rule.Via})
 	}
 	return view
 }
