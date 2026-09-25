@@ -126,4 +126,6 @@ Adding one of these labels to a pull request starts a build of its head commit:
 | `build-docker` | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment |
 | `publish-npm` | The npm packages at `0.0.0-pr.<number>.<sha>` under the `pr-<number>` dist-tag |
 
-The `pr label` workflow removes the label and, when whoever added it has write access, dispatches the matching workflow on the default branch. The workflow definitions therefore come from the default branch, and pull requests from forks build too. The npm workflow builds the pull request's code in a job without an OIDC token, and a separate job publishes the resulting tarballs after checking their names and versions.
+Each of those workflows runs on `pull_request_target`, so its definition comes from the default branch, its runs show on the pull request, and pull requests from forks build too. A shared gate job removes the label and stops the run unless whoever added it has write access. The build then checks out the pull request's head commit. Adding a label approves running that commit with the workflow's credentials, so review it first.
+
+These runs share the default branch's cache scope, so they only restore caches, which the nightly workflow saves; `build-docker` builds without the Nix cache. The npm workflow builds the pull request's code in a job without an OIDC token, and a separate job publishes the resulting tarballs after checking their names and versions.

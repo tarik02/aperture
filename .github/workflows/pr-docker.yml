@@ -1,17 +1,9 @@
 name: pr docker
-run-name: "pr docker for #${{ inputs.pr }}"
 
 on:
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: Pull request number
-        required: true
-        type: number
-      sha:
-        description: Pull request commit
-        required: true
-        type: string
+  pull_request_target:
+    types:
+      - labeled
 
 permissions:
   contents: read
@@ -20,12 +12,20 @@ permissions:
   attestations: write
 
 concurrency:
-  group: pr-docker-${{ inputs.pr }}
+  group: pr-docker-${{ github.event.pull_request.number }}-${{ github.event.label.name }}
   cancel-in-progress: true
 
 jobs:
+  gate:
+    if: github.event.label.name == 'build-docker'
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/pr-label-gate.yml
+
   build:
     name: build ${{ matrix.variant }} ${{ matrix.arch }} image
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -54,15 +54,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ inputs.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
       - uses: cachix/install-nix-action@v31.10.7
-
-      - uses: DeterminateSystems/magic-nix-cache-action@v14
-        with:
-          diagnostic-endpoint: ""
-          use-flakehub: false
 
       - uses: docker/login-action@v4.1.0
         with:
@@ -73,8 +68,8 @@ jobs:
       - name: Build image
         env:
           NIX_ATTRIBUTE: ${{ matrix.nix_attribute }}
-          PR_NUMBER: ${{ inputs.pr }}
-          SHA: ${{ inputs.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           short_sha="${SHA::12}"
           printf '0.0.0-pr.%s.%s' "$PR_NUMBER" "$short_sha" > .aperture-deploy-version
@@ -87,8 +82,8 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           IMAGE: ghcr.io/${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr }}
-          SHA: ${{ inputs.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
           SUFFIX: ${{ matrix.suffix }}
         run: |
           short_sha="${SHA::12}"
@@ -105,8 +100,8 @@ jobs:
         with:
           image: ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}
           format: spdx-json
-          artifact-name: aperture-pr-${{ inputs.pr }}-${{ matrix.variant }}-${{ matrix.arch }}-sbom
-          output-file: aperture-pr-${{ inputs.pr }}-${{ matrix.variant }}-${{ matrix.arch }}.spdx.json
+          artifact-name: aperture-pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}-${{ matrix.arch }}-sbom
+          output-file: aperture-pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}-${{ matrix.arch }}.spdx.json
           upload-release-assets: false
 
       - name: Attest SBOM
@@ -114,7 +109,7 @@ jobs:
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.push.outputs.digest }}
-          sbom-path: aperture-pr-${{ inputs.pr }}-${{ matrix.variant }}-${{ matrix.arch }}.spdx.json
+          sbom-path: aperture-pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}-${{ matrix.arch }}.spdx.json
           push-to-registry: true
           create-storage-record: false
 
@@ -138,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: aperture-pr-docker-${{ matrix.variant }}-${{ matrix.arch }}
-          path: aperture-pr-${{ inputs.pr }}-${{ matrix.variant }}-${{ matrix.arch }}.tar.gz
+          path: aperture-pr-${{ github.event.pull_request.number }}-${{ matrix.variant }}-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -169,8 +164,8 @@ jobs:
         env:
           IMAGE: ghcr.io/${{ github.repository }}
           MULTIARCH: ${{ matrix.multiarch }}
-          PR_NUMBER: ${{ inputs.pr }}
-          SHA: ${{ inputs.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
           SUFFIX: ${{ matrix.suffix }}
         run: |
           short_sha="${SHA::12}"
@@ -224,9 +219,8 @@ jobs:
           result-encoding: string
           script: |
             const { owner, repo } = context.repo
-            const pullNumber = context.payload.inputs.pr
-            const sha = context.payload.inputs.sha
-            const shortSha = sha.slice(0, 12)
+            const pullNumber = context.payload.pull_request.number
+            const shortSha = context.payload.pull_request.head.sha.slice(0, 12)
             const image = `ghcr.io/${owner}/${repo}`
             const tag = `pr-${pullNumber}-${shortSha}`
             const artifacts = await github.paginate(
@@ -242,7 +236,7 @@ jobs:
               })
 
             return [
-              `Docker images for ${sha}:`,
+              `Docker images for ${context.payload.pull_request.head.sha}:`,
               '',
               ...artifactLines,
               `- \`${image}:${tag}\``,
@@ -256,6 +250,5 @@ jobs:
         with:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           header: aperture-pr-docker
-          number: ${{ inputs.pr }}
           message: ${{ steps.comment.outputs.result }}
           skip_unchanged: true

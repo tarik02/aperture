@@ -1,37 +1,39 @@
 name: npm
-run-name: "${{ github.event_name == 'release' && format('npm {0}', github.event.release.tag_name) || format('npm snapshot for #{0}', inputs.pr) }}"
 
 on:
   release:
     types:
       - published
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: Pull request number
-        required: true
-        type: number
-      sha:
-        description: Pull request commit
-        required: true
-        type: string
+  pull_request_target:
+    types:
+      - labeled
 
 permissions:
   contents: read
 
 concurrency:
-  group: npm-${{ inputs.pr || github.ref }}
+  group: npm-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name }}
   cancel-in-progress: false
 
 jobs:
+  gate:
+    if: github.event_name == 'pull_request_target' && github.event.label.name == 'publish-npm'
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/pr-label-gate.yml
+
   pack:
     name: pack packages
-    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    needs: gate
+    if: >-
+      !cancelled() &&
+      (needs.gate.result == 'success' || (github.event_name == 'release' && !github.event.release.prerelease))
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ inputs.sha || github.event.release.tag_name }}
+          ref: ${{ github.event.pull_request.head.sha || github.event.release.tag_name }}
           persist-credentials: false
 
       - uses: pnpm/action-setup@v6.0.9
@@ -45,10 +47,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Set snapshot version
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'pull_request_target'
         env:
-          PR: ${{ inputs.pr }}
-          SHA: ${{ inputs.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/set-snapshot-version.ts "0.0.0-pr.${PR}.${SHA::12}"
 
       - name: Pack packages
@@ -66,6 +68,7 @@ jobs:
   publish:
     name: publish packages
     needs: pack
+    if: ${{ !cancelled() && needs.pack.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -92,9 +95,9 @@ jobs:
       - name: Publish packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PR: ${{ inputs.pr }}
+          PR: ${{ github.event.pull_request.number }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          SHA: ${{ inputs.sha }}
+          SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ -n "$PR" ]; then
             version="0.0.0-pr.${PR}.${SHA::12}"

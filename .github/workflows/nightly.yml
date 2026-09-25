@@ -35,7 +35,7 @@ jobs:
       - uses: actions/setup-go@v6.5.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - uses: pnpm/action-setup@v6.0.9
         with:
@@ -44,8 +44,19 @@ jobs:
       - uses: actions/setup-node@v6.4.0
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ${{ steps.pnpm-store.outputs.path }}
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'pnpm-lock.yaml') }}
+          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install native dependencies
         run: |
