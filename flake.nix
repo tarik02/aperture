@@ -533,21 +533,27 @@
               "cmd/browser-session-wrapper"
             ];
 
+            pnpmWorkspaces = [
+              "@aperture-browser/restore-worker"
+              "@aperture-browser/tab-window-enforcer"
+              "@aperture-browser/api-schema"
+              "@aperture-browser/browser-state"
+              "@aperture-browser/api-client"
+              "@aperture-browser/live-session"
+              "@aperture-browser/session-react"
+              "@aperture-browser/ui"
+              "@aperture-browser/web"
+            ];
+
             pnpmDeps = pkgs.fetchPnpmDeps {
-              inherit (finalAttrs) pname version src;
+              inherit (finalAttrs)
+                pname
+                version
+                src
+                pnpmWorkspaces
+                ;
               pnpm = pnpmLatest;
               fetcherVersion = 4;
-              pnpmWorkspaces = [
-                "@aperture-browser/restore-worker"
-                "@aperture-browser/tab-window-enforcer"
-                "@aperture-browser/api-schema"
-                "@aperture-browser/browser-state"
-                "@aperture-browser/api-client"
-                "@aperture-browser/live-session"
-                "@aperture-browser/session-react"
-                "@aperture-browser/ui"
-                "@aperture-browser/web"
-              ];
               hash = "sha256-AYbTAAflMmov6+IMNXzIwFEGiVFMIWJIMvLO/o3Ardk=";
             };
 
