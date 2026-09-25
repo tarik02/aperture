@@ -1,0 +1,15 @@
+/*
+ * The session components' styles, all scoped to `.aperture-root` except Tailwind's utility
+ * classes. Unlike the web app's stylesheet, it leaves the host page's html, body and
+ * :root alone.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) theme(inline);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@import "@fontsource-variable/geist";
+@import "@aperture-browser/ui/tokens.css";
+@import "@aperture-browser/ui/theme.css";
+@import "./preflight.css";
+@source "./";
+@source "../../ui/src/components";

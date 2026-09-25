@@ -19,7 +19,7 @@ import {
   type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
   type LiveSessionSnapshot,
-} from "#/lib/control/live-session-protocol.ts";
+} from "./protocol.ts";
 
 /** A live session operation that could not complete. */
 export class LiveSessionError extends Data.TaggedError("LiveSessionError")<{
@@ -48,6 +48,8 @@ interface LiveSessionConnectionCallbacks {
 }
 
 interface LiveSessionConnectionOptions {
+  /** The Aperture instance to connect to; defaults to the page's own origin. */
+  baseUrl?: string;
   sessionId: string;
   credentials: ApiCredentials;
   sessionToken?: string;
@@ -221,6 +223,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     let transport: WebRTCSessionTransport;
     try {
       transport = new WebRTCSessionTransport({
+        baseUrl: options.baseUrl,
         sessionId: options.sessionId,
         credentials: options.credentials,
         sessionToken: options.sessionToken,
@@ -252,6 +255,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     let transport: WebSocketSessionTransport;
     try {
       transport = new WebSocketSessionTransport({
+        baseUrl: options.baseUrl,
         sessionId: options.sessionId,
         credentials: options.credentials,
         sessionToken: options.sessionToken,
@@ -545,6 +549,7 @@ class WebSocketSessionTransport implements SessionTransport {
   private closed = false;
 
   constructor(options: {
+    baseUrl: string | undefined;
     sessionId: string;
     credentials: ApiCredentials;
     sessionToken?: string;
@@ -554,7 +559,7 @@ class WebSocketSessionTransport implements SessionTransport {
     this.callbacks = options.callbacks;
     this.fork = options.fork;
     this.socket = new WebSocket(
-      sessionWebSocketURL(options.sessionId),
+      sessionWebSocketURL(options.baseUrl, options.sessionId),
       sessionProtocols(options.credentials, options.sessionToken),
     );
     this.socket.binaryType = "blob";
@@ -688,6 +693,7 @@ class WebRTCSessionTransport implements SessionTransport {
   private closed = false;
 
   constructor(options: {
+    baseUrl: string | undefined;
     sessionId: string;
     credentials: ApiCredentials;
     sessionToken?: string;
@@ -707,7 +713,7 @@ class WebRTCSessionTransport implements SessionTransport {
     });
     this.connection.addTransceiver("video", { direction: "recvonly" });
     this.signal = new WebSocket(
-      signalWebSocketURL(options.sessionId),
+      signalWebSocketURL(options.baseUrl, options.sessionId),
       sessionProtocols(options.credentials, options.sessionToken),
     );
   }
@@ -925,14 +931,18 @@ function decodeRasterFrame(packet: Blob): Effect.Effect<Option.Option<LiveSessio
   }).pipe(Effect.orElseSucceed(() => Option.none()));
 }
 
-function sessionWebSocketURL(sessionId: string) {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/session`;
+function sessionWebSocketURL(baseUrl: string | undefined, sessionId: string) {
+  return webSocketURL(baseUrl, `/sessions/${encodeURIComponent(sessionId)}/session`);
 }
 
-function signalWebSocketURL(sessionId: string) {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/sessions/${encodeURIComponent(sessionId)}/webrtc/signal`;
+function signalWebSocketURL(baseUrl: string | undefined, sessionId: string) {
+  return webSocketURL(baseUrl, `/sessions/${encodeURIComponent(sessionId)}/webrtc/signal`);
+}
+
+function webSocketURL(baseUrl: string | undefined, path: string) {
+  const url = new URL(path, baseUrl ?? window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }
 
 function sessionProtocols(credentials: ApiCredentials, sessionToken?: string) {

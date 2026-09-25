@@ -3,7 +3,7 @@ import type { CreateSessionInput, PromoteSessionInput } from "@aperture-browser/
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { SessionsApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 function useInvalidateSessions() {
   const queryClient = useQueryClient();

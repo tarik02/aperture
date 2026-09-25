@@ -1,11 +1,9 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowRight,
   Loader2,
   PanelBottom,
-  PanelLeftIcon,
   PanelRight,
   Pencil,
   RefreshCw,
@@ -26,17 +24,20 @@ import {
 } from "@aperture-browser/ui/components/context-menu";
 import { InputGroup, InputGroupInput } from "@aperture-browser/ui/components/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
-import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
-import { useFork } from "#/lib/effect/react.tsx";
-import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
-import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
-import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
-import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
-import { CollaborationPresence } from "#/components/workbench/collaboration-presence.tsx";
+import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
+import { useFork } from "../effect.tsx";
+import { BrowserTabStrip } from "./browser-tab-strip.tsx";
+import { BrowserMenus } from "./browser-toolbar-menus.tsx";
+import type { DevToolsDock } from "./browser-devtools-pane.tsx";
+import type { CollaborationRole } from "@aperture-browser/live-session";
+import { CollaborationPresence } from "./collaboration-presence.tsx";
 
 interface BrowserToolbarProps {
   control: UseBrowserControlResult;
-  guestMode: boolean;
+  /** Rendered at the start of the title bar, before the tabs. */
+  leading?: ReactNode;
+  /** Shows the tab strip; without it the pane shows the active tab only. */
+  tabs: boolean;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
@@ -54,7 +55,8 @@ interface BrowserToolbarProps {
 
 export function BrowserToolbar({
   control,
-  guestMode,
+  leading,
+  tabs,
   collaborationRole,
   cdpUrl,
   shareUrls,
@@ -111,38 +113,25 @@ export function BrowserToolbar({
         data-workbench-titlebar
         className="flex min-w-0 shrink-0 items-stretch border-b bg-muted/35"
       >
-        {!guestMode ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-full aspect-square shrink-0 rounded-none"
-                  aria-label="Back to sessions"
-                  render={<Link to="/-/sessions" />}
-                />
-              }
-            >
-              <PanelLeftIcon />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Sessions</TooltipContent>
-          </Tooltip>
-        ) : null}
-        <BrowserTabStrip
-          targets={control.targets}
-          activeTargetId={control.activeTargetId}
-          recordingTargetIds={recordingTargetIds}
-          devToolsTargetIds={devToolsTargetIds}
-          disabled={!connected}
-          mutationDisabled={!browserMutationEnabled}
-          onActivate={control.activateTarget}
-          onCreate={() => control.createTarget("about:blank")}
-          onDuplicate={control.duplicateTarget}
-          onClose={control.closeTarget}
-          onReload={control.reload}
-          onReorder={control.reorderTargets}
-        />
+        {leading}
+        {tabs ? (
+          <BrowserTabStrip
+            targets={control.targets}
+            activeTargetId={control.activeTargetId}
+            recordingTargetIds={recordingTargetIds}
+            devToolsTargetIds={devToolsTargetIds}
+            disabled={!connected}
+            mutationDisabled={!browserMutationEnabled}
+            onActivate={control.activateTarget}
+            onCreate={() => control.createTarget("about:blank")}
+            onDuplicate={control.duplicateTarget}
+            onClose={control.closeTarget}
+            onReload={control.reload}
+            onReorder={control.reorderTargets}
+          />
+        ) : (
+          <div className="min-w-0 flex-1" />
+        )}
         <CollaborationPresence collaboration={control.collaboration} />
       </div>
       <div className="flex h-9 items-center gap-1 px-1.5">

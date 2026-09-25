@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import * as Effect from "effect/Effect";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link2Off, Loader2 } from "lucide-react";
-import { SessionWorkbench } from "#/components/workbench/session-workbench.tsx";
 import {
   Empty,
   EmptyDescription,
@@ -11,13 +8,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@aperture-browser/ui/components/empty";
-import type { ApiCredentials } from "@aperture-browser/api-client";
-import { ApiRequestError } from "@aperture-browser/api-client";
-import { queryKeys } from "#/lib/api/query-keys.ts";
-import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
-import { SessionsApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
-import { ApiCredentialsUnavailableError } from "#/hooks/use-api-credentials.ts";
+import { parseShareToken, SharedSession } from "@aperture-browser/session-react";
 
 const capabilityStorageKey = "aperture.share.session-token";
 
@@ -25,20 +16,13 @@ type CapabilityState =
   | { kind: "loading" }
   | { kind: "missing" }
   | { kind: "invalid" }
-  | {
-      kind: "ready";
-      token: string;
-      sessionId: string;
-      role: Exclude<CollaborationRole, "owner">;
-      revision: number;
-    };
+  | { kind: "ready"; token: string; revision: number };
 
 export const Route = createFileRoute("/share")({
   component: ShareRoute,
 });
 
 function ShareRoute() {
-  const runApi = useRunApi();
   const [capability, setCapability] = useState<CapabilityState>({ kind: "loading" });
 
   useEffect(() => {
@@ -56,15 +40,14 @@ function ShareRoute() {
           setCapability({ kind: "invalid" });
           return;
         }
-        const parsed = parseCapability(fragmentToken);
-        if (!parsed) {
+        if (!parseShareToken(fragmentToken)) {
           window.sessionStorage.removeItem(capabilityStorageKey);
           setCapability({ kind: "invalid" });
           return;
         }
         window.sessionStorage.setItem(capabilityStorageKey, fragmentToken);
         revision += 1;
-        setCapability({ kind: "ready", token: fragmentToken, ...parsed, revision });
+        setCapability({ kind: "ready", token: fragmentToken, revision });
         return;
       }
 
@@ -73,14 +56,13 @@ function ShareRoute() {
         setCapability({ kind: "missing" });
         return;
       }
-      const parsed = parseCapability(storedToken);
-      if (!parsed) {
+      if (!parseShareToken(storedToken)) {
         window.sessionStorage.removeItem(capabilityStorageKey);
         setCapability({ kind: "invalid" });
         return;
       }
       revision += 1;
-      setCapability({ kind: "ready", token: storedToken, ...parsed, revision });
+      setCapability({ kind: "ready", token: storedToken, revision });
     };
 
     loadCapability();
@@ -88,41 +70,7 @@ function ShareRoute() {
     return () => window.removeEventListener("hashchange", loadCapability);
   }, []);
 
-  const credentials = useMemo<ApiCredentials | null>(
-    () =>
-      capability.kind === "ready"
-        ? {
-            kind: "bearer",
-            token: capability.token,
-            authorityType: null,
-            tenantId: null,
-            selectedTenantId: null,
-          }
-        : null,
-    [capability],
-  );
-  const statusQuery = useQuery({
-    queryKey: queryKeys.browserStatus(
-      capability.kind === "ready" ? capability.sessionId : "none",
-      capability.kind === "ready" ? capability.revision : 0,
-    ),
-    queryFn: ({ signal }) =>
-      runApi(
-        Effect.gen(function* () {
-          if (capability.kind !== "ready" || !credentials) {
-            return yield* new ApiCredentialsUnavailableError();
-          }
-          return yield* SessionsApi.use((sessions) =>
-            sessions.getBrowserStatus(credentials, capability.sessionId),
-          );
-        }),
-        { signal },
-      ),
-    enabled: capability.kind === "ready" && credentials !== null,
-    retry: false,
-  });
-
-  if (capability.kind === "loading" || statusQuery.isLoading) {
+  if (capability.kind === "loading") {
     return (
       <ShareState icon={<Loader2 className="animate-spin" />} title="Opening shared session" />
     );
@@ -138,43 +86,8 @@ function ShareRoute() {
     );
   }
 
-  if (
-    !credentials ||
-    statusQuery.isError ||
-    !statusQuery.data ||
-    statusQuery.data.sessionId !== capability.sessionId
-  ) {
-    const expired =
-      statusQuery.error instanceof ApiRequestError && statusQuery.error.status === 410;
-    return (
-      <ShareState
-        icon={<Link2Off />}
-        title={expired ? "Share link expired" : "Shared session unavailable"}
-        description={
-          expired
-            ? "This session capability has expired. Ask the session owner for a new link."
-            : "This link is invalid, revoked, or the shared session is no longer available."
-        }
-      />
-    );
-  }
-
-  return (
-    <SessionWorkbench
-      sessionId={capability.sessionId}
-      capability={{
-        credentials,
-        role: capability.role,
-        session: {
-          id: capability.sessionId,
-          status: "running",
-          media: statusQuery.data.media,
-          cdpUrl: statusQuery.data.cdpUrl,
-          sessionToken: capability.token,
-        },
-      }}
-    />
-  );
+  // A new revision reloads the session, e.g. after the link in the address bar changes.
+  return <SharedSession key={capability.revision} token={capability.token} />;
 }
 
 function ShareState({
@@ -195,13 +108,4 @@ function ShareState({
       </EmptyHeader>
     </Empty>
   );
-}
-
-function parseCapability(token: string): { sessionId: string; role: "editor" | "viewer" } | null {
-  const sessionId = token.slice(4, 40);
-  const role = token.startsWith("ape_") ? "editor" : token.startsWith("apv_") ? "viewer" : null;
-  if (!role || token[40] !== "_" || !sessionId || !token.slice(41)) {
-    return null;
-  }
-  return { sessionId, role };
 }

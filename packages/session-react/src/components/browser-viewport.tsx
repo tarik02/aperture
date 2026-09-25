@@ -8,14 +8,14 @@ import {
   keyboardInputMessage,
   keyboardModifiers,
   shouldForwardBrowserShortcut,
-} from "#/lib/control/keyboard.ts";
-import { computeRenderMetrics } from "#/lib/control/viewport.ts";
-import type { LiveSessionRasterFrame } from "#/lib/control/live-session-protocol.ts";
-import type { ViewportPreset } from "#/lib/control/viewport.ts";
+} from "@aperture-browser/live-session";
+import { computeRenderMetrics } from "@aperture-browser/live-session";
+import type { LiveSessionRasterFrame } from "@aperture-browser/live-session";
+import type { ViewportPreset } from "@aperture-browser/live-session";
 import { cn } from "@aperture-browser/ui/utils";
-import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
-import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
-import { useFork } from "#/lib/effect/react.tsx";
+import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
+import { CollaborationPaintOverlay } from "./collaboration-paint-overlay.tsx";
+import { useFork } from "../effect.tsx";
 
 interface BrowserViewportProps {
   control: UseBrowserControlResult;

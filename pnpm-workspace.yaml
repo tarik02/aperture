@@ -50,4 +50,6 @@ minimumReleaseAgeExclude:
   - devalue@6.0.2
 
 allowBuilds:
+  # Only used by `tailwindcss --watch`, which the builds never run.
+  "@parcel/watcher": false
   esbuild: true

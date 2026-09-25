@@ -13,8 +13,8 @@ import {
   PopoverTrigger,
 } from "@aperture-browser/ui/components/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
-import type { CollaborationControl } from "#/hooks/use-live-session.ts";
-import type { CollaborationParticipant } from "#/lib/control/live-session-protocol.ts";
+import type { CollaborationControl } from "../hooks/use-live-session.ts";
+import type { CollaborationParticipant } from "@aperture-browser/live-session";
 import { cn } from "@aperture-browser/ui/utils";
 
 const visibleParticipantCount = 5;

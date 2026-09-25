@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { SnapshotsApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 function useInvalidateSnapshots() {
   const queryClient = useQueryClient();

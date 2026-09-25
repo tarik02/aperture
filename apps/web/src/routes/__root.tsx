@@ -35,7 +35,7 @@ function RootLayout() {
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="aperture-root" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>

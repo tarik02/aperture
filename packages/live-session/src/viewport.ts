@@ -1,10 +1,10 @@
-export type ViewportPreset = {
+export interface ViewportPreset {
   id: string;
   label: string;
   width: number;
   height: number;
   deviceScaleFactor: number;
-};
+}
 
 export const VIEWPORT_PRESETS: ViewportPreset[] = [
   createViewportPreset(1280, 720, 1),
@@ -21,13 +21,13 @@ export const VIEWPORT_DEVICE_SCALE_FACTORS = [1, 1.5, 2, 3] as const;
 
 export const STALE_FRAME_MS = 3000;
 
-export type RenderMetrics = {
+export interface RenderMetrics {
   scale: number;
   offsetX: number;
   offsetY: number;
   renderedWidth: number;
   renderedHeight: number;
-};
+}
 
 export function createViewportPreset(
   width: number,

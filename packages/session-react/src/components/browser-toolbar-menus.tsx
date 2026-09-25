@@ -39,10 +39,10 @@ import {
   formatViewportScale,
   VIEWPORT_DEVICE_SCALE_FACTORS,
   VIEWPORT_PRESETS,
-} from "#/lib/control/viewport.ts";
-import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
-import { copyTextWithToast } from "#/components/resources/copy-button.tsx";
-import { useEffectCallback } from "#/lib/effect/react.tsx";
+} from "@aperture-browser/live-session";
+import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
+import { copyTextWithToast } from "../clipboard.ts";
+import { useEffectCallback } from "../effect.tsx";
 import { toast } from "sonner";
 
 const STREAM_PRESETS = [

@@ -89,7 +89,7 @@ import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-cre
 import { flattenInfinitePages } from "@aperture-browser/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
 import type { ApiCredentials, Session } from "@aperture-browser/api-client";
-import { copyText } from "#/components/resources/copy-button.tsx";
+import { copyText } from "@aperture-browser/session-react";
 import { cn } from "@aperture-browser/ui/utils";
 import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
@@ -99,7 +99,7 @@ import { useSessionPromoteModalStore } from "#/features/session/promote-modal/se
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
 import { SessionsApi } from "@aperture-browser/api-client";
-import { useEffectCallback } from "#/lib/effect/react.tsx";
+import { useEffectCallback } from "@aperture-browser/session-react";
 
 /** The session has no viewer token to build a share URL from. */
 class ViewerCapabilityUnavailableError extends Data.TaggedError(

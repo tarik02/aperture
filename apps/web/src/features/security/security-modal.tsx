@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@aperture-browser/ui/c
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { TOTPEnrollment } from "@aperture-browser/api-client";
 import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 type TOTPFlow =
   | { kind: "idle" }

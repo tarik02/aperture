@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { PanelLeftIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import {
@@ -11,76 +12,69 @@ import {
 } from "@aperture-browser/ui/components/empty";
 import { Button } from "@aperture-browser/ui/components/button";
 import { Spinner } from "@aperture-browser/ui/components/spinner";
-import { BrowserControlPane } from "#/components/workbench/browser-control-pane.tsx";
+import {
+  BrowserControlPane,
+  devToolsUrl,
+  useBrowserControl,
+} from "@aperture-browser/session-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import {
   SessionDetailModals,
   type SessionDetailSection,
 } from "#/components/sessions/session-detail-modals.tsx";
-import { useBrowserControl } from "#/hooks/use-browser-control.ts";
 import { useRecentSessionsStore } from "#/features/session/recent-sessions.store.ts";
 import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { AppWindow } from "lucide-react";
-import type { ApiCredentials, IceServer } from "@aperture-browser/api-client";
-import type { Session } from "@aperture-browser/api-client";
-import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
+import type { IceServer } from "@aperture-browser/api-client";
+import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 
 interface SessionWorkbenchProps {
   sessionId: string;
-  capability?: {
-    credentials: ApiCredentials;
-    role: Exclude<CollaborationRole, "owner">;
-    session: Pick<Session, "id" | "status" | "media" | "cdpUrl" | "sessionToken">;
-  };
 }
 
 const emptyIceServers: readonly IceServer[] = [];
 
-export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProps) {
-  const sessionCredentials = useApiCredentials();
-  const credentials = capability?.credentials ?? sessionCredentials;
+/** The owner's view of one of their sessions. Shared links use SharedSession instead. */
+export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
+  const credentials = useApiCredentials();
+  const principal = useAuthSessionStore(selectPrincipal);
   const scopes = useActiveScopes();
-  const guestMode = capability !== undefined;
-  const collaborationRole = capability?.role ?? "owner";
-  const canControl = guestMode || hasScope(scopes, "sessions:write");
-  const tenantReady = guestMode || isTenantScopedQueryReady(credentials);
+  const canControl = hasScope(scopes, "sessions:write");
+  const tenantReady = isTenantScopedQueryReady(credentials);
   const recordRecentSession = useRecentSessionsStore((state) => state.recordSession);
   const lastRecordedSessionId = useRef<string | null>(null);
   const [publicOrigin, setPublicOrigin] = useState<string | null>(null);
   const [detailSection, setDetailSection] = useState<SessionDetailSection | null>(null);
 
-  const { session: ownerSession, isResolvingRoute } = useWorkbenchSession(
-    guestMode ? undefined : sessionId,
-  );
-  const selectedSession = capability?.session ?? ownerSession;
+  const { session: selectedSession, isResolvingRoute } = useWorkbenchSession(sessionId);
   const canConnectSession = Boolean(
     selectedSession?.status === "running" || selectedSession?.status === "suspended",
   );
-  const cdpUrl = useMemo(() => {
-    if (!selectedSession?.cdpUrl || !selectedSession.sessionToken || !publicOrigin) {
-      return null;
-    }
-    const sourceUrl = new URL(selectedSession.cdpUrl, publicOrigin);
-    const url = new URL(publicOrigin);
-    url.pathname = `${sourceUrl.pathname.replace(/\/$/, "")}/${encodeURIComponent(selectedSession.sessionToken)}`;
-    return url.toString();
-  }, [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl]);
+  const cdpUrl = useMemo(
+    () =>
+      selectedSession?.cdpUrl && selectedSession.sessionToken && publicOrigin
+        ? devToolsUrl(publicOrigin, selectedSession.cdpUrl, selectedSession.sessionToken)
+        : null,
+    [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl],
+  );
   const shareUrls = useMemo(() => {
-    if (!publicOrigin || !ownerSession?.collaboration) {
+    if (!publicOrigin || !selectedSession?.collaboration) {
       return null;
     }
     return {
-      editor: shareURL(publicOrigin, ownerSession.collaboration.editorToken),
-      viewer: shareURL(publicOrigin, ownerSession.collaboration.viewerToken),
+      editor: shareURL(publicOrigin, selectedSession.collaboration.editorToken),
+      viewer: shareURL(publicOrigin, selectedSession.collaboration.viewerToken),
     };
-  }, [ownerSession?.collaboration, publicOrigin]);
+  }, [selectedSession?.collaboration, publicOrigin]);
 
   const control = useBrowserControl({
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
-    credentials: capability?.credentials,
+    credentials,
+    displayName: principal?.name ?? null,
     sessionToken: selectedSession?.sessionToken,
-    collaborationRole,
+    collaborationRole: "owner",
     enabled: canControl && tenantReady && canConnectSession,
     webrtcProducerSupported:
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,
@@ -92,13 +86,13 @@ export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProp
   }, []);
 
   useEffect(() => {
-    if (guestMode || !selectedSession || lastRecordedSessionId.current === selectedSession.id) {
+    if (!selectedSession || lastRecordedSessionId.current === selectedSession.id) {
       return;
     }
 
     lastRecordedSessionId.current = selectedSession.id;
     recordRecentSession(selectedSession.id);
-  }, [guestMode, recordRecentSession, selectedSession]);
+  }, [recordRecentSession, selectedSession]);
 
   if (!tenantReady) {
     return (
@@ -164,11 +158,11 @@ export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProp
         <BrowserControlPane
           key={selectedSession.id}
           control={control}
-          guestMode={guestMode}
-          collaborationRole={collaborationRole}
+          leading={<BackToSessions />}
+          collaborationRole="owner"
           cdpUrl={cdpUrl}
           shareUrls={shareUrls}
-          onSessionDetails={guestMode ? undefined : () => setDetailSection("details")}
+          onSessionDetails={() => setDetailSection("details")}
         />
       ) : (
         <Empty className="h-full border-none">
@@ -188,14 +182,33 @@ export function SessionWorkbench({ sessionId, capability }: SessionWorkbenchProp
           </EmptyContent>
         </Empty>
       )}
-      {!guestMode ? (
-        <SessionDetailModals
-          session={ownerSession}
-          section={detailSection}
-          onSectionChange={setDetailSection}
-        />
-      ) : null}
+      <SessionDetailModals
+        session={selectedSession}
+        section={detailSection}
+        onSectionChange={setDetailSection}
+      />
     </div>
+  );
+}
+
+function BackToSessions() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="h-full aspect-square shrink-0 rounded-none"
+            aria-label="Back to sessions"
+            render={<Link to="/-/sessions" />}
+          />
+        }
+      >
+        <PanelLeftIcon />
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Sessions</TooltipContent>
+    </Tooltip>
   );
 }
 

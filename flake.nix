@@ -543,6 +543,8 @@
                 "@aperture-browser/api-schema"
                 "@aperture-browser/browser-state"
                 "@aperture-browser/api-client"
+                "@aperture-browser/live-session"
+                "@aperture-browser/session-react"
                 "@aperture-browser/ui"
                 "@aperture-browser/web"
               ];

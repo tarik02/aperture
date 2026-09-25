@@ -1,5 +1,6 @@
 {
   "name": "@aperture-browser/tab-window-enforcer",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {

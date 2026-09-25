@@ -1,0 +1,61 @@
+/* Tailwind's preflight, reduced to what the components rely on and scoped to the root. */
+@layer base {
+  .aperture-root {
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    color: var(--foreground);
+    -webkit-text-size-adjust: 100%;
+    tab-size: 4;
+  }
+
+  .aperture-root,
+  .aperture-root *,
+  .aperture-root ::before,
+  .aperture-root ::after,
+  .aperture-root ::backdrop {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+
+  .aperture-root :where(button, input, select, optgroup, textarea),
+  .aperture-root ::file-selector-button {
+    font: inherit;
+    font-feature-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    background-color: transparent;
+    border-radius: 0;
+    opacity: 1;
+  }
+
+  .aperture-root :where(h1, h2, h3, h4, h5, h6) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  .aperture-root :where(a) {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  .aperture-root :where(ol, ul, menu) {
+    list-style: none;
+  }
+
+  .aperture-root :where(img, svg, video, canvas, audio, iframe, embed, object) {
+    display: block;
+    vertical-align: middle;
+  }
+
+  .aperture-root :where(img, video) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .aperture-root [hidden]:where(:not([hidden="until-found"])) {
+    display: none !important;
+  }
+}

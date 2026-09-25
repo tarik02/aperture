@@ -7,13 +7,12 @@ import { PwaRegistration } from "#/components/pwa-registration.tsx";
 import { Toaster } from "@aperture-browser/ui/components/sonner";
 import { TooltipProvider } from "@aperture-browser/ui/components/tooltip";
 import { WindowControlsOverlayWatcher } from "#/features/window-controls-overlay/window-controls-overlay-watcher.tsx";
-import { RuntimeProvider } from "#/lib/effect/react.tsx";
-import { makeAppRuntime } from "#/lib/effect/runtime.ts";
+import { makeApertureRuntime, RuntimeProvider } from "@aperture-browser/session-react";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
   // Lives as long as the page; nothing to dispose on unmount.
-  const [runtime] = useState(makeAppRuntime);
+  const [runtime] = useState(() => makeApertureRuntime());
 
   return (
     <RuntimeProvider runtime={runtime}>

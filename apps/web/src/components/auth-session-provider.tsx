@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { ApiAuthorization, AuthApi } from "@aperture-browser/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
-import { useFork } from "#/lib/effect/react.tsx";
+import { useFork } from "@aperture-browser/session-react";
 
 const WelcomeLoginModal = lazy(() =>
   import("#/features/auth/login-modal.tsx").then((module) => ({

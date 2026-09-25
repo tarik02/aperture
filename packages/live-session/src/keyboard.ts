@@ -1,4 +1,4 @@
-import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
+import type { BrowserInputMessage } from "./browser-input.ts";
 
 type KeyboardInputMessage = Extract<BrowserInputMessage, { type: "input.key" }>;
 

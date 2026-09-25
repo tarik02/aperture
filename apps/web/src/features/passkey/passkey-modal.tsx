@@ -19,7 +19,7 @@ import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { Passkey } from "@aperture-browser/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
 import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 type PendingAction =
   | { kind: "register" }

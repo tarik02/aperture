@@ -8,7 +8,7 @@ import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-cre
 import { queryKeys, type SnapshotsFilters } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture-browser/api-client";
 import { SnapshotsApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {

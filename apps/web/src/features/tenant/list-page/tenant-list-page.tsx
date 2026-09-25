@@ -46,7 +46,7 @@ import { useTenantFormModalStore } from "#/features/tenant/form-modal/tenant-for
 import { useTenantListPageStore } from "#/features/tenant/list-page/tenant-list-page.store.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 const TENANT_SKELETON_COLUMNS = [
   {

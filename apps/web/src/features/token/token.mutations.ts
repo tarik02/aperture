@@ -6,7 +6,7 @@ import {
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { TokensApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 export type CreateTokenMutationInput =
   | { kind: "admin"; input: CreateAdminTokenInput }

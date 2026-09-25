@@ -2,33 +2,34 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 import { toast } from "sonner";
-import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import {
   useLiveSession,
   type CollaborationControl,
   type LiveSessionControl,
   type LiveSessionMediaSelection,
-} from "#/hooks/use-live-session.ts";
+} from "./use-live-session.ts";
 import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
-import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
+import type { BrowserInputMessage } from "@aperture-browser/live-session";
 import type {
   CollaborationRole,
   LiveSessionPresentation,
   LiveSessionPresentationQuality,
   LiveSessionRasterFrame,
   LiveSessionTarget,
-} from "#/lib/control/live-session-protocol.ts";
+} from "@aperture-browser/live-session";
 import {
   createViewportPreset,
   DEFAULT_VIEWPORT,
   type ViewportPreset,
-} from "#/lib/control/viewport.ts";
-import { useEffectCallback, useRuntime } from "#/lib/effect/react.tsx";
+} from "@aperture-browser/live-session";
+import { useEffectCallback, useRuntime } from "../effect.tsx";
 
 interface UseBrowserControlOptions {
   sessionId: string | null;
-  credentials?: ApiCredentials;
+  credentials: ApiCredentials | null;
+  /** The name owners appear under to collaborators. */
+  displayName?: string | null;
   sessionToken?: string;
   collaborationRole?: CollaborationRole;
   enabled?: boolean;
@@ -106,7 +107,8 @@ const emptyIceServers: readonly IceServer[] = [];
 
 export function useBrowserControl({
   sessionId,
-  credentials: credentialsOverride,
+  credentials,
+  displayName,
   sessionToken,
   collaborationRole = "owner",
   enabled = true,
@@ -114,10 +116,9 @@ export function useBrowserControl({
   webrtcIceServers = emptyIceServers,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const runtime = useRuntime();
-  const sessionCredentials = useApiCredentials();
-  const credentials = credentialsOverride ?? sessionCredentials;
   const live = useLiveSession({
     sessionId,
+    displayName,
     credentials,
     sessionToken,
     role: collaborationRole,

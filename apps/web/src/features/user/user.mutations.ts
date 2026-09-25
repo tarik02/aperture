@@ -3,7 +3,7 @@ import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import type { UserInput } from "@aperture-browser/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { UsersApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 function useInvalidateUsers() {
   const queryClient = useQueryClient();

@@ -7,10 +7,10 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { ApiCredentials, IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
-import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
-import { evdevKeycodeByCode } from "#/lib/control/input-keycodes.ts";
-import { windowsVirtualKeyCodeForCodeOrKey } from "#/lib/control/keyboard.ts";
-import * as LiveSessionConnection from "#/lib/control/live-session-connection.ts";
+import type { BrowserInputMessage } from "@aperture-browser/live-session";
+import { evdevKeycodeByCode } from "@aperture-browser/live-session";
+import { windowsVirtualKeyCodeForCodeOrKey } from "@aperture-browser/live-session";
+import { LiveSessionConnection } from "@aperture-browser/live-session";
 import {
   strictParseOptions,
   type CollaborationCursor,
@@ -27,9 +27,8 @@ import {
   type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
   type LiveSessionTarget,
-} from "#/lib/control/live-session-protocol.ts";
-import { useEffectCallback, useFork, useRuntime } from "#/lib/effect/react.tsx";
-import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
+} from "@aperture-browser/live-session";
+import { useBaseUrl, useEffectCallback, useFork, useRuntime } from "../effect.tsx";
 
 interface InputDimensions {
   width: number;
@@ -74,6 +73,8 @@ export interface CollaborationControl {
 
 interface UseLiveSessionOptions {
   sessionId: string | null;
+  /** The name owners appear under to collaborators; guests get a generated one. */
+  displayName?: string | null;
   credentials: ApiCredentials | null;
   sessionToken?: string;
   role: CollaborationRole;
@@ -122,6 +123,7 @@ const pointerButtonCode: Record<"left" | "right" | "middle", number> = {
 
 export function useLiveSession({
   sessionId,
+  displayName = null,
   credentials,
   sessionToken,
   role,
@@ -129,12 +131,9 @@ export function useLiveSession({
   webrtcSupported,
   iceServers,
 }: UseLiveSessionOptions): LiveSessionControl {
-  const principal = useAuthSessionStore(selectPrincipal);
-  const identity = useMemo(
-    () => collaborationIdentity(role, principal?.name ?? null),
-    [principal?.name, role],
-  );
+  const identity = useMemo(() => collaborationIdentity(role, displayName), [displayName, role]);
   const runtime = useRuntime();
+  const baseUrl = useBaseUrl();
   const frameRef = useMemo(
     () => runtime.runSync(SubscriptionRef.make<LiveSessionRasterFrame | null>(null)),
     [runtime],
@@ -313,6 +312,7 @@ export function useLiveSession({
     // The connection lives as long as this fiber; interrupting it closes the connection.
     return Effect.gen(function* () {
       const connection = yield* LiveSessionConnection.make({
+        baseUrl,
         sessionId,
         credentials,
         sessionToken,
@@ -347,6 +347,7 @@ export function useLiveSession({
       ),
     );
   }, [
+    baseUrl,
     credentials,
     enabled,
     handleMessage,

@@ -16,7 +16,7 @@ import { parseTokenId } from "#/lib/token-id.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import type { LoginMethods } from "@aperture-browser/api-client";
 import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 interface LoginFormProps {
   loginMethods?: LoginMethods["methods"];

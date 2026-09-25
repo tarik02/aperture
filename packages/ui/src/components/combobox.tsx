@@ -7,6 +7,7 @@ import { cn } from "../utils.ts";
 import { Button } from "./button.tsx";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "./input-group.tsx";
 import { ChevronDownIcon, XIcon, CheckIcon } from "lucide-react";
+import { usePortalContainer } from "../portal.tsx";
 
 const Combobox = ComboboxPrimitive.Root;
 
@@ -86,7 +87,7 @@ function ComboboxContent({
     "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
   >) {
   return (
-    <ComboboxPrimitive.Portal>
+    <ComboboxPrimitive.Portal container={usePortalContainer()}>
       <ComboboxPrimitive.Positioner
         side={side}
         sideOffset={sideOffset}

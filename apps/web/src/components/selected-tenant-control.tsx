@@ -4,7 +4,7 @@ import { TenantCombobox } from "#/components/tenant-combobox.tsx";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { cn } from "@aperture-browser/ui/utils";
 import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 interface SelectedTenantControlProps {
   triggerClassName?: string;

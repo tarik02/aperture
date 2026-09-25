@@ -16,10 +16,10 @@ import {
 } from "@aperture-browser/ui/components/context-menu";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
-import { copyTextWithToast } from "#/components/resources/copy-button.tsx";
-import { useEffectCallback } from "#/lib/effect/react.tsx";
+import { copyTextWithToast } from "../clipboard.ts";
+import { useEffectCallback } from "../effect.tsx";
 import { cn } from "@aperture-browser/ui/utils";
-import type { LiveSessionTarget } from "#/lib/control/live-session-protocol.ts";
+import type { LiveSessionTarget } from "@aperture-browser/live-session";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
 

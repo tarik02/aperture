@@ -24,7 +24,7 @@ import { SecurityModal } from "#/features/security/security-modal.tsx";
 import { cn } from "@aperture-browser/ui/utils";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 interface AuthMenuProps {
   className?: string;

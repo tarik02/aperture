@@ -5,6 +5,7 @@ import { ChevronDownIcon, XIcon } from "lucide-react";
 
 import { cn } from "../utils.ts";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "./input-group.tsx";
+import { usePortalContainer } from "../portal.tsx";
 
 const Autocomplete = AutocompletePrimitive.Root;
 
@@ -76,7 +77,7 @@ function AutocompleteContent({
     "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
   >) {
   return (
-    <AutocompletePrimitive.Portal>
+    <AutocompletePrimitive.Portal container={usePortalContainer()}>
       <AutocompletePrimitive.Positioner
         side={side}
         sideOffset={sideOffset}

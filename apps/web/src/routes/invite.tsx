@@ -16,7 +16,7 @@ import { Input } from "@aperture-browser/ui/components/input";
 import { Skeleton } from "@aperture-browser/ui/components/skeleton";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import { AuthApi } from "@aperture-browser/api-client";
-import { useRunApi } from "#/lib/effect/react.tsx";
+import { useRunApi } from "@aperture-browser/session-react";
 
 const invitationStorageKey = "aperture.user-invitation";
 

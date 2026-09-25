@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   type DependencyList,
   type ReactNode,
@@ -11,32 +12,52 @@ import * as Data from "effect/Data";
 import type * as Effect from "effect/Effect";
 import type * as Fiber from "effect/Fiber";
 import type { ApiServices } from "@aperture-browser/api-client";
-import type { AppRuntime, AppServices } from "#/lib/effect/runtime.ts";
+import type { ApertureRuntime } from "./runtime.ts";
 
-const RuntimeContext = createContext<AppRuntime | null>(null);
+interface RuntimeContextValue {
+  readonly runtime: ApertureRuntime;
+  readonly baseUrl: string | undefined;
+}
+
+const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 /** A hook below needed the app runtime, but no RuntimeProvider is above the component. */
 export class RuntimeProviderMissingError extends Data.TaggedError("RuntimeProviderMissingError") {
   override readonly message = "useRuntime must be used inside RuntimeProvider";
 }
 
-/** Makes the app runtime available to the hooks below. */
+/**
+ * Makes the runtime available to the hooks below. `baseUrl` is the Aperture instance the
+ * runtime's API services talk to, when it is not the page's own origin.
+ */
 export function RuntimeProvider({
   runtime,
+  baseUrl,
   children,
 }: {
-  runtime: AppRuntime;
+  runtime: ApertureRuntime;
+  baseUrl?: string;
   children: ReactNode;
 }) {
-  return <RuntimeContext.Provider value={runtime}>{children}</RuntimeContext.Provider>;
+  const value = useMemo(() => ({ runtime, baseUrl }), [runtime, baseUrl]);
+  return <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>;
 }
 
-export function useRuntime(): AppRuntime {
-  const runtime = useContext(RuntimeContext);
-  if (!runtime) {
+function useRuntimeContext(): RuntimeContextValue {
+  const context = useContext(RuntimeContext);
+  if (!context) {
     throw new RuntimeProviderMissingError();
   }
-  return runtime;
+  return context;
+}
+
+export function useRuntime(): ApertureRuntime {
+  return useRuntimeContext().runtime;
+}
+
+/** The Aperture instance the runtime talks to; undefined for the page's own origin. */
+export function useBaseUrl(): string | undefined {
+  return useRuntimeContext().baseUrl;
 }
 
 /**
@@ -45,7 +66,7 @@ export function useRuntime(): AppRuntime {
  * on cleanup, so its synchronous finalizers have run before the next effect starts.
  */
 export function useFork(
-  effect: () => Effect.Effect<unknown, never, AppServices> | undefined,
+  effect: () => Effect.Effect<unknown, never, ApiServices> | undefined,
   deps: DependencyList,
 ): void {
   const runtime = useRuntime();
@@ -65,7 +86,7 @@ export function useFork(
  * when the component unmounts are interrupted.
  */
 export function useEffectCallback<Args extends ReadonlyArray<unknown>>(
-  callback: (...args: Args) => Effect.Effect<unknown, never, AppServices>,
+  callback: (...args: Args) => Effect.Effect<unknown, never, ApiServices>,
   deps: DependencyList,
 ): (...args: Args) => void {
   const runtime = useRuntime();

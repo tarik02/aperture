@@ -1,13 +1,10 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
-import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
-import { BrowserToolbar } from "#/components/workbench/browser-toolbar.tsx";
-import { BrowserViewport } from "#/components/workbench/browser-viewport.tsx";
-import {
-  BrowserDevToolsPane,
-  type DevToolsDock,
-} from "#/components/workbench/browser-devtools-pane.tsx";
+import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
+import type { CollaborationRole } from "@aperture-browser/live-session";
+import { BrowserToolbar } from "./browser-toolbar.tsx";
+import { BrowserViewport } from "./browser-viewport.tsx";
+import { BrowserDevToolsPane, type DevToolsDock } from "./browser-devtools-pane.tsx";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -16,7 +13,10 @@ import {
 
 type BrowserControlPaneProps = {
   control: UseBrowserControlResult;
-  guestMode?: boolean;
+  /** Rendered at the start of the title bar, e.g. a link back to the host app. */
+  leading?: ReactNode;
+  /** Shows the tab strip (default); without it the pane shows the active tab only. */
+  tabs?: boolean;
   collaborationRole: CollaborationRole;
   cdpUrl: string | null;
   shareUrls: { editor: string; viewer: string } | null;
@@ -27,7 +27,8 @@ const LOCAL_CURSOR_STORAGE_KEY = "aperture.workbench.localCursorEnabled";
 
 export function BrowserControlPane({
   control,
-  guestMode = false,
+  leading,
+  tabs = true,
   collaborationRole,
   cdpUrl,
   shareUrls,
@@ -107,7 +108,8 @@ export function BrowserControlPane({
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <BrowserToolbar
         control={control}
-        guestMode={guestMode}
+        leading={leading}
+        tabs={tabs}
         collaborationRole={collaborationRole}
         cdpUrl={cdpUrl}
         shareUrls={shareUrls}

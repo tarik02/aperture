@@ -1,14 +1,14 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import type { CollaborationControl } from "#/hooks/use-live-session.ts";
-import { collaborationPaintLifetimeMs } from "#/hooks/use-live-session.ts";
+import type { CollaborationControl } from "../hooks/use-live-session.ts";
+import { collaborationPaintLifetimeMs } from "../hooks/use-live-session.ts";
 import type {
   CollaborationPaintEvent,
   CollaborationPaintPoint,
-} from "#/lib/control/live-session-protocol.ts";
+} from "@aperture-browser/live-session";
 import { cn } from "@aperture-browser/ui/utils";
-import { useFork } from "#/lib/effect/react.tsx";
+import { useFork } from "../effect.tsx";
 
 interface CollaborationPaintOverlayProps {
   collaboration: CollaborationControl;
