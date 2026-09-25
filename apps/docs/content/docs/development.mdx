@@ -129,6 +129,8 @@ release-please cuts a release when its pull request merges. Besides the binaries
 
 The `npm.yml` workflow publishes the packages when the release is published. It uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): every package trusts this repository's `npm.yml` workflow, so publishing needs no token. npm only accepts a trusted publisher for a package that already exists, so a new package is published once by hand, then trusted with `npm trust github <package> --repo tarik02/aperture --file npm.yml --allow-publish`. `pnpm publish --recursive --filter "./packages/**" --no-git-checks --dry-run` shows what would be published.
 
+Every nightly prerelease also publishes the packages, at the nightly version (`0.0.0-nightly.<run>.<commit>`) under the `nightly` dist-tag, so `npm install @aperture-browser/api-client@nightly` gets the latest `master` build. The nightly workflow creates its release with the GitHub App token, because a release created with `GITHUB_TOKEN` does not start `npm.yml`.
+
 ### Pull request builds
 
 Adding one of these labels to a pull request starts a build of its head commit:
