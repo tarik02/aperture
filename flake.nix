@@ -522,6 +522,28 @@
           else
             null;
 
+        # Workspace packages the aperture build installs.
+        apertureWorkspaces = [
+          "@aperture-browser/restore-worker"
+          "@aperture-browser/tab-window-enforcer"
+          "@aperture-browser/api-schema"
+          "@aperture-browser/browser-state"
+          "@aperture-browser/api-client"
+          "@aperture-browser/live-session"
+          "@aperture-browser/session-react"
+          "@aperture-browser/ui"
+          "@aperture-browser/web"
+        ];
+
+        # The companion and the workspace packages it imports.
+        companionWorkspaces = [
+          "@aperture-browser/companion"
+          "@aperture-browser/api-schema"
+          "@aperture-browser/browser-state"
+          "@aperture-browser/api-client"
+          "@aperture-browser/ui"
+        ];
+
         # One fetch of the pnpm workspace, shared by every package built from it.
         workspacePnpmDeps = pkgs.fetchPnpmDeps {
           pname = "aperture-workspace";
@@ -529,19 +551,8 @@
           inherit src;
           pnpm = pnpmLatest;
           fetcherVersion = 4;
-          pnpmWorkspaces = [
-            "@aperture-browser/restore-worker"
-            "@aperture-browser/tab-window-enforcer"
-            "@aperture-browser/companion"
-            "@aperture-browser/api-schema"
-            "@aperture-browser/browser-state"
-            "@aperture-browser/api-client"
-            "@aperture-browser/live-session"
-            "@aperture-browser/session-react"
-            "@aperture-browser/ui"
-            "@aperture-browser/web"
-          ];
-          hash = "sha256-/ECaqIYav6iKhiB3vw3wCMcmR2qG9Q5eCWu+rKrMumA=";
+          pnpmWorkspaces = lib.unique (apertureWorkspaces ++ companionWorkspaces);
+          hash = "sha256-KYUYLqSRmqU1tfapVAEEZAWEGmyUNsfeW9Fva9lahc0=";
         };
 
         # The Aperture Companion browser extension, unpacked.
@@ -550,6 +561,7 @@
           version = deployVersion;
           inherit src;
 
+          pnpmWorkspaces = companionWorkspaces;
           pnpmDeps = workspacePnpmDeps;
 
           nativeBuildInputs = [
@@ -591,6 +603,7 @@
               "cmd/browser-session-wrapper"
             ];
 
+            pnpmWorkspaces = apertureWorkspaces;
             pnpmDeps = workspacePnpmDeps;
 
             nativeBuildInputs = [
@@ -1044,7 +1057,7 @@
                   "org.opencontainers.image.description" = "Chromium session supervisor";
                   "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
                   "org.opencontainers.image.documentation" =
-                    "https://github.com/tarik02/aperture/blob/master/docs/docker.md";
+                    "https://aperture-browser-docs.pages.dev/docs/docker";
                   "org.opencontainers.image.licenses" = "MIT";
                   "org.opencontainers.image.revision" = sourceRevision;
                   "org.opencontainers.image.version" = deployVersion;

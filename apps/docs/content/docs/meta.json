@@ -1,0 +1,15 @@
+{
+  "title": "Aperture",
+  "pages": [
+    "index",
+    "---Run Aperture---",
+    "installation",
+    "docker",
+    "---Use it---",
+    "session-sharing",
+    "---Packages---",
+    "...packages",
+    "---Contribute---",
+    "development"
+  ]
+}

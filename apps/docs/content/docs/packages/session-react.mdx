@@ -1,0 +1,137 @@
+---
+title: session-react
+description: React components and hooks for embedding a live Aperture session, with or without the built-in UI.
+---
+
+```sh
+npm install @aperture-browser/session-react effect react react-dom
+```
+
+The package has two entry points:
+
+- `@aperture-browser/session-react`: the session with its UI: tab strip, toolbar and menus.
+- `@aperture-browser/session-react/headless`: the session alone, with no UI kit or stylesheet, for apps that build their own controls.
+
+Both take a share link's editor (`ape_…`) or viewer (`apv_…`) token and grant exactly what the link grants. When Aperture runs on another origin, it must list your origin in [`embed_allowed_origins`](/docs/session-sharing#embedding).
+
+## Full UI
+
+```tsx
+import { ApertureSession } from "@aperture-browser/session-react";
+import "@aperture-browser/session-react/styles.css";
+
+export function SharedBrowser({ token }: { token: string }) {
+  return (
+    <div style={{ height: 600 }}>
+      <ApertureSession baseUrl="https://aperture.example" token={token} />
+    </div>
+  );
+}
+```
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/aperture-session.tsx"
+  name="ApertureSessionProps"
+/>
+
+### Features
+
+`features` turns parts of the UI off, e.g. `{ tabs: false, menus: false }`. Each switch defaults to on. `navigation` is the back, forward and reload buttons, `presence` shows who else is connected, and `menus` holds the stream, viewport, recording and input settings. Turn `toaster` off if your app renders its own [sonner](https://sonner.emilkowal.ski) toaster.
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/features.ts"
+  name="ApertureSessionFeatures"
+/>
+
+### Styles
+
+`styles.css` styles everything inside the component's `.aperture-root` element: theme colors and a scoped reset. It does not touch your page's `html`, `body` or `:root`, and menus and tooltips render inside the root. It does include Tailwind utility classes, which your own unlayered CSS can override. For full isolation, use [session-element](/docs/packages/session-element), which renders into Shadow DOM.
+
+The component uses your page's font. To pick others, set `--aperture-font-sans` and `--aperture-font-mono` (used for URLs) on it or any ancestor, e.g. `--aperture-font-sans: "Inter", sans-serif`.
+
+## Headless
+
+```tsx
+import {
+  ApertureProvider,
+  SessionViewport,
+  useSharedSession,
+} from "@aperture-browser/session-react/headless";
+
+function Browser({ token }: { token: string }) {
+  const { status, control } = useSharedSession({ token, onNotice: console.warn });
+  if (status !== "ready") return <p>{status}</p>;
+  return (
+    <>
+      {control.targets.map((tab) => (
+        <button key={tab.id} onClick={() => control.activateTarget(tab.id)}>
+          {tab.title}
+        </button>
+      ))}
+      <button onClick={() => control.historyBack()}>Back</button>
+      <SessionViewport control={control} style={{ height: 600 }} />
+    </>
+  );
+}
+
+export const App = ({ token }: { token: string }) => (
+  <ApertureProvider baseUrl="https://aperture.example">
+    <Browser token={token} />
+  </ApertureProvider>
+);
+```
+
+`ApertureProvider` creates the Effect runtime the hooks run on, pointed at `baseUrl`.
+
+### useSharedSession
+
+Resolves the token and connects once it is ready. `status` is `loading`, `ready`, `invalid`, `expired` or `unavailable`. `onNotice` receives the errors and confirmations the full UI shows as toasts.
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/shared-session.ts"
+  name="UseSharedSessionOptions"
+/>
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/shared-session.ts"
+  name="UseSharedSessionResult"
+/>
+
+`control` lists the tabs (`targets`, `activeTargetId`) and has fire-and-forget actions such as `navigate`, `historyBack`, `createTarget` and `activateTarget`. `control.commands` has the same actions as Effects that succeed once Aperture has carried them out and fail with a `LiveSessionError` otherwise:
+
+```ts
+yield * control.commands.navigate("https://example.com");
+const tabId = yield * control.commands.createTarget();
+```
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/hooks/use-browser-control.ts"
+  name="BrowserCommands"
+/>
+
+### SessionViewport
+
+Shows the active tab and forwards keyboard, pointer and clipboard input to it. It is styled inline and fills its container. `renderOverlay` receives the connection status, a placeholder reason while there is no picture yet, and cursor hints, so you can draw your own overlays.
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/components/session-viewport.tsx"
+  name="SessionViewportProps"
+/>
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/components/session-viewport.tsx"
+  name="SessionViewportOverlay"
+/>
+
+## Lower-level pieces
+
+`SharedSession` is the full view without its own runtime, tooltip provider and toaster, for apps that provide them (`RuntimeProvider` with `makeApertureRuntime`, and `TooltipProvider`). `useBrowserControl` and `BrowserControlPane` drive and render a session for other credentials. These are what the Aperture web app is built from.
+
+Requires `effect` 4 and React 19.
