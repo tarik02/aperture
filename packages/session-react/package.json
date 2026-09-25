@@ -56,7 +56,6 @@
   "devDependencies": {
     "@aperture-browser/ui": "workspace:*",
     "@effect/platform-node": "catalog:",
-    "@fontsource-variable/geist": "catalog:",
     "@tailwindcss/cli": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",

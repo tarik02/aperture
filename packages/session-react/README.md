@@ -28,7 +28,9 @@ export function SharedBrowser({ token }: { token: string }) {
 
 ## Styles
 
-`styles.css` styles everything inside the component's `.aperture-root` element: theme colors, a scoped reset and the Geist font. It does not touch your page's `html`, `body` or `:root`, and menus and tooltips render inside the root. It does include Tailwind utility classes, which your own unlayered CSS can override. For full isolation use [`@aperture-browser/session-element`](https://www.npmjs.com/package/@aperture-browser/session-element), which renders into Shadow DOM.
+`styles.css` styles everything inside the component's `.aperture-root` element: theme colors and a scoped reset. It does not touch your page's `html`, `body` or `:root`, and menus and tooltips render inside the root. It does include Tailwind utility classes, which your own unlayered CSS can override. For full isolation use [`@aperture-browser/session-element`](https://www.npmjs.com/package/@aperture-browser/session-element), which renders into Shadow DOM.
+
+The component uses your page's font. To pick others, set `--aperture-font-sans` and `--aperture-font-mono` (used for URLs) on it or any ancestor, e.g. `--aperture-font-sans: "Inter", sans-serif`.
 
 ## Headless
 

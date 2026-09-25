@@ -3,7 +3,7 @@
 Custom elements that embed a live [Aperture](https://github.com/tarik02/aperture) browser session in any page. They render into Shadow DOM, so the page's styles and the session's never mix, and bundle React and everything else they need.
 
 - `<aperture-session>`: the session with its UI: tabs, toolbar and menus.
-- `<aperture-session-view>`: the session alone, for pages that build their own controls. It skips the UI kit, stylesheet and fonts, so it is much smaller.
+- `<aperture-session-view>`: the session alone, for pages that build their own controls. It skips the UI kit and stylesheet, so it is much smaller.
 
 ## `<aperture-session>`
 
@@ -26,7 +26,7 @@ Attributes:
 - `hide`: parts of the UI to leave out, separated by spaces: `tabs`, `navigation` (back, forward, reload), `address-bar`, `presence`, `drawing`, `menus`, `status-badge`, `toaster`.
 - `theme`: `light`, `dark` or `system` (the default).
 
-The element fills the size you give it. It adds one `<style>` to the page for its font faces and CSS custom property registrations, which browsers ignore inside shadow roots. The Geist font files sit in `dist/files` next to the module, and browsers only download the subsets a page needs.
+The element fills the size you give it. It uses the page's font; set `--aperture-font-sans` and `--aperture-font-mono` (used for URLs) on the element to pick others. It adds one `<style>` to the page for its CSS custom property registrations, which browsers ignore inside shadow roots.
 
 ## `<aperture-session-view>`
 

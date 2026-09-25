@@ -1,6 +1,6 @@
 @layer base {
   .aperture-root {
-    font-family: var(--font-sans);
+    font-family: var(--aperture-font-sans, inherit);
     line-height: 1.5;
     color: var(--foreground);
     -webkit-text-size-adjust: 100%;

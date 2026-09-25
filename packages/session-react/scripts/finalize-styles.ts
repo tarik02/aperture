@@ -4,7 +4,6 @@ import * as Console from "effect/Console";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 
 const stylesheet = "dist/styles.css";
 
@@ -14,11 +13,6 @@ class UnscopedStylesheet extends Data.TaggedError("UnscopedStylesheet")<{
 
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const fontDir = path.dirname(
-    yield* path.fromFileUrl(new URL(import.meta.resolve("@fontsource-variable/geist/index.css"))),
-  );
-
   const css = (yield* fs.readFileString(stylesheet)).replaceAll(
     /:root,\s*:host/g,
     ".aperture-root,:host",
@@ -27,17 +21,7 @@ const program = Effect.gen(function* () {
     return yield* new UnscopedStylesheet({ message: `${stylesheet} still styles :root` });
   }
   yield* fs.writeFileString(stylesheet, css);
-
-  const fonts = new Set(
-    Array.from(css.matchAll(/url\(\.\/files\/([^)]+)\)/g), (match) => match[1]!),
-  );
-  yield* fs.makeDirectory("dist/files", { recursive: true });
-  yield* Effect.forEach(
-    fonts,
-    (file) => fs.copyFile(path.join(fontDir, "files", file), path.join("dist/files", file)),
-    { concurrency: "unbounded", discard: true },
-  );
-  yield* Console.log(`Scoped ${stylesheet} and copied ${fonts.size} font files`);
+  yield* Console.log(`Scoped ${stylesheet}`);
 });
 
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeServices.layer)));

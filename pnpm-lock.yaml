@@ -645,9 +645,6 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.0-rc.117(effect@4.0.0-rc.117)(redis@6.2.1)
-      '@fontsource-variable/geist':
-        specifier: 'catalog:'
-        version: 5.2.9
       '@tailwindcss/cli':
         specifier: 'catalog:'
         version: 4.3.3

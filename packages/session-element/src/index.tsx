@@ -2,7 +2,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { ApertureSession, type SessionFeatures } from "@aperture-browser/session-react";
 import styles from "@aperture-browser/session-react/styles.css?inline";
 
-const documentRules = /@(?:font-face|property)[^{]*\{[^}]*\}/g;
+const documentRules = /@property[^{]*\{[^}]*\}/g;
 const installedDocuments = new WeakSet<Document>();
 
 function installDocumentStyles(document: Document) {
