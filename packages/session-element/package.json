@@ -1,0 +1,43 @@
+{
+  "name": "@aperture-browser/session-element",
+  "version": "0.0.0",
+  "description": "<aperture-session>: a custom element that embeds a live Aperture browser session in any page, isolated in Shadow DOM.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/session-element"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/aperture-session.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp build && tsgo -p tsconfig.build.json && publint",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@aperture-browser/session-react": "workspace:*",
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "effect": "catalog:",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

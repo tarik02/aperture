@@ -78,6 +78,7 @@ type Config struct {
 	SnapshotRetentionDays            int                      `mapstructure:"snapshot_retention_days"`
 	ChannelRegistry                  map[string]ChannelConfig `mapstructure:"channels"`
 	ExternalBaseURL                  string                   `mapstructure:"external_base_url"`
+	EmbedAllowedOrigins              []string                 `mapstructure:"embed_allowed_origins"`
 	CdpRouteBasePath                 string                   `mapstructure:"cdp_route_base_path"`
 	WebRTCCaptureProofExtensionDir   string                   `mapstructure:"webrtc_capture_proof_extension_dir"`
 	WebRTCMediaMode                  string                   `mapstructure:"webrtc_media_mode"`
@@ -139,6 +140,7 @@ func Defaults() Config {
 		SnapshotRetentionDays:            7,
 		ChannelRegistry:                  nil,
 		ExternalBaseURL:                  "",
+		EmbedAllowedOrigins:              nil,
 		CdpRouteBasePath:                 "/cdp",
 		WebRTCCaptureProofExtensionDir:   "",
 		WebRTCMediaMode:                  WebRTCMediaModeAuto,
@@ -250,6 +252,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("web_session_lifetime", defaults.WebSessionLifetime)
 	v.SetDefault("web_session_idle_timeout", defaults.WebSessionIdleTimeout)
 	v.SetDefault("log_level", defaults.LogLevel)
+	v.SetDefault("embed_allowed_origins", defaults.EmbedAllowedOrigins)
 
 	if configFile := flags.GetString("config"); configFile != "" {
 		v.SetConfigFile(configFile)
@@ -278,6 +281,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"session_storage_quota_bytes",
 		"snapshot_retention_days",
 		"external_base_url",
+		"embed_allowed_origins",
 		"cdp_route_base_path",
 		"webrtc_capture_proof_extension_dir",
 		"webrtc_media_mode",

@@ -84,6 +84,23 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		},
 	}
 
+	// Pages on the embed origins call the session endpoints a share token opens. The
+	// middleware answers CORS preflights itself, so it runs before authentication.
+	embedCORS := ""
+	if len(cfg.EmbedAllowedOrigins) > 0 {
+		embedCORS = "aperture-embed-cors"
+		doc.HTTP.Middlewares[embedCORS] = middlewareConfig{
+			Headers: &headersConfig{
+				AccessControlAllowOriginList: cfg.EmbedAllowedOrigins,
+				AccessControlAllowMethods:    []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+				AccessControlAllowHeaders:    []string{"Authorization", "Content-Type", "X-Aperture-Tenant-Id"},
+				AccessControlExposeHeaders:   []string{"Content-Disposition"},
+				AccessControlMaxAge:          600,
+				AddVaryHeader:                true,
+			},
+		}
+	}
+
 	for _, session := range running {
 		if session.ID == "" {
 			continue
@@ -210,18 +227,22 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			rule        string
 			auth        string
 			middlewares []string
+			// Reachable with a share token, so embeds on other origins may call it.
+			embeddable bool
 		}{
 			{
 				name:        webrtcRouterName(session.ID),
 				rule:        pathPrefixRouterRule(sessionBase + "/webrtc/"),
 				auth:        readAuth,
 				middlewares: []string{webrtcStrip},
+				embeddable:  true,
 			},
 			{
 				name:        liveSessionRouterName(session.ID),
 				rule:        pathRouterRule(sessionBase + "/session"),
 				auth:        sessionAuth,
 				middlewares: []string{sessionStrip},
+				embeddable:  true,
 			},
 			{
 				name:        recordingsRouterName(session.ID),
@@ -234,18 +255,21 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				rule:        pathRouterRule(sessionBase + "/browser/viewport"),
 				auth:        writeAuth,
 				middlewares: []string{viewportReplace},
+				embeddable:  true,
 			},
 			{
 				name:        browserCursorRouterName(session.ID),
 				rule:        pathRouterRule(sessionBase + "/browser/cursor"),
 				auth:        writeAuth,
 				middlewares: []string{cursorReplace},
+				embeddable:  true,
 			},
 			{
 				name:        browserStatusRouterName(session.ID),
 				rule:        pathRouterRule(sessionBase + "/browser/status"),
 				auth:        readAuth,
 				middlewares: []string{statusReplace},
+				embeddable:  true,
 			},
 			{
 				name:        filesRouterName(session.ID),
@@ -263,7 +287,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			doc.HTTP.Routers[route.name] = routerConfig{
 				Rule:        route.rule,
 				Service:     wrapperService,
-				Middlewares: append([]string{route.auth}, route.middlewares...),
+				Middlewares: routeMiddlewares(route.embeddable, embedCORS, route.auth, route.middlewares),
 				Priority:    sessionRouterPriority,
 				EntryPoints: []string{"web"},
 			}
@@ -356,6 +380,16 @@ func liveSessionForwardAuthRequestHeaders() []string {
 		"Sec-WebSocket-Protocol",
 		"X-Aperture-Tenant-Id",
 	}
+}
+
+// routeMiddlewares puts the embed CORS middleware, when there is one, before auth.
+func routeMiddlewares(embeddable bool, embedCORS, auth string, rest []string) []string {
+	middlewares := make([]string, 0, len(rest)+2)
+	if embeddable && embedCORS != "" {
+		middlewares = append(middlewares, embedCORS)
+	}
+	middlewares = append(middlewares, auth)
+	return append(middlewares, rest...)
 }
 
 func pathRouterRule(routePath string) string {
@@ -531,7 +565,13 @@ type replacePathRegexConfig struct {
 }
 
 type headersConfig struct {
-	CustomRequestHeaders map[string]string `yaml:"customRequestHeaders"`
+	CustomRequestHeaders         map[string]string `yaml:"customRequestHeaders,omitempty"`
+	AccessControlAllowOriginList []string          `yaml:"accessControlAllowOriginList,omitempty"`
+	AccessControlAllowMethods    []string          `yaml:"accessControlAllowMethods,omitempty"`
+	AccessControlAllowHeaders    []string          `yaml:"accessControlAllowHeaders,omitempty"`
+	AccessControlExposeHeaders   []string          `yaml:"accessControlExposeHeaders,omitempty"`
+	AccessControlMaxAge          int               `yaml:"accessControlMaxAge,omitempty"`
+	AddVaryHeader                bool              `yaml:"addVaryHeader,omitempty"`
 }
 
 type serviceConfig struct {
@@ -659,12 +699,35 @@ func middlewaresYAML(middlewares map[string]middlewareConfig) *yaml.Node {
 				),
 			))
 		case middleware.Headers != nil:
-			yamlAppend(node, name, yamlMap(
-				"headers", yamlMap(
-					"customRequestHeaders", yamlStringMap(middleware.Headers.CustomRequestHeaders),
-				),
-			))
+			yamlAppend(node, name, yamlMap("headers", headersYAML(*middleware.Headers)))
 		}
+	}
+	return node
+}
+
+func headersYAML(headers headersConfig) *yaml.Node {
+	node := yamlMap()
+	if len(headers.CustomRequestHeaders) > 0 {
+		yamlAppend(node, "customRequestHeaders", yamlStringMap(headers.CustomRequestHeaders))
+	}
+	for _, list := range []struct {
+		key    string
+		values []string
+	}{
+		{"accessControlAllowOriginList", headers.AccessControlAllowOriginList},
+		{"accessControlAllowMethods", headers.AccessControlAllowMethods},
+		{"accessControlAllowHeaders", headers.AccessControlAllowHeaders},
+		{"accessControlExposeHeaders", headers.AccessControlExposeHeaders},
+	} {
+		if len(list.values) > 0 {
+			yamlAppend(node, list.key, yamlStringSequence(list.values))
+		}
+	}
+	if headers.AccessControlMaxAge > 0 {
+		yamlAppend(node, "accessControlMaxAge", yamlInt(headers.AccessControlMaxAge))
+	}
+	if headers.AddVaryHeader {
+		yamlAppend(node, "addVaryHeader", yamlBool(true))
 	}
 	return node
 }

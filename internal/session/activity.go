@@ -518,11 +518,12 @@ func (s *Service) runtimeEnvValues(
 	proxyAssignment := proxyAssignmentFromRow(sessionRow)
 
 	return browser.RuntimeEnvValues{
-		SessionID:        sessionRow.ID,
-		ExternalBaseURL:  s.cfg.ExternalBaseURL,
-		SessionToken:     rawSessionToken,
-		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:   internalAPIURL,
+		SessionID:           sessionRow.ID,
+		ExternalBaseURL:     s.cfg.ExternalBaseURL,
+		EmbedAllowedOrigins: s.cfg.EmbedAllowedOrigins,
+		SessionToken:        rawSessionToken,
+		SessionTokenPath:    filepath.Join(layout.Metadata, "session-token"),
+		InternalAPIURL:      internalAPIURL,
 
 		MergedUserDataDir:          layout.Merged,
 		UpperDir:                   layout.Upper,

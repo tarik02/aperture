@@ -6,8 +6,6 @@ export const queryKeys = {
   passkeys: ["passkeys"] as const,
   securityStatus: ["security-status"] as const,
   browserChannels: (tenantId: string | null) => ["browser-channels", tenantId] as const,
-  browserStatus: (sessionId: string, revision: number) =>
-    ["browser-status", sessionId, revision] as const,
   tenants: (filters: TenantsFilters) => ["tenants", filters] as const,
   users: (filters: UsersFilters) => ["users", filters] as const,
   user: (userId: string) => ["user", userId] as const,

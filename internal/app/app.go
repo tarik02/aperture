@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aperture/aperture/apps/web"
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
@@ -22,7 +23,6 @@ import (
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
-	"github.com/aperture/aperture/apps/web"
 	"go.uber.org/zap"
 )
 

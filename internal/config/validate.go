@@ -245,6 +245,12 @@ func Validate(cfg Config) error {
 		errs = append(errs, errors.New("external_base_url must include scheme and host"))
 	}
 
+	for index, origin := range cfg.EmbedAllowedOrigins {
+		if err := validateEmbedOrigin(origin); err != nil {
+			errs = append(errs, fmt.Errorf("embed_allowed_origins[%d]: %w", index, err))
+		}
+	}
+
 	cdpRoute := strings.TrimRight(strings.TrimSpace(cfg.CdpRouteBasePath), "/")
 	if cdpRoute == "" {
 		errs = append(errs, errors.New("cdp_route_base_path is required"))
@@ -304,6 +310,27 @@ func validateDeployURL(name, value string) []error {
 	case "http", "https":
 	default:
 		return []error{fmt.Errorf("%s scheme must be http or https", name)}
+	}
+	return nil
+}
+
+// validateEmbedOrigin accepts "*" or an exact http(s) origin such as
+// "https://app.example.com" or "http://localhost:3000".
+func validateEmbedOrigin(origin string) error {
+	if origin == "*" {
+		return nil
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return err
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		(parsed.Path != "" && parsed.Path != "/") {
+		return errors.New("must be * or an http(s) origin such as https://app.example.com")
+	}
+	if parsed.Path == "/" {
+		return errors.New("must not end with /")
 	}
 	return nil
 }

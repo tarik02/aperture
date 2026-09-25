@@ -19,7 +19,7 @@ import { TooltipProvider } from "@aperture-browser/ui/components/tooltip";
 import { PortalContainerProvider } from "@aperture-browser/ui/portal";
 import { cn } from "@aperture-browser/ui/utils";
 import { BrowserControlPane } from "./components/browser-control-pane.tsx";
-import { RuntimeProvider, useBaseUrl, useFork } from "./effect.tsx";
+import { RuntimeProvider, useFork } from "./effect.tsx";
 import { useBrowserControl } from "./hooks/use-browser-control.ts";
 import { makeApertureRuntime, type ApertureRuntime } from "./runtime.ts";
 
@@ -234,8 +234,6 @@ function SharedBrowser({
   tabs?: boolean;
   leading?: ReactNode;
 }) {
-  const baseUrl = useBaseUrl();
-  const [origin, setOrigin] = useState<string | null>(baseUrl ?? null);
   const control = useBrowserControl({
     sessionId: share.sessionId,
     credentials,
@@ -245,21 +243,13 @@ function SharedBrowser({
     webrtcIceServers: status.media.iceServers ?? emptyIceServers,
   });
 
-  useEffect(() => {
-    setOrigin(baseUrl ?? window.location.origin);
-  }, [baseUrl]);
-
-  const cdpUrl = useMemo(
-    () => (origin ? devToolsUrl(origin, status.cdpUrl, share.token) : null),
-    [origin, share.token, status.cdpUrl],
-  );
-
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <BrowserControlPane
         control={control}
         collaborationRole={share.role}
-        cdpUrl={cdpUrl}
+        // Share tokens never authorize CDP, so DevTools stays unavailable.
+        cdpUrl={null}
         shareUrls={null}
         leading={leading}
         tabs={tabs}

@@ -790,7 +790,7 @@ export function BrowserViewport({
       inputDisabled ||
       !targetId ||
       (!control.captured &&
-        document.activeElement !== containerRef.current &&
+        focusedElement(containerRef.current) !== containerRef.current &&
         !containerRef.current?.contains(event.target as Node))
     ) {
       return;
@@ -842,7 +842,7 @@ export function BrowserViewport({
     const canForwardUntrackedKey =
       !inputDisabled &&
       (control.captured ||
-        document.activeElement === containerRef.current ||
+        focusedElement(containerRef.current) === containerRef.current ||
         Boolean(containerRef.current?.contains(event.target as Node)));
     if (!targetId || (!pressedKey && !canForwardUntrackedKey)) {
       return;
@@ -1328,4 +1328,10 @@ function resolveViewportStatus(
     return "offline";
   }
   return mediaPath === "websocket-live" ? "websocket" : "webrtc";
+}
+
+// The focused element in the document or shadow root the viewport renders into.
+function focusedElement(node: HTMLElement | null): Element | null {
+  const root = node?.getRootNode();
+  return root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
 }

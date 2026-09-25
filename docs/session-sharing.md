@@ -17,6 +17,32 @@ The share route moves the token into tab-scoped session storage and removes it f
 
 Rotating one collaboration capability disconnects session clients using that role without affecting the owner session token or the other collaboration role. A resume secret cannot bypass the rotated capability.
 
+## Embedding
+
+Other web apps can show a shared session with the npm packages built from this repository:
+
+- `@aperture-browser/session-element` registers `<aperture-session>`, a custom element that renders the session in its own shadow root, so neither page's styles reach the other;
+- `@aperture-browser/session-react` exports `ApertureSession` for React apps, styled by `@aperture-browser/session-react/styles.css`.
+
+```html
+<script type="module" src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element"></script>
+<aperture-session
+  base-url="https://aperture.example"
+  token="apv_<session-id>_<secret>"
+  style="height: 600px"
+></aperture-session>
+```
+
+Both take an editor or viewer token and grant exactly what the share link grants. `hide-tabs` (or `tabs={false}`) shows the active tab without the tab strip.
+
+A page on another origin can only reach the session routes if its origin is listed in `embed_allowed_origins`:
+
+```yaml
+embed_allowed_origins: [https://app.example.com, http://localhost:3000]
+```
+
+Aperture then answers CORS requests from those origins on the session routes share tokens use, and accepts live-session WebSockets from them. `*` allows any origin. Requests never carry cookies, so an embedding page only gets what the token it holds grants.
+
 ## Capability authentication
 
 Session HTTP routes accept the token as a bearer credential:
