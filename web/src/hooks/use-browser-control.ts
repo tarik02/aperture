@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { timer, type Observable } from "rxjs";
+import * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 import { toast } from "sonner";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import {
@@ -8,7 +9,7 @@ import {
   type LiveSessionControl,
   type LiveSessionMediaSelection,
 } from "#/hooks/use-live-session.ts";
-import { apiClient, type ApiCredentials } from "@aperture/api-client";
+import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture/api-client";
 import type { Recording } from "@aperture/api-client";
 import type { BrowserInputMessage } from "#/lib/control/browser-input.ts";
 import type {
@@ -23,31 +24,32 @@ import {
   DEFAULT_VIEWPORT,
   type ViewportPreset,
 } from "#/lib/control/viewport.ts";
+import { useEffectCallback, useRuntime } from "#/lib/effect/react.tsx";
 
-type UseBrowserControlOptions = {
+interface UseBrowserControlOptions {
   sessionId: string | null;
   credentials?: ApiCredentials;
   sessionToken?: string;
   collaborationRole?: CollaborationRole;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
-  webrtcIceServers?: RTCIceServer[];
-};
+  webrtcIceServers?: readonly IceServer[];
+}
 
-type BrowserViewportSize = {
+interface BrowserViewportSize {
   width: number;
   height: number;
-};
+}
 
 export type BrowserMediaPath = "webrtc-live" | "websocket-live";
 export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
-export type UseBrowserControlResult = {
+export interface UseBrowserControlResult {
   phase: LiveSessionControl["phase"];
-  targets: LiveSessionTarget[];
+  targets: readonly LiveSessionTarget[];
   activeTargetId: string | null;
   activeTarget: LiveSessionTarget | null;
-  frame$: Observable<LiveSessionRasterFrame | null>;
+  frames: Stream.Stream<LiveSessionRasterFrame | null>;
   mediaPhase: BrowserMediaPhase;
   mediaStream: MediaStream | null;
   mediaStreamSettings: LiveSessionPresentationQuality | null;
@@ -66,7 +68,7 @@ export type UseBrowserControlResult = {
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
   captured: boolean;
-  recordings: Recording[];
+  recordings: readonly Recording[];
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
   collaboration: CollaborationControl;
@@ -98,9 +100,9 @@ export type UseBrowserControlResult = {
   cancelRecording: (recordingId: string) => void;
   setRemoteCursorEnabled: (enabled: boolean) => void;
   reconnect: () => void;
-};
+}
 
-const emptyIceServers: RTCIceServer[] = [];
+const emptyIceServers: readonly IceServer[] = [];
 
 export function useBrowserControl({
   sessionId,
@@ -111,6 +113,7 @@ export function useBrowserControl({
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
 }: UseBrowserControlOptions): UseBrowserControlResult {
+  const runtime = useRuntime();
   const sessionCredentials = useApiCredentials();
   const credentials = credentialsOverride ?? sessionCredentials;
   const live = useLiveSession({
@@ -122,7 +125,7 @@ export function useBrowserControl({
     webrtcSupported: webrtcProducerSupported,
     iceServers: webrtcIceServers,
   });
-  const [targets, setTargets] = useState<LiveSessionTarget[]>([]);
+  const [targets, setTargets] = useState<readonly LiveSessionTarget[]>([]);
   const [viewport, setViewportState] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
@@ -207,16 +210,19 @@ export function useBrowserControl({
   );
 
   const createAndSelectTarget = useCallback(
-    async (url: string) => {
-      try {
-        const result = await live.request("target.create", { url });
-        return result.targetId ?? null;
-      } catch (cause: unknown) {
-        toast.error(errorMessage(cause, "Tab could not be created"));
-        return null;
-      }
-    },
-    [live],
+    (url: string) =>
+      runtime.runPromise(
+        live.request("target.create", { url }).pipe(
+          Effect.map((result) => result.targetId ?? null),
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              toast.error(errorMessage(error, "Tab could not be created"));
+              return null;
+            }),
+          ),
+        ),
+      ),
+    [live, runtime],
   );
 
   const createTarget = useCallback(
@@ -348,6 +354,23 @@ export function useBrowserControl({
     commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
   }, [commitViewport]);
 
+  const settleRecording = <A, E extends Error>(
+    effect: Effect.Effect<A, E, SessionsApi>,
+    failure: string,
+  ) =>
+    effect.pipe(
+      Effect.catch((error) => Effect.sync(() => toast.error(errorMessage(error, failure)))),
+      Effect.ensuring(Effect.sync(() => setRecordingBusy(false))),
+    );
+
+  const runStartRecording = useEffectCallback(
+    (mode: "tab" | "viewer", targetId: string) =>
+      settleRecording(
+        live.request("recording.start", { mode, targetId }),
+        "Recording failed to start",
+      ),
+    [live],
+  );
   const startRecording = useCallback(
     (mode: "tab" | "viewer") => {
       const targetId = activeTargetIdRef.current;
@@ -355,81 +378,111 @@ export function useBrowserControl({
         return;
       }
       setRecordingBusy(true);
-      void live
-        .request("recording.start", { mode, targetId })
-        .catch((cause: unknown) => toast.error(errorMessage(cause, "Recording failed to start")))
-        .finally(() => setRecordingBusy(false));
+      runStartRecording(mode, targetId);
     },
-    [collaborationRole, live, recordingBusy],
+    [collaborationRole, recordingBusy, runStartRecording],
   );
 
+  const runStopRecording = useEffectCallback(
+    (credentials: ApiCredentials, sessionId: string, recordingId: string) =>
+      settleRecording(
+        live.request("recording.stop", { recordingId }).pipe(
+          Effect.andThen(
+            SessionsApi.use((sessions) =>
+              sessions.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
+            ),
+          ),
+          Effect.flatMap(({ blob, filename }) => {
+            const recording = live.recordings.find(
+              (candidate) => candidate.recordingId === recordingId,
+            );
+            return downloadBlob(
+              blob,
+              filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
+            );
+          }),
+          Effect.andThen(Effect.sync(() => toast.success("Recording saved"))),
+        ),
+        "Recording failed to stop",
+      ),
+    [live, sessionToken],
+  );
   const stopRecording = useCallback(
     (recordingId: string) => {
       if (!sessionId || !credentials || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      void live
-        .request("recording.stop", { recordingId })
-        .then(() =>
-          apiClient.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
-        )
-        .then(({ blob, filename }) => {
-          const recording = live.recordings.find(
-            (candidate) => candidate.recordingId === recordingId,
-          );
-          downloadBlob(
-            blob,
-            filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
-          );
-          toast.success("Recording saved");
-        })
-        .catch((cause: unknown) => toast.error(errorMessage(cause, "Recording failed to stop")))
-        .finally(() => setRecordingBusy(false));
+      runStopRecording(credentials, sessionId, recordingId);
     },
-    [credentials, live, recordingBusy, sessionId, sessionToken],
+    [credentials, recordingBusy, runStopRecording, sessionId],
   );
 
+  const runCancelRecording = useEffectCallback(
+    (recordingId: string) =>
+      settleRecording(
+        live
+          .request("recording.cancel", { recordingId })
+          .pipe(Effect.andThen(Effect.sync(() => toast.success("Recording stopped")))),
+        "Recording failed to stop",
+      ),
+    [live],
+  );
   const cancelRecording = useCallback(
     (recordingId: string) => {
       if (recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      void live
-        .request("recording.cancel", { recordingId })
-        .then(() => toast.success("Recording stopped"))
-        .catch((cause: unknown) => toast.error(errorMessage(cause, "Recording failed to stop")))
-        .finally(() => setRecordingBusy(false));
+      runCancelRecording(recordingId);
     },
-    [live, recordingBusy],
+    [recordingBusy, runCancelRecording],
   );
 
+  const runSetRemoteCursor = useEffectCallback(
+    (visible: boolean) =>
+      live
+        .request("presentation.cursor.set", { visible })
+        .pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              toast.error(errorMessage(error, "Remote cursor could not be updated")),
+            ),
+          ),
+        ),
+    [live],
+  );
   const setRemoteCursorEnabled = useCallback(
     (visible: boolean) => {
-      if (!sessionId || !credentials) {
-        return;
+      if (sessionId && credentials) {
+        runSetRemoteCursor(visible);
       }
-      void live.request("presentation.cursor.set", { visible }).catch((cause: unknown) => {
-        toast.error(errorMessage(cause, "Remote cursor could not be updated"));
-      });
     },
-    [credentials, live, sessionId],
+    [credentials, runSetRemoteCursor, sessionId],
   );
 
+  const runSelectPresentation = useEffectCallback(
+    (selection: LiveSessionMediaSelection) =>
+      live
+        .selectPresentation(selection)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              toast.error(errorMessage(error, "Presentation could not be updated")),
+            ),
+          ),
+        ),
+    [live],
+  );
   const selectMediaStream = useCallback(
     (selection: LiveSessionMediaSelection) => {
       if (!enabled || !sessionId || !credentials || live.mediaSwitching) {
         return false;
       }
-      void live
-        .selectPresentation(selection)
-        .catch((cause: unknown) =>
-          toast.error(errorMessage(cause, "Presentation could not be updated")),
-        );
+      runSelectPresentation(selection);
       return true;
     },
-    [credentials, enabled, live, sessionId],
+    [credentials, enabled, live.mediaSwitching, runSelectPresentation, sessionId],
   );
 
   const setWebRTCStreamSettings = useCallback(
@@ -458,7 +511,7 @@ export function useBrowserControl({
     targets,
     activeTargetId: live.activeTargetId,
     activeTarget,
-    frame$: live.frame$,
+    frames: live.frames,
     mediaPhase,
     mediaStream: live.mediaStream,
     mediaStreamSettings: live.presentation?.quality ?? null,
@@ -505,8 +558,8 @@ export function useBrowserControl({
 }
 
 function mergeTargetsInCurrentOrder(
-  currentTargets: LiveSessionTarget[],
-  nextTargets: LiveSessionTarget[],
+  currentTargets: readonly LiveSessionTarget[],
+  nextTargets: readonly LiveSessionTarget[],
 ): LiveSessionTarget[] {
   const nextById = new Map(nextTargets.map((target) => [target.id, target]));
   const seen = new Set<string>();
@@ -533,14 +586,19 @@ function createBrowserViewport(
   return createViewportPreset(size.width, size.height, deviceScaleFactor);
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  timer(0).subscribe(() => URL.revokeObjectURL(url));
-}
+// The object URL is released once the browser has started the download.
+const downloadBlob = (blob: Blob, filename: string) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => URL.createObjectURL(blob)),
+    (url) =>
+      Effect.sync(() => {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.click();
+      }),
+    (url) => Effect.sync(() => URL.revokeObjectURL(url)).pipe(Effect.delay(0)),
+  );
 
 function errorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message ? cause.message : fallback;

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import { Loader2, MousePointer2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@aperture/ui/components/badge";
@@ -13,27 +15,31 @@ import type { ViewportPreset } from "#/lib/control/viewport.ts";
 import { cn } from "@aperture/ui/utils";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
 import { CollaborationPaintOverlay } from "#/components/workbench/collaboration-paint-overlay.tsx";
+import { useFork } from "#/lib/effect/react.tsx";
 
-type BrowserViewportProps = {
+interface BrowserViewportProps {
   control: UseBrowserControlResult;
   viewport: ViewportPreset;
   localCursorEnabled: boolean;
   paintingEnabled: boolean;
   onPaintingEnabledChange: (enabled: boolean) => void;
-};
+}
 
 type MouseButton = "left" | "middle" | "right" | "none";
-type ViewportPoint = { x: number; y: number };
+interface ViewportPoint {
+  x: number;
+  y: number;
+}
 type FrameMetadata = Pick<LiveSessionRasterFrame, "width" | "height">;
-type RasterFrameDecoder = {
+interface RasterFrameDecoder {
   decodingFrame: LiveSessionRasterFrame | null;
   generation: number;
   pending: LiveSessionRasterFrame | null;
-};
-type PressedKey = {
+}
+interface PressedKey {
   targetId: string;
   input: ReturnType<typeof keyboardInputMessage>;
-};
+}
 
 const MULTI_CLICK_MS = 500;
 const MULTI_CLICK_DISTANCE = 5;
@@ -177,8 +183,8 @@ export function BrowserViewport({
     }
   }, [control.sendInput]);
 
-  useEffect(() => {
-    const subscription = control.frame$.subscribe((frame) => {
+  useFork(() => {
+    const onFrame = (frame: LiveSessionRasterFrame | null) => {
       if (!frame) {
         if (imageRef.current) {
           resetImageFrames(imageRef.current, rasterDecoderRef.current);
@@ -206,17 +212,19 @@ export function BrowserViewport({
         frameMetadataRef.current = nextMetadata;
         setFrameMetadata(nextMetadata);
       }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      if (imageRef.current) {
-        resetImageFrames(imageRef.current, rasterDecoderRef.current);
-      } else {
-        resetRasterFrameDecoder(rasterDecoderRef.current);
-      }
     };
-  }, [control.activeTargetId, control.frame$, showingWebRTC]);
+    return Stream.runForEach(control.frames, (frame) => Effect.sync(() => onFrame(frame))).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (imageRef.current) {
+            resetImageFrames(imageRef.current, rasterDecoderRef.current);
+          } else {
+            resetRasterFrameDecoder(rasterDecoderRef.current);
+          }
+        }),
+      ),
+    );
+  }, [control.activeTargetId, control.frames, showingWebRTC]);
 
   useLayoutEffect(() => {
     const decoder = rasterDecoderRef.current;

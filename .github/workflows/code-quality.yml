@@ -50,6 +50,10 @@ jobs:
           pnpm --filter @aperture/web lint
           pnpm --filter @aperture/web typecheck
           pnpm --filter @aperture/web build
+          pnpm --filter @aperture/tab-window-enforcer format:check
+          pnpm --filter @aperture/tab-window-enforcer lint
+          pnpm --filter @aperture/tab-window-enforcer typecheck
+          pnpm --filter @aperture/tab-window-enforcer build
 
       - uses: golangci/golangci-lint-action@v9.3.0
         with:
@@ -60,4 +64,4 @@ jobs:
       - name: Verify generated OpenAPI code
         run: |
           ./scripts/generate-openapi.sh
-          git diff --exit-code -- api internal/httpapi/openapi
+          git diff --exit-code -- api internal/httpapi/openapi packages/api-schema

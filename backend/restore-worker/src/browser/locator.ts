@@ -6,7 +6,7 @@ export interface Locator {
   autocomplete?: string;
   ariaLabel?: string;
   placeholder?: string;
-  path: { tag: string; index: number }[];
+  path: readonly { readonly tag: string; readonly index: number }[];
 }
 
 export function resolveLocator(locator: Locator): HTMLElement | null {

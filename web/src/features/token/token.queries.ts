@@ -1,10 +1,12 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { apiClient } from "@aperture/api-client";
 import { defaultListLimit, getNextPageParam, listQueryDefaults } from "@aperture/api-client";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type TokensFilters } from "#/lib/api/query-keys.ts";
+import { TokensApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 export function useTokensInfiniteQuery(filters: TokensFilters = {}) {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const mode = credentials?.authorityType === "system_admin" ? "admin" : "tenant";
   const enabled =
@@ -13,7 +15,7 @@ export function useTokensInfiniteQuery(filters: TokensFilters = {}) {
 
   return useInfiniteQuery({
     queryKey: queryKeys.tokens(mode, filters),
-    queryFn: ({ pageParam }) => {
+    queryFn: ({ pageParam, signal }) => {
       const params = {
         limit: filters.limit ?? defaultListLimit,
         cursor: pageParam,
@@ -25,8 +27,14 @@ export function useTokensInfiniteQuery(filters: TokensFilters = {}) {
       };
 
       return credentials!.authorityType === "system_admin"
-        ? apiClient.listAdminTokens(credentials!, params)
-        : apiClient.listTenantTokens(credentials!, params);
+        ? runApi(
+            TokensApi.use((tokens) => tokens.listAdminTokens(credentials!, params)),
+            { signal },
+          )
+        : runApi(
+            TokensApi.use((tokens) => tokens.listTenantTokens(credentials!, params)),
+            { signal },
+          );
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam,

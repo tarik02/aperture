@@ -15,6 +15,8 @@ import {
   Upload,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
 import { toast } from "sonner";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SessionCreateModal } from "#/features/session/create-modal/session-create-modal.tsx";
@@ -86,8 +88,7 @@ import { hasAllScopes, hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { flattenInfinitePages } from "@aperture/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
-import type { Session } from "@aperture/api-client";
-import { apiClient } from "@aperture/api-client";
+import type { ApiCredentials, Session } from "@aperture/api-client";
 import { copyText } from "#/components/resources/copy-button.tsx";
 import { cn } from "@aperture/ui/utils";
 import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";
@@ -97,6 +98,15 @@ import { useSessionPromoteFormStore } from "#/features/session/promote-form/sess
 import { useSessionPromoteModalStore } from "#/features/session/promote-modal/session-promote-modal.store.ts";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
+import { SessionsApi } from "@aperture/api-client";
+import { useEffectCallback } from "#/lib/effect/react.tsx";
+
+/** The session has no viewer token to build a share URL from. */
+class ViewerCapabilityUnavailableError extends Data.TaggedError(
+  "ViewerCapabilityUnavailableError",
+) {
+  override readonly message = "Viewer capability unavailable";
+}
 
 const ALL_STATUS = "__all__";
 
@@ -129,13 +139,13 @@ const SESSION_SKELETON_COLUMNS = [
   },
 ] as const;
 
-type ConfirmDialogContent = {
+interface ConfirmDialogContent {
   title: string;
   description: string;
   confirmLabel: string;
   variant: "default" | "destructive";
   pending: boolean;
-};
+}
 
 export function SessionListPage() {
   const credentials = useApiCredentials();
@@ -248,30 +258,39 @@ export function SessionListPage() {
     openConnection(result.session);
   }
 
-  async function handleCopyShareUrl(session: Session) {
+  const copyShareUrl = useEffectCallback(
+    (session: Session, credentials: ApiCredentials) =>
+      Effect.gen(function* () {
+        const detailedSession = yield* SessionsApi.use((sessions) =>
+          sessions.getSession(credentials, session.id),
+        );
+        const viewerToken = detailedSession.collaboration?.viewerToken;
+        if (!viewerToken) {
+          return yield* new ViewerCapabilityUnavailableError();
+        }
+        const shareUrl = new URL("/share/", window.location.origin);
+        shareUrl.hash = new URLSearchParams({ token: viewerToken }).toString();
+        yield* copyText(shareUrl.toString());
+        toast.success("Share URL copied");
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            console.warn("Copy share URL failed", error);
+            toast.error("Copy failed");
+          }),
+        ),
+        Effect.ensuring(Effect.sync(() => setCopyingShareSessionId(null))),
+      ),
+    [],
+  );
+
+  function handleCopyShareUrl(session: Session) {
     if (!credentials) {
       toast.error("Session credentials unavailable");
       return;
     }
-
     setCopyingShareSessionId(session.id);
-    try {
-      const detailedSession = await apiClient.getSession(credentials, session.id);
-      if (!detailedSession.collaboration?.viewerToken) {
-        throw new Error("Viewer capability unavailable");
-      }
-      const shareUrl = new URL("/share/", window.location.origin);
-      shareUrl.hash = new URLSearchParams({
-        token: detailedSession.collaboration.viewerToken,
-      }).toString();
-      await copyText(shareUrl.toString());
-      toast.success("Share URL copied");
-    } catch (error) {
-      console.warn("Copy share URL failed", error);
-      toast.error("Copy failed");
-    } finally {
-      setCopyingShareSessionId(null);
-    }
+    copyShareUrl(session, credentials);
   }
 
   async function handleConfirmAction() {
@@ -565,7 +584,7 @@ export function SessionListPage() {
                           canPromote={canPromote}
                           copySharePending={copyingShareSessionId === session.id}
                           onDetails={() => openDetail(session, "details")}
-                          onCopyShareUrl={() => void handleCopyShareUrl(session)}
+                          onCopyShareUrl={() => handleCopyShareUrl(session)}
                           onDelete={() => setConfirmAction({ kind: "delete", session })}
                           onReopen={() => void handleReopen(session)}
                           onSuspend={() => setConfirmAction({ kind: "suspend", session })}
@@ -672,7 +691,7 @@ export function SessionListPage() {
           onReopen: (session) => void handleReopen(session),
           onSuspend: (session) => setConfirmAction({ kind: "suspend", session }),
           onRotate: (session) => setConfirmAction({ kind: "rotate", session }),
-          onCopyShareUrl: (session) => void handleCopyShareUrl(session),
+          onCopyShareUrl: (session) => handleCopyShareUrl(session),
         }}
       />
 
@@ -696,7 +715,7 @@ export function SessionListPage() {
   );
 }
 
-type SessionActionsMenuProps = {
+interface SessionActionsMenuProps {
   session: Session;
   canWrite: boolean;
   canPromote: boolean;
@@ -709,7 +728,7 @@ type SessionActionsMenuProps = {
   onPromote: () => void;
   onRotate: () => void;
   onEditTags: () => void;
-};
+}
 
 function SessionActionsMenu({
   session,

@@ -14,7 +14,7 @@ export function SessionStatusBadge({ status }: { status: SessionStatus }) {
   return <Badge variant={statusVariant[status]}>{status}</Badge>;
 }
 
-export function DeletedBadge({ deletedAt }: { deletedAt: string | null }) {
+export function DeletedBadge({ deletedAt }: { deletedAt?: string | null }) {
   if (!deletedAt) {
     return null;
   }
@@ -25,7 +25,7 @@ export function DeletedBadge({ deletedAt }: { deletedAt: string | null }) {
   );
 }
 
-export function RevokedBadge({ revokedAt }: { revokedAt: string | null }) {
+export function RevokedBadge({ revokedAt }: { revokedAt?: string | null }) {
   if (!revokedAt) {
     return null;
   }

@@ -1,17 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@aperture/ui/components/dialog";
 import { LoginForm } from "#/features/auth/login-form.tsx";
-import { apiClient } from "@aperture/api-client";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
-type WelcomeLoginModalProps = {
+interface WelcomeLoginModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
+}
 
 export function WelcomeLoginModal({ open, onOpenChange }: WelcomeLoginModalProps) {
+  const runApi = useRunApi();
   const loginMethods = useQuery({
     queryKey: ["auth", "login-methods"],
-    queryFn: () => apiClient.listLoginMethods(),
+    queryFn: ({ signal }) =>
+      runApi(
+        AuthApi.use((auth) => auth.listLoginMethods()),
+        { signal },
+      ),
     enabled: open,
     staleTime: Number.POSITIVE_INFINITY,
   });

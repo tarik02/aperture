@@ -72,6 +72,10 @@
           || lib.hasPrefix "backend/restore-worker/node_modules/" rel
           || rel == "backend/restore-worker/dist"
           || lib.hasPrefix "backend/restore-worker/dist/" rel
+          || rel == "extensions/tab-window-enforcer/node_modules"
+          || lib.hasPrefix "extensions/tab-window-enforcer/node_modules/" rel
+          || rel == "extensions/tab-window-enforcer/dist"
+          || lib.hasPrefix "extensions/tab-window-enforcer/dist/" rel
           || rel == "web/node_modules"
           || lib.hasPrefix "web/node_modules/" rel
           || rel == "web/dist"
@@ -535,13 +539,14 @@
               fetcherVersion = 4;
               pnpmWorkspaces = [
                 "@aperture/restore-worker"
+                "@aperture/tab-window-enforcer"
                 "@aperture/api-schema"
                 "@aperture/browser-state"
                 "@aperture/api-client"
                 "@aperture/ui"
                 "@aperture/web"
               ];
-              hash = "sha256-B48f/lbmr8y26FxMsk+X3uAj6BsCzCQVErhmKnjDgyE=";
+              hash = "sha256-hKwSZnLVC4pu464d8FiV9ydf0W9UuTWdQQp3u+ab+gc=";
             };
 
             nativeBuildInputs = [
@@ -572,6 +577,7 @@
 
             preBuild = ''
               pnpm --filter @aperture/restore-worker build
+              pnpm --filter @aperture/tab-window-enforcer build
               pnpm --filter @aperture/web build
               test -f web/dist/client/index.html
             '';
@@ -633,7 +639,7 @@
                 $(pkg-config --cflags --libs weston libweston-${lib.versions.major patchedWeston.version} wayland-server pixman-1 xkbcommon)
 
               mkdir -p $out/share/aperture/extensions/tab-window-enforcer
-              cp ${./extensions/tab-window-enforcer}/* $out/share/aperture/extensions/tab-window-enforcer/
+              cp extensions/tab-window-enforcer/dist/* $out/share/aperture/extensions/tab-window-enforcer/
 
               mkdir -p $out/lib/systemd/user
               cp ${./packaging/systemd-user}/*.service $out/lib/systemd/user/

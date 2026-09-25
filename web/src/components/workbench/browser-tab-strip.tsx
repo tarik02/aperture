@@ -16,15 +16,15 @@ import {
 } from "@aperture/ui/components/context-menu";
 import { ScrollArea } from "@aperture/ui/components/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
-import { copyText } from "#/components/resources/copy-button.tsx";
+import { copyTextWithToast } from "#/components/resources/copy-button.tsx";
+import { useEffectCallback } from "#/lib/effect/react.tsx";
 import { cn } from "@aperture/ui/utils";
 import type { LiveSessionTarget } from "#/lib/control/live-session-protocol.ts";
-import { toast } from "sonner";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
 
-type BrowserTabStripProps = {
-  targets: LiveSessionTarget[];
+interface BrowserTabStripProps {
+  targets: readonly LiveSessionTarget[];
   activeTargetId: string | null;
   recordingTargetIds: ReadonlySet<string>;
   devToolsTargetIds: ReadonlySet<string>;
@@ -40,12 +40,12 @@ type BrowserTabStripProps = {
     destinationTargetId: string,
     placement: "before" | "after",
   ) => void;
-};
+}
 
-type BrowserTabDragData = {
+interface BrowserTabDragData extends Record<string, unknown> {
   kind: typeof BROWSER_TAB_DRAG_KIND;
   targetId: string;
-};
+}
 
 type DropPlacement = "before" | "after";
 
@@ -141,6 +141,7 @@ function BrowserTab({
   const [dragging, setDragging] = useState(false);
   const [dropPlacement, setDropPlacement] = useState<DropPlacement | null>(null);
   const label = simplifyUrl(target.url);
+  const copyUrl = useEffectCallback((url: string) => copyTextWithToast(url), []);
 
   useEffect(() => {
     const element = tabRef.current;
@@ -279,13 +280,7 @@ function BrowserTab({
           >
             Duplicate
           </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              void copyText(target.url || "about:blank").catch(() => {
-                toast.error("Copy failed");
-              });
-            }}
-          >
+          <ContextMenuItem onClick={() => copyUrl(target.url || "about:blank")}>
             Copy URL
           </ContextMenuItem>
         </ContextMenuGroup>

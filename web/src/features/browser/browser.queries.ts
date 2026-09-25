@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@aperture/api-client";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { ApiCredentials } from "@aperture/api-client";
+import { SessionsApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {
   if (!credentials) {
@@ -14,13 +15,18 @@ function resolveTenantKey(credentials: ApiCredentials | null): string | null {
 }
 
 export function useBrowserChannelsQuery() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const tenantKey = resolveTenantKey(credentials);
   const enabled = isTenantScopedQueryReady(credentials);
 
   return useQuery({
     queryKey: queryKeys.browserChannels(tenantKey),
-    queryFn: () => apiClient.getBrowserChannels(credentials!),
+    queryFn: ({ signal }) =>
+      runApi(
+        SessionsApi.use((sessions) => sessions.getBrowserChannels(credentials!)),
+        { signal },
+      ),
     enabled,
     staleTime: 60_000,
   });

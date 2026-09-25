@@ -41,7 +41,8 @@ import {
   VIEWPORT_PRESETS,
 } from "#/lib/control/viewport.ts";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
-import { copyText } from "#/components/resources/copy-button.tsx";
+import { copyTextWithToast } from "#/components/resources/copy-button.tsx";
+import { useEffectCallback } from "#/lib/effect/react.tsx";
 import { toast } from "sonner";
 
 const STREAM_PRESETS = [
@@ -265,6 +266,11 @@ function RestMenuItems({
   shareUrls: { editor: string; viewer: string } | null;
   onSessionDetails?: () => void;
 }) {
+  const copy = useEffectCallback(
+    (value: string, copied: string) => copyTextWithToast(value, () => toast.success(copied)),
+    [],
+  );
+
   return (
     <DropdownMenuGroup>
       <InputControlMenuItem control={control} />
@@ -280,10 +286,7 @@ function RestMenuItems({
           if (!cdpUrl) {
             return;
           }
-          void copyText(cdpUrl).then(
-            () => toast.success("CDP URL copied"),
-            () => toast.error("Copy failed"),
-          );
+          copy(cdpUrl, "CDP URL copied");
         }}
       >
         <Copy />
@@ -295,10 +298,7 @@ function RestMenuItems({
           if (!shareUrls) {
             return;
           }
-          void copyText(shareUrls.editor).then(
-            () => toast.success("Editor URL copied"),
-            () => toast.error("Copy failed"),
-          );
+          copy(shareUrls.editor, "Editor URL copied");
         }}
       >
         <Share2 />
@@ -310,10 +310,7 @@ function RestMenuItems({
           if (!shareUrls) {
             return;
           }
-          void copyText(shareUrls.viewer).then(
-            () => toast.success("Viewer URL copied"),
-            () => toast.error("Copy failed"),
-          );
+          copy(shareUrls.viewer, "Viewer URL copied");
         }}
       >
         <Share2 />

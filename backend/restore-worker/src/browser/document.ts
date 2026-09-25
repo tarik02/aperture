@@ -94,7 +94,7 @@ export function restoreEditable(editable: EditableState): void {
 }
 
 export function restoreScroll(
-  positions: ScrollState[],
+  positions: readonly ScrollState[],
   windowScroll?: { x: number; y: number },
 ): void {
   for (const position of positions)

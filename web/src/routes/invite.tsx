@@ -14,8 +14,9 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
 import { Input } from "@aperture/ui/components/input";
 import { Skeleton } from "@aperture/ui/components/skeleton";
-import { apiClient } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 const invitationStorageKey = "aperture.user-invitation";
 
@@ -26,6 +27,7 @@ export const Route = createFileRoute("/invite")({
 });
 
 function InviteRoute() {
+  const runApi = useRunApi();
   const navigate = useNavigate();
   const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
   const [invitation, setInvitation] = useState<InvitationState>({ kind: "loading" });
@@ -71,9 +73,9 @@ function InviteRoute() {
     setPasswordError(null);
     setRequestError(null);
     try {
-      await apiClient.acceptUserInvitation(invitation.token, password);
+      await runApi(AuthApi.use((auth) => auth.acceptUserInvitation(invitation.token, password)));
       window.sessionStorage.removeItem(invitationStorageKey);
-      setAuthenticated(await apiClient.getAuthMe());
+      setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe())));
       await navigate({ to: "/-/sessions" });
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Password update failed");

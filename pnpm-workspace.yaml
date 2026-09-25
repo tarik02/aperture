@@ -1,5 +1,6 @@
 packages:
   - backend/restore-worker
+  - extensions/*
   - packages/*
   - web
 
@@ -7,13 +8,25 @@ onlyBuiltDependencies:
   - esbuild
 
 catalog:
+  "@effect/language-service": 0.87.2
+  "@effect/openapi-generator": 4.0.0-rc.117
+  "@effect/platform-node": 4.0.0-rc.117
+  effect: 4.0.0-rc.117
+  effect-playwright: 0.8.0-2
   vite: npm:@voidzero-dev/vite-plus-core@0.2.4
   vitest: 4.1.10
   vite-plus: 0.2.4
 
 overrides:
+  effect-playwright>playwright-core: 1.64.0-alpha-1789764292000
   vite: "catalog:"
   vitest: "catalog:"
+
+packageExtensions:
+  "@effect/platform-node":
+    peerDependenciesMeta:
+      redis:
+        optional: true
 
 peerDependencyRules:
   allowAny:

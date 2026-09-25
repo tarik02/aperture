@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -12,7 +12,8 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
-import { interval } from "rxjs";
+import * as Effect from "effect/Effect";
+import * as Schedule from "effect/Schedule";
 import { Button } from "@aperture/ui/components/button";
 import {
   ContextMenu,
@@ -26,13 +27,14 @@ import {
 import { InputGroup, InputGroupInput } from "@aperture/ui/components/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture/ui/components/tooltip";
 import type { UseBrowserControlResult } from "#/hooks/use-browser-control.ts";
+import { useFork } from "#/lib/effect/react.tsx";
 import { BrowserTabStrip } from "#/components/workbench/browser-tab-strip.tsx";
 import { BrowserMenus } from "#/components/workbench/browser-toolbar-menus.tsx";
 import type { DevToolsDock } from "#/components/workbench/browser-devtools-pane.tsx";
 import type { CollaborationRole } from "#/lib/control/live-session-protocol.ts";
 import { CollaborationPresence } from "#/components/workbench/collaboration-presence.tsx";
 
-type BrowserToolbarProps = {
+interface BrowserToolbarProps {
   control: UseBrowserControlResult;
   guestMode: boolean;
   collaborationRole: CollaborationRole;
@@ -48,7 +50,7 @@ type BrowserToolbarProps = {
   onDevToolsOpenChange: (open: boolean) => void;
   onDevToolsDockChange: (dock: DevToolsDock) => void;
   onSessionDetails?: () => void;
-};
+}
 
 export function BrowserToolbar({
   control,
@@ -83,14 +85,16 @@ export function BrowserToolbar({
   const recordingTargetIds = new Set(runningRecordings.map((recording) => recording.targetId));
   const [recordingNow, setRecordingNow] = useState(Date.now());
 
-  useEffect(() => {
-    if (!hasRunningRecordings) {
-      return;
-    }
-    setRecordingNow(Date.now());
-    const subscription = interval(1000).subscribe(() => setRecordingNow(Date.now()));
-    return () => subscription.unsubscribe();
-  }, [hasRunningRecordings]);
+  useFork(
+    () =>
+      hasRunningRecordings
+        ? Effect.repeat(
+            Effect.sync(() => setRecordingNow(Date.now())),
+            Schedule.spaced(1000),
+          )
+        : undefined,
+    [hasRunningRecordings],
+  );
 
   function handleNavigate(value: string) {
     const nextUrl = value.trim();

@@ -1,64 +1,89 @@
-import { z } from "zod";
-import { resolveTenantHeader, type ApiCredentials } from "@aperture/api-client";
+import * as Data from "effect/Data";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as FiberSet from "effect/FiberSet";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { resolveTenantHeader, type ApiCredentials, type IceServer } from "@aperture/api-client";
 import {
+  decodeServerMessage,
   LIVE_SESSION_PROTOCOL,
-  liveSessionServerMessageSchema,
-  rasterFrameSchema,
+  RasterFrameHeader,
+  strictParseOptions,
   type LiveSessionCommandResult,
   type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
   type LiveSessionSnapshot,
 } from "#/lib/control/live-session-protocol.ts";
 
-type SessionIdentity = {
+/** A live session operation that could not complete. */
+export class LiveSessionError extends Data.TaggedError("LiveSessionError")<{
+  readonly message: string;
+}> {}
+
+interface SessionIdentity {
   clientId: string;
   resumeSecret: string;
-};
+}
 
-type SessionHelloIdentity = {
+interface SessionHelloIdentity {
   name: string;
   avatarHash: string;
-};
+}
 
 export type LiveSessionTransportKind = "webrtc" | "websocket";
 
-type LiveSessionConnectionCallbacks = {
+interface LiveSessionConnectionCallbacks {
   onPhase: (phase: "connecting" | "connected" | "disconnected" | "error") => void;
   onMessage: (message: LiveSessionServerMessage) => void;
   onFrame: (frame: LiveSessionRasterFrame | null) => void;
   onStream: (stream: MediaStream | null) => void;
   onTransport: (transport: LiveSessionTransportKind | null) => void;
   onError: (message: string) => void;
-};
+}
 
-type LiveSessionConnectionOptions = {
+interface LiveSessionConnectionOptions {
   sessionId: string;
   credentials: ApiCredentials;
   sessionToken?: string;
   identity: SessionHelloIdentity;
-  iceServers: RTCIceServer[];
+  iceServers: readonly IceServer[];
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
-};
+}
 
-type PendingCommand = {
-  resolve: (result: LiveSessionCommandResult) => void;
-  reject: (error: Error) => void;
-};
+export interface LiveSessionConnection {
+  /** Replaces the current session transport with a fresh one. */
+  readonly reconnect: Effect.Effect<void>;
+  /** Switches presentation to the given transport once it is ready. */
+  readonly selectTransport: (
+    kind: LiveSessionTransportKind,
+  ) => Effect.Effect<void, LiveSessionError>;
+  readonly sendReliable: (message: Record<string, unknown>) => boolean;
+  readonly sendRealtime: (message: Record<string, unknown>) => boolean;
+  /** Sends a command and waits for its result message. */
+  readonly command: (
+    type: string,
+    payload?: Record<string, unknown>,
+  ) => Effect.Effect<LiveSessionCommandResult, LiveSessionError>;
+}
 
-type TransportRequest = {
+interface TransportRequest {
   kind: LiveSessionTransportKind;
-  resolve: () => void;
-  reject: (error: Error) => void;
-};
+  deferred: Deferred.Deferred<void, LiveSessionError>;
+}
 
-type TransportCallbacks = {
+/** Forks a background effect into the connection's scope. */
+type Fork = (effect: Effect.Effect<void>) => Fiber.Fiber<void>;
+
+interface TransportCallbacks {
   hello: () => Record<string, unknown>;
   message: (transport: SessionTransport, message: LiveSessionServerMessage) => void;
   ready: (transport: SessionTransport) => void;
-  failed: (transport: SessionTransport, error: Error) => void;
+  failed: (transport: SessionTransport, error: LiveSessionError) => void;
   frame: (transport: SessionTransport, frame: LiveSessionRasterFrame) => void;
-};
+}
 
 interface SessionTransport {
   readonly kind: LiveSessionTransportKind;
@@ -67,440 +92,451 @@ interface SessionTransport {
   close(): void;
 }
 
-const signalResponseSchema = z.discriminatedUnion("type", [
-  z.object({ version: z.literal(1), type: z.literal("answer"), sdp: z.string() }).strict(),
-  z
-    .object({
-      version: z.literal(1),
-      type: z.literal("ice-candidate"),
-      candidate: z
-        .object({
-          candidate: z.string(),
-          sdpMid: z.string().nullable().optional(),
-          sdpMLineIndex: z.number().int().nullable().optional(),
-          usernameFragment: z.string().nullable().optional(),
-        })
-        .strict(),
-    })
-    .strict(),
-  z
-    .object({
-      version: z.literal(1),
-      type: z.literal("error"),
-      error: z.object({ code: z.string(), message: z.string() }).strict(),
-    })
-    .strict(),
+const SignalResponse = Schema.Union([
+  Schema.Struct({ version: Schema.Literal(1), type: Schema.Literal("answer"), sdp: Schema.String }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    type: Schema.Literal("ice-candidate"),
+    candidate: Schema.Struct({
+      candidate: Schema.String,
+      sdpMid: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      sdpMLineIndex: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isInt()))),
+      usernameFragment: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    }),
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    type: Schema.Literal("error"),
+    error: Schema.Struct({ code: Schema.String, message: Schema.String }),
+  }),
 ]);
+
+const decodeSignalResponse = Schema.decodeUnknownOption(
+  Schema.fromJsonString(SignalResponse),
+  strictParseOptions,
+);
+
+const decodeRasterFrameHeader = Schema.decodeUnknownOption(
+  Schema.fromJsonString(RasterFrameHeader),
+  strictParseOptions,
+);
 
 const WEBRTC_DEADLINE_MS = 5_000;
 const WEBSOCKET_RETRY_MS = 500;
 const WEBRTC_RETRY_MAX_MS = 15_000;
 
-export class LiveSessionConnection {
-  private readonly options: LiveSessionConnectionOptions;
-  private active: SessionTransport | null = null;
-  private candidate: SessionTransport | null = null;
-  private identity: SessionIdentity | null = null;
-  private preferredTransport: LiveSessionTransportKind;
-  private transportRequest: TransportRequest | null = null;
-  private disposed = false;
-  private retryTimer: number | null = null;
-  private webrtcRetryMs = 1_000;
-  private nextRequestId = 0;
-  private realtimeCounter = 0;
-  private inboundRealtimeCounter = 0;
-  private candidateMessages: LiveSessionServerMessage[] = [];
-  private candidateFrame: LiveSessionRasterFrame | null = null;
-  private readonly pendingCommands = new Map<string, PendingCommand>();
+/**
+ * Opens a live session connection. It prefers WebRTC presentation, falls back to
+ * WebSocket raster frames, and keeps retrying WebRTC in the background. Closing the scope
+ * closes every transport and fails pending commands.
+ */
+export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionOptions) {
+  const { callbacks } = options;
+  const runFork = yield* FiberSet.makeRuntime<never, void, never>();
+  const fork: Fork = (effect) => runFork(effect);
+  const after = (millis: number, f: () => void) =>
+    fork(Effect.sleep(millis).pipe(Effect.andThen(Effect.sync(f))));
 
-  constructor(options: LiveSessionConnectionOptions) {
-    this.options = options;
-    this.preferredTransport = options.webrtcSupported ? "webrtc" : "websocket";
-  }
+  let active: SessionTransport | null = null;
+  let candidate: SessionTransport | null = null;
+  let identity: SessionIdentity | null = null;
+  let preferredTransport: LiveSessionTransportKind = options.webrtcSupported
+    ? "webrtc"
+    : "websocket";
+  let transportRequest: TransportRequest | null = null;
+  let disposed = false;
+  let retryTimer: Fiber.Fiber<void> | null = null;
+  let webrtcRetryMs = 1_000;
+  let nextRequestId = 0;
+  let realtimeCounter = 0;
+  let inboundRealtimeCounter = 0;
+  let candidateMessages: LiveSessionServerMessage[] = [];
+  let candidateFrame: LiveSessionRasterFrame | null = null;
+  const pendingCommands = new Map<
+    string,
+    Deferred.Deferred<LiveSessionCommandResult, LiveSessionError>
+  >();
 
-  connect() {
-    this.disposed = false;
-    this.options.callbacks.onPhase("connecting");
-    this.startPreferredTransport();
-  }
+  const hello = () => ({ type: "session.hello", ...(identity ?? options.identity) });
 
-  close() {
-    this.disposed = true;
-    this.clearRetry();
-    this.candidate?.close();
-    this.candidate = null;
-    this.candidateMessages = [];
-    this.candidateFrame = null;
-    this.active?.close();
-    this.active = null;
-    this.rejectTransportRequest("live session connection closed");
-    this.rejectPending("live session connection closed");
-    this.options.callbacks.onFrame(null);
-    this.options.callbacks.onStream(null);
-    this.options.callbacks.onTransport(null);
-  }
-
-  reconnect() {
-    this.clearRetry();
-    this.candidate?.close();
-    this.candidate = null;
-    this.candidateMessages = [];
-    this.candidateFrame = null;
-    this.active?.close();
-    this.active = null;
-    this.rejectTransportRequest("live session transport replaced");
-    this.rejectPending("live session transport replaced");
-    this.options.callbacks.onPhase("connecting");
-    this.startPreferredTransport();
-  }
-
-  selectTransport(kind: LiveSessionTransportKind): Promise<void> {
-    if (kind === "webrtc" && !this.options.webrtcSupported) {
-      return Promise.reject(new Error("WebRTC presentation is unavailable"));
-    }
-    this.preferredTransport = kind;
-    this.clearRetry();
-    if (this.candidate && this.candidate.kind !== kind) {
-      this.candidate.close();
-      this.candidate = null;
-      this.candidateMessages = [];
-      this.candidateFrame = null;
-    }
-    this.rejectTransportRequest("presentation selection was replaced");
-    if (this.active?.kind === kind) {
-      return Promise.resolve();
-    }
-    return new Promise((resolve, reject) => {
-      this.transportRequest = { kind, resolve, reject };
-      if (this.candidate === null) {
-        if (kind === "webrtc") {
-          this.startWebRTC();
-        } else {
-          this.startWebSocket();
-        }
+  const transportCallbacks: TransportCallbacks = {
+    hello,
+    message: (transport, message) => handleMessage(transport, message),
+    ready: (transport) => activate(transport),
+    failed: (transport, error) => transportFailed(transport, error),
+    frame: (transport, frame) => {
+      if (active === transport) {
+        callbacks.onFrame(frame);
+      } else if (candidate === transport) {
+        candidateFrame = frame;
       }
-    });
-  }
+    },
+  };
 
-  sendReliable(message: Record<string, unknown>): boolean {
-    return this.active?.sendReliable(message) ?? false;
-  }
+  const dropCandidate = () => {
+    candidate?.close();
+    candidate = null;
+    candidateMessages = [];
+    candidateFrame = null;
+  };
 
-  sendRealtime(message: Record<string, unknown>): boolean {
-    this.realtimeCounter += 1;
-    return (
-      this.active?.sendRealtime({
-        realtimeCounter: this.realtimeCounter,
-        ...message,
-      }) ?? false
-    );
-  }
+  const clearRetry = () => {
+    retryTimer?.interruptUnsafe();
+    retryTimer = null;
+  };
 
-  command(type: string, payload: Record<string, unknown> = {}): Promise<LiveSessionCommandResult> {
-    this.nextRequestId += 1;
-    const requestId = `request-${this.nextRequestId}`;
-    return new Promise((resolve, reject) => {
-      this.pendingCommands.set(requestId, { resolve, reject });
-      if (!this.sendReliable({ type, requestId, ...payload })) {
-        this.pendingCommands.delete(requestId);
-        reject(new Error("live session transport is unavailable"));
-      }
-    });
-  }
+  const rejectPending = (message: string) => {
+    const error = new LiveSessionError({ message });
+    for (const deferred of pendingCommands.values()) {
+      Deferred.doneUnsafe(deferred, Effect.fail(error));
+    }
+    pendingCommands.clear();
+  };
 
-  private hello() {
-    return {
-      type: "session.hello",
-      ...(this.identity ?? this.options.identity),
-    };
-  }
+  const rejectTransportRequest = (message: string) => {
+    if (!transportRequest) {
+      return;
+    }
+    const request = transportRequest;
+    transportRequest = null;
+    Deferred.doneUnsafe(request.deferred, Effect.fail(new LiveSessionError({ message })));
+  };
 
-  private transportCallbacks(): TransportCallbacks {
-    return {
-      hello: () => this.hello(),
-      message: (transport, message) => this.handleMessage(transport, message),
-      ready: (transport) => this.activate(transport),
-      failed: (transport, error) => this.transportFailed(transport, error),
-      frame: (transport, frame) => {
-        if (this.active === transport) {
-          this.options.callbacks.onFrame(frame);
-        } else if (this.candidate === transport) {
-          this.candidateFrame = frame;
-        }
-      },
-    };
-  }
-
-  private startPreferredTransport() {
-    if (this.preferredTransport === "webrtc" && this.options.webrtcSupported) {
-      this.startWebRTC();
+  const startPreferredTransport = () => {
+    if (preferredTransport === "webrtc" && options.webrtcSupported) {
+      startWebRTC();
     } else {
-      this.startWebSocket();
+      startWebSocket();
     }
-  }
+  };
 
-  private startWebRTC() {
-    if (this.disposed || this.candidate) {
+  const startWebRTC = () => {
+    if (disposed || candidate) {
       return;
     }
     let transport: WebRTCSessionTransport;
     try {
       transport = new WebRTCSessionTransport({
-        sessionId: this.options.sessionId,
-        credentials: this.options.credentials,
-        sessionToken: this.options.sessionToken,
-        iceServers: this.options.iceServers,
-        callbacks: this.transportCallbacks(),
+        sessionId: options.sessionId,
+        credentials: options.credentials,
+        sessionToken: options.sessionToken,
+        iceServers: options.iceServers,
+        callbacks: transportCallbacks,
+        fork,
       });
     } catch (cause) {
-      const error = cause instanceof Error ? cause : new Error("WebRTC setup failed");
-      this.candidateFailed("webrtc", error);
+      candidateFailed("webrtc", setupError(cause, "WebRTC setup failed"));
       return;
     }
-    this.candidate = transport;
-    this.candidateMessages = [];
-    this.candidateFrame = null;
+    candidate = transport;
+    candidateMessages = [];
+    candidateFrame = null;
     transport.connect();
-    window.setTimeout(() => {
-      if (this.candidate !== transport) {
+    after(WEBRTC_DEADLINE_MS, () => {
+      if (candidate !== transport) {
         return;
       }
-      transport.close();
-      this.candidate = null;
-      this.candidateMessages = [];
-      this.candidateFrame = null;
-      this.candidateFailed("webrtc", new Error("WebRTC presentation timed out"));
-    }, WEBRTC_DEADLINE_MS);
-  }
+      dropCandidate();
+      candidateFailed("webrtc", new LiveSessionError({ message: "WebRTC presentation timed out" }));
+    });
+  };
 
-  private startWebSocket() {
-    if (this.disposed || this.candidate) {
+  const startWebSocket = () => {
+    if (disposed || candidate) {
       return;
     }
     let transport: WebSocketSessionTransport;
     try {
       transport = new WebSocketSessionTransport({
-        sessionId: this.options.sessionId,
-        credentials: this.options.credentials,
-        sessionToken: this.options.sessionToken,
-        callbacks: this.transportCallbacks(),
+        sessionId: options.sessionId,
+        credentials: options.credentials,
+        sessionToken: options.sessionToken,
+        callbacks: transportCallbacks,
+        fork,
       });
     } catch (cause) {
-      const error = cause instanceof Error ? cause : new Error("WebSocket setup failed");
-      this.candidateFailed("websocket", error);
+      candidateFailed("websocket", setupError(cause, "WebSocket setup failed"));
       return;
     }
-    this.candidate = transport;
-    this.candidateMessages = [];
-    this.candidateFrame = null;
+    candidate = transport;
+    candidateMessages = [];
+    candidateFrame = null;
     transport.connect();
-  }
+  };
 
-  private activate(transport: SessionTransport) {
-    if (this.disposed || this.candidate !== transport) {
+  const startWebSocketLater = (millis: number) =>
+    after(millis, () => {
+      if (!disposed && active === null && candidate === null) {
+        startWebSocket();
+      }
+    });
+
+  const activate = (transport: SessionTransport) => {
+    if (disposed || candidate !== transport) {
       transport.close();
       return;
     }
-    const previous = this.active;
-    const messages = this.candidateMessages;
-    const frame = this.candidateFrame;
+    const previous = active;
+    const messages = candidateMessages;
+    const frame = candidateFrame;
     if (previous && previous !== transport) {
-      this.rejectPending("live session transport replaced");
+      rejectPending("live session transport replaced");
     }
-    this.candidate = null;
-    this.candidateMessages = [];
-    this.candidateFrame = null;
-    this.active = transport;
-    this.realtimeCounter = 0;
-    this.inboundRealtimeCounter = 0;
-    this.webrtcRetryMs = 1_000;
-    this.options.callbacks.onPhase("connected");
-    this.options.callbacks.onTransport(transport.kind);
-    if (this.transportRequest?.kind === transport.kind) {
-      const request = this.transportRequest;
-      this.transportRequest = null;
-      request.resolve();
+    candidate = null;
+    candidateMessages = [];
+    candidateFrame = null;
+    active = transport;
+    realtimeCounter = 0;
+    inboundRealtimeCounter = 0;
+    webrtcRetryMs = 1_000;
+    callbacks.onPhase("connected");
+    callbacks.onTransport(transport.kind);
+    if (transportRequest?.kind === transport.kind) {
+      const request = transportRequest;
+      transportRequest = null;
+      Deferred.doneUnsafe(request.deferred, Effect.void);
     }
     if (transport instanceof WebRTCSessionTransport) {
-      this.options.callbacks.onFrame(null);
-      this.options.callbacks.onStream(transport.mediaStream());
+      callbacks.onFrame(null);
+      callbacks.onStream(transport.mediaStream());
     } else {
-      this.options.callbacks.onStream(null);
+      callbacks.onStream(null);
       if (frame) {
-        this.options.callbacks.onFrame(frame);
+        callbacks.onFrame(frame);
       }
     }
     for (const message of messages) {
-      this.deliverMessage(message);
+      deliverMessage(message);
     }
     if (
       transport.kind === "websocket" &&
-      this.preferredTransport === "webrtc" &&
-      this.options.webrtcSupported
+      preferredTransport === "webrtc" &&
+      options.webrtcSupported
     ) {
-      this.scheduleWebRTCRetry();
+      scheduleWebRTCRetry();
     }
     if (previous && previous !== transport) {
       previous.close();
     }
-  }
+  };
 
-  private transportFailed(transport: SessionTransport, error: Error) {
-    if (this.disposed) {
+  const transportFailed = (transport: SessionTransport, error: LiveSessionError) => {
+    if (disposed) {
       return;
     }
-    if (this.candidate === transport) {
-      this.candidate = null;
-      this.candidateMessages = [];
-      this.candidateFrame = null;
-      transport.close();
-      this.candidateFailed(transport.kind, error);
+    if (candidate === transport) {
+      dropCandidate();
+      candidateFailed(transport.kind, error);
       return;
     }
-    if (this.active !== transport) {
+    if (active !== transport) {
       return;
     }
-    this.active = null;
+    active = null;
     transport.close();
-    this.rejectPending("live session transport was lost");
-    this.options.callbacks.onPhase("disconnected");
-    this.options.callbacks.onError(error.message);
-    this.options.callbacks.onFrame(null);
-    this.options.callbacks.onStream(null);
-    this.options.callbacks.onTransport(null);
-    window.setTimeout(
-      () => {
-        if (!this.disposed && this.active === null && this.candidate === null) {
-          this.startWebSocket();
-        }
-      },
-      transport.kind === "webrtc" ? 0 : WEBSOCKET_RETRY_MS,
-    );
-  }
+    rejectPending("live session transport was lost");
+    callbacks.onPhase("disconnected");
+    callbacks.onError(error.message);
+    callbacks.onFrame(null);
+    callbacks.onStream(null);
+    callbacks.onTransport(null);
+    startWebSocketLater(transport.kind === "webrtc" ? 0 : WEBSOCKET_RETRY_MS);
+  };
 
-  private handleMessage(transport: SessionTransport, message: LiveSessionServerMessage) {
+  const handleMessage = (transport: SessionTransport, message: LiveSessionServerMessage) => {
     if (
       message.type === "error" &&
       message.code === "resume_rejected" &&
-      this.candidate === transport &&
-      this.active === null
+      candidate === transport &&
+      active === null
     ) {
-      this.identity = null;
+      identity = null;
     }
     if (message.type === "session.snapshot") {
-      this.identity = { clientId: message.clientId, resumeSecret: message.resumeSecret };
+      identity = { clientId: message.clientId, resumeSecret: message.resumeSecret };
     }
-    if (this.active !== transport) {
-      if (this.candidate !== transport) {
+    if (active !== transport) {
+      if (candidate !== transport) {
         return;
       }
-      this.candidateMessages.push(message);
+      candidateMessages.push(message);
       if (message.type === "session.snapshot" && transport.kind === "websocket") {
-        this.activate(transport);
+        activate(transport);
       }
       return;
     }
-    this.deliverMessage(message);
-  }
+    deliverMessage(message);
+  };
 
-  private deliverMessage(message: LiveSessionServerMessage) {
+  const deliverMessage = (message: LiveSessionServerMessage) => {
     if ("realtimeCounter" in message && message.realtimeCounter !== undefined) {
-      if (message.realtimeCounter <= this.inboundRealtimeCounter) {
+      if (message.realtimeCounter <= inboundRealtimeCounter) {
         return;
       }
-      this.inboundRealtimeCounter = message.realtimeCounter;
+      inboundRealtimeCounter = message.realtimeCounter;
     }
     if ("requestId" in message) {
-      const result = message;
-      const pending = this.pendingCommands.get(result.requestId);
-      if (pending) {
-        this.pendingCommands.delete(result.requestId);
-        if (result.ok) {
-          pending.resolve(result);
-        } else {
-          pending.reject(new Error(result.message ?? "live session command failed"));
-        }
+      const deferred = pendingCommands.get(message.requestId);
+      if (deferred) {
+        pendingCommands.delete(message.requestId);
+        Deferred.doneUnsafe(
+          deferred,
+          message.ok
+            ? Effect.succeed(message)
+            : Effect.fail(
+                new LiveSessionError({
+                  message: message.message ?? "live session command failed",
+                }),
+              ),
+        );
       }
     }
-    this.options.callbacks.onMessage(message);
-  }
+    callbacks.onMessage(message);
+  };
 
-  private scheduleWebRTCRetry() {
+  const scheduleWebRTCRetry = () => {
     if (
-      this.disposed ||
-      this.preferredTransport !== "webrtc" ||
-      !this.options.webrtcSupported ||
-      this.active?.kind === "webrtc" ||
-      this.retryTimer !== null
+      disposed ||
+      preferredTransport !== "webrtc" ||
+      !options.webrtcSupported ||
+      active?.kind === "webrtc" ||
+      retryTimer !== null
     ) {
       return;
     }
-    const delay = this.webrtcRetryMs;
-    this.webrtcRetryMs = Math.min(WEBRTC_RETRY_MAX_MS, this.webrtcRetryMs * 2);
-    this.retryTimer = window.setTimeout(() => {
-      this.retryTimer = null;
-      this.startWebRTC();
-    }, delay);
-  }
+    const delay = webrtcRetryMs;
+    webrtcRetryMs = Math.min(WEBRTC_RETRY_MAX_MS, webrtcRetryMs * 2);
+    retryTimer = after(delay, () => {
+      retryTimer = null;
+      startWebRTC();
+    });
+  };
 
-  private clearRetry() {
-    if (this.retryTimer !== null) {
-      window.clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-  }
-
-  private rejectPending(message: string) {
-    for (const pending of this.pendingCommands.values()) {
-      pending.reject(new Error(message));
-    }
-    this.pendingCommands.clear();
-  }
-
-  private rejectTransportRequest(message: string) {
-    if (!this.transportRequest) {
-      return;
-    }
-    const request = this.transportRequest;
-    this.transportRequest = null;
-    request.reject(new Error(message));
-  }
-
-  private candidateFailed(kind: LiveSessionTransportKind, error: Error) {
-    const requested = this.transportRequest?.kind === kind;
+  const candidateFailed = (kind: LiveSessionTransportKind, error: LiveSessionError) => {
+    const requested = transportRequest?.kind === kind;
     if (requested) {
-      this.rejectTransportRequest(error.message);
-      if (this.active) {
-        this.preferredTransport = this.active.kind;
+      rejectTransportRequest(error.message);
+      if (active) {
+        preferredTransport = active.kind;
       }
     }
-    if (this.active) {
-      if (this.active.kind === "websocket") {
-        this.scheduleWebRTCRetry();
+    if (active) {
+      if (active.kind === "websocket") {
+        scheduleWebRTCRetry();
       }
       return;
     }
     if (kind === "webrtc") {
-      this.startWebSocket();
+      startWebSocket();
       return;
     }
-    this.options.callbacks.onPhase("disconnected");
-    this.options.callbacks.onError(error.message);
-    window.setTimeout(() => {
-      if (!this.disposed && this.active === null && this.candidate === null) {
-        this.startWebSocket();
-      }
-    }, WEBSOCKET_RETRY_MS);
-  }
+    callbacks.onPhase("disconnected");
+    callbacks.onError(error.message);
+    startWebSocketLater(WEBSOCKET_RETRY_MS);
+  };
+
+  const sendReliable = (message: Record<string, unknown>) => active?.sendReliable(message) ?? false;
+
+  const sendRealtime = (message: Record<string, unknown>) => {
+    realtimeCounter += 1;
+    return active?.sendRealtime({ realtimeCounter, ...message }) ?? false;
+  };
+
+  const close = () => {
+    disposed = true;
+    clearRetry();
+    dropCandidate();
+    active?.close();
+    active = null;
+    rejectTransportRequest("live session connection closed");
+    rejectPending("live session connection closed");
+    callbacks.onFrame(null);
+    callbacks.onStream(null);
+    callbacks.onTransport(null);
+  };
+
+  yield* Effect.addFinalizer(() => Effect.sync(close));
+
+  callbacks.onPhase("connecting");
+  startPreferredTransport();
+
+  return {
+    reconnect: Effect.sync(() => {
+      clearRetry();
+      dropCandidate();
+      active?.close();
+      active = null;
+      rejectTransportRequest("live session transport replaced");
+      rejectPending("live session transport replaced");
+      callbacks.onPhase("connecting");
+      startPreferredTransport();
+    }),
+
+    selectTransport: (kind) =>
+      Effect.suspend(() => {
+        if (kind === "webrtc" && !options.webrtcSupported) {
+          return Effect.fail(
+            new LiveSessionError({ message: "WebRTC presentation is unavailable" }),
+          );
+        }
+        preferredTransport = kind;
+        clearRetry();
+        if (candidate && candidate.kind !== kind) {
+          dropCandidate();
+        }
+        rejectTransportRequest("presentation selection was replaced");
+        if (active?.kind === kind) {
+          return Effect.void;
+        }
+        const deferred = Deferred.makeUnsafe<void, LiveSessionError>();
+        transportRequest = { kind, deferred };
+        if (candidate === null) {
+          if (kind === "webrtc") {
+            startWebRTC();
+          } else {
+            startWebSocket();
+          }
+        }
+        return Deferred.await(deferred);
+      }),
+
+    sendReliable,
+    sendRealtime,
+
+    command: (type, payload = {}) =>
+      Effect.suspend(() => {
+        nextRequestId += 1;
+        const requestId = `request-${nextRequestId}`;
+        const deferred = Deferred.makeUnsafe<LiveSessionCommandResult, LiveSessionError>();
+        pendingCommands.set(requestId, deferred);
+        if (!sendReliable({ type, requestId, ...payload })) {
+          pendingCommands.delete(requestId);
+          return Effect.fail(
+            new LiveSessionError({ message: "live session transport is unavailable" }),
+          );
+        }
+        return Deferred.await(deferred).pipe(
+          Effect.onInterrupt(() => Effect.sync(() => pendingCommands.delete(requestId))),
+        );
+      }),
+  } satisfies LiveSessionConnection;
+});
+
+function setupError(cause: unknown, fallback: string) {
+  return new LiveSessionError({
+    message: cause instanceof Error && cause.message ? cause.message : fallback,
+  });
 }
 
 class WebSocketSessionTransport implements SessionTransport {
   readonly kind = "websocket" as const;
   private readonly socket: WebSocket;
   private readonly callbacks: TransportCallbacks;
+  private readonly fork: Fork;
   private readonly pendingRealtime = new Map<unknown, Record<string, unknown>>();
   private pendingRasterPacket: Blob | null = null;
-  private decodingRasterPacket = false;
+  private rasterDecoder: Fiber.Fiber<void> | null = null;
+  private decodingRaster = false;
   private realtimeFrame: number | null = null;
   private closed = false;
 
@@ -509,8 +545,10 @@ class WebSocketSessionTransport implements SessionTransport {
     credentials: ApiCredentials;
     sessionToken?: string;
     callbacks: TransportCallbacks;
+    fork: Fork;
   }) {
     this.callbacks = options.callbacks;
+    this.fork = options.fork;
     this.socket = new WebSocket(
       sessionWebSocketURL(options.sessionId),
       sessionProtocols(options.credentials, options.sessionToken),
@@ -525,24 +563,34 @@ class WebSocketSessionTransport implements SessionTransport {
     this.socket.addEventListener("message", (event) => {
       if (typeof event.data === "string") {
         const message = decodeServerMessage(event.data);
-        if (message) {
-          this.callbacks.message(this, message);
+        if (Option.isSome(message)) {
+          this.callbacks.message(this, message.value);
         }
         return;
       }
       if (event.data instanceof Blob) {
+        // Only the newest packet matters; older ones still waiting are dropped.
         this.pendingRasterPacket = event.data;
-        void this.decodeRasterPacket();
+        if (!this.decodingRaster) {
+          this.decodingRaster = true;
+          this.rasterDecoder = this.fork(this.decodeRasterPackets());
+        }
       }
     });
     this.socket.addEventListener("close", () => {
       if (!this.closed) {
-        this.callbacks.failed(this, new Error("WebSocket session transport closed"));
+        this.callbacks.failed(
+          this,
+          new LiveSessionError({ message: "WebSocket session transport closed" }),
+        );
       }
     });
     this.socket.addEventListener("error", () => {
       if (!this.closed) {
-        this.callbacks.failed(this, new Error("WebSocket session transport failed"));
+        this.callbacks.failed(
+          this,
+          new LiveSessionError({ message: "WebSocket session transport failed" }),
+        );
       }
     });
   }
@@ -570,6 +618,8 @@ class WebSocketSessionTransport implements SessionTransport {
   close() {
     this.closed = true;
     this.pendingRasterPacket = null;
+    this.rasterDecoder?.interruptUnsafe();
+    this.rasterDecoder = null;
     if (this.realtimeFrame !== null) {
       window.cancelAnimationFrame(this.realtimeFrame);
       this.realtimeFrame = null;
@@ -578,27 +628,22 @@ class WebSocketSessionTransport implements SessionTransport {
     this.socket.close();
   }
 
-  private async decodeRasterPacket() {
-    if (this.decodingRasterPacket || this.pendingRasterPacket === null) {
-      return;
-    }
-    const packet = this.pendingRasterPacket;
-    this.pendingRasterPacket = null;
-    this.decodingRasterPacket = true;
-    let frame: LiveSessionRasterFrame | null = null;
-    try {
-      frame = await decodeRasterFrame(packet);
-    } catch {
-      // Ignore malformed or unreadable binary packets.
-    }
-    this.decodingRasterPacket = false;
-    if (this.closed) {
-      return;
-    }
-    if (frame) {
-      this.callbacks.frame(this, frame);
-    }
-    void this.decodeRasterPacket();
+  // Decodes one packet at a time until none is waiting.
+  private decodeRasterPackets(): Effect.Effect<void> {
+    return Effect.gen({ self: this }, function* () {
+      while (true) {
+        const packet = this.pendingRasterPacket;
+        if (packet === null || this.closed) {
+          this.decodingRaster = false;
+          return;
+        }
+        this.pendingRasterPacket = null;
+        const frame = yield* decodeRasterFrame(packet);
+        if (Option.isSome(frame) && !this.closed) {
+          this.callbacks.frame(this, frame.value);
+        }
+      }
+    });
   }
 
   private flushRealtime() {
@@ -628,6 +673,7 @@ class WebRTCSessionTransport implements SessionTransport {
   private readonly realtime: RTCDataChannel;
   private readonly signal: WebSocket;
   private readonly callbacks: TransportCallbacks;
+  private readonly fork: Fork;
   private readonly pendingCandidates: RTCIceCandidateInit[] = [];
   private reliableOpen = false;
   private realtimeOpen = false;
@@ -641,11 +687,15 @@ class WebRTCSessionTransport implements SessionTransport {
     sessionId: string;
     credentials: ApiCredentials;
     sessionToken?: string;
-    iceServers: RTCIceServer[];
+    iceServers: readonly IceServer[];
     callbacks: TransportCallbacks;
+    fork: Fork;
   }) {
     this.callbacks = options.callbacks;
-    this.connection = new RTCPeerConnection({ iceServers: options.iceServers });
+    this.fork = options.fork;
+    this.connection = new RTCPeerConnection({
+      iceServers: options.iceServers.map((server) => ({ ...server, urls: [...server.urls] })),
+    });
     this.reliable = this.connection.createDataChannel("application", { ordered: true });
     this.realtime = this.connection.createDataChannel("application-realtime", {
       ordered: false,
@@ -708,19 +758,13 @@ class WebRTCSessionTransport implements SessionTransport {
       }
     });
     this.signal.addEventListener("open", () => {
-      void this.connection
-        .createOffer()
-        .then((offer) => this.connection.setLocalDescription(offer))
-        .then(() => {
-          const description = this.connection.localDescription;
-          if (!description?.sdp) {
-            throw new Error("WebRTC offer is unavailable");
-          }
-          this.signal.send(JSON.stringify({ version: 1, type: "offer", sdp: description.sdp }));
-        })
-        .catch((cause: unknown) => {
-          this.fail(cause instanceof Error ? cause.message : "WebRTC negotiation failed");
-        });
+      this.fork(
+        this.sendOffer().pipe(
+          Effect.catchTag("LiveSessionError", (error) =>
+            Effect.sync(() => this.fail(error.message)),
+          ),
+        ),
+      );
     });
     this.signal.addEventListener("message", (event) => this.handleSignal(event));
     this.signal.addEventListener("close", () => this.fail("WebRTC signaling closed"));
@@ -751,6 +795,10 @@ class WebRTCSessionTransport implements SessionTransport {
     this.signal.close();
   }
 
+  mediaStream() {
+    return this.stream;
+  }
+
   private sendHello() {
     if (this.helloSent || !this.reliableOpen || !this.realtimeOpen) {
       return;
@@ -763,56 +811,77 @@ class WebRTCSessionTransport implements SessionTransport {
       return;
     }
     const message = decodeServerMessage(event.data);
-    if (!message) {
+    if (Option.isNone(message)) {
       this.fail("WebRTC session message is invalid");
       return;
     }
-    this.callbacks.message(this, message);
-    if (message.type === "session.snapshot") {
+    this.callbacks.message(this, message.value);
+    if (message.value.type === "session.snapshot") {
       this.snapshotReceived = true;
       this.maybeReady();
     }
   }
 
   private handleSignal(event: MessageEvent<unknown>) {
-    if (typeof event.data !== "string") {
+    const decoded =
+      typeof event.data === "string" ? decodeSignalResponse(event.data) : Option.none();
+    if (Option.isNone(decoded)) {
       this.fail("WebRTC signaling message is invalid");
       return;
     }
-    let value: unknown;
-    try {
-      value = JSON.parse(event.data);
-    } catch {
-      this.fail("WebRTC signaling message is invalid");
+    const signal = decoded.value;
+    if (signal.type === "error") {
+      this.fail(signal.error.message);
       return;
     }
-    const parsed = signalResponseSchema.safeParse(value);
-    if (!parsed.success) {
-      this.fail("WebRTC signaling message is invalid");
-      return;
-    }
-    if (parsed.data.type === "error") {
-      this.fail(parsed.data.error.message);
-      return;
-    }
-    if (parsed.data.type === "answer") {
-      void this.connection
-        .setRemoteDescription({ type: "answer", sdp: parsed.data.sdp })
-        .then(async () => {
-          for (const candidate of this.pendingCandidates.splice(0)) {
-            await this.connection.addIceCandidate(candidate);
-          }
-        })
-        .catch(() => this.fail("WebRTC answer is invalid"));
+    if (signal.type === "answer") {
+      this.fork(
+        Effect.tryPromise(() =>
+          this.connection.setRemoteDescription({ type: "answer", sdp: signal.sdp }),
+        ).pipe(
+          // Candidates that arrived before the answer apply once it is set.
+          Effect.andThen(
+            Effect.suspend(() =>
+              Effect.forEach(
+                this.pendingCandidates.splice(0),
+                (candidate) => Effect.tryPromise(() => this.connection.addIceCandidate(candidate)),
+                { discard: true },
+              ),
+            ),
+          ),
+          Effect.catch(() => Effect.sync(() => this.fail("WebRTC answer is invalid"))),
+        ),
+      );
       return;
     }
     if (!this.connection.remoteDescription) {
-      this.pendingCandidates.push(parsed.data.candidate);
+      this.pendingCandidates.push(signal.candidate);
       return;
     }
-    void this.connection
-      .addIceCandidate(parsed.data.candidate)
-      .catch(() => this.fail("WebRTC ICE candidate is invalid"));
+    this.fork(
+      Effect.tryPromise(() => this.connection.addIceCandidate(signal.candidate)).pipe(
+        Effect.catch(() => Effect.sync(() => this.fail("WebRTC ICE candidate is invalid"))),
+      ),
+    );
+  }
+
+  private sendOffer(): Effect.Effect<void, LiveSessionError> {
+    return Effect.gen({ self: this }, function* () {
+      const negotiationFailed = (cause: unknown) => setupError(cause, "WebRTC negotiation failed");
+      const offer = yield* Effect.tryPromise({
+        try: () => this.connection.createOffer(),
+        catch: negotiationFailed,
+      });
+      yield* Effect.tryPromise({
+        try: () => this.connection.setLocalDescription(offer),
+        catch: negotiationFailed,
+      });
+      const sdp = this.connection.localDescription?.sdp;
+      if (!sdp) {
+        return yield* new LiveSessionError({ message: "WebRTC offer is unavailable" });
+      }
+      this.signal.send(JSON.stringify({ version: 1, type: "offer", sdp }));
+    });
   }
 
   private maybeReady() {
@@ -821,51 +890,35 @@ class WebRTCSessionTransport implements SessionTransport {
     }
   }
 
-  mediaStream() {
-    return this.stream;
-  }
-
   private fail(message: string) {
     if (!this.closed) {
-      this.callbacks.failed(this, new Error(message));
+      this.callbacks.failed(this, new LiveSessionError({ message }));
     }
   }
 }
 
-function decodeServerMessage(raw: string): LiveSessionServerMessage | null {
-  try {
-    const value: unknown = JSON.parse(raw);
-    const parsed = liveSessionServerMessageSchema.safeParse(value);
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-async function decodeRasterFrame(packet: Blob): Promise<LiveSessionRasterFrame | null> {
-  if (packet.size < 4) {
-    return null;
-  }
-  const headerLength = new DataView(await packet.slice(0, 4).arrayBuffer()).getUint32(0);
-  if (headerLength === 0 || headerLength > packet.size - 4) {
-    return null;
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(await packet.slice(4, 4 + headerLength).text());
-  } catch {
-    return null;
-  }
-  const parsed = rasterFrameSchema.safeParse(value);
-  if (!parsed.success) {
-    return null;
-  }
-  return {
-    targetId: parsed.data.targetId,
-    data: packet.slice(4 + headerLength, packet.size, "image/jpeg"),
-    width: parsed.data.width,
-    height: parsed.data.height,
-  };
+// A raster packet is a 4-byte header length, a JSON header, and the JPEG image. Malformed
+// or unreadable packets decode to None.
+function decodeRasterFrame(packet: Blob): Effect.Effect<Option.Option<LiveSessionRasterFrame>> {
+  return Effect.gen(function* () {
+    if (packet.size < 4) {
+      return Option.none();
+    }
+    const prefix = yield* Effect.tryPromise(() => packet.slice(0, 4).arrayBuffer());
+    const headerLength = new DataView(prefix).getUint32(0);
+    if (headerLength === 0 || headerLength > packet.size - 4) {
+      return Option.none();
+    }
+    const header = decodeRasterFrameHeader(
+      yield* Effect.tryPromise(() => packet.slice(4, 4 + headerLength).text()),
+    );
+    return Option.map(header, (value) => ({
+      targetId: value.targetId,
+      data: packet.slice(4 + headerLength, packet.size, "image/jpeg"),
+      width: value.width,
+      height: value.height,
+    }));
+  }).pipe(Effect.orElseSucceed(() => Option.none()));
 }
 
 function sessionWebSocketURL(sessionId: string) {

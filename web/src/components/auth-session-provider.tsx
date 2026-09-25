@@ -1,8 +1,11 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
-import { apiClient, setSessionAuthenticationFailureHandler } from "@aperture/api-client";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import { ApiAuthorization, AuthApi } from "@aperture/api-client";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
+import { useFork } from "#/lib/effect/react.tsx";
 
 const WelcomeLoginModal = lazy(() =>
   import("#/features/auth/login-modal.tsx").then((module) => ({
@@ -23,38 +26,32 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
     window.localStorage.removeItem("aperture-token-vault");
   }, []);
 
-  useEffect(
+  useFork(
     () =>
-      setSessionAuthenticationFailureHandler(() => {
-        queryClient.clear();
-        setUnauthenticated();
-      }),
+      ApiAuthorization.use((authorization) =>
+        Stream.runForEach(authorization.sessionAuthenticationFailures, () =>
+          Effect.sync(() => {
+            queryClient.clear();
+            setUnauthenticated();
+          }),
+        ),
+      ),
     [queryClient, setUnauthenticated],
   );
 
-  useEffect(() => {
-    if (guestMode || status !== "loading") {
-      return;
-    }
-
-    let cancelled = false;
-    void apiClient
-      .getAuthMe()
-      .then((response) => {
-        if (!cancelled) {
-          setAuthenticated(response);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setUnauthenticated();
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [guestMode, setAuthenticated, setUnauthenticated, status]);
+  // Interrupted when the status changes first, so a stale answer is never applied.
+  useFork(
+    () =>
+      guestMode || status !== "loading"
+        ? undefined
+        : AuthApi.use((auth) => auth.getAuthMe()).pipe(
+            Effect.match({
+              onSuccess: setAuthenticated,
+              onFailure: () => setUnauthenticated(),
+            }),
+          ),
+    [guestMode, setAuthenticated, setUnauthenticated, status],
+  );
 
   return (
     <>

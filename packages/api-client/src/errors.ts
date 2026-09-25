@@ -1,27 +1,62 @@
-import { z } from "zod";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
+import type * as HttpClientError from "effect/unstable/http/HttpClientError";
 
-export const apiErrorSchema = z.object({
-  error: z.object({
-    code: z.string(),
-    message: z.string(),
+export const ApiErrorBody = Schema.Struct({
+  error: Schema.Struct({
+    code: Schema.String,
+    message: Schema.String,
   }),
 });
 
-export type ApiErrorBody = z.infer<typeof apiErrorSchema>;
+export type ApiErrorBody = typeof ApiErrorBody.Type;
 
-export class ApiRequestError extends Error {
-  readonly code: string;
-  readonly status: number;
+/**
+ * A failed API request. `code` and `message` come from the server's error body when it
+ * sent one; `status` is 0 when no HTTP status applies.
+ */
+export class ApiRequestError extends Schema.TaggedError<ApiRequestError>()("ApiRequestError", {
+  code: Schema.String,
+  message: Schema.String,
+  status: Schema.Number,
+}) {}
 
-  constructor(code: string, message: string, status: number) {
-    super(message);
-    this.name = "ApiRequestError";
-    this.code = code;
-    this.status = status;
-  }
-}
+const invalidResponse = (status: number) =>
+  new ApiRequestError({ code: "internal_error", message: "Invalid response", status });
 
-export function parseApiErrorBody(body: unknown): ApiErrorBody["error"] | null {
-  const parsed = apiErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : null;
-}
+const networkError = new ApiRequestError({
+  code: "network_error",
+  message: "The server could not be reached",
+  status: 0,
+});
+
+/**
+ * Maps HTTP and decoding failures to ApiRequestError. Error responses keep the code and
+ * message of the server's error body.
+ */
+export const toApiRequestError = <A, R>(
+  self: Effect.Effect<A, HttpClientError.HttpClientError | Schema.SchemaError, R>,
+): Effect.Effect<A, ApiRequestError, R> =>
+  self.pipe(
+    Effect.catchReasons("HttpClientError", {
+      StatusCodeError: ({ response }) =>
+        HttpClientResponse.schemaBodyJson(ApiErrorBody)(response).pipe(
+          Effect.map(({ error }) => new ApiRequestError({ ...error, status: response.status })),
+          Effect.orElseSucceed(
+            () =>
+              new ApiRequestError({
+                code: "internal_error",
+                message: "Request failed",
+                status: response.status,
+              }),
+          ),
+          Effect.flatMap(Effect.fail),
+        ),
+      DecodeError: ({ response }) => Effect.fail(invalidResponse(response.status)),
+    }),
+    Effect.catchTags({
+      HttpClientError: () => Effect.fail(networkError),
+      SchemaError: () => Effect.fail(invalidResponse(0)),
+    }),
+  );

@@ -1,26 +1,31 @@
 import { posix } from "node:path";
-import { zCreateSessionInput } from "@aperture/api-schema";
-import { z } from "zod";
+import { CreateSessionInput } from "@aperture/api-schema";
+import * as Schema from "effect/Schema";
 
 // Structure and simple limits come from api/openapi.yaml through @aperture/api-schema.
 // The checks below cover the rules OpenAPI cannot express.
-export const capsuleSchema = zCreateSessionInput
-  .pick({ initialTargets: true, storageState: true })
-  .superRefine((capsule, ctx) => {
-    const check = (ok: boolean, path: Path, message: string): void => {
-      if (!ok) ctx.addIssue({ code: "custom", path, message });
+export const Capsule = Schema.Struct({
+  initialTargets: CreateSessionInput.fields.initialTargets,
+  storageState: CreateSessionInput.fields.storageState,
+}).check(
+  Schema.makeFilter((capsule) => {
+    const issues: { path: Path; issue: string }[] = [];
+    const check: Check = (ok, path, message) => {
+      if (!ok) issues.push({ path, issue: message });
     };
     checkTargets(capsule.initialTargets ?? [], check);
     if (capsule.storageState) checkStorageState(capsule.storageState, check);
-  });
+    return issues;
+  }),
+);
 
-export type Capsule = z.infer<typeof capsuleSchema>;
+export type Capsule = typeof Capsule.Type;
 export type Target = NonNullable<Capsule["initialTargets"]>[number];
 type DocumentState = NonNullable<Target["documentState"]>;
 type StorageState = NonNullable<Capsule["storageState"]>;
 export type StorageOrigin = StorageState["origins"][number];
 
-type Path = (string | number)[];
+type Path = readonly (string | number)[];
 type Check = (ok: boolean, path: Path, message: string) => void;
 
 const maxDocumentStateBytes = 32 * 1024 * 1024;
@@ -29,7 +34,7 @@ const originMessage = "must contain only an http or https scheme and host";
 const jsonMessage = "must contain valid structured-clone JSON";
 const base64Message = "must be valid base64";
 
-function checkTargets(targets: Target[], check: Check): void {
+function checkTargets(targets: readonly Target[], check: Check): void {
   check(
     targets.filter((target) => target.active).length <= 1,
     ["initialTargets"],
@@ -228,7 +233,7 @@ function checkUnique(values: readonly (string | null)[], path: Path, check: Chec
   check(duplicate === -1, [...path, duplicate], "duplicate entry");
 }
 
-function validKeyPath(keyPath: { kind: string; value?: string[] }): boolean {
+function validKeyPath(keyPath: { kind: string; value?: readonly string[] }): boolean {
   const length = keyPath.value?.length;
   if (keyPath.kind === "none") return length === undefined;
   if (keyPath.kind === "string") return length === 1;
@@ -273,10 +278,10 @@ function isJSON(value: string): boolean {
   }
 }
 
-const base64 = z.base64();
+const base64 = Schema.is(Schema.String.check(Schema.isBase64()));
 
 function isBase64(value: string): boolean {
-  return base64.safeParse(value.replaceAll(/\r|\n/g, "")).success;
+  return base64(value.replaceAll(/\r|\n/g, ""));
 }
 
 export function canonicalOrigin(value: string): string | null {

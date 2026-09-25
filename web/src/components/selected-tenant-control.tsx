@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { TenantCombobox } from "#/components/tenant-combobox.tsx";
-import { apiClient } from "@aperture/api-client";
 import { selectAuth, useAuthSessionStore } from "#/stores/auth-session.ts";
 import { cn } from "@aperture/ui/utils";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
-type SelectedTenantControlProps = {
+interface SelectedTenantControlProps {
   triggerClassName?: string;
   align?: "start" | "center" | "end";
-};
+}
 
 export function SelectedTenantControl({
   triggerClassName,
   align = "end",
 }: SelectedTenantControlProps) {
+  const runApi = useRunApi();
   const auth = useAuthSessionStore(selectAuth);
   const setAuthenticated = useAuthSessionStore((state) => state.setAuthenticated);
   const [switching, setSwitching] = useState(false);
@@ -28,7 +30,7 @@ export function SelectedTenantControl({
   async function selectTenant(tenantId: string) {
     setSwitching(true);
     try {
-      setAuthenticated(await apiClient.getAuthMe(tenantId));
+      setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe(tenantId))));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Tenant switch failed");
     } finally {

@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { apiClient, type UserInput } from "@aperture/api-client";
+import type { UserInput } from "@aperture/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
+import { UsersApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 function useInvalidateUsers() {
   const queryClient = useQueryClient();
@@ -21,60 +23,70 @@ function useInvalidateMemberships() {
 }
 
 export function useCreateUserMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateUsers();
 
   return useMutation({
-    mutationFn: (input: UserInput) => apiClient.createUser(credentials!, input),
+    mutationFn: (input: UserInput) =>
+      runApi(UsersApi.use((users) => users.createUser(credentials!, input))),
     onSuccess: () => invalidate(),
     onError: (error) => toastMutationError(error, "Create failed"),
   });
 }
 
 export function useUpdateUserMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateUsers();
 
   return useMutation({
     mutationFn: ({ userId, input }: { userId: string; input: UserInput }) =>
-      apiClient.updateUser(credentials!, userId, input),
+      runApi(UsersApi.use((users) => users.updateUser(credentials!, userId, input))),
     onSuccess: (user) => invalidate(user.id),
     onError: (error) => toastMutationError(error, "Update failed"),
   });
 }
 
 export function useDisableUserMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateUsers();
 
   return useMutation({
-    mutationFn: (userId: string) => apiClient.disableUser(credentials!, userId),
+    mutationFn: (userId: string) =>
+      runApi(UsersApi.use((users) => users.disableUser(credentials!, userId))),
     onSuccess: (user) => invalidate(user.id),
     onError: (error) => toastMutationError(error, "Disable failed"),
   });
 }
 
 export function useRestoreUserMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateUsers();
 
   return useMutation({
-    mutationFn: (userId: string) => apiClient.restoreUser(credentials!, userId),
+    mutationFn: (userId: string) =>
+      runApi(UsersApi.use((users) => users.restoreUser(credentials!, userId))),
     onSuccess: (user) => invalidate(user.id),
     onError: (error) => toastMutationError(error, "Restore failed"),
   });
 }
 
 export function useCreateUserInvitationMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
 
   return useMutation({
-    mutationFn: (userId: string) => apiClient.createUserInvitation(credentials!, userId),
+    mutationFn: (userId: string) =>
+      runApi(UsersApi.use((users) => users.createUserInvitation(credentials!, userId))),
     onError: (error) => toastMutationError(error, "Password link creation failed"),
   });
 }
 
 export function useUpsertTenantMembershipMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateMemberships();
 
@@ -87,19 +99,27 @@ export function useUpsertTenantMembershipMutation() {
       userId: string;
       tenantId: string;
       scopes: string[];
-    }) => apiClient.upsertTenantMembership(credentials!, tenantId, userId, scopes),
+    }) =>
+      runApi(
+        UsersApi.use((users) =>
+          users.upsertTenantMembership(credentials!, tenantId, userId, scopes),
+        ),
+      ),
     onSuccess: (membership) => invalidate(membership.userId),
     onError: (error) => toastMutationError(error, "Access update failed"),
   });
 }
 
 export function useDeleteTenantMembershipMutation() {
+  const runApi = useRunApi();
   const credentials = useApiCredentials();
   const invalidate = useInvalidateMemberships();
 
   return useMutation({
     mutationFn: async ({ userId, tenantId }: { userId: string; tenantId: string }) => {
-      await apiClient.deleteTenantMembership(credentials!, tenantId, userId);
+      await runApi(
+        UsersApi.use((users) => users.deleteTenantMembership(credentials!, tenantId, userId)),
+      );
       return { userId };
     },
     onSuccess: ({ userId }) => invalidate(userId),

@@ -10,10 +10,11 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@aperture/ui/compone
 import { Field, FieldGroup, FieldLabel } from "@aperture/ui/components/field";
 import { Input } from "@aperture/ui/components/input";
 import { Skeleton } from "@aperture/ui/components/skeleton";
-import { apiClient } from "@aperture/api-client";
 import { queryKeys } from "#/lib/api/query-keys.ts";
 import type { Passkey } from "@aperture/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
+import { AuthApi } from "@aperture/api-client";
+import { useRunApi } from "#/lib/effect/react.tsx";
 
 type PendingAction =
   | { kind: "register" }
@@ -21,17 +22,22 @@ type PendingAction =
   | { kind: "delete"; passkeyId: string }
   | null;
 
-type PasskeyModalProps = {
+interface PasskeyModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
+}
 
 export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
+  const runApi = useRunApi();
   const queryClient = useQueryClient();
   const passkeysQueryKey = queryKeys.passkeys;
   const passkeys = useQuery({
     queryKey: passkeysQueryKey,
-    queryFn: () => apiClient.listPasskeys(),
+    queryFn: ({ signal }) =>
+      runApi(
+        AuthApi.use((auth) => auth.listPasskeys()),
+        { signal },
+      ),
     enabled: open,
   });
   const [name, setName] = useState("");
@@ -50,9 +56,11 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
 
     setPendingAction({ kind: "register" });
     try {
-      const options = await apiClient.beginPasskeyRegistration(passkeyName);
+      const options = await runApi(
+        AuthApi.use((auth) => auth.beginPasskeyRegistration(passkeyName)),
+      );
       const credential = await startRegistration({ optionsJSON: options.publicKey });
-      await apiClient.finishPasskeyRegistration(credential);
+      await runApi(AuthApi.use((auth) => auth.finishPasskeyRegistration(credential)));
       await queryClient.invalidateQueries({ queryKey: passkeysQueryKey });
       setName("");
       toast.success("Passkey added");
@@ -71,7 +79,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
 
     setPendingAction({ kind: "rename", passkeyId });
     try {
-      await apiClient.renamePasskey(passkeyId, passkeyName);
+      await runApi(AuthApi.use((auth) => auth.renamePasskey(passkeyId, passkeyName)));
       await queryClient.invalidateQueries({ queryKey: passkeysQueryKey });
       setEditingId(null);
       toast.success("Passkey renamed");
@@ -89,7 +97,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
 
     setPendingAction({ kind: "delete", passkeyId: deleteTarget.id });
     try {
-      await apiClient.deletePasskey(deleteTarget.id);
+      await runApi(AuthApi.use((auth) => auth.deletePasskey(deleteTarget.id)));
       await queryClient.invalidateQueries({ queryKey: passkeysQueryKey });
       toast.success("Passkey deleted");
     } catch (error) {

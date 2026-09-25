@@ -3,16 +3,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/zod.gen.ts"
+    ".": "./src/api.gen.ts"
   },
   "scripts": {
-    "generate": "openapi-ts"
+    "generate": "node scripts/generate.ts"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "0.99.0",
-    "typescript": "^6.0.3"
+    "@effect/openapi-generator": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "typescript": "^6.0.3",
+    "@types/node": "^26.1.1"
   }
 }
