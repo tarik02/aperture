@@ -95,3 +95,21 @@ hardware.nvidia-container-toolkit.enable = true;
 The runner detects an NVIDIA render node and requests its matching CDI GPU device. Codec `auto` falls back to VP8 because NVIDIA does not expose the VA-API encoder used by `h264-va`.
 
 Use `nix run .#dev -- --help` or `nix run .#dev-gpu -- --help` for the complete option list.
+
+## TypeScript workspace
+
+The pnpm workspace holds the web app and the restore worker (`apps/`), the browser extensions (`extensions/`) and the shared packages (`packages/`). From the repository root:
+
+```bash
+pnpm install
+pnpm format:check && pnpm lint && pnpm typecheck && pnpm build
+```
+
+## Releases
+
+release-please cuts a release when its pull request merges. Besides the binaries and the Docker image, a release:
+
+- publishes the npm packages under `packages/` that are not private (`@aperture-browser/api-schema`, `api-client`, `live-session`, `session-react` and `session-element`) at the release version, which release-please also writes into their `package.json` files;
+- attaches a zip of every extension whose `package.json` sets `"aperture": { "releaseZip": true }`, with the extension manifest's version set to the release version.
+
+npm publishing uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): for each package, add a trusted publisher on npmjs.com for this repository and the `release-please.yml` workflow. npm only allows that once a package exists, so the first release publishes with the `NPM_TOKEN` repository secret; the secret can be removed once every package has its trusted publisher. `node scripts/publish-npm.mjs --dry-run` shows what would be published.
