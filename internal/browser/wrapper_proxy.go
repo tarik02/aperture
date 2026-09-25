@@ -120,5 +120,14 @@ func (r *wrapperRuntime) proxyStatusFragmentLocked() map[string]any {
 		"activeConns": stats.ActiveConns,
 		"totalConns":  stats.TotalConns,
 		"failedConns": stats.FailedConns,
+		"localTunnel": localTunnelStatus(stats),
 	}
+}
+
+// localTunnelStatus reports the attached local tunnel's routes, or null.
+func localTunnelStatus(stats proxy.Stats) any {
+	if stats.LocalTunnelRoutes == nil {
+		return nil
+	}
+	return map[string]any{"routes": stats.LocalTunnelRoutes}
 }

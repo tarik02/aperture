@@ -38,6 +38,9 @@ type Stats struct {
 	TotalConns uint64
 	// FailedConns counts connections that failed before relaying.
 	FailedConns uint64
+	// LocalTunnelRoutes lists the attached local tunnel's routes, nil when
+	// no client is attached.
+	LocalTunnelRoutes []string
 }
 
 // Manager owns the session-local SOCKS5 listener and the current upstream
@@ -50,6 +53,7 @@ type Manager struct {
 	assignment Assignment
 	dial       func(ctx context.Context, target Target) (net.Conn, error)
 	tunnels    map[*Tunnel]struct{}
+	local      *LocalTunnel
 
 	listener net.Listener
 	ctx      context.Context
@@ -100,6 +104,10 @@ func (m *Manager) Close() error {
 		_ = t.Close()
 	}
 	m.tunnels = make(map[*Tunnel]struct{})
+	if m.local != nil {
+		_ = m.local.Close()
+		m.local = nil
+	}
 	m.mu.Unlock()
 	m.wg.Wait()
 	return nil
@@ -140,13 +148,18 @@ func (m *Manager) Apply(a Assignment, drain bool) error {
 func (m *Manager) Stats() Stats {
 	m.mu.RLock()
 	upstream := m.assignment.NormalizedUpstream()
+	var localRoutes []string
+	if m.local != nil {
+		localRoutes = m.local.Routes()
+	}
 	m.mu.RUnlock()
 	return Stats{
-		Addr:        m.Addr(),
-		Upstream:    upstream,
-		ActiveConns: atomic.LoadInt64(&m.activeConns),
-		TotalConns:  atomic.LoadUint64(&m.totalConns),
-		FailedConns: atomic.LoadUint64(&m.failedConns),
+		Addr:              m.Addr(),
+		Upstream:          upstream,
+		ActiveConns:       atomic.LoadInt64(&m.activeConns),
+		TotalConns:        atomic.LoadUint64(&m.totalConns),
+		FailedConns:       atomic.LoadUint64(&m.failedConns),
+		LocalTunnelRoutes: localRoutes,
 	}
 }
 
@@ -189,11 +202,7 @@ func (m *Manager) acceptLoop() {
 }
 
 func (m *Manager) serveConn(ctx context.Context, downstream net.Conn, target Target, request []byte) {
-	m.mu.RLock()
-	dial := m.dial
-	m.mu.RUnlock()
-
-	upstream, err := dial(ctx, target)
+	upstream, err := m.route(target)(ctx, target)
 	if err != nil {
 		atomic.AddUint64(&m.failedConns, 1)
 		_, _ = downstream.Write(failureReply())
@@ -217,6 +226,74 @@ func (m *Manager) serveConn(ctx context.Context, downstream net.Conn, target Tar
 	}
 
 	_ = Relay(ctx, downstream, upstream)
+}
+
+// route picks the dialer for one connection. A local tunnel route wins, so an
+// attached client can take over any host, localhost included. Localhost
+// otherwise stays on this machine whatever the assignment, as it did when
+// Chromium bypassed the proxy for it: it comes here only so local tunnel routes
+// can claim it.
+func (m *Manager) route(target Target) func(ctx context.Context, target Target) (net.Conn, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if local := m.local; local != nil && local.matches(target) {
+		return func(ctx context.Context, _ Target) (net.Conn, error) {
+			return m.openLocalTunnelStream(ctx, local)
+		}
+	}
+	if isLocalhostName(target.Host) {
+		return dialLocalhost
+	}
+	return m.dial
+}
+
+// openLocalTunnelStream opens a stream on an attached local tunnel. A matched
+// connection fails with the tunnel rather than falling back, so a dropped
+// client never sends its hosts to a different destination.
+func (m *Manager) openLocalTunnelStream(ctx context.Context, local *LocalTunnel) (net.Conn, error) {
+	stream, err := local.OpenStream(ctx)
+	if err != nil {
+		if !local.Healthy() {
+			m.DetachLocalTunnel(local)
+		}
+		return nil, err
+	}
+	return tunnelStream{Conn: stream, isTunnel: true}, nil
+}
+
+// AttachLocalTunnel routes matching connections through a client-attached
+// tunnel. A session has at most one; attaching replaces and closes the
+// previous one, so a reconnecting client takes over from its stale tunnel.
+func (m *Manager) AttachLocalTunnel(local *LocalTunnel) {
+	m.mu.Lock()
+	previous := m.local
+	m.local = local
+	m.mu.Unlock()
+	if previous != nil {
+		_ = previous.Close()
+	}
+}
+
+// DetachLocalTunnel stops routing through local if it is still the attached
+// tunnel, and closes it.
+func (m *Manager) DetachLocalTunnel(local *LocalTunnel) {
+	m.mu.Lock()
+	if m.local == local {
+		m.local = nil
+	}
+	m.mu.Unlock()
+	_ = local.Close()
+}
+
+func dialDirect(ctx context.Context, target Target) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, "tcp", target.String())
+}
+
+// dialLocalhost dials a localhost name on this machine. Subdomains of localhost
+// resolve like localhost itself, as they do in the browser.
+func dialLocalhost(ctx context.Context, target Target) (net.Conn, error) {
+	return dialDirect(ctx, Target{Host: "localhost", Port: target.Port})
 }
 
 // handOffToOperator negotiates SOCKS no-auth on the client's behalf, then
@@ -248,10 +325,7 @@ func (m *Manager) dialerFor(a Assignment) func(ctx context.Context, target Targe
 			return m.openTunnelStream(ctx, a)
 		}
 	default:
-		return func(ctx context.Context, target Target) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "tcp", target.String())
-		}
+		return dialDirect
 	}
 }
 

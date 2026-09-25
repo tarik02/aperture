@@ -2282,7 +2282,7 @@ components:
         tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
         bypass:
           type: string
-          description: Extra `--proxy-bypass-list` entries. Loopback is always bypassed.
+          description: Extra `--proxy-bypass-list` entries. Loopback never uses the upstream, and `localhost` stays on the session host unless a local tunnel route claims it.
           example: '*.internal.example.com'
     SessionProxy:
       type: object
@@ -2326,7 +2326,7 @@ components:
         tunnel: {$ref: '#/components/schemas/ProxyTunnelConfig'}
         bypass:
           type: string
-          description: Extra `--proxy-bypass-list` entries. Loopback is always bypassed.
+          description: Extra `--proxy-bypass-list` entries. Loopback never uses the upstream, and `localhost` stays on the session host unless a local tunnel route claims it.
           example: '*.internal.example.com'
         drain:
           type: boolean

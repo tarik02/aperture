@@ -61,6 +61,10 @@ _Avoid_: Read-only session token, guest token
 An ephemeral directed edge from one session client to another. The follower adopts the followed client's selected browser target and highlights that client's cursor. Chains are allowed; cycles are rejected.
 _Avoid_: Screen share, control transfer
 
+**Local tunnel**:
+A WebSocket a client opens to a running session so the browser's connections to the hosts it names are dialed on the client's machine. It lasts as long as the WebSocket; a session has at most one.
+_Avoid_: Reverse proxy, tunnel upstream, port forward
+
 **Overlay stroke**:
 An ephemeral visual mark attached to one browser target. Any session client may create one, including clients using a viewer capability. It never becomes browser input or retained session state.
 _Avoid_: Annotation document, whiteboard object
