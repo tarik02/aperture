@@ -332,33 +332,9 @@
               fi
             '';
 
-        gpuMesa = mkRuntimeMesa (
-          (pkgs.mesa.override {
-            galliumDrivers = builtins.filter (
-              driver:
-              !builtins.elem driver [
-                "llvmpipe"
-                "softpipe"
-              ]
-            ) pkgs.mesa.galliumDrivers;
-            vulkanDrivers = builtins.filter (driver: driver != "swrast") pkgs.mesa.vulkanDrivers;
-            vulkanLayers = [ ];
-            withValgrind = false;
-          }).overrideAttrs
-            (oldAttrs: {
-              mesonFlags = (oldAttrs.mesonFlags or [ ]) ++ [
-                "-Dteflon=false"
-                "-Dgallium-extra-hud=false"
-                "-Dintel-rt=disabled"
-                "-Dtools="
-                "-Dinstall-mesa-clc=false"
-                "-Dinstall-precomp-compiler=false"
-              ];
-              postInstall = (oldAttrs.postInstall or "") + ''
-                mkdir -p $cross_tools $spirv2dxil
-              '';
-            })
-        );
+        # The stock build from cache.nixos.org: the GPU drivers need LLVM anyway, so a
+        # custom build only dropped the software drivers, for a ~40 minute compile per image.
+        gpuMesa = mkRuntimeMesa pkgs.mesa;
 
         intelMesa = mkRuntimeMesa (
           (pkgs.mesa.override {
@@ -1189,6 +1165,20 @@
           aperture-chromium = runtimeChromium;
           aperture-docker = defaultDockerImage;
           aperture-docker-gpu = gpuDockerImage;
+          # The custom builds the Docker images need, which cache.nixos.org doesn't have.
+          # CI caches them between runs.
+          docker-build-deps = pkgs.linkFarmFromDrvs "docker-build-deps" (
+            [
+              runtimeGstreamer
+              runtimeGstPluginsBase
+              runtimeGstPluginsGood
+              runtimeGstPluginsBad
+              runtimePipewire
+              runtimeWirePlumber
+              patchedWeston
+            ]
+            ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [ intelMesa ]
+          );
         };
 
         apps = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

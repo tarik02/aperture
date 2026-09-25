@@ -87,7 +87,7 @@ type CreateInput struct {
 	BrowserArgs      []string
 	Initialization   browser.SessionInitialization
 	Tags             map[string]string
-	Proxy            proxy.Assignment
+	Proxy            proxy.Config
 }
 
 // SessionView is returned by session APIs.
@@ -224,7 +224,7 @@ func (s *Service) create(
 		ExpiresAt:       expiresAt.Format(time.RFC3339Nano),
 		LastConnectedAt: &nowText,
 	}
-	applyProxyAssignmentToRow(sessionRow, input.Proxy)
+	applyProxyConfigToRow(sessionRow, input.Proxy)
 
 	if err := s.repo.CreateSession(ctx, sessionRow); err != nil {
 		return nil, err
@@ -308,11 +308,7 @@ func (s *Service) create(
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           input.BrowserArgs,
-		ProxyUpstream:              string(input.Proxy.NormalizedUpstream()),
-		ProxyURL:                   input.Proxy.URL,
-		ProxyTunnelURL:             input.Proxy.TunnelURL,
-		ProxyTunnelAuth:            input.Proxy.TunnelAuth,
-		ProxyBypass:                input.Proxy.Bypass,
+		ProxyConfig:                input.Proxy,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
 		GPUMode:                    s.cfg.GPUMode,
 		CompositorEnabled:          compositorEnabled,
@@ -652,6 +648,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
+	proxyConfig := ProxyConfigFromRow(sessionRow)
 
 	runtimeEnv := browser.RuntimeEnvValues{
 		SessionID:           sessionID,
@@ -675,11 +672,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
-		ProxyUpstream:              sessionRow.ProxyUpstream,
-		ProxyURL:                   derefProxyString(sessionRow.ProxyURL),
-		ProxyTunnelURL:             derefProxyString(sessionRow.ProxyTunnelURL),
-		ProxyTunnelAuth:            derefProxyString(sessionRow.ProxyTunnelAuth),
-		ProxyBypass:                derefProxyString(sessionRow.ProxyBypass),
+		ProxyConfig:                proxyConfig,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
 		GPUMode:                    s.cfg.GPUMode,
 		CompositorEnabled:          compositorEnabled,

@@ -66,6 +66,13 @@ func DialTunnel(ctx context.Context, sessionID, tunnelURL, auth string) (*Tunnel
 		return nil, fmt.Errorf("proxy: dial tunnel: %w", err)
 	}
 
+	return newTunnel(conn)
+}
+
+// newTunnel runs the wrapper side of the tunnel protocol over an established
+// WebSocket, whichever end dialed it: the wrapper is the yamux client and opens
+// one stream per connection, and the peer terminates SOCKS5 on each stream.
+func newTunnel(conn *websocket.Conn) (*Tunnel, error) {
 	adapter := newWSAdapter(conn)
 	config := yamux.DefaultConfig()
 	config.LogOutput = io.Discard
@@ -111,6 +118,11 @@ func (t *Tunnel) OpenStream(ctx context.Context) (net.Conn, error) {
 // must check this before handing it work.
 func (t *Tunnel) Healthy() bool {
 	return !t.closed.Load() && !t.session.IsClosed()
+}
+
+// Done is closed once the tunnel's yamux session ends, from either side.
+func (t *Tunnel) Done() <-chan struct{} {
+	return t.session.CloseChan()
 }
 
 // Drain waits for active streams to finish, then closes the tunnel. The idle

@@ -263,8 +263,6 @@ type LaunchConfig struct {
 	// ProxyServerAddr is the session-local SOCKS5 address (host:port) Chromium
 	// must use. Always set by the wrapper; never user-supplied.
 	ProxyServerAddr string
-	// ProxyBypass holds extra --proxy-bypass-list entries from the assignment.
-	ProxyBypass string
 }
 
 // BuildBwrapCommand constructs the bwrap command that launches Chromium.
@@ -299,7 +297,7 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(cfg.ProxyServerAddr) != "" {
-		browserArgs = append(browserArgs, ProxyArgs(cfg.ProxyServerAddr, cfg.ProxyBypass)...)
+		browserArgs = append(browserArgs, ProxyArgs(cfg.ProxyServerAddr)...)
 	}
 	extensionDirs := make([]string, 0, 2)
 	if strings.TrimSpace(cfg.CaptureProofExtensionDir) != "" {
@@ -611,7 +609,6 @@ func LaunchFromRuntimeEnv() error {
 		HardwareAcceleration:     values.GPUMode == gpuModeHardware,
 		RenderNode:               values.RenderNode,
 		ProxyServerAddr:          proxyManager.Addr(),
-		ProxyBypass:              values.ProxyBypass,
 	})
 	if err != nil {
 		return err
@@ -933,7 +930,6 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		RenderNode:               values.RenderNode,
 		NestedWaylandSocket:      socketName,
 		ProxyServerAddr:          proxyManager.Addr(),
-		ProxyBypass:              values.ProxyBypass,
 	})
 	if err != nil {
 		stopProcess(compositor, compositorDone)
@@ -1473,11 +1469,11 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.CaptureProofExtensionDir = strings.TrimSpace(os.Getenv("CAPTURE_PROOF_EXTENSION_DIR"))
 	values.WrapperControlToken = strings.TrimSpace(os.Getenv("WRAPPER_CONTROL_TOKEN"))
 	values.GPUMode = strings.TrimSpace(os.Getenv("GPU_MODE"))
-	values.ProxyUpstream = strings.TrimSpace(os.Getenv("PROXY_UPSTREAM"))
-	values.ProxyURL = strings.TrimSpace(os.Getenv("PROXY_URL"))
-	values.ProxyTunnelURL = strings.TrimSpace(os.Getenv("PROXY_TUNNEL_URL"))
-	values.ProxyTunnelAuth = strings.TrimSpace(os.Getenv("PROXY_TUNNEL_AUTH"))
-	values.ProxyBypass = strings.TrimSpace(os.Getenv("PROXY_BYPASS"))
+	proxyConfig, err := decodeProxyConfig(os.Getenv("PROXY_CONFIG"))
+	if err != nil {
+		return RuntimeEnvValues{}, err
+	}
+	values.ProxyConfig = proxyConfig
 	values.CompositorEnabled = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_ENABLED")) == "1"
 	values.CompositorExecutable = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_EXECUTABLE"))
 	values.CompositorBackend = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_BACKEND"))

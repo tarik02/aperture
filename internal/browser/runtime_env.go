@@ -11,35 +11,34 @@ import (
 	"strings"
 
 	"github.com/google/renameio/v2"
+
+	"github.com/aperture/aperture/internal/proxy"
 )
 
 // RuntimeEnvValues are written for browser-session-wrapper consumption.
 type RuntimeEnvValues struct {
-	SessionID                  string
-	ExternalBaseURL            string
-	EmbedAllowedOrigins        []string
-	SessionToken               string
-	SessionTokenPath           string
-	InternalAPIURL             string
-	MergedUserDataDir          string
-	UpperDir                   string
-	DownloadsDir               string
-	RecordingsDir              string
-	CacheDir                   string
-	ArtifactsDir               string
-	SessionUploadMaxFileBytes  int64
-	SessionStorageQuotaBytes   int64
-	CDPPort                    int
-	WrapperPort                int
-	WrapperControlToken        string
-	BrowserExecutable          string
-	BrowserDefaultArgs         []string
-	BrowserExtraArgs           []string
-	ProxyUpstream              string
-	ProxyURL                   string
-	ProxyTunnelURL             string
-	ProxyTunnelAuth            string
-	ProxyBypass                string
+	SessionID                 string
+	ExternalBaseURL           string
+	EmbedAllowedOrigins       []string
+	SessionToken              string
+	SessionTokenPath          string
+	InternalAPIURL            string
+	MergedUserDataDir         string
+	UpperDir                  string
+	DownloadsDir              string
+	RecordingsDir             string
+	CacheDir                  string
+	ArtifactsDir              string
+	SessionUploadMaxFileBytes int64
+	SessionStorageQuotaBytes  int64
+	CDPPort                   int
+	WrapperPort               int
+	WrapperControlToken       string
+	BrowserExecutable         string
+	BrowserDefaultArgs        []string
+	BrowserExtraArgs          []string
+	// ProxyConfig is the session proxy configuration, secrets included.
+	ProxyConfig                proxy.Config
 	CaptureProofExtensionDir   string
 	GPUMode                    string
 	RenderNode                 string
@@ -209,24 +208,16 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"BROWSER_EXECUTABLE=" + shellQuote(values.BrowserExecutable),
 		"BROWSER_DEFAULT_ARGS=" + defaultArgs,
 		"BROWSER_EXTRA_ARGS=" + extraArgs,
-		"PROXY_UPSTREAM=" + shellQuote(values.ProxyUpstream),
 		"GPU_MODE=" + shellQuote(values.GPUMode),
 	}
 	if strings.TrimSpace(values.WrapperControlToken) != "" {
 		lines = append(lines, "WRAPPER_CONTROL_TOKEN="+shellQuote(values.WrapperControlToken))
 	}
-	if strings.TrimSpace(values.ProxyURL) != "" {
-		lines = append(lines, "PROXY_URL="+shellQuote(values.ProxyURL))
+	proxyConfig, err := json.Marshal(values.ProxyConfig)
+	if err != nil {
+		return nil, fmt.Errorf("encode proxy config: %w", err)
 	}
-	if strings.TrimSpace(values.ProxyTunnelURL) != "" {
-		lines = append(lines, "PROXY_TUNNEL_URL="+shellQuote(values.ProxyTunnelURL))
-	}
-	if strings.TrimSpace(values.ProxyTunnelAuth) != "" {
-		lines = append(lines, "PROXY_TUNNEL_AUTH="+shellQuote(values.ProxyTunnelAuth))
-	}
-	if strings.TrimSpace(values.ProxyBypass) != "" {
-		lines = append(lines, "PROXY_BYPASS="+shellQuote(values.ProxyBypass))
-	}
+	lines = append(lines, "PROXY_CONFIG="+shellQuote(string(proxyConfig)))
 	if strings.TrimSpace(values.InternalAPIURL) != "" {
 		lines = append(lines, "INTERNAL_API_URL="+shellQuote(values.InternalAPIURL))
 	}
@@ -317,12 +308,22 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "PROXY_UPSTREAM", "PROXY_URL", "PROXY_TUNNEL_URL", "PROXY_TUNNEL_AUTH", "PROXY_BYPASS", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
 			}
 			assignRuntimeString(&values, key, unquoted)
+		case "PROXY_CONFIG":
+			unquoted, err := shellUnquote(val)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
+			}
+			config, err := decodeProxyConfig(unquoted)
+			if err != nil {
+				return RuntimeEnvValues{}, err
+			}
+			values.ProxyConfig = config
 		case "WEBRTC_COMPOSITOR_ENABLED":
 			values.CompositorEnabled = strings.TrimSpace(val) == "1"
 		case "WEBRTC_MEDIA_PRODUCER_ENABLED":
@@ -443,16 +444,6 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.ArtifactsDir = value
 	case "BROWSER_EXECUTABLE":
 		values.BrowserExecutable = value
-	case "PROXY_UPSTREAM":
-		values.ProxyUpstream = value
-	case "PROXY_URL":
-		values.ProxyURL = value
-	case "PROXY_TUNNEL_URL":
-		values.ProxyTunnelURL = value
-	case "PROXY_TUNNEL_AUTH":
-		values.ProxyTunnelAuth = value
-	case "PROXY_BYPASS":
-		values.ProxyBypass = value
 	case "CAPTURE_PROOF_EXTENSION_DIR":
 		values.CaptureProofExtensionDir = value
 	case "GPU_MODE":
@@ -534,4 +525,17 @@ func splitEmbedAllowedOrigins(value string) []string {
 		}
 	}
 	return origins
+}
+
+// decodeProxyConfig reads the PROXY_CONFIG value; an empty one is the default
+// configuration.
+func decodeProxyConfig(value string) (proxy.Config, error) {
+	var config proxy.Config
+	if strings.TrimSpace(value) == "" {
+		return config, nil
+	}
+	if err := json.Unmarshal([]byte(value), &config); err != nil {
+		return proxy.Config{}, fmt.Errorf("decode proxy config: %w", err)
+	}
+	return config, nil
 }

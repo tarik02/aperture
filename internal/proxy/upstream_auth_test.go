@@ -266,10 +266,10 @@ func startHTTPConnectProxy(t *testing.T, useTLS bool, wantUser, wantPass string)
 }
 
 // dialThroughManager runs one connection through a Manager with the given
-// assignment and returns what the echo target sent back.
-func dialThroughManager(t *testing.T, assignment Assignment, target string) string {
+// upstream proxy URL and returns what the echo target sent back.
+func dialThroughManager(t *testing.T, proxyURL string, target string) string {
 	t.Helper()
-	manager, err := NewManager("session-test", assignment)
+	manager, err := NewManager("session-test", Config{Rules: []Rule{{Match: "*", Via: proxyURL}}})
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
@@ -334,10 +334,7 @@ func TestUpstreamProxySOCKS5UsernamePassword(t *testing.T) {
 	target := echoTarget(t)
 	server := startSOCKS5AuthServer(t, "alice", "s3cr3t")
 
-	got := dialThroughManager(t, Assignment{
-		Upstream: UpstreamProxy,
-		URL:      "socks5://alice:s3cr3t@" + server.addr,
-	}, target)
+	got := dialThroughManager(t, "socks5://alice:s3cr3t@"+server.addr, target)
 	if got != "ping" {
 		t.Fatalf("echo = %q, want %q", got, "ping")
 	}
@@ -358,10 +355,7 @@ func TestUpstreamProxyHTTPBasicAuth(t *testing.T) {
 	target := echoTarget(t)
 	server := startHTTPConnectProxy(t, false, "alice", "s3cr3t")
 
-	got := dialThroughManager(t, Assignment{
-		Upstream: UpstreamProxy,
-		URL:      strings.Replace(server.url, "http://", "http://alice:s3cr3t@", 1),
-	}, target)
+	got := dialThroughManager(t, strings.Replace(server.url, "http://", "http://alice:s3cr3t@", 1), target)
 	if got != "ping" {
 		t.Fatalf("echo = %q, want %q", got, "ping")
 	}
