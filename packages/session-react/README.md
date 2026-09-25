@@ -22,9 +22,8 @@ export function SharedBrowser({ token }: { token: string }) {
 `token` is a share link's editor (`ape_…`) or viewer (`apv_…`) token; the component grants exactly what the link grants. Props:
 
 - `baseUrl`: the Aperture instance, when it is not the page's own origin. The instance must list your origin in `embed_allowed_origins`.
-- `features`: turns parts of the UI off, e.g. `{ tabs: false, menus: false }`. Each defaults to on: `tabs`, `navigation` (back, forward, reload), `addressBar`, `presence` (who else is connected), `drawing`, `menus` (stream, viewport, recording and input settings), `statusBadge`.
+- `features`: turns parts of the UI off, e.g. `{ tabs: false, menus: false }`. Each defaults to on: `tabs`, `navigation` (back, forward, reload), `addressBar`, `presence` (who else is connected), `drawing`, `menus` (stream, viewport, recording and input settings), `statusBadge`, `toaster` (turn it off if your app renders its own [sonner](https://sonner.emilkowal.ski) toaster).
 - `theme`: `"light"`, `"dark"` or `"system"` (the default).
-- `toaster`: `false` if your app renders its own [sonner](https://sonner.emilkowal.ski) toaster.
 
 ## Styles
 
@@ -69,6 +68,7 @@ export const App = ({ token }: { token: string }) => (
 - `useSharedSession` resolves the token (`status` is `loading`, `ready`, `invalid`, `expired` or `unavailable`) and connects once it is ready. `control` lists the tabs and navigates, opens, closes and activates them.
 - `SessionViewport` shows the active tab and forwards input to it. It is styled inline and takes `className` and `style`. `renderOverlay` receives the connection status, a placeholder reason while there is no picture yet, and cursor hints, for drawing your own overlays.
 - `onNotice` receives the errors and confirmations the full UI shows as toasts.
+- `control.commands` has the same actions as Effects that succeed once Aperture has carried them out and fail with a `LiveSessionError` otherwise, e.g. `yield* control.commands.navigate(url)`.
 
 ## Lower-level pieces
 

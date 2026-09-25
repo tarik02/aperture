@@ -1,5 +1,5 @@
 import { createRoot, type Root } from "react-dom/client";
-import { ApertureSession, type SessionFeatures } from "@aperture-browser/session-react";
+import { ApertureSession } from "@aperture-browser/session-react";
 import styles from "@aperture-browser/session-react/styles.css?inline";
 
 const documentRules = /@property[^{]*\{[^}]*\}/g;
@@ -24,6 +24,17 @@ const hostStyles = `
 
 type Theme = "light" | "dark" | "system";
 
+export interface ApertureSessionFeatures {
+  readonly tabs?: boolean;
+  readonly navigation?: boolean;
+  readonly addressBar?: boolean;
+  readonly presence?: boolean;
+  readonly drawing?: boolean;
+  readonly menus?: boolean;
+  readonly statusBadge?: boolean;
+  readonly toaster?: boolean;
+}
+
 const hideableFeatures = {
   tabs: "tabs",
   navigation: "navigation",
@@ -32,10 +43,11 @@ const hideableFeatures = {
   drawing: "drawing",
   menus: "menus",
   "status-badge": "statusBadge",
-} as const satisfies Record<string, keyof SessionFeatures>;
+  toaster: "toaster",
+} as const satisfies Record<string, keyof ApertureSessionFeatures>;
 
-function hiddenFeatures(value: string | null): SessionFeatures {
-  const features: { -readonly [K in keyof SessionFeatures]: SessionFeatures[K] } = {};
+function hiddenFeatures(value: string | null): ApertureSessionFeatures {
+  const features: { -readonly [K in keyof ApertureSessionFeatures]: boolean } = {};
   for (const name of value?.split(/\s+/) ?? []) {
     if (name in hideableFeatures) {
       features[hideableFeatures[name as keyof typeof hideableFeatures]] = false;
@@ -48,6 +60,16 @@ export class ApertureSessionElement extends HTMLElement {
   static readonly observedAttributes = ["token", "base-url", "theme", "hide"];
 
   #root: Root | null = null;
+  #features: ApertureSessionFeatures = {};
+
+  get features(): ApertureSessionFeatures {
+    return this.#features;
+  }
+
+  set features(features: ApertureSessionFeatures) {
+    this.#features = features;
+    this.#render();
+  }
 
   connectedCallback(): void {
     installDocumentStyles(this.ownerDocument);
@@ -81,8 +103,7 @@ export class ApertureSessionElement extends HTMLElement {
           token={token}
           baseUrl={this.getAttribute("base-url") ?? undefined}
           theme={theme === "light" || theme === "dark" ? (theme as Theme) : "system"}
-          features={hiddenFeatures(this.getAttribute("hide"))}
-          toaster={!this.getAttribute("hide")?.split(/\s+/).includes("toaster")}
+          features={{ ...hiddenFeatures(this.getAttribute("hide")), ...this.#features }}
         />
       ) : null,
     );

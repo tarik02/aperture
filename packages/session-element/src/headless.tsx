@@ -1,7 +1,9 @@
 import { useEffect, useMemo } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import * as Effect from "effect/Effect";
 import {
   ApertureProvider,
+  LiveSessionError,
   SessionViewport,
   useSharedSession,
   type SessionNotice,
@@ -79,43 +81,79 @@ export class ApertureSessionViewElement extends HTMLElement {
     return this.#snapshot;
   }
 
-  navigate(url: string): void {
-    this.#control?.navigate(url);
+  navigate(url: string): Promise<void> {
+    return this.#run((commands) => commands.navigate(url));
   }
 
-  back(): void {
-    this.#control?.historyBack();
+  back(): Promise<void> {
+    return this.#run((commands) => commands.historyBack());
   }
 
-  forward(): void {
-    this.#control?.historyForward();
+  forward(): Promise<void> {
+    return this.#run((commands) => commands.historyForward());
   }
 
-  reload(): void {
-    const tabId = this.#control?.activeTargetId;
-    if (tabId) {
-      this.#control?.reload(tabId);
-    }
+  reload(): Promise<void> {
+    return this.#run((commands) => commands.reload());
   }
 
-  stop(): void {
-    this.#control?.stopLoading();
+  stop(): Promise<void> {
+    return this.#run((commands) => commands.stopLoading());
   }
 
-  openTab(url?: string): void {
-    this.#control?.createTarget(url);
+  openTab(url?: string): Promise<string | null> {
+    return this.#run((commands) => commands.createTarget(url));
   }
 
-  closeTab(tabId: string): void {
-    this.#control?.closeTarget(tabId);
+  closeTab(tabId: string): Promise<void> {
+    return this.#run((commands) => commands.closeTarget(tabId));
   }
 
-  activateTab(tabId: string): void {
-    this.#control?.activateTarget(tabId);
+  activateTab(tabId: string): Promise<void> {
+    return this.#run((commands) => commands.activateTarget(tabId)).then(async () => {
+      await this.#until((snapshot) => snapshot.activeTabId === tabId);
+    });
   }
 
   reconnect(): void {
     this.#control?.reconnect();
+  }
+
+  whenConnected(): Promise<ApertureSessionSnapshot> {
+    return this.#until((snapshot) => snapshot.connection === "connected");
+  }
+
+  #until(
+    predicate: (snapshot: ApertureSessionSnapshot) => boolean,
+  ): Promise<ApertureSessionSnapshot> {
+    return new Promise((resolve, reject) => {
+      const settle = () => {
+        const snapshot = this.#snapshot;
+        if (predicate(snapshot)) {
+          resolve(snapshot);
+        } else if (
+          snapshot.status === "invalid" ||
+          snapshot.status === "expired" ||
+          snapshot.status === "unavailable"
+        ) {
+          reject(new LiveSessionError({ message: `the session is ${snapshot.status}` }));
+        } else {
+          return;
+        }
+        this.removeEventListener("aperture-change", settle);
+      };
+      this.addEventListener("aperture-change", settle);
+      settle();
+    });
+  }
+
+  #run<A>(
+    command: (commands: UseBrowserControlResult["commands"]) => Effect.Effect<A, LiveSessionError>,
+  ): Promise<A> {
+    const control = this.#control;
+    return control
+      ? Effect.runPromise(command(control.commands))
+      : Promise.reject(new LiveSessionError({ message: "the session is not connected" }));
   }
 
   connectedCallback(): void {

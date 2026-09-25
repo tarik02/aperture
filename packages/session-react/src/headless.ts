@@ -5,3 +5,4 @@ export * from "./hooks/use-live-session.ts";
 export * from "./provider.tsx";
 export * from "./runtime.ts";
 export * from "./shared-session.ts";
+export { LiveSessionError } from "@aperture-browser/live-session";

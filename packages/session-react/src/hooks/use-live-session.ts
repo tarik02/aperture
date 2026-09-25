@@ -97,6 +97,9 @@ export interface LiveSessionControl {
   collaboration: CollaborationControl;
   sendBrowserInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
   selectTarget: (targetId: string) => boolean;
+  requestSelectTarget: (
+    targetId: string,
+  ) => Effect.Effect<void, LiveSessionConnection.LiveSessionError>;
   command: (type: string, payload?: Record<string, unknown>) => boolean;
   request: (
     type: string,
@@ -412,6 +415,25 @@ export function useLiveSession({
         }),
         Effect.ensuring(Effect.sync(() => setTargetSwitching(false))),
       ),
+    [],
+  );
+  const requestSelectTarget = useCallback(
+    (targetId: string) =>
+      Effect.suspend(() => {
+        const connection = connectionRef.current;
+        if (!connection) {
+          return Effect.fail(transportUnavailable());
+        }
+        setTargetSwitching(true);
+        return connection.command("target.select", { targetId }).pipe(
+          Effect.tap(() => Effect.sync(() => setActiveTargetId(targetId))),
+          Effect.tapError((error) =>
+            Effect.sync(() => setLastError({ code: "request_rejected", message: error.message })),
+          ),
+          Effect.ensuring(Effect.sync(() => setTargetSwitching(false))),
+          Effect.asVoid,
+        );
+      }),
     [],
   );
   const selectTarget = useCallback(
@@ -753,6 +775,7 @@ export function useLiveSession({
     recordings,
     sendBrowserInput,
     selectTarget,
+    requestSelectTarget,
     command,
     request,
     selectPresentation,

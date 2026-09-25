@@ -9,6 +9,10 @@ export interface SessionFeatures {
   readonly statusBadge?: boolean;
 }
 
+export interface ApertureSessionFeatures extends SessionFeatures {
+  readonly toaster?: boolean;
+}
+
 export type ResolvedSessionFeatures = Required<SessionFeatures>;
 
 export function resolveSessionFeatures(features?: SessionFeatures): ResolvedSessionFeatures {

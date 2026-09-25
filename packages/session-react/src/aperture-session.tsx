@@ -12,7 +12,7 @@ import { TooltipProvider } from "@aperture-browser/ui/components/tooltip";
 import { PortalContainerProvider } from "@aperture-browser/ui/portal";
 import { cn } from "@aperture-browser/ui/utils";
 import { BrowserControlPane } from "./components/browser-control-pane.tsx";
-import type { SessionFeatures } from "./features.ts";
+import type { ApertureSessionFeatures, SessionFeatures } from "./features.ts";
 import { showNotice } from "./notices.ts";
 import { ApertureProvider } from "./provider.tsx";
 import { useSharedSession } from "./shared-session.ts";
@@ -25,15 +25,14 @@ export interface SharedSessionProps {
 
 export interface ApertureSessionProps extends SharedSessionProps {
   readonly baseUrl?: string;
+  readonly features?: ApertureSessionFeatures;
   readonly theme?: "light" | "dark" | "system";
-  readonly toaster?: boolean;
   readonly className?: string;
 }
 
 export function ApertureSession({
   baseUrl,
   theme = "system",
-  toaster = true,
   className,
   ...props
 }: ApertureSessionProps) {
@@ -50,7 +49,7 @@ export function ApertureSession({
           <PortalContainerProvider container={root}>
             <TooltipProvider>
               <SharedSession {...props} />
-              {toaster ? (
+              {props.features?.toaster !== false ? (
                 <Toaster
                   theme={dark ? "dark" : "light"}
                   richColors

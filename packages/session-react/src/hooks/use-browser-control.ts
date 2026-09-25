@@ -9,7 +9,7 @@ import {
 } from "./use-live-session.ts";
 import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
-import type { BrowserInputMessage } from "@aperture-browser/live-session";
+import { LiveSessionError, type BrowserInputMessage } from "@aperture-browser/live-session";
 import type {
   CollaborationRole,
   LiveSessionPresentation,
@@ -46,6 +46,17 @@ interface BrowserViewportSize {
   height: number;
 }
 
+export interface BrowserCommands {
+  readonly navigate: (url: string) => Effect.Effect<void, LiveSessionError>;
+  readonly historyBack: () => Effect.Effect<void, LiveSessionError>;
+  readonly historyForward: () => Effect.Effect<void, LiveSessionError>;
+  readonly reload: (targetId?: string) => Effect.Effect<void, LiveSessionError>;
+  readonly stopLoading: () => Effect.Effect<void, LiveSessionError>;
+  readonly createTarget: (url?: string) => Effect.Effect<string | null, LiveSessionError>;
+  readonly closeTarget: (targetId: string) => Effect.Effect<void, LiveSessionError>;
+  readonly activateTarget: (targetId: string) => Effect.Effect<void, LiveSessionError>;
+}
+
 export type BrowserMediaPath = "webrtc-live" | "websocket-live";
 export type BrowserMediaPhase = "idle" | "connecting" | "live" | "failed";
 
@@ -77,6 +88,7 @@ export interface UseBrowserControlResult {
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
   collaboration: CollaborationControl;
+  commands: BrowserCommands;
   setCaptured: (captured: boolean) => void;
   setInputDimensions: (size: BrowserViewportSize) => void;
   setViewport: (viewport: ViewportPreset) => void;
@@ -135,7 +147,15 @@ export function useBrowserControl({
     webrtcSupported: webrtcProducerSupported,
     iceServers: webrtcIceServers,
   });
-  const [targets, setTargets] = useState<readonly LiveSessionTarget[]>([]);
+  const [targetOrder, setTargetOrder] = useState<readonly string[]>([]);
+  const targets = useMemo(
+    () => mergeTargetsInCurrentOrder(targetOrder, live.targets),
+    [live.targets, targetOrder],
+  );
+  const liveTargetsRef = useRef(live.targets);
+  liveTargetsRef.current = live.targets;
+  const phaseRef = useRef(live.phase);
+  phaseRef.current = live.phase;
   const [viewport, setViewportState] = useState<ViewportPreset>(DEFAULT_VIEWPORT);
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
@@ -155,11 +175,10 @@ export function useBrowserControl({
   viewportAutoSyncRef.current = viewportAutoSync;
 
   useEffect(() => {
-    setTargets((current) => mergeTargetsInCurrentOrder(current, live.targets));
     if (live.phase !== "connected") {
       setCaptured(false);
     }
-  }, [live.phase, live.targets]);
+  }, [live.phase]);
 
   useEffect(() => {
     if (!live.mediaSize) {
@@ -198,19 +217,22 @@ export function useBrowserControl({
       if (sourceTargetId === destinationTargetId) {
         return;
       }
-      setTargets((current) => {
-        const sourceIndex = current.findIndex((target) => target.id === sourceTargetId);
-        const destinationIndex = current.findIndex((target) => target.id === destinationTargetId);
+      setTargetOrder((order) => {
+        const current = mergeTargetsInCurrentOrder(order, liveTargetsRef.current).map(
+          (target) => target.id,
+        );
+        const sourceIndex = current.indexOf(sourceTargetId);
+        const destinationIndex = current.indexOf(destinationTargetId);
         const source = current[sourceIndex];
         if (sourceIndex === -1 || destinationIndex === -1 || !source) {
-          return current;
+          return order;
         }
         const next = [...current];
         next.splice(sourceIndex, 1);
         const requestedIndex = placement === "after" ? destinationIndex + 1 : destinationIndex;
         const nextIndex = sourceIndex < requestedIndex ? requestedIndex - 1 : requestedIndex;
         if (nextIndex === sourceIndex) {
-          return current;
+          return order;
         }
         next.splice(nextIndex, 0, source);
         return next;
@@ -494,6 +516,40 @@ export function useBrowserControl({
     [selectMediaStream],
   );
 
+  const commands = useMemo<BrowserCommands>(() => {
+    const connected = <A>(effect: Effect.Effect<A, LiveSessionError>) =>
+      Effect.suspend(() =>
+        phaseRef.current === "connected"
+          ? effect
+          : Effect.fail(new LiveSessionError({ message: "the session is not connected" })),
+      );
+    const request = (type: string, payload: Record<string, unknown>) =>
+      connected(live.request(type, payload));
+    const onActiveTarget = (type: string, payload: Record<string, unknown> = {}) =>
+      connected(
+        Effect.suspend(() => {
+          const targetId = activeTargetIdRef.current;
+          return targetId
+            ? live.request(type, { targetId, ...payload })
+            : Effect.fail(new LiveSessionError({ message: "no tab is active" }));
+        }),
+      ).pipe(Effect.asVoid);
+    return {
+      navigate: (url) => onActiveTarget("page.navigate", { url }),
+      historyBack: () => onActiveTarget("page.history-back"),
+      historyForward: () => onActiveTarget("page.history-forward"),
+      reload: (targetId) =>
+        targetId
+          ? request("page.reload", { targetId }).pipe(Effect.asVoid)
+          : onActiveTarget("page.reload"),
+      stopLoading: () => onActiveTarget("page.stop-loading"),
+      createTarget: (url = "about:blank") =>
+        request("target.create", { url }).pipe(Effect.map((result) => result.targetId ?? null)),
+      closeTarget: (targetId) => request("target.close", { targetId }).pipe(Effect.asVoid),
+      activateTarget: (targetId) => connected(live.requestSelectTarget(targetId)),
+    };
+  }, [live.request, live.requestSelectTarget]);
+
   const activeTarget = useMemo(
     () => targets.find((target) => target.id === live.activeTargetId) ?? null,
     [live.activeTargetId, targets],
@@ -531,6 +587,7 @@ export function useBrowserControl({
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
     collaboration: live.collaboration,
+    commands,
     setCaptured,
     setInputDimensions: (size) => {
       inputDimensionsRef.current = size;
@@ -561,14 +618,14 @@ export function useBrowserControl({
 }
 
 function mergeTargetsInCurrentOrder(
-  currentTargets: readonly LiveSessionTarget[],
+  order: readonly string[],
   nextTargets: readonly LiveSessionTarget[],
 ): LiveSessionTarget[] {
   const nextById = new Map(nextTargets.map((target) => [target.id, target]));
   const seen = new Set<string>();
   const ordered: LiveSessionTarget[] = [];
-  for (const currentTarget of currentTargets) {
-    const nextTarget = nextById.get(currentTarget.id);
+  for (const targetId of order) {
+    const nextTarget = nextById.get(targetId);
     if (nextTarget) {
       ordered.push(nextTarget);
       seen.add(nextTarget.id);
