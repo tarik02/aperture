@@ -127,12 +127,13 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     permissions:
-      actions: write
       contents: read
       packages: write
       id-token: write
       attestations: write
     uses: ./.github/workflows/docker-image.yml
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
     with:
       version: ${{ needs.release-please.outputs.version }}
       ref: ${{ needs.release-please.outputs.tag_name }}

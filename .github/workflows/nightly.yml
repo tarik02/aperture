@@ -90,12 +90,13 @@ jobs:
     name: nightly docker image
     needs: nightly
     permissions:
-      actions: write
       contents: read
       packages: write
       id-token: write
       attestations: write
     uses: ./.github/workflows/docker-image.yml
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
     with:
       version: ${{ needs.nightly.outputs.version }}
       ref: ${{ github.sha }}

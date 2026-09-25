@@ -15,9 +15,12 @@ on:
         description: Newline-separated GHCR tags
         required: true
         type: string
+    secrets:
+      CACHIX_AUTH_TOKEN:
+        description: Token for pushing to the aperture-browser Cachix cache
+        required: false
 
 permissions:
-  actions: write
   contents: read
   packages: write
   id-token: write
@@ -56,28 +59,20 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      # Created before Nix starts, so the root nix-daemon doesn't create it.
-      - run: mkdir -p "$RUNNER_TEMP/nix-deps"
-
       - uses: cachix/install-nix-action@v31.10.7
-        with:
-          extra_nix_config: |
-            extra-substituters = file://${{ runner.temp }}/nix-deps?trusted=true&priority=10
 
-      # The key changes only when a custom build does, e.g. on a nixpkgs update.
-      - name: Resolve Nix dependency cache key
-        id: nix-deps
-        run: |
-          drv="$(nix eval --raw "path:.#docker-build-deps.drvPath")"
-          hash="$(basename "$drv")"
-          echo "key=nix-deps-$RUNNER_ARCH-${hash%%-*}" >> "$GITHUB_OUTPUT"
+      - name: Resolve cached dependencies
+        id: deps
+        run: echo "path=$(nix eval --raw "path:.#docker-build-deps.outPath")" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache/restore@v6.1.0
-        id: nix-deps-restore
+      # Only master pushes, and only the custom dependencies: the image itself changes with
+      # every commit and would fill the cache.
+      - uses: cachix/cachix-action@v17
         with:
-          path: ${{ runner.temp }}/nix-deps
-          key: ${{ steps.nix-deps.outputs.key }}
-          restore-keys: nix-deps-${{ runner.arch }}-
+          name: aperture-browser
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.ref != 'refs/heads/master' }}
+          pathsToPush: ${{ steps.deps.outputs.path }}
 
       - uses: docker/login-action@v4.1.0
         with:
@@ -94,47 +89,10 @@ jobs:
           printf '%s' "$(git rev-parse HEAD)" > .aperture-source-revision
           nix build "path:.#$NIX_ATTRIBUTE" --print-build-logs
 
-      # Only master writes the cache, and only what cache.nixos.org lacks: the image
-      # itself changes with every commit and would crowd everything else out.
-      - name: Collect Nix dependency cache
-        id: nix-deps-collect
-        if: github.ref == 'refs/heads/master' && steps.nix-deps-restore.outputs.cache-hit != 'true'
-        run: |
-          deps="$(nix build "path:.#docker-build-deps" --no-link --print-out-paths --print-build-logs)"
-          cache="$RUNNER_TEMP/nix-deps"
-          # The nix-daemon runs as root and may have created store metadata in there.
-          sudo rm -rf "$cache"
-          # A binary cache only accepts a path together with its references, so this
-          # copies the whole closure and then drops what cache.nixos.org serves anyway.
-          nix copy --to "file://$cache?compression=none" "$deps"
-          nix path-info --recursive "$deps" |
-            while IFS= read -r path; do
-              name="${path#/nix/store/}"
-              hash="${name%%-*}"
-              if curl --silent --fail --head --output /dev/null "https://cache.nixos.org/$hash.narinfo"; then
-                rm "$cache/$(sed -n 's/^URL: //p' "$cache/$hash.narinfo")" "$cache/$hash.narinfo"
-              fi
-            done
-          du -sh "$cache"
-
-      - uses: actions/cache/save@v6.1.0
-        if: steps.nix-deps-collect.outcome == 'success'
-        with:
-          path: ${{ runner.temp }}/nix-deps
-          key: ${{ steps.nix-deps.outputs.key }}
-
-      - name: Delete older Nix dependency caches
-        if: steps.nix-deps-collect.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          KEY: ${{ steps.nix-deps.outputs.key }}
-        run: |
-          gh cache list --repo "$GITHUB_REPOSITORY" --key "nix-deps-$RUNNER_ARCH-" --json key --jq '.[].key' |
-            while IFS= read -r key; do
-              if [ "$key" != "$KEY" ]; then
-                gh cache delete --repo "$GITHUB_REPOSITORY" "$key"
-              fi
-            done
+      # Each image needs only part of them; Cachix pushes this whole set when the job ends.
+      - name: Build cached dependencies
+        if: github.ref == 'refs/heads/master'
+        run: nix build "path:.#docker-build-deps" --no-link --print-build-logs
 
       - name: Push architecture image
         id: push
