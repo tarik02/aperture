@@ -179,6 +179,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		recordingsStrip := stripSessionPrefixMiddlewareName(session.ID, "recordings")
 		filesStrip := stripSessionPrefixMiddlewareName(session.ID, "files")
 		uploadsStrip := stripSessionPrefixMiddlewareName(session.ID, "uploads")
+		tunnelStrip := stripSessionPrefixMiddlewareName(session.ID, "tunnel")
 		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
 		cursorReplace := replacePathMiddlewareName(session.ID, "browser-cursor")
 		statusReplace := replacePathMiddlewareName(session.ID, "browser-status")
@@ -196,6 +197,9 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[uploadsStrip] = middlewareConfig{
+			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
+		}
+		doc.HTTP.Middlewares[tunnelStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[viewportReplace] = middlewareConfig{
@@ -279,6 +283,12 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				rule:        pathTreeRouterRule(sessionBase + "/uploads"),
 				auth:        ownerAuth,
 				middlewares: []string{uploadsStrip},
+			},
+			{
+				name:        localTunnelRouterName(session.ID),
+				rule:        pathRouterRule(sessionBase + "/tunnel"),
+				auth:        ownerAuth,
+				middlewares: []string{tunnelStrip},
 			},
 		} {
 			doc.HTTP.Routers[route.name] = routerConfig{
@@ -454,6 +464,10 @@ func filesRouterName(sessionID string) string {
 
 func uploadsRouterName(sessionID string) string {
 	return "aperture-uploads-" + sanitizeName(sessionID)
+}
+
+func localTunnelRouterName(sessionID string) string {
+	return "aperture-tunnel-" + sanitizeName(sessionID)
 }
 
 func cdpForwardAuthMiddlewareName(sessionID string) string {

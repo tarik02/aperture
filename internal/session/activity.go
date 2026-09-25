@@ -15,6 +15,7 @@ import (
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/proxy"
 )
 
 type wakeCall struct {
@@ -470,6 +471,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 	if err := json.Unmarshal([]byte(sessionRow.BrowserArgsJSON), &browserArgs); err != nil {
 		return browser.RuntimeEnvValues{}, "", fmt.Errorf("parse browser args: %w", err)
 	}
+	proxyConfig := ProxyConfigFromRow(sessionRow)
 	rawSessionToken, err := s.ensureSessionToken(ctx, sessionRow)
 	if err != nil {
 		return browser.RuntimeEnvValues{}, "", err
@@ -484,7 +486,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		if err != nil {
 			return browser.RuntimeEnvValues{}, "", err
 		}
-		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
+		return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, proxyConfig, port, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
 	}
 
 	port, err := AllocateCDPPort()
@@ -496,7 +498,7 @@ func (s *Service) runtimeEnvForSession(ctx context.Context, sessionRow *db.Sessi
 		return browser.RuntimeEnvValues{}, "", err
 	}
 
-	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, port, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
+	return s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, proxyConfig, port, wrapperPort, rawSessionToken, controlToken), layout.RuntimeEnv, nil
 }
 
 func (s *Service) runtimeEnvValues(
@@ -504,6 +506,7 @@ func (s *Service) runtimeEnvValues(
 	layout paths.SessionLayout,
 	channel browser.Channel,
 	browserArgs []string,
+	proxyConfig proxy.Config,
 	port int,
 	wrapperPort int,
 	rawSessionToken string,
@@ -515,8 +518,6 @@ func (s *Service) runtimeEnvValues(
 	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
 		internalAPIURL = s.cfg.DeployGreenURL
 	}
-	proxyAssignment := proxyAssignmentFromRow(sessionRow)
-
 	return browser.RuntimeEnvValues{
 		SessionID:           sessionRow.ID,
 		ExternalBaseURL:     s.cfg.ExternalBaseURL,
@@ -539,11 +540,7 @@ func (s *Service) runtimeEnvValues(
 		BrowserExecutable:          channel.Executable,
 		BrowserDefaultArgs:         channel.DefaultArgs,
 		BrowserExtraArgs:           browserArgs,
-		ProxyUpstream:              string(proxyAssignment.NormalizedUpstream()),
-		ProxyURL:                   proxyAssignment.URL,
-		ProxyTunnelURL:             proxyAssignment.TunnelURL,
-		ProxyTunnelAuth:            proxyAssignment.TunnelAuth,
-		ProxyBypass:                proxyAssignment.Bypass,
+		ProxyConfig:                proxyConfig,
 		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
 		GPUMode:                    s.cfg.GPUMode,
 		CompositorEnabled:          compositorEnabled,
