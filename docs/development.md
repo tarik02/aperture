@@ -114,4 +114,16 @@ release-please cuts a release when its pull request merges. Besides the binaries
 - publishes the npm packages under `packages/` that are not private (`@aperture-browser/api-schema`, `api-client`, `live-session`, `session-react` and `session-element`) at the release version, which release-please also writes into their `package.json` files;
 - attaches a zip of every extension whose `package.json` sets `"aperture": { "releaseZip": true }`, with the extension manifest's version set to the release version.
 
-npm publishing uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): for each package, add a trusted publisher on npmjs.com for this repository and the `release-please.yml` workflow. npm only allows that once a package exists, so the first release publishes with the `NPM_TOKEN` repository secret; the secret can be removed once every package has its trusted publisher. `pnpm publish --recursive --filter "./packages/**" --no-git-checks --dry-run` shows what would be published.
+The `npm.yml` workflow publishes the packages when the release is published. It uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): for each package, add a trusted publisher on npmjs.com for this repository and the `npm.yml` workflow. npm only allows that once a package exists, so the first release publishes with the `NPM_TOKEN` repository secret; the secret can be removed once every package has its trusted publisher. `pnpm publish --recursive --filter "./packages/**" --no-git-checks --dry-run` shows what would be published.
+
+### Pull request builds
+
+Adding one of these labels to a pull request starts a build of its head commit:
+
+| Label | Result |
+|---|---|
+| `build-binaries` | The release archives, as a workflow artifact |
+| `build-docker` | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment |
+| `publish-npm` | The npm packages at `0.0.0-pr.<number>.<sha>` under the `pr-<number>` dist-tag |
+
+The `pr label` workflow removes the label and, when whoever added it has write access, dispatches the matching workflow on the default branch. The workflow definitions therefore come from the default branch, and pull requests from forks build too. The npm workflow builds the pull request's code in a job without an OIDC token, and a separate job publishes the resulting tarballs after checking their names and versions.

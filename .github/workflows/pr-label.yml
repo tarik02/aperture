@@ -1,0 +1,53 @@
+name: pr label
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  actions: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  dispatch:
+    name: dispatch ${{ github.event.label.name }}
+    if: contains(fromJSON('["build-binaries", "build-docker", "publish-npm"]'), github.event.label.name)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const workflows = {
+              'build-binaries': 'pr-binaries.yml',
+              'build-docker': 'pr-docker.yml',
+              'publish-npm': 'npm.yml',
+            }
+            const { label, pull_request: pullRequest, repository, sender } = context.payload
+
+            try {
+              await github.rest.issues.removeLabel({
+                ...context.repo,
+                issue_number: pullRequest.number,
+                name: label.name,
+              })
+            } catch (error) {
+              if (error.status !== 404) throw error
+            }
+
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              ...context.repo,
+              username: sender.login,
+            })
+            if (!['admin', 'write'].includes(data.permission)) {
+              core.setFailed(`${sender.login} has ${data.permission} access; ${label.name} needs write`)
+              return
+            }
+
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: workflows[label.name],
+              ref: repository.default_branch,
+              inputs: { pr: String(pullRequest.number), sha: pullRequest.head.sha },
+            })

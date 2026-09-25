@@ -41,3 +41,7 @@
 - name: build-docker
   color: d73a4a
   description: Build Docker image artifacts for this pull request
+
+- name: publish-npm
+  color: d73a4a
+  description: Publish snapshot npm packages for this pull request
