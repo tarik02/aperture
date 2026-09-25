@@ -113,20 +113,19 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing needs npm 11.5.1 or later.
-      - name: Update npm
-        run: npm install --global npm@11
-
       - name: Build packages
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter "./packages/**" build
 
+      # pnpm publishes the public packages in dependency order and skips versions
+      # already on the registry. It authenticates with trusted publishing (OIDC) and adds
+      # provenance; the tag checkout is detached, hence --no-git-checks.
       - name: Publish packages
-        run: node scripts/publish-npm.mjs
+        run: pnpm publish --recursive --filter "./packages/**" --access public --no-git-checks
         env:
           # Only used for a package's first publish, before its trusted publisher is set
-          # up on npmjs.com; afterwards npm authenticates with OIDC.
+          # up on npmjs.com; pnpm falls back to it when the OIDC exchange is refused.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   extensions:
