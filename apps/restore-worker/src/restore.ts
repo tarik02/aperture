@@ -1,5 +1,7 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeStdio from "@effect/platform-node/NodeStdio";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -9,6 +11,8 @@ import * as Result from "effect/Result";
 import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
+import * as Stdio from "effect/Stdio";
+import * as Stream from "effect/Stream";
 import { Playwright } from "effect-playwright";
 import { makeCdp, restoreError } from "./cdp.js";
 import { PayloadSource } from "./payload-source.js";
@@ -80,23 +84,9 @@ const restore = Effect.fnUntraced(function* (browser: Playwright.Browser, capsul
   return yield* restoreTargets(context, browserCDP, capsule.initialTargets ?? []);
 });
 
-const writeTo = (stream: NodeJS.WritableStream, text: string) =>
-  Effect.callback<void>((resume) => {
-    stream.write(text, () => resume(Effect.void));
-  });
-
-// Go closes stdin once it no longer needs the connection.
-const stdinClosed = Effect.callback<void>((resume) => {
-  const onEnd = () => resume(Effect.void);
-  process.stdin.once("end", onEnd);
-  process.stdin.resume();
-  return Effect.sync(() => {
-    process.stdin.off("end", onEnd);
-    process.stdin.pause();
-  });
-});
-
-const main = Effect.fnUntraced(function* ([command, ...args]: string[]) {
+const main = Effect.fnUntraced(function* () {
+  const stdio = yield* Stdio.Stdio;
+  const [command, ...args] = yield* stdio.args;
   if (command === "validate" && args.length === 1) {
     yield* readCapsule(args[0]);
     return;
@@ -111,28 +101,32 @@ const main = Effect.fnUntraced(function* ([command, ...args]: string[]) {
   const playwright = yield* Playwright.Playwright;
   const browser = yield* playwright.connectCDPScoped(cdpURL, { timeout: 15_000 });
   const result = yield* restore(browser, capsule);
-  yield* writeTo(process.stdout, `${JSON.stringify(result)}\n`);
+  yield* Stream.make(`${JSON.stringify(result)}\n`).pipe(Stream.run(stdio.stdout()));
 
   // Preload scripts added through this CDP connection disappear when it closes. Go
   // installs the remaining session storage scripts itself, then closes stdin.
-  yield* stdinClosed;
+  yield* Stream.runDrain(stdio.stdin);
 }, Effect.scoped);
 
-const program = main(process.argv.slice(2)).pipe(
-  Effect.catchCause((cause): Effect.Effect<never, InvalidCapsule | UsageError | RestoreFailed> => {
-    if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
-    const error = Cause.squash(cause);
-    const reported =
-      error instanceof InvalidCapsule || error instanceof UsageError
-        ? error
-        : new RestoreFailed({ message: "browser restore failed" });
-    return writeTo(process.stderr, `${reported.message}\n`).pipe(
-      Effect.andThen(Effect.fail(reported)),
-    );
-  }),
+const program = main().pipe(
+  Effect.catchCause(
+    (cause): Effect.Effect<never, InvalidCapsule | UsageError | RestoreFailed, Stdio.Stdio> => {
+      if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
+      const error = Cause.squash(cause);
+      const reported =
+        error instanceof InvalidCapsule || error instanceof UsageError
+          ? error
+          : new RestoreFailed({ message: "browser restore failed" });
+      return Stdio.Stdio.use((stdio) =>
+        Stream.make(`${reported.message}\n`).pipe(Stream.run(stdio.stderr())),
+      ).pipe(Effect.ignore, Effect.andThen(Effect.fail(reported)));
+    },
+  ),
   Effect.provide(
     PayloadSource.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, Playwright.layer)),
+      Layer.provideMerge(
+        Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeStdio.layer, Playwright.layer),
+      ),
     ),
   ),
 );

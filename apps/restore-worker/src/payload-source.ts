@@ -1,8 +1,8 @@
-import { fileURLToPath } from "node:url";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import type { TargetPreload } from "./browser/target.js";
 
 // Each bundle declares its global name with `var`; the function scope keeps it out of the page.
@@ -25,8 +25,11 @@ export class PayloadSource extends Context.Service<
     PayloadSource,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const read = (name: string) =>
-        fs.readFileString(fileURLToPath(new URL(`./${name}`, import.meta.url)));
+        path
+          .fromFileUrl(new URL(`./${name}`, import.meta.url))
+          .pipe(Effect.flatMap(fs.readFileString));
       const [target, sessionStorage, originStorage, document] = yield* Effect.all([
         read("target.js"),
         read("session-storage.js"),

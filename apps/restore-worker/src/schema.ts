@@ -1,4 +1,3 @@
-import { posix } from "node:path";
 import { CreateSessionInput } from "@aperture-browser/api-schema";
 import * as Schema from "effect/Schema";
 
@@ -87,7 +86,7 @@ function checkTargets(targets: readonly Target[], check: Check): void {
 
 function checkDocumentState(state: DocumentState, path: Path, check: Check): void {
   check(
-    Buffer.byteLength(JSON.stringify(state)) <= maxDocumentStateBytes,
+    new TextEncoder().encode(JSON.stringify(state)).byteLength <= maxDocumentStateBytes,
     path,
     "must not exceed 32 MiB",
   );
@@ -258,15 +257,7 @@ function isHostname(domain: string): boolean {
 }
 
 function isRelativePath(path: string): boolean {
-  return (
-    path !== "" &&
-    path !== "." &&
-    path !== ".." &&
-    !path.startsWith("/") &&
-    !path.endsWith("/") &&
-    !path.startsWith("../") &&
-    posix.normalize(path) === path
-  );
+  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 function isJSON(value: string): boolean {

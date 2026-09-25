@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Console from "effect/Console";
@@ -17,7 +16,7 @@ const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const fontDir = path.dirname(
-    createRequire(import.meta.url).resolve("@fontsource-variable/geist/index.css"),
+    yield* path.fromFileUrl(new URL(import.meta.resolve("@fontsource-variable/geist/index.css"))),
   );
 
   const css = (yield* fs.readFileString(stylesheet)).replaceAll(
