@@ -13,6 +13,7 @@ catalog:
   "@effect/platform-node": 4.0.0-rc.117
   effect: 4.0.0-rc.117
   effect-playwright: 0.8.0-2
+  publint: 0.3.24
   typescript: ^6.0.3
   vite: npm:@voidzero-dev/vite-plus-core@0.2.4
   vitest: 4.1.10

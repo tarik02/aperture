@@ -4,6 +4,7 @@
 /vendor/
 node_modules/
 apps/*/dist/
+packages/*/dist/
 apps/web/.output/
 extensions/*/dist/
 .scaffold-tmp/

@@ -1,17 +1,45 @@
 {
   "name": "@aperture-browser/api-client",
-  "private": true,
+  "version": "0.0.0",
+  "description": "Effect services for the Aperture API: sessions, snapshots, tenants, users, tokens, events and authentication.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/api-client"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "access": "public"
+  },
   "scripts": {
+    "build": "vp pack",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@aperture-browser/api-schema": "workspace:*",
-    "@simplewebauthn/browser": "13.3.0",
-    "effect": "catalog:"
+    "@aperture-browser/api-schema": "workspace:^",
+    "@simplewebauthn/browser": "13.3.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "effect": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0-rc.117"
+  }
 }
