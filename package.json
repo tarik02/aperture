@@ -4,13 +4,16 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "vp lint && node scripts/check-catalog.mjs",
+    "typecheck": "pnpm -r typecheck && tsgo --noEmit -p scripts",
+    "lint": "vp lint && node scripts/check-catalog.ts",
     "format": "vp fmt",
     "format:check": "vp fmt --check"
   },
   "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
+    "effect": "catalog:",
     "publint": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

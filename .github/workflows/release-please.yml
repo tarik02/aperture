@@ -155,10 +155,11 @@ jobs:
       - name: Build and upload extension zips
         run: |
           pnpm install --frozen-lockfile
-          zips="$(node scripts/release-extensions.mjs "$VERSION" "$RUNNER_TEMP/extensions")"
-          if [ -n "$zips" ]; then
-            # shellcheck disable=SC2086
-            gh release upload "$TAG" $zips --clobber
+          node scripts/release-extensions.ts "$VERSION" "$RUNNER_TEMP/extensions"
+          shopt -s nullglob
+          zips=("$RUNNER_TEMP"/extensions/*.zip)
+          if [ ${#zips[@]} -gt 0 ]; then
+            gh release upload "$TAG" "${zips[@]}" --clobber
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

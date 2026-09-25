@@ -346,9 +346,18 @@ importers:
 
   .:
     devDependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117(effect@4.0.0-rc.117)(redis@6.2.1)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.1
       '@typescript/native-preview':
         specifier: 'catalog:'
         version: 7.0.0-dev.20260707.2
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
       publint:
         specifier: 'catalog:'
         version: 0.3.24
@@ -633,6 +642,9 @@ importers:
       '@aperture-browser/ui':
         specifier: workspace:*
         version: link:../ui
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117(effect@4.0.0-rc.117)(redis@6.2.1)
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.2.9

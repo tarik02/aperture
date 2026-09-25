@@ -62,7 +62,7 @@ catalogs:
     react-dom: "^19.2.7"
 
 # `pnpm add` saves catalog: references and rejects versions that differ from the catalog;
-# scripts/check-catalog.mjs keeps every manifest on the catalog.
+# scripts/check-catalog.ts keeps every manifest on the catalog.
 catalogMode: strict
 
 overrides:
