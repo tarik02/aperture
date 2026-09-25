@@ -1,0 +1,16 @@
+---
+title: live-session
+description: The framework-agnostic client for Aperture live sessions.
+---
+
+```sh
+npm install @aperture-browser/live-session effect
+```
+
+- The `aperture-session.v1` protocol, decoded with Effect Schema.
+- `LiveSessionConnection.make`, a scoped Effect that connects over WebRTC and falls back to WebSocket raster frames. Its `baseUrl` option targets an instance on another origin.
+- Helpers that map DOM keyboard and pointer events to browser input messages, and the viewport math for scaling between the page and the remote browser.
+
+Failures are `LiveSessionError`s with a `message`.
+
+For a ready-made UI, or a React hook over this client, see [session-react](/docs/packages/session-react). Requires `effect` 4.

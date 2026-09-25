@@ -1,9 +1,12 @@
-# Aperture installation
+---
+title: Installation
+description: Install Aperture with Nix as a per-user service, configure it, and run it on NixOS or any Linux host with user systemd.
+---
 
 Aperture is packaged with Nix and runs as a per-user desktop service on NixOS (or any Linux host with user systemd).
 
-For the single-container deployment, see [Docker](docker.md).
-For local source development, see [Development](development.md).
+For the single-container deployment, see [Docker](/docs/docker).
+For local source development, see [Development](/docs/development).
 
 ## Build and install
 
@@ -35,7 +38,7 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 
 - `store_root`, `runtime_root` — persistent and runtime state directories
 - `external_base_url` — public URL Traefik serves (for generated connection and signed-file links)
-- `embed_allowed_origins` — optional origins of other web apps that embed shared sessions (see [Session sharing](session-sharing.md#embedding))
+- `embed_allowed_origins` — optional origins of other web apps that embed shared sessions (see [Session sharing](/docs/session-sharing#embedding))
 - MCP settings — enabled by default; see the example below
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
 

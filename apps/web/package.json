@@ -37,6 +37,7 @@
     "zustand": "catalog:"
   },
   "devDependencies": {
+    "@scalar/api-reference": "catalog:",
     "@tanstack/router-cli": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",

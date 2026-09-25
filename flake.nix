@@ -533,22 +533,28 @@
               "cmd/browser-session-wrapper"
             ];
 
+            pnpmWorkspaces = [
+              "@aperture-browser/restore-worker"
+              "@aperture-browser/tab-window-enforcer"
+              "@aperture-browser/api-schema"
+              "@aperture-browser/browser-state"
+              "@aperture-browser/api-client"
+              "@aperture-browser/live-session"
+              "@aperture-browser/session-react"
+              "@aperture-browser/ui"
+              "@aperture-browser/web"
+            ];
+
             pnpmDeps = pkgs.fetchPnpmDeps {
-              inherit (finalAttrs) pname version src;
+              inherit (finalAttrs)
+                pname
+                version
+                src
+                pnpmWorkspaces
+                ;
               pnpm = pnpmLatest;
               fetcherVersion = 4;
-              pnpmWorkspaces = [
-                "@aperture-browser/restore-worker"
-                "@aperture-browser/tab-window-enforcer"
-                "@aperture-browser/api-schema"
-                "@aperture-browser/browser-state"
-                "@aperture-browser/api-client"
-                "@aperture-browser/live-session"
-                "@aperture-browser/session-react"
-                "@aperture-browser/ui"
-                "@aperture-browser/web"
-              ];
-              hash = "sha256-OvSrkUrHWHCAlykZbhQIZUHwXDIU74m9g9qGUQfkMrs=";
+              hash = "sha256-AYbTAAflMmov6+IMNXzIwFEGiVFMIWJIMvLO/o3Ardk=";
             };
 
             nativeBuildInputs = [
@@ -1002,7 +1008,7 @@
                   "org.opencontainers.image.description" = "Chromium session supervisor";
                   "org.opencontainers.image.source" = "https://github.com/tarik02/aperture";
                   "org.opencontainers.image.documentation" =
-                    "https://github.com/tarik02/aperture/blob/master/docs/docker.md";
+                    "https://aperture-browser-docs.pages.dev/docs/docker";
                   "org.opencontainers.image.licenses" = "MIT";
                   "org.opencontainers.image.revision" = sourceRevision;
                   "org.opencontainers.image.version" = deployVersion;

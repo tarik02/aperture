@@ -1,4 +1,7 @@
-# Session sharing
+---
+title: Session sharing
+description: Share a live browser session through editor and viewer links, and embed it in other apps.
+---
 
 Aperture exposes separate editor and viewer capabilities for one browser session. Editor capabilities can request the session-wide input lease and use browser controls. Viewer capabilities can watch the session but cannot send browser input. Neither capability grants tenant access, files, recordings, DevTools, or session lifecycle operations.
 
@@ -25,7 +28,10 @@ Other web apps can show a shared session with the npm packages built from this r
 - `@aperture-browser/session-react` exports `ApertureSession` for React apps, styled by `@aperture-browser/session-react/styles.css`.
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element/dist/aperture-session.js"></script>
+<script
+  type="module"
+  src="https://cdn.jsdelivr.net/npm/@aperture-browser/session-element/dist/aperture-session.js"
+></script>
 <aperture-session
   base-url="https://aperture.example"
   token="apv_<session-id>_<secret>"
