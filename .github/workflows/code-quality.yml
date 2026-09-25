@@ -12,6 +12,44 @@ permissions:
   pull-requests: read
 
 jobs:
+  typescript:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: format
+            run: pnpm format:check
+          - name: lint
+            run: pnpm lint
+          - name: typecheck
+            run: |
+              pnpm --filter @aperture-browser/web generate-routes
+              git diff --exit-code -- apps/web/src/routeTree.gen.ts
+              pnpm typecheck
+          - name: build
+            run: pnpm build
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          # Keep in step with engines.pnpm in package.json and pnpmLatest in flake.nix.
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
+
   golangci-lint:
     name: golangci-lint
     runs-on: ubuntu-24.04
@@ -42,15 +80,11 @@ jobs:
             libgstreamer-plugins-base1.0-dev \
             pkg-config
 
-      - name: Validate and build TypeScript packages
+      # The Go server embeds the built web app, so it must exist before Go is linted.
+      - name: Build the web app
         run: |
           pnpm install --frozen-lockfile
-          pnpm --filter @aperture-browser/web generate-routes
-          git diff --exit-code -- apps/web/src/routeTree.gen.ts
-          pnpm format:check
-          pnpm lint
-          pnpm typecheck
-          pnpm build
+          pnpm --filter @aperture-browser/web build
 
       - uses: golangci/golangci-lint-action@v9.3.0
         with:
