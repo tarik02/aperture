@@ -133,12 +133,11 @@ The `npm.yml` workflow publishes the packages when the release is published. It 
 
 Adding one of these labels to a pull request starts a build of its head commit:
 
-| Label            | Result                                                                         |
-| ---------------- | ------------------------------------------------------------------------------ |
-| `build-binaries` | The release archives, as a workflow artifact                                   |
-| `build-docker`   | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment             |
-| `publish-npm`    | The npm packages at `0.0.0-pr.<number>.<sha>` under the `pr-<number>` dist-tag |
+| Label            | Result                                                             |
+| ---------------- | ------------------------------------------------------------------ |
+| `build-binaries` | The release archives, as a workflow artifact                       |
+| `build-docker`   | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment |
 
-Each of those workflows runs on `pull_request_target`, so its definition comes from the default branch, its runs show on the pull request, and pull requests from forks build too. A shared gate job removes the label and stops the run unless whoever added it has write access. The build then checks out the pull request's head commit. Adding a label approves running that commit with the workflow's credentials, so review it first.
+Both workflows run on `pull_request_target`, so their definition comes from the default branch, their runs show on the pull request, and pull requests from forks build too. A shared gate job removes the label and stops the run unless whoever added it has write access. The build then checks out the pull request's head commit. Adding a label approves running that commit with the workflow's credentials, so review it first.
 
-These runs share the default branch's cache scope, so they only restore caches, which the nightly workflow saves; `build-docker` builds without the Nix cache. The npm workflow builds the pull request's code in a job without an OIDC token, and a separate job publishes the resulting tarballs after checking their names and versions.
+These runs share the default branch's cache scope, so they only restore caches, which the nightly workflow saves; `build-docker` builds without the Nix cache.
