@@ -140,4 +140,4 @@ Adding one of these labels to a pull request starts a build of its head commit:
 
 Both workflows run on `pull_request_target`, so their definition comes from the default branch, their runs show on the pull request, and pull requests from forks build too. A shared gate job removes the label and stops the run unless whoever added it has write access. The build then checks out the pull request's head commit. Adding a label approves running that commit with the workflow's credentials, so review it first.
 
-These runs share the default branch's cache scope, so they only restore caches, which the nightly workflow saves; `build-docker` builds without the Nix cache.
+These runs share the default branch's cache scope, so they only restore caches, which the nightly workflow saves. That includes the Nix cache: the Docker image workflow on `master` stores the custom builds from the `docker-build-deps` flake output that cache.nixos.org lacks, one entry per architecture, and every Nix job restores it.

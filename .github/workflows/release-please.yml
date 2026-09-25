@@ -127,6 +127,7 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     permissions:
+      actions: write
       contents: read
       packages: write
       id-token: write
