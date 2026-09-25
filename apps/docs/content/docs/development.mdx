@@ -127,7 +127,7 @@ release-please cuts a release when its pull request merges. Besides the binaries
 - publishes the npm packages under `packages/` that are not private (`@aperture-browser/api-schema`, `api-client`, `live-session`, `session-react` and `session-element`) at the release version, which release-please also writes into their `package.json` files;
 - attaches a zip of every extension whose `package.json` sets `"aperture": { "releaseZip": true }`, with the extension manifest's version set to the release version.
 
-The `npm.yml` workflow publishes the packages when the release is published. It uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): for each package, add a trusted publisher on npmjs.com for this repository and the `npm.yml` workflow. npm only allows that once a package exists, so the first release publishes with the `NPM_TOKEN` repository secret; the secret can be removed once every package has its trusted publisher. `pnpm publish --recursive --filter "./packages/**" --no-git-checks --dry-run` shows what would be published.
+The `npm.yml` workflow publishes the packages when the release is published. It uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): every package trusts this repository's `npm.yml` workflow, so publishing needs no token. npm only accepts a trusted publisher for a package that already exists, so a new package is published once by hand, then trusted with `npm trust github <package> --repo tarik02/aperture --file npm.yml --allow-publish`. `pnpm publish --recursive --filter "./packages/**" --no-git-checks --dry-run` shows what would be published.
 
 ### Pull request builds
 
