@@ -36,6 +36,7 @@ catalog:
   tailwindcss: "^4.3.2"
   "@tailwindcss/cli": "^4.3.2"
   "@tailwindcss/vite": "^4.3.2"
+  "@scalar/api-reference": "^1.71.0"
   "@tanstack/react-hotkeys": "^0.10.0"
   "@tanstack/react-query": "^5.101.2"
   "@tanstack/react-router": "^1.170.17"
@@ -94,4 +95,5 @@ minimumReleaseAgeExclude:
 
 allowBuilds:
   "@parcel/watcher": false
+  vue-demi: false
   esbuild: true
