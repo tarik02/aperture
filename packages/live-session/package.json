@@ -1,0 +1,44 @@
+{
+  "name": "@aperture-browser/live-session",
+  "version": "0.0.0",
+  "description": "Framework-agnostic client for Aperture live sessions: the session protocol, WebRTC and WebSocket transports, and browser input mapping.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/live-session"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@aperture-browser/api-client": "workspace:^"
+  },
+  "devDependencies": {
+    "effect": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:peers"
+  }
+}

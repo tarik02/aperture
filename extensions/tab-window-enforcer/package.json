@@ -1,17 +1,15 @@
 {
-  "name": "@aperture/tab-window-enforcer",
+  "name": "@aperture-browser/tab-window-enforcer",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vp build",
-    "typecheck": "tsc --noEmit",
-    "lint": "vp lint",
-    "format:check": "vp fmt --check"
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
-    "@types/chrome": "0.3.0",
+    "@types/chrome": "catalog:",
     "effect": "catalog:",
-    "typescript": "^6.0.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

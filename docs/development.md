@@ -95,3 +95,37 @@ hardware.nvidia-container-toolkit.enable = true;
 The runner detects an NVIDIA render node and requests its matching CDI GPU device. Codec `auto` falls back to VP8 because NVIDIA does not expose the VA-API encoder used by `h264-va`.
 
 Use `nix run .#dev -- --help` or `nix run .#dev-gpu -- --help` for the complete option list.
+
+## TypeScript workspace
+
+The pnpm workspace holds the web app and the restore worker (`apps/`), the browser extensions (`extensions/`) and the shared packages (`packages/`). From the repository root:
+
+```bash
+pnpm install
+pnpm format:check && pnpm lint && pnpm typecheck && pnpm build
+```
+
+Dependency versions live in the catalogs in `pnpm-workspace.yaml`; manifests reference them as `catalog:` (or `catalog:peers` for the peer ranges of published packages). `pnpm add` does this automatically, and `pnpm lint` fails on a manifest that names a version directly.
+
+## Releases
+
+release-please cuts a release when its pull request merges. Besides the binaries and the Docker image, a release:
+
+- publishes the npm packages under `packages/` that are not private (`@aperture-browser/api-schema`, `api-client`, `live-session`, `session-react` and `session-element`) at the release version, which release-please also writes into their `package.json` files;
+- attaches a zip of every extension whose `package.json` sets `"aperture": { "releaseZip": true }`, with the extension manifest's version set to the release version.
+
+The `npm.yml` workflow publishes the packages when the release is published. It uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): for each package, add a trusted publisher on npmjs.com for this repository and the `npm.yml` workflow. npm only allows that once a package exists, so the first release publishes with the `NPM_TOKEN` repository secret; the secret can be removed once every package has its trusted publisher. `pnpm publish --recursive --filter "./packages/**" --no-git-checks --dry-run` shows what would be published.
+
+### Pull request builds
+
+Adding one of these labels to a pull request starts a build of its head commit:
+
+| Label | Result |
+|---|---|
+| `build-binaries` | The release archives, as a workflow artifact |
+| `build-docker` | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment |
+| `publish-npm` | The npm packages at `0.0.0-pr.<number>.<sha>` under the `pr-<number>` dist-tag |
+
+Each of those workflows runs on `pull_request_target`, so its definition comes from the default branch, its runs show on the pull request, and pull requests from forks build too. A shared gate job removes the label and stops the run unless whoever added it has write access. The build then checks out the pull request's head commit. Adding a label approves running that commit with the workflow's credentials, so review it first.
+
+These runs share the default branch's cache scope, so they only restore caches, which the nightly workflow saves; `build-docker` builds without the Nix cache. The npm workflow builds the pull request's code in a job without an OIDC token, and a separate job publishes the resulting tarballs after checking their names and versions.

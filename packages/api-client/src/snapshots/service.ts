@@ -47,4 +47,4 @@ export class SnapshotsApi extends Context.Service<
       name: string,
     ) => Call<SnapshotMutationResponse>;
   }
->()("@aperture/api-client/SnapshotsApi") {}
+>()("@aperture-browser/api-client/SnapshotsApi") {}

@@ -1,0 +1,25 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) theme(inline);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@import "@aperture-browser/ui/tokens.css";
+@import "@aperture-browser/ui/theme.css";
+@import "./preflight.css";
+
+@theme inline {
+  --font-sans: var(--aperture-font-sans, inherit);
+  --font-heading: var(--aperture-font-sans, inherit);
+  --font-mono: var(
+    --aperture-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace
+  );
+}
+@source "./";
+@source "../../ui/src/components";

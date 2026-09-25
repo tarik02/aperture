@@ -17,6 +17,7 @@ import (
 type RuntimeEnvValues struct {
 	SessionID                  string
 	ExternalBaseURL            string
+	EmbedAllowedOrigins        []string
 	SessionToken               string
 	SessionTokenPath           string
 	InternalAPIURL             string
@@ -195,6 +196,7 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	lines := []string{
 		"APERTURE_SESSION_ID=" + shellQuote(values.SessionID),
 		"EXTERNAL_BASE_URL=" + shellQuote(values.ExternalBaseURL),
+		"EMBED_ALLOWED_ORIGINS=" + shellQuote(strings.Join(values.EmbedAllowedOrigins, ",")),
 		"SESSION_TOKEN=" + shellQuote(values.SessionToken),
 		"SESSION_TOKEN_PATH=" + shellQuote(values.SessionTokenPath),
 		"MERGED_USER_DATA_DIR=" + shellQuote(values.MergedUserDataDir),
@@ -315,7 +317,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "PROXY_UPSTREAM", "PROXY_URL", "PROXY_TUNNEL_URL", "PROXY_TUNNEL_AUTH", "PROXY_BYPASS", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "PROXY_UPSTREAM", "PROXY_URL", "PROXY_TUNNEL_URL", "PROXY_TUNNEL_AUTH", "PROXY_BYPASS", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -417,6 +419,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.SessionID = value
 	case "EXTERNAL_BASE_URL":
 		values.ExternalBaseURL = value
+	case "EMBED_ALLOWED_ORIGINS":
+		values.EmbedAllowedOrigins = splitEmbedAllowedOrigins(value)
 	case "SESSION_TOKEN":
 		values.SessionToken = value
 	case "SESSION_TOKEN_PATH":
@@ -520,4 +524,14 @@ func shellUnquote(value string) (string, error) {
 		return strconv.Unquote(value)
 	}
 	return value, nil
+}
+
+func splitEmbedAllowedOrigins(value string) []string {
+	var origins []string
+	for _, origin := range strings.Split(value, ",") {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
 }

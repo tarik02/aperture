@@ -1,0 +1,47 @@
+{
+  "name": "@aperture-browser/session-element",
+  "version": "0.0.0",
+  "description": "Custom elements that embed a live Aperture browser session in any page: <aperture-session> with the full session UI, and the headless <aperture-session-view>.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/session-element"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/aperture-session.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "default": "./dist/aperture-session-view.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp build && tsgo -p tsconfig.build.json && publint",
+    "typecheck": "tsgo --noEmit"
+  },
+  "devDependencies": {
+    "@aperture-browser/session-react": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "effect": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

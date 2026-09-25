@@ -1,20 +1,45 @@
 {
-  "name": "@aperture/api-schema",
-  "private": true,
+  "name": "@aperture-browser/api-schema",
+  "version": "0.0.0",
+  "description": "Effect Schemas and a typed HttpClient for the Aperture HTTP API, generated from its OpenAPI spec.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/api-schema"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/api.gen.ts"
   },
-  "scripts": {
-    "generate": "node scripts/generate.ts"
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "access": "public"
   },
-  "dependencies": {
-    "effect": "catalog:"
+  "scripts": {
+    "build": "vp pack",
+    "generate": "node scripts/generate.ts",
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
     "@effect/openapi-generator": "catalog:",
     "@effect/platform-node": "catalog:",
-    "typescript": "^6.0.3",
-    "@types/node": "^26.1.1"
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:peers"
   }
 }

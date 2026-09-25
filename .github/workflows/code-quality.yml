@@ -12,6 +12,43 @@ permissions:
   pull-requests: read
 
 jobs:
+  typescript:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: format
+            run: pnpm format:check
+          - name: lint
+            run: pnpm lint
+          - name: typecheck
+            run: |
+              pnpm --filter @aperture-browser/web generate-routes
+              git diff --exit-code -- apps/web/src/routeTree.gen.ts
+              pnpm typecheck
+          - name: build
+            run: pnpm build
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: pnpm/action-setup@v6.0.9
+        with:
+          version: 11.27.1
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
+
   golangci-lint:
     name: golangci-lint
     runs-on: ubuntu-24.04
@@ -24,7 +61,7 @@ jobs:
 
       - uses: pnpm/action-setup@v6.0.9
         with:
-          package_json_file: web/package.json
+          version: 11.27.1
 
       - uses: actions/setup-node@v6.4.0
         with:
@@ -41,19 +78,10 @@ jobs:
             libgstreamer-plugins-base1.0-dev \
             pkg-config
 
-      - name: Validate and build frontend
+      - name: Build the web app
         run: |
           pnpm install --frozen-lockfile
-          pnpm --filter @aperture/web generate-routes
-          git diff --exit-code -- web/src/routeTree.gen.ts
-          pnpm --filter @aperture/web format:check
-          pnpm --filter @aperture/web lint
-          pnpm --filter @aperture/web typecheck
-          pnpm --filter @aperture/web build
-          pnpm --filter @aperture/tab-window-enforcer format:check
-          pnpm --filter @aperture/tab-window-enforcer lint
-          pnpm --filter @aperture/tab-window-enforcer typecheck
-          pnpm --filter @aperture/tab-window-enforcer build
+          pnpm --filter @aperture-browser/web build
 
       - uses: golangci/golangci-lint-action@v9.3.0
         with:

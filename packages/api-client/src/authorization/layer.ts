@@ -18,7 +18,7 @@ import {
 
 /** The authorization of the call a request belongs to; set by `authorize`. */
 const CurrentAuthorization = Context.Reference<Authorization>(
-  "@aperture/api-client/CurrentAuthorization",
+  "@aperture-browser/api-client/CurrentAuthorization",
   { defaultValue: () => ({}) },
 );
 

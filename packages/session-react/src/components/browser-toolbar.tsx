@@ -1,0 +1,382 @@
+import { useState, type ReactNode } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Loader2,
+  PanelBottom,
+  PanelRight,
+  Pencil,
+  RefreshCw,
+  Square,
+  Wrench,
+} from "lucide-react";
+import * as Effect from "effect/Effect";
+import * as Schedule from "effect/Schedule";
+import { Button } from "@aperture-browser/ui/components/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuTrigger,
+} from "@aperture-browser/ui/components/context-menu";
+import { InputGroup, InputGroupInput } from "@aperture-browser/ui/components/input-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
+import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
+import { useFork } from "../effect.tsx";
+import type { ResolvedSessionFeatures } from "../features.ts";
+import { BrowserTabStrip } from "./browser-tab-strip.tsx";
+import { BrowserMenus } from "./browser-toolbar-menus.tsx";
+import type { DevToolsDock } from "./browser-devtools-pane.tsx";
+import type { CollaborationRole } from "@aperture-browser/live-session";
+import { CollaborationPresence } from "./collaboration-presence.tsx";
+
+interface BrowserToolbarProps {
+  control: UseBrowserControlResult;
+  leading?: ReactNode;
+  features: ResolvedSessionFeatures;
+  collaborationRole: CollaborationRole;
+  cdpUrl: string | null;
+  shareUrls: { editor: string; viewer: string } | null;
+  localCursorEnabled: boolean;
+  onLocalCursorChange: (enabled: boolean) => void;
+  paintingEnabled: boolean;
+  onPaintingEnabledChange: (enabled: boolean) => void;
+  devToolsOpen: boolean;
+  devToolsTargetIds: ReadonlySet<string>;
+  devToolsDock: DevToolsDock;
+  onDevToolsOpenChange: (open: boolean) => void;
+  onDevToolsDockChange: (dock: DevToolsDock) => void;
+  onSessionDetails?: () => void;
+}
+
+export function BrowserToolbar({
+  control,
+  leading,
+  features,
+  collaborationRole,
+  cdpUrl,
+  shareUrls,
+  localCursorEnabled,
+  onLocalCursorChange,
+  paintingEnabled,
+  onPaintingEnabledChange,
+  devToolsOpen,
+  devToolsTargetIds,
+  devToolsDock,
+  onDevToolsOpenChange,
+  onDevToolsDockChange,
+  onSessionDetails,
+}: BrowserToolbarProps) {
+  const [urlDraft, setUrlDraft] = useState<string | null>(null);
+
+  const displayUrl = control.activeTarget?.url ?? "";
+  const busy = control.phase === "connecting";
+  const connected = control.phase === "connected";
+  const browserMutationEnabled = connected && collaborationRole !== "viewer";
+  const drawingAvailable =
+    connected && control.collaboration.phase === "connected" && Boolean(control.activeTargetId);
+  const loading = control.activeTarget?.loading ?? false;
+  const runningRecordings = control.recordings.filter(
+    (recording) => recording.status === "starting" || recording.status === "running",
+  );
+  const hasRunningRecordings = runningRecordings.length > 0;
+  const recordingTargetIds = new Set(runningRecordings.map((recording) => recording.targetId));
+  const [recordingNow, setRecordingNow] = useState(Date.now());
+
+  useFork(
+    () =>
+      hasRunningRecordings
+        ? Effect.repeat(
+            Effect.sync(() => setRecordingNow(Date.now())),
+            Schedule.spaced(1000),
+          )
+        : undefined,
+    [hasRunningRecordings],
+  );
+
+  function handleNavigate(value: string) {
+    const nextUrl = value.trim();
+    if (!nextUrl) {
+      return;
+    }
+    control.navigate(normalizeUrl(nextUrl));
+    setUrlDraft(null);
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col bg-background">
+      {leading || features.tabs || features.presence ? (
+        <div
+          data-workbench-titlebar
+          className="flex min-w-0 shrink-0 items-stretch border-b bg-muted/35"
+        >
+          {leading}
+          {features.tabs ? (
+            <BrowserTabStrip
+              targets={control.targets}
+              activeTargetId={control.activeTargetId}
+              recordingTargetIds={recordingTargetIds}
+              devToolsTargetIds={devToolsTargetIds}
+              disabled={!connected}
+              mutationDisabled={!browserMutationEnabled}
+              onActivate={control.activateTarget}
+              onCreate={() => control.createTarget("about:blank")}
+              onDuplicate={control.duplicateTarget}
+              onClose={control.closeTarget}
+              onReload={control.reload}
+              onReorder={control.reorderTargets}
+            />
+          ) : (
+            <div className="min-w-0 flex-1" />
+          )}
+          {features.presence ? (
+            <CollaborationPresence collaboration={control.collaboration} />
+          ) : null}
+        </div>
+      ) : null}
+      {features.navigation ||
+      features.addressBar ||
+      features.drawing ||
+      features.devTools ||
+      features.menus ? (
+        <div className="flex h-9 items-center gap-1 px-1.5">
+          {features.navigation ? (
+            <div className="flex shrink-0 items-center gap-0.5">
+              <ToolbarButton
+                label="Back"
+                disabled={!browserMutationEnabled}
+                onClick={() => control.historyBack()}
+              >
+                <ArrowLeft />
+              </ToolbarButton>
+              <ToolbarButton
+                label="Forward"
+                disabled={!browserMutationEnabled}
+                onClick={() => control.historyForward()}
+              >
+                <ArrowRight />
+              </ToolbarButton>
+              <ToolbarButton
+                label={loading ? "Stop loading" : "Reload"}
+                disabled={!browserMutationEnabled}
+                onClick={() => {
+                  if (loading) {
+                    control.stopLoading();
+                  } else if (control.activeTargetId) {
+                    control.reload(control.activeTargetId);
+                  }
+                }}
+              >
+                {loading ? <Square /> : <RefreshCw />}
+              </ToolbarButton>
+            </div>
+          ) : null}
+          {features.addressBar ? (
+            <InputGroup className="h-7 border-transparent bg-transparent transition-colors hover:border-input/50 hover:bg-muted/35 has-[[data-slot=input-group-control]:focus-visible]:border-input/70 has-[[data-slot=input-group-control]:focus-visible]:bg-background has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 dark:hover:bg-input/20">
+              <InputGroupInput
+                value={urlDraft ?? displayUrl}
+                onChange={(event) => setUrlDraft(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleNavigate(event.currentTarget.value);
+                  }
+                }}
+                placeholder="URL"
+                className="h-7 px-2 font-mono text-xs text-muted-foreground transition-colors focus-visible:text-foreground"
+                disabled={!browserMutationEnabled}
+              />
+            </InputGroup>
+          ) : (
+            <div className="min-w-0 flex-1" />
+          )}
+          {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+          {features.drawing ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant={paintingEnabled ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    className="shrink-0"
+                    disabled={!paintingEnabled && !drawingAvailable}
+                    aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+                    aria-pressed={paintingEnabled}
+                    onClick={() => onPaintingEnabledChange(!paintingEnabled)}
+                  />
+                }
+              >
+                <Pencil />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {paintingEnabled ? "Stop drawing" : "Draw on this tab"}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+          {features.devTools ? (
+            <DevToolsButton
+              open={devToolsOpen}
+              dock={devToolsDock}
+              available={
+                collaborationRole === "owner" &&
+                connected &&
+                Boolean(cdpUrl && control.activeTargetId)
+              }
+              onOpenChange={onDevToolsOpenChange}
+              onDockChange={onDevToolsDockChange}
+            />
+          ) : null}
+          {features.menus ? (
+            <BrowserMenus
+              control={control}
+              cdpUrl={cdpUrl}
+              shareUrls={shareUrls}
+              busy={busy}
+              connected={connected}
+              localCursorEnabled={localCursorEnabled}
+              onLocalCursorChange={onLocalCursorChange}
+              onReconnect={() => control.reconnect()}
+              onSessionDetails={onSessionDetails}
+              now={recordingNow}
+            />
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DevToolsButton({
+  open,
+  dock,
+  available,
+  onOpenChange,
+  onDockChange,
+}: {
+  open: boolean;
+  dock: DevToolsDock;
+  available: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDockChange: (dock: DevToolsDock) => void;
+}) {
+  const label = open ? "Close DevTools" : "Open DevTools";
+
+  return (
+    <ContextMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <ContextMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant={open ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  disabled={!open && !available}
+                  aria-label={label}
+                  aria-pressed={open}
+                  onClick={() => onOpenChange(!open)}
+                />
+              }
+            />
+          }
+        >
+          <Wrench />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{label}. Right-click to choose dock side.</TooltipContent>
+      </Tooltip>
+      <ContextMenuContent>
+        <ContextMenuGroup>
+          <ContextMenuLabel>Dock side</ContextMenuLabel>
+          <ContextMenuRadioGroup
+            value={dock}
+            onValueChange={(value) => {
+              switch (value) {
+                case "bottom":
+                  onDockChange("bottom");
+                  break;
+                case "right":
+                  onDockChange("right");
+                  break;
+              }
+            }}
+          >
+            <ContextMenuRadioItem value="bottom">
+              <PanelBottom />
+              Bottom
+            </ContextMenuRadioItem>
+            <ContextMenuRadioItem value="right">
+              <PanelRight />
+              Right
+            </ContextMenuRadioItem>
+          </ContextMenuRadioGroup>
+        </ContextMenuGroup>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function ToolbarButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={disabled}
+            onClick={onClick}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function normalizeUrl(value: string): string {
+  const trimmed = value.trim();
+  if (isLocalHost(trimmed)) {
+    return `http://${trimmed}`;
+  }
+  if (
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ||
+    /^(about|chrome|devtools|data|file):/i.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  if (isLikelyHost(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
+}
+
+function isLocalHost(value: string): boolean {
+  return (
+    /^localhost(?::\d+)?(?:[/?#].*)?$/i.test(value) ||
+    /^127(?:\.\d{1,3}){3}(?::\d+)?(?:[/?#].*)?$/.test(value) ||
+    /^[a-z0-9-]+:\d+(?:[/?#].*)?$/i.test(value)
+  );
+}
+
+function isLikelyHost(value: string): boolean {
+  return !/\s/.test(value) && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:[/:?#].*)?$/i.test(value);
+}

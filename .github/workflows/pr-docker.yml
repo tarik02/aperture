@@ -1,9 +1,7 @@
 name: pr docker
 
 on:
-  pull_request:
-    branches:
-      - master
+  pull_request_target:
     types:
       - labeled
 
@@ -14,13 +12,20 @@ permissions:
   attestations: write
 
 concurrency:
-  group: pr-docker-${{ github.event.pull_request.number }}
+  group: pr-docker-${{ github.event.pull_request.number }}-${{ github.event.label.name }}
   cancel-in-progress: true
 
 jobs:
+  gate:
+    if: github.event.label.name == 'build-docker'
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/pr-label-gate.yml
+
   build:
     name: build ${{ matrix.variant }} ${{ matrix.arch }} image
-    if: github.event.label.name == 'build-docker'
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -48,16 +53,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - uses: cachix/install-nix-action@v31.10.7
 
-      - uses: DeterminateSystems/magic-nix-cache-action@v14
-        with:
-          diagnostic-endpoint: ""
-          use-flakehub: false
-
       - uses: docker/login-action@v4.1.0
-        if: github.event.pull_request.head.repo.full_name == github.repository
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -77,7 +79,6 @@ jobs:
 
       - name: Push architecture image
         id: push
-        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           ARCH: ${{ matrix.arch }}
           IMAGE: ghcr.io/${{ github.repository }}
@@ -95,7 +96,6 @@ jobs:
           echo "digest=${repo_digest#*@}" >> "$GITHUB_OUTPUT"
 
       - name: Generate SBOM
-        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: anchore/sbom-action@v0.24.0
         with:
           image: ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}
@@ -105,7 +105,6 @@ jobs:
           upload-release-assets: false
 
       - name: Attest SBOM
-        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/attest@v4.2.1
         with:
           subject-name: ghcr.io/${{ github.repository }}
@@ -115,7 +114,6 @@ jobs:
           create-storage-record: false
 
       - name: Attest build provenance
-        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/attest@v4.2.1
         with:
           subject-name: ghcr.io/${{ github.repository }}
@@ -124,10 +122,8 @@ jobs:
           create-storage-record: false
 
       - uses: sigstore/cosign-installer@v4.1.2
-        if: github.event.pull_request.head.repo.full_name == github.repository
 
       - name: Sign architecture image
-        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
           IMAGE: ghcr.io/${{ github.repository }}
@@ -145,7 +141,6 @@ jobs:
   publish:
     name: publish ${{ matrix.variant }} image
     needs: build
-    if: github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:
@@ -208,7 +203,6 @@ jobs:
     needs:
       - build
       - publish
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     steps:
       - name: Create GitHub App token
@@ -258,21 +252,3 @@ jobs:
           header: aperture-pr-docker
           message: ${{ steps.comment.outputs.result }}
           skip_unchanged: true
-
-  cleanup:
-    name: remove build label
-    needs:
-      - build
-      - publish
-      - comment
-    if: >-
-      always() &&
-      github.event.label.name == 'build-docker' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    uses: ./.github/workflows/remove-build-label.yml
-    with:
-      app-id: ${{ vars.APP_ID }}
-      label: build-docker
-      pull-request-number: ${{ github.event.pull_request.number }}
-    secrets:
-      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

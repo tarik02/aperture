@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// The restore worker is a Node program (backend/restore-worker) that validates
+// The restore worker is a Node program (apps/restore-worker) that validates
 // SessionInitialization capsules and restores them into a running browser.
 const (
 	restoreWorkerName     = "aperture-browser-restore"

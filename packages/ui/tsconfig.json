@@ -1,28 +1,17 @@
 {
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
     "jsx": "react-jsx",
-    "module": "ESNext",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "paths": {
-      "@aperture/ui/components": ["./src/components"],
-      "@aperture/ui/components/*": ["./src/components/*"],
-      "@aperture/ui/hooks": ["./src"],
-      "@aperture/ui/hooks/*": ["./src/*"],
-      "@aperture/ui/lib": ["./src"],
-      "@aperture/ui/lib/*": ["./src/*"],
-      "@aperture/ui/utils": ["./src/utils.ts"]
-    },
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
-  }
+      "@aperture-browser/ui/components": ["./src/components"],
+      "@aperture-browser/ui/components/*": ["./src/components/*"],
+      "@aperture-browser/ui/hooks": ["./src"],
+      "@aperture-browser/ui/hooks/*": ["./src/*"],
+      "@aperture-browser/ui/lib": ["./src"],
+      "@aperture-browser/ui/lib/*": ["./src/*"],
+      "@aperture-browser/ui/utils": ["./src/utils.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

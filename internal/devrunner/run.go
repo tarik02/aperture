@@ -201,7 +201,7 @@ volume, and the initial system-admin token persists under .data/.`)
 	if err != nil {
 		return options{}, false, err
 	}
-	if _, err := os.Stat(filepath.Join(opts.projectDir, "web", "package.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(opts.projectDir, "apps", "web", "package.json")); err != nil {
 		return options{}, false, errors.New("run this command from the Aperture repository root")
 	}
 

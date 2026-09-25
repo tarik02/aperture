@@ -1,0 +1,71 @@
+import type { SessionStatus } from "@aperture-browser/api-client";
+import type { TagFilterValue } from "#/lib/tag-filter.ts";
+
+export const queryKeys = {
+  apiHealth: ["api-health"] as const,
+  passkeys: ["passkeys"] as const,
+  securityStatus: ["security-status"] as const,
+  browserChannels: (tenantId: string | null) => ["browser-channels", tenantId] as const,
+  tenants: (filters: TenantsFilters) => ["tenants", filters] as const,
+  users: (filters: UsersFilters) => ["users", filters] as const,
+  user: (userId: string) => ["user", userId] as const,
+  userMemberships: (userId: string) => ["user-memberships", userId] as const,
+  sessions: (tenantId: string | null, filters: SessionsFilters) =>
+    ["sessions", tenantId, filters] as const,
+  session: (tenantId: string | null, sessionId: string) =>
+    ["session", tenantId, sessionId] as const,
+  sessionsBulk: (tenantId: string | null, sessionIds: string[]) =>
+    ["sessions-bulk", tenantId, sessionIds] as const,
+  snapshots: (tenantId: string | null, filters: SnapshotsFilters) =>
+    ["snapshots", tenantId, filters] as const,
+  tokens: (mode: TokensQueryMode, filters: TokensFilters) => ["tokens", mode, filters] as const,
+  events: (tenantId: string | null, filters: EventsFilters) =>
+    ["events", tenantId, filters] as const,
+};
+
+export interface TenantsFilters {
+  includeDeleted?: boolean;
+  deleted?: DeletedFilterValue;
+  limit?: number;
+}
+
+export interface UsersFilters {
+  query?: string;
+  disabled?: UserDisabledFilterValue;
+  limit?: number;
+}
+
+export interface SessionsFilters {
+  includeDeleted?: boolean;
+  status?: SessionStatus;
+  tags?: TagFilterValue;
+  limit?: number;
+}
+
+export interface SnapshotsFilters {
+  includeDeleted?: boolean;
+  deleted?: DeletedFilterValue;
+  name?: string;
+  tags?: TagFilterValue;
+  limit?: number;
+}
+
+export interface TokensFilters {
+  tenantId?: string;
+  name?: string;
+  authorityType?: "system_admin" | "tenant";
+  revoked?: TokenRevokedFilterValue;
+  scope?: string;
+  limit?: number;
+}
+
+export type TokensQueryMode = "admin" | "tenant";
+export type DeletedFilterValue = "active" | "deleted" | "all";
+export type UserDisabledFilterValue = "active" | "disabled" | "all";
+export type TokenRevokedFilterValue = "all" | "active" | "revoked";
+
+export interface EventsFilters {
+  resourceType?: string;
+  resourceId?: string;
+  limit?: number;
+}

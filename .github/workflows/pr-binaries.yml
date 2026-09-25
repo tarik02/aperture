@@ -1,45 +1,62 @@
 name: pr binaries
 
 on:
-  pull_request:
-    branches:
-      - master
+  pull_request_target:
     types:
       - labeled
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-binaries-${{ github.ref }}
+  group: pr-binaries-${{ github.event.pull_request.number }}-${{ github.event.label.name }}
   cancel-in-progress: true
 
 jobs:
+  gate:
+    if: github.event.label.name == 'build-binaries'
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/pr-label-gate.yml
+
   build:
     name: build binaries
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'build-binaries'
+    needs: gate
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.0
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-go@v6.5.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - uses: pnpm/action-setup@v6.0.9
         with:
-          package_json_file: web/package.json
+          version: 11.27.1
 
       - uses: actions/setup-node@v6.4.0
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ${{ steps.pnpm-store.outputs.path }}
+          key: build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'pnpm-lock.yaml') }}
+          restore-keys: build-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install native dependencies
         run: |
@@ -68,19 +85,3 @@ jobs:
             dist/checksums.txt
           if-no-files-found: error
           retention-days: 14
-
-  cleanup:
-    name: remove build label
-    needs: build
-    if: >-
-      always() &&
-      github.event_name == 'pull_request' &&
-      github.event.label.name == 'build-binaries' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    uses: ./.github/workflows/remove-build-label.yml
-    with:
-      app-id: ${{ vars.APP_ID }}
-      label: build-binaries
-      pull-request-number: ${{ github.event.pull_request.number }}
-    secrets:
-      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

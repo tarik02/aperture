@@ -53,4 +53,4 @@ export class UsersApi extends Context.Service<
       userId: string,
     ) => Call<void>;
   }
->()("@aperture/api-client/UsersApi") {}
+>()("@aperture-browser/api-client/UsersApi") {}

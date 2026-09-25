@@ -3,6 +3,7 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 
 import { cn } from "../utils.ts";
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react";
+import { usePortalContainer } from "../portal.tsx";
 
 const Select = SelectPrimitive.Root;
 
@@ -67,7 +68,7 @@ function SelectContent({
     "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
   >) {
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={usePortalContainer()}>
       <SelectPrimitive.Positioner
         side={side}
         sideOffset={sideOffset}

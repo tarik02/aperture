@@ -1,6 +1,6 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type * as Api from "@aperture/api-schema";
+import type * as Api from "@aperture-browser/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
 import type { TagFilterValue } from "../query.ts";
@@ -118,4 +118,4 @@ export class SessionsApi extends Context.Service<
       sessionToken?: string,
     ) => Call<DownloadedFile>;
   }
->()("@aperture/api-client/SessionsApi") {}
+>()("@aperture-browser/api-client/SessionsApi") {}

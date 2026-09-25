@@ -35,6 +35,7 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 
 - `store_root`, `runtime_root` — persistent and runtime state directories
 - `external_base_url` — public URL Traefik serves (for generated connection and signed-file links)
+- `embed_allowed_origins` — optional origins of other web apps that embed shared sessions (see [Session sharing](session-sharing.md#embedding))
 - MCP settings — enabled by default; see the example below
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
 

@@ -1,0 +1,26 @@
+{
+  "name": "@aperture-browser/restore-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@playwright/mcp": "catalog:",
+    "playwright": "catalog:",
+    "playwright-core": "catalog:"
+  },
+  "devDependencies": {
+    "@aperture-browser/api-schema": "workspace:*",
+    "@aperture-browser/browser-state": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "@types/node": "catalog:",
+    "effect": "catalog:",
+    "effect-playwright": "catalog:",
+    "idb": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

@@ -40,4 +40,4 @@ export class AuthApi extends Context.Service<
     readonly regenerateRecoveryCodes: (code: string) => Call<S.RecoveryCodes>;
     readonly disableTOTP: (code: string) => Call<void>;
   }
->()("@aperture/api-client/AuthApi") {}
+>()("@aperture-browser/api-client/AuthApi") {}

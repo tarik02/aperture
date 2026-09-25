@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -28,7 +29,10 @@ func (session *liveSession) serveSessionWebSocketHTTP(w http.ResponseWriter, req
 		writeWrapperError(w, http.StatusForbidden, "live session role is unavailable")
 		return
 	}
-	connection, err := websocket.Accept(w, req, &websocket.AcceptOptions{Subprotocols: []string{liveSessionProtocol}})
+	connection, err := websocket.Accept(w, req, &websocket.AcceptOptions{
+		Subprotocols:   []string{liveSessionProtocol},
+		OriginPatterns: embedOriginPatterns(session.runtime.values.EmbedAllowedOrigins),
+	})
 	if err != nil {
 		return
 	}
@@ -314,4 +318,17 @@ func newLiveSessionResumeSecret() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(secret), nil
+}
+
+func embedOriginPatterns(origins []string) []string {
+	patterns := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if origin == "*" {
+			return []string{"*"}
+		}
+		if parsed, err := url.Parse(origin); err == nil && parsed.Host != "" {
+			patterns = append(patterns, parsed.Host)
+		}
+	}
+	return patterns
 }

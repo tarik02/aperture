@@ -287,11 +287,12 @@ func (s *Service) create(
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:        sessionID,
-		ExternalBaseURL:  s.cfg.ExternalBaseURL,
-		SessionToken:     rawSessionToken,
-		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:   internalAPIURL,
+		SessionID:           sessionID,
+		ExternalBaseURL:     s.cfg.ExternalBaseURL,
+		EmbedAllowedOrigins: s.cfg.EmbedAllowedOrigins,
+		SessionToken:        rawSessionToken,
+		SessionTokenPath:    filepath.Join(layout.Metadata, "session-token"),
+		InternalAPIURL:      internalAPIURL,
 
 		MergedUserDataDir:          layout.Merged,
 		UpperDir:                   layout.Upper,
@@ -653,11 +654,12 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 	}
 
 	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:        sessionID,
-		ExternalBaseURL:  s.cfg.ExternalBaseURL,
-		SessionToken:     rawSessionToken,
-		SessionTokenPath: filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:   internalAPIURL,
+		SessionID:           sessionID,
+		ExternalBaseURL:     s.cfg.ExternalBaseURL,
+		EmbedAllowedOrigins: s.cfg.EmbedAllowedOrigins,
+		SessionToken:        rawSessionToken,
+		SessionTokenPath:    filepath.Join(layout.Metadata, "session-token"),
+		InternalAPIURL:      internalAPIURL,
 
 		MergedUserDataDir:          layout.Merged,
 		UpperDir:                   layout.Upper,

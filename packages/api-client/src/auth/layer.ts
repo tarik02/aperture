@@ -4,7 +4,7 @@ import * as HttpBody from "effect/unstable/http/HttpBody";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
-import * as Api from "@aperture/api-schema";
+import * as Api from "@aperture-browser/api-schema";
 import {
   ApiAuthorization,
   Authorization,

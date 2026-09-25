@@ -57,4 +57,4 @@ export class TokensApi extends Context.Service<
     ) => Call<CreateTokenResponse>;
     readonly revokeTenantToken: (credentials: ApiCredentials, tokenId: string) => Call<void>;
   }
->()("@aperture/api-client/TokensApi") {}
+>()("@aperture-browser/api-client/TokensApi") {}
