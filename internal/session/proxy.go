@@ -14,75 +14,41 @@ import (
 	"github.com/aperture/aperture/internal/proxy"
 )
 
-// ProxyUpdateResult describes an applied proxy assignment change.
+// ProxyUpdateResult describes an applied proxy configuration change.
 type ProxyUpdateResult struct {
-	// Upstream is the normalized upstream in effect for new connections.
-	Upstream string
 	// Address is the session-local SOCKS address reported by the wrapper.
 	Address string
-	// Pushed is true when a running wrapper acknowledged the new assignment.
+	// Pushed is true when a running wrapper acknowledged the new configuration.
 	// A persisted-but-unpushed update applies on next wake/start.
 	Pushed bool
 }
 
-// proxyAssignmentFromRow reads the stored proxy assignment from a session row.
+// ProxyConfigFromRow reads the stored proxy configuration from a session row.
 // Tunnel secrets are included; callers must redact before responding.
-func proxyAssignmentFromRow(sessionRow *db.Session) proxy.Assignment {
-	a := proxy.Assignment{Upstream: proxy.Upstream(sessionRow.ProxyUpstream)}
-	if sessionRow.ProxyURL != nil {
-		a.URL = *sessionRow.ProxyURL
+func ProxyConfigFromRow(sessionRow *db.Session) proxy.Config {
+	if sessionRow.ProxyConfig == nil {
+		return proxy.Config{}
 	}
-	if sessionRow.ProxyTunnelURL != nil {
-		a.TunnelURL = *sessionRow.ProxyTunnelURL
-	}
-	if sessionRow.ProxyTunnelAuth != nil {
-		a.TunnelAuth = *sessionRow.ProxyTunnelAuth
-	}
-	if sessionRow.ProxyBypass != nil {
-		a.Bypass = *sessionRow.ProxyBypass
-	}
-	return a
+	return *sessionRow.ProxyConfig
 }
 
-// applyProxyAssignmentToRow writes an assignment into a session row.
-func applyProxyAssignmentToRow(sessionRow *db.Session, a proxy.Assignment) {
-	upstream := string(a.NormalizedUpstream())
-	sessionRow.ProxyUpstream = upstream
-	sessionRow.ProxyURL = optionalProxyString(a.URL)
-	sessionRow.ProxyTunnelURL = optionalProxyString(a.TunnelURL)
-	sessionRow.ProxyTunnelAuth = optionalProxySecret(a.TunnelAuth)
-	sessionRow.ProxyBypass = optionalProxyString(a.Bypass)
-}
-
-func optionalProxyString(value string) *string {
-	if value == "" {
-		return nil
+// applyProxyConfigToRow writes a configuration into a session row. The
+// default configuration is stored as NULL.
+func applyProxyConfigToRow(sessionRow *db.Session, config proxy.Config) {
+	if len(config.Upstreams) == 0 && len(config.Rules) == 0 {
+		sessionRow.ProxyConfig = nil
+		return
 	}
-	trimmed := value
-	return &trimmed
+	sessionRow.ProxyConfig = &config
 }
 
-func optionalProxySecret(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-// derefProxyString reads an optional proxy column back into runtime env form.
-func derefProxyString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-// UpdateProxy replaces a session's proxy assignment. The change is persisted
-// and rewritten into the runtime env, then pushed to the running wrapper when
-// the session is running. New connections use the new assignment; existing
-// connections finish on the old one unless drain resets live tunnel streams.
-func (s *Service) UpdateProxy(ctx context.Context, tenantID, sessionID string, assignment proxy.Assignment, drain bool) (ProxyUpdateResult, error) {
-	if err := assignment.Validate(); err != nil {
+// UpdateProxy replaces a session's proxy configuration. The change is
+// persisted and rewritten into the runtime env, then pushed to the running
+// wrapper when the session is running. New connections use the new rules;
+// existing connections finish on their route unless drain resets live tunnel
+// streams.
+func (s *Service) UpdateProxy(ctx context.Context, tenantID, sessionID string, config proxy.Config, drain bool) (ProxyUpdateResult, error) {
+	if err := config.Validate(); err != nil {
 		return ProxyUpdateResult{}, err
 	}
 	unlock := s.repo.LockSession(sessionID)
@@ -98,7 +64,7 @@ func (s *Service) UpdateProxy(ctx context.Context, tenantID, sessionID string, a
 		return ProxyUpdateResult{}, fmt.Errorf("%w: proxy update not allowed in status %q", ErrInvalidState, sessionRow.Status)
 	}
 
-	applyProxyAssignmentToRow(sessionRow, assignment)
+	applyProxyConfigToRow(sessionRow, config)
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return ProxyUpdateResult{}, err
 	}
@@ -111,18 +77,18 @@ func (s *Service) UpdateProxy(ctx context.Context, tenantID, sessionID string, a
 		return ProxyUpdateResult{}, fmt.Errorf("write proxy runtime env: %w", err)
 	}
 
-	result := ProxyUpdateResult{Upstream: string(assignment.NormalizedUpstream())}
+	result := ProxyUpdateResult{}
 	if sessionRow.Status != db.SessionStatusRunning {
 		return result, nil
 	}
 
-	address, err := s.pushProxyAssignment(ctx, sessionRow, assignment, drain)
+	address, err := s.pushProxyConfig(ctx, sessionRow, config, drain)
 	if err != nil {
-		// The assignment is already persisted and written to the runtime env,
-		// so failing the call would leave the caller believing nothing changed
-		// while the next start uses the new assignment. Record the divergence
-		// instead and report the update as unpushed.
-		if eventErr := s.appendEvent(ctx, sessionRow, "session.proxy_push_failed", "proxy assignment saved but not pushed to the running session", err); eventErr != nil {
+		// The configuration is already persisted and written to the runtime
+		// env, so failing the call would leave the caller believing nothing
+		// changed while the next start uses the new rules. Record the
+		// divergence instead and report the update as unpushed.
+		if eventErr := s.appendEvent(ctx, sessionRow, "session.proxy_push_failed", "proxy configuration saved but not pushed to the running session", err); eventErr != nil {
 			return result, eventErr
 		}
 		return result, nil
@@ -132,38 +98,18 @@ func (s *Service) UpdateProxy(ctx context.Context, tenantID, sessionID string, a
 	return result, nil
 }
 
-type proxyPushTunnel struct {
-	URL  string `json:"url"`
-	Auth string `json:"auth"`
-}
-
-type proxyPushBody struct {
-	Upstream string          `json:"upstream"`
-	URL      string          `json:"url"`
-	Tunnel   proxyPushTunnel `json:"tunnel"`
-	Bypass   string          `json:"bypass"`
-	Drain    bool            `json:"drain"`
-}
-
-// pushProxyAssignment delivers an assignment to the running wrapper's
-// loopback API. The update is already persisted, so a push failure never
-// loses it; the caller records the divergence and reports it as unpushed.
-func (s *Service) pushProxyAssignment(ctx context.Context, sessionRow *db.Session, assignment proxy.Assignment, drain bool) (string, error) {
+// pushProxyConfig delivers a configuration to the running wrapper's loopback
+// API. The update is already persisted, so a push failure never loses it; the
+// caller records the divergence and reports it as unpushed.
+func (s *Service) pushProxyConfig(ctx context.Context, sessionRow *db.Session, config proxy.Config, drain bool) (string, error) {
 	port, controlToken, err := wrapperControl(sessionRow)
 	if err != nil {
-		return "", fmt.Errorf("push proxy assignment: %w", err)
+		return "", fmt.Errorf("push proxy config: %w", err)
 	}
 
-	body := proxyPushBody{
-		Upstream: string(assignment.NormalizedUpstream()),
-		URL:      assignment.URL,
-		Tunnel:   proxyPushTunnel{URL: assignment.TunnelURL, Auth: assignment.TunnelAuth},
-		Bypass:   assignment.Bypass,
-		Drain:    drain,
-	}
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(browser.ProxyConfigPush{Config: config, Drain: drain})
 	if err != nil {
-		return "", fmt.Errorf("push proxy assignment: %w", err)
+		return "", fmt.Errorf("push proxy config: %w", err)
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -171,33 +117,33 @@ func (s *Service) pushProxyAssignment(ctx context.Context, sessionRow *db.Sessio
 	request, err := http.NewRequestWithContext(
 		pushCtx,
 		http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/proxy/assignment", port),
+		fmt.Sprintf("http://127.0.0.1:%d/proxy/config", port),
 		bytes.NewReader(payload),
 	)
 	if err != nil {
-		return "", fmt.Errorf("push proxy assignment: %w", err)
+		return "", fmt.Errorf("push proxy config: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+controlToken)
 
 	response, err := (&http.Client{}).Do(request)
 	if err != nil {
-		return "", fmt.Errorf("push proxy assignment: %w", err)
+		return "", fmt.Errorf("push proxy config: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 	if err != nil {
-		return "", fmt.Errorf("push proxy assignment: %w", err)
+		return "", fmt.Errorf("push proxy config: %w", err)
 	}
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("push proxy assignment: unexpected wrapper status %s", response.Status)
+		return "", fmt.Errorf("push proxy config: unexpected wrapper status %s", response.Status)
 	}
 
 	var summary struct {
 		Address string `json:"address"`
 	}
 	if err := json.Unmarshal(responseBody, &summary); err != nil {
-		return "", fmt.Errorf("push proxy assignment: %w", err)
+		return "", fmt.Errorf("push proxy config: %w", err)
 	}
 	return summary.Address, nil
 }

@@ -4,6 +4,8 @@ status: accepted
 
 # Always-on per-session local proxy with multiplexed tunnel upstream
 
+> The single `upstream` assignment and its `bypass` list are superseded by the proxy rules in [ADR 0011](0011-client-attached-local-tunnel.md). The rest of this decision stands.
+
 Every browser session gets a session-local proxy server (SOCKS5) owned by its `browser-session-wrapper`. Chromium always points at it; the wrapper dials upstream per connection: direct TCP, a configured generic upstream proxy URL (`http`/`https`/`socks`/`socks5`/`socks5h`), or a multiplexed yamux-over-WebSocket tunnel to an external tunnel server. Aperture stays provider-agnostic: it only speaks generic proxy URLs and generic SOCKS5 → yamux → WebSocket tunneling.
 
 Putting the wrapper in the traffic path on every connection enables hostname-based filtering, traffic management, and live upstream switching without touching Chromium.

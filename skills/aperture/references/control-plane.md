@@ -76,7 +76,7 @@ Tenant and token lists are paginated. Tenant lists accept `deleted=active|delete
 - `POST /api/sessions` — create
 - `DELETE /api/sessions/:sessionId`
 - `PUT /api/sessions/:sessionId/tags` — replace all tags
-- `PUT /api/sessions/:sessionId/proxy` — replace the egress proxy assignment
+- `PUT /api/sessions/:sessionId/proxy` — replace the egress proxy configuration
 - `POST /api/sessions/:sessionId/suspend`
 - `POST /api/sessions/:sessionId/reopen`
 - `POST /api/sessions/:sessionId/session-token/rotate`
@@ -108,18 +108,31 @@ Create request:
     "key": "value"
   },
   "proxy": {
-    "upstream": "direct",
-    "url": "socks5://proxy.example.com:1080",
-    "tunnel": {
-      "url": "wss+yamux+socks5://tunnel.example.com/t/assignment",
-      "auth": "per-assignment bearer secret"
+    "upstreams": {
+      "operator": {
+        "url": "wss+yamux+socks5://tunnel.example.com/t/assignment",
+        "auth": "per-assignment bearer secret"
+      },
+      "corp": { "url": "socks5://user:pass@proxy.example.com:1080" }
     },
-    "bypass": "*.internal.example.com"
+    "rules": [
+      { "match": "*.test", "via": "operator" },
+      { "match": "localhost:3000", "via": "local" },
+      { "match": "*.internal.example.com", "via": "direct" },
+      { "match": "*.ai", "via": "refuse" },
+      { "match": "*", "via": "corp" }
+    ]
   }
 }
 ```
 
-Every session routes browser egress through a session-local SOCKS5 proxy. Chromium proxy flags are system-owned (`--proxy-server` / `--proxy-bypass-list` are rejected as user args). `proxy.upstream` selects the strategy for new connections: `direct` (default when omitted), `proxy` (requires `url`, any generic `http`/`https`/`socks`/`socks5`/`socks5h` URL), or `tunnel` (requires `tunnel.url` + `tunnel.auth`). An upstream that needs credentials takes them as userinfo in the URL — `socks5://user:pass@host:1080` — sent as RFC 1929 username/password for the socks schemes and as Basic `Proxy-Authorization` for `http`/`https`. The port may be omitted; it defaults to 1080 for socks, 80 for http, 443 for https. The tunnel URL uses a compound `ws+yamux+socks5://` / `wss+yamux+socks5://` scheme; each SOCKS session gets its own yamux stream and is terminated by the tunnel operator. `PUT /api/sessions/:sessionId/proxy` accepts the same object plus `"drain": true` to reset live tunnel streams instead of letting them finish. Secrets are write-only: session reads return the tunnel URL but never its secret, and an upstream proxy URL comes back with its password masked (`socks5://user:xxxxx@host:1080`).
+Every session routes browser egress through a session-local SOCKS5 proxy. Chromium proxy flags are system-owned (`--proxy-server` / `--proxy-bypass-list` are rejected as user args). `proxy.rules` is checked in order and the first rule whose `match` covers a connection routes it; unmatched connections go direct. A `match` is `host` or `host:port`, where the host is exact, `*.suffix` for subdomains, or `*` for any host. `via` is `direct`, `refuse`, `local` (the [local tunnel](live-session.md#local-tunnel); fails while none is attached), a name from `proxy.upstreams`, or an inline proxy URL without a secret.
+
+An upstream `url` is a generic `http`/`https`/`socks`/`socks5`/`socks5h` proxy URL or a compound `ws+yamux+socks5://` / `wss+yamux+socks5://` tunnel URL. A tunnel URL needs `auth`, a bearer secret for its handshake; each SOCKS session gets its own yamux stream and is terminated by the tunnel operator. Proxy credentials go in the URL userinfo, `socks5://user:pass@host:1080`, sent as RFC 1929 username/password for the socks schemes and as Basic `Proxy-Authorization` for `http`/`https`. The port may be omitted; it defaults to 1080 for socks, 80 for http, 443 for https. Upstream names use lowercase letters, digits and dashes; `direct`, `refuse` and `local` are reserved.
+
+`*` never matches `localhost`, which stays on the session host unless a rule names it. Loopback IPs never reach the proxy, so local services are matched as `localhost`, not `127.0.0.1`.
+
+`PUT /api/sessions/:sessionId/proxy` replaces the configuration with the same object plus `"drain": true` to reset live tunnel streams instead of letting them finish. Secrets are write-only: session reads return upstream URLs but never `auth`, and proxy URLs come back with their passwords masked (`socks5://user:xxxxx@host:1080`).
 
 `browser.channel` is required. Use `GET /api/browser/channels` rather than assuming a channel name.
 

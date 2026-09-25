@@ -346,7 +346,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/automation/playwright", r.handlePlaywrightCall)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/initialize", r.handleInitialization)
-	mux.HandleFunc("/proxy/assignment", r.handleProxyAssignment)
+	mux.HandleFunc("/proxy/config", r.handleProxyConfig)
 	mux.HandleFunc("/tunnel", r.handleLocalTunnel)
 	mux.HandleFunc("/targets", r.handleTargets)
 	mux.HandleFunc("/viewport", r.handleViewport)

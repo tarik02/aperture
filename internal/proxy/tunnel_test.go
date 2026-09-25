@@ -193,13 +193,17 @@ func socksConnect(t *testing.T, addr, target string) net.Conn {
 	return conn
 }
 
+// operatorConfig routes every connection through the fake operator's tunnel.
+func operatorConfig(operator *fakeOperator) Config {
+	return Config{
+		Upstreams: map[string]UpstreamConfig{"operator": {URL: operator.tunnelURL(), Auth: operator.auth}},
+		Rules:     []Rule{{Match: "*", Via: "operator"}},
+	}
+}
+
 func tunnelManager(t *testing.T, operator *fakeOperator) *Manager {
 	t.Helper()
-	manager, err := NewManager("tunnel-test", Assignment{
-		Upstream:   UpstreamTunnel,
-		TunnelURL:  operator.tunnelURL(),
-		TunnelAuth: operator.auth,
-	})
+	manager, err := NewManager("tunnel-test", operatorConfig(operator))
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}
@@ -274,7 +278,7 @@ func TestTunnelRedialsAfterOperatorDrop(t *testing.T) {
 
 	operator.dropTunnels()
 	waitFor(t, 5*time.Second, func() bool {
-		return manager.healthyTunnel() == nil
+		return manager.healthyTunnel("operator") == nil
 	}, "tunnel to be seen as unhealthy")
 
 	second := socksConnect(t, manager.Addr(), target)
@@ -301,19 +305,19 @@ func TestApplyDrainResetsLiveTunnels(t *testing.T) {
 	manager := tunnelManager(t, operator)
 
 	live := socksConnect(t, manager.Addr(), target)
-	same := Assignment{Upstream: UpstreamTunnel, TunnelURL: operator.tunnelURL(), TunnelAuth: operator.auth}
+	same := operatorConfig(operator)
 
 	if err := manager.Apply(same, false); err != nil {
 		t.Fatalf("Apply(same, drain=false): %v", err)
 	}
-	if manager.healthyTunnel() == nil {
+	if manager.healthyTunnel("operator") == nil {
 		t.Fatal("re-applying an identical assignment without drain must leave the tunnel alone")
 	}
 
 	if err := manager.Apply(same, true); err != nil {
 		t.Fatalf("Apply(same, drain=true): %v", err)
 	}
-	if manager.healthyTunnel() != nil {
+	if manager.healthyTunnel("operator") != nil {
 		t.Fatal("drain must drop the live tunnel, not leave a closed one registered")
 	}
 	if err := live.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {

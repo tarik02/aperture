@@ -31,12 +31,7 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 		LastConnectedAt: view.Session.LastConnectedAt,
 		SuspendedAt:     view.Session.SuspendedAt,
 		Tags:            view.Tags,
-		Proxy: toSessionProxyView(
-			view.Session.ProxyUpstream,
-			derefSessionString(view.Session.ProxyURL),
-			derefSessionString(view.Session.ProxyTunnelURL),
-			derefSessionString(view.Session.ProxyBypass),
-		),
+		Proxy:           toSessionProxyView(session.ProxyConfigFromRow(&view.Session)),
 	}
 	if view.CDPURL != "" {
 		resp.CDPURL = view.CDPURL
@@ -51,13 +46,6 @@ func toSessionResponse(view *session.SessionView) sessionResponse {
 		}
 	}
 	return resp
-}
-
-func derefSessionString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func (s *Server) rotateCollaborationCapability(c *gin.Context, role session.CollaborationRole) {
@@ -124,7 +112,7 @@ func (s *Server) createSession(c *gin.Context, waitForReady bool) {
 		BrowserArgs:      req.Browser.Args,
 		Initialization:   req.initialization(),
 		Tags:             req.Tags,
-		Proxy:            req.Proxy.assignment(),
+		Proxy:            req.Proxy.config(),
 	})
 	if err != nil {
 		WriteError(c, err)
@@ -205,7 +193,7 @@ func (s *Server) updateSessionProxy(c *gin.Context) {
 		return
 	}
 
-	if _, err := s.Sessions.UpdateProxy(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), req.assignment(), req.Drain); err != nil {
+	if _, err := s.Sessions.UpdateProxy(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), req.config(), req.Drain); err != nil {
 		WriteError(c, err)
 		return
 	}

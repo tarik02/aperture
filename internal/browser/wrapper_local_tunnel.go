@@ -10,9 +10,8 @@ import (
 )
 
 // handleLocalTunnel attaches a client's WebSocket as the session's local
-// tunnel. The client names the hosts it serves with repeated route query
-// parameters; browser connections to them are tunneled to the client for as
-// long as the WebSocket stays open.
+// tunnel. Connections the proxy rules route via local are tunneled to the
+// client for as long as the WebSocket stays open.
 func (r *wrapperRuntime) handleLocalTunnel(w http.ResponseWriter, req *http.Request) {
 	if strings.TrimSpace(req.Header.Get("X-Aperture-Collaboration-Role")) != "owner" {
 		writeWrapperError(w, http.StatusForbidden, "local tunnel requires session owner access")
@@ -23,11 +22,6 @@ func (r *wrapperRuntime) handleLocalTunnel(w http.ResponseWriter, req *http.Requ
 		writeWrapperError(w, http.StatusServiceUnavailable, "session proxy is not running")
 		return
 	}
-	routes, err := proxy.ParseLocalTunnelRoutes(req.URL.Query()["route"])
-	if err != nil {
-		writeWrapperError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 
 	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
 		Subprotocols: []string{proxy.LocalTunnelSubprotocol},
@@ -35,7 +29,7 @@ func (r *wrapperRuntime) handleLocalTunnel(w http.ResponseWriter, req *http.Requ
 	if err != nil {
 		return
 	}
-	local, err := proxy.NewLocalTunnel(conn, routes)
+	local, err := proxy.NewLocalTunnel(conn)
 	if err != nil {
 		_ = conn.Close(websocket.StatusInternalError, "start local tunnel")
 		return

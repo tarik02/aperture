@@ -324,30 +324,37 @@ func (r createSessionRequest) initialization() browser.SessionInitialization {
 	return browser.SessionInitialization{Targets: r.InitialTargets, StorageState: r.StorageState}
 }
 
-type proxyTunnelRequest struct {
+type proxyUpstreamRequest struct {
 	URL  string `json:"url"`
 	Auth string `json:"auth"`
 }
 
-type proxyConfigRequest struct {
-	Upstream string             `json:"upstream"`
-	URL      string             `json:"url"`
-	Tunnel   proxyTunnelRequest `json:"tunnel"`
-	Bypass   string             `json:"bypass"`
+type proxyRuleRequest struct {
+	Match string `json:"match"`
+	Via   string `json:"via"`
 }
 
-func (r proxyConfigRequest) assignment() proxy.Assignment {
-	return proxy.Assignment{
-		Upstream:   proxy.Upstream(strings.TrimSpace(r.Upstream)),
-		URL:        strings.TrimSpace(r.URL),
-		TunnelURL:  strings.TrimSpace(r.Tunnel.URL),
-		TunnelAuth: r.Tunnel.Auth,
-		Bypass:     strings.TrimSpace(r.Bypass),
+type proxyConfigRequest struct {
+	Upstreams map[string]proxyUpstreamRequest `json:"upstreams"`
+	Rules     []proxyRuleRequest              `json:"rules"`
+}
+
+func (r proxyConfigRequest) config() proxy.Config {
+	config := proxy.Config{}
+	if len(r.Upstreams) > 0 {
+		config.Upstreams = make(map[string]proxy.UpstreamConfig, len(r.Upstreams))
+		for name, upstream := range r.Upstreams {
+			config.Upstreams[name] = proxy.UpstreamConfig{URL: strings.TrimSpace(upstream.URL), Auth: upstream.Auth}
+		}
 	}
+	for _, rule := range r.Rules {
+		config.Rules = append(config.Rules, proxy.Rule{Match: strings.TrimSpace(rule.Match), Via: strings.TrimSpace(rule.Via)})
+	}
+	return config
 }
 
 func (r proxyConfigRequest) Validate() error {
-	if err := r.assignment().Validate(); err != nil {
+	if err := r.config().Validate(); err != nil {
 		return validationError(err.Error())
 	}
 	return nil
@@ -358,33 +365,34 @@ type updateProxyRequest struct {
 	Drain bool `json:"drain"`
 }
 
-type sessionProxyTunnelView struct {
-	URL string `json:"url,omitempty"`
+type sessionProxyUpstreamView struct {
+	URL string `json:"url"`
+}
+
+type sessionProxyRuleView struct {
+	Match string `json:"match"`
+	Via   string `json:"via"`
 }
 
 type sessionProxyView struct {
-	Upstream string                  `json:"upstream"`
-	URL      string                  `json:"url,omitempty"`
-	Tunnel   *sessionProxyTunnelView `json:"tunnel,omitempty"`
-	Bypass   string                  `json:"bypass,omitempty"`
+	Upstreams map[string]sessionProxyUpstreamView `json:"upstreams"`
+	Rules     []sessionProxyRuleView              `json:"rules"`
 }
 
-// toSessionProxyView renders the stored assignment without secrets. Tunnel
-// auth is write-only and never appears in responses; an upstream proxy URL
-// comes back with its password masked.
-func toSessionProxyView(upstream, url, tunnelURL, bypass string) *sessionProxyView {
-	view := &sessionProxyView{Upstream: upstream}
-	if upstream == "" {
-		view.Upstream = string(proxy.UpstreamDirect)
+// toSessionProxyView renders the stored configuration without secrets. Tunnel
+// auth is write-only and never appears in responses; proxy URLs come back with
+// their passwords masked.
+func toSessionProxyView(config proxy.Config) *sessionProxyView {
+	redacted := config.Redacted()
+	view := &sessionProxyView{
+		Upstreams: make(map[string]sessionProxyUpstreamView, len(redacted.Upstreams)),
+		Rules:     make([]sessionProxyRuleView, 0, len(redacted.Rules)),
 	}
-	if strings.TrimSpace(url) != "" {
-		view.URL = proxy.RedactedURL(url)
+	for name, upstream := range redacted.Upstreams {
+		view.Upstreams[name] = sessionProxyUpstreamView{URL: upstream.URL}
 	}
-	if strings.TrimSpace(tunnelURL) != "" {
-		view.Tunnel = &sessionProxyTunnelView{URL: tunnelURL}
-	}
-	if strings.TrimSpace(bypass) != "" {
-		view.Bypass = bypass
+	for _, rule := range redacted.Rules {
+		view.Rules = append(view.Rules, sessionProxyRuleView{Match: rule.Match, Via: rule.Via})
 	}
 	return view
 }

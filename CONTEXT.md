@@ -61,8 +61,12 @@ _Avoid_: Read-only session token, guest token
 An ephemeral directed edge from one session client to another. The follower adopts the followed client's selected browser target and highlights that client's cursor. Chains are allowed; cycles are rejected.
 _Avoid_: Screen share, control transfer
 
+**Proxy rule**:
+An ordered session proxy entry that routes the browser connections its match covers: direct, refused, through a named upstream, or through the local tunnel. The first matching rule wins.
+_Avoid_: Bypass list, proxy assignment
+
 **Local tunnel**:
-A WebSocket a client opens to a running session so the browser's connections to the hosts it names are dialed on the client's machine. It lasts as long as the WebSocket; a session has at most one.
+A WebSocket a client opens to a running session so that the connections the session's proxy rules route via `local` are dialed on the client's machine. It lasts as long as the WebSocket; a session has at most one.
 _Avoid_: Reverse proxy, tunnel upstream, port forward
 
 **Overlay stroke**:

@@ -16,16 +16,11 @@ Use an authorized API bearer token and tenant header, or the bound `sessionToken
 
 ## Local tunnel
 
-A local tunnel carries the session browser's connections to chosen hosts over one client-opened WebSocket, so the browser can reach, for example, a dev server on the client's machine. Open `GET /sessions/:sessionId/tunnel` with the `aperture-tunnel.v1` subprotocol and one or more `route` query parameters:
-
-- `localhost:3000` — one host and port;
-- `localhost` — any port on that host;
-- `*.test` — subdomains of `test`;
-- `*` — all browser traffic.
+A local tunnel carries browser connections over one client-opened WebSocket and dials them on the client's machine, so the browser can reach, for example, a dev server on a developer's laptop. The session's [proxy rules](control-plane.md) decide which connections it carries: those whose rule has `"via": "local"`, such as `{ "match": "localhost:3000", "via": "local" }`. Open `GET /sessions/:sessionId/tunnel` with the `aperture-tunnel.v1` subprotocol to attach.
 
 The browser reaches the client's services as `localhost`, never `127.0.0.1` or `[::1]`: loopback IPs bypass the session proxy.
 
-After the upgrade, binary WebSocket messages carry a yamux session in which the client is the yamux server. Aperture opens one stream per matching browser connection. Each stream carries a SOCKS5 session: a no-auth greeting, then a `CONNECT` with the target. The client dials the target and replies as a SOCKS5 server would. Matching connections fail while the client cannot take them; once the WebSocket closes, the session proxy assignment handles them again. A new attach replaces the session's previous local tunnel.
+After the upgrade, binary WebSocket messages carry a yamux session in which the client is the yamux server. Aperture opens one stream per matching browser connection. Each stream carries a SOCKS5 session: a no-auth greeting, then a `CONNECT` with the target. The client dials the target and replies as a SOCKS5 server would. `via: local` connections fail while no client is attached. A new attach replaces the session's previous local tunnel.
 
 ## Live-session protocol
 

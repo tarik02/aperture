@@ -107,17 +107,13 @@ func RequiredArgs(mergedUserDataDir string, cacheDir string, cdpPort int) []stri
 
 // ProxyArgs returns the supervisor-owned Chromium proxy flags. Every session
 // routes egress through the session-local SOCKS5 server, so these flags are
-// constant across proxy assignments and never user-supplied. Loopback IPs
-// bypass it, but localhost names reach it so a local tunnel can claim them;
-// the wrapper dials unclaimed ones on this machine.
-func ProxyArgs(serverAddr, extraBypass string) []string {
-	bypass := "<-loopback>;127.0.0.1;::1"
-	if trimmed := strings.TrimSpace(extraBypass); trimmed != "" {
-		bypass += ";" + trimmed
-	}
+// constant across proxy configurations and never user-supplied. Loopback IPs
+// bypass it, but localhost names reach it so a rule can route them; the
+// wrapper dials unrouted ones on this machine.
+func ProxyArgs(serverAddr string) []string {
 	return []string{
 		"--proxy-server=socks5://" + serverAddr,
-		"--proxy-bypass-list=" + bypass,
+		"--proxy-bypass-list=<-loopback>;127.0.0.1;::1",
 		// QUIC/UDP has no SOCKS CONNECT path and would bypass the proxy.
 		"--disable-quic",
 	}
