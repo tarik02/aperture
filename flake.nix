@@ -562,6 +562,8 @@
 
           buildPhase = ''
             runHook preBuild
+            # pnpm 11.27.1 shims use `command -p`, which finds nothing in the sandbox.
+            find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
             pnpm --filter @aperture-browser/companion build
             runHook postBuild
           '';
