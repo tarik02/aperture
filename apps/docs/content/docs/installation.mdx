@@ -41,6 +41,7 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 - `embed_allowed_origins` — optional origins of other web apps that embed shared sessions (see [Session sharing](/docs/session-sharing#embedding))
 - MCP settings — enabled by default; see the example below
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
+- `metrics_address` — optional Prometheus metrics listener, disabled by default; see [Monitoring](/docs/monitoring)
 
 Example:
 
@@ -223,6 +224,8 @@ The deployment defaults are:
 - candidate health timeout: 30 seconds
 
 Enable the edge proxy with `services.aperture.traefik.enable = true`; its default entrypoint is `127.0.0.1:28081`. TLS and external ingress remain outside the module.
+
+Enable Prometheus metrics with `services.aperture.metrics.enable = true`; they are served on `127.0.0.1:9464` by default. See [Monitoring](/docs/monitoring).
 
 On the first activation, reload the user manager, start blue, and make that instance persistent:
 

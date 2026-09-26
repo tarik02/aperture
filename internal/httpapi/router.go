@@ -21,7 +21,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		server.Logger = logger
 	}
 	router := gin.New()
-	router.Use(gin.Recovery(), server.handoffInactiveAPI)
+	router.Use(server.observeRequest, gin.Recovery(), server.handoffInactiveAPI)
 	router.GET("/docs", scalarAPIReference)
 	router.GET("/openapi.json", openAPISpec)
 	server.initMCPHandler()
