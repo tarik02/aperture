@@ -13,6 +13,19 @@ export const ApiErrorBody = Schema.Struct({
 export type ApiErrorBody = typeof ApiErrorBody.Type;
 
 /**
+ * The error body of a live-session route that failed inside the running session. It carries
+ * no stable code, so the resulting ApiRequestError uses `live_session_error` and callers
+ * branch on its status.
+ */
+export const LiveSessionErrorBody = Schema.Struct({
+  error: Schema.String,
+});
+
+export type LiveSessionErrorBody = typeof LiveSessionErrorBody.Type;
+
+const ErrorResponseBody = Schema.Union([ApiErrorBody, LiveSessionErrorBody]);
+
+/**
  * A failed API request. `code` and `message` come from the server's error body when it
  * sent one; `status` is 0 when no HTTP status applies.
  */
@@ -41,8 +54,16 @@ export const toApiRequestError = <A, R>(
   self.pipe(
     Effect.catchReasons("HttpClientError", {
       StatusCodeError: ({ response }) =>
-        HttpClientResponse.schemaBodyJson(ApiErrorBody)(response).pipe(
-          Effect.map(({ error }) => new ApiRequestError({ ...error, status: response.status })),
+        HttpClientResponse.schemaBodyJson(ErrorResponseBody)(response).pipe(
+          Effect.map(({ error }) =>
+            typeof error === "string"
+              ? new ApiRequestError({
+                  code: "live_session_error",
+                  message: error,
+                  status: response.status,
+                })
+              : new ApiRequestError({ ...error, status: response.status }),
+          ),
           Effect.orElseSucceed(
             () =>
               new ApiRequestError({

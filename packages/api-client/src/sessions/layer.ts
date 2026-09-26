@@ -262,7 +262,7 @@ export const makeSessionsApi = Effect.gen(function* () {
       .get(`/sessions/${encodeURIComponent(sessionId)}/browser/status`)
       .pipe(
         Effect.flatMap(HttpClientResponse.schemaBodyJson(BrowserStatus)),
-        authorize({ credentials, bearerToken: sessionToken }),
+        authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),
       );
   });
 
