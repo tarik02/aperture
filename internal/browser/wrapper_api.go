@@ -657,7 +657,9 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 		"!",
 	}
 	args = append(args, wrapperRecordingPipeline(codec, bitrateKbps, values.MediaProducerKeyframe)...)
-	args = append(args, "!", "filesink", "location="+path, "sync=false")
+	// A replacement segment takes over once its file has data; buffered, the file
+	// stays empty for up to a second after the first frame and the segments overlap.
+	args = append(args, "!", "filesink", "location="+path, "sync=false", "buffer-mode=unbuffered")
 	cmd := exec.CommandContext(ctx, values.MediaProducerGSTExecutable, args...)
 	cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
 	cmd.Stdout = os.Stdout
