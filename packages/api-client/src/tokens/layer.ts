@@ -3,11 +3,14 @@ import * as Layer from "effect/Layer";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
+import { paginated } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
+import type { ApiToken } from "../schemas.ts";
 import {
   TokensApi,
   type CreateAdminTokenInput,
   type CreateTenantTokenInput,
+  type TokensFilter,
   type TokensListParams,
 } from "./service.ts";
 
@@ -37,6 +40,8 @@ export const makeTokensApi = Effect.gen(function* () {
       })
       .pipe(authorize(Authorization.of(credentials)));
   });
+
+  const adminTokens = paginated<TokensFilter, ApiToken>(listAdminTokens);
 
   const createAdminToken = Effect.fn("TokensApi.createAdminToken")(function* (
     credentials: ApiCredentials,
@@ -82,6 +87,8 @@ export const makeTokensApi = Effect.gen(function* () {
       .pipe(authorize(Authorization.of(credentials)));
   });
 
+  const tenantTokens = paginated<TokensFilter, ApiToken>(listTenantTokens);
+
   const createTenantToken = Effect.fn("TokensApi.createTenantToken")(function* (
     credentials: ApiCredentials,
     input: CreateTenantTokenInput,
@@ -108,9 +115,13 @@ export const makeTokensApi = Effect.gen(function* () {
 
   return TokensApi.of({
     listAdminTokens,
+    streamAdminTokens: adminTokens.stream,
+    listAllAdminTokens: adminTokens.listAll,
     createAdminToken,
     revokeAdminToken,
     listTenantTokens,
+    streamTenantTokens: tenantTokens.stream,
+    listAllTenantTokens: tenantTokens.listAll,
     createTenantToken,
     revokeTenantToken,
   });

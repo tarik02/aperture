@@ -1,10 +1,18 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
+import { paginated } from "../pagination.ts";
 import { compactQuery, tagQuery } from "../query.ts";
-import { SnapshotsApi, type SnapshotsListParams, type UpdateSnapshotInput } from "./service.ts";
+import type { Snapshot } from "../schemas.ts";
+import {
+  SnapshotsApi,
+  type SnapshotsFilter,
+  type SnapshotsListParams,
+  type UpdateSnapshotInput,
+} from "./service.ts";
 
 export const makeSnapshotsApi = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -29,6 +37,20 @@ export const makeSnapshotsApi = Effect.gen(function* () {
         }),
       })
       .pipe(tenantScoped(credentials));
+  });
+
+  const snapshots = paginated<SnapshotsFilter, Snapshot>(listSnapshots);
+
+  // The API has no lookup by name; its name filter is a case-insensitive substring match,
+  // so the exact name is picked from the filtered pages.
+  const getSnapshotByName = Effect.fn("SnapshotsApi.getSnapshotByName")(function* (
+    credentials: ApiCredentials,
+    name: string,
+  ) {
+    return yield* snapshots.stream(credentials, { name, limit: 100 }).pipe(
+      Stream.filter((candidate) => candidate.name === name),
+      Stream.runHead,
+    );
   });
 
   const updateSnapshot = Effect.fn("SnapshotsApi.updateSnapshot")(function* (
@@ -65,6 +87,9 @@ export const makeSnapshotsApi = Effect.gen(function* () {
 
   return SnapshotsApi.of({
     listSnapshots,
+    streamSnapshots: snapshots.stream,
+    listAllSnapshots: snapshots.listAll,
+    getSnapshotByName,
     updateSnapshot,
     replaceSnapshotTags,
     deleteSnapshot,

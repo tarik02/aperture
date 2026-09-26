@@ -5,6 +5,7 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import { authApiLayer } from "./auth/layer.ts";
 import { apiAuthorizationLayer, authorizedHttpClientLayer } from "./authorization/layer.ts";
 import { eventsApiLayer } from "./events/layer.ts";
+import { healthApiLayer } from "./health/layer.ts";
 import { sessionsApiLayer } from "./sessions/layer.ts";
 import { snapshotsApiLayer } from "./snapshots/layer.ts";
 import { tenantsApiLayer } from "./tenants/layer.ts";
@@ -23,6 +24,7 @@ export const apiClientLayer = Layer.mergeAll(
   snapshotsApiLayer,
   tokensApiLayer,
   eventsApiLayer,
+  healthApiLayer,
 ).pipe(Layer.provide(authorizedHttpClientLayer), Layer.provideMerge(apiAuthorizationLayer));
 
 export type ApiServices = Layer.Success<typeof apiClientLayer>;

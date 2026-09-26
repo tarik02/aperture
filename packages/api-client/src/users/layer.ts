@@ -3,8 +3,10 @@ import * as Layer from "effect/Layer";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
+import { paginated } from "../pagination.ts";
 import { compactQuery } from "../query.ts";
-import { UsersApi, type UserInput, type UsersListParams } from "./service.ts";
+import type { User } from "../schemas.ts";
+import { UsersApi, type UserInput, type UsersFilter, type UsersListParams } from "./service.ts";
 
 export const makeUsersApi = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -26,6 +28,8 @@ export const makeUsersApi = Effect.gen(function* () {
       })
       .pipe(authorize(Authorization.of(credentials)));
   });
+
+  const users = paginated<UsersFilter, User>(listUsers);
 
   const createUser = Effect.fn("UsersApi.createUser")(function* (
     credentials: ApiCredentials,
@@ -83,6 +87,15 @@ export const makeUsersApi = Effect.gen(function* () {
       .pipe(authorize(Authorization.of(credentials)));
   });
 
+  const listTenantMemberships = Effect.fn("UsersApi.listTenantMemberships")(function* (
+    credentials: ApiCredentials,
+    tenantId: string,
+  ) {
+    return yield* api
+      .listTenantMemberships(tenantId, undefined)
+      .pipe(authorize(Authorization.of(credentials)));
+  });
+
   const upsertTenantMembership = Effect.fn("UsersApi.upsertTenantMembership")(function* (
     credentials: ApiCredentials,
     tenantId: string,
@@ -108,6 +121,8 @@ export const makeUsersApi = Effect.gen(function* () {
 
   return UsersApi.of({
     listUsers,
+    streamUsers: users.stream,
+    listAllUsers: users.listAll,
     createUser,
     getUser,
     updateUser,
@@ -115,6 +130,7 @@ export const makeUsersApi = Effect.gen(function* () {
     disableUser,
     restoreUser,
     listUserMemberships,
+    listTenantMemberships,
     upsertTenantMembership,
     deleteTenantMembership,
   });
