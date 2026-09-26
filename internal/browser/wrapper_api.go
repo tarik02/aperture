@@ -325,8 +325,9 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	if err := r.reconcilePendingUploads(); err != nil {
 		return nil, nil, fmt.Errorf("reconcile pending uploads: %w", err)
 	}
+	// Leftover staging only costs space, so it must not keep the session from starting.
 	if err := sessionfiles.SweepStaging(r.values.FilesDir, sessionfiles.StaleStagingAge); err != nil {
-		return nil, nil, fmt.Errorf("sweep upload staging: %w", err)
+		fmt.Fprintf(os.Stderr, "browser-session-wrapper: sweep upload staging: %v\n", err)
 	}
 	sweepRecordingSegments(paths.SessionFiles(r.values.FilesDir).Recordings)
 	liveSession, err := newLiveSession(r)

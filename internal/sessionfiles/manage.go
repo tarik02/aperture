@@ -427,7 +427,8 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 	}
 	published := make([]string, 0, len(pending))
 	files := make([]File, 0, len(pending))
-	for _, upload := range pending {
+	for index := range pending {
+		upload := &pending[index]
 		name, err := publish(upload.staged, dirFD, upload.name)
 		if err != nil {
 			for _, done := range published {
@@ -436,6 +437,7 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 			return nil, err
 		}
 		published = append(published, name)
+		upload.staged.DropName()
 		final := filepath.Join(dir, name)
 		info, err := upload.staged.File.Stat()
 		if err != nil {

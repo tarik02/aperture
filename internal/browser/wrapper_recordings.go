@@ -890,7 +890,10 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 		fields
 		RelativePath string `json:"relativePath"`
 		SandboxPath  string `json:"sandboxPath,omitempty"`
-	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath})
+		// Path repeats RelativePath for clients that still read the field it replaced.
+		// It used to carry a host path, which it never does now.
+		Path string `json:"path"`
+	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, Path: relative})
 }
 
 // publishRecording moves a finished recording into place without replacing an
