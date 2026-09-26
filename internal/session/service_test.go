@@ -31,7 +31,7 @@ func (f *fakeOverlay) Mount(_ context.Context, sessionID string, _ *string) erro
 	if err != nil {
 		return err
 	}
-	for _, dir := range []string{layout.Upper, layout.Work, layout.Merged, layout.Downloads, layout.Cache} {
+	for _, dir := range []string{layout.Upper, layout.Work, layout.Merged, layout.Files.Downloads, layout.Cache} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}

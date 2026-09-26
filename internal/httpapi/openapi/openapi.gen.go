@@ -742,21 +742,6 @@ func (e UpdateProxyConfigUpstream) Valid() bool {
 	}
 }
 
-// Defines values for UploadedSessionFileKind.
-const (
-	Uploads UploadedSessionFileKind = "uploads"
-)
-
-// Valid indicates whether the value is a known member of the UploadedSessionFileKind enum.
-func (e UploadedSessionFileKind) Valid() bool {
-	switch e {
-	case Uploads:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for UserPasswordSetupStatus.
 const (
 	UserPasswordSetupStatusAvailable     UserPasswordSetupStatus = "available"
@@ -1699,7 +1684,7 @@ type Recording struct {
 	// RecordingId Stable recording identifier retained across target changes.
 	RecordingId openapi_types.UUID `json:"recordingId"`
 
-	// RelativePath Path below the session root; absolute host paths are never exposed.
+	// RelativePath Session file path below the session files root; host paths are never exposed.
 	RelativePath string          `json:"relativePath"`
 	SizeBytes    *int64          `json:"sizeBytes,omitempty"`
 	StartedAt    time.Time       `json:"startedAt"`
@@ -1847,7 +1832,7 @@ type SessionFile struct {
 	// Name File name without directory components.
 	Name string `json:"name"`
 
-	// RelativePath Path below the session root. The first component is `downloads` or `recordings`.
+	// RelativePath Path below the session files root. Browser downloads are under `downloads/`, recordings under `recordings/`, uploads under `uploads/`, and Playwright MCP output under `outputs/`. Pass it to `browser_file_upload` or to create a signed download URL.
 	RelativePath string `json:"relativePath"`
 
 	// Size File size in bytes.
@@ -2162,24 +2147,6 @@ type UpdateSnapshotInput struct {
 	// Description New description. Send `null` to clear it; an empty string is stored as an empty description.
 	Description *string `json:"description,omitempty"`
 }
-
-// UploadedSessionFile File stored in a running session's `uploads` directory.
-type UploadedSessionFile struct {
-	// AbsolutePath Path the session's browser can read, as accepted by CDP `DOM.setFileInputFiles`.
-	AbsolutePath string                  `json:"absolutePath"`
-	Kind         UploadedSessionFileKind `json:"kind"`
-	ModifiedAt   time.Time               `json:"modifiedAt"`
-
-	// Name Stored file name after sanitizing and collision suffixing.
-	Name string `json:"name"`
-
-	// Path Path relative to the session artifact directory, as accepted by `browser_file_upload`.
-	Path      string `json:"path"`
-	SizeBytes int64  `json:"sizeBytes"`
-}
-
-// UploadedSessionFileKind defines model for UploadedSessionFile.Kind.
-type UploadedSessionFileKind string
 
 // User defines model for User.
 type User struct {
@@ -3235,7 +3202,7 @@ type ClientInterface interface {
 
 	// ListSessionFiles List session files
 	//
-	// Lists regular files below the session's `downloads` and `recordings` directories. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+	// Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
 	//
 	// Corresponds with GET /api/sessions/{sessionId}/files (the `ListSessionFiles` operationId).
 	ListSessionFiles(ctx context.Context, sessionId SessionId, params *ListSessionFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4212,7 +4179,7 @@ func (c *Client) SetSessionCursor(ctx context.Context, sessionId SessionId, para
 
 // ListSessionFiles List session files
 //
-// Lists regular files below the session's `downloads` and `recordings` directories. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+// Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
 //
 // Corresponds with GET /api/sessions/{sessionId}/files (the `ListSessionFiles` operationId).
 func (c *Client) ListSessionFiles(ctx context.Context, sessionId SessionId, params *ListSessionFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -8355,7 +8322,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSessionFilesWithResponse List session files
 	//
-	// Lists regular files below the session's `downloads` and `recordings` directories. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+	// Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -11852,7 +11819,7 @@ func (c *ClientWithResponses) SetSessionCursorWithResponse(ctx context.Context, 
 
 // ListSessionFilesWithResponse List session files
 //
-// Lists regular files below the session's `downloads` and `recordings` directories. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+// Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
 //
 // Returns a wrapper object for the known response body format(s).
 //

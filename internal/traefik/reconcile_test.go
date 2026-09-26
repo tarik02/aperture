@@ -62,10 +62,8 @@ func TestReconcileWritesCDPRoutableSessionRoutes(t *testing.T) {
 	if err := browser.WriteRuntimeEnv(layout.RuntimeEnv, browser.RuntimeEnvValues{
 		SessionID:         sessionID,
 		MergedUserDataDir: "/tmp/merged",
-		DownloadsDir:      "/tmp/downloads",
-		RecordingsDir:     "/tmp/recordings",
+		FilesDir:          "/tmp/files",
 		CacheDir:          "/tmp/cache",
-		ArtifactsDir:      "/tmp/artifacts",
 		CDPPort:           cdpPort,
 		WrapperPort:       9333,
 		BrowserExecutable: "/usr/bin/chromium",

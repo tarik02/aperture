@@ -247,9 +247,8 @@ type LaunchConfig struct {
 	BwrapPath                string
 	BrowserExecutable        string
 	MergedUserDataDir        string
-	DownloadsDir             string
+	FilesDir                 string
 	CacheDir                 string
-	ArtifactsDir             string
 	CDPPort                  int
 	DefaultArgs              []string
 	ExtraArgs                []string
@@ -410,9 +409,8 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 func sessionBindMounts(cfg LaunchConfig) [][]string {
 	paths := []string{
 		cfg.MergedUserDataDir,
-		cfg.DownloadsDir,
+		cfg.FilesDir,
 		cfg.CacheDir,
-		cfg.ArtifactsDir,
 	}
 	mounts := make([][]string, 0, len(paths))
 	for _, path := range paths {
@@ -599,9 +597,8 @@ func LaunchFromRuntimeEnv() error {
 		BwrapPath:                bwrapPath,
 		BrowserExecutable:        values.BrowserExecutable,
 		MergedUserDataDir:        values.MergedUserDataDir,
-		DownloadsDir:             values.DownloadsDir,
+		FilesDir:                 values.FilesDir,
 		CacheDir:                 values.CacheDir,
-		ArtifactsDir:             values.ArtifactsDir,
 		CDPPort:                  values.CDPPort,
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                values.BrowserExtraArgs,
@@ -916,9 +913,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		BwrapPath:                bwrapPath,
 		BrowserExecutable:        values.BrowserExecutable,
 		MergedUserDataDir:        values.MergedUserDataDir,
-		DownloadsDir:             values.DownloadsDir,
+		FilesDir:                 values.FilesDir,
 		CacheDir:                 values.CacheDir,
-		ArtifactsDir:             values.ArtifactsDir,
 		CDPPort:                  values.CDPPort,
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                extraArgs,
@@ -1391,10 +1387,8 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	required := map[string]*string{
 		"APERTURE_SESSION_ID":  nil,
 		"MERGED_USER_DATA_DIR": nil,
-		"DOWNLOADS_DIR":        nil,
-		"RECORDINGS_DIR":       nil,
+		"FILES_DIR":            nil,
 		"CACHE_DIR":            nil,
-		"ARTIFACTS_DIR":        nil,
 		"BROWSER_EXECUTABLE":   nil,
 	}
 
@@ -1424,10 +1418,8 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		InternalAPIURL:      strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
 		MergedUserDataDir:   *required["MERGED_USER_DATA_DIR"],
 		UpperDir:            strings.TrimSpace(os.Getenv("UPPER_DIR")),
-		DownloadsDir:        *required["DOWNLOADS_DIR"],
-		RecordingsDir:       *required["RECORDINGS_DIR"],
+		FilesDir:            *required["FILES_DIR"],
 		CacheDir:            *required["CACHE_DIR"],
-		ArtifactsDir:        *required["ARTIFACTS_DIR"],
 		BrowserExecutable:   *required["BROWSER_EXECUTABLE"],
 	}
 
@@ -1546,10 +1538,8 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 func ensureSessionPaths(values RuntimeEnvValues) error {
 	for name, path := range map[string]string{
 		"merged user data dir": values.MergedUserDataDir,
-		"downloads dir":        values.DownloadsDir,
-		"recordings dir":       values.RecordingsDir,
+		"files dir":            values.FilesDir,
 		"cache dir":            values.CacheDir,
-		"artifacts dir":        values.ArtifactsDir,
 	} {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("%s must be absolute", name)

@@ -353,8 +353,6 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/cursor", r.handleCursor)
 	mux.HandleFunc("/recordings", liveSession.handleRecordings)
 	mux.HandleFunc("/recordings/", liveSession.handleRecording)
-	mux.HandleFunc("/files", r.handleFiles)
-	mux.HandleFunc("/files/", r.handleFileDownload)
 	mux.HandleFunc("/uploads", r.handleUploads)
 
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

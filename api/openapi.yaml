@@ -850,7 +850,7 @@ paths:
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable]
-      description: Lists regular files below the session's `downloads` and `recordings` directories. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+      description: Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -1036,7 +1036,7 @@ paths:
         - webSession: []
         - sessionToken: []
       description: |
-        Stores every multipart part that has a filename in the session's `uploads` directory, where browser automation such as `browser_file_upload` can pick it up. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. Other parts are ignored.
+        Stores every multipart part that has a filename below `uploads/` in the session files, where `browser_file_upload` can pick it up. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. Other parts are ignored.
 
         A single file may not exceed `session_upload_max_file_bytes` (100 MiB by default), all session storage may not exceed `session_storage_quota_bytes` (1 GiB by default), a request may carry at most 100 files, and a session may hold at most 1000 uploads. A rejected request stores none of its files.
       parameters:
@@ -1065,7 +1065,7 @@ paths:
                 properties:
                   files:
                     type: array
-                    items: {$ref: '#/components/schemas/UploadedSessionFile'}
+                    items: {$ref: '#/components/schemas/SessionFile'}
         default: {$ref: '#/components/responses/LiveSessionError'}
   /sessions/{sessionId}/browser/viewport:
     post:
@@ -2723,7 +2723,7 @@ components:
           description: Lifecycle reason recorded after the recording stops or fails.
         relativePath:
           type: string
-          description: Path below the session root; absolute host paths are never exposed.
+          description: Session file path below the session files root; host paths are never exposed.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
         startedAt:
           type: string
@@ -2755,7 +2755,7 @@ components:
           example: screencast-20260801T120000Z.webm
         relativePath:
           type: string
-          description: Path below the session root. The first component is `downloads` or `recordings`.
+          description: Path below the session files root. Browser downloads are under `downloads/`, recordings under `recordings/`, uploads under `uploads/`, and Playwright MCP output under `outputs/`. Pass it to `browser_file_upload` or to create a signed download URL.
           example: recordings/screencast-20260801T120000Z.webm
         size:
           type: integer
@@ -2802,32 +2802,6 @@ components:
           format: date-time
           description: Time after which the URL is rejected.
           example: '2026-08-01T12:20:00Z'
-    UploadedSessionFile:
-      type: object
-      description: File stored in a running session's `uploads` directory.
-      required: [kind, name, path, absolutePath, sizeBytes, modifiedAt]
-      properties:
-        kind:
-          type: string
-          enum: [uploads]
-        name:
-          type: string
-          description: Stored file name after sanitizing and collision suffixing.
-          example: invoice-1.pdf
-        path:
-          type: string
-          description: Path relative to the session artifact directory, as accepted by `browser_file_upload`.
-          example: uploads/invoice-1.pdf
-        absolutePath:
-          type: string
-          description: Path the session's browser can read, as accepted by CDP `DOM.setFileInputFiles`.
-        sizeBytes:
-          type: integer
-          format: int64
-          minimum: 0
-        modifiedAt:
-          type: string
-          format: date-time
     SetViewportInput:
       type: object
       description: Requested logical viewport of one top-level target.

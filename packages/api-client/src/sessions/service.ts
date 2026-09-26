@@ -21,7 +21,6 @@ import type {
   SetViewportInput,
   TargetViewport,
   UpdateProxyConfig,
-  UploadedSessionFile,
 } from "../schemas.ts";
 import type { BrowserStatus } from "./schemas.ts";
 
@@ -212,7 +211,7 @@ export class SessionsApi extends Context.Service<
       sessionId: string,
       files: ReadonlyArray<SessionUploadFile>,
       sessionToken?: string,
-    ) => Call<ReadonlyArray<UploadedSessionFile>>;
+    ) => Call<ReadonlyArray<SessionFile>>;
     /** Resizes a top-level target of the running session and returns the applied viewport. */
     readonly setSessionViewport: (
       credentials: ApiCredentials,

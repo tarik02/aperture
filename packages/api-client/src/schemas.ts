@@ -25,7 +25,6 @@ export type CursorVisibility = Api.CursorVisibility;
 export type SessionRecording = Api.Recording;
 export type SessionFile = Api.SessionFile;
 export type SessionFileDownloadURL = Api.SessionFileDownloadURL;
-export type UploadedSessionFile = Api.UploadedSessionFile;
 export type SetViewportInput = Api.SetViewportInput;
 export type TargetViewport = Api.TargetViewport;
 export type Health = Api.Health;

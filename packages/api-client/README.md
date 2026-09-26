@@ -67,9 +67,9 @@ const all = yield* client.sessions.listAllSessions({ status: "running", limit: 1
 
 ## Session files and the live session
 
-`listSessionFiles(sessionId)` lists a session's downloads and recordings, also while it is not running. The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadSessionFiles` stores files in its `uploads` directory for browser file inputs, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording without buffering it (`downloadSessionRecording` returns a `Blob`).
+`listSessionFiles(sessionId)` lists a session's files (downloads, recordings, uploads and Playwright output), also while it is not running. The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadSessionFiles` stores files in its `uploads` directory for browser file inputs, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording without buffering it (`downloadSessionRecording` returns a `Blob`).
 
-Upload contents may be a `Blob`, a `Uint8Array` or a `Stream` of bytes. Blobs and byte arrays are sent as `FormData`; any stream makes the whole body a streamed request, which browsers other than Chromium cannot send.
+Upload contents may be a `Blob`, a `Uint8Array` or a `Stream` of bytes. Blobs and byte arrays are sent as `FormData`; any stream makes the whole body a streamed request, which browsers other than Chromium cannot send. A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
 
 ```ts
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
@@ -81,7 +81,7 @@ const program = Effect.gen(function* () {
   const uploaded = yield* client.sessions.uploadSessionFiles(sessionId, [
     { name: "invoice.pdf", content: fs.stream("./invoice.pdf") },
   ]);
-  // uploaded[0].path is "uploads/invoice.pdf", ready for browser_file_upload.
+  // uploaded[0].relativePath is "uploads/invoice.pdf", ready for browser_file_upload.
   yield* client.sessions.setSessionViewport(sessionId, { targetId, width: 1280, height: 720 });
   yield* client.sessions
     .streamSessionRecording(sessionId, recordingId)

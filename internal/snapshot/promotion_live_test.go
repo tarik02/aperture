@@ -69,7 +69,7 @@ func TestLiveStoppedSessionPromotionAndRestoreSmoke(t *testing.T) {
 		UpperPath:       layout.Upper,
 		WorkPath:        layout.Work,
 		MergedPath:      layout.Merged,
-		DownloadsPath:   layout.Downloads,
+		DownloadsPath:   layout.Files.Downloads,
 		CachePath:       layout.Cache,
 		ArtifactsPath:   layout.Artifacts,
 		BrowserChannel:  "chromium",

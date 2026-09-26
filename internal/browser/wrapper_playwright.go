@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/playwrightmcp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -56,6 +57,7 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 }
 
 func (b *playwrightMCPBackend) start(ctx context.Context) error {
+	files := paths.SessionFiles(b.values.FilesDir)
 	args := []string{
 		"--cdp-endpoint", "http://127.0.0.1:" + strconv.Itoa(b.values.CDPPort),
 		"--cdp-timeout", "30000",
@@ -63,15 +65,17 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 		"--file-paths", "relative",
 		"--idle-timeout", "0",
 		"--no-webmcp",
-		"--output-dir", b.values.ArtifactsDir,
+		"--output-dir", files.Outputs,
 	}
 	if capabilities := playwrightmcp.RuntimeCapabilities(); len(capabilities) > 0 {
 		args = append(args, "--caps", strings.Join(capabilities, ","))
 	}
 	command := exec.Command("playwright-mcp", args...)
-	command.Dir = b.values.ArtifactsDir
+	// The workspace root bounds which files browser tools may read, so every session
+	// file is usable by browser_file_upload under its relative path.
+	command.Dir = files.Root
 	command.Env = []string{
-		"HOME=" + b.values.ArtifactsDir,
+		"HOME=" + b.values.CacheDir,
 		"TMPDIR=" + os.TempDir(),
 		"XDG_CACHE_HOME=" + b.values.CacheDir,
 	}
