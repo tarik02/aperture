@@ -56,9 +56,18 @@ func (staged Staged) Discard() {
 	}
 }
 
+// DropName removes the staging name once the content is published, so the files
+// are not counted twice by Footprint. The open file keeps the content reachable
+// until Discard.
+func (staged *Staged) DropName() {
+	if staged.Path != "" {
+		_ = os.Remove(staged.Path)
+		staged.Path = ""
+	}
+}
+
 // Link gives the staged content a name in the directory, failing with EEXIST
-// when the name is taken. A named staging file keeps its staging name until
-// Discard.
+// when the name is taken.
 func (staged Staged) Link(dirFD int, name string) error {
 	if staged.Path == "" {
 		return linkUnnamed(staged.File, dirFD, name)

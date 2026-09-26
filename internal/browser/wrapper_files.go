@@ -225,10 +225,12 @@ func (r *wrapperRuntime) commitUploads(req *http.Request, uploadsDirFD int, pend
 		cancelPrepared()
 		return err
 	}
-	for _, upload := range pending {
+	for index := range pending {
+		upload := &pending[index]
 		hiddenName := ".upload-" + upload.eventID
 		err := upload.staged.Link(uploadsDirFD, hiddenName)
 		if err == nil {
+			upload.staged.DropName()
 			err = sessionfiles.ReplaceWith(uploadsDirFD, hiddenName, upload.name)
 		}
 		if err != nil {
