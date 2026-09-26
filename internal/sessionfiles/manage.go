@@ -417,6 +417,10 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 	for _, upload := range pending {
 		stagedBytes += upload.size
 	}
+	// The target directory may have been moved or deleted while the upload streamed.
+	if !sameDirectory(dir, dirFD) {
+		return nil, ErrNotFound
+	}
 	if err := checkStagedLimits(layout, dir, len(pending), stagedBytes, limits); err != nil {
 		return nil, err
 	}
@@ -432,8 +436,11 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 		}
 		published = append(published, name)
 		final := filepath.Join(dir, name)
-		info, err := os.Stat(final)
+		info, err := upload.file.Stat()
 		if err != nil {
+			for _, done := range published {
+				_ = unix.Unlinkat(dirFD, done, 0)
+			}
 			return nil, err
 		}
 		relative := path.Join(dirRelative, name)
@@ -492,6 +499,35 @@ func writeTemp(dirFD int, content io.Reader, limit int64) (*os.File, int64, erro
 	return file, written, nil
 }
 
+// LinkUnnamed gives an O_TMPFILE file a name in the directory, failing with EEXIST
+// when the name is taken. linkat with AT_EMPTY_PATH needs CAP_DAC_READ_SEARCH
+// before Linux 6.10, so it falls back to linking the file's /proc/self/fd entry,
+// as open(2) documents for O_TMPFILE.
+func LinkUnnamed(file *os.File, dirFD int, name string) error {
+	err := unix.Linkat(int(file.Fd()), "", dirFD, name, unix.AT_EMPTY_PATH)
+	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.EPERM) {
+		err = unix.Linkat(unix.AT_FDCWD, fmt.Sprintf("/proc/self/fd/%d", file.Fd()), dirFD, name, unix.AT_SYMLINK_FOLLOW)
+	}
+	if errors.Is(err, unix.ENOENT) && directoryRemoved(dirFD) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func directoryRemoved(dirFD int) bool {
+	var stat unix.Stat_t
+	return unix.Fstat(dirFD, &stat) == nil && stat.Nlink == 0
+}
+
+// sameDirectory reports whether dir still names the directory open as dirFD.
+func sameDirectory(dir string, dirFD int) bool {
+	var named, open unix.Stat_t
+	if unix.Lstat(dir, &named) != nil || unix.Fstat(dirFD, &open) != nil {
+		return false
+	}
+	return named.Dev == open.Dev && named.Ino == open.Ino
+}
+
 // publish links an unnamed file into the directory under name, or a numbered
 // variant when name is taken. Linking never replaces an existing entry.
 func publish(file *os.File, dirFD int, name string) (string, error) {
@@ -502,13 +538,9 @@ func publish(file *os.File, dirFD int, name string) (string, error) {
 		if sequence > 0 {
 			candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
 		}
-		err := unix.Linkat(int(file.Fd()), "", dirFD, candidate, unix.AT_EMPTY_PATH)
+		err := LinkUnnamed(file, dirFD, candidate)
 		if errors.Is(err, unix.EEXIST) {
 			continue
-		}
-		// The target directory was deleted while the upload streamed.
-		if errors.Is(err, unix.ENOENT) {
-			return "", ErrNotFound
 		}
 		if err != nil {
 			return "", err

@@ -237,7 +237,7 @@ func (r *wrapperRuntime) commitUploads(req *http.Request, uploadsDirFD int, pend
 	}
 	for _, upload := range pending {
 		hiddenName := ".upload-" + upload.eventID
-		err := unix.Linkat(int(upload.file.Fd()), "", uploadsDirFD, hiddenName, unix.AT_EMPTY_PATH)
+		err := sessionfiles.LinkUnnamed(upload.file, uploadsDirFD, hiddenName)
 		if err == nil {
 			err = unix.Renameat2(uploadsDirFD, hiddenName, uploadsDirFD, upload.name, unix.RENAME_EXCHANGE)
 		}
