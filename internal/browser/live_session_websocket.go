@@ -103,6 +103,7 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 			return nil, err
 		}
 		client.resumeSecret = secret
+		session.applyHelloAutoSize(client, hello.AutoSize)
 		if err := session.activateTransport(client, transport, nil); err != nil {
 			session.removeClient(client)
 			return nil, err
@@ -126,6 +127,7 @@ func (session *liveSession) attachWebSocketClient(req *http.Request, role string
 	client.capabilityRole = capabilityRole
 	client.sessionTokenAuthenticated = sessionTokenAuthenticated(req)
 	session.mu.Unlock()
+	session.applyHelloAutoSize(client, hello.AutoSize)
 	client.transportMu.RLock()
 	previous := client.activeTransport
 	client.transportMu.RUnlock()
@@ -283,6 +285,11 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 		Participants:   participants,
 		Recordings:     recordings,
 		Presentation:   &presentation,
+	}
+	if client.autoSizeAware {
+		viewport := session.viewportStateLocked(client)
+		message.ViewportOwnerClientID = viewport.ViewportOwnerClientID
+		message.AutoSize = viewport.AutoSize
 	}
 	session.mu.Unlock()
 	return message, nil

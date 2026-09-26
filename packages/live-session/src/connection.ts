@@ -54,6 +54,11 @@ interface LiveSessionConnectionOptions {
   credentials: ApiCredentials;
   sessionToken?: string;
   identity: SessionHelloIdentity;
+  /**
+   * Reads the current auto-size preference for each hello. Sending it opts the client into
+   * viewport ownership state; omit it to keep the pre-ownership protocol.
+   */
+  autoSize?: () => boolean;
   iceServers: readonly IceServer[];
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
@@ -163,7 +168,11 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     Deferred.Deferred<LiveSessionCommandResult, LiveSessionError>
   >();
 
-  const hello = () => ({ type: "session.hello", ...(identity ?? options.identity) });
+  const hello = () => ({
+    type: "session.hello",
+    ...(identity ?? options.identity),
+    ...(options.autoSize === undefined ? {} : { autoSize: options.autoSize() }),
+  });
 
   const transportCallbacks: TransportCallbacks = {
     hello,

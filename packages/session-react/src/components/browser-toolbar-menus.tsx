@@ -4,12 +4,14 @@ import {
   Copy,
   Download,
   Gauge,
+  Hand,
   Info,
   Lock,
   LockOpen,
   Maximize2,
   MoreVertical,
   Monitor,
+  MonitorPause,
   MousePointer2,
   RotateCcw,
   Share2,
@@ -104,6 +106,7 @@ export function BrowserMenus({
     (recording) => recording.status === "starting" || recording.status === "running",
   );
   const recordingActive = runningRecordings.length > 0;
+  const viewportConnected = connected && control.collaboration.role !== "viewer";
 
   return (
     <>
@@ -149,7 +152,7 @@ export function BrowserMenus({
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
               control={control}
-              connected={connected && control.collaboration.role !== "viewer"}
+              connected={viewportConnected}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
               busy={busy}
@@ -190,6 +193,7 @@ export function BrowserMenus({
             />
           </DropdownMenuContent>
         </DropdownMenu>
+        <ViewportPausedIndicator control={control} connected={viewportConnected} />
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
@@ -213,7 +217,7 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-56">
             <ViewportStreamMenuItems
               control={control}
-              connected={connected && control.collaboration.role !== "viewer"}
+              connected={viewportConnected}
               localCursorEnabled={localCursorEnabled}
               onLocalCursorChange={onLocalCursorChange}
               busy={busy}
@@ -598,6 +602,68 @@ function StreamMenu({
   );
 }
 
+// Describes who else decides the shared size: another client, or an explicit resize.
+function viewportSizeController(control: UseBrowserControlResult) {
+  const ownership = control.viewportOwnership;
+  const ownerClientId = ownership?.ownerClientId ?? null;
+  if (ownership === null || ownerClientId === control.collaboration.clientId) {
+    return null;
+  }
+  const ownerName =
+    control.collaboration.participants.find((participant) => participant.clientId === ownerClientId)
+      ?.name ?? null;
+  if (ownerName !== null) {
+    return `Size controlled by ${ownerName}`;
+  }
+  return control.viewportAutoSync ? "Paused: size was set explicitly" : null;
+}
+
+function ViewportPausedIndicator({
+  control,
+  connected,
+}: {
+  control: UseBrowserControlResult;
+  connected: boolean;
+}) {
+  const sizeController = viewportSizeController(control);
+  if (!control.viewportAutoSync || control.viewportAutoSizeActive || sizeController === null) {
+    return null;
+  }
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
+                  aria-label={`Auto-size paused. ${sizeController}`}
+                />
+              }
+            />
+          }
+        >
+          <MonitorPause />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{sizeController}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>{sizeController}</DropdownMenuLabel>
+          <DropdownMenuItem disabled={!connected} onClick={() => control.takeOverViewport()}>
+            <Hand />
+            Take over size
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ViewportMenu({
   control,
   connected,
@@ -605,6 +671,8 @@ function ViewportMenu({
   control: UseBrowserControlResult;
   connected: boolean;
 }) {
+  const sizeController = viewportSizeController(control);
+
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -626,7 +694,28 @@ function ViewportMenu({
           onCheckedChange={control.setViewportAutoSync}
         >
           <Monitor />
-          Auto sync browser size
+          <span className="flex min-w-0 flex-col">
+            <span>Auto-size</span>
+            {sizeController !== null ? (
+              <span className="truncate text-xs text-muted-foreground">{sizeController}</span>
+            ) : null}
+          </span>
+        </DropdownMenuCheckboxItem>
+        {sizeController !== null ? (
+          <DropdownMenuItem
+            disabled={!connected || !control.browserViewportSize}
+            onClick={() => control.takeOverViewport()}
+          >
+            <Hand />
+            Take over size
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuCheckboxItem
+          checked={control.viewportAutoSizeDefault}
+          onCheckedChange={control.setViewportAutoSizeDefault}
+        >
+          <Monitor />
+          Auto-size by default
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup

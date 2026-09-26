@@ -7,6 +7,7 @@ import {
   type CollaborationControl,
   type LiveSessionControl,
   type LiveSessionMediaSelection,
+  type LiveSessionViewportOwnership,
 } from "./use-live-session.ts";
 import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
@@ -84,6 +85,12 @@ export interface UseBrowserControlResult {
   viewport: ViewportPreset;
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
+  /** Whether this client's auto-size currently resizes the browser. */
+  viewportAutoSizeActive: boolean;
+  /** Session-wide auto-size owner, or null when the server does not arbitrate auto-size. */
+  viewportOwnership: LiveSessionViewportOwnership | null;
+  /** Auto-size preference new session clients start with, persisted in local storage. */
+  viewportAutoSizeDefault: boolean;
   captured: boolean;
   recordings: readonly Recording[];
   recordingBusy: boolean;
@@ -96,6 +103,8 @@ export interface UseBrowserControlResult {
   setBrowserViewportSize: (size: BrowserViewportSize) => void;
   setViewportAutoSync: (enabled: boolean) => void;
   setViewportToBrowserSize: () => void;
+  setViewportAutoSizeDefault: (enabled: boolean) => void;
+  takeOverViewport: () => void;
   setWebRTCStreamSettings: (settings: LiveSessionPresentationQuality) => boolean;
   selectMediaStream: (selection: LiveSessionMediaSelection) => boolean;
   sendInput: (message: BrowserInputMessage) => boolean;
@@ -121,6 +130,7 @@ export interface UseBrowserControlResult {
 }
 
 const emptyIceServers: readonly IceServer[] = [];
+const AUTO_SIZE_DEFAULT_STORAGE_KEY = "aperture.viewport.auto-size-default";
 
 export function useBrowserControl({
   sessionId,
@@ -138,6 +148,14 @@ export function useBrowserControl({
   onNoticeRef.current = onNotice;
   const notify = (level: SessionNotice["level"], message: string) =>
     Effect.sync(() => onNoticeRef.current?.({ level, message }));
+  const [viewportAutoSizeDefault, setViewportAutoSizeDefaultState] = useState(loadAutoSizeDefault);
+  // The local preference is sent with every hello; the server state wins once it answers.
+  const [viewportAutoSync, setViewportAutoSyncState] = useState(
+    () => collaborationRole !== "viewer" && viewportAutoSizeDefault,
+  );
+  const viewportAutoSyncRef = useRef(viewportAutoSync);
+  viewportAutoSyncRef.current = viewportAutoSync;
+  const autoSizePreference = useCallback(() => viewportAutoSyncRef.current, []);
   const live = useLiveSession({
     sessionId,
     displayName,
@@ -147,6 +165,7 @@ export function useBrowserControl({
     enabled: Boolean(enabled && sessionId && credentials),
     webrtcSupported: webrtcProducerSupported,
     iceServers: webrtcIceServers,
+    autoSize: autoSizePreference,
   });
   const [targetOrder, setTargetOrder] = useState<readonly string[]>([]);
   const targets = useMemo(
@@ -161,19 +180,16 @@ export function useBrowserControl({
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
   );
-  const [viewportAutoSync, setViewportAutoSyncState] = useState(false);
   const [captured, setCaptured] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
   const activeTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
   const inputDimensionsRef = useRef<BrowserViewportSize>(DEFAULT_VIEWPORT);
   const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
-  const viewportAutoSyncRef = useRef(false);
 
   activeTargetIdRef.current = live.activeTargetId;
   viewportRef.current = viewport;
   browserViewportSizeRef.current = browserViewportSize;
-  viewportAutoSyncRef.current = viewportAutoSync;
 
   useEffect(() => {
     if (live.phase !== "connected") {
@@ -318,29 +334,83 @@ export function useBrowserControl({
     }
   }, [live]);
 
+  const viewportOwnership = live.viewportOwnership;
+  const viewportOwnershipRef = useRef(viewportOwnership);
+  viewportOwnershipRef.current = viewportOwnership;
+  // Without server arbitration every auto-sizing client resizes, as before ownership existed.
+  const viewportAutoSizeActive =
+    viewportAutoSync &&
+    (viewportOwnership === null || viewportOwnership.ownerClientId === live.collaboration.clientId);
+  const viewportAutoSizeActiveRef = useRef(viewportAutoSizeActive);
+  viewportAutoSizeActiveRef.current = viewportAutoSizeActive;
+
+  useEffect(() => {
+    if (viewportOwnership !== null) {
+      viewportAutoSyncRef.current = viewportOwnership.autoSize;
+      setViewportAutoSyncState(viewportOwnership.autoSize);
+    }
+  }, [viewportOwnership]);
+
+  // Ownership can move while a resize is in flight; the next viewport state decides who resizes.
+  const runAutoSizeViewport = useEffectCallback(
+    (payload: Record<string, unknown>) => live.request("viewport.set", payload).pipe(Effect.ignore),
+    [live.request],
+  );
+
   const commitViewport = useCallback(
-    (preset: ViewportPreset) => {
+    (preset: ViewportPreset, autoSize: boolean) => {
       setViewportState(preset);
       const targetId = activeTargetIdRef.current;
-      if (targetId) {
-        live.command("viewport.set", {
-          targetId,
-          width: preset.width,
-          height: preset.height,
-          deviceScaleFactor: preset.deviceScaleFactor,
-        });
+      if (targetId === null) {
+        return;
+      }
+      const payload = {
+        targetId,
+        width: preset.width,
+        height: preset.height,
+        deviceScaleFactor: preset.deviceScaleFactor,
+      };
+      if (autoSize && viewportOwnershipRef.current !== null) {
+        runAutoSizeViewport({ ...payload, autoSize: true });
+      } else {
+        live.command("viewport.set", payload);
       }
     },
-    [live],
+    [live.command, runAutoSizeViewport],
   );
+
+  const setViewportAutoSync = useCallback(
+    (nextEnabled: boolean) => {
+      if (viewportAutoSyncRef.current === nextEnabled) {
+        return;
+      }
+      viewportAutoSyncRef.current = nextEnabled;
+      setViewportAutoSyncState(nextEnabled);
+      if (viewportOwnershipRef.current !== null) {
+        live.command("viewport.auto-size.set", { enabled: nextEnabled });
+      }
+    },
+    [live.command],
+  );
+
+  useEffect(() => {
+    const size = browserViewportSizeRef.current;
+    if (
+      viewportAutoSizeActive &&
+      live.phase === "connected" &&
+      live.activeTargetId !== null &&
+      size !== null
+    ) {
+      commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor), true);
+    }
+  }, [commitViewport, live.activeTargetId, live.phase, viewportAutoSizeActive]);
 
   const setViewport = useCallback(
     (preset: ViewportPreset) => {
-      viewportAutoSyncRef.current = false;
-      setViewportAutoSyncState(false);
-      commitViewport(preset);
+      setViewportAutoSync(false);
+      commitViewport(preset, false);
     },
-    [commitViewport],
+    [commitViewport, setViewportAutoSync],
   );
 
   const setBrowserViewportSize = useCallback(
@@ -355,20 +425,8 @@ export function useBrowserControl({
       }
       browserViewportSizeRef.current = next;
       setBrowserViewportSizeState(next);
-      if (viewportAutoSyncRef.current) {
-        commitViewport(createBrowserViewport(next, viewportRef.current.deviceScaleFactor));
-      }
-    },
-    [commitViewport],
-  );
-
-  const setViewportAutoSync = useCallback(
-    (nextEnabled: boolean) => {
-      viewportAutoSyncRef.current = nextEnabled;
-      setViewportAutoSyncState(nextEnabled);
-      const size = browserViewportSizeRef.current;
-      if (nextEnabled && size) {
-        commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
+      if (viewportAutoSizeActiveRef.current) {
+        commitViewport(createBrowserViewport(next, viewportRef.current.deviceScaleFactor), true);
       }
     },
     [commitViewport],
@@ -379,10 +437,24 @@ export function useBrowserControl({
     if (!size) {
       return;
     }
-    viewportAutoSyncRef.current = false;
-    setViewportAutoSyncState(false);
-    commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
-  }, [commitViewport]);
+    setViewportAutoSync(false);
+    commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor), false);
+  }, [commitViewport, setViewportAutoSync]);
+
+  const takeOverViewport = useCallback(() => {
+    viewportAutoSyncRef.current = true;
+    setViewportAutoSyncState(true);
+    live.command("viewport.owner.claim");
+  }, [live.command]);
+
+  const setViewportAutoSizeDefault = useCallback((nextEnabled: boolean) => {
+    setViewportAutoSizeDefaultState(nextEnabled);
+    try {
+      window.localStorage.setItem(AUTO_SIZE_DEFAULT_STORAGE_KEY, String(nextEnabled));
+    } catch {
+      // Keep the default for this page when storage is unavailable.
+    }
+  }, []);
 
   const settleRecording = <A, E extends Error>(
     effect: Effect.Effect<A, E, SessionsApi>,
@@ -588,6 +660,9 @@ export function useBrowserControl({
     viewport,
     browserViewportSize,
     viewportAutoSync,
+    viewportAutoSizeActive,
+    viewportOwnership,
+    viewportAutoSizeDefault,
     captured,
     recordings: live.recordings,
     recordingBusy,
@@ -602,6 +677,8 @@ export function useBrowserControl({
     setBrowserViewportSize,
     setViewportAutoSync,
     setViewportToBrowserSize,
+    setViewportAutoSizeDefault,
+    takeOverViewport,
     setWebRTCStreamSettings,
     selectMediaStream,
     sendInput,
@@ -643,6 +720,14 @@ function mergeTargetsInCurrentOrder(
     }
   }
   return ordered;
+}
+
+function loadAutoSizeDefault() {
+  try {
+    return window.localStorage.getItem(AUTO_SIZE_DEFAULT_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 function createBrowserViewport(

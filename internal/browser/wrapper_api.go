@@ -545,6 +545,7 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 	}
 	r.mu.Lock()
 	registry := r.targets
+	liveSession := r.liveSession
 	r.mu.Unlock()
 	if registry == nil {
 		writeWrapperError(w, http.StatusConflict, "target registry is unavailable")
@@ -558,6 +559,9 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if liveSession != nil {
+		liveSession.overrideViewportOwner(nil)
 	}
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
 }
