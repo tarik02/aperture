@@ -86,3 +86,7 @@ Limitations:
 - A file deleted on NFS while still open becomes a hidden `.nfs…` entry until closed. It is not listed, but it makes its directory busy for delete and move, and deleting a directory recursively can fail until the file is closed.
 - The wrapper notices a rotated session token through inotify, which sees only changes made on the same host. The daemon and the wrapper run on the same host, so this holds.
 - Locks, `O_EXCL` placeholders, and hard links require NFSv3 or later with a lock manager.
+
+## Addendum: recordings that do not finish
+
+A recording writes segments into a hidden `.recording-<id>` directory and publishes the finished file without replacing an existing one. When the pipeline fails or finalizing fails, its non-empty segments are kept as numbered `…-failed` files next to the target and the hidden directory is removed, since the API could never reach it. A wrapper that starts or wakes does the same for segment directories a previous process left behind. A requested recording path is a session file path below `recordings/`, and its directory is created at start. Recording status never reports host paths.

@@ -779,8 +779,8 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target.
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
+      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -1585,6 +1585,7 @@ components:
         - session_not_running
         - recording_not_found
         - recording_invalid_state
+        - recording_codec_unavailable
         - session_file_not_found
         - session_file_busy
         - session_file_exists
@@ -1646,6 +1647,7 @@ components:
         session_not_running: 409
         recording_not_found: 404
         recording_invalid_state: 409
+        recording_codec_unavailable: 422
         session_file_not_found: 404
         session_file_busy: 409
         session_file_exists: 409

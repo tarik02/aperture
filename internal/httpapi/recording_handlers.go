@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
+	"time"
 
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/sessionfiles"
@@ -23,13 +25,15 @@ type wrapperRecordingStatus struct {
 	CaptureGeneration uint64 `json:"captureGeneration"`
 	Status            string `json:"status"`
 	StopReason        string `json:"stopReason,omitempty"`
-	Path              string `json:"path"`
-	StartedAt         string `json:"startedAt"`
-	StoppedAt         string `json:"stoppedAt,omitempty"`
-	SizeBytes         int64  `json:"sizeBytes,omitempty"`
-	FPS               int    `json:"fps"`
-	BitrateKbps       int    `json:"bitrateKbps"`
-	Codec             string `json:"codec"`
+	RelativePath      string `json:"relativePath"`
+	// Path is the host path wrappers reported before they reported relativePath.
+	Path        string `json:"path"`
+	StartedAt   string `json:"startedAt"`
+	StoppedAt   string `json:"stoppedAt,omitempty"`
+	SizeBytes   int64  `json:"sizeBytes,omitempty"`
+	FPS         int    `json:"fps"`
+	BitrateKbps int    `json:"bitrateKbps"`
+	Codec       string `json:"codec"`
 }
 
 type recordingResponse struct {
@@ -174,15 +178,15 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 }
 
 func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string) (sessionfiles.File, error) {
-	path := "/recordings/" + url.PathEscape(recordingID)
-	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, path+"/stop", nil, true, nil); err != nil {
+	endpoint := "/recordings/" + url.PathEscape(recordingID)
+	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, endpoint+"/stop", nil, true, nil); err != nil {
 		return sessionfiles.File{}, err
 	}
 	status, err := s.getRecording(ctx, tenantID, sessionID, recordingID)
 	if err != nil {
 		return sessionfiles.File{}, err
 	}
-	relativePath, err := s.recordingRelativePath(sessionID, status.Path)
+	relativePath, err := s.recordingRelativePath(sessionID, status)
 	if err != nil {
 		return sessionfiles.File{}, err
 	}
@@ -194,11 +198,25 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 	if err != nil {
 		return sessionfiles.File{}, err
 	}
-	file, err := sessionfiles.Get(scope.layout, relativePath)
+	stoppedAt, err := time.Parse(time.RFC3339Nano, status.StoppedAt)
 	if err != nil {
-		return sessionfiles.File{}, fmt.Errorf("%w: %w", errBrowserControlFailed, err)
+		return sessionfiles.File{}, fmt.Errorf("%w: invalid recording stop time: %w", errBrowserControlFailed, err)
 	}
-	return scope.presentFile(file), nil
+	// Built from what the wrapper measured when it published the file rather than
+	// looked up again, because the file may be moved as soon as it is visible.
+	mimeType := "video/webm"
+	if status.Codec == "h264-va" {
+		mimeType = "video/x-matroska"
+	}
+	return scope.presentFile(sessionfiles.File{
+		Type:         sessionfiles.EntryFile,
+		Name:         path.Base(relativePath),
+		RelativePath: relativePath,
+		Size:         status.SizeBytes,
+		ModifiedAt:   stoppedAt.UTC(),
+		MIMEType:     mimeType,
+		SandboxPath:  sessionfiles.SandboxPath(relativePath),
+	}), nil
 }
 
 func (s *Server) getRecording(ctx context.Context, tenantID, sessionID, recordingID string) (wrapperRecordingStatus, error) {
@@ -271,6 +289,8 @@ func mapWrapperRecordingRequestError(err error) error {
 		return errRecordingNotFound
 	case http.StatusConflict:
 		return fmt.Errorf("%w: %s", errRecordingInvalidState, responseErr.Message)
+	case http.StatusUnprocessableEntity:
+		return fmt.Errorf("%w: %s", errRecordingCodecUnavailable, responseErr.Message)
 	default:
 		return fmt.Errorf("%w: %w", errBrowserControlFailed, err)
 	}
@@ -287,7 +307,7 @@ func wrapperRecordingErrorMessage(body []byte) string {
 }
 
 func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStatus) (recordingResponse, error) {
-	relativePath, err := s.recordingRelativePath(sessionID, status.Path)
+	relativePath, err := s.recordingRelativePath(sessionID, status)
 	if err != nil {
 		return recordingResponse{}, err
 	}
@@ -298,15 +318,22 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 	}, nil
 }
 
-func (s *Server) recordingRelativePath(sessionID, path string) (string, error) {
+func (s *Server) recordingRelativePath(sessionID string, status wrapperRecordingStatus) (string, error) {
+	if status.RelativePath != "" {
+		relativePath, err := sessionfiles.Normalize(status.RelativePath)
+		if err != nil || !strings.HasPrefix(relativePath, "recordings/") {
+			return "", fmt.Errorf("%w: invalid wrapper recording path %q", errBrowserControlFailed, status.RelativePath)
+		}
+		return relativePath, nil
+	}
 	layout, err := paths.Session(s.Config, sessionID)
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(path) == "" {
+	if strings.TrimSpace(status.Path) == "" {
 		return "", fmt.Errorf("%w: wrapper returned an empty recording path", errBrowserControlFailed)
 	}
-	relativePath, err := sessionfiles.RelativePath(layout, path)
+	relativePath, err := sessionfiles.RelativePath(layout, status.Path)
 	if err != nil || !strings.HasPrefix(relativePath, "recordings/") {
 		return "", fmt.Errorf("%w: invalid wrapper recording path %q", errBrowserControlFailed, relativePath)
 	}

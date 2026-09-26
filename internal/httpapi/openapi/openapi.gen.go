@@ -147,6 +147,7 @@ const (
 	ErrorCodeOverlayMountFailed               ErrorCode = "overlay_mount_failed"
 	ErrorCodePromotionConflict                ErrorCode = "promotion_conflict"
 	ErrorCodePromotionServiceUnavailable      ErrorCode = "promotion_service_unavailable"
+	ErrorCodeRecordingCodecUnavailable        ErrorCode = "recording_codec_unavailable"
 	ErrorCodeRecordingInvalidState            ErrorCode = "recording_invalid_state"
 	ErrorCodeRecordingNotFound                ErrorCode = "recording_not_found"
 	ErrorCodeResourceAccessDenied             ErrorCode = "resource_access_denied"
@@ -233,6 +234,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodePromotionConflict:
 		return true
 	case ErrorCodePromotionServiceUnavailable:
+		return true
+	case ErrorCodeRecordingCodecUnavailable:
 		return true
 	case ErrorCodeRecordingInvalidState:
 		return true
@@ -3608,7 +3611,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecordingWithBody Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -3617,7 +3620,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecording Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -4779,7 +4782,7 @@ func (c *Client) ListSessionRecordings(ctx context.Context, sessionId SessionId,
 
 // CreateSessionRecordingWithBody Start a session recording
 //
-// Starts a tab recording of one ready top-level target.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 //
 // Takes any type of body and a specified content type.
 //
@@ -4798,7 +4801,7 @@ func (c *Client) CreateSessionRecordingWithBody(ctx context.Context, sessionId S
 
 // CreateSessionRecording Start a session recording
 //
-// Starts a tab recording of one ready top-level target.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -9188,7 +9191,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithBodyWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9197,7 +9200,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -13010,7 +13013,7 @@ func (c *ClientWithResponses) ListSessionRecordingsWithResponse(ctx context.Cont
 
 // CreateSessionRecordingWithBodyWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13025,7 +13028,7 @@ func (c *ClientWithResponses) CreateSessionRecordingWithBodyWithResponse(ctx con
 
 // CreateSessionRecordingWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

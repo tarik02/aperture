@@ -1376,7 +1376,7 @@ readonly "setSessionCursor": <Config extends OperationConfig>(sessionId: string,
 */
 readonly "listSessionRecordings": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof ListSessionRecordingsParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListSessionRecordings200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Starts a tab recording of one ready top-level target.
+* Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 */
 readonly "createSessionRecording": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof CreateSessionRecordingParams.Encoded | undefined; readonly payload: typeof CreateSessionRecordingRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof CreateSessionRecording201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
