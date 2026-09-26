@@ -1,9 +1,10 @@
-import type {
-  InitialBrowserDocumentState,
-  InitialBrowserElementLocator,
-  InitialBrowserSelectionEndpoint,
-} from "@aperture-browser/api-schema";
+import type * as Api from "@aperture-browser/api-schema";
 import type { PageCodec } from "./page-keys.ts";
+
+// The encoded forms: sensitive values stay plain strings until the service worker decodes them.
+type InitialBrowserDocumentState = typeof Api.InitialBrowserDocumentState.Encoded;
+type InitialBrowserElementLocator = typeof Api.InitialBrowserElementLocator.Encoded;
+type InitialBrowserSelectionEndpoint = typeof Api.InitialBrowserSelectionEndpoint.Encoded;
 
 /** The top document's mutable state, as the injected capture function reports it. */
 export interface CapturedDocumentState {

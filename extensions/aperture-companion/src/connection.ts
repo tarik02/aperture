@@ -8,6 +8,7 @@ import {
 } from "@aperture-browser/api-client";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { credentials, withApi } from "./api.ts";
 import { CompanionError, openTab, requestOrigins } from "./chrome.ts";
@@ -19,7 +20,7 @@ import * as UrlPath from "./url-path.ts";
 export const Connection = Schema.Struct({
   id: NonEmptyString,
   origin: NonEmptyString,
-  token: NonEmptyString,
+  token: Schema.RedactedFromValue(NonEmptyString),
   authorityType: Schema.Literals(["system_admin", "tenant"]),
   tenantId: Schema.NullOr(Schema.String),
   selectedTenantId: Schema.NullOr(Schema.String),
@@ -74,8 +75,11 @@ export const requestConnectionPermission = (input: string) =>
 /** Checks the token against the instance, then stores the connection and makes it active. */
 export const connect = Effect.fn("connect")(function* (originInput: string, tokenInput: string) {
   const origin = yield* normalizeConnectionOrigin(originInput);
-  const token = tokenInput.trim();
-  if (token === "") return yield* new CompanionError({ message: "API token is required" });
+  const trimmedToken = tokenInput.trim();
+  if (trimmedToken === "") {
+    return yield* new CompanionError({ message: "API token is required" });
+  }
+  const token = Redacted.make(trimmedToken);
 
   const provisional: ApiCredentials = {
     kind: "bearer",

@@ -1,12 +1,13 @@
-import type {
-  BrowserStorageEntry,
-  InitialCacheStorageCache,
-  InitialIndexedDBDatabase,
-  InitialIndexedDBIndexKeyPath,
-  InitialIndexedDBKeyPath,
-  InitialOPFSFile,
-} from "@aperture-browser/api-schema";
+import type * as Api from "@aperture-browser/api-schema";
 import type { PageCodec } from "./page-keys.ts";
+
+// The encoded forms: sensitive values stay plain strings until the service worker decodes them.
+type BrowserStorageEntry = typeof Api.BrowserStorageEntry.Encoded;
+type InitialCacheStorageCache = typeof Api.InitialCacheStorageCache.Encoded;
+type InitialIndexedDBDatabase = typeof Api.InitialIndexedDBDatabase.Encoded;
+type InitialIndexedDBIndexKeyPath = typeof Api.InitialIndexedDBIndexKeyPath.Encoded;
+type InitialIndexedDBKeyPath = typeof Api.InitialIndexedDBKeyPath.Encoded;
+type InitialOPFSFile = typeof Api.InitialOPFSFile.Encoded;
 
 /** One frame's origin and storage, as the injected capture function reports them. */
 export interface CapturedPageState {

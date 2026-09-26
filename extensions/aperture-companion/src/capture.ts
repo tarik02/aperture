@@ -1,5 +1,6 @@
-import type * as Api from "@aperture-browser/api-schema";
+import * as Api from "@aperture-browser/api-schema";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { capturePageState, type CapturedPageState } from "./capture-page.ts";
 import {
   chromeCall,
@@ -14,10 +15,22 @@ import { codecKey } from "./page-keys.ts";
 
 /** Everything a new session needs to continue where the selected tabs are. */
 export interface CapturedBrowserState {
-  readonly targets: Api.InitialBrowserTarget[];
+  readonly targets: readonly Api.InitialBrowserTarget[];
   readonly storageState: Api.InitialBrowserStorageState;
   readonly warnings: string[];
 }
+
+// Pages return the encoded forms, with sensitive values as plain strings; the state is
+// decoded into the API types, which redact them, once it is complete.
+const CapturedSessionState = Schema.Struct({
+  targets: Schema.Array(Api.InitialBrowserTarget),
+  storageState: Api.InitialBrowserStorageState,
+});
+
+type InitialBrowserTarget = typeof Api.InitialBrowserTarget.Encoded;
+type InitialBrowserCookie = typeof Api.InitialBrowserCookie.Encoded;
+type InitialTargetStorageOrigin = typeof Api.InitialTargetStorageOrigin.Encoded;
+type InitialStorageOrigin = typeof Api.InitialStorageOrigin.Encoded;
 
 interface CapturedTab {
   readonly tab: IdentifiedTab;
@@ -26,9 +39,7 @@ interface CapturedTab {
   readonly document: CapturedDocumentState;
 }
 
-type StorageOrigin = {
-  -readonly [K in keyof Api.InitialStorageOrigin]: Api.InitialStorageOrigin[K];
-};
+type StorageOrigin = { -readonly [K in keyof InitialStorageOrigin]: InitialStorageOrigin[K] };
 
 // Sessions accept larger payloads, but restoring beyond this gets slow.
 const preferredPayloadBytes = 48 * 1024 * 1024;
@@ -91,7 +102,7 @@ export const captureBrowserState = Effect.fn("captureBrowserState")(function* (
   const targetIndexByTabId = new Map(pages.map(({ tab }, index) => [tab.id, index]));
   const targets = yield* Effect.forEach(pages, ({ tab, top, frames, document }) =>
     mergeSessionStorage(frames).pipe(
-      Effect.map((sessionStorage): Api.InitialBrowserTarget => {
+      Effect.map((sessionStorage): InitialBrowserTarget => {
         const openerTargetIndex =
           document.hasOpener && tab.openerTabId !== undefined
             ? targetIndexByTabId.get(tab.openerTabId)
@@ -114,7 +125,13 @@ export const captureBrowserState = Effect.fn("captureBrowserState")(function* (
   ]);
   const storageState = { cookies, origins };
   yield* trimOptionalStorage(storageState, targets, warnings);
-  return { targets, storageState, warnings } satisfies CapturedBrowserState;
+  const decoded = yield* Schema.decodeEffect(CapturedSessionState)({ targets, storageState }).pipe(
+    Effect.mapError(
+      (error) =>
+        new CompanionError({ message: `The captured browser state is invalid: ${error.message}` }),
+    ),
+  );
+  return { ...decoded, warnings } satisfies CapturedBrowserState;
 });
 
 const injectCodec = (target: chrome.scripting.InjectionTarget) =>
@@ -298,7 +315,7 @@ const mergeOrigins = Effect.fnUntraced(function* (pages: readonly CapturedTab[])
 
 /** A tab's session storage per origin; its frames of one origin must agree on it. */
 const mergeSessionStorage = Effect.fnUntraced(function* (frames: readonly CapturedPageState[]) {
-  const origins = new Map<string, Api.InitialTargetStorageOrigin>();
+  const origins = new Map<string, InitialTargetStorageOrigin>();
   for (const frame of frames) {
     if (!frame.webStorageCaptured) continue;
     const existing = origins.get(frame.origin);
@@ -319,7 +336,7 @@ const mergeSessionStorage = Effect.fnUntraced(function* (frames: readonly Captur
  */
 function trimOptionalStorage(
   storageState: { readonly origins: StorageOrigin[] },
-  targets: readonly Api.InitialBrowserTarget[],
+  targets: readonly InitialBrowserTarget[],
   warnings: string[],
 ): Effect.Effect<void, CompanionError> {
   const fits = () =>
@@ -377,7 +394,7 @@ function cookieMatchesSelectedContext(
   );
 }
 
-function toInitialCookie(cookie: chrome.cookies.Cookie): Api.InitialBrowserCookie {
+function toInitialCookie(cookie: chrome.cookies.Cookie): InitialBrowserCookie {
   const cookieSameSite = sameSite(cookie.sameSite);
   const topLevelSite = cookie.partitionKey?.topLevelSite;
   return {
