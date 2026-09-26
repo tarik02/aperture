@@ -58,7 +58,7 @@ The session-wide right held by one session actor to send direct input such as po
 _Avoid_: Input lock, tab lock, control ownership
 
 **Viewport owner**:
-The one interactive session client, an owner or editor with auto-size enabled, whose own presentation size resizes the browser viewport. Other auto-sizing clients are suspended and see the shared viewport scaled. Ownership passes to the most recent auto-sizing client when the owner disables auto-size or disconnects, becomes vacant after an explicit viewport change by anyone else, and can be taken over explicitly. Automation and viewers are never viewport owners.
+The one interactive session client, an owner or editor with auto-size enabled, whose own presentation size resizes the browser viewport. Other auto-sizing clients are suspended and see the shared viewport scaled. Ownership passes to the most recent auto-sizing client when the owner disables auto-size or disconnects, becomes vacant after an explicit viewport change by anyone else and stays vacant until a client toggles auto-size on or takes over explicitly. Automation and viewers are never viewport owners.
 _Avoid_: Size lock, viewport lease, auto-sync leader
 
 **Editor capability**:

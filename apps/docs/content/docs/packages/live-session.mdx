@@ -14,3 +14,7 @@ npm install @aperture-browser/live-session effect
 Failures are `LiveSessionError`s with a `message`.
 
 For a ready-made UI, or a React hook over this client, see [session-react](/docs/packages/session-react). Requires `effect` 4.
+
+## Server compatibility
+
+Setting the `autoSize` connection option adds an `autoSize` field to the session hello, which opts the client into [viewport ownership](https://github.com/tarik02/aperture/blob/master/docs/adr/0014-one-viewport-owner-for-auto-size.md). Servers without viewport ownership, from before [#126](https://github.com/tarik02/aperture/pull/126) and the first nightly that includes it, reject that hello and close the connection. `session-react` always sets it. Run a server at least as new as the packages you embed, or leave `autoSize` unset when using this package directly against an older server.

@@ -77,6 +77,8 @@ type liveSession struct {
 	// viewportOwner is the only session client whose auto-size requests resize targets.
 	viewportOwner    *liveSessionClient
 	autoSizeSequence uint64
+	// viewportSetExplicitly keeps a vacant viewport from being claimed by a hello preference.
+	viewportSetExplicitly bool
 }
 
 type liveSessionClient struct {

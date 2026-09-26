@@ -12,7 +12,7 @@ func (session *liveSession) applyHelloAutoSize(client *liveSessionClient, autoSi
 	}
 	session.mu.Lock()
 	client.autoSizeAware = true
-	if session.setAutoSizeLocked(client, *autoSize) {
+	if session.setAutoSizeLocked(client, *autoSize, false) {
 		session.broadcastViewportStateLocked()
 	}
 	session.mu.Unlock()
@@ -25,7 +25,7 @@ func (session *liveSession) setAutoSize(client *liveSessionClient, enabled bool)
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	client.autoSizeAware = true
-	if session.setAutoSizeLocked(client, enabled) {
+	if session.setAutoSizeLocked(client, enabled, true) {
 		session.broadcastViewportStateLocked()
 	}
 	return nil
@@ -38,10 +38,11 @@ func (session *liveSession) claimViewportOwner(client *liveSessionClient) error 
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	client.autoSizeAware = true
-	session.setAutoSizeLocked(client, true)
+	session.setAutoSizeLocked(client, true, true)
 	session.autoSizeSequence++
 	client.autoSizeSequence = session.autoSizeSequence
 	session.viewportOwner = client
+	session.viewportSetExplicitly = false
 	session.broadcastViewportStateLocked()
 	return nil
 }
@@ -56,18 +57,24 @@ func (session *liveSession) requireViewportOwner(client *liveSessionClient) erro
 }
 
 // overrideViewportOwner ends auto-size ownership after an explicit viewport change by any
-// other actor. Nobody inherits it, so the explicit size stays until a client claims it.
+// other actor. Nobody inherits it, and only an explicit claim or auto-size toggle takes it
+// again, so the explicit size survives clients that join with auto-size on by default.
 func (session *liveSession) overrideViewportOwner(client *liveSessionClient) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if session.viewportOwner == nil || session.viewportOwner == client {
+	if session.viewportOwner != nil && session.viewportOwner == client {
 		return
 	}
-	session.viewportOwner = nil
-	session.broadcastViewportStateLocked()
+	session.viewportSetExplicitly = true
+	if session.viewportOwner != nil {
+		session.viewportOwner = nil
+		session.broadcastViewportStateLocked()
+	}
 }
 
-func (session *liveSession) setAutoSizeLocked(client *liveSessionClient, enabled bool) bool {
+// setAutoSizeLocked claims a vacant viewport only through an explicit toggle while an explicit
+// viewport change is in effect; a hello preference leaves the client suspended.
+func (session *liveSession) setAutoSizeLocked(client *liveSessionClient, enabled bool, explicit bool) bool {
 	if client.role == "viewer" {
 		enabled = false
 	}
@@ -78,8 +85,9 @@ func (session *liveSession) setAutoSizeLocked(client *liveSessionClient, enabled
 	if enabled {
 		session.autoSizeSequence++
 		client.autoSizeSequence = session.autoSizeSequence
-		if session.viewportOwner == nil {
+		if session.viewportOwner == nil && (explicit || !session.viewportSetExplicitly) {
 			session.viewportOwner = client
+			session.viewportSetExplicitly = false
 		}
 		return true
 	}
