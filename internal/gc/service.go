@@ -58,6 +58,9 @@ type RunResult struct {
 	ExpiredSessions    int
 	RemovedArtifacts   int
 	CollectedSnapshots int
+	// StagingSweepErrors lists sessions whose upload staging could not be swept.
+	// They do not stop the rest of the run.
+	StagingSweepErrors []error
 }
 
 // Run expires sessions and snapshots past retention.
@@ -79,9 +82,7 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 			result.ExpiredSessions++
 		}
 	}
-	if err := s.sweepUploadStaging(); err != nil {
-		return nil, err
-	}
+	result.StagingSweepErrors = s.sweepUploadStaging()
 
 	artifactsCutoff := now.Add(-time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 	artifactSessions, err := s.repo.ListSessionsWithExpiredArtifacts(ctx, artifactsCutoff)
@@ -258,15 +259,16 @@ func (s *Service) collectSnapshot(ctx context.Context, snapshotRow *db.Snapshot,
 
 // sweepUploadStaging removes upload staging files that a process stopped
 // mid-upload left behind, on filesystems where uploads cannot stage unnamed files.
-func (s *Service) sweepUploadStaging() error {
+func (s *Service) sweepUploadStaging() []error {
 	roots, err := filepath.Glob(filepath.Join(s.cfg.StoreRoot, "sessions", "*", "*", "*", "files"))
 	if err != nil {
-		return err
+		return []error{fmt.Errorf("find upload staging: %w", err)}
 	}
+	var failures []error
 	for _, root := range roots {
 		if err := sessionfiles.SweepStaging(root, sessionfiles.StaleStagingAge); err != nil {
-			return fmt.Errorf("sweep upload staging: %w", err)
+			failures = append(failures, fmt.Errorf("sweep upload staging in %s: %w", root, err))
 		}
 	}
-	return nil
+	return failures
 }
