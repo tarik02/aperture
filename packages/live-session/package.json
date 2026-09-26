@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/live-session",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Framework-agnostic client for Aperture live sessions: the session protocol, WebRTC and WebSocket transports, and browser input mapping.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
