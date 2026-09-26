@@ -65,6 +65,30 @@ const next = yield* client.sessions.listSessions({ status: "running", limit: 20,
 const all = yield* client.sessions.listAllSessions({ status: "running", limit: 100 });
 ```
 
+## Session files and the live session
+
+`listSessionFiles(sessionId)` lists a session's downloads and recordings, also while it is not running. The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadSessionFiles` stores files in its `uploads` directory for browser file inputs, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording without buffering it (`downloadSessionRecording` returns a `Blob`).
+
+Upload contents may be a `Blob`, a `Uint8Array` or a `Stream` of bytes. Blobs and byte arrays are sent as `FormData`; any stream makes the whole body a streamed request, which browsers other than Chromium cannot send.
+
+```ts
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as FileSystem from "effect/FileSystem";
+
+const program = Effect.gen(function* () {
+  const client = yield* ApertureClient;
+  const fs = yield* FileSystem.FileSystem;
+  const uploaded = yield* client.sessions.uploadSessionFiles(sessionId, [
+    { name: "invoice.pdf", content: fs.stream("./invoice.pdf") },
+  ]);
+  // uploaded[0].path is "uploads/invoice.pdf", ready for browser_file_upload.
+  yield* client.sessions.setSessionViewport(sessionId, { targetId, width: 1280, height: 720 });
+  yield* client.sessions
+    .streamSessionRecording(sessionId, recordingId)
+    .pipe(Stream.run(fs.sink("./recording.webm")));
+}).pipe(Effect.provide(NodeFileSystem.layer));
+```
+
 ## Passkeys
 
 Browser passkey sign-in and registration live in `@aperture-browser/api-client/passkeys`, so the main entry does not depend on `@simplewebauthn/browser`. Install it when you use that entry:

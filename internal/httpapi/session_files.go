@@ -40,3 +40,31 @@ func (s *Server) sessionFile(c *gin.Context) {
 	c.Header("Content-Disposition", sessionfiles.ContentDisposition(filepath.Base(normalized)))
 	http.ServeFile(c.Writer, c.Request, fullPath)
 }
+
+func (s *Server) listSessionFiles(c *gin.Context) {
+	if s.Sessions == nil {
+		WriteError(c, errSessionServiceUnavailable)
+		return
+	}
+	view, err := s.Sessions.Get(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"))
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	files, err := s.retainedSessionFiles(view.Session.ID)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, files)
+}
+
+// retainedSessionFiles reads the session directory on disk rather than asking the
+// wrapper, so files stay listable while the session is suspended or stopped.
+func (s *Server) retainedSessionFiles(sessionID string) ([]sessionfiles.File, error) {
+	layout, err := paths.Session(s.Config, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return sessionfiles.List(layout)
+}

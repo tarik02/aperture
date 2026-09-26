@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/aperture/aperture/internal/paths"
-	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -18,11 +16,7 @@ func (s *Server) mcpSessionFilesList(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, err
 	}
-	layout, err := paths.Session(s.Config, view.Session.ID)
-	if err != nil {
-		return nil, mcpSessionFilesOutput{}, mcpToolError("internal", err)
-	}
-	files, err := sessionfiles.List(layout)
+	files, err := s.retainedSessionFiles(view.Session.ID)
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, mcpToolError("internal", err)
 	}

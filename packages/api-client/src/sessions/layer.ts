@@ -1,12 +1,14 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization, type ApiCredentials } from "../authorization/service.ts";
+import { toApiRequestError } from "../errors.ts";
 import { paginated } from "../pagination.ts";
 import { compactQuery, tagQuery } from "../query.ts";
-import type { Session, UpdateProxyConfig } from "../schemas.ts";
+import type { Session, SetViewportInput, UpdateProxyConfig } from "../schemas.ts";
 import { BrowserStatus } from "./schemas.ts";
 import {
   SessionsApi,
@@ -18,10 +20,15 @@ import {
   type SessionFileDownloadURLInput,
   type SessionsFilter,
   type SessionsListParams,
+  type SessionUploadFile,
 } from "./service.ts";
+import { uploadBody } from "./uploads.ts";
 
 const contentDispositionFilename = (header: string | undefined): string | null =>
   header?.match(/filename="([^"]+)"/)?.[1] ?? null;
+
+const recordingContentPath = (sessionId: string, recordingId: string) =>
+  `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/content`;
 
 export const makeSessionsApi = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -225,6 +232,13 @@ export const makeSessionsApi = Effect.gen(function* () {
       .pipe(tenantScoped(credentials));
   });
 
+  const listSessionFiles = Effect.fn("SessionsApi.listSessionFiles")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+  ) {
+    return yield* api.listSessionFiles(sessionId, undefined).pipe(tenantScoped(credentials));
+  });
+
   const createSessionFileDownloadURL = Effect.fn("SessionsApi.createSessionFileDownloadURL")(
     function* (credentials: ApiCredentials, sessionId: string, input: SessionFileDownloadURLInput) {
       return yield* api
@@ -258,22 +272,63 @@ export const makeSessionsApi = Effect.gen(function* () {
     recordingId: string,
     sessionToken?: string,
   ) {
-    return yield* http
-      .get(
-        `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/content`,
-      )
-      .pipe(
-        Effect.flatMap((response) =>
-          Effect.map(
-            response.arrayBuffer,
-            (body): DownloadedFile => ({
-              blob: new Blob([body], { type: response.headers["content-type"] ?? "" }),
-              filename: contentDispositionFilename(response.headers["content-disposition"]),
-            }),
+    return yield* http.get(recordingContentPath(sessionId, recordingId)).pipe(
+      Effect.flatMap((response) =>
+        Effect.map(
+          response.arrayBuffer,
+          (body): DownloadedFile => ({
+            blob: new Blob([body], { type: response.headers["content-type"] ?? "" }),
+            filename: contentDispositionFilename(response.headers["content-disposition"]),
+          }),
+        ),
+      ),
+      authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),
+    );
+  });
+
+  const streamSessionRecording = (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    sessionToken?: string,
+  ) =>
+    http.get(recordingContentPath(sessionId, recordingId)).pipe(
+      authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),
+      Effect.map((response) =>
+        response.stream.pipe(
+          Stream.catchTag("HttpClientError", (error) =>
+            Stream.fromEffect(toApiRequestError(Effect.fail(error))),
           ),
         ),
+      ),
+      Stream.unwrap,
+    );
+
+  const uploadSessionFiles = Effect.fn("SessionsApi.uploadSessionFiles")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    files: ReadonlyArray<SessionUploadFile>,
+    sessionToken?: string,
+  ) {
+    const body = yield* uploadBody(files);
+    const response = yield* http
+      .post(`/sessions/${encodeURIComponent(sessionId)}/uploads`, { body })
+      .pipe(
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.UploadSessionFiles201)),
         authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),
       );
+    return response.files;
+  });
+
+  const setSessionViewport = Effect.fn("SessionsApi.setSessionViewport")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    input: SetViewportInput,
+    sessionToken?: string,
+  ) {
+    return yield* api
+      .setSessionViewport(sessionId, { payload: input })
+      .pipe(authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }));
   });
 
   return SessionsApi.of({
@@ -298,10 +353,14 @@ export const makeSessionsApi = Effect.gen(function* () {
     getSessionRecording,
     retargetSessionRecording,
     stopSessionRecording,
+    listSessionFiles,
     createSessionFileDownloadURL,
     getBrowserChannels,
     getBrowserStatus,
     downloadSessionRecording,
+    streamSessionRecording,
+    uploadSessionFiles,
+    setSessionViewport,
   });
 });
 

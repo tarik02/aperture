@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Stream from "effect/Stream";
 import type * as Api from "@aperture-browser/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
@@ -17,7 +18,10 @@ import type {
   SessionMutationResponse,
   SessionRecording,
   SessionsBulkResponse,
+  SetViewportInput,
+  TargetViewport,
   UpdateProxyConfig,
+  UploadedSessionFile,
 } from "../schemas.ts";
 import type { BrowserStatus } from "./schemas.ts";
 
@@ -67,6 +71,15 @@ export type SessionFileDownloadURLInput = Api.SessionFileDownloadURLInput;
 export interface DownloadedFile {
   blob: Blob;
   filename: string | null;
+}
+
+/**
+ * One file for the session's `uploads` directory. A stream is sent without buffering; its
+ * failure aborts the upload and surfaces as a `network_error`.
+ */
+export interface SessionUploadFile {
+  name: string;
+  content: Blob | Uint8Array | Stream.Stream<Uint8Array, unknown>;
 }
 
 /** Browser sessions, their live browser, and their recordings. */
@@ -160,6 +173,11 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
     ) => Call<SessionFile>;
     /** A signed URL that downloads one session file without credentials until it expires. */
+    /** Files below the session's `downloads` and `recordings`, also while it is not running. */
+    readonly listSessionFiles: (
+      credentials: ApiCredentials,
+      sessionId: string,
+    ) => Call<ReadonlyArray<SessionFile>>;
     readonly createSessionFileDownloadURL: (
       credentials: ApiCredentials,
       sessionId: string,
@@ -177,5 +195,30 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
       sessionToken?: string,
     ) => Call<DownloadedFile>;
+    /** The recording's bytes as they arrive, for files too large to hold in memory. */
+    readonly streamSessionRecording: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      recordingId: string,
+      sessionToken?: string,
+    ) => Stream.Stream<Uint8Array, ApiRequestError>;
+    /**
+     * Stores files in the running session's `uploads` directory, for browser file inputs.
+     * Blob and Uint8Array contents are sent as FormData. Any stream content makes the whole
+     * body a streamed request, which browsers other than Chromium cannot send.
+     */
+    readonly uploadSessionFiles: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      files: ReadonlyArray<SessionUploadFile>,
+      sessionToken?: string,
+    ) => Call<ReadonlyArray<UploadedSessionFile>>;
+    /** Resizes a top-level target of the running session and returns the applied viewport. */
+    readonly setSessionViewport: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      input: SetViewportInput,
+      sessionToken?: string,
+    ) => Call<TargetViewport>;
   }
 >()("@aperture-browser/api-client/SessionsApi") {}

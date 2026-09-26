@@ -46,6 +46,9 @@ tags:
     description: Reusable browser filesystem snapshots created from retained sessions.
   - name: events
     description: Tenant-scoped audit and lifecycle events.
+  - name: live-session
+    description: |
+      Data-plane routes served by the running session itself rather than by the API. They exist only while the session is `running`; otherwise they answer `404` without a body. Aperture checks authorization before forwarding, so authorization failures use the API error envelope, while failures inside the session use `{ "error": "<message>" }`. Besides API credentials, they accept the session's `sessionToken` and, where an operation says so, an editor collaboration capability.
 paths:
   /api/health:
     get:
@@ -837,6 +840,27 @@ paths:
       responses:
         '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/files:
+    get:
+      operationId: listSessionFiles
+      tags: [sessions]
+      summary: List session files
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable]
+      description: Lists regular files below the session's `downloads` and `recordings` directories. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200':
+          description: Session files
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/SessionFile'}}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files/download-url:
     post:
       operationId: createSessionFileDownloadURL
@@ -996,6 +1020,79 @@ paths:
       responses:
         '200': {description: Event page, content: {application/json: {schema: {$ref: '#/components/schemas/EventPage'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /sessions/{sessionId}/uploads:
+    post:
+      operationId: uploadSessionFiles
+      tags: [live-session]
+      summary: Upload files into a running session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token]
+      x-aperture-errors: [resource_access_denied, session_not_found, session_expired, session_not_running]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
+      description: |
+        Stores every multipart part that has a filename in the session's `uploads` directory, where browser automation such as `browser_file_upload` can pick it up. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. Other parts are ignored.
+
+        A single file may not exceed `session_upload_max_file_bytes` (100 MiB by default), all session storage may not exceed `session_storage_quota_bytes` (1 GiB by default), a request may carry at most 100 files, and a session may hold at most 1000 uploads. A rejected request stores none of its files.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        description: One or more file parts. Only the part filename and content are used.
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items: {type: string, format: binary}
+      responses:
+        '201':
+          description: Stored files
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Files stored by this request, in request order.
+                required: [files]
+                properties:
+                  files:
+                    type: array
+                    items: {$ref: '#/components/schemas/UploadedSessionFile'}
+        default: {$ref: '#/components/responses/LiveSessionError'}
+  /sessions/{sessionId}/browser/viewport:
+    post:
+      operationId: setSessionViewport
+      tags: [live-session]
+      summary: Resize a top-level target
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+        sessionCredentials: [session_token, editor_capability]
+      x-aperture-errors: [resource_access_denied, session_not_found, session_expired, session_not_running]
+      security:
+        - bearerAuth: []
+        - webSession: []
+        - sessionToken: []
+      description: Resizes one top-level target and waits until the browser and media pipeline apply it. Concurrent requests for the same target coalesce, so every waiter receives the final applied viewport.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        description: Target and requested logical viewport.
+        content: {application/json: {schema: {$ref: '#/components/schemas/SetViewportInput'}}}
+      responses:
+        '200': {description: Applied viewport, content: {application/json: {schema: {$ref: '#/components/schemas/TargetViewport'}}}}
+        default: {$ref: '#/components/responses/LiveSessionError'}
 components:
   securitySchemes:
     bearerAuth:
@@ -1009,6 +1106,11 @@ components:
       in: cookie
       name: aperture_session
       description: Server-side browser session established by OIDC, passkey, or password login.
+    sessionToken:
+      type: http
+      scheme: bearer
+      bearerFormat: Aperture session access token
+      description: The session's `aps_` access secret, or an `ape_` editor collaboration capability where the operation allows it. Accepted only by `live-session` routes of that session.
   parameters:
     Limit:
       name: limit
@@ -1197,6 +1299,11 @@ components:
       description: Replacement snapshot description. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/UpdateSnapshotInput'}}}
   responses:
+    LiveSessionError:
+      description: Authorization failures use the API error envelope; failures inside the running session use `LiveSessionErrorBody`.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/LiveSessionFailure'}
     Error:
       description: API error. Branch on the HTTP status and stable `error.code`.
       content:
@@ -2695,6 +2802,95 @@ components:
           format: date-time
           description: Time after which the URL is rejected.
           example: '2026-08-01T12:20:00Z'
+    UploadedSessionFile:
+      type: object
+      description: File stored in a running session's `uploads` directory.
+      required: [kind, name, path, absolutePath, sizeBytes, modifiedAt]
+      properties:
+        kind:
+          type: string
+          enum: [uploads]
+        name:
+          type: string
+          description: Stored file name after sanitizing and collision suffixing.
+          example: invoice-1.pdf
+        path:
+          type: string
+          description: Path relative to the session artifact directory, as accepted by `browser_file_upload`.
+          example: uploads/invoice-1.pdf
+        absolutePath:
+          type: string
+          description: Path the session's browser can read, as accepted by CDP `DOM.setFileInputFiles`.
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        modifiedAt:
+          type: string
+          format: date-time
+    SetViewportInput:
+      type: object
+      description: Requested logical viewport of one top-level target.
+      required: [targetId, width, height]
+      properties:
+        targetId:
+          type: string
+          minLength: 1
+          description: Identifier of the top-level target to resize.
+        width:
+          type: integer
+          minimum: 1
+          maximum: 16384
+          description: Logical width in CSS pixels. Widths below 500 are raised to 500.
+          example: 1280
+        height:
+          type: integer
+          minimum: 1
+          maximum: 16384
+          description: Logical height in CSS pixels.
+          example: 720
+        deviceScaleFactor:
+          type: number
+          description: Device pixel ratio, rounded to 1/120. Omit or use a non-positive value for 1. The scaled content size may not exceed 16384 pixels.
+          example: 1
+    TargetViewport:
+      type: object
+      description: Viewport applied to a top-level target.
+      required: [targetId, generation, viewport]
+      properties:
+        targetId:
+          type: string
+        generation:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Assignment generation of the target's media output.
+        viewport: {$ref: '#/components/schemas/Viewport'}
+    Viewport:
+      type: object
+      description: Logical size, DPR-scaled content rectangle, and 64x64-bucketed media canvas of a target.
+      required: [width, height, contentWidth, contentHeight, canvasWidth, canvasHeight, deviceScaleFactor]
+      properties:
+        width: {type: integer, minimum: 1}
+        height: {type: integer, minimum: 1}
+        contentWidth: {type: integer, minimum: 1}
+        contentHeight: {type: integer, minimum: 1}
+        canvasWidth: {type: integer, minimum: 1}
+        canvasHeight: {type: integer, minimum: 1}
+        deviceScaleFactor: {type: number, description: Effective device pixel ratio.}
+    LiveSessionFailure:
+      description: Failure of a live-session route.
+      oneOf:
+        - {$ref: '#/components/schemas/Error'}
+        - {$ref: '#/components/schemas/LiveSessionErrorBody'}
+    LiveSessionErrorBody:
+      type: object
+      description: Error raised inside a running session. It carries a message but no stable code.
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: file exceeds upload limit
     PromoteSessionInput:
       type: object
       description: Snapshot metadata created from a stopped, retained session.

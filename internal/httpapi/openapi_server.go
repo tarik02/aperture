@@ -105,7 +105,8 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
 			return
 		}
-	case path == "/api/sessions/:sessionId/files/download-url":
+	case path == "/api/sessions/:sessionId/files",
+		path == "/api/sessions/:sessionId/files/download-url":
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
 			return
 		}
@@ -540,6 +541,15 @@ func (s openAPIServer) StopSessionRecording(ctx context.Context, _ generated.Sto
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) ListSessionFiles(ctx context.Context, _ generated.ListSessionFilesRequestObject) (generated.ListSessionFilesResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.listSessionFiles(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) CreateSessionFileDownloadURL(ctx context.Context, _ generated.CreateSessionFileDownloadURLRequestObject) (generated.CreateSessionFileDownloadURLResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -852,6 +862,10 @@ func (openAPIPassthroughResponse) VisitRetargetSessionRecordingResponse(http.Res
 }
 
 func (openAPIPassthroughResponse) VisitStopSessionRecordingResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitListSessionFilesResponse(http.ResponseWriter) error {
 	return nil
 }
 
