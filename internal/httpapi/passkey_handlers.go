@@ -45,7 +45,9 @@ func (s *Server) beginPasskeyLogin(c *gin.Context) {
 
 func (s *Server) completePasskeyLogin(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
-	if _, err := s.WebAuth.CompletePasskeyLogin(c.Request.Context(), c.Request); err != nil {
+	_, err := s.WebAuth.CompletePasskeyLogin(c.Request.Context(), c.Request)
+	s.recordLogin(authMethodPasskey, err)
+	if err != nil {
 		WriteError(c, err)
 		return
 	}

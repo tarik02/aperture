@@ -45,6 +45,9 @@ let
             default_args = cfg.chromiumArgs;
           };
         }
+        // lib.optionalAttrs cfg.metrics.enable {
+          metrics_address = cfg.metrics.address;
+        }
       )
   );
   path =
@@ -280,6 +283,17 @@ in
       };
       rollout.enable = lib.mkEnableOption "the aperture-rollout blue-green deployment helper" // {
         default = true;
+      };
+    };
+    metrics = {
+      enable = lib.mkEnableOption "the Prometheus metrics listener";
+      address = lib.mkOption {
+        type = lib.types.str;
+        default = "127.0.0.1:9464";
+        description = ''
+          Address serving Prometheus metrics at `/metrics`. Only the active API color binds it, so it stays
+          one scrape target across `aperture-rollout`. It must differ from the blue and green API addresses.
+        '';
       };
     };
     gc = {

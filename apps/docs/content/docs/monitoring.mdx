@@ -1,0 +1,146 @@
+---
+title: Monitoring
+description: Expose Prometheus metrics from the Aperture daemon, scrape them, and import the Grafana dashboard.
+---
+
+Aperture can serve Prometheus metrics on a dedicated listener. The listener is off by default and separate from the API listener, so Traefik never routes it and it is not reachable through the public URL.
+
+## Enable metrics
+
+Set `metrics_address` to the address that serves `GET /metrics`:
+
+```toml
+metrics_address = "127.0.0.1:9464"
+```
+
+The environment variable `APERTURE_METRICS_ADDRESS` and the `--metrics-address` flag set the same value. An empty value disables metrics, which is the default. The address must differ from `listen_address` and from the blue and green API addresses. Bind a non-loopback address only when Prometheus runs on another host, and restrict access to it with a firewall; the endpoint has no authentication.
+
+With the NixOS module:
+
+```nix
+services.aperture.metrics = {
+  enable = true;
+  address = "127.0.0.1:9464";
+};
+```
+
+The Docker Compose definition uses host networking, so setting `APERTURE_METRICS_ADDRESS: 127.0.0.1:9464` in the service environment exposes the endpoint on the host's loopback interface.
+
+### Blue/green deployments
+
+Both API colors read the same configuration, and only the active color binds `metrics_address`. During `aperture-rollout` the old color releases the address within a second of the switch, and the new color binds it once it is free. One scrape target therefore always reaches the daemon that owns the sessions. A scrape during that second can fail, and counters restart from zero with the new process, which Prometheus `rate()` and `increase()` handle as a counter reset. `aperture_build_info` reports the version and color of the daemon that serves the scrape.
+
+## Scrape configuration
+
+```yaml
+scrape_configs:
+  - job_name: aperture
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["127.0.0.1:9464"]
+```
+
+### Docker Compose with Prometheus
+
+Add Prometheus next to the host-networked Aperture service:
+
+```yaml
+# compose.monitoring.yaml
+services:
+  aperture:
+    environment:
+      APERTURE_METRICS_ADDRESS: 127.0.0.1:9464
+  prometheus:
+    image: prom/prometheus
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+volumes:
+  prometheus-data:
+```
+
+Start it with `docker compose -f packaging/docker/compose.yaml -f compose.monitoring.yaml up -d`, using the scrape configuration above as `prometheus.yml`.
+
+## Grafana dashboard
+
+Import `packaging/grafana/aperture-dashboard.json` in Grafana under **Dashboards → New → Import**, then pick the Prometheus data source in the **Data source** variable. The dashboard groups panels into rows: overview, sessions, storage, garbage collection, live sessions and proxy, authentication, and Go runtime. The **Job** and **Instance** variables filter every panel.
+
+## Metrics
+
+All Aperture metrics use the `aperture_` prefix. No metric carries session IDs, tokens, users, tenants, URLs, or paths as labels. HTTP routes use gin route templates such as `/api/sessions/:sessionId`; requests no route matched, including the web UI's files, share the route label `static`.
+
+### API
+
+| Metric                                   | Type      | Labels                              |
+| ---------------------------------------- | --------- | ----------------------------------- |
+| `aperture_http_requests_total`           | counter   | `route`, `method`, `status_class`   |
+| `aperture_http_request_duration_seconds` | histogram | `route`, `method`                   |
+| `aperture_http_requests_in_flight`       | gauge     |                                     |
+| `aperture_api_errors_total`              | counter   | `code` (the API error code)         |
+| `aperture_auth_logins_total`             | counter   | `method`                            |
+| `aperture_auth_failures_total`           | counter   | `method`, `reason` (API error code) |
+
+Authentication methods are `password`, `password_mfa`, `passkey`, `oidc`, `api_token`, `web_session`, and `session_token` (session, editor, and viewer capability tokens checked by Traefik forward auth).
+
+### Sessions and snapshots
+
+| Metric                                         | Type      | Labels                                                                                          |
+| ---------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------- |
+| `aperture_sessions`                            | gauge     | `status`                                                                                        |
+| `aperture_session_events_total`                | counter   | `event`: `created`, `started`, `suspended`, `woken`, `reopened`, `deleted`, `expired`, `failed` |
+| `aperture_session_start_duration_seconds`      | histogram | `kind`: `create`, `reopen`, `wake`                                                              |
+| `aperture_snapshots`                           | gauge     | `state`: `active`, `deleted` (deleted but not yet collected)                                    |
+| `aperture_snapshot_promotions_total`           | counter   | `result`: `succeeded`, `failed` (any error, including name conflicts)                           |
+| `aperture_snapshot_promotion_duration_seconds` | histogram |                                                                                                 |
+
+`aperture_sessions` and `aperture_snapshots` are read from the database on every scrape. Start duration runs from mounting the overlay until the browser answers CDP.
+
+### Storage and garbage collection
+
+| Metric                                   | Type      | Labels                                     |
+| ---------------------------------------- | --------- | ------------------------------------------ |
+| `aperture_storage_size_bytes`            | gauge     | `root`: `store`, `cold`, `database`        |
+| `aperture_storage_available_bytes`       | gauge     | `root`                                     |
+| `aperture_database_size_bytes`           | gauge     |                                            |
+| `aperture_state_scrape_errors_total`     | counter   | `source`                                   |
+| `aperture_gc_runs_total`                 | counter   | `result`                                   |
+| `aperture_gc_run_duration_seconds`       | histogram |                                            |
+| `aperture_gc_removed_total`              | counter   | `kind`: `session`, `artifacts`, `snapshot` |
+| `aperture_gc_staging_sweep_errors_total` | counter   |                                            |
+
+Storage sizes come from `statfs` on the filesystem holding each root, so roots on one filesystem report the same values. The database size includes the write-ahead log.
+
+### Live sessions
+
+These metrics aggregate every running session. On each scrape the daemon asks the wrapper of each running session for its counters over loopback, with a one-second timeout per wrapper, at most 16 requests at once, and a five-second limit for the whole poll. Scrapes less than five seconds apart reuse the previous poll.
+
+| Metric                                           | Type    | Labels                                                            |
+| ------------------------------------------------ | ------- | ----------------------------------------------------------------- |
+| `aperture_live_session_clients`                  | gauge   | `role`, `transport`: `websocket`, `webrtc`, `none` (reconnecting) |
+| `aperture_media_viewers`                         | gauge   | `role`                                                            |
+| `aperture_cdp_connections`                       | gauge   |                                                                   |
+| `aperture_recordings_active`                     | gauge   |                                                                   |
+| `aperture_recordings_started_total`              | counter |                                                                   |
+| `aperture_recording_failures_total`              | counter | `reason`                                                          |
+| `aperture_session_uploads_total`                 | counter |                                                                   |
+| `aperture_session_upload_bytes_total`            | counter |                                                                   |
+| `aperture_session_upload_failures_total`         | counter |                                                                   |
+| `aperture_proxy_connections_active`              | gauge   |                                                                   |
+| `aperture_proxy_connections_total`               | counter |                                                                   |
+| `aperture_proxy_connection_failures_total`       | counter |                                                                   |
+| `aperture_local_tunnels_attached`                | gauge   |                                                                   |
+| `aperture_session_wrappers`                      | gauge   | `state`: `reachable`, `unreachable`                               |
+| `aperture_session_wrapper_poll_duration_seconds` | gauge   |                                                                   |
+| `aperture_session_wrapper_poll_errors_total`     | counter |                                                                   |
+
+Wrapper counters restart with each wrapper process and disappear with its session, so the daemon adds the growth it observes between polls to counters of its own. Activity between a wrapper's last poll and its exit is not counted, and a daemon that starts while sessions run counts their earlier activity once on its first poll. The upload counters also include uploads through `POST /api/sessions/{sessionId}/files`, which the daemon counts directly.
+
+### Process
+
+`aperture_build_info` has the labels `version`, `commit`, and `color` and the value `1`. The standard Go runtime (`go_*`) and process (`process_*`) collectors describe the daemon itself.

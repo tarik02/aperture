@@ -48,6 +48,7 @@ func WriteError(c *gin.Context, err error) {
 	}
 
 	status, code, message := mapError(err)
+	c.Set(apiErrorCodeContextKey, code)
 	c.JSON(status, errorBody{Error: apiErrorDetail{Code: code, Message: message}})
 }
 
@@ -57,7 +58,8 @@ func WriteInternalError(c *gin.Context, err error) {
 		return
 	}
 
-	status, _, message := mapError(err)
+	status, code, message := mapError(err)
+	c.Set(apiErrorCodeContextKey, code)
 	c.JSON(status, internalErrorBody{Error: message})
 }
 

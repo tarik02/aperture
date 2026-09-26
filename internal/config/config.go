@@ -71,6 +71,7 @@ type Config struct {
 	DeployBlueURL                    string                   `mapstructure:"deploy_blue_url"`
 	DeployGreenURL                   string                   `mapstructure:"deploy_green_url"`
 	ListenAddress                    string                   `mapstructure:"listen_address"`
+	MetricsAddress                   string                   `mapstructure:"metrics_address"`
 	BrowserSupervisor                string                   `mapstructure:"browser_supervisor"`
 	SystemdBrowserUnitName           string                   `mapstructure:"systemd_browser_unit_name"`
 	SessionRetentionDays             int                      `mapstructure:"session_retention_days"`
@@ -134,6 +135,7 @@ func Defaults() Config {
 		DeployBlueURL:                    "http://127.0.0.1:28080",
 		DeployGreenURL:                   "http://127.0.0.1:28082",
 		ListenAddress:                    "127.0.0.1:8080",
+		MetricsAddress:                   "",
 		BrowserSupervisor:                BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:           "browser-session@.service",
 		SessionRetentionDays:             7,
@@ -277,6 +279,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"deploy_blue_url",
 		"deploy_green_url",
 		"listen_address",
+		"metrics_address",
 		"browser_supervisor",
 		"systemd_browser_unit_name",
 		"session_retention_days",
@@ -391,6 +394,7 @@ func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
 func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 	flagBindings := map[string]string{
 		"listen-address":                          "listen_address",
+		"metrics-address":                         "metrics_address",
 		"browser-supervisor":                      "browser_supervisor",
 		"log-level":                               "log_level",
 		"store-root":                              "store_root",
