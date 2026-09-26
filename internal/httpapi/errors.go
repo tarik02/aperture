@@ -190,6 +190,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusRequestEntityTooLarge, "session_file_too_large", err.Error()
 	case errors.Is(err, sessionfiles.ErrQuotaExceeded):
 		return http.StatusInsufficientStorage, "session_storage_quota_exceeded", err.Error()
+	case errors.Is(err, sessionfiles.ErrTooManyUploads):
+		return http.StatusTooManyRequests, "session_upload_concurrency_exceeded", err.Error()
 	case errors.Is(err, sessionfiles.ErrTooManyFiles):
 		return http.StatusInsufficientStorage, "session_file_limit_exceeded", err.Error()
 	case errors.Is(err, errBrowserControlFailed):

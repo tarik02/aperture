@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -27,6 +28,7 @@ var (
 	ErrNotInFilesRoot    = errors.New("file is outside the session files root")
 	ErrInvalidUpload     = errors.New("invalid multipart upload")
 	ErrNoFiles           = errors.New("no files uploaded")
+	ErrTooManyUploads    = errors.New("too many uploads in progress for this session")
 	ErrDirectoryNotEmpty = errors.New("directory is not empty")
 	ErrProtected         = errors.New("directory is managed by the session")
 	ErrMoveIntoItself    = errors.New("cannot move a directory into itself")
@@ -47,6 +49,35 @@ const (
 	// when the download completes.
 	inProgressDownloadSuffix = ".crdownload"
 )
+
+// MaxConcurrentUploads bounds the uploads one process streams into a session at
+// once. Streamed bytes count against the quota only when they are published, so
+// without it parallel uploads could each fill the whole quota on disk first.
+const MaxConcurrentUploads = 3
+
+var uploadSlots = struct {
+	sync.Mutex
+	active map[string]int
+}{active: map[string]int{}}
+
+// AcquireUploadSlot claims one of the session's upload slots, keyed by its files
+// root, and fails with ErrTooManyUploads when they are all taken.
+func AcquireUploadSlot(root string) (func(), error) {
+	uploadSlots.Lock()
+	defer uploadSlots.Unlock()
+	if uploadSlots.active[root] >= MaxConcurrentUploads {
+		return nil, ErrTooManyUploads
+	}
+	uploadSlots.active[root]++
+	return func() {
+		uploadSlots.Lock()
+		defer uploadSlots.Unlock()
+		uploadSlots.active[root]--
+		if uploadSlots.active[root] == 0 {
+			delete(uploadSlots.active, root)
+		}
+	}, nil
+}
 
 // Limits bound what an upload may add to a session.
 type Limits struct {
@@ -309,39 +340,45 @@ func checkTreeNotBusy(dir string) error {
 // files root under a sanitized name, adding a numeric suffix instead of replacing
 // an existing file. Either every part is stored or none is.
 func Store(ctx context.Context, layout paths.SessionLayout, directory string, parts *multipart.Reader, limits Limits) ([]File, error) {
+	release, err := AcquireUploadSlot(layout.Files.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	dir, dirRelative, err := prepareDirectory(layout, directory)
 	if err != nil {
 		return nil, err
 	}
+	dirFD, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unix.Close(dirFD) }()
 	footprint, err := Footprint(layout.Upper, layout.Files.Root, layout.Cache)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parts stream into hidden temporary files without the lock, so a slow client
-	// delays only its own upload. The staged bytes live below the files root, so
-	// the checks under the lock count them, along with other uploads in flight.
+	// Parts stream into unnamed temporary files without the lock, so a slow client
+	// delays only its own upload, and nothing is left behind if the daemon stops
+	// mid-upload. They are counted explicitly when the limits are checked again.
 	type staged struct {
-		temp string
+		file *os.File
 		name string
+		size int64
 	}
 	pending := make([]staged, 0)
-	stored := make([]string, 0)
-	discard := func() {
+	defer func() {
 		for _, upload := range pending {
-			_ = os.Remove(upload.temp)
+			_ = upload.file.Close()
 		}
-		for _, final := range stored {
-			_ = os.Remove(final)
-		}
-	}
+	}()
 	for {
 		part, err := parts.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			discard()
 			return nil, fmt.Errorf("%w: %w", ErrInvalidUpload, err)
 		}
 		if part.FileName() == "" {
@@ -350,23 +387,19 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 		}
 		if len(pending) >= MaxUploadFilesPerRequest {
 			_ = part.Close()
-			discard()
 			return nil, ErrTooManyFiles
 		}
 		remaining := max(limits.StorageQuotaBytes-footprint, 0)
-		temp, written, err := writeTemp(dir, part, min(limits.MaxFileBytes, remaining))
+		file, written, err := writeTemp(dirFD, part, min(limits.MaxFileBytes, remaining))
 		_ = part.Close()
 		if err != nil {
-			discard()
 			return nil, err
 		}
-		pending = append(pending, staged{temp: temp, name: SanitizeName(part.FileName())})
+		pending = append(pending, staged{file: file, name: SanitizeName(part.FileName()), size: written})
 		if written > limits.MaxFileBytes {
-			discard()
 			return nil, ErrTooLarge
 		}
 		if written > remaining {
-			discard()
 			return nil, ErrQuotaExceeded
 		}
 		footprint += written
@@ -377,27 +410,30 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 
 	unlock, err := Lock(ctx, layout.Files.Root)
 	if err != nil {
-		discard()
 		return nil, err
 	}
 	defer unlock()
-	if err := checkStagedLimits(layout, dir, len(pending), limits); err != nil {
-		discard()
+	var stagedBytes int64
+	for _, upload := range pending {
+		stagedBytes += upload.size
+	}
+	if err := checkStagedLimits(layout, dir, len(pending), stagedBytes, limits); err != nil {
 		return nil, err
 	}
+	published := make([]string, 0, len(pending))
 	files := make([]File, 0, len(pending))
-	for len(pending) > 0 {
-		upload := pending[0]
-		final, name, err := publish(upload.temp, dir, upload.name)
+	for _, upload := range pending {
+		name, err := publish(upload.file, dirFD, upload.name)
 		if err != nil {
-			discard()
+			for _, done := range published {
+				_ = unix.Unlinkat(dirFD, done, 0)
+			}
 			return nil, err
 		}
-		pending = pending[1:]
-		stored = append(stored, final)
+		published = append(published, name)
+		final := filepath.Join(dir, name)
 		info, err := os.Stat(final)
 		if err != nil {
-			discard()
 			return nil, err
 		}
 		relative := path.Join(dirRelative, name)
@@ -406,21 +442,21 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 	return files, nil
 }
 
-// checkStagedLimits checks, under the lock, that the staged files fit. They are
-// already on disk, so current usage includes them and publishing adds nothing.
-func checkStagedLimits(layout paths.SessionLayout, dir string, staged int, limits Limits) error {
+// checkStagedLimits checks, under the lock, that the staged files fit next to
+// everything already published, including uploads that finished meanwhile.
+func checkStagedLimits(layout paths.SessionLayout, dir string, staged int, stagedBytes int64, limits Limits) error {
 	footprint, err := Footprint(layout.Upper, layout.Files.Root, layout.Cache)
 	if err != nil {
 		return err
 	}
-	if footprint > limits.StorageQuotaBytes {
+	if footprint+stagedBytes > limits.StorageQuotaBytes {
 		return ErrQuotaExceeded
 	}
 	entries, err := CountEntries(layout.Files.Root)
 	if err != nil {
 		return err
 	}
-	if entries > MaxEntriesPerSession {
+	if entries+staged > MaxEntriesPerSession {
 		return ErrTooManyFiles
 	}
 	listing, err := os.ReadDir(dir)
@@ -439,24 +475,26 @@ func checkStagedLimits(layout paths.SessionLayout, dir string, staged int, limit
 	return nil
 }
 
-// writeTemp copies at most limit+1 bytes into a hidden file in dir, so a result
-// above limit tells the caller the content was too large.
-func writeTemp(dir string, content io.Reader, limit int64) (string, int64, error) {
-	file, err := os.CreateTemp(dir, ".upload-*")
+// writeTemp copies at most limit+1 bytes into an unnamed file in the directory, so
+// a result above limit tells the caller the content was too large.
+func writeTemp(dirFD int, content io.Reader, limit int64) (*os.File, int64, error) {
+	fd, err := unix.Openat(dirFD, ".", unix.O_WRONLY|unix.O_TMPFILE|unix.O_CLOEXEC, 0o644)
 	if err != nil {
-		return "", 0, err
+		return nil, 0, err
 	}
+	file := os.NewFile(uintptr(fd), "upload")
 	written, copyErr := io.Copy(file, io.LimitReader(content, limit+1))
 	syncErr := file.Sync()
-	closeErr := file.Close()
-	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
-		_ = os.Remove(file.Name())
-		return "", 0, err
+	if err := errors.Join(copyErr, syncErr); err != nil {
+		_ = file.Close()
+		return nil, 0, err
 	}
-	return file.Name(), written, nil
+	return file, written, nil
 }
 
-func publish(temp, dir, name string) (string, string, error) {
+// publish links an unnamed file into the directory under name, or a numbered
+// variant when name is taken. Linking never replaces an existing entry.
+func publish(file *os.File, dirFD int, name string) (string, error) {
 	extension := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, extension)
 	for sequence := 0; ; sequence++ {
@@ -464,15 +502,18 @@ func publish(temp, dir, name string) (string, string, error) {
 		if sequence > 0 {
 			candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
 		}
-		final := filepath.Join(dir, candidate)
-		err := unix.Renameat2(unix.AT_FDCWD, temp, unix.AT_FDCWD, final, unix.RENAME_NOREPLACE)
+		err := unix.Linkat(int(file.Fd()), "", dirFD, candidate, unix.AT_EMPTY_PATH)
 		if errors.Is(err, unix.EEXIST) {
 			continue
 		}
-		if err != nil {
-			return "", "", err
+		// The target directory was deleted while the upload streamed.
+		if errors.Is(err, unix.ENOENT) {
+			return "", ErrNotFound
 		}
-		return final, candidate, nil
+		if err != nil {
+			return "", err
+		}
+		return candidate, nil
 	}
 }
 

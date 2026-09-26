@@ -31,7 +31,7 @@ Pass any session file's `relativePath` to `browser_file_upload`, for example a d
 
 Managing files needs `sessions:write`, follows the same tenant and resource-grant rules, and works in every retained state:
 
-- `POST /api/sessions/:sessionId/files?directory=uploads` stores `multipart/form-data` file parts in a directory below the files root (default `uploads`) and returns `{ "files": [...] }`. Names are sanitized and suffixed instead of overwriting; the upload limits of the data-plane route apply (`session_file_too_large`, `session_storage_quota_exceeded`, `session_file_limit_exceeded`).
+- `POST /api/sessions/:sessionId/files?directory=uploads` stores `multipart/form-data` file parts in a directory below the files root (default `uploads`) and returns `{ "files": [...] }`. Names are sanitized and suffixed instead of overwriting; the upload limits of the data-plane route apply (`session_file_too_large`, `session_storage_quota_exceeded`, `session_file_limit_exceeded`), and at most 3 uploads per session stream at once (`session_upload_concurrency_exceeded`, 429).
 - `POST /api/sessions/:sessionId/files/directories` with `{ "relativePath": "uploads/invoices" }` creates a directory and its missing parents. An existing entry fails with `session_file_exists`.
 - `DELETE /api/sessions/:sessionId/files?relativePath=downloads/invoice.pdf` deletes a file or directory and answers `204`. A directory with entries needs `&recursive=true`, otherwise it fails with `session_directory_not_empty`.
 - `POST /api/sessions/:sessionId/files/move` with `{ "from": "downloads/invoice.pdf", "to": "uploads/invoices/2026-08.pdf" }` moves or renames a file or directory and returns it. An existing target fails with `session_file_exists`.

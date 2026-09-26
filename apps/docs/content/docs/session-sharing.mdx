@@ -109,7 +109,7 @@ The `/api` routes work in every retained state, including suspended and stopped 
 
 Playwright MCP's `browser_file_upload` accepts any session file relative path, so a download or recording can be put into a file chooser directly.
 
-Each upload request accepts at most 100 files, a directory may hold at most 1,000 files, and a session at most 10,000 files and directories.
+Each upload request accepts at most 100 files, a directory may hold at most 1,000 files, and a session at most 10,000 files and directories. At most three uploads per session stream at once.
 
 Listing and download URLs need API credentials with `sessions:read`; uploads, directory creation, deletes, and moves need `sessions:write`. Session-token holders use session-bound MCP or the data-plane upload. Editor and viewer capabilities cannot access files.
 

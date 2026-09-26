@@ -125,65 +125,66 @@ func (e CreateSessionRecordingInputCodec) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeAuthenticationRequired      ErrorCode = "authentication_required"
-	ErrorCodeAuthenticationTokenExpired  ErrorCode = "authentication_token_expired"
-	ErrorCodeAuthenticationTokenRevoked  ErrorCode = "authentication_token_revoked"
-	ErrorCodeBaseSnapshotDeleted         ErrorCode = "base_snapshot_deleted"
-	ErrorCodeBaseSnapshotNotFound        ErrorCode = "base_snapshot_not_found"
-	ErrorCodeBrowserChannelsUnavailable  ErrorCode = "browser_channels_unavailable"
-	ErrorCodeBrowserControlFailed        ErrorCode = "browser_control_failed"
-	ErrorCodeBrowserInitializationFailed ErrorCode = "browser_initialization_failed"
-	ErrorCodeBrowserStartFailed          ErrorCode = "browser_start_failed"
-	ErrorCodeEventServiceUnavailable     ErrorCode = "event_service_unavailable"
-	ErrorCodeIdentityNotProvisioned      ErrorCode = "identity_not_provisioned"
-	ErrorCodeInsufficientScope           ErrorCode = "insufficient_scope"
-	ErrorCodeInternalError               ErrorCode = "internal_error"
-	ErrorCodeInvalidAuthenticationToken  ErrorCode = "invalid_authentication_token"
-	ErrorCodeInvalidRequestBody          ErrorCode = "invalid_request_body"
-	ErrorCodeMembershipNotFound          ErrorCode = "membership_not_found"
-	ErrorCodeOidcAuthenticationFailed    ErrorCode = "oidc_authentication_failed"
-	ErrorCodeOidcFlowInvalid             ErrorCode = "oidc_flow_invalid"
-	ErrorCodeOidcProviderNotFound        ErrorCode = "oidc_provider_not_found"
-	ErrorCodeOverlayMountFailed          ErrorCode = "overlay_mount_failed"
-	ErrorCodePromotionConflict           ErrorCode = "promotion_conflict"
-	ErrorCodePromotionServiceUnavailable ErrorCode = "promotion_service_unavailable"
-	ErrorCodeRecordingInvalidState       ErrorCode = "recording_invalid_state"
-	ErrorCodeRecordingNotFound           ErrorCode = "recording_not_found"
-	ErrorCodeResourceAccessDenied        ErrorCode = "resource_access_denied"
-	ErrorCodeSessionDirectoryNotEmpty    ErrorCode = "session_directory_not_empty"
-	ErrorCodeSessionDirectoryProtected   ErrorCode = "session_directory_protected"
-	ErrorCodeSessionExpired              ErrorCode = "session_expired"
-	ErrorCodeSessionFileBusy             ErrorCode = "session_file_busy"
-	ErrorCodeSessionFileExists           ErrorCode = "session_file_exists"
-	ErrorCodeSessionFileLimitExceeded    ErrorCode = "session_file_limit_exceeded"
-	ErrorCodeSessionFileNotFound         ErrorCode = "session_file_not_found"
-	ErrorCodeSessionFileNotMovable       ErrorCode = "session_file_not_movable"
-	ErrorCodeSessionFileTooLarge         ErrorCode = "session_file_too_large"
-	ErrorCodeSessionInvalidState         ErrorCode = "session_invalid_state"
-	ErrorCodeSessionNotFound             ErrorCode = "session_not_found"
-	ErrorCodeSessionNotPromotable        ErrorCode = "session_not_promotable"
-	ErrorCodeSessionNotReopenable        ErrorCode = "session_not_reopenable"
-	ErrorCodeSessionNotRunning           ErrorCode = "session_not_running"
-	ErrorCodeSessionOverlayMissing       ErrorCode = "session_overlay_missing"
-	ErrorCodeSessionServiceUnavailable   ErrorCode = "session_service_unavailable"
-	ErrorCodeSessionStorageQuotaExceeded ErrorCode = "session_storage_quota_exceeded"
-	ErrorCodeSnapshotDeleted             ErrorCode = "snapshot_deleted"
-	ErrorCodeSnapshotNameConflict        ErrorCode = "snapshot_name_conflict"
-	ErrorCodeSnapshotNotDeleted          ErrorCode = "snapshot_not_deleted"
-	ErrorCodeSnapshotNotFound            ErrorCode = "snapshot_not_found"
-	ErrorCodeSnapshotServiceUnavailable  ErrorCode = "snapshot_service_unavailable"
-	ErrorCodeTenantDeactivated           ErrorCode = "tenant_deactivated"
-	ErrorCodeTenantNotFound              ErrorCode = "tenant_not_found"
-	ErrorCodeTenantSelectionNotPermitted ErrorCode = "tenant_selection_not_permitted"
-	ErrorCodeTenantSelectionRequired     ErrorCode = "tenant_selection_required"
-	ErrorCodeTokenDelegationExceeded     ErrorCode = "token_delegation_exceeded"
-	ErrorCodeTokenNameConflict           ErrorCode = "token_name_conflict"
-	ErrorCodeTokenNotFound               ErrorCode = "token_not_found"
-	ErrorCodeUserDisabled                ErrorCode = "user_disabled"
-	ErrorCodeUserEmailConflict           ErrorCode = "user_email_conflict"
-	ErrorCodeUserInvitationUnavailable   ErrorCode = "user_invitation_unavailable"
-	ErrorCodeUserNotFound                ErrorCode = "user_not_found"
-	ErrorCodeValidationFailed            ErrorCode = "validation_failed"
+	ErrorCodeAuthenticationRequired           ErrorCode = "authentication_required"
+	ErrorCodeAuthenticationTokenExpired       ErrorCode = "authentication_token_expired"
+	ErrorCodeAuthenticationTokenRevoked       ErrorCode = "authentication_token_revoked"
+	ErrorCodeBaseSnapshotDeleted              ErrorCode = "base_snapshot_deleted"
+	ErrorCodeBaseSnapshotNotFound             ErrorCode = "base_snapshot_not_found"
+	ErrorCodeBrowserChannelsUnavailable       ErrorCode = "browser_channels_unavailable"
+	ErrorCodeBrowserControlFailed             ErrorCode = "browser_control_failed"
+	ErrorCodeBrowserInitializationFailed      ErrorCode = "browser_initialization_failed"
+	ErrorCodeBrowserStartFailed               ErrorCode = "browser_start_failed"
+	ErrorCodeEventServiceUnavailable          ErrorCode = "event_service_unavailable"
+	ErrorCodeIdentityNotProvisioned           ErrorCode = "identity_not_provisioned"
+	ErrorCodeInsufficientScope                ErrorCode = "insufficient_scope"
+	ErrorCodeInternalError                    ErrorCode = "internal_error"
+	ErrorCodeInvalidAuthenticationToken       ErrorCode = "invalid_authentication_token"
+	ErrorCodeInvalidRequestBody               ErrorCode = "invalid_request_body"
+	ErrorCodeMembershipNotFound               ErrorCode = "membership_not_found"
+	ErrorCodeOidcAuthenticationFailed         ErrorCode = "oidc_authentication_failed"
+	ErrorCodeOidcFlowInvalid                  ErrorCode = "oidc_flow_invalid"
+	ErrorCodeOidcProviderNotFound             ErrorCode = "oidc_provider_not_found"
+	ErrorCodeOverlayMountFailed               ErrorCode = "overlay_mount_failed"
+	ErrorCodePromotionConflict                ErrorCode = "promotion_conflict"
+	ErrorCodePromotionServiceUnavailable      ErrorCode = "promotion_service_unavailable"
+	ErrorCodeRecordingInvalidState            ErrorCode = "recording_invalid_state"
+	ErrorCodeRecordingNotFound                ErrorCode = "recording_not_found"
+	ErrorCodeResourceAccessDenied             ErrorCode = "resource_access_denied"
+	ErrorCodeSessionDirectoryNotEmpty         ErrorCode = "session_directory_not_empty"
+	ErrorCodeSessionDirectoryProtected        ErrorCode = "session_directory_protected"
+	ErrorCodeSessionExpired                   ErrorCode = "session_expired"
+	ErrorCodeSessionFileBusy                  ErrorCode = "session_file_busy"
+	ErrorCodeSessionFileExists                ErrorCode = "session_file_exists"
+	ErrorCodeSessionFileLimitExceeded         ErrorCode = "session_file_limit_exceeded"
+	ErrorCodeSessionFileNotFound              ErrorCode = "session_file_not_found"
+	ErrorCodeSessionFileNotMovable            ErrorCode = "session_file_not_movable"
+	ErrorCodeSessionFileTooLarge              ErrorCode = "session_file_too_large"
+	ErrorCodeSessionInvalidState              ErrorCode = "session_invalid_state"
+	ErrorCodeSessionNotFound                  ErrorCode = "session_not_found"
+	ErrorCodeSessionNotPromotable             ErrorCode = "session_not_promotable"
+	ErrorCodeSessionNotReopenable             ErrorCode = "session_not_reopenable"
+	ErrorCodeSessionNotRunning                ErrorCode = "session_not_running"
+	ErrorCodeSessionOverlayMissing            ErrorCode = "session_overlay_missing"
+	ErrorCodeSessionServiceUnavailable        ErrorCode = "session_service_unavailable"
+	ErrorCodeSessionStorageQuotaExceeded      ErrorCode = "session_storage_quota_exceeded"
+	ErrorCodeSessionUploadConcurrencyExceeded ErrorCode = "session_upload_concurrency_exceeded"
+	ErrorCodeSnapshotDeleted                  ErrorCode = "snapshot_deleted"
+	ErrorCodeSnapshotNameConflict             ErrorCode = "snapshot_name_conflict"
+	ErrorCodeSnapshotNotDeleted               ErrorCode = "snapshot_not_deleted"
+	ErrorCodeSnapshotNotFound                 ErrorCode = "snapshot_not_found"
+	ErrorCodeSnapshotServiceUnavailable       ErrorCode = "snapshot_service_unavailable"
+	ErrorCodeTenantDeactivated                ErrorCode = "tenant_deactivated"
+	ErrorCodeTenantNotFound                   ErrorCode = "tenant_not_found"
+	ErrorCodeTenantSelectionNotPermitted      ErrorCode = "tenant_selection_not_permitted"
+	ErrorCodeTenantSelectionRequired          ErrorCode = "tenant_selection_required"
+	ErrorCodeTokenDelegationExceeded          ErrorCode = "token_delegation_exceeded"
+	ErrorCodeTokenNameConflict                ErrorCode = "token_name_conflict"
+	ErrorCodeTokenNotFound                    ErrorCode = "token_not_found"
+	ErrorCodeUserDisabled                     ErrorCode = "user_disabled"
+	ErrorCodeUserEmailConflict                ErrorCode = "user_email_conflict"
+	ErrorCodeUserInvitationUnavailable        ErrorCode = "user_invitation_unavailable"
+	ErrorCodeUserNotFound                     ErrorCode = "user_not_found"
+	ErrorCodeValidationFailed                 ErrorCode = "validation_failed"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -272,6 +273,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeSessionServiceUnavailable:
 		return true
 	case ErrorCodeSessionStorageQuotaExceeded:
+		return true
+	case ErrorCodeSessionUploadConcurrencyExceeded:
 		return true
 	case ErrorCodeSnapshotDeleted:
 		return true
@@ -3499,7 +3502,7 @@ type ClientInterface interface {
 	//
 	// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 	//
-	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
+	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once; more fail with `session_upload_concurrency_exceeded`. The request body may be as large as those limits allow.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4550,7 +4553,7 @@ func (c *Client) ListSessionFiles(ctx context.Context, sessionId SessionId, para
 //
 // Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 //
-// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
+// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once; more fail with `session_upload_concurrency_exceeded`. The request body may be as large as those limits allow.
 //
 // Takes any type of body and a specified content type.
 //
@@ -9077,7 +9080,7 @@ type ClientWithResponsesInterface interface {
 	//
 	// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 	//
-	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
+	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once; more fail with `session_upload_concurrency_exceeded`. The request body may be as large as those limits allow.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -12827,7 +12830,7 @@ func (c *ClientWithResponses) ListSessionFilesWithResponse(ctx context.Context, 
 //
 // Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 //
-// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
+// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once; more fail with `session_upload_concurrency_exceeded`. The request body may be as large as those limits allow.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //

@@ -77,6 +77,12 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		limits.storageQuotaBytes = defaultSessionStorageQuotaBytes
 	}
 
+	release, err := sessionfiles.AcquireUploadSlot(r.values.FilesDir)
+	if err != nil {
+		writeWrapperError(w, http.StatusTooManyRequests, "too many uploads in progress for this session")
+		return
+	}
+	defer release()
 	pending, err := r.stageUploads(req, uploadsDirFD, limits)
 	defer func() {
 		for _, upload := range pending {

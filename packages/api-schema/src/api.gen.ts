@@ -1398,7 +1398,7 @@ readonly "listSessionFiles": <Config extends OperationConfig>(sessionId: string,
   /**
 * Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 * 
-* A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
+* A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once; more fail with `session_upload_concurrency_exceeded`. The request body may be as large as those limits allow.
 */
 readonly "uploadSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof UploadSessionFilesParams.Encoded | undefined; readonly payload: typeof UploadSessionFilesRequestFormData.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof UploadSessionFiles201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
@@ -1448,7 +1448,7 @@ readonly "listEvents": <Config extends OperationConfig>(options: { readonly para
   /**
 * Stores every multipart part that has a filename below `uploads/` in the session files, where `browser_file_upload` can pick it up. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. Other parts are ignored.
 * 
-* A single file may not exceed `session_upload_max_file_bytes` (100 MiB by default), all session storage may not exceed `session_storage_quota_bytes` (1 GiB by default), a request may carry at most 100 files, and a session may hold at most 1000 uploads. A rejected request stores none of its files.
+* A single file may not exceed `session_upload_max_file_bytes` (100 MiB by default), all session storage may not exceed `session_storage_quota_bytes` (1 GiB by default), a request may carry at most 100 files, `uploads` may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once through this route; more fail with `429`. A rejected request stores none of its files.
 * 
 * `POST /api/sessions/{sessionId}/files` does the same for any retained session and any directory.
 */
