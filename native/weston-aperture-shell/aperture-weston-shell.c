@@ -1530,6 +1530,16 @@ bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *r
 		  uint32_t scale_numerator)
 {
 	struct aperture_shell_surface *surface;
+	struct aperture_output *previous = root->capture_output;
+
+	/* Once the surface leaves, its previous output would repaint as bare background,
+	 * and a recording still reading it until its replacement starts would record
+	 * black. Forced off before the move, it keeps the last frame, which PipeWire
+	 * consumers repeat. A failed switch binds the surface back to it. */
+	if (previous && previous != capture)
+		weston_output_power_off(previous->output);
+	if (capture->output->power_state == WESTON_OUTPUT_POWER_FORCED_OFF)
+		weston_output_power_on(capture->output);
 
 	wl_list_for_each(surface, &shell->surfaces, link) {
 		if (root_shell_surface(shell, surface) != root)
