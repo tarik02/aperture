@@ -41,3 +41,52 @@ Sessions created before this change keep their files where they were, because a 
 - top-level files of `<artifact_root>/…` → `outputs/`
 
 Relative paths of downloads, recordings, and uploads are unchanged, so already-issued signed URLs and stored references keep working. Playwright output that was named `<file>` is now `outputs/<file>`. Legacy files have no `sandboxPath`. When an old session next starts, it writes to the new root, and its legacy files stay listable and downloadable but are no longer reachable from the browser. The legacy mapping can be deleted once every session created before this change has expired.
+
+## Addendum: managing files and directories
+
+Session files and directories can be managed over REST in every retained state, so a file manager does not need the session to run:
+
+- `POST /api/sessions/:sessionId/files?directory=…` stores multipart files in any directory below the root, `uploads` by default. The data-plane `POST /sessions/:sessionId/uploads` stays for session-token holders of a running session.
+- `POST /api/sessions/:sessionId/files/directories` creates a directory with its missing parents.
+- `DELETE /api/sessions/:sessionId/files?relativePath=…` deletes a file or directory. A directory that still has entries needs `recursive=true`.
+- `POST /api/sessions/:sessionId/files/move` moves or renames a file or directory. It never overwrites and cannot move a directory into itself.
+
+The daemon applies these directly to the files root through `internal/sessionfiles`, using the same path rules as every other file route. It records `session.file_uploaded`, `session.file_deleted`, `session.file_moved`, `session.directory_created`, `session.directory_deleted`, and `session.directory_moved` events.
+
+The listing returns directories as entries next to files (`type: "directory"`), so empty directories show up. Directories are only removed when a user deletes them, never automatically. `downloads`, `recordings`, `uploads`, and `outputs` cannot be deleted or moved, because the browser, recorder, wrapper, and Playwright write into them.
+
+Anything still being written cannot be moved or deleted, including anything inside a directory being moved or deleted:
+- in-progress Chromium downloads (`.crdownload`)
+- upload placeholders
+- hidden entries, which are active recording segments and staged uploads
+
+Signed download URLs can be created with `disposition: inline` for previews. Every signed download is served with its detected `Content-Type`, byte ranges, and `X-Content-Type-Options: nosniff`. Content that can run scripts, such as HTML or SVG, also gets `Content-Security-Policy: sandbox`, so opening it inline cannot run scripts under the Aperture origin. Media, PDFs, and plain text are left unsandboxed because sandboxing only breaks Chrome's viewers.
+
+Changes that check limits take an exclusive lock on the files root, shared by the daemon and the session's wrapper, so concurrent uploads cannot overrun the storage quota together. Uploads stream into unnamed (`O_TMPFILE`) temporary files without the lock and hold it only for the final limit check and link (with a `/proc/self/fd` fallback where `linkat` with `AT_EMPTY_PATH` needs a capability, before Linux 6.10), so a slow client delays nothing but its own upload, and a crash mid-upload leaves nothing behind. Waiting for the lock ends with the request. Because streamed bytes count only once published, each process streams at most 3 uploads per session at once. A recording is likewise finalized under a hidden name and published without replacing an existing file, taking a numbered name instead. Because empty files and directories cost no quota bytes, the files root is also capped at 10000 entries. Creating any entry below the files root first creates `downloads`, `recordings`, `uploads`, and `outputs`, so their names stay reserved even in sessions from before the files root.
+
+## Addendum: filesystems without Linux-specific operations
+
+File operations below the files root try the local fast path first and fall back when the filesystem reports it unsupported, as NFS does. Each fallback is chosen by the error of the fast path, not by configuration:
+
+| Operation | Fast path | Fallback | Triggered by |
+| --- | --- | --- | --- |
+| Stage an upload (REST and data-plane) | unnamed `O_TMPFILE` file in the target directory | named file in the hidden `.staging` directory below the files root | `EOPNOTSUPP`, `EINVAL`, `ENOSYS`, `EISDIR` |
+| Publish a staged upload | `linkat` of the unnamed file (`AT_EMPTY_PATH`, then `/proc/self/fd`) | `linkat` of the staging file's name, then unlink it; both never overwrite | taken by the kind of staging file |
+| Move a file, publish a recording | `renameat2(RENAME_NOREPLACE)` | `link` then `unlink` | `EOPNOTSUPP`, `EINVAL`, `ENOSYS` |
+| Move a directory | `renameat2(RENAME_NOREPLACE)` | existence check, then `rename`, under the files lock | same |
+| Swap an upload over its placeholder | `renameat2(RENAME_EXCHANGE)` | `rename` over the placeholder | same |
+| Files lock | `flock` | same `flock`, taken on the hidden `.lock` file opened read-write, which NFS maps to POSIX locks | always |
+| Detect a removed target directory | zero link count | `ESTALE` from `fstat` | always |
+
+Named staging files count toward the storage quota while in flight but are neither listed nor counted as entries, and the wrapper's reconciliation of data-plane uploads never touches them. A process that stops mid-upload can leave one behind; the wrapper sweeps staging files older than 24 hours when a session starts or wakes, and garbage collection sweeps every session's.
+
+Limitations:
+
+- The whole store root cannot be on NFS: overlayfs does not accept an NFS upper directory. Only the files root is designed to cope.
+- A file deleted on NFS while still open becomes a hidden `.nfs…` entry until closed. It is not listed, but it makes its directory busy for delete and move, and deleting a directory recursively can fail until the file is closed.
+- The wrapper notices a rotated session token through inotify, which sees only changes made on the same host. The daemon and the wrapper run on the same host, so this holds.
+- Locks, `O_EXCL` placeholders, and hard links require NFSv3 or later with a lock manager.
+
+## Addendum: recordings that do not finish
+
+A recording writes segments into a hidden `.recording-<id>` directory and publishes the finished file without replacing an existing one. When the pipeline fails or finalizing fails, its non-empty segments are kept as numbered `…-failed` files next to the target and the hidden directory is removed, since the API could never reach it. A wrapper that starts or wakes does the same for segment directories a previous process left behind. A requested recording path is a session file path below `recordings/`, and its directory is created at start. Recording status never reports host paths.

@@ -821,6 +821,43 @@ type UploadedFileEvent struct {
 	SizeBytes int64
 }
 
+// FileEvent is an audited change to a session's files made through the API.
+type FileEvent struct {
+	Type    string
+	Message string
+	Data    map[string]any
+}
+
+// RecordFileEvents appends audit events for changes to a tenant session's files.
+func (s *Service) RecordFileEvents(ctx context.Context, tenantID, sessionID string, fileEvents []FileEvent) error {
+	sessionRow, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return err
+	}
+	events := make([]db.Event, 0, len(fileEvents))
+	for _, fileEvent := range fileEvents {
+		eventID, err := ids.NewUUIDv7()
+		if err != nil {
+			return err
+		}
+		dataJSON, err := json.Marshal(fileEvent.Data)
+		if err != nil {
+			return err
+		}
+		events = append(events, db.Event{
+			ID:           eventID,
+			TenantID:     sessionRow.TenantID,
+			ResourceType: "session",
+			ResourceID:   sessionRow.ID,
+			Type:         fileEvent.Type,
+			Message:      fileEvent.Message,
+			DataJSON:     string(dataJSON),
+			CreatedAt:    s.now().UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return s.repo.CreateEvents(ctx, events)
+}
+
 func (s *Service) PrepareFilesUploaded(ctx context.Context, sessionID, authorization string, files []UploadedFileEvent, actorKind, clientIP string) error {
 	sessionRow, err := s.wrapperSession(ctx, sessionID, authorization)
 	if err != nil {

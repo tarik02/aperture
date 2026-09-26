@@ -20,7 +20,10 @@ import {
   type SessionFileDownloadURLInput,
   type SessionsFilter,
   type SessionsListParams,
+  type DeleteSessionFileOptions,
+  type MoveSessionFileInput,
   type SessionUploadFile,
+  type UploadSessionFilesOptions,
 } from "./service.ts";
 import { uploadBody } from "./uploads.ts";
 
@@ -308,13 +311,65 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionId: string,
     files: ReadonlyArray<SessionUploadFile>,
+    options: UploadSessionFilesOptions = {},
+  ) {
+    const body = yield* uploadBody(files);
+    const response = yield* http
+      .post(`/api/sessions/${encodeURIComponent(sessionId)}/files`, {
+        body,
+        urlParams: compactQuery({ directory: options.directory }),
+      })
+      .pipe(
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.UploadSessionFiles201)),
+        tenantScoped(credentials),
+      );
+    return response.files;
+  });
+
+  const deleteSessionFile = Effect.fn("SessionsApi.deleteSessionFile")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    relativePath: string,
+    options: DeleteSessionFileOptions = {},
+  ) {
+    yield* api
+      .deleteSessionFile(sessionId, {
+        params: compactQuery({ relativePath, recursive: options.recursive }),
+      })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const createSessionDirectory = Effect.fn("SessionsApi.createSessionDirectory")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    relativePath: string,
+  ) {
+    return yield* api
+      .createSessionDirectory(sessionId, { payload: { relativePath } })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const moveSessionFile = Effect.fn("SessionsApi.moveSessionFile")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    input: MoveSessionFileInput,
+  ) {
+    return yield* api
+      .moveSessionFile(sessionId, { payload: input })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const uploadLiveSessionFiles = Effect.fn("SessionsApi.uploadLiveSessionFiles")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    files: ReadonlyArray<SessionUploadFile>,
     sessionToken?: string,
   ) {
     const body = yield* uploadBody(files);
     const response = yield* http
       .post(`/sessions/${encodeURIComponent(sessionId)}/uploads`, { body })
       .pipe(
-        Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.UploadSessionFiles201)),
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(Api.UploadLiveSessionFiles201)),
         authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),
       );
     return response.files;
@@ -360,6 +415,10 @@ export const makeSessionsApi = Effect.gen(function* () {
     downloadSessionRecording,
     streamSessionRecording,
     uploadSessionFiles,
+    uploadLiveSessionFiles,
+    deleteSessionFile,
+    moveSessionFile,
+    createSessionDirectory,
     setSessionViewport,
   });
 });

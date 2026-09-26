@@ -105,7 +105,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
 			return
 		}
-	case path == "/api/sessions/:sessionId/files",
+	case path == "/api/sessions/:sessionId/files" && c.Request.Method == http.MethodGet,
 		path == "/api/sessions/:sessionId/files/download-url":
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
 			return
@@ -161,6 +161,8 @@ var openAPIRoutesWithRequestBody = map[string]map[string]struct{}{
 		"/api/sessions/:sessionId/recordings": {},
 		"/api/sessions/:sessionId/recordings/:recordingId/retarget": {},
 		"/api/sessions/:sessionId/files/download-url":               {},
+		"/api/sessions/:sessionId/files/move":                       {},
+		"/api/sessions/:sessionId/files/directories":                {},
 		"/api/sessions/:sessionId/promote":                          {},
 	},
 	http.MethodPatch: {
@@ -550,6 +552,47 @@ func (s openAPIServer) ListSessionFiles(ctx context.Context, _ generated.ListSes
 	return openAPIPassthroughResponse{}, nil
 }
 
+func (s openAPIServer) UploadSessionFiles(ctx context.Context, request generated.UploadSessionFilesRequestObject) (generated.UploadSessionFilesResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	directory := "uploads"
+	if request.Params.Directory != nil {
+		directory = *request.Params.Directory
+	}
+	s.server.uploadSessionFiles(c, directory, request.Body)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) DeleteSessionFile(ctx context.Context, request generated.DeleteSessionFileRequestObject) (generated.DeleteSessionFileResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	recursive := request.Params.Recursive != nil && *request.Params.Recursive
+	s.server.deleteSessionFile(c, request.Params.RelativePath, recursive)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) CreateSessionDirectory(ctx context.Context, _ generated.CreateSessionDirectoryRequestObject) (generated.CreateSessionDirectoryResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.createSessionDirectory(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) MoveSessionFile(ctx context.Context, _ generated.MoveSessionFileRequestObject) (generated.MoveSessionFileResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.moveSessionFile(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
 func (s openAPIServer) CreateSessionFileDownloadURL(ctx context.Context, _ generated.CreateSessionFileDownloadURLRequestObject) (generated.CreateSessionFileDownloadURLResponseObject, error) {
 	c, ok := ctx.(*gin.Context)
 	if !ok {
@@ -866,6 +909,22 @@ func (openAPIPassthroughResponse) VisitStopSessionRecordingResponse(http.Respons
 }
 
 func (openAPIPassthroughResponse) VisitListSessionFilesResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitUploadSessionFilesResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitDeleteSessionFileResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitCreateSessionDirectoryResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitMoveSessionFileResponse(http.ResponseWriter) error {
 	return nil
 }
 

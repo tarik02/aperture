@@ -71,23 +71,30 @@ const all = yield * client.sessions.listAllSessions({ status: "running", limit: 
 
 `getSnapshotByName(name)` returns an `Option`, since the API has no direct lookup by name.
 
-### Session files and the live session
+### Session files
 
-`listSessionFiles(sessionId)` lists a session's files (downloads, recordings, uploads and Playwright output), also while it is not running. The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadSessionFiles` stores files for browser file inputs and returns each file's `sandboxPath` for CDP `DOM.setFileInputFiles`, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording as a `Stream` of bytes without buffering it; `downloadSessionRecording` still returns a `Blob`. Upload contents may be a `Blob`, a `Uint8Array` or a byte `Stream`. Any stream makes the whole request body streamed, which browsers other than Chromium cannot send. A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
+`listSessionFiles(sessionId)` lists a session's files and directories, tagged with `type`, and `sessionFileTree(entries)` arranges them into directory and file nodes for a tree view; `sessionFileRootDirectories` names the top-level directories that cannot be deleted, moved or renamed. `uploadSessionFiles(sessionId, files, { directory })`, `createSessionDirectory(sessionId, relativePath)`, `deleteSessionFile(sessionId, relativePath, { recursive })` and `moveSessionFile(sessionId, { from, to })` manage files and folders in any retained state; moves never overwrite, and a non-empty folder is deleted only with `recursive`. `createSessionFileDownloadURL(sessionId, { relativePath, disposition: "inline" })` returns a signed URL usable as an `<img>` source. Upload contents may be a `Blob`, a `Uint8Array` or a byte `Stream`. Any stream makes the whole request body streamed, which browsers other than Chromium cannot send. Each file carries `relativePath` for `browser_file_upload` and `sandboxPath` for CDP `DOM.setFileInputFiles`.
 
 ```ts
 const program = Effect.gen(function* () {
   const client = yield* ApertureClient;
-  const fs = yield* FileSystem.FileSystem;
-  const uploaded = yield* client.sessions.uploadSessionFiles(sessionId, [
-    { name: "invoice.pdf", content: fs.stream("./invoice.pdf") },
-  ]);
-  yield* client.sessions
-    .streamSessionRecording(sessionId, recordingId)
-    .pipe(Stream.run(fs.sink("./recording.webm")));
-  return uploaded.map((file) => file.relativePath);
+  const tree = sessionFileTree(yield* client.sessions.listSessionFiles(sessionId));
+  yield* client.sessions.uploadSessionFiles(sessionId, [{ name: file.name, content: file }]);
+  yield* client.sessions.moveSessionFile(sessionId, {
+    from: "downloads/report.pdf",
+    to: "uploads/report.pdf",
+  });
+  const preview = yield* client.sessions.createSessionFileDownloadURL(sessionId, {
+    relativePath: "outputs/page.png",
+    disposition: "inline",
+  });
+  return { tree, previewUrl: preview.url };
 });
 ```
+
+### The live session
+
+The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadLiveSessionFiles` stores files in its `uploads` directory, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording as a `Stream` of bytes without buffering it; `downloadSessionRecording` still returns a `Blob`. A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
 
 ### Passkeys
 

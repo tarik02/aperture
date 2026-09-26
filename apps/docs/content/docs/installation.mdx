@@ -37,6 +37,7 @@ The package provides:
 Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment variables). Required values include:
 
 - `store_root`, `runtime_root` — persistent and runtime state directories
+  (`store_root` must be a local filesystem: session overlays need overlayfs, which cannot write to NFS. Session files themselves also work on NFS; see ADR 0012.)
 - `external_base_url` — public URL Traefik serves (for generated connection and signed-file links)
 - `embed_allowed_origins` — optional origins of other web apps that embed shared sessions (see [Session sharing](/docs/session-sharing#embedding))
 - MCP settings — enabled by default; see the example below
