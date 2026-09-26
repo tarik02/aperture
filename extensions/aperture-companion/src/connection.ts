@@ -216,14 +216,8 @@ export function connectionLabel(connection: Connection): string {
 export const listSnapshots = Effect.fn("listSnapshots")(
   function* (connection: Connection) {
     const api = yield* SnapshotsApi;
-    const names: string[] = [];
-    let cursor: string | undefined;
-    do {
-      const page = yield* api.listSnapshots(credentials(connection), { limit: 100, cursor });
-      names.push(...page.data.map(({ name }) => name));
-      cursor = page.meta.hasMore ? page.meta.nextCursor : undefined;
-    } while (cursor !== undefined);
-    return names;
+    const snapshots = yield* api.listAllSnapshots(credentials(connection), { limit: 100 });
+    return snapshots.map(({ name }) => name);
   },
   (effect, connection) => withApi(connection.origin)(effect),
 );
