@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aperture/aperture/internal/config"
@@ -11,6 +12,7 @@ import (
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/traefik"
 )
@@ -76,6 +78,9 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 		if expired {
 			result.ExpiredSessions++
 		}
+	}
+	if err := s.sweepUploadStaging(); err != nil {
+		return nil, err
 	}
 
 	artifactsCutoff := now.Add(-time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
@@ -249,4 +254,19 @@ func (s *Service) collectSnapshot(ctx context.Context, snapshotRow *db.Snapshot,
 		return false, err
 	}
 	return true, nil
+}
+
+// sweepUploadStaging removes upload staging files that a process stopped
+// mid-upload left behind, on filesystems where uploads cannot stage unnamed files.
+func (s *Service) sweepUploadStaging() error {
+	roots, err := filepath.Glob(filepath.Join(s.cfg.StoreRoot, "sessions", "*", "*", "*", "files"))
+	if err != nil {
+		return err
+	}
+	for _, root := range roots {
+		if err := sessionfiles.SweepStaging(root, sessionfiles.StaleStagingAge); err != nil {
+			return fmt.Errorf("sweep upload staging: %w", err)
+		}
+	}
+	return nil
 }

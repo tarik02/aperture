@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/proxy"
+	"github.com/aperture/aperture/internal/sessionfiles"
 )
 
 const (
@@ -322,6 +323,9 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	}
 	if err := r.reconcilePendingUploads(); err != nil {
 		return nil, nil, fmt.Errorf("reconcile pending uploads: %w", err)
+	}
+	if err := sessionfiles.SweepStaging(r.values.FilesDir, sessionfiles.StaleStagingAge); err != nil {
+		return nil, nil, fmt.Errorf("sweep upload staging: %w", err)
 	}
 	liveSession, err := newLiveSession(r)
 	if err != nil {

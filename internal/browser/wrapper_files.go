@@ -25,7 +25,7 @@ const defaultSessionStorageQuotaBytes int64 = 1 << 30
 
 type pendingUpload struct {
 	eventID string
-	file    *os.File
+	staged  sessionfiles.Staged
 	name    string
 	info    os.FileInfo
 }
@@ -86,7 +86,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 	pending, err := r.stageUploads(req, uploadsDirFD, limits)
 	defer func() {
 		for _, upload := range pending {
-			_ = upload.file.Close()
+			upload.staged.Discard()
 		}
 	}()
 	if err == nil {
@@ -151,37 +151,27 @@ func (r *wrapperRuntime) stageUploads(req *http.Request, uploadsDirFD int, limit
 			_ = part.Close()
 			return pending, err
 		}
-		fileFD, err := unix.Openat2(uploadsDirFD, ".", &unix.OpenHow{
-			Flags:   unix.O_WRONLY | unix.O_TMPFILE | unix.O_CLOEXEC,
-			Mode:    0o600,
-			Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-		})
-		if err != nil {
-			_ = part.Close()
-			return pending, uploadRejection{http.StatusInternalServerError, "create upload failed"}
-		}
-		name := sessionfiles.SanitizeName(part.FileName())
-		file := os.NewFile(uintptr(fileFD), name)
 		remaining := max(limits.storageQuotaBytes-footprint, 0)
-		limit := min(limits.maxFileBytes, remaining)
-		written, copyErr := io.Copy(file, io.LimitReader(part, limit+1))
-		info, statErr := file.Stat()
-		syncErr := file.Sync()
+		staged, err := sessionfiles.Stage(r.values.FilesDir, uploadsDirFD, part, min(limits.maxFileBytes, remaining))
 		_ = part.Close()
-		if copyErr != nil || statErr != nil || syncErr != nil {
-			_ = file.Close()
+		if err != nil {
 			return pending, uploadRejection{http.StatusInternalServerError, "write upload failed"}
 		}
-		if written > limits.maxFileBytes {
-			_ = file.Close()
+		info, err := staged.File.Stat()
+		if err != nil {
+			staged.Discard()
+			return pending, uploadRejection{http.StatusInternalServerError, "write upload failed"}
+		}
+		if staged.Size > limits.maxFileBytes {
+			staged.Discard()
 			return pending, uploadRejection{http.StatusRequestEntityTooLarge, "file exceeds upload limit"}
 		}
-		if written > remaining {
-			_ = file.Close()
+		if staged.Size > remaining {
+			staged.Discard()
 			return pending, uploadRejection{http.StatusInsufficientStorage, "session storage quota exceeded"}
 		}
-		footprint += written
-		pending = append(pending, pendingUpload{eventID: eventID, file: file, name: name, info: info})
+		footprint += staged.Size
+		pending = append(pending, pendingUpload{eventID: eventID, staged: staged, name: sessionfiles.SanitizeName(part.FileName()), info: info})
 	}
 	if len(pending) == 0 {
 		return pending, uploadRejection{http.StatusBadRequest, "no files uploaded"}
@@ -237,9 +227,9 @@ func (r *wrapperRuntime) commitUploads(req *http.Request, uploadsDirFD int, pend
 	}
 	for _, upload := range pending {
 		hiddenName := ".upload-" + upload.eventID
-		err := sessionfiles.LinkUnnamed(upload.file, uploadsDirFD, hiddenName)
+		err := upload.staged.Link(uploadsDirFD, hiddenName)
 		if err == nil {
-			err = unix.Renameat2(uploadsDirFD, hiddenName, uploadsDirFD, upload.name, unix.RENAME_EXCHANGE)
+			err = sessionfiles.ReplaceWith(uploadsDirFD, hiddenName, upload.name)
 		}
 		if err != nil {
 			unlockFiles()
@@ -277,8 +267,11 @@ func checkCommittedUploadLimits(values RuntimeEnvValues, uploadsDirFD int, pendi
 	if err != nil {
 		return err
 	}
+	// Named staging files are below the files root, so Footprint counts them.
 	for _, upload := range pending {
-		footprint += upload.info.Size()
+		if !upload.staged.OnDisk() {
+			footprint += upload.staged.Size
+		}
 	}
 	if footprint > limits.storageQuotaBytes {
 		return uploadRejection{http.StatusInsufficientStorage, "session storage quota exceeded"}
@@ -481,7 +474,7 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 		}
 		if hiddenExists {
 			if finalExists {
-				err = unix.Renameat2(uploadsDirFD, hiddenName, uploadsDirFD, name, unix.RENAME_EXCHANGE)
+				err = sessionfiles.ReplaceWith(uploadsDirFD, hiddenName, name)
 			} else {
 				err = unix.Renameat(uploadsDirFD, hiddenName, uploadsDirFD, name)
 			}

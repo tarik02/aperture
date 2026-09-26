@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 
 	"github.com/aperture/aperture/internal/paths"
@@ -224,7 +223,7 @@ func Move(ctx context.Context, layout paths.SessionLayout, from, to string) (Ent
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Renameat2(unix.AT_FDCWD, source, unix.AT_FDCWD, target, unix.RENAME_NOREPLACE); err != nil {
+	if err := RenameNoReplace(source, target); err != nil {
 		if errors.Is(err, unix.EEXIST) {
 			return nil, ErrExists
 		}
@@ -359,18 +358,16 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 		return nil, err
 	}
 
-	// Parts stream into unnamed temporary files without the lock, so a slow client
-	// delays only its own upload, and nothing is left behind if the daemon stops
-	// mid-upload. They are counted explicitly when the limits are checked again.
-	type staged struct {
-		file *os.File
-		name string
-		size int64
+	// Parts are staged without the lock, so a slow client delays only its own
+	// upload. The limits are checked again under the lock before publishing.
+	type pendingUpload struct {
+		staged Staged
+		name   string
 	}
-	pending := make([]staged, 0)
+	pending := make([]pendingUpload, 0)
 	defer func() {
 		for _, upload := range pending {
-			_ = upload.file.Close()
+			upload.staged.Discard()
 		}
 	}()
 	for {
@@ -390,12 +387,13 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 			return nil, ErrTooManyFiles
 		}
 		remaining := max(limits.StorageQuotaBytes-footprint, 0)
-		file, written, err := writeTemp(dirFD, part, min(limits.MaxFileBytes, remaining))
+		staged, err := Stage(layout.Files.Root, dirFD, part, min(limits.MaxFileBytes, remaining))
 		_ = part.Close()
 		if err != nil {
 			return nil, err
 		}
-		pending = append(pending, staged{file: file, name: SanitizeName(part.FileName()), size: written})
+		pending = append(pending, pendingUpload{staged: staged, name: SanitizeName(part.FileName())})
+		written := staged.Size
 		if written > limits.MaxFileBytes {
 			return nil, ErrTooLarge
 		}
@@ -413,9 +411,12 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 		return nil, err
 	}
 	defer unlock()
+	// Named staging files are below the files root, so Footprint counts them.
 	var stagedBytes int64
 	for _, upload := range pending {
-		stagedBytes += upload.size
+		if !upload.staged.OnDisk() {
+			stagedBytes += upload.staged.Size
+		}
 	}
 	// The target directory may have been moved or deleted while the upload streamed.
 	if !sameDirectory(dir, dirFD) {
@@ -427,7 +428,7 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 	published := make([]string, 0, len(pending))
 	files := make([]File, 0, len(pending))
 	for _, upload := range pending {
-		name, err := publish(upload.file, dirFD, upload.name)
+		name, err := publish(upload.staged, dirFD, upload.name)
 		if err != nil {
 			for _, done := range published {
 				_ = unix.Unlinkat(dirFD, done, 0)
@@ -436,7 +437,7 @@ func Store(ctx context.Context, layout paths.SessionLayout, directory string, pa
 		}
 		published = append(published, name)
 		final := filepath.Join(dir, name)
-		info, err := upload.file.Stat()
+		info, err := upload.staged.File.Stat()
 		if err != nil {
 			for _, done := range published {
 				_ = unix.Unlinkat(dirFD, done, 0)
@@ -482,43 +483,6 @@ func checkStagedLimits(layout paths.SessionLayout, dir string, staged int, stage
 	return nil
 }
 
-// writeTemp copies at most limit+1 bytes into an unnamed file in the directory, so
-// a result above limit tells the caller the content was too large.
-func writeTemp(dirFD int, content io.Reader, limit int64) (*os.File, int64, error) {
-	fd, err := unix.Openat(dirFD, ".", unix.O_WRONLY|unix.O_TMPFILE|unix.O_CLOEXEC, 0o644)
-	if err != nil {
-		return nil, 0, err
-	}
-	file := os.NewFile(uintptr(fd), "upload")
-	written, copyErr := io.Copy(file, io.LimitReader(content, limit+1))
-	syncErr := file.Sync()
-	if err := errors.Join(copyErr, syncErr); err != nil {
-		_ = file.Close()
-		return nil, 0, err
-	}
-	return file, written, nil
-}
-
-// LinkUnnamed gives an O_TMPFILE file a name in the directory, failing with EEXIST
-// when the name is taken. linkat with AT_EMPTY_PATH needs CAP_DAC_READ_SEARCH
-// before Linux 6.10, so it falls back to linking the file's /proc/self/fd entry,
-// as open(2) documents for O_TMPFILE.
-func LinkUnnamed(file *os.File, dirFD int, name string) error {
-	err := unix.Linkat(int(file.Fd()), "", dirFD, name, unix.AT_EMPTY_PATH)
-	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.EPERM) {
-		err = unix.Linkat(unix.AT_FDCWD, fmt.Sprintf("/proc/self/fd/%d", file.Fd()), dirFD, name, unix.AT_SYMLINK_FOLLOW)
-	}
-	if errors.Is(err, unix.ENOENT) && directoryRemoved(dirFD) {
-		return ErrNotFound
-	}
-	return err
-}
-
-func directoryRemoved(dirFD int) bool {
-	var stat unix.Stat_t
-	return unix.Fstat(dirFD, &stat) == nil && stat.Nlink == 0
-}
-
 // sameDirectory reports whether dir still names the directory open as dirFD.
 func sameDirectory(dir string, dirFD int) bool {
 	var named, open unix.Stat_t
@@ -526,27 +490,6 @@ func sameDirectory(dir string, dirFD int) bool {
 		return false
 	}
 	return named.Dev == open.Dev && named.Ino == open.Ino
-}
-
-// publish links an unnamed file into the directory under name, or a numbered
-// variant when name is taken. Linking never replaces an existing entry.
-func publish(file *os.File, dirFD int, name string) (string, error) {
-	extension := filepath.Ext(name)
-	stem := strings.TrimSuffix(name, extension)
-	for sequence := 0; ; sequence++ {
-		candidate := name
-		if sequence > 0 {
-			candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
-		}
-		err := LinkUnnamed(file, dirFD, candidate)
-		if errors.Is(err, unix.EEXIST) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		return candidate, nil
-	}
 }
 
 func prepareTarget(layout paths.SessionLayout, relative string) (string, string, error) {
@@ -564,40 +507,6 @@ func prepareTarget(layout paths.SessionLayout, relative string) (string, string,
 	return filepath.Join(dir, path.Base(normalized)), normalized, nil
 }
 
-// Lock serializes limit checks and changes below a session's files root across the
-// daemon and the session's wrapper, which both write there. It gives up when ctx
-// ends, so a caller whose client went away does not keep waiting. Holders only
-// check limits and rename; nobody streams request bodies under it.
-func Lock(ctx context.Context, root string) (func(), error) {
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, err
-	}
-	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	for {
-		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, unix.EWOULDBLOCK) {
-			_ = unix.Close(fd)
-			return nil, err
-		}
-		select {
-		case <-ctx.Done():
-			_ = unix.Close(fd)
-			return nil, context.Cause(ctx)
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
-	return func() {
-		_ = unix.Flock(fd, unix.LOCK_UN)
-		_ = unix.Close(fd)
-	}, nil
-}
-
 // CheckEntryBudget fails when adding entries would take the files root past
 // MaxEntriesPerSession. Empty files and directories cost no quota bytes, so this
 // is what bounds them.
@@ -612,15 +521,22 @@ func CheckEntryBudget(root string, adding int) error {
 	return nil
 }
 
-// CountEntries counts every file and directory below root, hidden ones included.
+// CountEntries counts every file and directory below root, hidden ones included,
+// except the lock file and staging directory.
 func CountEntries(root string) (int, error) {
 	count := 0
-	err := filepath.WalkDir(root, func(full string, _ fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(full string, entry fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		if err != nil {
 			return err
+		}
+		if internalEntry(root, full) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if full != root {
 			count++

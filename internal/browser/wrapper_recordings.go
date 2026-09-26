@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
 )
@@ -786,7 +787,7 @@ func publishRecording(source, target string) (string, error) {
 		if sequence > 0 {
 			candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
 		}
-		err := unix.Renameat2(unix.AT_FDCWD, source, unix.AT_FDCWD, candidate, unix.RENAME_NOREPLACE)
+		err := sessionfiles.RenameNoReplace(source, candidate)
 		if errors.Is(err, unix.EEXIST) {
 			continue
 		}
