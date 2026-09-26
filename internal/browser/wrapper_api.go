@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/proxy"
 	"github.com/aperture/aperture/internal/sessionfiles"
 )
@@ -327,6 +328,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	if err := sessionfiles.SweepStaging(r.values.FilesDir, sessionfiles.StaleStagingAge); err != nil {
 		return nil, nil, fmt.Errorf("sweep upload staging: %w", err)
 	}
+	sweepRecordingSegments(paths.SessionFiles(r.values.FilesDir).Recordings)
 	liveSession, err := newLiveSession(r)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create live session: %w", err)

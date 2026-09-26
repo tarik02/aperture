@@ -24,6 +24,7 @@ var (
 	errBrowserControlFailed        = errors.New("browser control failed")
 	errRecordingInvalidState       = errors.New("recording invalid state")
 	errRecordingNotFound           = errors.New("recording not found")
+	errRecordingCodecUnavailable   = errors.New("recording codec unavailable")
 	errSessionFileNotFound         = errors.New("session file not found")
 )
 
@@ -162,6 +163,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_invalid_state", err.Error()
 	case errors.Is(err, session.ErrNotRunning):
 		return http.StatusConflict, "session_not_running", err.Error()
+	case errors.Is(err, errRecordingCodecUnavailable):
+		return http.StatusUnprocessableEntity, "recording_codec_unavailable", err.Error()
 	case errors.Is(err, errRecordingNotFound):
 		return http.StatusNotFound, "recording_not_found", err.Error()
 	case errors.Is(err, errRecordingInvalidState):

@@ -39,7 +39,8 @@ export const Recording = Schema.Struct({
   captureGeneration: positiveInt,
   status: Schema.Literals(["starting", "running", "stopped", "failed"]),
   stopReason: Schema.optionalKey(Schema.String),
-  path: Schema.String,
+  relativePath: Schema.String,
+  sandboxPath: Schema.optionalKey(Schema.String),
   startedAt: Schema.String,
   stoppedAt: Schema.optionalKey(Schema.String),
   sizeBytes: Schema.optionalKey(
