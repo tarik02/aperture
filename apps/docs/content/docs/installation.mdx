@@ -104,14 +104,14 @@ Set `store_root` and `cold_root` in the config file, not through environment var
 `cold_root` holds a `.aperture-root` marker with the install ID stored in the database. `aperture serve` checks it before using `cold_root`:
 
 - A marker with this install's ID: start.
-- A marker with another ID: refuse to start. `cold_root` holds another install's data, or the database was replaced. Remove the marker only when that is intended.
+- A marker with another ID: refuse to start. `cold_root` holds another install's data, or the database was replaced. If the database was restored from a backup older than this marker or recreated for the same data, replace the contents of `cold_root/.aperture-root` with the install ID the error prints.
 - No marker, and `cold_root` is `store_root`, or the database has no snapshot that garbage collection has not removed and no session that has not expired: write the marker and start. Upgraded installs that keep the default `cold_root` get their marker this way.
 - No marker, a separate `cold_root`, and such snapshots or sessions exist: refuse to start. The share is not mounted, or `cold_root` points somewhere else than the data.
 
 When `cold_root` is on NFS:
 
 - Export it without root squashing to the Aperture host (`no_root_squash`). The mount helper runs as root, creates each session's files directories there, and overlayfs reads snapshot layers with the credentials of the root that mounted them, including private profile files.
-- Mount it before Aperture starts. Once the install has data, the missing marker of an unmounted share stops Aperture from starting; a fresh install started before the mount marks the bare mount point instead.
+- Mount the share before the first start. A fresh install marks whatever directory is at `cold_root`, so starting before the mount marks the bare mount point, and snapshots and session files land there until the share is mounted over them. Once the install has data, the missing marker of an unmounted share stops Aperture from starting.
 - Snapshots are overlay lower layers of the sessions created from them; do not change them from another host.
 
 Promotion copies the session's overlay upper directory from `store_root` into the new snapshot under `cold_root`, and hard-links files the snapshot shares with its parent snapshot, which is on the same filesystem.

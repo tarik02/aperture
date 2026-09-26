@@ -73,10 +73,7 @@ func Prepare(ctx context.Context, cfg config.Config, repo *db.Repository) error 
 	switch {
 	case marker == installID:
 	case marker != "":
-		return fmt.Errorf(
-			"%w: %s is marked for install %s, the database is install %s; point cold_root at this install's data",
-			ErrColdRootForeign, cfg.ColdRoot, marker, installID,
-		)
+		return foreignMarkerError(cfg, marker, installID)
 	default:
 		hasData, err := repo.HasColdData(ctx)
 		if err != nil {
@@ -184,4 +181,17 @@ func pendingMoves(cfg config.Config) ([]move, error) {
 func newMove(cfg config.Config, kind, id, from string) move {
 	rel := strings.TrimPrefix(from, filepath.Clean(cfg.StoreRoot)+string(filepath.Separator))
 	return move{kind: kind, id: id, from: from, to: filepath.Join(cfg.ColdRoot, rel)}
+}
+
+// foreignMarkerError explains a marker with another install ID. A database
+// restored from before the install ID existed, or recreated for the same data,
+// gets a new ID, and replacing the marker adopts the data.
+func foreignMarkerError(cfg config.Config, marker, installID string) error {
+	path := filepath.Join(cfg.ColdRoot, markerName)
+	return fmt.Errorf(
+		"%w: %s is marked for install %s, the database is install %s; point cold_root at this install's data, "+
+			"or, if this database was restored from a backup older than migration 000017 or recreated for the same data, "+
+			"replace the contents of %s with %s",
+		ErrColdRootForeign, cfg.ColdRoot, marker, installID, path, installID,
+	)
 }

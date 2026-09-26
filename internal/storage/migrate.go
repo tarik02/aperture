@@ -54,10 +54,7 @@ func Migrate(ctx context.Context, cfg config.Config, repo *db.Repository, out io
 		return err
 	}
 	if marker != "" && marker != installID {
-		return fmt.Errorf(
-			"%w: %s is marked for install %s, the database is install %s",
-			ErrColdRootForeign, cfg.ColdRoot, marker, installID,
-		)
+		return foreignMarkerError(cfg, marker, installID)
 	}
 	same, err := sameRoot(cfg)
 	if err != nil {

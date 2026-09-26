@@ -95,7 +95,7 @@ volumes:
       device: ":/export/aperture"
 ```
 
-The export must not squash root. On start the container makes the mounted directory owned by its `aperture` user. Aperture refuses to start when the volume is missing its `.aperture-root` marker while the database has snapshots or sessions, which catches a share that failed to mount, and when a root set only in the environment differs from the config file the mount helpers read; see [Storage](/docs/installation#storage).
+Mount the `cold_root` share before the first start: a fresh install marks whatever directory is there, so starting without the share marks the bare mount point and keeps data there. The export must not squash root. On start the container makes the mounted directory owned by its `aperture` user. Aperture refuses to start when the volume is missing its `.aperture-root` marker while the database has snapshots or sessions, which catches a share that failed to mount, and when a root set only in the environment differs from the config file the mount helpers read; see [Storage](/docs/installation#storage).
 
 To move an existing deployment's snapshots and session files to the new `cold_root`, start the container with the storage override. Aperture refuses to start until the data is moved and s6 keeps retrying, so run the migration in the container, after which Aperture starts on its own:
 
