@@ -50,7 +50,7 @@ These routes require `sessions:write`:
 - `POST /api/sessions/:sessionId/recordings/:recordingId/retarget` — move a running tab recording to another ready target
 - `POST /api/sessions/:sessionId/recordings/:recordingId/stop` — stop and return the completed `SessionFile`
 
-Public recording results use `relativePath`; absolute host paths are never returned. The formal stop route finalizes without media transfer and returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`.
+Public recording results use `relativePath`; absolute host paths are never returned. The formal stop route finalizes without media transfer and returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`, plus `sandboxPath`.
 
 ## MCP
 

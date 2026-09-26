@@ -11,19 +11,47 @@ import (
 
 // SessionLayout holds derived filesystem paths for a session.
 type SessionLayout struct {
-	SessionID  string
-	Root       string
-	Upper      string
-	Work       string
-	Merged     string
-	Downloads  string
-	Cache      string
-	Metadata   string
-	Recordings string
+	SessionID string
+	Root      string
+	Upper     string
+	Work      string
+	Merged    string
+	Cache     string
+	Metadata  string
+	Files     SessionFilesLayout
+	// Artifacts holds operational output such as logs and crash dumps, which are
+	// not session files.
 	Artifacts  string
 	Logs       string
 	CrashDumps string
 	RuntimeEnv string
+}
+
+// SessionFilesLayout holds the single root of a session's files and the
+// directories below it that the browser, recorder, uploads, and Playwright MCP
+// write to. Session file relative paths are relative to Root.
+type SessionFilesLayout struct {
+	Root       string
+	Downloads  string
+	Recordings string
+	Uploads    string
+	Outputs    string
+}
+
+// SandboxFilesRoot is where the browser sandbox mounts a session's files root.
+// It is the same for every session, so paths below it can be handed to CDP
+// clients and stored in browser profiles without revealing host paths.
+const SandboxFilesRoot = "/session/files"
+
+// SessionFiles derives the session file directories below root.
+func SessionFiles(root string) SessionFilesLayout {
+	return SessionFilesLayout{
+		Root:       root,
+		Downloads:  filepath.Join(root, "downloads"),
+		Recordings: filepath.Join(root, "recordings"),
+		Uploads:    filepath.Join(root, "uploads"),
+		Outputs:    filepath.Join(root, "outputs"),
+	}
 }
 
 // SnapshotLayout holds derived filesystem paths for a snapshot.
@@ -80,10 +108,9 @@ func Session(cfg config.Config, sessionID string) (SessionLayout, error) {
 		Upper:      filepath.Join(root, "upper"),
 		Work:       filepath.Join(root, "work"),
 		Merged:     filepath.Join(root, "merged"),
-		Downloads:  filepath.Join(root, "downloads"),
 		Cache:      filepath.Join(root, "cache"),
 		Metadata:   filepath.Join(root, "metadata"),
-		Recordings: filepath.Join(root, "recordings"),
+		Files:      SessionFiles(filepath.Join(root, "files")),
 		Artifacts:  artifactsRoot,
 		Logs:       filepath.Join(artifactsRoot, "logs"),
 		CrashDumps: filepath.Join(artifactsRoot, "crash-dumps"),

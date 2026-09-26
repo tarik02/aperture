@@ -8,11 +8,14 @@ These public routes are forwarded to the running session:
 
 - `GET /sessions/:sessionId/session` — live-session WebSocket; editor and viewer capabilities allowed
 - `GET /sessions/:sessionId/browser/status` — `sessions:read`
-- `POST /sessions/:sessionId/browser/viewport` — `sessions:write`
+- `POST /sessions/:sessionId/browser/viewport` — `sessions:write`, `sessionToken`, or an editor capability
+- `POST /sessions/:sessionId/uploads` — `sessions:write` or `sessionToken`
 - `GET /sessions/:sessionId/webrtc/signal` — WebRTC signaling WebSocket
 - `GET /sessions/:sessionId/tunnel` — local tunnel WebSocket; `sessionToken` or `sessions:write`
 
 Use an authorized API bearer token and tenant header, or the bound `sessionToken`, for routed live-session requests.
+
+These routes exist only while the session runs; otherwise they answer `404`. The OpenAPI spec (`/openapi.json`) describes viewport and uploads under the `live-session` tag. Authorization failures use the API error envelope; failures inside the session return `{ "error": "<message>" }` without a stable code.
 
 ## Local tunnel
 
@@ -44,17 +47,27 @@ Reliable commands use a nonempty `requestId` and receive a matching typed `.resu
 
 ## Viewport
 
-Viewport body:
+Viewport body; `targetId` names a top-level target from `browser/status`:
 
 ```json
 {
+  "targetId": "0123456789ABCDEF0123456789ABCDEF",
   "width": 1280,
   "height": 720,
   "deviceScaleFactor": 1
 }
 ```
 
-The response reports the logical size, DPR-scaled content rectangle, `64x64`-bucketed media canvas, and effective scale.
+The response contains `targetId`, the media `generation`, and a `viewport` with the logical size, DPR-scaled content rectangle, `64x64`-bucketed media canvas, and effective scale. Widths below 500 are raised to 500.
+
+## Uploads
+
+`POST /sessions/:sessionId/uploads` takes `multipart/form-data`; every part with a filename becomes the session file `uploads/<name>`. Names are sanitized and get a numeric suffix instead of overwriting. The `201` response is `{ "files": [...] }` with the same fields as `session_files.list`; pass a `relativePath` to `browser_file_upload`, or a `sandboxPath` (such as `/session/files/uploads/invoice.pdf`) to CDP `DOM.setFileInputFiles`. Limits: 100 files per request, 1000 uploads per session, `session_upload_max_file_bytes` per file (`413`), and `session_storage_quota_bytes` per session (`507`). A rejected request stores nothing.
+
+```bash
+curl -fsS -H "Authorization: Bearer $SESSION_TOKEN" \
+  -F "files=@invoice.pdf" "$APERTURE_BASE_URL/sessions/$SESSION_ID/uploads"
+```
 
 ## CDP proxy
 

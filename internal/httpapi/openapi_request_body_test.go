@@ -31,7 +31,7 @@ func TestOpenAPIRoutesWithRequestBodyMatchSpec(t *testing.T) {
 	inSpec := make(map[string]map[string]struct{})
 	for specPath, item := range spec.Paths.Map() {
 		for method, operation := range item.Operations() {
-			if operation.RequestBody == nil {
+			if operation.RequestBody == nil || isLiveSessionOperation(operation) {
 				continue
 			}
 			if inSpec[method] == nil {

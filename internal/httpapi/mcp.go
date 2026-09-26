@@ -520,6 +520,7 @@ type mcpSessionFile struct {
 	Size         int64     `json:"size"`
 	ModifiedAt   time.Time `json:"modifiedAt"`
 	MIMEType     string    `json:"mimeType"`
+	SandboxPath  string    `json:"sandboxPath,omitempty"`
 }
 type mcpSessionFilesOutput struct {
 	Files []mcpSessionFile `json:"files"`
@@ -643,9 +644,9 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 	}
 	description := definition.Description
 	if definition.Name == "browser_file_upload" {
-		description = "Upload one or multiple files from the session artifact directory"
+		description = "Upload one or multiple session files into a file chooser"
 		if paths, ok := properties["paths"].(map[string]any); ok {
-			paths["description"] = "Paths relative to the session artifact directory, or absolute paths within it. Files from downloads or recordings must be uploaded into the artifact directory first. Omit to cancel the file chooser."
+			paths["description"] = "Session file relative paths, such as uploads/report.pdf or downloads/invoice.pdf, as returned by session_files.list. Omit to cancel the file chooser."
 		}
 	}
 	tool := &mcp.Tool{Name: definition.Name, Title: definition.Title, Description: description, InputSchema: schema, OutputSchema: definition.OutputSchema}

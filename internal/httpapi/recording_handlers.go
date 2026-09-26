@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 
 	"github.com/aperture/aperture/internal/paths"
@@ -303,12 +302,9 @@ func (s *Server) recordingRelativePath(sessionID, path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("%w: wrapper returned an empty recording path", errBrowserControlFailed)
 	}
-	if err := paths.ValidateTrustedPath(layout.Recordings, path); err != nil {
-		return "", fmt.Errorf("%w: invalid wrapper recording path: %w", errBrowserControlFailed, err)
+	relativePath, err := sessionfiles.RelativePath(layout, path)
+	if err != nil || !strings.HasPrefix(relativePath, "recordings/") {
+		return "", fmt.Errorf("%w: invalid wrapper recording path %q", errBrowserControlFailed, relativePath)
 	}
-	relativePath, err := filepath.Rel(layout.Root, path)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", errBrowserControlFailed, err)
-	}
-	return filepath.ToSlash(relativePath), nil
+	return relativePath, nil
 }

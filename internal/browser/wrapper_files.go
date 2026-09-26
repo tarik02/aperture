@@ -7,17 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/aperture/aperture/internal/ids"
+	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"golang.org/x/sys/unix"
 )
 
@@ -26,121 +26,17 @@ const defaultSessionStorageQuotaBytes int64 = 1 << 30
 const maxUploadFilesPerRequest = 100
 const maxUploadFilesPerSession = 1000
 
-type wrapperFile struct {
-	Kind         string    `json:"kind"`
-	Name         string    `json:"name"`
-	Path         string    `json:"path"`
-	AbsolutePath string    `json:"absolutePath"`
-	SizeBytes    int64     `json:"sizeBytes"`
-	ModifiedAt   time.Time `json:"modifiedAt"`
-}
-
 type pendingUpload struct {
 	eventID string
 	file    *os.File
-	result  wrapperFile
+	name    string
+	info    os.FileInfo
 }
 
 type pendingUploadAudit struct {
 	EventID   string `json:"eventId"`
 	Path      string `json:"path"`
 	SizeBytes int64  `json:"sizeBytes"`
-}
-
-func (r *wrapperRuntime) handleFiles(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	files := make([]wrapperFile, 0)
-	for _, kind := range []string{"uploads", "downloads", "artifacts"} {
-		dir, _ := r.fileDirectory(kind)
-		entries, err := os.ReadDir(dir)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			writeWrapperError(w, http.StatusInternalServerError, "list files failed")
-			return
-		}
-		for _, entry := range entries {
-			if entry.Type()&os.ModeSymlink != 0 || strings.HasPrefix(entry.Name(), ".upload-") {
-				continue
-			}
-			info, err := entry.Info()
-			if err != nil {
-				writeWrapperError(w, http.StatusInternalServerError, "list files failed")
-				return
-			}
-			if info.Mode().IsRegular() {
-				files = append(files, wrapperFileResponse(kind, entry.Name(), dir, info))
-			}
-		}
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].Kind == files[j].Kind {
-			return files[i].Name < files[j].Name
-		}
-		return files[i].Kind < files[j].Kind
-	})
-	writeWrapperJSON(w, http.StatusOK, map[string]any{"files": files})
-}
-
-func (r *wrapperRuntime) handleFileDownload(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet && req.Method != http.MethodHead {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	path := strings.TrimPrefix(req.URL.Path, "/files/")
-	kind, name, ok := strings.Cut(path, "/")
-	if !ok || kind == "" || name == "" || strings.Contains(name, "/") || filepath.Base(name) != name || strings.HasPrefix(name, ".upload-") {
-		writeWrapperError(w, http.StatusBadRequest, "invalid file path")
-		return
-	}
-	dir, ok := r.fileDirectory(kind)
-	if !ok {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-	dirFD, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-	if errors.Is(err, os.ErrNotExist) {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "open file failed")
-		return
-	}
-	defer func() { _ = unix.Close(dirFD) }()
-	fileFD, err := unix.Openat2(dirFD, name, &unix.OpenHow{
-		Flags:   unix.O_RDONLY | unix.O_CLOEXEC,
-		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-	})
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ELOOP) {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "open file failed")
-		return
-	}
-	file := os.NewFile(uintptr(fileFD), name)
-	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "inspect file failed")
-		return
-	}
-	if !info.Mode().IsRegular() {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-	http.ServeContent(w, req, name, info.ModTime(), file)
 }
 
 func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request) {
@@ -152,7 +48,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 	r.uploadMu.Lock()
 	defer r.uploadMu.Unlock()
 
-	uploadsDir, _ := r.fileDirectory("uploads")
+	uploadsDir := paths.SessionFiles(r.values.FilesDir).Uploads
 	if err := ensureRegularDirectory(uploadsDir); err != nil {
 		writeWrapperError(w, http.StatusInternalServerError, "uploads directory unavailable")
 		return
@@ -198,7 +94,6 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	uploaded := make([]wrapperFile, 0)
 	pending := make([]pendingUpload, 0)
 	defer func() {
 		for _, upload := range pending {
@@ -228,7 +123,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			_ = part.Close()
 			continue
 		}
-		if len(uploaded) >= maxUploadFilesPerRequest || existingUploadCount+len(uploaded) >= maxUploadFilesPerSession {
+		if len(pending) >= maxUploadFilesPerRequest || existingUploadCount+len(pending) >= maxUploadFilesPerSession {
 			_ = part.Close()
 			removeCreated()
 			writeWrapperError(w, http.StatusInsufficientStorage, "session upload file limit exceeded")
@@ -329,12 +224,10 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		}
 
 		footprint += written
-		result := wrapperFileResponse("uploads", name, uploadsDir, info)
-		uploaded = append(uploaded, result)
-		pending = append(pending, pendingUpload{eventID: eventID, file: file, result: result})
+		pending = append(pending, pendingUpload{eventID: eventID, file: file, name: name, info: info})
 	}
 
-	if len(uploaded) == 0 {
+	if len(pending) == 0 {
 		writeWrapperError(w, http.StatusBadRequest, "no files uploaded")
 		return
 	}
@@ -350,7 +243,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			publishFailed = true
 			break
 		}
-		if err := unix.Renameat2(uploadsDirFD, hiddenName, uploadsDirFD, upload.result.Name, unix.RENAME_EXCHANGE); err != nil {
+		if err := unix.Renameat2(uploadsDirFD, hiddenName, uploadsDirFD, upload.name, unix.RENAME_EXCHANGE); err != nil {
 			publishFailed = true
 			break
 		}
@@ -373,13 +266,18 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		writeWrapperError(w, http.StatusBadGateway, "finalize upload failed")
 		return
 	}
+	uploaded := make([]sessionfiles.File, 0, len(pending))
+	for _, upload := range pending {
+		relative := "uploads/" + upload.name
+		uploaded = append(uploaded, sessionfiles.Describe(filepath.Join(uploadsDir, upload.name), relative, sessionfiles.SandboxPath(relative), upload.info))
+	}
 	writeWrapperJSON(w, http.StatusCreated, map[string]any{"files": uploaded})
 }
 
 func (r *wrapperRuntime) prepareUploads(req *http.Request, files []pendingUpload) error {
 	auditFiles := make([]pendingUploadAudit, 0, len(files))
 	for _, file := range files {
-		auditFiles = append(auditFiles, pendingUploadAudit{EventID: file.eventID, Path: file.result.Path, SizeBytes: file.result.SizeBytes})
+		auditFiles = append(auditFiles, pendingUploadAudit{EventID: file.eventID, Path: "uploads/" + file.name, SizeBytes: file.info.Size()})
 	}
 	return r.uploadAuditRequest(http.MethodPost, "prepare", map[string]any{
 		"files":     auditFiles,
@@ -460,7 +358,7 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 	if err := r.uploadAuditRequest(http.MethodGet, "pending", nil, &response); err != nil {
 		return err
 	}
-	uploadsDir, _ := r.fileDirectory("uploads")
+	uploadsDir := paths.SessionFiles(r.values.FilesDir).Uploads
 	if err := ensureRegularDirectory(uploadsDir); err != nil {
 		return err
 	}
@@ -566,22 +464,9 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 	return nil
 }
 
-func (r *wrapperRuntime) fileDirectory(kind string) (string, bool) {
-	switch kind {
-	case "uploads":
-		return filepath.Join(r.values.ArtifactsDir, "uploads"), true
-	case "downloads":
-		return r.values.DownloadsDir, true
-	case "artifacts":
-		return r.values.ArtifactsDir, true
-	default:
-		return "", false
-	}
-}
-
 func (r *wrapperRuntime) sessionFootprint() (int64, error) {
 	var size int64
-	for _, root := range []string{r.values.UpperDir, r.values.DownloadsDir, r.values.CacheDir, r.values.ArtifactsDir} {
+	for _, root := range []string{r.values.UpperDir, r.values.FilesDir, r.values.CacheDir} {
 		if root == "" {
 			continue
 		}
@@ -612,17 +497,6 @@ func (r *wrapperRuntime) sessionFootprint() (int64, error) {
 		}
 	}
 	return size, nil
-}
-
-func wrapperFileResponse(kind, name, dir string, info os.FileInfo) wrapperFile {
-	return wrapperFile{
-		Kind:         kind,
-		Name:         name,
-		Path:         filepath.ToSlash(filepath.Join(kind, name)),
-		AbsolutePath: filepath.Join(dir, name),
-		SizeBytes:    info.Size(),
-		ModifiedAt:   info.ModTime(),
-	}
 }
 
 func ensureRegularDirectory(path string) error {

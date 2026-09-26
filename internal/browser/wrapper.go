@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aperture/aperture/internal/paths"
 	"github.com/chromedp/cdproto"
 	cdpbrowser "github.com/chromedp/cdproto/browser"
 )
@@ -247,9 +248,8 @@ type LaunchConfig struct {
 	BwrapPath                string
 	BrowserExecutable        string
 	MergedUserDataDir        string
-	DownloadsDir             string
+	FilesDir                 string
 	CacheDir                 string
-	ArtifactsDir             string
 	CDPPort                  int
 	DefaultArgs              []string
 	ExtraArgs                []string
@@ -408,18 +408,23 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 }
 
 func sessionBindMounts(cfg LaunchConfig) [][]string {
-	paths := []string{
+	dirs := []string{
 		cfg.MergedUserDataDir,
-		cfg.DownloadsDir,
+		cfg.FilesDir,
 		cfg.CacheDir,
-		cfg.ArtifactsDir,
 	}
-	mounts := make([][]string, 0, len(paths))
-	for _, path := range paths {
-		if strings.TrimSpace(path) == "" {
+	mounts := make([][]string, 0, len(dirs)+1)
+	for _, dir := range dirs {
+		if strings.TrimSpace(dir) == "" {
 			continue
 		}
-		mounts = append(mounts, []string{"--bind", path, path})
+		mounts = append(mounts, []string{"--bind", dir, dir})
+	}
+	// CDP clients and the profile see the files root at its fixed sandbox path. The
+	// host-path bind above stays because Playwright MCP runs outside the sandbox and
+	// hands the browser host paths for file inputs.
+	if strings.TrimSpace(cfg.FilesDir) != "" {
+		mounts = append(mounts, []string{"--bind", cfg.FilesDir, paths.SandboxFilesRoot})
 	}
 	return mounts
 }
@@ -599,9 +604,8 @@ func LaunchFromRuntimeEnv() error {
 		BwrapPath:                bwrapPath,
 		BrowserExecutable:        values.BrowserExecutable,
 		MergedUserDataDir:        values.MergedUserDataDir,
-		DownloadsDir:             values.DownloadsDir,
+		FilesDir:                 values.FilesDir,
 		CacheDir:                 values.CacheDir,
-		ArtifactsDir:             values.ArtifactsDir,
 		CDPPort:                  values.CDPPort,
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                values.BrowserExtraArgs,
@@ -916,9 +920,8 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		BwrapPath:                bwrapPath,
 		BrowserExecutable:        values.BrowserExecutable,
 		MergedUserDataDir:        values.MergedUserDataDir,
-		DownloadsDir:             values.DownloadsDir,
+		FilesDir:                 values.FilesDir,
 		CacheDir:                 values.CacheDir,
-		ArtifactsDir:             values.ArtifactsDir,
 		CDPPort:                  values.CDPPort,
 		DefaultArgs:              values.BrowserDefaultArgs,
 		ExtraArgs:                extraArgs,
@@ -1391,10 +1394,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	required := map[string]*string{
 		"APERTURE_SESSION_ID":  nil,
 		"MERGED_USER_DATA_DIR": nil,
-		"DOWNLOADS_DIR":        nil,
-		"RECORDINGS_DIR":       nil,
 		"CACHE_DIR":            nil,
-		"ARTIFACTS_DIR":        nil,
 		"BROWSER_EXECUTABLE":   nil,
 	}
 
@@ -1424,12 +1424,15 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		InternalAPIURL:      strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
 		MergedUserDataDir:   *required["MERGED_USER_DATA_DIR"],
 		UpperDir:            strings.TrimSpace(os.Getenv("UPPER_DIR")),
-		DownloadsDir:        *required["DOWNLOADS_DIR"],
-		RecordingsDir:       *required["RECORDINGS_DIR"],
 		CacheDir:            *required["CACHE_DIR"],
-		ArtifactsDir:        *required["ARTIFACTS_DIR"],
 		BrowserExecutable:   *required["BROWSER_EXECUTABLE"],
 	}
+
+	filesDir, err := processFilesDir()
+	if err != nil {
+		return RuntimeEnvValues{}, err
+	}
+	values.FilesDir = filesDir
 
 	if _, err := fmt.Sscanf(portRaw, "%d", &values.CDPPort); err != nil {
 		return RuntimeEnvValues{}, fmt.Errorf("parse cdp port: %w", err)
@@ -1543,13 +1546,31 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	return values, nil
 }
 
+// processFilesDir reads FILES_DIR. An env file written before the single files root
+// has DOWNLOADS_DIR instead, which sat next to where the files root now lives; the
+// root is created here because the mount that normally creates it may predate it.
+func processFilesDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("FILES_DIR")); dir != "" {
+		return dir, nil
+	}
+	downloads := strings.TrimSpace(os.Getenv("DOWNLOADS_DIR"))
+	if downloads == "" {
+		return "", fmt.Errorf("missing required env FILES_DIR")
+	}
+	files := paths.SessionFiles(filepath.Join(filepath.Dir(downloads), "files"))
+	for _, dir := range []string{files.Downloads, files.Recordings, files.Uploads, files.Outputs} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("create files dir: %w", err)
+		}
+	}
+	return files.Root, nil
+}
+
 func ensureSessionPaths(values RuntimeEnvValues) error {
 	for name, path := range map[string]string{
 		"merged user data dir": values.MergedUserDataDir,
-		"downloads dir":        values.DownloadsDir,
-		"recordings dir":       values.RecordingsDir,
+		"files dir":            values.FilesDir,
 		"cache dir":            values.CacheDir,
-		"artifacts dir":        values.ArtifactsDir,
 	} {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("%s must be absolute", name)

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/aperture/aperture/internal/paths"
 )
 
 func TestLiveBrowserLaunchThroughBwrap(t *testing.T) {
@@ -27,15 +29,14 @@ func TestLiveBrowserLaunchThroughBwrap(t *testing.T) {
 
 	root := t.TempDir()
 	merged := filepath.Join(root, "merged")
-	downloads := filepath.Join(root, "downloads")
+	files := paths.SessionFiles(filepath.Join(root, "files"))
 	cache := filepath.Join(root, "cache")
-	artifacts := filepath.Join(root, "artifacts")
-	for _, dir := range []string{merged, downloads, cache, artifacts} {
+	for _, dir := range []string{merged, files.Downloads, cache} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	if err := WriteProfilePreferences(merged, downloads); err != nil {
+	if err := WriteProfilePreferences(merged, files.Downloads); err != nil {
 		t.Fatalf("WriteProfilePreferences() error = %v", err)
 	}
 
@@ -53,9 +54,8 @@ func TestLiveBrowserLaunchThroughBwrap(t *testing.T) {
 		BwrapPath:         bwrapPath,
 		BrowserExecutable: chromiumPath,
 		MergedUserDataDir: merged,
-		DownloadsDir:      downloads,
+		FilesDir:          files.Root,
 		CacheDir:          cache,
-		ArtifactsDir:      artifacts,
 		CDPPort:           port,
 		DefaultArgs:       []string{"--headless=new"},
 		ExtraArgs:         []string{"--disable-gpu"},

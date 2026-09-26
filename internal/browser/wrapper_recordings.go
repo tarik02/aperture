@@ -216,21 +216,22 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	codec := normalizeWrapperCodec(request.Codec, r.values.MediaProducerCodec)
 	id := uuid.NewString()
+	recordingsDir := paths.SessionFiles(r.values.FilesDir).Recordings
 	path := strings.TrimSpace(request.Path)
 	if path == "" {
 		extension := ".webm"
 		if codec == "h264-va" {
 			extension = ".mkv"
 		}
-		path = filepath.Join(r.values.RecordingsDir, "recording-"+id+extension)
+		path = filepath.Join(recordingsDir, "recording-"+id+extension)
 	}
 	if !filepath.IsAbs(path) {
 		return wrapperRecording{}, errors.New("recording path must be absolute")
 	}
-	if err := paths.ValidateTrustedPath(r.values.RecordingsDir, path); err != nil {
+	if err := paths.ValidateTrustedPath(recordingsDir, path); err != nil {
 		return wrapperRecording{}, fmt.Errorf("recording path must be inside recordings root: %w", err)
 	}
-	segmentDir := filepath.Join(r.values.RecordingsDir, ".recording-"+id)
+	segmentDir := filepath.Join(recordingsDir, ".recording-"+id)
 	if err := os.MkdirAll(segmentDir, 0o700); err != nil {
 		return wrapperRecording{}, fmt.Errorf("mkdir recording segment dir: %w", err)
 	}

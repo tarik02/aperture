@@ -91,27 +91,25 @@ Changing to an incompatible profile first hands the requesting client to WebSock
 
 ## Files
 
-File requests use the existing session routing layer and are handled by the per-session wrapper:
+Each session keeps its files below one root, and every file is named by its path relative to that root: `downloads/` for browser downloads, `recordings/` for recordings, `uploads/` for uploaded files, and `outputs/` for Playwright MCP output. Listings, signed download URLs, upload responses, and browser tools all use these relative paths. Inside the browser sandbox the root is mounted at `/session/files`, and each listed file carries that `sandboxPath` for CDP `DOM.setFileInputFiles`; host paths are never exposed. Session files are not part of promoted snapshots.
 
 ```text
-GET  /sessions/<session-id>/files
-GET  /sessions/<session-id>/files/<kind>/<name>
+GET  /api/sessions/<session-id>/files
+POST /api/sessions/<session-id>/files/download-url
 POST /sessions/<session-id>/uploads
 ```
 
-`kind` is one of `uploads`, `downloads`, or `artifacts`. Listings are non-recursive and include only top-level regular files. Symlinks are ignored. Downloads use attachment disposition and support HTTP byte ranges.
+The listing and download URLs are control-plane routes and work while the session is suspended or stopped. Signed downloads use attachment disposition and support HTTP byte ranges. Uploads reach the running session; they use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file. The response lists the stored files with the same fields as the file listing.
 
-Uploads use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file. The response includes the relative session path and absolute browser-visible path so CDP clients can use uploaded files with `DOM.setFileInputFiles`.
-
-Playwright MCP resolves `browser_file_upload` paths inside the session artifact directory. Files returned as `downloads/<name>` or `recordings/<name>` are outside that allowed root. To upload one again, download it from the session file route, send those bytes to the uploads route, and pass the returned `uploads/<name>` path to `browser_file_upload`.
+Playwright MCP's `browser_file_upload` accepts any session file relative path, so a download or recording can be put into a file chooser directly.
 
 Each request accepts at most 100 files, and a session may retain at most 1,000 uploaded files.
 
-File routes accept the owner session token or an account token with `sessions:write`. Editor and viewer capabilities cannot access files.
+Uploads accept the owner session token or an account token with `sessions:write`; the listing and download URLs need API credentials with `sessions:read`; session-token holders use session-bound MCP instead. Editor and viewer capabilities cannot access files.
 
 ## Limits and audit events
 
-The default per-file upload limit is 100 MiB. Before accepting an upload, Aperture measures writable session data under the overlay upper directory, downloads, cache, and artifacts. The default admission limit is 1 GiB. The merged overlay and base snapshot are not double-counted. Browser activity can exceed the limit after admission; this is not a filesystem-enforced quota.
+The default per-file upload limit is 100 MiB. Before accepting an upload, Aperture measures writable session data under the overlay upper directory, the session files, and the cache. The default admission limit is 1 GiB. The merged overlay and base snapshot are not double-counted. Browser activity can exceed the limit after admission; this is not a filesystem-enforced quota.
 
 The limits are configurable:
 

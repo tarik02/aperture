@@ -71,6 +71,24 @@ const all = yield * client.sessions.listAllSessions({ status: "running", limit: 
 
 `getSnapshotByName(name)` returns an `Option`, since the API has no direct lookup by name.
 
+### Session files and the live session
+
+`listSessionFiles(sessionId)` lists a session's files (downloads, recordings, uploads and Playwright output), also while it is not running. The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadSessionFiles` stores files for browser file inputs and returns each file's `sandboxPath` for CDP `DOM.setFileInputFiles`, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording as a `Stream` of bytes without buffering it; `downloadSessionRecording` still returns a `Blob`. Upload contents may be a `Blob`, a `Uint8Array` or a byte `Stream`. Any stream makes the whole request body streamed, which browsers other than Chromium cannot send. A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
+
+```ts
+const program = Effect.gen(function* () {
+  const client = yield* ApertureClient;
+  const fs = yield* FileSystem.FileSystem;
+  const uploaded = yield* client.sessions.uploadSessionFiles(sessionId, [
+    { name: "invoice.pdf", content: fs.stream("./invoice.pdf") },
+  ]);
+  yield* client.sessions
+    .streamSessionRecording(sessionId, recordingId)
+    .pipe(Stream.run(fs.sink("./recording.webm")));
+  return uploaded.map((file) => file.relativePath);
+});
+```
+
 ### Passkeys
 
 Browser passkey sign-in and registration live in `@aperture-browser/api-client/passkeys`, so the main entry does not pull in `@simplewebauthn/browser`. It is an optional peer dependency; install it alongside when you use that entry. `loginWithPasskey()` and `registerPasskey(name)` run the whole WebAuthn ceremony and fail with `PasskeyCeremonyError` when the browser does not complete it. Its `reason` is `cancelled` for a dismissed or timed-out prompt and `failed` otherwise.
