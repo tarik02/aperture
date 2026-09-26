@@ -1394,7 +1394,6 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	required := map[string]*string{
 		"APERTURE_SESSION_ID":  nil,
 		"MERGED_USER_DATA_DIR": nil,
-		"FILES_DIR":            nil,
 		"CACHE_DIR":            nil,
 		"BROWSER_EXECUTABLE":   nil,
 	}
@@ -1425,10 +1424,15 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 		InternalAPIURL:      strings.TrimSpace(os.Getenv("INTERNAL_API_URL")),
 		MergedUserDataDir:   *required["MERGED_USER_DATA_DIR"],
 		UpperDir:            strings.TrimSpace(os.Getenv("UPPER_DIR")),
-		FilesDir:            *required["FILES_DIR"],
 		CacheDir:            *required["CACHE_DIR"],
 		BrowserExecutable:   *required["BROWSER_EXECUTABLE"],
 	}
+
+	filesDir, err := processFilesDir()
+	if err != nil {
+		return RuntimeEnvValues{}, err
+	}
+	values.FilesDir = filesDir
 
 	if _, err := fmt.Sscanf(portRaw, "%d", &values.CDPPort); err != nil {
 		return RuntimeEnvValues{}, fmt.Errorf("parse cdp port: %w", err)
@@ -1540,6 +1544,26 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	}
 
 	return values, nil
+}
+
+// processFilesDir reads FILES_DIR. An env file written before the single files root
+// has DOWNLOADS_DIR instead, which sat next to where the files root now lives; the
+// root is created here because the mount that normally creates it may predate it.
+func processFilesDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("FILES_DIR")); dir != "" {
+		return dir, nil
+	}
+	downloads := strings.TrimSpace(os.Getenv("DOWNLOADS_DIR"))
+	if downloads == "" {
+		return "", fmt.Errorf("missing required env FILES_DIR")
+	}
+	files := paths.SessionFiles(filepath.Join(filepath.Dir(downloads), "files"))
+	for _, dir := range []string{files.Downloads, files.Recordings, files.Uploads, files.Outputs} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("create files dir: %w", err)
+		}
+	}
+	return files.Root, nil
 }
 
 func ensureSessionPaths(values RuntimeEnvValues) error {

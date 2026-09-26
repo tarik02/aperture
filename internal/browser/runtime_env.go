@@ -396,6 +396,9 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 				return RuntimeEnvValues{}, fmt.Errorf("decode extra args: %w", err)
 			}
 			values.BrowserExtraArgs = args
+		case "DOWNLOADS_DIR", "RECORDINGS_DIR", "ARTIFACTS_DIR":
+			// Written before the single files root. The wrapper started from such a file
+			// keeps its own copy, and FilesDir stays empty to mark the old layout.
 		default:
 			return RuntimeEnvValues{}, fmt.Errorf("unexpected env key: %s", key)
 		}
