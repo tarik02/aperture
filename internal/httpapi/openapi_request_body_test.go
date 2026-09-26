@@ -34,6 +34,11 @@ func TestOpenAPIRoutesWithRequestBodyMatchSpec(t *testing.T) {
 			if operation.RequestBody == nil || isLiveSessionOperation(operation) {
 				continue
 			}
+			// The strict wrapper hands multipart bodies to the handler as a reader, so
+			// nothing re-reads them.
+			if operation.RequestBody.Value.Content.Get("multipart/form-data") != nil {
+				continue
+			}
 			if inSpec[method] == nil {
 				inSpec[method] = make(map[string]struct{})
 			}

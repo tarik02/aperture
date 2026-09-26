@@ -73,13 +73,21 @@ export interface DownloadedFile {
 }
 
 /**
- * One file for the session's `uploads` directory. A stream is sent without buffering; its
- * failure aborts the upload and surfaces as a `network_error`.
+ * One file to upload. Blob and Uint8Array contents are sent as FormData. Any stream content
+ * makes the whole body a streamed request, which browsers other than Chromium cannot send;
+ * a stream failure aborts the upload and surfaces as a `network_error`.
  */
 export interface SessionUploadFile {
   name: string;
   content: Blob | Uint8Array | Stream.Stream<Uint8Array, unknown>;
 }
+
+export interface UploadSessionFilesOptions {
+  /** Directory below the session files root; `uploads` when omitted. */
+  directory?: string;
+}
+
+export type MoveSessionFileInput = Api.MoveSessionFileInput;
 
 /** Browser sessions, their live browser, and their recordings. */
 export class SessionsApi extends Context.Service<
@@ -171,12 +179,37 @@ export class SessionsApi extends Context.Service<
       sessionId: string,
       recordingId: string,
     ) => Call<SessionFile>;
-    /** A signed URL that downloads one session file without credentials until it expires. */
-    /** Files below the session's `downloads` and `recordings`, also while it is not running. */
+    /** Every file of the session, also while it is not running. See `sessionFileTree`. */
     readonly listSessionFiles: (
       credentials: ApiCredentials,
       sessionId: string,
     ) => Call<ReadonlyArray<SessionFile>>;
+    /**
+     * Stores files in a directory of the session's files, `uploads` by default, in any
+     * retained state. Contents are sent as described for `SessionUploadFile`.
+     */
+    readonly uploadSessionFiles: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      files: ReadonlyArray<SessionUploadFile>,
+      options?: UploadSessionFilesOptions,
+    ) => Call<ReadonlyArray<SessionFile>>;
+    /** Deletes one session file; directories it leaves empty go with it. */
+    readonly deleteSessionFile: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      relativePath: string,
+    ) => Call<void>;
+    /** Moves or renames one session file. It never replaces an existing file. */
+    readonly moveSessionFile: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      input: MoveSessionFileInput,
+    ) => Call<SessionFile>;
+    /**
+     * A signed URL that serves one session file without credentials until it expires.
+     * `disposition: "inline"` makes it usable as an `<img>` or `<video>` source.
+     */
     readonly createSessionFileDownloadURL: (
       credentials: ApiCredentials,
       sessionId: string,
@@ -202,11 +235,10 @@ export class SessionsApi extends Context.Service<
       sessionToken?: string,
     ) => Stream.Stream<Uint8Array, ApiRequestError>;
     /**
-     * Stores files in the running session's `uploads` directory, for browser file inputs.
-     * Blob and Uint8Array contents are sent as FormData. Any stream content makes the whole
-     * body a streamed request, which browsers other than Chromium cannot send.
+     * Stores files in the running session's `uploads` directory through the session itself,
+     * which also accepts its `sessionToken`.
      */
-    readonly uploadSessionFiles: (
+    readonly uploadLiveSessionFiles: (
       credentials: ApiCredentials,
       sessionId: string,
       files: ReadonlyArray<SessionUploadFile>,

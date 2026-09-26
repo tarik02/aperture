@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -243,12 +242,20 @@ func detectMIME(name string) string {
 	return http.DetectContentType(buffer[:n])
 }
 
-func IssueToken(secret, sessionID, relative string, expiresAt time.Time) (string, error) {
+// Disposition is how a signed download asks the browser to present the file.
+type Disposition string
+
+const (
+	DispositionAttachment Disposition = "attachment"
+	DispositionInline     Disposition = "inline"
+)
+
+func IssueToken(secret, sessionID, relative string, disposition Disposition, expiresAt time.Time) (string, error) {
 	normalized, err := Normalize(relative)
 	if err != nil {
 		return "", err
 	}
-	payload := tokenPayload{SessionID: sessionID, RelativePath: normalized, ExpiresAt: expiresAt.Unix()}
+	payload := tokenPayload{SessionID: sessionID, RelativePath: normalized, Disposition: disposition, ExpiresAt: expiresAt.Unix()}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -261,36 +268,44 @@ func IssueToken(secret, sessionID, relative string, expiresAt time.Time) (string
 	return signed + "." + signature, nil
 }
 
-func VerifyToken(secret, token, sessionID, relative string, now time.Time) (string, error) {
+// VerifyToken checks a signed download token and returns the file it grants and
+// its disposition. Tokens issued before dispositions existed are attachments.
+func VerifyToken(secret, token, sessionID, relative string, now time.Time) (string, Disposition, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 || secret == "" || !strings.HasPrefix(parts[0], tokenPrefix) {
-		return "", ErrInvalidToken
+		return "", "", ErrInvalidToken
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(parts[0]))
 	expected, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil || subtle.ConstantTimeCompare(expected, mac.Sum(nil)) != 1 {
-		return "", ErrInvalidToken
+		return "", "", ErrInvalidToken
 	}
 	body, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(parts[0], tokenPrefix))
 	if err != nil {
-		return "", ErrInvalidToken
+		return "", "", ErrInvalidToken
 	}
 	var payload tokenPayload
 	if err := json.Unmarshal(body, &payload); err != nil || payload.SessionID != sessionID || payload.ExpiresAt <= now.Unix() {
-		return "", ErrInvalidToken
+		return "", "", ErrInvalidToken
 	}
 	normalized, err := Normalize(relative)
 	if err != nil || payload.RelativePath != normalized {
-		return "", ErrInvalidToken
+		return "", "", ErrInvalidToken
 	}
-	return normalized, nil
+	if payload.Disposition != DispositionInline {
+		return normalized, DispositionAttachment, nil
+	}
+	return normalized, DispositionInline, nil
 }
 
 type tokenPayload struct {
-	SessionID    string `json:"sessionId"`
-	RelativePath string `json:"relativePath"`
-	ExpiresAt    int64  `json:"expiresAt"`
+	SessionID    string      `json:"sessionId"`
+	RelativePath string      `json:"relativePath"`
+	Disposition  Disposition `json:"disposition,omitempty"`
+	ExpiresAt    int64       `json:"expiresAt"`
 }
 
-func ContentDisposition(name string) string { return fmt.Sprintf(`attachment; filename=%q`, name) }
+func ContentDisposition(disposition Disposition, name string) string {
+	return mime.FormatMediaType(string(disposition), map[string]string{"filename": name})
+}

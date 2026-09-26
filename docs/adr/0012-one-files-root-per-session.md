@@ -41,3 +41,17 @@ Sessions created before this change keep their files where they were, because a 
 - top-level files of `<artifact_root>/…` → `outputs/`
 
 Relative paths of downloads, recordings, and uploads are unchanged, so already-issued signed URLs and stored references keep working. Playwright output that was named `<file>` is now `outputs/<file>`. Legacy files have no `sandboxPath`. When an old session next starts, it writes to the new root, and its legacy files stay listable and downloadable but are no longer reachable from the browser. The legacy mapping can be deleted once every session created before this change has expired.
+
+## Addendum: managing files
+
+Session files can be managed over REST in every retained state, so a file manager does not need the session to run:
+
+- `POST /api/sessions/:sessionId/files?directory=…` stores multipart files in any directory below the root, `uploads` by default. The data-plane `POST /sessions/:sessionId/uploads` stays for session-token holders of a running session.
+- `DELETE /api/sessions/:sessionId/files?relativePath=…` deletes one file.
+- `POST /api/sessions/:sessionId/files/move` moves or renames one file and never overwrites.
+
+The daemon applies these directly to the files root through `internal/sessionfiles`, using the same path rules as every other file route. It records `session.file_uploaded`, `session.file_deleted`, and `session.file_moved` events. The listing stays files-only; directories are implied by paths, and ones left empty are removed, except `downloads`, `recordings`, `uploads`, and `outputs`, which the browser, recorder, wrapper, and Playwright write into. Files still being written cannot be moved or deleted: in-progress Chromium downloads (`.crdownload`) and upload placeholders. Recordings in progress and staged uploads are hidden and unreachable anyway.
+
+Signed download URLs can be created with `disposition: inline` for previews. Every signed download is served with its detected `Content-Type`, byte ranges, `X-Content-Type-Options: nosniff`, and `Content-Security-Policy: sandbox`, so an HTML or SVG file opened inline cannot run scripts under the Aperture origin.
+
+Promotion also clears Chromium's download history in the snapshot copy of each profile's `History` database. The copy is rewritten rather than edited in place, because unchanged files are hard links into the base snapshot.

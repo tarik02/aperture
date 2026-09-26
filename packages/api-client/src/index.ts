@@ -16,6 +16,7 @@ export * from "./schemas.ts";
 export * from "./sessions/layer.ts";
 export * from "./sessions/schemas.ts";
 export * from "./sessions/service.ts";
+export * from "./sessions/tree.ts";
 export * from "./snapshots/layer.ts";
 export * from "./snapshots/service.ts";
 export * from "./tenants/layer.ts";

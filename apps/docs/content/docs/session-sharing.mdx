@@ -91,21 +91,26 @@ Changing to an incompatible profile first hands the requesting client to WebSock
 
 ## Files
 
-Each session keeps its files below one root, and every file is named by its path relative to that root: `downloads/` for browser downloads, `recordings/` for recordings, `uploads/` for uploaded files, and `outputs/` for Playwright MCP output. Listings, signed download URLs, upload responses, and browser tools all use these relative paths. Inside the browser sandbox the root is mounted at `/session/files`, and each listed file carries that `sandboxPath` for CDP `DOM.setFileInputFiles`; host paths are never exposed. Session files are not part of promoted snapshots.
+Each session keeps its files below one root, and every file is named by its path relative to that root: `downloads/` for browser downloads, `recordings/` for recordings, `uploads/` for uploaded files, and `outputs/` for Playwright MCP output. Listings, signed download URLs, upload responses, and browser tools all use these relative paths. Inside the browser sandbox the root is mounted at `/session/files`, and each listed file carries that `sandboxPath` for CDP `DOM.setFileInputFiles`; host paths are never exposed. Session files are not part of promoted snapshots, and promotion clears the profile's download history.
 
 ```text
-GET  /api/sessions/<session-id>/files
-POST /api/sessions/<session-id>/files/download-url
-POST /sessions/<session-id>/uploads
+GET    /api/sessions/<session-id>/files
+POST   /api/sessions/<session-id>/files?directory=uploads
+DELETE /api/sessions/<session-id>/files?relativePath=<path>
+POST   /api/sessions/<session-id>/files/move
+POST   /api/sessions/<session-id>/files/download-url
+POST   /sessions/<session-id>/uploads
 ```
 
-The listing and download URLs are control-plane routes and work while the session is suspended or stopped. Signed downloads use attachment disposition and support HTTP byte ranges. Uploads reach the running session; they use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file. The response lists the stored files with the same fields as the file listing.
+The `/api` routes work in every retained state, including suspended and stopped sessions. Uploads use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file; the response lists the stored files with the same fields as the listing. Moves never overwrite either. Directories follow from file paths and disappear once empty, except the four top-level ones. In-progress downloads and uploads cannot be moved or deleted. Signed download URLs default to attachment disposition; `"disposition": "inline"` gives a URL for previews such as an `<img>` source. Downloads carry the detected content type, support HTTP byte ranges, and are served with `Content-Security-Policy: sandbox`.
+
+`POST /sessions/<session-id>/uploads` reaches the running session itself and stores files in `uploads/`; it also accepts the owner session token.
 
 Playwright MCP's `browser_file_upload` accepts any session file relative path, so a download or recording can be put into a file chooser directly.
 
-Each request accepts at most 100 files, and a session may retain at most 1,000 uploaded files.
+Each upload request accepts at most 100 files, and a directory may hold at most 1,000 files.
 
-Uploads accept the owner session token or an account token with `sessions:write`; the listing and download URLs need API credentials with `sessions:read`; session-token holders use session-bound MCP instead. Editor and viewer capabilities cannot access files.
+Listing and download URLs need API credentials with `sessions:read`; uploads, deletes, and moves need `sessions:write`. Session-token holders use session-bound MCP or the data-plane upload. Editor and viewer capabilities cannot access files.
 
 ## Limits and audit events
 
@@ -118,4 +123,4 @@ session_upload_max_file_bytes = 104857600
 session_storage_quota_bytes = 1073741824
 ```
 
-Successful uploads append a `session.file_uploaded` event containing the relative path, size, actor kind, and client IP. The event never contains the session token or host storage path.
+Successful uploads append a `session.file_uploaded` event containing the relative path, size, actor kind, and client IP. Deletes and moves through the API append `session.file_deleted` and `session.file_moved` events with the paths and client IP. The event never contains the session token or host storage path.

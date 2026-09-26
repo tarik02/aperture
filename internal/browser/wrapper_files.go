@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/paths"
@@ -23,8 +22,6 @@ import (
 
 const defaultUploadMaxFileBytes int64 = 100 << 20
 const defaultSessionStorageQuotaBytes int64 = 1 << 30
-const maxUploadFilesPerRequest = 100
-const maxUploadFilesPerSession = 1000
 
 type pendingUpload struct {
 	eventID string
@@ -71,11 +68,11 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			existingUploadCount++
 		}
 	}
-	if existingUploadCount >= maxUploadFilesPerSession {
+	if existingUploadCount >= sessionfiles.MaxUploadFilesPerDirectory {
 		writeWrapperError(w, http.StatusInsufficientStorage, "session upload file limit exceeded")
 		return
 	}
-	footprint, err := r.sessionFootprint()
+	footprint, err := sessionfiles.Footprint(r.values.UpperDir, r.values.FilesDir, r.values.CacheDir)
 	if err != nil {
 		writeWrapperError(w, http.StatusInternalServerError, "calculate session footprint failed")
 		return
@@ -123,7 +120,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			_ = part.Close()
 			continue
 		}
-		if len(pending) >= maxUploadFilesPerRequest || existingUploadCount+len(pending) >= maxUploadFilesPerSession {
+		if len(pending) >= sessionfiles.MaxUploadFilesPerRequest || existingUploadCount+len(pending) >= sessionfiles.MaxUploadFilesPerDirectory {
 			_ = part.Close()
 			removeCreated()
 			writeWrapperError(w, http.StatusInsufficientStorage, "session upload file limit exceeded")
@@ -137,7 +134,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
 			return
 		}
-		name := sanitizeUploadName(part.FileName())
+		name := sessionfiles.SanitizeName(part.FileName())
 		extension := filepath.Ext(name)
 		stem := strings.TrimSuffix(name, extension)
 		var placeholderFD int
@@ -164,7 +161,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			break
 		}
 		placeholder := os.NewFile(uintptr(placeholderFD), name)
-		if _, err := io.WriteString(placeholder, "aperture-pending:"+eventID); err != nil {
+		if _, err := io.WriteString(placeholder, sessionfiles.PendingUploadMarker+eventID); err != nil {
 			_ = part.Close()
 			_ = placeholder.Close()
 			_ = unix.Unlinkat(uploadsDirFD, name, 0)
@@ -376,7 +373,7 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 			continue
 		}
 		hiddenName := ".upload-" + upload.EventID
-		marker := "aperture-pending:" + upload.EventID
+		marker := sessionfiles.PendingUploadMarker + upload.EventID
 		var hiddenStat unix.Stat_t
 		hiddenExists := false
 		if unix.Fstatat(uploadsDirFD, hiddenName, &hiddenStat, unix.AT_SYMLINK_NOFOLLOW) == nil && hiddenStat.Mode&unix.S_IFMT == unix.S_IFREG && hiddenStat.Size == upload.SizeBytes {
@@ -464,41 +461,6 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 	return nil
 }
 
-func (r *wrapperRuntime) sessionFootprint() (int64, error) {
-	var size int64
-	for _, root := range []string{r.values.UpperDir, r.values.FilesDir, r.values.CacheDir} {
-		if root == "" {
-			continue
-		}
-		err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, err error) error {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				if entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if info.Mode().IsRegular() {
-				size += info.Size()
-			}
-			return nil
-		})
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return 0, err
-		}
-	}
-	return size, nil
-}
-
 func ensureRegularDirectory(path string) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
@@ -511,19 +473,4 @@ func ensureRegularDirectory(path string) error {
 		return fmt.Errorf("not a regular directory")
 	}
 	return nil
-}
-
-func sanitizeUploadName(name string) string {
-	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
-	name = strings.Map(func(char rune) rune {
-		if unicode.IsLetter(char) || unicode.IsDigit(char) || char == '.' || char == '-' || char == '_' {
-			return char
-		}
-		return '_'
-	}, name)
-	name = strings.Trim(name, ".")
-	if name == "" {
-		return "upload"
-	}
-	return name
 }

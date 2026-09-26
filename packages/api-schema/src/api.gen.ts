@@ -85,14 +85,16 @@ export type RetargetSessionRecordingInput = { readonly "targetId": string }
 export const RetargetSessionRecordingInput = Schema.Struct({ "targetId": Schema.String.annotate({ "description": "Identifier of the ready destination top-level target." }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) }).annotate({ "description": "Destination for a running tab recording.", "identifier": "RetargetSessionRecordingInput" })
 export type SessionFile = { readonly "name": string, readonly "relativePath": string, readonly "size": number, readonly "modifiedAt": string, readonly "mimeType": string, readonly "sandboxPath"?: string }
 export const SessionFile = Schema.Struct({ "name": Schema.String.annotate({ "description": "File name without directory components.", "examples": ["screencast-20260801T120000Z.webm"] }), "relativePath": Schema.String.annotate({ "description": "Path below the session files root. Browser downloads are under `downloads/`, recordings under `recordings/`, uploads under `uploads/`, and Playwright MCP output under `outputs/`. Pass it to `browser_file_upload` or to create a signed download URL.", "examples": ["recordings/screencast-20260801T120000Z.webm"] }), "size": Schema.Number.annotate({ "description": "File size in bytes.", "examples": [1048576], "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "modifiedAt": Schema.String.annotate({ "description": "Last file modification time.", "examples": ["2026-08-01T12:05:00Z"], "format": "date-time" }), "mimeType": Schema.String.annotate({ "description": "Detected media type.", "examples": ["video/webm"] }), "sandboxPath": Schema.optionalKey(Schema.String.annotate({ "description": "Path of the file inside the session's browser sandbox, under the fixed `/session/files` root, for CDP `DOM.setFileInputFiles`. It is readable by the browser while the session runs. Absent for files of sessions created before session files moved under one root that are still in their old location.", "examples": ["/session/files/recordings/screencast-20260801T120000Z.webm"] })) }).annotate({ "description": "Regular file retained with a browser session.", "identifier": "SessionFile" })
-export type SessionFileDownloadURLInput = { readonly "relativePath": string, readonly "ttlSeconds"?: number }
-export const SessionFileDownloadURLInput = Schema.Struct({ "relativePath": Schema.String.annotate({ "description": "Path from a `SessionFile` result.", "examples": ["recordings/screencast-20260801T120000Z.webm"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "ttlSeconds": Schema.optionalKey(Schema.Number.annotate({ "description": "Requested lifetime in seconds. Omit it to use `signed_file_url_ttl`; values above `signed_file_url_max_ttl` are rejected.", "examples": [900] }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" }))) }).annotate({ "description": "Session file path and requested signed URL lifetime.", "identifier": "SessionFileDownloadURLInput" })
-export type SessionFileDownloadURL = { readonly "url": string, readonly "expiresAt": string }
-export const SessionFileDownloadURL = Schema.Struct({ "url": Schema.String.annotate({ "description": "URL containing a path-bound `apf_` token.", "examples": ["https://aperture.example.com/sessions/019f6cf0-0000-7000-8000-000000000010/files/recordings/screencast-20260801T120000Z.webm?token=apf_REDACTED"], "format": "uri" }), "expiresAt": Schema.String.annotate({ "description": "Time after which the URL is rejected.", "examples": ["2026-08-01T12:20:00Z"], "format": "date-time" }) }).annotate({ "description": "Signed attachment URL for one session file.", "identifier": "SessionFileDownloadURL" })
-export type UpdateSnapshotInput = { readonly "description"?: string | null }
-export const UpdateSnapshotInput = Schema.Struct({ "description": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "New description. Send `null` to clear it; an empty string is stored as an empty description.", "examples": ["Updated signed-in state"] })) }).annotate({ "description": "Replacement snapshot description.", "identifier": "UpdateSnapshotInput" })
 export type __ClientMultipartFile = globalThis.File | globalThis.Blob
 export const __ClientMultipartFile = Schema.instanceOf(globalThis.Blob, { expected: "File | Blob" })
+export type MoveSessionFileInput = { readonly "from": string, readonly "to": string }
+export const MoveSessionFileInput = Schema.Struct({ "from": Schema.String.annotate({ "description": "Current path from a `SessionFile` result.", "examples": ["downloads/invoice.pdf"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "to": Schema.String.annotate({ "description": "New path below the session files root. Missing directories are created.", "examples": ["uploads/invoices/2026-08.pdf"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) }).annotate({ "description": "Current and new path of a session file.", "identifier": "MoveSessionFileInput" })
+export type SessionFileDownloadURLInput = { readonly "relativePath": string, readonly "ttlSeconds"?: number, readonly "disposition"?: "attachment" | "inline" }
+export const SessionFileDownloadURLInput = Schema.Struct({ "relativePath": Schema.String.annotate({ "description": "Path from a `SessionFile` result.", "examples": ["recordings/screencast-20260801T120000Z.webm"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "ttlSeconds": Schema.optionalKey(Schema.Number.annotate({ "description": "Requested lifetime in seconds. Omit it to use `signed_file_url_ttl`; values above `signed_file_url_max_ttl` are rejected.", "examples": [900] }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" }))), "disposition": Schema.optionalKey(Schema.Literals(["attachment", "inline"]).annotate({ "description": "How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, and byte-range support.", "default": "attachment" })) }).annotate({ "description": "Session file path and requested signed URL lifetime.", "identifier": "SessionFileDownloadURLInput" })
+export type SessionFileDownloadURL = { readonly "url": string, readonly "expiresAt": string }
+export const SessionFileDownloadURL = Schema.Struct({ "url": Schema.String.annotate({ "description": "URL containing a path-bound `apf_` token.", "examples": ["https://aperture.example.com/sessions/019f6cf0-0000-7000-8000-000000000010/files/recordings/screencast-20260801T120000Z.webm?token=apf_REDACTED"], "format": "uri" }), "expiresAt": Schema.String.annotate({ "description": "Time after which the URL is rejected.", "examples": ["2026-08-01T12:20:00Z"], "format": "date-time" }) }).annotate({ "description": "Signed URL for one session file.", "identifier": "SessionFileDownloadURL" })
+export type UpdateSnapshotInput = { readonly "description"?: string | null }
+export const UpdateSnapshotInput = Schema.Struct({ "description": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "New description. Send `null` to clear it; an empty string is stored as an empty description.", "examples": ["Updated signed-in state"] })) }).annotate({ "description": "Replacement snapshot description.", "identifier": "UpdateSnapshotInput" })
 export type LiveSessionErrorBody = { readonly "error": string }
 export const LiveSessionErrorBody = Schema.Struct({ "error": Schema.String.annotate({ "examples": ["file exceeds upload limit"] }) }).annotate({ "description": "Error raised inside a running session. It carries a message but no stable code.", "identifier": "LiveSessionErrorBody" })
 export type SetViewportInput = { readonly "targetId": string, readonly "width": number, readonly "height": number, readonly "deviceScaleFactor"?: number }
@@ -470,6 +472,26 @@ export type ListSessionFiles200 = ReadonlyArray<SessionFile>
 export const ListSessionFiles200 = Schema.Array(SessionFile)
 export type ListSessionFilesdefault = Error
 export const ListSessionFilesdefault = Error
+export type UploadSessionFilesParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7, readonly "directory"?: string }
+export const UploadSessionFilesParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7), "directory": Schema.optionalKey(Schema.String.annotate({ "default": "uploads" })) })
+export type UploadSessionFilesRequestFormData = { readonly "files"?: ReadonlyArray<__ClientMultipartFile> }
+export const UploadSessionFilesRequestFormData = Schema.Struct({ "files": Schema.optionalKey(Schema.Array(__ClientMultipartFile)) })
+export type UploadSessionFiles201 = { readonly "files": ReadonlyArray<SessionFile> }
+export const UploadSessionFiles201 = Schema.Struct({ "files": Schema.Array(SessionFile) }).annotate({ "description": "Files stored by this request, in request order." })
+export type UploadSessionFilesdefault = Error
+export const UploadSessionFilesdefault = Error
+export type DeleteSessionFileParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7, readonly "relativePath": string }
+export const DeleteSessionFileParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7), "relativePath": Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) })
+export type DeleteSessionFiledefault = Error
+export const DeleteSessionFiledefault = Error
+export type MoveSessionFileParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const MoveSessionFileParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type MoveSessionFileRequestJson = MoveSessionFileInput
+export const MoveSessionFileRequestJson = MoveSessionFileInput
+export type MoveSessionFile200 = SessionFile
+export const MoveSessionFile200 = SessionFile
+export type MoveSessionFiledefault = Error
+export const MoveSessionFiledefault = Error
 export type CreateSessionFileDownloadURLParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
 export const CreateSessionFileDownloadURLParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
 export type CreateSessionFileDownloadURLRequestJson = SessionFileDownloadURLInput
@@ -526,14 +548,14 @@ export type ListEvents200 = EventPage
 export const ListEvents200 = EventPage
 export type ListEventsdefault = Error
 export const ListEventsdefault = Error
-export type UploadSessionFilesParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
-export const UploadSessionFilesParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
-export type UploadSessionFilesRequestFormData = { readonly "files"?: ReadonlyArray<__ClientMultipartFile> }
-export const UploadSessionFilesRequestFormData = Schema.Struct({ "files": Schema.optionalKey(Schema.Array(__ClientMultipartFile)) })
-export type UploadSessionFiles201 = { readonly "files": ReadonlyArray<SessionFile> }
-export const UploadSessionFiles201 = Schema.Struct({ "files": Schema.Array(SessionFile) }).annotate({ "description": "Files stored by this request, in request order." })
-export type UploadSessionFilesdefault = LiveSessionFailure
-export const UploadSessionFilesdefault = LiveSessionFailure
+export type UploadLiveSessionFilesParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const UploadLiveSessionFilesParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type UploadLiveSessionFilesRequestFormData = { readonly "files"?: ReadonlyArray<__ClientMultipartFile> }
+export const UploadLiveSessionFilesRequestFormData = Schema.Struct({ "files": Schema.optionalKey(Schema.Array(__ClientMultipartFile)) })
+export type UploadLiveSessionFiles201 = { readonly "files": ReadonlyArray<SessionFile> }
+export const UploadLiveSessionFiles201 = Schema.Struct({ "files": Schema.Array(SessionFile) }).annotate({ "description": "Files stored by this request, in request order." })
+export type UploadLiveSessionFilesdefault = LiveSessionFailure
+export const UploadLiveSessionFilesdefault = LiveSessionFailure
 export type SetSessionViewportParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
 export const SetSessionViewportParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
 export type SetSessionViewportRequestJson = SetViewportInput
@@ -1030,6 +1052,38 @@ export const make = (
     }))
     ))
   ),
+    "uploadSessionFiles": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setUrlParams({ "directory": options.params?.["directory"] as any }),
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyFormDataRecord(options.payload as any),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(UploadSessionFiles201),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "deleteSessionFile": (sessionId, options) => __makePathRequest(HttpClientRequest.delete, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setUrlParams({ "relativePath": options.params["relativePath"] as any }),
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params["X-Aperture-Tenant-Id"] ?? undefined }),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(DeleteSessionFiledefault),
+      "204": () => Effect.void,
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "moveSessionFile": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files/move").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyJsonUnsafe(options.payload),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(MoveSessionFile200),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
     "createSessionFileDownloadURL": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files/download-url").pipe(
     Effect.flatMap((request) => request.pipe(
       HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
@@ -1104,12 +1158,12 @@ export const make = (
       orElse: unexpectedStatus
     }))
     ),
-    "uploadSessionFiles": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/sessions/" + __encodePathParam(sessionId) + "/uploads").pipe(
+    "uploadLiveSessionFiles": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/sessions/" + __encodePathParam(sessionId) + "/uploads").pipe(
     Effect.flatMap((request) => request.pipe(
       HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
       HttpClientRequest.bodyFormDataRecord(options.payload as any),
       withResponse(options.config)(HttpClientResponse.matchStatus({
-      "2xx": decodeSuccess(UploadSessionFiles201),
+      "2xx": decodeSuccess(UploadLiveSessionFiles201),
       orElse: unexpectedStatus
     }))
     ))
@@ -1318,6 +1372,20 @@ readonly "stopSessionRecording": <Config extends OperationConfig>(sessionId: str
 */
 readonly "listSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof ListSessionFilesParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListSessionFiles200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
+* Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
+* 
+* A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+*/
+readonly "uploadSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof UploadSessionFilesParams.Encoded | undefined; readonly payload: typeof UploadSessionFilesRequestFormData.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof UploadSessionFiles201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Deletes one session file. Directories it leaves empty are removed, except the top-level `downloads`, `recordings`, `uploads`, and `outputs`. Files still being written, such as in-progress downloads, are rejected.
+*/
+readonly "deleteSessionFile": <Config extends OperationConfig>(sessionId: string, options: { readonly params: typeof DeleteSessionFileParams.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof DeleteSessionFiledefault.Type | void, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+*/
+readonly "moveSessionFile": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof MoveSessionFileParams.Encoded | undefined; readonly payload: typeof MoveSessionFileRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof MoveSessionFile200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
 * Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
 */
 readonly "createSessionFileDownloadURL": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof CreateSessionFileDownloadURLParams.Encoded | undefined; readonly payload: typeof CreateSessionFileDownloadURLRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof CreateSessionFileDownloadURL200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
@@ -1353,8 +1421,10 @@ readonly "listEvents": <Config extends OperationConfig>(options: { readonly para
 * Stores every multipart part that has a filename below `uploads/` in the session files, where `browser_file_upload` can pick it up. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. Other parts are ignored.
 * 
 * A single file may not exceed `session_upload_max_file_bytes` (100 MiB by default), all session storage may not exceed `session_storage_quota_bytes` (1 GiB by default), a request may carry at most 100 files, and a session may hold at most 1000 uploads. A rejected request stores none of its files.
+* 
+* `POST /api/sessions/{sessionId}/files` does the same for any retained session and any directory.
 */
-readonly "uploadSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof UploadSessionFilesParams.Encoded | undefined; readonly payload: typeof UploadSessionFilesRequestFormData.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof UploadSessionFiles201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+readonly "uploadLiveSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof UploadLiveSessionFilesParams.Encoded | undefined; readonly payload: typeof UploadLiveSessionFilesRequestFormData.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof UploadLiveSessionFiles201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
 * Resizes one top-level target and waits until the browser and media pipeline apply it. Concurrent requests for the same target coalesce, so every waiter receives the final applied viewport.
 */

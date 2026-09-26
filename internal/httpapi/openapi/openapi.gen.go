@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -149,7 +150,12 @@ const (
 	ErrorCodeRecordingNotFound           ErrorCode = "recording_not_found"
 	ErrorCodeResourceAccessDenied        ErrorCode = "resource_access_denied"
 	ErrorCodeSessionExpired              ErrorCode = "session_expired"
+	ErrorCodeSessionFileBusy             ErrorCode = "session_file_busy"
+	ErrorCodeSessionFileExists           ErrorCode = "session_file_exists"
+	ErrorCodeSessionFileLimitExceeded    ErrorCode = "session_file_limit_exceeded"
 	ErrorCodeSessionFileNotFound         ErrorCode = "session_file_not_found"
+	ErrorCodeSessionFileNotMovable       ErrorCode = "session_file_not_movable"
+	ErrorCodeSessionFileTooLarge         ErrorCode = "session_file_too_large"
 	ErrorCodeSessionInvalidState         ErrorCode = "session_invalid_state"
 	ErrorCodeSessionNotFound             ErrorCode = "session_not_found"
 	ErrorCodeSessionNotPromotable        ErrorCode = "session_not_promotable"
@@ -157,6 +163,7 @@ const (
 	ErrorCodeSessionNotRunning           ErrorCode = "session_not_running"
 	ErrorCodeSessionOverlayMissing       ErrorCode = "session_overlay_missing"
 	ErrorCodeSessionServiceUnavailable   ErrorCode = "session_service_unavailable"
+	ErrorCodeSessionStorageQuotaExceeded ErrorCode = "session_storage_quota_exceeded"
 	ErrorCodeSnapshotDeleted             ErrorCode = "snapshot_deleted"
 	ErrorCodeSnapshotNameConflict        ErrorCode = "snapshot_name_conflict"
 	ErrorCodeSnapshotNotDeleted          ErrorCode = "snapshot_not_deleted"
@@ -231,7 +238,17 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeSessionExpired:
 		return true
+	case ErrorCodeSessionFileBusy:
+		return true
+	case ErrorCodeSessionFileExists:
+		return true
+	case ErrorCodeSessionFileLimitExceeded:
+		return true
 	case ErrorCodeSessionFileNotFound:
+		return true
+	case ErrorCodeSessionFileNotMovable:
+		return true
+	case ErrorCodeSessionFileTooLarge:
 		return true
 	case ErrorCodeSessionInvalidState:
 		return true
@@ -246,6 +263,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeSessionOverlayMissing:
 		return true
 	case ErrorCodeSessionServiceUnavailable:
+		return true
+	case ErrorCodeSessionStorageQuotaExceeded:
 		return true
 	case ErrorCodeSnapshotDeleted:
 		return true
@@ -619,6 +638,24 @@ func (e Scope) Valid() bool {
 	case ScopeTenantWrite:
 		return true
 	case ScopeTenantsWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionFileDownloadURLInputDisposition.
+const (
+	Attachment SessionFileDownloadURLInputDisposition = "attachment"
+	Inline     SessionFileDownloadURLInputDisposition = "inline"
+)
+
+// Valid indicates whether the value is a known member of the SessionFileDownloadURLInputDisposition enum.
+func (e SessionFileDownloadURLInputDisposition) Valid() bool {
+	switch e {
+	case Attachment:
+		return true
+	case Inline:
 		return true
 	default:
 		return false
@@ -1543,6 +1580,15 @@ type LiveSessionFailure struct {
 	union json.RawMessage
 }
 
+// MoveSessionFileInput Current and new path of a session file.
+type MoveSessionFileInput struct {
+	// From Current path from a `SessionFile` result.
+	From string `json:"from"`
+
+	// To New path below the session files root. Missing directories are created.
+	To string `json:"to"`
+}
+
 // PageMeta Cursor pagination metadata for a newest-first result page.
 type PageMeta struct {
 	// HasMore Whether another page is available.
@@ -1842,7 +1888,7 @@ type SessionFile struct {
 	Size int64 `json:"size"`
 }
 
-// SessionFileDownloadURL Signed attachment URL for one session file.
+// SessionFileDownloadURL Signed URL for one session file.
 type SessionFileDownloadURL struct {
 	// ExpiresAt Time after which the URL is rejected.
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -1853,12 +1899,18 @@ type SessionFileDownloadURL struct {
 
 // SessionFileDownloadURLInput Session file path and requested signed URL lifetime.
 type SessionFileDownloadURLInput struct {
+	// Disposition How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, and byte-range support.
+	Disposition *SessionFileDownloadURLInputDisposition `json:"disposition,omitempty"`
+
 	// RelativePath Path from a `SessionFile` result.
 	RelativePath string `json:"relativePath"`
 
 	// TtlSeconds Requested lifetime in seconds. Omit it to use `signed_file_url_ttl`; values above `signed_file_url_max_ttl` are rejected.
 	TtlSeconds *int `json:"ttlSeconds,omitempty"`
 }
+
+// SessionFileDownloadURLInputDisposition How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, and byte-range support.
+type SessionFileDownloadURLInputDisposition string
 
 // SessionMedia Media capabilities currently available for the session.
 type SessionMedia struct {
@@ -2261,6 +2313,11 @@ type UserId = UUIDv7
 // LiveSessionError Failure of a live-session route.
 type LiveSessionError = LiveSessionFailure
 
+// UploadedSessionFiles Files stored by this request, in request order.
+type UploadedSessionFiles struct {
+	Files []SessionFile `json:"files"`
+}
+
 // CreateAdminToken Token definition accepted by the system administrator token endpoint.
 type CreateAdminToken = CreateAdminTokenInput
 
@@ -2281,6 +2338,9 @@ type CreateTenantToken = CreateTenantTokenInput
 
 // CreateUser defines model for CreateUser.
 type CreateUser = UserInput
+
+// MoveSessionFile Current and new path of a session file.
+type MoveSessionFile = MoveSessionFileInput
 
 // PromoteSession Snapshot metadata created from a stopped, retained session.
 type PromoteSession = PromoteSessionInput
@@ -2493,14 +2553,43 @@ type SetSessionCursorParams struct {
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
+// DeleteSessionFileParams defines parameters for DeleteSessionFile.
+type DeleteSessionFileParams struct {
+	// RelativePath Path from a `SessionFile` result.
+	RelativePath string `form:"relativePath" json:"relativePath"`
+
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
 // ListSessionFilesParams defines parameters for ListSessionFiles.
 type ListSessionFilesParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
+// UploadSessionFilesMultipartBody defines parameters for UploadSessionFiles.
+type UploadSessionFilesMultipartBody struct {
+	Files *[]openapi_types.File `json:"files,omitempty"`
+}
+
+// UploadSessionFilesParams defines parameters for UploadSessionFiles.
+type UploadSessionFilesParams struct {
+	// Directory Directory below the session files root to store the files in.
+	Directory *string `form:"directory,omitempty" json:"directory,omitempty"`
+
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
 // CreateSessionFileDownloadURLParams defines parameters for CreateSessionFileDownloadURL.
 type CreateSessionFileDownloadURLParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// MoveSessionFileParams defines parameters for MoveSessionFile.
+type MoveSessionFileParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
@@ -2680,8 +2769,14 @@ type GetSessionsBulkJSONRequestBody = SessionBulkInput
 // SetSessionCursorJSONRequestBody defines body for SetSessionCursor for application/json ContentType.
 type SetSessionCursorJSONRequestBody = CursorVisibility
 
+// UploadSessionFilesMultipartRequestBody defines body for UploadSessionFiles for multipart/form-data ContentType.
+type UploadSessionFilesMultipartRequestBody UploadSessionFilesMultipartBody
+
 // CreateSessionFileDownloadURLJSONRequestBody defines body for CreateSessionFileDownloadURL for application/json ContentType.
 type CreateSessionFileDownloadURLJSONRequestBody = SessionFileDownloadURLInput
+
+// MoveSessionFileJSONRequestBody defines body for MoveSessionFile for application/json ContentType.
+type MoveSessionFileJSONRequestBody = MoveSessionFileInput
 
 // PromoteSessionJSONRequestBody defines body for PromoteSession for application/json ContentType.
 type PromoteSessionJSONRequestBody = PromoteSessionInput
@@ -3203,12 +3298,30 @@ type ClientInterface interface {
 	// Corresponds with PUT /api/sessions/{sessionId}/cursor (the `SetSessionCursor` operationId).
 	SetSessionCursor(ctx context.Context, sessionId SessionId, params *SetSessionCursorParams, body SetSessionCursorJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteSessionFile Delete a session file
+	//
+	// Deletes one session file. Directories it leaves empty are removed, except the top-level `downloads`, `recordings`, `uploads`, and `outputs`. Files still being written, such as in-progress downloads, are rejected.
+	//
+	// Corresponds with DELETE /api/sessions/{sessionId}/files (the `DeleteSessionFile` operationId).
+	DeleteSessionFile(ctx context.Context, sessionId SessionId, params *DeleteSessionFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSessionFiles List session files
 	//
 	// Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
 	//
 	// Corresponds with GET /api/sessions/{sessionId}/files (the `ListSessionFiles` operationId).
 	ListSessionFiles(ctx context.Context, sessionId SessionId, params *ListSessionFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UploadSessionFilesWithBody Upload session files
+	//
+	// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
+	//
+	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files (the `UploadSessionFiles` operationId).
+	UploadSessionFilesWithBody(ctx context.Context, sessionId SessionId, params *UploadSessionFilesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateSessionFileDownloadURLWithBody Create a session file download URL
 	//
@@ -3227,6 +3340,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
 	CreateSessionFileDownloadURL(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveSessionFileWithBody Move or rename a session file
+	//
+	// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+	MoveSessionFileWithBody(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveSessionFile Move or rename a session file
+	//
+	// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+	MoveSessionFile(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, body MoveSessionFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PromoteSessionWithBody Promote a browser session to a snapshot
 	//
@@ -4180,6 +4311,23 @@ func (c *Client) SetSessionCursor(ctx context.Context, sessionId SessionId, para
 	return c.Client.Do(req)
 }
 
+// DeleteSessionFile Delete a session file
+//
+// Deletes one session file. Directories it leaves empty are removed, except the top-level `downloads`, `recordings`, `uploads`, and `outputs`. Files still being written, such as in-progress downloads, are rejected.
+//
+// Corresponds with DELETE /api/sessions/{sessionId}/files (the `DeleteSessionFile` operationId).
+func (c *Client) DeleteSessionFile(ctx context.Context, sessionId SessionId, params *DeleteSessionFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteSessionFileRequest(c.Server, sessionId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListSessionFiles List session files
 //
 // Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
@@ -4187,6 +4335,27 @@ func (c *Client) SetSessionCursor(ctx context.Context, sessionId SessionId, para
 // Corresponds with GET /api/sessions/{sessionId}/files (the `ListSessionFiles` operationId).
 func (c *Client) ListSessionFiles(ctx context.Context, sessionId SessionId, params *ListSessionFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSessionFilesRequest(c.Server, sessionId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UploadSessionFilesWithBody Upload session files
+//
+// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
+//
+// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/files (the `UploadSessionFiles` operationId).
+func (c *Client) UploadSessionFilesWithBody(ctx context.Context, sessionId SessionId, params *UploadSessionFilesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadSessionFilesRequestWithBody(c.Server, sessionId, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4225,6 +4394,44 @@ func (c *Client) CreateSessionFileDownloadURLWithBody(ctx context.Context, sessi
 // Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
 func (c *Client) CreateSessionFileDownloadURL(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateSessionFileDownloadURLRequest(c.Server, sessionId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveSessionFileWithBody Move or rename a session file
+//
+// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+func (c *Client) MoveSessionFileWithBody(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveSessionFileRequestWithBody(c.Server, sessionId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveSessionFile Move or rename a session file
+//
+// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+func (c *Client) MoveSessionFile(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, body MoveSessionFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveSessionFileRequest(c.Server, sessionId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6584,6 +6791,78 @@ func NewSetSessionCursorRequestWithBody(server string, sessionId SessionId, para
 	return req, nil
 }
 
+// NewDeleteSessionFileRequest constructs an http.Request for the DeleteSessionFile method
+func NewDeleteSessionFileRequest(server string, sessionId SessionId, params *DeleteSessionFileParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/files", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "relativePath", params.RelativePath, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewListSessionFilesRequest constructs an http.Request for the ListSessionFiles method
 func NewListSessionFilesRequest(server string, sessionId SessionId, params *ListSessionFilesParams) (*http.Request, error) {
 	var err error
@@ -6633,6 +6912,84 @@ func NewListSessionFilesRequest(server string, sessionId SessionId, params *List
 	return req, nil
 }
 
+// NewUploadSessionFilesRequestWithBody constructs an http.Request for the UploadSessionFiles method, with any body, and a specified content type
+func NewUploadSessionFilesRequestWithBody(server string, sessionId SessionId, params *UploadSessionFilesParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/files", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Directory != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "directory", *params.Directory, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewCreateSessionFileDownloadURLRequest calls the generic CreateSessionFileDownloadURL builder with application/json body
 func NewCreateSessionFileDownloadURLRequest(server string, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -6661,6 +7018,68 @@ func NewCreateSessionFileDownloadURLRequestWithBody(server string, sessionId Ses
 	}
 
 	operationPath := fmt.Sprintf("/api/sessions/%s/files/download-url", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewMoveSessionFileRequest calls the generic MoveSessionFile builder with application/json body
+func NewMoveSessionFileRequest(server string, sessionId SessionId, params *MoveSessionFileParams, body MoveSessionFileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewMoveSessionFileRequestWithBody(server, sessionId, params, "application/json", bodyReader)
+}
+
+// NewMoveSessionFileRequestWithBody constructs an http.Request for the MoveSessionFile method, with any body, and a specified content type
+func NewMoveSessionFileRequestWithBody(server string, sessionId SessionId, params *MoveSessionFileParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/files/move", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -8323,6 +8742,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /api/sessions/{sessionId}/cursor (the `SetSessionCursor` operationId).
 	SetSessionCursorWithResponse(ctx context.Context, sessionId SessionId, params *SetSessionCursorParams, body SetSessionCursorJSONRequestBody, reqEditors ...RequestEditorFn) (*SetSessionCursorResponse, error)
 
+	// DeleteSessionFileWithResponse Delete a session file
+	//
+	// Deletes one session file. Directories it leaves empty are removed, except the top-level `downloads`, `recordings`, `uploads`, and `outputs`. Files still being written, such as in-progress downloads, are rejected.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/sessions/{sessionId}/files (the `DeleteSessionFile` operationId).
+	DeleteSessionFileWithResponse(ctx context.Context, sessionId SessionId, params *DeleteSessionFileParams, reqEditors ...RequestEditorFn) (*DeleteSessionFileResponse, error)
+
 	// ListSessionFilesWithResponse List session files
 	//
 	// Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
@@ -8331,6 +8759,17 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/sessions/{sessionId}/files (the `ListSessionFiles` operationId).
 	ListSessionFilesWithResponse(ctx context.Context, sessionId SessionId, params *ListSessionFilesParams, reqEditors ...RequestEditorFn) (*ListSessionFilesResponse, error)
+
+	// UploadSessionFilesWithBodyWithResponse Upload session files
+	//
+	// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
+	//
+	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files (the `UploadSessionFiles` operationId).
+	UploadSessionFilesWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *UploadSessionFilesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadSessionFilesResponse, error)
 
 	// CreateSessionFileDownloadURLWithBodyWithResponse Create a session file download URL
 	//
@@ -8349,6 +8788,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/files/download-url (the `CreateSessionFileDownloadURL` operationId).
 	CreateSessionFileDownloadURLWithResponse(ctx context.Context, sessionId SessionId, params *CreateSessionFileDownloadURLParams, body CreateSessionFileDownloadURLJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionFileDownloadURLResponse, error)
+
+	// MoveSessionFileWithBodyWithResponse Move or rename a session file
+	//
+	// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+	MoveSessionFileWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveSessionFileResponse, error)
+
+	// MoveSessionFileWithResponse Move or rename a session file
+	//
+	// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+	MoveSessionFileWithResponse(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, body MoveSessionFileJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveSessionFileResponse, error)
 
 	// PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
 	//
@@ -10136,6 +10593,47 @@ func (r SetSessionCursorResponse) ContentType() string {
 	return ""
 }
 
+type DeleteSessionFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteSessionFileResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteSessionFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteSessionFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteSessionFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteSessionFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListSessionFilesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -10184,6 +10682,54 @@ func (r ListSessionFilesResponse) ContentType() string {
 	return ""
 }
 
+type UploadSessionFilesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *UploadedSessionFiles
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r UploadSessionFilesResponse) GetJSON201() *UploadedSessionFiles {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UploadSessionFilesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UploadSessionFilesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadSessionFilesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadSessionFilesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UploadSessionFilesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CreateSessionFileDownloadURLResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -10226,6 +10772,54 @@ func (r CreateSessionFileDownloadURLResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CreateSessionFileDownloadURLResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MoveSessionFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionFile
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MoveSessionFileResponse) GetJSON200() *SessionFile {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r MoveSessionFileResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r MoveSessionFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MoveSessionFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MoveSessionFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MoveSessionFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -11820,6 +12414,21 @@ func (c *ClientWithResponses) SetSessionCursorWithResponse(ctx context.Context, 
 	return ParseSetSessionCursorResponse(rsp)
 }
 
+// DeleteSessionFileWithResponse Delete a session file
+//
+// Deletes one session file. Directories it leaves empty are removed, except the top-level `downloads`, `recordings`, `uploads`, and `outputs`. Files still being written, such as in-progress downloads, are rejected.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/sessions/{sessionId}/files (the `DeleteSessionFile` operationId).
+func (c *ClientWithResponses) DeleteSessionFileWithResponse(ctx context.Context, sessionId SessionId, params *DeleteSessionFileParams, reqEditors ...RequestEditorFn) (*DeleteSessionFileResponse, error) {
+	rsp, err := c.DeleteSessionFile(ctx, sessionId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteSessionFileResponse(rsp)
+}
+
 // ListSessionFilesWithResponse List session files
 //
 // Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
@@ -11833,6 +12442,23 @@ func (c *ClientWithResponses) ListSessionFilesWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseListSessionFilesResponse(rsp)
+}
+
+// UploadSessionFilesWithBodyWithResponse Upload session files
+//
+// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
+//
+// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/files (the `UploadSessionFiles` operationId).
+func (c *ClientWithResponses) UploadSessionFilesWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *UploadSessionFilesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadSessionFilesResponse, error) {
+	rsp, err := c.UploadSessionFilesWithBody(ctx, sessionId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadSessionFilesResponse(rsp)
 }
 
 // CreateSessionFileDownloadURLWithBodyWithResponse Create a session file download URL
@@ -11863,6 +12489,36 @@ func (c *ClientWithResponses) CreateSessionFileDownloadURLWithResponse(ctx conte
 		return nil, err
 	}
 	return ParseCreateSessionFileDownloadURLResponse(rsp)
+}
+
+// MoveSessionFileWithBodyWithResponse Move or rename a session file
+//
+// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+func (c *ClientWithResponses) MoveSessionFileWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveSessionFileResponse, error) {
+	rsp, err := c.MoveSessionFileWithBody(ctx, sessionId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveSessionFileResponse(rsp)
+}
+
+// MoveSessionFileWithResponse Move or rename a session file
+//
+// Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/files/move (the `MoveSessionFile` operationId).
+func (c *ClientWithResponses) MoveSessionFileWithResponse(ctx context.Context, sessionId SessionId, params *MoveSessionFileParams, body MoveSessionFileJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveSessionFileResponse, error) {
+	rsp, err := c.MoveSessionFile(ctx, sessionId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveSessionFileResponse(rsp)
 }
 
 // PromoteSessionWithBodyWithResponse Promote a browser session to a snapshot
@@ -13356,6 +14012,35 @@ func ParseSetSessionCursorResponse(rsp *http.Response) (*SetSessionCursorRespons
 	return response, nil
 }
 
+// ParseDeleteSessionFileResponse parses an HTTP response from a DeleteSessionFileWithResponse call
+func ParseDeleteSessionFileResponse(rsp *http.Response) (*DeleteSessionFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteSessionFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListSessionFilesResponse parses an HTTP response from a ListSessionFilesWithResponse call
 func ParseListSessionFilesResponse(rsp *http.Response) (*ListSessionFilesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -13389,6 +14074,39 @@ func ParseListSessionFilesResponse(rsp *http.Response) (*ListSessionFilesRespons
 	return response, nil
 }
 
+// ParseUploadSessionFilesResponse parses an HTTP response from a UploadSessionFilesWithResponse call
+func ParseUploadSessionFilesResponse(rsp *http.Response) (*UploadSessionFilesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadSessionFilesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest UploadedSessionFiles
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateSessionFileDownloadURLResponse parses an HTTP response from a CreateSessionFileDownloadURLWithResponse call
 func ParseCreateSessionFileDownloadURLResponse(rsp *http.Response) (*CreateSessionFileDownloadURLResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -13405,6 +14123,39 @@ func ParseCreateSessionFileDownloadURLResponse(rsp *http.Response) (*CreateSessi
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest SessionFileDownloadURL
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMoveSessionFileResponse parses an HTTP response from a MoveSessionFileWithResponse call
+func ParseMoveSessionFileResponse(rsp *http.Response) (*MoveSessionFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MoveSessionFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionFile
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -14209,12 +14960,21 @@ type ServerInterface interface {
 	// SetSessionCursor Set remote cursor visibility
 	// (PUT /api/sessions/{sessionId}/cursor)
 	SetSessionCursor(c *gin.Context, sessionId SessionId, params SetSessionCursorParams)
+	// DeleteSessionFile Delete a session file
+	// (DELETE /api/sessions/{sessionId}/files)
+	DeleteSessionFile(c *gin.Context, sessionId SessionId, params DeleteSessionFileParams)
 	// ListSessionFiles List session files
 	// (GET /api/sessions/{sessionId}/files)
 	ListSessionFiles(c *gin.Context, sessionId SessionId, params ListSessionFilesParams)
+	// UploadSessionFiles Upload session files
+	// (POST /api/sessions/{sessionId}/files)
+	UploadSessionFiles(c *gin.Context, sessionId SessionId, params UploadSessionFilesParams)
 	// CreateSessionFileDownloadURL Create a session file download URL
 	// (POST /api/sessions/{sessionId}/files/download-url)
 	CreateSessionFileDownloadURL(c *gin.Context, sessionId SessionId, params CreateSessionFileDownloadURLParams)
+	// MoveSessionFile Move or rename a session file
+	// (POST /api/sessions/{sessionId}/files/move)
+	MoveSessionFile(c *gin.Context, sessionId SessionId, params MoveSessionFileParams)
 	// PromoteSession Promote a browser session to a snapshot
 	// (POST /api/sessions/{sessionId}/promote)
 	PromoteSession(c *gin.Context, sessionId SessionId, params PromoteSessionParams)
@@ -15507,6 +16267,63 @@ func (siw *ServerInterfaceWrapper) SetSessionCursor(c *gin.Context) {
 	siw.Handler.SetSessionCursor(c, sessionId, params)
 }
 
+// DeleteSessionFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSessionFile(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteSessionFileParams
+
+	// ------------- Required query parameter "relativePath" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "relativePath", c.Request.URL.Query(), &params.RelativePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter relativePath: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteSessionFile(c, sessionId, params)
+}
+
 // ListSessionFiles operation middleware
 func (siw *ServerInterfaceWrapper) ListSessionFiles(c *gin.Context) {
 
@@ -15556,6 +16373,63 @@ func (siw *ServerInterfaceWrapper) ListSessionFiles(c *gin.Context) {
 	siw.Handler.ListSessionFiles(c, sessionId, params)
 }
 
+// UploadSessionFiles operation middleware
+func (siw *ServerInterfaceWrapper) UploadSessionFiles(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UploadSessionFilesParams
+
+	// ------------- Optional query parameter "directory" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "directory", c.Request.URL.Query(), &params.Directory, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter directory: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UploadSessionFiles(c, sessionId, params)
+}
+
 // CreateSessionFileDownloadURL operation middleware
 func (siw *ServerInterfaceWrapper) CreateSessionFileDownloadURL(c *gin.Context) {
 
@@ -15603,6 +16477,55 @@ func (siw *ServerInterfaceWrapper) CreateSessionFileDownloadURL(c *gin.Context) 
 	}
 
 	siw.Handler.CreateSessionFileDownloadURL(c, sessionId, params)
+}
+
+// MoveSessionFile operation middleware
+func (siw *ServerInterfaceWrapper) MoveSessionFile(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params MoveSessionFileParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.MoveSessionFile(c, sessionId, params)
 }
 
 // PromoteSession operation middleware
@@ -16667,7 +17590,10 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId", wrapper.GetSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/retarget", wrapper.RetargetSessionRecording)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId/stop", wrapper.StopSessionRecording)
+	router.DELETE(options.BaseURL+"/api/sessions/:sessionId/files", wrapper.DeleteSessionFile)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/files", wrapper.ListSessionFiles)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/files", wrapper.UploadSessionFiles)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/files/move", wrapper.MoveSessionFile)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/files/download-url", wrapper.CreateSessionFileDownloadURL)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/promote", wrapper.PromoteSession)
 	router.GET(options.BaseURL+"/api/snapshots", wrapper.ListSnapshots)
@@ -16688,6 +17614,10 @@ func (t LiveSessionErrorJSONResponse) MarshalJSON() ([]byte, error) {
 
 func (t *LiveSessionErrorJSONResponse) UnmarshalJSON(b []byte) error {
 	return (*LiveSessionFailure)(t).UnmarshalJSON(b)
+}
+
+type UploadedSessionFilesJSONResponse struct {
+	Files []SessionFile `json:"files"`
 }
 
 type ListAuditEventsRequestObject struct {
@@ -17921,6 +18851,40 @@ func (response SetSessionCursordefaultJSONResponse) VisitSetSessionCursorRespons
 	return err
 }
 
+type DeleteSessionFileRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    DeleteSessionFileParams
+}
+
+type DeleteSessionFileResponseObject interface {
+	VisitDeleteSessionFileResponse(w http.ResponseWriter) error
+}
+
+type DeleteSessionFile204Response struct {
+}
+
+func (response DeleteSessionFile204Response) VisitDeleteSessionFileResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSessionFiledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteSessionFiledefaultJSONResponse) VisitDeleteSessionFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionFilesRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Params    ListSessionFilesParams
@@ -17950,6 +18914,49 @@ type ListSessionFilesdefaultJSONResponse struct {
 }
 
 func (response ListSessionFilesdefaultJSONResponse) VisitListSessionFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadSessionFilesRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    UploadSessionFilesParams
+	Body      *multipart.Reader
+}
+
+type UploadSessionFilesResponseObject interface {
+	VisitUploadSessionFilesResponse(w http.ResponseWriter) error
+}
+
+type UploadSessionFiles201JSONResponse struct {
+	UploadedSessionFilesJSONResponse
+}
+
+func (response UploadSessionFiles201JSONResponse) VisitUploadSessionFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadSessionFilesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UploadSessionFilesdefaultJSONResponse) VisitUploadSessionFilesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -17991,6 +18998,47 @@ type CreateSessionFileDownloadURLdefaultJSONResponse struct {
 }
 
 func (response CreateSessionFileDownloadURLdefaultJSONResponse) VisitCreateSessionFileDownloadURLResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveSessionFileRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    MoveSessionFileParams
+	Body      *MoveSessionFileJSONRequestBody
+}
+
+type MoveSessionFileResponseObject interface {
+	VisitMoveSessionFileResponse(w http.ResponseWriter) error
+}
+
+type MoveSessionFile200JSONResponse SessionFile
+
+func (response MoveSessionFile200JSONResponse) VisitMoveSessionFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveSessionFiledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response MoveSessionFiledefaultJSONResponse) VisitMoveSessionFileResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -18937,12 +19985,21 @@ type StrictServerInterface interface {
 	// SetSessionCursor Set remote cursor visibility
 	// (PUT /api/sessions/{sessionId}/cursor)
 	SetSessionCursor(ctx context.Context, request SetSessionCursorRequestObject) (SetSessionCursorResponseObject, error)
+	// DeleteSessionFile Delete a session file
+	// (DELETE /api/sessions/{sessionId}/files)
+	DeleteSessionFile(ctx context.Context, request DeleteSessionFileRequestObject) (DeleteSessionFileResponseObject, error)
 	// ListSessionFiles List session files
 	// (GET /api/sessions/{sessionId}/files)
 	ListSessionFiles(ctx context.Context, request ListSessionFilesRequestObject) (ListSessionFilesResponseObject, error)
+	// UploadSessionFiles Upload session files
+	// (POST /api/sessions/{sessionId}/files)
+	UploadSessionFiles(ctx context.Context, request UploadSessionFilesRequestObject) (UploadSessionFilesResponseObject, error)
 	// CreateSessionFileDownloadURL Create a session file download URL
 	// (POST /api/sessions/{sessionId}/files/download-url)
 	CreateSessionFileDownloadURL(ctx context.Context, request CreateSessionFileDownloadURLRequestObject) (CreateSessionFileDownloadURLResponseObject, error)
+	// MoveSessionFile Move or rename a session file
+	// (POST /api/sessions/{sessionId}/files/move)
+	MoveSessionFile(ctx context.Context, request MoveSessionFileRequestObject) (MoveSessionFileResponseObject, error)
 	// PromoteSession Promote a browser session to a snapshot
 	// (POST /api/sessions/{sessionId}/promote)
 	PromoteSession(ctx context.Context, request PromoteSessionRequestObject) (PromoteSessionResponseObject, error)
@@ -19958,6 +21015,33 @@ func (sh *strictHandler) SetSessionCursor(ctx *gin.Context, sessionId SessionId,
 	}
 }
 
+// DeleteSessionFile operation middleware
+func (sh *strictHandler) DeleteSessionFile(ctx *gin.Context, sessionId SessionId, params DeleteSessionFileParams) {
+	var request DeleteSessionFileRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSessionFile(ctx, request.(DeleteSessionFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSessionFile")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(DeleteSessionFileResponseObject); ok {
+		if err := validResponse.VisitDeleteSessionFileResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListSessionFiles operation middleware
 func (sh *strictHandler) ListSessionFiles(ctx *gin.Context, sessionId SessionId, params ListSessionFilesParams) {
 	var request ListSessionFilesRequestObject
@@ -19978,6 +21062,40 @@ func (sh *strictHandler) ListSessionFiles(ctx *gin.Context, sessionId SessionId,
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(ListSessionFilesResponseObject); ok {
 		if err := validResponse.VisitListSessionFilesResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadSessionFiles operation middleware
+func (sh *strictHandler) UploadSessionFiles(ctx *gin.Context, sessionId SessionId, params UploadSessionFilesParams) {
+	var request UploadSessionFilesRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	if reader, err := ctx.Request.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadSessionFiles(ctx, request.(UploadSessionFilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadSessionFiles")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(UploadSessionFilesResponseObject); ok {
+		if err := validResponse.VisitUploadSessionFilesResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {
@@ -20012,6 +21130,40 @@ func (sh *strictHandler) CreateSessionFileDownloadURL(ctx *gin.Context, sessionI
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(CreateSessionFileDownloadURLResponseObject); ok {
 		if err := validResponse.VisitCreateSessionFileDownloadURLResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveSessionFile operation middleware
+func (sh *strictHandler) MoveSessionFile(ctx *gin.Context, sessionId SessionId, params MoveSessionFileParams) {
+	var request MoveSessionFileRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	var body MoveSessionFileJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveSessionFile(ctx, request.(MoveSessionFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveSessionFile")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(MoveSessionFileResponseObject); ok {
+		if err := validResponse.VisitMoveSessionFileResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

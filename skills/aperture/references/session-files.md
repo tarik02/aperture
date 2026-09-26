@@ -9,7 +9,7 @@ Session files are the regular files below one per-session files root. Every list
 - `uploads/` — files sent to `POST /sessions/:sessionId/uploads`
 - `outputs/` — Playwright MCP output such as screenshots; a browser tool file saved under an explicit name lands at that path instead
 
-Hidden entries (in-progress uploads and recording segments) are not session files. Sessions keep their files, including while suspended, until they expire. Session files never enter a promoted snapshot, and a session created from a snapshot starts with no files.
+Hidden entries (in-progress uploads and recording segments) are not session files. Sessions keep their files, including while suspended, until they expire. Session files never enter a promoted snapshot, and a session created from a snapshot starts with no files. Promotion also clears the profile's download history, which would point at those files.
 
 Inside the browser sandbox the files root is mounted at `/session/files`, so each file also has a `sandboxPath` such as `/session/files/downloads/invoice.pdf`. Pass it to CDP `DOM.setFileInputFiles` while the session runs. Host paths are never returned.
 
@@ -29,6 +29,14 @@ Pass any session file's `relativePath` to `browser_file_upload`, for example a d
 
 `GET /api/sessions/:sessionId/files` requires `sessions:read` and returns the same metadata as `session_files.list` as a JSON array. It reads the retained session directory, so it also works for suspended, stopped, and deleted sessions until they expire. Resource-restricted tokens need a grant for the session.
 
+Managing files needs `sessions:write`, follows the same tenant and resource-grant rules, and works in every retained state:
+
+- `POST /api/sessions/:sessionId/files?directory=uploads` stores `multipart/form-data` file parts in a directory below the files root (default `uploads`) and returns `{ "files": [...] }`. Names are sanitized and suffixed instead of overwriting; the upload limits of the data-plane route apply (`session_file_too_large`, `session_storage_quota_exceeded`, `session_file_limit_exceeded`).
+- `DELETE /api/sessions/:sessionId/files?relativePath=downloads/invoice.pdf` deletes one file and answers `204`.
+- `POST /api/sessions/:sessionId/files/move` with `{ "from": "downloads/invoice.pdf", "to": "uploads/invoices/2026-08.pdf" }` moves or renames one file and returns it. An existing target fails with `session_file_exists`.
+
+Paths must stay below the files root and may not contain hidden components. In-progress downloads and uploads fail with `session_file_busy`. Directories are implied by file paths and removed once empty, except `downloads`, `recordings`, `uploads`, and `outputs`. Changes are recorded as `session.file_uploaded`, `session.file_deleted`, and `session.file_moved` events.
+
 `POST /api/sessions/:sessionId/files/download-url` requires `sessions:read` and accepts:
 
 ```json
@@ -38,7 +46,7 @@ Pass any session file's `relativePath` to `browser_file_upload`, for example a d
 }
 ```
 
-The response contains `url` and `expiresAt`. Omit `ttlSeconds` to use the configured default.
+The response contains `url` and `expiresAt`. Omit `ttlSeconds` to use the configured default. Pass `"disposition": "inline"` for a URL a browser can display, such as an `<img>` source; the default is `attachment`. Downloads carry the detected `Content-Type`, support byte ranges, and are sandboxed with `Content-Security-Policy: sandbox`.
 
 Signed downloads use:
 

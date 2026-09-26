@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -44,7 +45,7 @@ func (s *Server) mcpSessionFileURL(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSessionFileURLOutput{}, err
 	}
-	result, err := s.sessionFileDownloadURL(view.Session.ID, in.RelativePath, in.TTLSeconds)
+	result, err := s.sessionFileDownloadURL(view.Session.ID, in.RelativePath, sessionfiles.DispositionAttachment, in.TTLSeconds)
 	if errors.Is(err, errSessionFileNotFound) {
 		return nil, mcpSessionFileURLOutput{}, mcpToolError("file_not_found", err)
 	}
