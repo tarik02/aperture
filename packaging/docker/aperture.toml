@@ -1,4 +1,5 @@
 store_root = "/var/lib/aperture"
+cold_root = "/var/lib/aperture"
 runtime_root = "/run/aperture/state"
 artifact_root = "/var/lib/aperture/artifacts"
 database_path = "/var/lib/aperture/aperture.db"

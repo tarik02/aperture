@@ -200,7 +200,9 @@ func (s *Service) removeSessionOverlayState(sessionRow *db.Session) error {
 		sessionRow.OverlayPath,
 	}
 	if layout, err := paths.Session(s.cfg, sessionRow.ID); err == nil {
-		dirs = append(dirs, layout.Metadata)
+		// The files root sits in its own session directory under cold_root, which
+		// is the overlay root only when cold_root is store_root.
+		dirs = append(dirs, layout.Metadata, filepath.Dir(layout.Files.Root))
 	}
 	seen := make(map[string]struct{}, len(dirs))
 	for _, dir := range dirs {
@@ -259,7 +261,7 @@ func (s *Service) collectSnapshot(ctx context.Context, snapshotRow *db.Snapshot,
 // sweepUploadStaging removes upload staging files that a process stopped
 // mid-upload left behind, on filesystems where uploads cannot stage unnamed files.
 func (s *Service) sweepUploadStaging() error {
-	roots, err := filepath.Glob(filepath.Join(s.cfg.StoreRoot, "sessions", "*", "*", "*", "files"))
+	roots, err := filepath.Glob(filepath.Join(s.cfg.ColdRoot, "sessions", "*", "*", "*", "files"))
 	if err != nil {
 		return err
 	}

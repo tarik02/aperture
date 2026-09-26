@@ -80,6 +80,7 @@ func TestLiveE2EDesktopSmoke(t *testing.T) {
 	runtimeRoot := filepath.Join(runtimeBase, "aperture-e2e", filepath.Base(root))
 	cfg := config.Config{
 		StoreRoot:               storeRoot,
+		ColdRoot:                storeRoot,
 		RuntimeRoot:             runtimeRoot,
 		ArtifactRoot:            filepath.Join(storeRoot, "artifacts"),
 		DatabasePath:            filepath.Join(storeRoot, "aperture.db"),

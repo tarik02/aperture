@@ -12,6 +12,14 @@ _Avoid_: Collaboration hub, browser transport, wrapper runtime
 A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
 _Avoid_: Retained file, recording file
 
+**Hot storage**:
+Host-local storage for the overlay state of running and stopped sessions.
+_Avoid_: Store, state directory
+
+**Cold storage**:
+Storage for promoted snapshots and session files, which outlive the sessions that produced them and may be shared network storage.
+_Avoid_: Archive, file store
+
 **Browser target**:
 A live browser page exposed by Aperture as an independently selectable destination for viewing, control, and recording. Its identity survives navigation and internal remapping, but ends when the page closes or the browser restarts.
 _Avoid_: CDP target, tab

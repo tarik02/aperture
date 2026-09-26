@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/aperture/aperture/apps/web"
@@ -20,10 +21,12 @@ import (
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
+	"github.com/aperture/aperture/internal/storage"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
 	"go.uber.org/zap"
+	"golang.org/x/sys/unix"
 )
 
 const deployRolePollInterval = time.Second
@@ -116,6 +119,10 @@ func (a *App) Migrate(ctx context.Context) error {
 
 // Serve starts the HTTP API until the context is canceled.
 func (a *App) Serve(ctx context.Context) error {
+	if err := storage.Prepare(a.Config); err != nil {
+		return err
+	}
+	a.warnIfDatabaseOnNFS()
 	if err := a.initSessions(); err != nil {
 		return err
 	}
@@ -278,4 +285,18 @@ func newLogger(level string) (*zap.Logger, error) {
 		return nil, fmt.Errorf("parse log level: %w", err)
 	}
 	return cfg.Build()
+}
+
+// warnIfDatabaseOnNFS flags a database on NFS, where SQLite's locking is
+// unreliable and the database can be corrupted.
+func (a *App) warnIfDatabaseOnNFS() {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(filepath.Dir(a.Config.DatabasePath), &stat); err != nil {
+		return
+	}
+	if stat.Type == unix.NFS_SUPER_MAGIC {
+		a.Logger.Warn("database_path is on NFS; keep the SQLite database on a local filesystem",
+			zap.String("database_path", a.Config.DatabasePath),
+		)
+	}
 }

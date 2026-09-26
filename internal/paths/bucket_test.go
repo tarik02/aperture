@@ -18,6 +18,7 @@ func testConfig(t *testing.T) config.Config {
 
 	return config.Config{
 		StoreRoot:    storeRoot,
+		ColdRoot:     filepath.Join(root, "cold"),
 		RuntimeRoot:  runtimeRoot,
 		ArtifactRoot: artifactRoot,
 	}
@@ -72,7 +73,7 @@ func TestSnapshotPaths(t *testing.T) {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 
-	wantProfile := filepath.Join(cfg.StoreRoot, "snapshots", "01", "8f", snapshotID, "profile")
+	wantProfile := filepath.Join(cfg.ColdRoot, "snapshots", "01", "8f", snapshotID, "profile")
 	if layout.Profile != wantProfile {
 		t.Fatalf("profile = %q, want %q", layout.Profile, wantProfile)
 	}
