@@ -81,7 +81,8 @@ const program = Effect.gen(function* () {
   const uploaded = yield* client.sessions.uploadSessionFiles(sessionId, [
     { name: "invoice.pdf", content: fs.stream("./invoice.pdf") },
   ]);
-  // uploaded[0].relativePath is "uploads/invoice.pdf", ready for browser_file_upload.
+  // uploaded[0].relativePath ("uploads/invoice.pdf") is for browser_file_upload;
+  // uploaded[0].sandboxPath ("/session/files/uploads/invoice.pdf") is for CDP DOM.setFileInputFiles.
   yield* client.sessions.setSessionViewport(sessionId, { targetId, width: 1280, height: 720 });
   yield* client.sessions
     .streamSessionRecording(sessionId, recordingId)

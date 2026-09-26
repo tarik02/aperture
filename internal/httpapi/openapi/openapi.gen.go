@@ -1835,6 +1835,9 @@ type SessionFile struct {
 	// RelativePath Path below the session files root. Browser downloads are under `downloads/`, recordings under `recordings/`, uploads under `uploads/`, and Playwright MCP output under `outputs/`. Pass it to `browser_file_upload` or to create a signed download URL.
 	RelativePath string `json:"relativePath"`
 
+	// SandboxPath Path of the file inside the session's browser sandbox, under the fixed `/session/files` root, for CDP `DOM.setFileInputFiles`. It is readable by the browser while the session runs. Absent for files of sessions created before session files moved under one root that are still in their old location.
+	SandboxPath *string `json:"sandboxPath,omitempty"`
+
 	// Size File size in bytes.
 	Size int64 `json:"size"`
 }

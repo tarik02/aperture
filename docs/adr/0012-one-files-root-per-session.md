@@ -14,7 +14,9 @@ files/
   outputs/      Playwright MCP --output-dir
 ```
 
-The REST listing, MCP `session_files.list`, signed download URLs, upload responses, recording results, and Playwright browser tools all use these relative paths. The daemon lists and resolves them through one shared implementation (`internal/sessionfiles`). The wrapper receives the root as `FILES_DIR`, bind-mounts it into the browser sandbox, and runs Playwright MCP with the root as its workspace, so `browser_file_upload` accepts any session file. Logs and crash dumps stay under `artifact_root`; they are not session files.
+The REST listing, MCP `session_files.list`, signed download URLs, upload responses, recording results, and Playwright browser tools all use these relative paths. The daemon and the wrapper list and resolve them through one shared implementation (`internal/sessionfiles`). Logs and crash dumps stay under `artifact_root`; they are not session files.
+
+Inside the browser sandbox the root is mounted at the fixed path `/session/files`. Chromium's download directory is `/session/files/downloads`, and every session file below the root reports `sandboxPath` (`/session/files/<relativePath>`) for CDP `DOM.setFileInputFiles`. The path is the same for every session, so it reveals nothing about the host and stays valid in profiles carried into snapshots. The recorder and Playwright MCP run in the wrapper outside the sandbox and use the host root directly. Playwright MCP's workspace is the root, so `browser_file_upload` accepts any relative path. Because Playwright hands the browser the host paths it resolves, the sandbox also mounts the root at its host path. That mount is internal and never appears in API responses.
 
 ## Context
 
@@ -24,7 +26,9 @@ Files used to be spread across three places: downloads and recordings under the 
 
 - One root, with the subdirectories above, derived by `paths.SessionFiles`.
 - The wrapper's own `GET /sessions/:sessionId/files` listing and download routes are removed. They only worked while the session ran and duplicated the control-plane listing and signed downloads, which work in every retained state.
-- Upload responses return the regular session file shape. Host paths are never exposed. Because the sandbox bind-mounts host paths at the same location, there is no separate sandbox path to offer, so raw CDP `DOM.setFileInputFiles` cannot address uploads; `browser_file_upload` can.
+- Upload responses return the regular session file shape, including `sandboxPath`. Host paths are never exposed.
+- Session files are separate from snapshots. Promotion materializes only the overlay lower and upper directories (the browser profile), and the files root is outside both, so a snapshot never contains session files. A session created from a snapshot gets a new, empty files root. The profile may still remember past downloads in its history, pointing at `/session/files/downloads/…` paths that do not exist in the new session.
+- Session files are served over the REST API and MCP only. Session-token holders reach them through session-bound MCP; there is no REST route authorized by the session token.
 - Hidden entries (in-progress uploads, recording segments) are not session files.
 
 ## Existing sessions
@@ -36,4 +40,4 @@ Sessions created before this change keep their files where they were, because a 
 - `<artifact_root>/…/uploads` → `uploads/`
 - top-level files of `<artifact_root>/…` → `outputs/`
 
-Relative paths of downloads, recordings, and uploads are unchanged, so already-issued signed URLs and stored references keep working. Playwright output that was named `<file>` is now `outputs/<file>`. When an old session next starts, it writes to the new root; its legacy files stay readable but are no longer reachable by Playwright. The legacy mapping can be deleted once every session created before this change has expired.
+Relative paths of downloads, recordings, and uploads are unchanged, so already-issued signed URLs and stored references keep working. Playwright output that was named `<file>` is now `outputs/<file>`. Legacy files have no `sandboxPath`. When an old session next starts, it writes to the new root, and its legacy files stay listable and downloadable but are no longer reachable from the browser. The legacy mapping can be deleted once every session created before this change has expired.

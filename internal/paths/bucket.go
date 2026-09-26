@@ -38,6 +38,11 @@ type SessionFilesLayout struct {
 	Outputs    string
 }
 
+// SandboxFilesRoot is where the browser sandbox mounts a session's files root.
+// It is the same for every session, so paths below it can be handed to CDP
+// clients and stored in browser profiles without revealing host paths.
+const SandboxFilesRoot = "/session/files"
+
 // SessionFiles derives the session file directories below root.
 func SessionFiles(root string) SessionFilesLayout {
 	return SessionFilesLayout{

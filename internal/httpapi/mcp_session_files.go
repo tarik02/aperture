@@ -22,7 +22,7 @@ func (s *Server) mcpSessionFilesList(ctx context.Context, _ *mcp.CallToolRequest
 	}
 	out := mcpSessionFilesOutput{Files: make([]mcpSessionFile, 0, len(files))}
 	for _, file := range files {
-		out.Files = append(out.Files, mcpSessionFile{Name: file.Name, RelativePath: file.RelativePath, Size: file.Size, ModifiedAt: file.ModifiedAt, MIMEType: file.MIMEType})
+		out.Files = append(out.Files, mcpSessionFile{Name: file.Name, RelativePath: file.RelativePath, Size: file.Size, ModifiedAt: file.ModifiedAt, MIMEType: file.MIMEType, SandboxPath: file.SandboxPath})
 	}
 	return nil, out, nil
 }

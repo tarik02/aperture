@@ -62,7 +62,7 @@ The response contains `targetId`, the media `generation`, and a `viewport` with 
 
 ## Uploads
 
-`POST /sessions/:sessionId/uploads` takes `multipart/form-data`; every part with a filename becomes the session file `uploads/<name>`. Names are sanitized and get a numeric suffix instead of overwriting. The `201` response is `{ "files": [...] }` with the same fields as `session_files.list`; pass a `relativePath` to `browser_file_upload`. Host paths are not exposed, so raw CDP `DOM.setFileInputFiles` cannot address uploads. Limits: 100 files per request, 1000 uploads per session, `session_upload_max_file_bytes` per file (`413`), and `session_storage_quota_bytes` per session (`507`). A rejected request stores nothing.
+`POST /sessions/:sessionId/uploads` takes `multipart/form-data`; every part with a filename becomes the session file `uploads/<name>`. Names are sanitized and get a numeric suffix instead of overwriting. The `201` response is `{ "files": [...] }` with the same fields as `session_files.list`; pass a `relativePath` to `browser_file_upload`, or a `sandboxPath` (such as `/session/files/uploads/invoice.pdf`) to CDP `DOM.setFileInputFiles`. Limits: 100 files per request, 1000 uploads per session, `session_upload_max_file_bytes` per file (`413`), and `session_storage_quota_bytes` per session (`507`). A rejected request stores nothing.
 
 ```bash
 curl -fsS -H "Authorization: Bearer $SESSION_TOKEN" \

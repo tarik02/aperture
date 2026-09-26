@@ -9,7 +9,7 @@ The active, transient browser state and shared activity available while a browse
 _Avoid_: Collaboration hub, browser transport, wrapper runtime
 
 **Session file**:
-A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not.
+A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
 _Avoid_: Retained file, recording file
 
 **Browser target**:

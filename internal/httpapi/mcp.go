@@ -520,6 +520,7 @@ type mcpSessionFile struct {
 	Size         int64     `json:"size"`
 	ModifiedAt   time.Time `json:"modifiedAt"`
 	MIMEType     string    `json:"mimeType"`
+	SandboxPath  string    `json:"sandboxPath,omitempty"`
 }
 type mcpSessionFilesOutput struct {
 	Files []mcpSessionFile `json:"files"`

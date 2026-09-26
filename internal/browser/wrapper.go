@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aperture/aperture/internal/paths"
 	"github.com/chromedp/cdproto"
 	cdpbrowser "github.com/chromedp/cdproto/browser"
 )
@@ -407,17 +408,23 @@ func BuildBwrapCommand(cfg LaunchConfig) (*exec.Cmd, error) {
 }
 
 func sessionBindMounts(cfg LaunchConfig) [][]string {
-	paths := []string{
+	dirs := []string{
 		cfg.MergedUserDataDir,
 		cfg.FilesDir,
 		cfg.CacheDir,
 	}
-	mounts := make([][]string, 0, len(paths))
-	for _, path := range paths {
-		if strings.TrimSpace(path) == "" {
+	mounts := make([][]string, 0, len(dirs)+1)
+	for _, dir := range dirs {
+		if strings.TrimSpace(dir) == "" {
 			continue
 		}
-		mounts = append(mounts, []string{"--bind", path, path})
+		mounts = append(mounts, []string{"--bind", dir, dir})
+	}
+	// CDP clients and the profile see the files root at its fixed sandbox path. The
+	// host-path bind above stays because Playwright MCP runs outside the sandbox and
+	// hands the browser host paths for file inputs.
+	if strings.TrimSpace(cfg.FilesDir) != "" {
+		mounts = append(mounts, []string{"--bind", cfg.FilesDir, paths.SandboxFilesRoot})
 	}
 	return mounts
 }

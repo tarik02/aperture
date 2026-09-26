@@ -91,7 +91,7 @@ Changing to an incompatible profile first hands the requesting client to WebSock
 
 ## Files
 
-Each session keeps its files below one root, and every file is named by its path relative to that root: `downloads/` for browser downloads, `recordings/` for recordings, `uploads/` for uploaded files, and `outputs/` for Playwright MCP output. Listings, signed download URLs, upload responses, and browser tools all use these relative paths, and host paths are never exposed.
+Each session keeps its files below one root, and every file is named by its path relative to that root: `downloads/` for browser downloads, `recordings/` for recordings, `uploads/` for uploaded files, and `outputs/` for Playwright MCP output. Listings, signed download URLs, upload responses, and browser tools all use these relative paths. Inside the browser sandbox the root is mounted at `/session/files`, and each listed file carries that `sandboxPath` for CDP `DOM.setFileInputFiles`; host paths are never exposed. Session files are not part of promoted snapshots.
 
 ```text
 GET  /api/sessions/<session-id>/files
@@ -105,7 +105,7 @@ Playwright MCP's `browser_file_upload` accepts any session file relative path, s
 
 Each request accepts at most 100 files, and a session may retain at most 1,000 uploaded files.
 
-Uploads accept the owner session token or an account token with `sessions:write`; the listing and download URLs need `sessions:read`. Editor and viewer capabilities cannot access files.
+Uploads accept the owner session token or an account token with `sessions:write`; the listing and download URLs need API credentials with `sessions:read`; session-token holders use session-bound MCP instead. Editor and viewer capabilities cannot access files.
 
 ## Limits and audit events
 

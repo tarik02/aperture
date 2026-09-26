@@ -268,7 +268,8 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 	}
 	uploaded := make([]sessionfiles.File, 0, len(pending))
 	for _, upload := range pending {
-		uploaded = append(uploaded, sessionfiles.Describe(filepath.Join(uploadsDir, upload.name), "uploads/"+upload.name, upload.info))
+		relative := "uploads/" + upload.name
+		uploaded = append(uploaded, sessionfiles.Describe(filepath.Join(uploadsDir, upload.name), relative, sessionfiles.SandboxPath(relative), upload.info))
 	}
 	writeWrapperJSON(w, http.StatusCreated, map[string]any{"files": uploaded})
 }

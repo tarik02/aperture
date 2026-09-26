@@ -2772,6 +2772,10 @@ components:
           type: string
           description: Detected media type.
           example: video/webm
+        sandboxPath:
+          type: string
+          description: Path of the file inside the session's browser sandbox, under the fixed `/session/files` root, for CDP `DOM.setFileInputFiles`. It is readable by the browser while the session runs. Absent for files of sessions created before session files moved under one root that are still in their old location.
+          example: /session/files/recordings/screencast-20260801T120000Z.webm
     SessionFileDownloadURLInput:
       type: object
       description: Session file path and requested signed URL lifetime.
