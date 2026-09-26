@@ -9,7 +9,7 @@ Session files are the regular files below one per-session files root. Every list
 - `uploads/` — files sent to `POST /sessions/:sessionId/uploads`
 - `outputs/` — Playwright MCP output such as screenshots; a browser tool file saved under an explicit name lands at that path instead
 
-Hidden entries (in-progress uploads and recording segments) are not session files. Sessions keep their files, including while suspended, until they expire. Session files never enter a promoted snapshot, and a session created from a snapshot starts with no files. Promotion also clears the profile's download history, which would point at those files.
+Hidden entries (in-progress uploads and recording segments) are not session files. Sessions keep their files, including while suspended, until they expire. Session files never enter a promoted snapshot, and a session created from a snapshot starts with no files.
 
 Inside the browser sandbox the files root is mounted at `/session/files`, so each file also has a `sandboxPath` such as `/session/files/downloads/invoice.pdf`. Pass it to CDP `DOM.setFileInputFiles` while the session runs. Host paths are never returned.
 
