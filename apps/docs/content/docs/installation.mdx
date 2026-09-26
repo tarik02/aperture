@@ -99,12 +99,19 @@ Aperture keeps its persistent state in three separately configurable places:
 
 `runtime_root` holds transient state such as runtime env files and is usually on a tmpfs; `cold_root` must not overlap it.
 
-Set `store_root` and `cold_root` in the config file, not through environment variables or flags. The sudo mount helpers read only the root-owned config file, and they must see the same roots as the service.
+Set `store_root` and `cold_root` in the config file, not through environment variables or flags. The sudo mount helpers read only the root-owned config file, and they must see the same roots as the service. `aperture serve` refuses to start when the helper config sets a different `store_root` or `cold_root`.
+
+`cold_root` holds a `.aperture-root` marker with the install ID stored in the database. `aperture serve` checks it before using `cold_root`:
+
+- A marker with this install's ID: start.
+- A marker with another ID: refuse to start. `cold_root` holds another install's data, or the database was replaced. Remove the marker only when that is intended.
+- No marker, and `cold_root` is `store_root`, or the database has no snapshot that garbage collection has not removed and no session that has not expired: write the marker and start. Upgraded installs that keep the default `cold_root` get their marker this way.
+- No marker, a separate `cold_root`, and such snapshots or sessions exist: refuse to start. The share is not mounted, or `cold_root` points somewhere else than the data.
 
 When `cold_root` is on NFS:
 
 - Export it without root squashing to the Aperture host (`no_root_squash`). The mount helper runs as root, creates each session's files directories there, and overlayfs reads snapshot layers with the credentials of the root that mounted them, including private profile files.
-- Mount it before Aperture starts. Aperture creates `cold_root/snapshots` and `cold_root/sessions` when missing, so an unmounted share would be silently replaced by empty local directories.
+- Mount it before Aperture starts. Once the install has data, the missing marker of an unmounted share stops Aperture from starting; a fresh install started before the mount marks the bare mount point instead.
 - Snapshots are overlay lower layers of the sessions created from them; do not change them from another host.
 
 Promotion copies the session's overlay upper directory from `store_root` into the new snapshot under `cold_root`, and hard-links files the snapshot shares with its parent snapshot, which is on the same filesystem.
@@ -118,7 +125,9 @@ When `cold_root` differs from `store_root`, `aperture serve` refuses to start wh
 3. Run `aperture storage migrate --config /etc/aperture/aperture.toml` as the Aperture user.
 4. Start Aperture again.
 
-The command refuses to run while any session overlay is mounted. On the same filesystem it renames each entry. Across filesystems it copies each snapshot and session files directory to a staging name next to its destination, verifies every file byte for byte, renames the copy into place, and removes the sources only after every entry is published. It keeps permissions, modification times, symlinks, and the hard links snapshots share, and it updates the paths recorded in the database. An interrupted run can be repeated; entries that already exist at the destination are verified against their source instead of copied again, and a mismatch stops the migration.
+The command refuses to run while any session overlay is mounted. On the same filesystem it renames each entry. Across filesystems it copies each snapshot and session files directory to a staging name next to its destination, verifies every file byte for byte, renames the copy into place, and removes the sources only after every entry is published. It keeps permissions, modification times, symlinks, and the hard links snapshots share, and it updates the paths recorded in the database. It refuses a `cold_root` marked by another install and writes this install's marker. An interrupted run can be repeated; entries that already exist at the destination are verified against their source instead of copied again, and a mismatch stops the migration.
+
+The command moves data only out of `store_root`. To move an existing `cold_root` elsewhere, stop Aperture and copy the whole tree, including `.aperture-root`, preserving hard links (for example `rsync -aH`).
 
 On first `aperture serve`, the database is migrated and a local job token is created at `$runtime_root/job-token` (mode `0600`). The GC timer uses `aperture trigger gc`, which reads that token and calls `POST /internal/jobs/gc` on the loopback listener.
 

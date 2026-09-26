@@ -3,8 +3,12 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"github.com/aperture/aperture/internal/db"
+	"github.com/google/renameio/v2"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,31 +16,110 @@ import (
 	"github.com/aperture/aperture/internal/config"
 )
 
-// ErrStoreRootHasColdData reports snapshots or session files left under store_root
-// after cold_root was pointed elsewhere, where Aperture would no longer find them.
-var ErrStoreRootHasColdData = errors.New("snapshots or session files remain under store_root")
+var (
+	// ErrStoreRootHasColdData reports snapshots or session files left under
+	// store_root after cold_root was pointed elsewhere, where Aperture would no
+	// longer find them.
+	ErrStoreRootHasColdData = errors.New("snapshots or session files remain under store_root")
+	// ErrColdRootUnmarked reports a cold_root without this install's marker while
+	// the database expects data there: a network share that is not mounted, or a
+	// cold_root that points somewhere else than the data.
+	ErrColdRootUnmarked = errors.New("cold_root does not hold this install's snapshots and session files")
+	// ErrColdRootForeign reports a cold_root marked by another install.
+	ErrColdRootForeign = errors.New("cold_root belongs to another Aperture install")
+)
 
-// Prepare creates the cold_root directories and refuses to continue while data
-// that belongs under cold_root still sits under a store_root that is not it.
-func Prepare(cfg config.Config) error {
+// markerName is the file at cold_root naming the install whose data it holds.
+// Nothing below cold_root that Aperture lists, moves, or collects is at its
+// top level, so the marker is never mistaken for data.
+const markerName = ".aperture-root"
+
+// Prepare checks that cold_root holds this install's snapshots and session files
+// before the daemon uses it, then creates its directories.
+//
+// cold_root must carry a marker with the install ID from the database. A missing
+// marker is written when there is nothing to lose: when the database has no live
+// snapshots or sessions, or when cold_root is store_root, which is local and where
+// installs from before the marker keep their data. Otherwise a missing marker
+// means an unmounted share or a wrong cold_root, and a marker with another ID
+// means another install's data; both refuse to start. Data still under a
+// store_root that is not cold_root refuses to start until it is migrated.
+func Prepare(ctx context.Context, cfg config.Config, repo *db.Repository) error {
+	same, err := sameRoot(cfg)
+	if err != nil {
+		return err
+	}
+	if !same {
+		moves, err := pendingMoves(cfg)
+		if err != nil {
+			return err
+		}
+		if len(moves) > 0 {
+			return fmt.Errorf(
+				"%w: %d snapshot or session files directories under %s belong under cold_root %s; stop Aperture and run `aperture storage migrate`",
+				ErrStoreRootHasColdData, len(moves), cfg.StoreRoot, cfg.ColdRoot,
+			)
+		}
+	}
+
+	installID, err := repo.InstallID(ctx)
+	if err != nil {
+		return err
+	}
+	marker, err := readMarker(cfg)
+	if err != nil {
+		return err
+	}
+	switch {
+	case marker == installID:
+	case marker != "":
+		return fmt.Errorf(
+			"%w: %s is marked for install %s, the database is install %s; point cold_root at this install's data",
+			ErrColdRootForeign, cfg.ColdRoot, marker, installID,
+		)
+	default:
+		hasData, err := repo.HasColdData(ctx)
+		if err != nil {
+			return err
+		}
+		if hasData && !same {
+			return fmt.Errorf(
+				"%w: %s has no %s marker while the database has snapshots or sessions; mount the share or fix cold_root",
+				ErrColdRootUnmarked, cfg.ColdRoot, markerName,
+			)
+		}
+		if err := writeMarker(cfg, installID); err != nil {
+			return err
+		}
+	}
+
 	for _, dir := range []string{filepath.Join(cfg.ColdRoot, "snapshots"), filepath.Join(cfg.ColdRoot, "sessions")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("prepare cold_root: %w", err)
 		}
 	}
-	same, err := sameRoot(cfg)
-	if err != nil || same {
-		return err
+	return nil
+}
+
+// readMarker returns the install ID cold_root is marked with, or "" when it is
+// not marked.
+func readMarker(cfg config.Config) (string, error) {
+	body, err := os.ReadFile(filepath.Join(cfg.ColdRoot, markerName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
 	}
-	moves, err := pendingMoves(cfg)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("read cold_root marker: %w", err)
 	}
-	if len(moves) > 0 {
-		return fmt.Errorf(
-			"%w: %d snapshot or session files directories under %s belong under cold_root %s; stop Aperture and run `aperture storage migrate`",
-			ErrStoreRootHasColdData, len(moves), cfg.StoreRoot, cfg.ColdRoot,
-		)
+	return strings.TrimSpace(string(body)), nil
+}
+
+func writeMarker(cfg config.Config, installID string) error {
+	if err := os.MkdirAll(cfg.ColdRoot, 0o755); err != nil {
+		return fmt.Errorf("prepare cold_root: %w", err)
+	}
+	if err := renameio.WriteFile(filepath.Join(cfg.ColdRoot, markerName), []byte(installID+"\n"), 0o644); err != nil {
+		return fmt.Errorf("write cold_root marker: %w", err)
 	}
 	return nil
 }
@@ -55,6 +138,9 @@ func sameRoot(cfg config.Config) (bool, error) {
 		return false, err
 	}
 	cold, err := os.Stat(cfg.ColdRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}

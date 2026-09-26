@@ -23,7 +23,10 @@ func loadHelperConfig() (config.Config, error) {
 	return loadHelperConfigFromPaths(trustedHelperConfigPaths)
 }
 
-func loadRequestedHelperConfig(path string) (config.Config, error) {
+// LoadHelperConfig loads the trusted config the mount helpers use for path, the
+// --config the daemon passes them, or the default config file when path is empty.
+// It ignores environment variables and flags.
+func LoadHelperConfig(path string) (config.Config, error) {
 	if strings.TrimSpace(path) == "" {
 		return loadHelperConfig()
 	}
@@ -88,7 +91,7 @@ func RunMountCLI(args []string) error {
 		return err
 	}
 
-	cfg, err := loadRequestedHelperConfig(configPath)
+	cfg, err := LoadHelperConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -108,7 +111,7 @@ func RunUnmountCLI(args []string) error {
 		return err
 	}
 
-	cfg, err := loadRequestedHelperConfig(configPath)
+	cfg, err := LoadHelperConfig(configPath)
 	if err != nil {
 		return err
 	}

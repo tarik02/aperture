@@ -25,6 +25,9 @@ func newStorageCmd() *cobra.Command {
 			}
 			defer func() { _ = application.Close() }()
 
+			if err := application.Migrate(cmd.Context()); err != nil {
+				return err
+			}
 			return storage.Migrate(cmd.Context(), application.Config, application.Repository, cmd.OutOrStdout())
 		},
 	})

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aperture/aperture/apps/web"
@@ -22,6 +23,7 @@ import (
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/aperture/aperture/internal/storage"
+	"github.com/aperture/aperture/internal/sudo"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/systemd"
 	"github.com/aperture/aperture/internal/traefik"
@@ -119,7 +121,7 @@ func (a *App) Migrate(ctx context.Context) error {
 
 // Serve starts the HTTP API until the context is canceled.
 func (a *App) Serve(ctx context.Context) error {
-	if err := storage.Prepare(a.Config); err != nil {
+	if err := a.checkHelperRoots(); err != nil {
 		return err
 	}
 	a.warnIfDatabaseOnNFS()
@@ -127,6 +129,9 @@ func (a *App) Serve(ctx context.Context) error {
 		return err
 	}
 	if err := a.Migrate(ctx); err != nil {
+		return err
+	}
+	if err := storage.Prepare(ctx, a.Config, a.Repository); err != nil {
 		return err
 	}
 	webAuth, err := auth.NewWebService(ctx, a.Config, a.Auth, a.DB.SQL())
@@ -299,4 +304,41 @@ func (a *App) warnIfDatabaseOnNFS() {
 			zap.String("database_path", a.Config.DatabasePath),
 		)
 	}
+}
+
+// ErrHelperRootsDiffer reports a mount helper config whose roots differ from the
+// daemon's, for example because a root was set only in the environment.
+var ErrHelperRootsDiffer = errors.New("the mount helper config sets different storage roots than the daemon")
+
+// checkHelperRoots refuses to start when the mount helpers, which read only the
+// trusted config file, would derive session and snapshot paths from other roots:
+// sessions from snapshots would fail to mount and session files would be created
+// in another tree. A helper config that cannot be loaded is only logged, because
+// the helpers then fail with their own error on the first mount.
+func (a *App) checkHelperRoots() error {
+	helper, err := sudo.LoadHelperConfig(a.Config.ConfigFile)
+	if err != nil {
+		a.Logger.Warn("cannot compare storage roots with the mount helper config", zap.Error(err))
+		return nil
+	}
+	var differences []string
+	for _, root := range []struct {
+		name   string
+		daemon string
+		helper string
+	}{
+		{"store_root", a.Config.StoreRoot, helper.StoreRoot},
+		{"cold_root", a.Config.ColdRoot, helper.ColdRoot},
+	} {
+		if filepath.Clean(root.daemon) != filepath.Clean(root.helper) {
+			differences = append(differences, fmt.Sprintf("%s is %s, the helper uses %s", root.name, root.daemon, root.helper))
+		}
+	}
+	if len(differences) > 0 {
+		return fmt.Errorf(
+			"%w (%s): set them in %s instead of the environment or flags",
+			ErrHelperRootsDiffer, strings.Join(differences, "; "), helper.ConfigFile,
+		)
+	}
+	return nil
 }

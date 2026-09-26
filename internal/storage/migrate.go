@@ -34,7 +34,8 @@ const stagingSuffix = ".migrating"
 // one filesystem it renames; across filesystems it copies to a staging name,
 // verifies the copy byte for byte, and renames it into place. Sources are removed
 // once every entry is published. It is safe to run again after an interruption.
-// Aperture must be stopped and no session overlay mounted while it runs.
+// Aperture must be stopped and no session overlay mounted while it runs. It marks
+// cold_root as this install's, and refuses a cold_root marked by another install.
 func Migrate(ctx context.Context, cfg config.Config, repo *db.Repository, out io.Writer) error {
 	// Directories and copies made by root would be owned by root, where the
 	// Aperture user could no longer add snapshots or session files.
@@ -44,11 +45,28 @@ func Migrate(ctx context.Context, cfg config.Config, repo *db.Repository, out io
 	if err := os.MkdirAll(cfg.ColdRoot, 0o755); err != nil {
 		return fmt.Errorf("prepare cold_root: %w", err)
 	}
+	installID, err := repo.InstallID(ctx)
+	if err != nil {
+		return err
+	}
+	marker, err := readMarker(cfg)
+	if err != nil {
+		return err
+	}
+	if marker != "" && marker != installID {
+		return fmt.Errorf(
+			"%w: %s is marked for install %s, the database is install %s",
+			ErrColdRootForeign, cfg.ColdRoot, marker, installID,
+		)
+	}
 	same, err := sameRoot(cfg)
 	if err != nil {
 		return err
 	}
 	if same {
+		if err := writeMarker(cfg, installID); err != nil {
+			return err
+		}
 		_, err := fmt.Fprintln(out, "cold_root is store_root; nothing to migrate")
 		return err
 	}
@@ -81,6 +99,9 @@ func Migrate(ctx context.Context, cfg config.Config, repo *db.Repository, out io
 		}
 	}
 	removeEmptyBuckets(filepath.Join(cfg.StoreRoot, "snapshots"))
+	if err := writeMarker(cfg, installID); err != nil {
+		return err
+	}
 	_, err = fmt.Fprintf(out, "migrated %d entries to %s\n", len(moves), cfg.ColdRoot)
 	return err
 }
