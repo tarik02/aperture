@@ -557,6 +557,7 @@
               "-s"
               "-w"
               "-X github.com/aperture/aperture/internal/version.Version=${deployVersion}"
+              "-X github.com/aperture/aperture/internal/version.Commit=${sourceRevision}"
             ];
 
             preBuild = ''

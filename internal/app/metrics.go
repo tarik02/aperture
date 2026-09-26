@@ -30,12 +30,11 @@ func (a *App) initMetrics() (*metrics.Metrics, error) {
 	})
 	if err := appMetrics.Register(
 		metrics.NewStateCollector(a.Config, a.Repository, a.Logger),
-		session.NewWrapperCollector(a.Sessions, appMetrics, a.Logger),
+		session.NewWrapperCollector(a.Sessions, appMetrics, a.Config.MetricsPerSession, a.Logger),
 	); err != nil {
 		return nil, fmt.Errorf("register metrics collectors: %w", err)
 	}
 	a.Sessions.SetMetrics(appMetrics)
-	a.Promotion.SetMetrics(appMetrics)
 	a.GC.SetMetrics(appMetrics)
 	return appMetrics, nil
 }

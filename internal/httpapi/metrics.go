@@ -1,8 +1,12 @@
 package httpapi
 
 import (
+	"context"
+	"net/http"
 	"time"
 
+	"github.com/aperture/aperture/internal/metrics"
+	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
 )
 
@@ -55,4 +59,20 @@ func (s *Server) recordLogin(method string, err error) {
 func (s *Server) recordAuthFailure(method string, err error) {
 	_, code, _ := mapError(err)
 	s.Metrics.AuthFailure(method, code)
+}
+
+// promote runs a session promotion and records its result, classifying errors
+// the API answers with a 4xx status as rejections.
+func (s *Server) promote(ctx context.Context, input snapshot.PromoteInput) (*snapshot.SnapshotView, error) {
+	started := time.Now()
+	view, err := s.Promotion.Promote(ctx, input)
+	result := metrics.PromotionSucceeded
+	if err != nil {
+		result = metrics.PromotionFailed
+		if status, _, _ := mapError(err); status < http.StatusInternalServerError {
+			result = metrics.PromotionRejected
+		}
+	}
+	s.Metrics.Promotion(result, time.Since(started))
+	return view, err
 }

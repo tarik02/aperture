@@ -11,7 +11,6 @@ import (
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/ids"
-	"github.com/aperture/aperture/internal/metrics"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
 )
@@ -39,7 +38,6 @@ type PromotionService struct {
 	snapshots   *Service
 	now         func() time.Time
 	materialize func(ctx context.Context, input overlay.MaterializeInput) error
-	metrics     *metrics.Metrics
 }
 
 // NewPromotionService constructs a promotion service.
@@ -54,20 +52,8 @@ func NewPromotionService(cfg config.Config, repo *db.Repository, browser Browser
 	}
 }
 
-// SetMetrics configures where promotions are recorded.
-func (p *PromotionService) SetMetrics(m *metrics.Metrics) {
-	p.metrics = m
-}
-
 // Promote materializes a stopped retained session into a new snapshot.
 func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*SnapshotView, error) {
-	started := time.Now()
-	view, err := p.promote(ctx, input)
-	p.metrics.Promotion(time.Since(started), err)
-	return view, err
-}
-
-func (p *PromotionService) promote(ctx context.Context, input PromoteInput) (*SnapshotView, error) {
 	unlock := p.repo.LockSession(input.SessionID)
 	defer unlock()
 

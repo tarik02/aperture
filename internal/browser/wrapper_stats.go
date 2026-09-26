@@ -2,13 +2,16 @@ package browser
 
 import (
 	"net/http"
+	"os"
 	"sync/atomic"
 )
 
 // WrapperStats reports live session counters for daemon metrics. Totals count
 // from StartedAt, the wrapper process start, so a changed StartedAt tells the
-// daemon the totals restarted from zero.
+// daemon the totals restarted from zero. PID lets the daemon find the
+// session's processes and cgroup.
 type WrapperStats struct {
+	PID                 int                  `json:"pid"`
 	StartedAt           int64                `json:"startedAt"`
 	Clients             []WrapperClientCount `json:"clients"`
 	MediaViewers        map[string]int       `json:"mediaViewers"`
@@ -57,6 +60,7 @@ func (r *wrapperRuntime) handleStats(w http.ResponseWriter, req *http.Request) {
 
 func (r *wrapperRuntime) stats() WrapperStats {
 	stats := WrapperStats{
+		PID:               os.Getpid(),
 		StartedAt:         r.startedAt.UnixNano(),
 		MediaViewers:      map[string]int{},
 		RecordingFailures: map[string]uint64{},

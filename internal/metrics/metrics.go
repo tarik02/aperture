@@ -270,17 +270,25 @@ func (m *Metrics) SessionStarted(kind, event string, duration time.Duration) {
 	m.sessionStartDuration.WithLabelValues(kind).Observe(duration.Seconds())
 }
 
-// Promotion records a finished session promotion.
-func (m *Metrics) Promotion(duration time.Duration, err error) {
+// Promotion results counted by aperture_snapshot_promotions_total.
+const (
+	PromotionSucceeded = "succeeded"
+	// PromotionRejected is a promotion refused for the request or the session
+	// state, such as a name conflict, rather than a server failure.
+	PromotionRejected = "rejected"
+	PromotionFailed   = "failed"
+)
+
+// Promotion records a finished session promotion. Only successful promotions
+// are timed.
+func (m *Metrics) Promotion(result string, duration time.Duration) {
 	if m == nil {
 		return
 	}
-	if err != nil {
-		m.promotions.WithLabelValues("failed").Inc()
-		return
+	m.promotions.WithLabelValues(result).Inc()
+	if result == PromotionSucceeded {
+		m.promotionDuration.Observe(duration.Seconds())
 	}
-	m.promotions.WithLabelValues("succeeded").Inc()
-	m.promotionDuration.Observe(duration.Seconds())
 }
 
 // GCRemoved lists what one garbage collection run removed.

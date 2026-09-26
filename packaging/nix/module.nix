@@ -47,6 +47,7 @@ let
         }
         // lib.optionalAttrs cfg.metrics.enable {
           metrics_address = cfg.metrics.address;
+          metrics_per_session = cfg.metrics.perSession;
         }
       )
   );
@@ -293,6 +294,14 @@ in
         description = ''
           Address serving Prometheus metrics at `/metrics`. Only the active API color binds it, so it stays
           one scrape target across `aperture-rollout`. It must differ from the blue and green API addresses.
+        '';
+      };
+      perSession = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether to export CPU, memory, task, and I/O usage of every running session, labeled with its session
+          ID. The series count grows with the number of concurrently running sessions.
         '';
       };
     };

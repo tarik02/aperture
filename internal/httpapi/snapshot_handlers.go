@@ -41,7 +41,7 @@ func (s *Server) promoteSession(c *gin.Context) {
 		return
 	}
 
-	view, err := s.Promotion.Promote(c.Request.Context(), snapshot.PromoteInput{
+	view, err := s.promote(c.Request.Context(), snapshot.PromoteInput{
 		TenantID:    tenantIDFromContext(c),
 		SessionID:   c.Param("sessionId"),
 		Name:        req.Name,

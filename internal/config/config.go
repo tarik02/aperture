@@ -72,6 +72,7 @@ type Config struct {
 	DeployGreenURL                   string                   `mapstructure:"deploy_green_url"`
 	ListenAddress                    string                   `mapstructure:"listen_address"`
 	MetricsAddress                   string                   `mapstructure:"metrics_address"`
+	MetricsPerSession                bool                     `mapstructure:"metrics_per_session"`
 	BrowserSupervisor                string                   `mapstructure:"browser_supervisor"`
 	SystemdBrowserUnitName           string                   `mapstructure:"systemd_browser_unit_name"`
 	SessionRetentionDays             int                      `mapstructure:"session_retention_days"`
@@ -136,6 +137,7 @@ func Defaults() Config {
 		DeployGreenURL:                   "http://127.0.0.1:28082",
 		ListenAddress:                    "127.0.0.1:8080",
 		MetricsAddress:                   "",
+		MetricsPerSession:                true,
 		BrowserSupervisor:                BrowserSupervisorSystemd,
 		SystemdBrowserUnitName:           "browser-session@.service",
 		SessionRetentionDays:             7,
@@ -218,6 +220,7 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("store_root", defaults.StoreRoot)
 	v.SetDefault("runtime_root", defaults.RuntimeRoot)
 	v.SetDefault("listen_address", defaults.ListenAddress)
+	v.SetDefault("metrics_per_session", defaults.MetricsPerSession)
 	v.SetDefault("browser_supervisor", defaults.BrowserSupervisor)
 	v.SetDefault("deploy_color", defaults.DeployColor)
 	v.SetDefault("deploy_blue_url", defaults.DeployBlueURL)
@@ -280,6 +283,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"deploy_green_url",
 		"listen_address",
 		"metrics_address",
+		"metrics_per_session",
 		"browser_supervisor",
 		"systemd_browser_unit_name",
 		"session_retention_days",

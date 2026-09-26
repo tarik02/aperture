@@ -13,7 +13,7 @@ Set `metrics_address` to the address that serves `GET /metrics`:
 metrics_address = "127.0.0.1:9464"
 ```
 
-The environment variable `APERTURE_METRICS_ADDRESS` and the `--metrics-address` flag set the same value. An empty value disables metrics, which is the default. The address must differ from `listen_address` and from the blue and green API addresses. Bind a non-loopback address only when Prometheus runs on another host, and restrict access to it with a firewall; the endpoint has no authentication.
+The environment variable `APERTURE_METRICS_ADDRESS` and the `--metrics-address` flag set the same value. `metrics_per_session` (default `true`) controls the [per-session resource series](#per-session-resources). An empty value disables metrics, which is the default. The address must differ from `listen_address` and from the blue and green API addresses. Bind a non-loopback address only when Prometheus runs on another host, and restrict access to it with a firewall; the endpoint has no authentication.
 
 With the NixOS module:
 
@@ -69,11 +69,11 @@ Start it with `docker compose -f packaging/docker/compose.yaml -f compose.monito
 
 ## Grafana dashboard
 
-Import `packaging/grafana/aperture-dashboard.json` in Grafana under **Dashboards → New → Import**, then pick the Prometheus data source in the **Data source** variable. The dashboard groups panels into rows: overview, sessions, storage, garbage collection, live sessions and proxy, authentication, and Go runtime. The **Job** and **Instance** variables filter every panel.
+Import `packaging/grafana/aperture-dashboard.json` in Grafana under **Dashboards → New → Import**, then pick the Prometheus data source in the **Data source** variable. The dashboard groups panels into rows: overview, sessions, storage, garbage collection, live sessions and proxy, per-session resources, authentication, and Go runtime. The **Job** and **Instance** variables filter every panel, and the **Session** variable picks the sessions the per-session detail panels show.
 
 ## Metrics
 
-All Aperture metrics use the `aperture_` prefix. No metric carries session IDs, tokens, users, tenants, URLs, or paths as labels. HTTP routes use gin route templates such as `/api/sessions/:sessionId`; requests no route matched, including the web UI's files, share the route label `static`.
+All Aperture metrics use the `aperture_` prefix. Apart from the optional [per-session resources](#per-session-resources), no metric carries session IDs, tokens, users, tenants, URLs, or paths as labels. HTTP routes use gin route templates such as `/api/sessions/:sessionId`; requests no route matched, including the web UI's files, share the route label `static`.
 
 ### API
 
@@ -96,7 +96,7 @@ Authentication methods are `password`, `password_mfa`, `passkey`, `oidc`, `api_t
 | `aperture_session_events_total`                | counter   | `event`: `created`, `started`, `suspended`, `woken`, `reopened`, `deleted`, `expired`, `failed` |
 | `aperture_session_start_duration_seconds`      | histogram | `kind`: `create`, `reopen`, `wake`                                                              |
 | `aperture_snapshots`                           | gauge     | `state`: `active`, `deleted` (deleted but not yet collected)                                    |
-| `aperture_snapshot_promotions_total`           | counter   | `result`: `succeeded`, `failed` (any error, including name conflicts)                           |
+| `aperture_snapshot_promotions_total`           | counter   | `result`: `succeeded`, `rejected` (answered with a 4xx, such as a name conflict), `failed`      |
 | `aperture_snapshot_promotion_duration_seconds` | histogram |                                                                                                 |
 
 `aperture_sessions` and `aperture_snapshots` are read from the database on every scrape. Start duration runs from mounting the overlay until the browser answers CDP.
@@ -140,6 +140,31 @@ These metrics aggregate every running session. On each scrape the daemon asks th
 | `aperture_session_wrapper_poll_errors_total`     | counter |                                                                   |
 
 Wrapper counters restart with each wrapper process and disappear with its session, so the daemon adds the growth it observes between polls to counters of its own. Activity between a wrapper's last poll and its exit is not counted, and a daemon that starts while sessions run counts their earlier activity once on its first poll. The upload counters also include uploads through `POST /api/sessions/{sessionId}/files`, which the daemon counts directly.
+
+### Per-session resources
+
+These series carry a `session_id` label and exist only while the session's browser runs; they disappear when it stops, suspends, or is deleted. Their number grows with the number of concurrently running sessions, about seven series per session, and never includes labels, tags, or other values users choose.
+
+| Metric                                   | Type    | Notes                                       |
+| ---------------------------------------- | ------- | ------------------------------------------- |
+| `aperture_session_cpu_seconds_total`     | counter |                                             |
+| `aperture_session_memory_bytes`          | gauge   |                                             |
+| `aperture_session_memory_peak_bytes`     | gauge   | cgroup source only                          |
+| `aperture_session_swap_bytes`            | gauge   |                                             |
+| `aperture_session_tasks`                 | gauge   | processes and threads                       |
+| `aperture_session_io_read_bytes_total`   | counter | block device reads                          |
+| `aperture_session_io_write_bytes_total`  | counter | block device writes                         |
+| `aperture_session_resource_sessions`     | gauge   | `source`: sessions read per source          |
+| `aperture_session_resource_errors_total` | counter | `source`: failed reads; never fail a scrape |
+
+Aperture reads them with the wrapper poll, from one of two sources:
+
+- `cgroup`: with the systemd supervisor (the NixOS module and the user units), each session is the unit `browser-session@<id>.service` with a cgroup of its own. Aperture finds it through the wrapper's `/proc/<pid>/cgroup` and reads `cpu.stat`, `memory.current`, `memory.peak`, `memory.swap.current`, `pids.current`, and `io.stat`. Memory includes the page cache the session caused.
+- `process_tree`: with the direct supervisor, as in the Docker image and `nix run .#dev`, every session shares the daemon's cgroup, and container cgroups are read-only. Aperture sums the wrapper and its descendants from `/proc`: CPU time including reaped children, the proportional set size (`Pss` in `smaps_rollup`, so shared pages count once), `SwapPss`, threads, and block I/O from `/proc/<pid>/io`. Hosts with only cgroup v1 use this source too. Processes that detach from the tree, such as Chromium's crash handler, are not counted.
+
+A session whose source cannot be read, for example because its cgroup lacks the memory or pids controller, reports no series and counts an error for its source. The breakdown by component (Chromium, compositor, recorder) is not reported: CPU time of exited processes cannot be attributed reliably.
+
+Per-session resources are on by default because their count is bounded by the running sessions and they are cheap to read. On hosts with many concurrent sessions, turn them off with `metrics_per_session = false` (`APERTURE_METRICS_PER_SESSION=false`, or `services.aperture.metrics.perSession = false` in the NixOS module).
 
 ### Process
 
