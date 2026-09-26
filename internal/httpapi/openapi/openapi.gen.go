@@ -1961,7 +1961,7 @@ type SessionFileDownloadURL struct {
 
 // SessionFileDownloadURLInput Session file path and requested signed URL lifetime.
 type SessionFileDownloadURLInput struct {
-	// Disposition How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, and byte-range support.
+	// Disposition How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, and byte-range support. Content that can run scripts, such as HTML or SVG, also gets `Content-Security-Policy: sandbox`; images, audio, video, PDFs, and plain text do not, so browser viewers keep working.
 	Disposition *SessionFileDownloadURLInputDisposition `json:"disposition,omitempty"`
 
 	// RelativePath Path from a `SessionFile` result.
@@ -1971,7 +1971,7 @@ type SessionFileDownloadURLInput struct {
 	TtlSeconds *int `json:"ttlSeconds,omitempty"`
 }
 
-// SessionFileDownloadURLInputDisposition How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, and byte-range support.
+// SessionFileDownloadURLInputDisposition How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, and byte-range support. Content that can run scripts, such as HTML or SVG, also gets `Content-Security-Policy: sandbox`; images, audio, video, PDFs, and plain text do not, so browser viewers keep working.
 type SessionFileDownloadURLInputDisposition string
 
 // SessionFileEntry A session file or directory, told apart by `type`.
@@ -3499,7 +3499,7 @@ type ClientInterface interface {
 	//
 	// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 	//
-	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4550,7 +4550,7 @@ func (c *Client) ListSessionFiles(ctx context.Context, sessionId SessionId, para
 //
 // Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 //
-// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
 //
 // Takes any type of body and a specified content type.
 //
@@ -9077,7 +9077,7 @@ type ClientWithResponsesInterface interface {
 	//
 	// Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 	//
-	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+	// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -12827,7 +12827,7 @@ func (c *ClientWithResponses) ListSessionFilesWithResponse(ctx context.Context, 
 //
 // Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 //
-// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+// A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //

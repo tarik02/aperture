@@ -873,7 +873,7 @@ paths:
       description: |
         Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
 
-        A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, and a directory may hold at most 1000 files. The request body may be as large as those limits allow.
+        A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. The request body may be as large as those limits allow.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -921,7 +921,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_file_exists, session_file_not_movable, session_directory_protected, session_service_unavailable]
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_file_exists, session_file_not_movable, session_directory_protected, session_file_limit_exceeded, session_service_unavailable]
       description: Moves one session file, or a directory below the session files root, to another path below the root, creating missing parent directories. It never replaces an existing entry and cannot move a directory into itself. `downloads`, `recordings`, `uploads`, and `outputs` cannot be moved. Anything still being written is rejected.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -939,7 +939,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_exists, session_service_unavailable]
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_exists, session_file_limit_exceeded, session_service_unavailable]
       description: Creates a directory below the session files root, with any missing parents. Fails when a file or directory already exists at the path.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -2953,7 +2953,7 @@ components:
           enum: [attachment, inline]
           default: attachment
           description: >-
-            How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, and byte-range support.
+            How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, and byte-range support. Content that can run scripts, such as HTML or SVG, also gets `Content-Security-Policy: sandbox`; images, audio, video, PDFs, and plain text do not, so browser viewers keep working.
     MoveSessionFileInput:
       type: object
       description: Current and new path of a session file.

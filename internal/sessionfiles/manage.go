@@ -21,7 +21,7 @@ var (
 	ErrExists            = errors.New("file or directory already exists")
 	ErrTooLarge          = errors.New("file exceeds upload limit")
 	ErrQuotaExceeded     = errors.New("session storage quota exceeded")
-	ErrTooManyFiles      = errors.New("directory file limit exceeded")
+	ErrTooManyFiles      = errors.New("session file limit exceeded")
 	ErrNotInFilesRoot    = errors.New("file is outside the session files root")
 	ErrInvalidUpload     = errors.New("invalid multipart upload")
 	ErrNoFiles           = errors.New("no files uploaded")
@@ -39,6 +39,7 @@ const (
 
 	MaxUploadFilesPerRequest   = 100
 	MaxUploadFilesPerDirectory = 1000
+	MaxEntriesPerSession       = 10000
 
 	// Chromium writes an in-progress download under this suffix and renames it
 	// when the download completes.
@@ -178,6 +179,14 @@ func Move(layout paths.SessionLayout, from, to string) (Entry, error) {
 	if isDirectory && (normalizedTo == normalizedFrom || strings.HasPrefix(normalizedTo, normalizedFrom+"/")) {
 		return nil, ErrMoveIntoItself
 	}
+	unlock, err := Lock(layout.Files.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if err := CheckEntryBudget(layout.Files.Root, missingDirectories(layout.Files.Root, path.Dir(normalizedTo))); err != nil {
+		return nil, err
+	}
 	target, normalized, err := prepareTarget(layout, normalizedTo)
 	if err != nil {
 		return nil, err
@@ -208,6 +217,14 @@ func Move(layout paths.SessionLayout, from, to string) (Entry, error) {
 func CreateDirectory(layout paths.SessionLayout, relative string) (Directory, error) {
 	normalized, err := Normalize(relative)
 	if err != nil {
+		return Directory{}, err
+	}
+	unlock, err := Lock(layout.Files.Root)
+	if err != nil {
+		return Directory{}, err
+	}
+	defer unlock()
+	if err := CheckEntryBudget(layout.Files.Root, missingDirectories(layout.Files.Root, normalized)); err != nil {
 		return Directory{}, err
 	}
 	parent, _, err := prepareDirectory(layout, path.Dir(normalized))
@@ -290,7 +307,16 @@ func checkTreeNotBusy(dir string) error {
 // files root under a sanitized name, adding a numeric suffix instead of replacing
 // an existing file. Either every part is stored or none is.
 func Store(layout paths.SessionLayout, directory string, parts *multipart.Reader, limits Limits) ([]File, error) {
+	unlock, err := Lock(layout.Files.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	dir, dirRelative, err := prepareDirectory(layout, directory)
+	if err != nil {
+		return nil, err
+	}
+	sessionEntries, err := CountEntries(layout.Files.Root)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +362,7 @@ func Store(layout paths.SessionLayout, directory string, parts *multipart.Reader
 			_ = part.Close()
 			continue
 		}
-		if len(pending) >= MaxUploadFilesPerRequest || visible+len(pending) >= MaxUploadFilesPerDirectory {
+		if len(pending) >= MaxUploadFilesPerRequest || visible+len(pending) >= MaxUploadFilesPerDirectory || sessionEntries+len(pending) >= MaxEntriesPerSession {
 			_ = part.Close()
 			discard()
 			return nil, ErrTooManyFiles
@@ -436,9 +462,91 @@ func prepareTarget(layout paths.SessionLayout, relative string) (string, string,
 	return filepath.Join(dir, path.Base(normalized)), normalized, nil
 }
 
+// Lock serializes limit checks and changes below a session's files root across the
+// daemon and the session's wrapper, which both write there.
+func Lock(root string) (func(), error) {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, err
+	}
+	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		_ = unix.Close(fd)
+		return nil, err
+	}
+	return func() {
+		_ = unix.Flock(fd, unix.LOCK_UN)
+		_ = unix.Close(fd)
+	}, nil
+}
+
+// CheckEntryBudget fails when adding entries would take the files root past
+// MaxEntriesPerSession. Empty files and directories cost no quota bytes, so this
+// is what bounds them.
+func CheckEntryBudget(root string, adding int) error {
+	count, err := CountEntries(root)
+	if err != nil {
+		return err
+	}
+	if count+adding > MaxEntriesPerSession {
+		return ErrTooManyFiles
+	}
+	return nil
+}
+
+// CountEntries counts every file and directory below root, hidden ones included.
+func CountEntries(root string) (int, error) {
+	count := 0
+	err := filepath.WalkDir(root, func(full string, _ fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if full != root {
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
+// missingDirectories counts the directories of relative below root that do not
+// exist yet, which creating it would add.
+func missingDirectories(root, relative string) int {
+	if relative == "." || relative == "" {
+		return 0
+	}
+	parts := strings.Split(relative, "/")
+	for index := range parts {
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(strings.Join(parts[:index+1], "/")))); err != nil {
+			return len(parts) - index
+		}
+	}
+	return 0
+}
+
+// ensureRoot creates the files root and the directories the session writes into.
+// Creating them eagerly keeps their names reserved even in sessions from before the
+// files root, where nothing else would have created them yet.
+func ensureRoot(layout paths.SessionLayout) error {
+	for _, dir := range []string{layout.Files.Downloads, layout.Files.Recordings, layout.Files.Uploads, layout.Files.Outputs} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // prepareDirectory creates a directory below the files root and verifies that no
 // component of it is a symlink. "." names the root itself.
 func prepareDirectory(layout paths.SessionLayout, relative string) (string, string, error) {
+	if err := ensureRoot(layout); err != nil {
+		return "", "", err
+	}
 	if relative == "." {
 		return layout.Files.Root, "", nil
 	}
@@ -454,6 +562,10 @@ func prepareDirectory(layout paths.SessionLayout, relative string) (string, stri
 		return "", "", ErrInvalidPath
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		// A path component is a file.
+		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.EEXIST) {
+			return "", "", ErrInvalidPath
+		}
 		return "", "", err
 	}
 	// MkdirAll follows symlinks, so check again now that every component exists.

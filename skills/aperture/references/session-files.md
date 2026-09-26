@@ -47,7 +47,7 @@ The listing includes directories as `{ "type": "directory", "name", "relativePat
 }
 ```
 
-The response contains `url` and `expiresAt`. Omit `ttlSeconds` to use the configured default. Pass `"disposition": "inline"` for a URL a browser can display, such as an `<img>` source; the default is `attachment`. Downloads carry the detected `Content-Type`, support byte ranges, and are sandboxed with `Content-Security-Policy: sandbox`.
+The response contains `url` and `expiresAt`. Omit `ttlSeconds` to use the configured default. Pass `"disposition": "inline"` for a URL a browser can display, such as an `<img>` source; the default is `attachment`. Downloads carry the detected `Content-Type`, support byte ranges, and get `Content-Security-Policy: sandbox` when they could run scripts (HTML, SVG, and other non-media types).
 
 Signed downloads use:
 

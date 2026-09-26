@@ -60,4 +60,6 @@ Anything still being written cannot be moved or deleted, including anything insi
 - upload placeholders
 - hidden entries, which are active recording segments and staged uploads
 
-Signed download URLs can be created with `disposition: inline` for previews. Every signed download is served with its detected `Content-Type`, byte ranges, `X-Content-Type-Options: nosniff`, and `Content-Security-Policy: sandbox`, so an HTML or SVG file opened inline cannot run scripts under the Aperture origin.
+Signed download URLs can be created with `disposition: inline` for previews. Every signed download is served with its detected `Content-Type`, byte ranges, and `X-Content-Type-Options: nosniff`. Content that can run scripts, such as HTML or SVG, also gets `Content-Security-Policy: sandbox`, so opening it inline cannot run scripts under the Aperture origin. Media, PDFs, and plain text are left unsandboxed because sandboxing only breaks Chrome's viewers.
+
+Changes that check limits take an exclusive lock on the files root, shared by the daemon and the session's wrapper, so concurrent uploads cannot overrun the storage quota together. Because empty files and directories cost no quota bytes, the files root is also capped at 10000 entries. Creating any entry below the files root first creates `downloads`, `recordings`, `uploads`, and `outputs`, so their names stay reserved even in sessions from before the files root.

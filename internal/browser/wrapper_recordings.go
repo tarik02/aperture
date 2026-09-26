@@ -745,7 +745,10 @@ func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) e
 		parser = "h264parse"
 		mux = "matroskamux"
 	}
-	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + recording.Path, "sync=false"}
+	// Join inside the hidden segment directory, so the visible recording appears only
+	// once complete and cannot be moved or deleted while it is still being written.
+	joined := filepath.Join(recording.segmentDir, "joined"+filepath.Ext(recording.Path))
+	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + joined, "sync=false"}
 	for _, segment := range recording.segments {
 		args = append(args, "filesrc", "location="+segment, "!", "matroskademux", "!", "queue", "!")
 		if parser != "" {
@@ -759,6 +762,9 @@ func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) e
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("join recording segments: %w", err)
+	}
+	if err := os.Rename(joined, recording.Path); err != nil {
+		return fmt.Errorf("finalize recording: %w", err)
 	}
 	return os.RemoveAll(recording.segmentDir)
 }

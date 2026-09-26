@@ -2,12 +2,15 @@ package httpapi
 
 import (
 	"errors"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/browser"
+	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/sessionfiles"
@@ -54,32 +57,35 @@ func (s *Server) sessionFile(c *gin.Context) {
 	metadata := sessionfiles.Describe(fullPath, normalized, "", info)
 	c.Header("Content-Type", metadata.MIMEType)
 	c.Header("Content-Disposition", sessionfiles.ContentDisposition(disposition, metadata.Name))
-	// Session files come from web pages and users. Opened inline under this origin,
-	// an HTML or SVG file must not run scripts or be sniffed into another type.
-	c.Header("Content-Security-Policy", "sandbox")
 	c.Header("X-Content-Type-Options", "nosniff")
+	if mayRunScripts(metadata.MIMEType) {
+		c.Header("Content-Security-Policy", "sandbox")
+	}
 	http.ServeContent(c.Writer, c.Request, metadata.Name, info.ModTime(), file)
 }
 
 func (s *Server) listSessionFiles(c *gin.Context) {
-	layout, ok := s.retainedSessionLayout(c)
+	scope, ok := s.fileRequestScope(c)
 	if !ok {
 		return
 	}
-	files, err := sessionfiles.List(layout)
+	entries, err := sessionfiles.List(scope.layout)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, files)
+	for index, entry := range entries {
+		entries[index] = scope.present(entry)
+	}
+	c.JSON(http.StatusOK, entries)
 }
 
 func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *multipart.Reader) {
-	layout, ok := s.retainedSessionLayout(c)
+	scope, ok := s.fileRequestScope(c)
 	if !ok {
 		return
 	}
-	files, err := sessionfiles.Store(layout, directory, parts, sessionfiles.Limits{
+	files, err := sessionfiles.Store(scope.layout, directory, parts, sessionfiles.Limits{
 		MaxFileBytes:      s.Config.SessionUploadMaxFileBytes,
 		StorageQuotaBytes: s.Config.SessionStorageQuotaBytes,
 	})
@@ -95,23 +101,27 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 			Data:    map[string]any{"path": file.RelativePath, "sizeBytes": file.Size, "actorKind": "account", "clientIp": requestClientIP(c)},
 		})
 	}
-	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, events); err != nil {
+	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), scope.layout.SessionID, events); err != nil {
 		// An upload that cannot be audited is not kept.
 		for _, file := range files {
-			_, _ = sessionfiles.Delete(layout, file.RelativePath, false)
+			_, _ = sessionfiles.Delete(scope.layout, file.RelativePath, false)
 		}
 		WriteError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"files": files})
+	presented := make([]sessionfiles.Entry, 0, len(files))
+	for _, file := range files {
+		presented = append(presented, scope.present(file))
+	}
+	c.JSON(http.StatusCreated, gin.H{"files": presented})
 }
 
 func (s *Server) deleteSessionFile(c *gin.Context, relativePath string, recursive bool) {
-	layout, ok := s.retainedSessionLayout(c)
+	scope, ok := s.fileRequestScope(c)
 	if !ok {
 		return
 	}
-	entryType, err := sessionfiles.Delete(layout, relativePath, recursive)
+	entryType, err := sessionfiles.Delete(scope.layout, relativePath, recursive)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -126,7 +136,7 @@ func (s *Server) deleteSessionFile(c *gin.Context, relativePath string, recursiv
 		event.Message = "directory deleted"
 		event.Data["recursive"] = recursive
 	}
-	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, []session.FileEvent{event}); err != nil {
+	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), scope.layout.SessionID, []session.FileEvent{event}); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -139,11 +149,11 @@ func (s *Server) moveSessionFile(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	layout, ok := s.retainedSessionLayout(c)
+	scope, ok := s.fileRequestScope(c)
 	if !ok {
 		return
 	}
-	entry, err := sessionfiles.Move(layout, request.From, request.To)
+	entry, err := sessionfiles.Move(scope.layout, request.From, request.To)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -157,11 +167,11 @@ func (s *Server) moveSessionFile(c *gin.Context) {
 		event.Type = "session.directory_moved"
 		event.Message = "directory moved"
 	}
-	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, []session.FileEvent{event}); err != nil {
+	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), scope.layout.SessionID, []session.FileEvent{event}); err != nil {
 		WriteError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, entry)
+	c.JSON(http.StatusOK, scope.present(entry))
 }
 
 func (s *Server) createSessionDirectory(c *gin.Context) {
@@ -170,16 +180,16 @@ func (s *Server) createSessionDirectory(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	layout, ok := s.retainedSessionLayout(c)
+	scope, ok := s.fileRequestScope(c)
 	if !ok {
 		return
 	}
-	directory, err := sessionfiles.CreateDirectory(layout, request.RelativePath)
+	directory, err := sessionfiles.CreateDirectory(scope.layout, request.RelativePath)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, []session.FileEvent{{
+	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), scope.layout.SessionID, []session.FileEvent{{
 		Type:    "session.directory_created",
 		Message: "directory created",
 		Data:    map[string]any{"path": directory.RelativePath, "clientIp": requestClientIP(c)},
@@ -190,24 +200,57 @@ func (s *Server) createSessionDirectory(c *gin.Context) {
 	c.JSON(http.StatusCreated, directory)
 }
 
-// retainedSessionLayout resolves the session of a file request. Files are managed
+// fileRequestScope resolves the session of a file request. Files are managed
 // on disk rather than through the wrapper, so this works in every retained state.
-func (s *Server) retainedSessionLayout(c *gin.Context) (paths.SessionLayout, bool) {
+func (s *Server) fileRequestScope(c *gin.Context) (sessionFilesScope, bool) {
 	if s.Sessions == nil {
 		WriteError(c, errSessionServiceUnavailable)
-		return paths.SessionLayout{}, false
+		return sessionFilesScope{}, false
 	}
 	view, err := s.Sessions.Get(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"))
 	if err != nil {
 		WriteError(c, err)
-		return paths.SessionLayout{}, false
+		return sessionFilesScope{}, false
 	}
 	layout, err := paths.Session(s.Config, view.Session.ID)
 	if err != nil {
 		WriteError(c, err)
-		return paths.SessionLayout{}, false
+		return sessionFilesScope{}, false
 	}
-	return layout, true
+	return sessionFilesScope{layout: layout, hideSandboxPaths: startedBeforeFilesRoot(view.Session)}, true
+}
+
+type sessionFilesScope struct {
+	layout paths.SessionLayout
+	// hideSandboxPaths is set while the session runs a wrapper started before the
+	// files root, whose sandbox does not mount /session/files.
+	hideSandboxPaths bool
+}
+
+func (scope sessionFilesScope) present(entry sessionfiles.Entry) sessionfiles.Entry {
+	file, ok := entry.(sessionfiles.File)
+	if !ok || !scope.hideSandboxPaths {
+		return entry
+	}
+	file.SandboxPath = ""
+	return file
+}
+
+// startedBeforeFilesRoot reads the runtime env the session's wrapper started from.
+// Env files written before the files root carry no FILES_DIR.
+func startedBeforeFilesRoot(sessionRow db.Session) bool {
+	if sessionRow.RuntimeEnvPath == nil {
+		return false
+	}
+	body, err := os.ReadFile(*sessionRow.RuntimeEnvPath)
+	if err != nil {
+		return false
+	}
+	values, err := browser.ParseRuntimeEnv(body)
+	if err != nil {
+		return false
+	}
+	return values.FilesDir == ""
 }
 
 // retainedSessionFiles reads the session directory on disk rather than asking the
@@ -218,4 +261,25 @@ func (s *Server) retainedSessionFiles(sessionID string) ([]sessionfiles.Entry, e
 		return nil, err
 	}
 	return sessionfiles.List(layout)
+}
+
+// mayRunScripts reports content a browser renders as a document that can run
+// scripts. Session files come from web pages and users, so such a file opened
+// inline under this origin is sandboxed. Media, PDFs, and plain text are not,
+// because sandboxing them only disables Chrome's viewers.
+func mayRunScripts(mimeType string) bool {
+	mediaType, _, err := mime.ParseMediaType(mimeType)
+	if err != nil {
+		return true
+	}
+	switch {
+	case mediaType == "image/svg+xml":
+		return true
+	case strings.HasPrefix(mediaType, "image/"), strings.HasPrefix(mediaType, "video/"), strings.HasPrefix(mediaType, "audio/"):
+		return false
+	case mediaType == "application/pdf", mediaType == "text/plain":
+		return false
+	default:
+		return true
+	}
 }

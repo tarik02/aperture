@@ -44,6 +44,17 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 
 	r.uploadMu.Lock()
 	defer r.uploadMu.Unlock()
+	unlockFiles, err := sessionfiles.Lock(r.values.FilesDir)
+	if err != nil {
+		writeWrapperError(w, http.StatusInternalServerError, "lock session files failed")
+		return
+	}
+	defer unlockFiles()
+	sessionEntries, err := sessionfiles.CountEntries(r.values.FilesDir)
+	if err != nil {
+		writeWrapperError(w, http.StatusInternalServerError, "count session files failed")
+		return
+	}
 
 	uploadsDir := paths.SessionFiles(r.values.FilesDir).Uploads
 	if err := ensureRegularDirectory(uploadsDir); err != nil {
@@ -120,7 +131,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 			_ = part.Close()
 			continue
 		}
-		if len(pending) >= sessionfiles.MaxUploadFilesPerRequest || existingUploadCount+len(pending) >= sessionfiles.MaxUploadFilesPerDirectory {
+		if len(pending) >= sessionfiles.MaxUploadFilesPerRequest || existingUploadCount+len(pending) >= sessionfiles.MaxUploadFilesPerDirectory || sessionEntries+len(pending) >= sessionfiles.MaxEntriesPerSession {
 			_ = part.Close()
 			removeCreated()
 			writeWrapperError(w, http.StatusInsufficientStorage, "session upload file limit exceeded")
