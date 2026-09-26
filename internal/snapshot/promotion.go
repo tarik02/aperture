@@ -104,6 +104,10 @@ func (p *PromotionService) Promote(ctx context.Context, input PromoteInput) (*Sn
 	}); err != nil {
 		return nil, err
 	}
+	if err := clearDownloadHistory(ctx, tempLayout.Profile); err != nil {
+		_ = os.RemoveAll(tempLayout.Root)
+		return nil, fmt.Errorf("prepare snapshot profile: %w", err)
+	}
 
 	if err := os.MkdirAll(filepath.Dir(finalLayout.Root), 0o755); err != nil {
 		_ = os.RemoveAll(tempLayout.Root)
