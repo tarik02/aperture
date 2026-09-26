@@ -4,7 +4,7 @@ status: accepted
 
 # One files root per session
 
-Every session file lives below `<store_root>/sessions/<bucket>/<session-id>/files/`, and a session file is identified by its path relative to that root:
+Every session file lives below `<cold_root>/sessions/<bucket>/<session-id>/files/` (`cold_root` defaults to `store_root`; see ADR 0013), and a session file is identified by its path relative to that root:
 
 ```text
 files/
@@ -35,8 +35,8 @@ Files used to be spread across three places: downloads and recordings under the 
 
 Sessions created before this change keep their files where they were, because a wrapper that is still running may be writing to those directories. Moving them is unsafe until the wrapper stops. The shared implementation reads these legacy directories as well, under the same relative paths:
 
-- `<session>/downloads` → `downloads/`
-- `<session>/recordings` → `recordings/`
+- `<store_root>/sessions/<bucket>/<session-id>/downloads` → `downloads/`
+- `<store_root>/sessions/<bucket>/<session-id>/recordings` → `recordings/`
 - `<artifact_root>/…/uploads` → `uploads/`
 - top-level files of `<artifact_root>/…` → `outputs/`
 
@@ -82,7 +82,7 @@ Named staging files count toward the storage quota while in flight but are neith
 
 Limitations:
 
-- The whole store root cannot be on NFS: overlayfs does not accept an NFS upper directory. Only the files root is designed to cope.
+- `store_root` cannot be on NFS: overlayfs does not accept an NFS upper directory. The files root lives under `cold_root`, which can (ADR 0013).
 - A file deleted on NFS while still open becomes a hidden `.nfs…` entry until closed. It is not listed, but it makes its directory busy for delete and move, and deleting a directory recursively can fail until the file is closed.
 - The wrapper notices a rotated session token through inotify, which sees only changes made on the same host. The daemon and the wrapper run on the same host, so this holds.
 - Locks, `O_EXCL` placeholders, and hard links require NFSv3 or later with a lock manager.

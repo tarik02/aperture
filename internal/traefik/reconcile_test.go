@@ -22,6 +22,7 @@ func TestReconcileWritesCDPRoutableSessionRoutes(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{
 		StoreRoot:               filepath.Join(root, "store"),
+		ColdRoot:                filepath.Join(root, "cold"),
 		RuntimeRoot:             filepath.Join(root, "runtime"),
 		ArtifactRoot:            filepath.Join(root, "artifacts"),
 		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),
@@ -118,6 +119,7 @@ func TestReconcileInactiveColorDoesNotOverwriteSessionsConfig(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{
 		StoreRoot:               filepath.Join(root, "store"),
+		ColdRoot:                filepath.Join(root, "cold"),
 		RuntimeRoot:             filepath.Join(root, "runtime"),
 		ArtifactRoot:            filepath.Join(root, "artifacts"),
 		TraefikDynamicConfigDir: filepath.Join(root, "runtime", "traefik", "dynamic"),

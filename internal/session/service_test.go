@@ -121,6 +121,7 @@ func newTestService(t *testing.T) (*Service, config.Config, *db.Repository, *fak
 	root := t.TempDir()
 	cfg := config.Config{
 		StoreRoot:               filepath.Join(root, "store"),
+		ColdRoot:                filepath.Join(root, "cold"),
 		RuntimeRoot:             filepath.Join(root, "runtime"),
 		ArtifactRoot:            filepath.Join(root, "artifacts"),
 		DatabasePath:            filepath.Join(root, "store", "aperture.db"),

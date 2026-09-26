@@ -23,6 +23,7 @@ func testStoreRoot(t *testing.T) (string, config.Config) {
 	storeRoot := filepath.Join(root, "store")
 	return storeRoot, config.Config{
 		StoreRoot:             storeRoot,
+		ColdRoot:              filepath.Join(root, "cold"),
 		RuntimeRoot:           filepath.Join(root, "runtime"),
 		ArtifactRoot:          filepath.Join(root, "artifacts"),
 		SessionRetentionDays:  7,

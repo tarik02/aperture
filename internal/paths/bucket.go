@@ -9,7 +9,9 @@ import (
 	"github.com/aperture/aperture/internal/ids"
 )
 
-// SessionLayout holds derived filesystem paths for a session.
+// SessionLayout holds derived filesystem paths for a session. Root and the
+// overlay directories below it are under store_root, which overlayfs needs on a
+// local filesystem; Files is under cold_root.
 type SessionLayout struct {
 	SessionID string
 	Root      string
@@ -54,7 +56,7 @@ func SessionFiles(root string) SessionFilesLayout {
 	}
 }
 
-// SnapshotLayout holds derived filesystem paths for a snapshot.
+// SnapshotLayout holds derived filesystem paths for a snapshot, under cold_root.
 type SnapshotLayout struct {
 	SnapshotID string
 	Root       string
@@ -92,6 +94,13 @@ func Session(cfg config.Config, sessionID string) (SessionLayout, error) {
 		return SessionLayout{}, err
 	}
 
+	// The files root keeps its path relative to the root it moved to, so an
+	// install whose cold_root is its store_root keeps its files where they are.
+	filesRoot, err := JoinUnderRoot(cfg.ColdRoot, "sessions", bucket, sessionID, "files")
+	if err != nil {
+		return SessionLayout{}, err
+	}
+
 	artifactsRoot, err := JoinUnderRoot(cfg.ArtifactRoot, bucket, sessionID)
 	if err != nil {
 		return SessionLayout{}, err
@@ -110,7 +119,7 @@ func Session(cfg config.Config, sessionID string) (SessionLayout, error) {
 		Merged:     filepath.Join(root, "merged"),
 		Cache:      filepath.Join(root, "cache"),
 		Metadata:   filepath.Join(root, "metadata"),
-		Files:      SessionFiles(filepath.Join(root, "files")),
+		Files:      SessionFiles(filesRoot),
 		Artifacts:  artifactsRoot,
 		Logs:       filepath.Join(artifactsRoot, "logs"),
 		CrashDumps: filepath.Join(artifactsRoot, "crash-dumps"),
@@ -129,7 +138,7 @@ func Snapshot(cfg config.Config, snapshotID string) (SnapshotLayout, error) {
 		return SnapshotLayout{}, err
 	}
 
-	root, err := JoinUnderRoot(cfg.StoreRoot, "snapshots", bucket, snapshotID)
+	root, err := JoinUnderRoot(cfg.ColdRoot, "snapshots", bucket, snapshotID)
 	if err != nil {
 		return SnapshotLayout{}, err
 	}

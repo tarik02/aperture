@@ -227,8 +227,8 @@ func Move(ctx context.Context, layout paths.SessionLayout, from, to string) (Ent
 		if errors.Is(err, unix.EEXIST) {
 			return nil, ErrExists
 		}
-		// Files of sessions from before the files root may sit under artifact_root,
-		// which can be another filesystem.
+		// Files of sessions from before the files root sit under store_root or
+		// artifact_root, either of which can be another filesystem than cold_root.
 		if errors.Is(err, unix.EXDEV) {
 			return nil, ErrNotInFilesRoot
 		}

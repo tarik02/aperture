@@ -16,6 +16,9 @@ services:
       - /run/aperture:rw,nosuid,nodev,size=512m
     volumes:
       - aperture-data:/var/lib/aperture
+      # Keep snapshots and session files on a separate volume, such as an NFS
+      # export, by mounting it and setting APERTURE_COLD_ROOT to its path:
+      # - aperture-cold:/var/lib/aperture-cold
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
       interval: 10s

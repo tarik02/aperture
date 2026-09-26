@@ -60,6 +60,7 @@ type OIDCProviderConfig struct {
 // Config holds resolved runtime configuration decoded from Viper.
 type Config struct {
 	StoreRoot                        string                   `mapstructure:"store_root"`
+	ColdRoot                         string                   `mapstructure:"cold_root"`
 	RuntimeRoot                      string                   `mapstructure:"runtime_root"`
 	ArtifactRoot                     string                   `mapstructure:"artifact_root"`
 	DatabasePath                     string                   `mapstructure:"database_path"`
@@ -122,6 +123,7 @@ func Defaults() Config {
 
 	return Config{
 		StoreRoot:                        storeRoot,
+		ColdRoot:                         storeRoot,
 		RuntimeRoot:                      runtimeRoot,
 		ArtifactRoot:                     filepath.Join(storeRoot, "artifacts"),
 		DatabasePath:                     filepath.Join(storeRoot, "aperture.db"),
@@ -264,6 +266,7 @@ func Load(flags *viper.Viper) (Config, error) {
 
 	for _, key := range []string{
 		"store_root",
+		"cold_root",
 		"runtime_root",
 		"artifact_root",
 		"database_path",
@@ -350,6 +353,7 @@ func Load(flags *viper.Viper) (Config, error) {
 }
 
 type explicitPaths struct {
+	coldRoot                bool
 	artifactRoot            bool
 	databasePath            bool
 	traefikDynamicConfigDir bool
@@ -358,6 +362,7 @@ type explicitPaths struct {
 
 func explicitPathsFrom(v *viper.Viper, flags *viper.Viper) explicitPaths {
 	return explicitPaths{
+		coldRoot:                v.IsSet("cold_root") || flags.IsSet("cold-root"),
 		artifactRoot:            v.IsSet("artifact_root") || flags.IsSet("artifact-root"),
 		databasePath:            v.IsSet("database_path") || flags.IsSet("database-path"),
 		traefikDynamicConfigDir: v.IsSet("traefik_dynamic_config_dir") || flags.IsSet("traefik-dynamic-config-dir"),
@@ -366,6 +371,9 @@ func explicitPathsFrom(v *viper.Viper, flags *viper.Viper) explicitPaths {
 }
 
 func (cfg *Config) applyDerivedPaths(explicit explicitPaths) {
+	if !explicit.coldRoot && strings.TrimSpace(cfg.StoreRoot) != "" {
+		cfg.ColdRoot = cfg.StoreRoot
+	}
 	if !explicit.artifactRoot && strings.TrimSpace(cfg.StoreRoot) != "" {
 		cfg.ArtifactRoot = filepath.Join(cfg.StoreRoot, "artifacts")
 	}
@@ -386,6 +394,7 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"browser-supervisor":                      "browser_supervisor",
 		"log-level":                               "log_level",
 		"store-root":                              "store_root",
+		"cold-root":                               "cold_root",
 		"runtime-root":                            "runtime_root",
 		"artifact-root":                           "artifact_root",
 		"database-path":                           "database_path",

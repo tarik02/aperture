@@ -16,6 +16,7 @@ func validTestConfig(t *testing.T) Config {
 
 	return Config{
 		StoreRoot:                 storeRoot,
+		ColdRoot:                  filepath.Join(root, "cold"),
 		RuntimeRoot:               runtimeRoot,
 		ArtifactRoot:              artifactRoot,
 		DatabasePath:              filepath.Join(storeRoot, "aperture.db"),
