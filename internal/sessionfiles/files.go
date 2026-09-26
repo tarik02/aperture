@@ -27,7 +27,21 @@ var (
 
 const tokenPrefix = "apf_"
 
+// EntryType tells files and directories apart in a listing.
+type EntryType string
+
+const (
+	EntryFile      EntryType = "file"
+	EntryDirectory EntryType = "directory"
+)
+
+// Entry is a session file or a directory below the files root.
+type Entry interface {
+	entryType() EntryType
+}
+
 type File struct {
+	Type         EntryType `json:"type"`
 	Name         string    `json:"name"`
 	RelativePath string    `json:"relativePath"`
 	Size         int64     `json:"size"`
@@ -37,6 +51,28 @@ type File struct {
 	// DOM.setFileInputFiles. Files still in the directories used before the files
 	// root have none.
 	SandboxPath string `json:"sandboxPath,omitempty"`
+}
+
+func (File) entryType() EntryType { return EntryFile }
+
+// Directory is a directory below the files root. Directories exist only there;
+// the directories used before the files root are not listed as entries.
+type Directory struct {
+	Type         EntryType `json:"type"`
+	Name         string    `json:"name"`
+	RelativePath string    `json:"relativePath"`
+	ModifiedAt   time.Time `json:"modifiedAt"`
+}
+
+func (Directory) entryType() EntryType { return EntryDirectory }
+
+func describeDirectory(relative string, info fs.FileInfo) Directory {
+	return Directory{
+		Type:         EntryDirectory,
+		Name:         path.Base(relative),
+		RelativePath: relative,
+		ModifiedAt:   info.ModTime().UTC(),
+	}
 }
 
 // source is a directory whose files appear below prefix in session file relative
@@ -135,6 +171,7 @@ func Get(layout paths.SessionLayout, relative string) (File, error) {
 // Describe builds the metadata of the session file at fullPath.
 func Describe(fullPath, relative, sandboxPath string, info fs.FileInfo) File {
 	return File{
+		Type:         EntryFile,
 		Name:         path.Base(relative),
 		RelativePath: relative,
 		Size:         info.Size(),
@@ -174,10 +211,10 @@ func Normalize(relative string) (string, error) {
 	return clean, nil
 }
 
-// List returns every session file. A relative path present in several sources is
-// reported once, from the first.
-func List(layout paths.SessionLayout) ([]File, error) {
-	files := make([]File, 0)
+// List returns every session file and every directory below the files root. A
+// relative path present in several sources is reported once, from the first.
+func List(layout paths.SessionLayout) ([]Entry, error) {
+	entries := make([]Entry, 0)
 	seen := make(map[string]struct{})
 	for _, src := range sources(layout) {
 		err := filepath.WalkDir(src.dir, func(full string, entry fs.DirEntry, walkErr error) error {
@@ -196,18 +233,12 @@ func List(layout paths.SessionLayout) ([]File, error) {
 				}
 				return nil
 			}
-			if entry.IsDir() {
-				if src.flat {
-					return filepath.SkipDir
-				}
-				return nil
+			if entry.IsDir() && src.flat {
+				return filepath.SkipDir
 			}
 			info, err := entry.Info()
 			if err != nil {
 				return err
-			}
-			if !info.Mode().IsRegular() {
-				return nil
 			}
 			rel, err := filepath.Rel(src.dir, full)
 			if err != nil {
@@ -217,15 +248,21 @@ func List(layout paths.SessionLayout) ([]File, error) {
 			if _, ok := seen[relative]; ok {
 				return nil
 			}
-			seen[relative] = struct{}{}
-			files = append(files, Describe(full, relative, src.sandboxPath(relative), info))
+			switch {
+			case info.IsDir() && src.prefix == "":
+				seen[relative] = struct{}{}
+				entries = append(entries, describeDirectory(relative, info))
+			case info.Mode().IsRegular():
+				seen[relative] = struct{}{}
+				entries = append(entries, Describe(full, relative, src.sandboxPath(relative), info))
+			}
 			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
-	return files, nil
+	return entries, nil
 }
 
 func detectMIME(name string) string {

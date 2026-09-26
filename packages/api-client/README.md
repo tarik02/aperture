@@ -67,14 +67,15 @@ const all = yield* client.sessions.listAllSessions({ status: "running", limit: 1
 
 ## Session files
 
-`listSessionFiles(sessionId)` lists a session's files (downloads, recordings, uploads and Playwright output). `sessionFileTree(files)` arranges that listing into directory and file nodes for a tree view. These calls manage files in any retained state:
+`listSessionFiles(sessionId)` lists a session's files and directories (downloads, recordings, uploads, Playwright output, and folders users created), each tagged with `type`. `sessionFileTree(entries)` arranges that listing into directory and file nodes for a tree view, and `sessionFileRootDirectories` names the top-level directories that cannot be deleted, moved or renamed. These calls manage files in any retained state:
 
 - `uploadSessionFiles(sessionId, files, { directory })` stores files, in `uploads` unless `directory` says otherwise.
-- `deleteSessionFile(sessionId, relativePath)` deletes a file.
-- `moveSessionFile(sessionId, { from, to })` moves or renames a file.
+- `createSessionDirectory(sessionId, relativePath)` creates a folder.
+- `deleteSessionFile(sessionId, relativePath, { recursive })` deletes a file or folder; a non-empty folder needs `recursive`.
+- `moveSessionFile(sessionId, { from, to })` moves or renames a file or folder.
 - `createSessionFileDownloadURL(sessionId, { relativePath, disposition: "inline" })` returns a signed URL a browser can show, for example as an `<img>` source.
 
-A failed move or delete carries a stable code, such as `session_file_exists` or `session_file_busy`.
+A failed move or delete carries a stable code, such as `session_file_exists`, `session_file_busy`, `session_directory_not_empty` or `session_directory_protected`.
 
 Upload contents may be a `Blob`, a `Uint8Array` or a `Stream` of bytes. Blobs and byte arrays are sent as `FormData`; any stream makes the whole body a streamed request, which browsers other than Chromium cannot send. Every file carries `relativePath`, which works with `browser_file_upload`, and `sandboxPath`, which works with CDP `DOM.setFileInputFiles`.
 
@@ -82,9 +83,11 @@ Upload contents may be a `Blob`, a `Uint8Array` or a `Stream` of bytes. Blobs an
 const program = Effect.gen(function* () {
   const client = yield* ApertureClient;
   const tree = sessionFileTree(yield* client.sessions.listSessionFiles(sessionId));
+  yield* client.sessions.createSessionDirectory(sessionId, "uploads/invoices");
   yield* client.sessions.uploadSessionFiles(sessionId, [{ name: file.name, content: file }], {
     directory: "uploads/invoices",
   });
+  yield* client.sessions.deleteSessionFile(sessionId, "uploads/old", { recursive: true });
   yield* client.sessions.moveSessionFile(sessionId, {
     from: "downloads/report.pdf",
     to: "uploads/invoices/report.pdf",

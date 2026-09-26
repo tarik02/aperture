@@ -22,7 +22,12 @@ func (s *Server) mcpSessionFilesList(ctx context.Context, _ *mcp.CallToolRequest
 		return nil, mcpSessionFilesOutput{}, mcpToolError("internal", err)
 	}
 	out := mcpSessionFilesOutput{Files: make([]mcpSessionFile, 0, len(files))}
-	for _, file := range files {
+	for _, entry := range files {
+		// MCP clients address files; directories only matter to file managers.
+		file, ok := entry.(sessionfiles.File)
+		if !ok {
+			continue
+		}
 		out.Files = append(out.Files, mcpSessionFile{Name: file.Name, RelativePath: file.RelativePath, Size: file.Size, ModifiedAt: file.ModifiedAt, MIMEType: file.MIMEType, SandboxPath: file.SandboxPath})
 	}
 	return nil, out, nil

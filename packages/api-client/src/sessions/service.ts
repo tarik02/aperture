@@ -13,8 +13,10 @@ import type {
   PromoteSessionResponse,
   ProxyConfig,
   Session,
+  SessionDirectory,
   SessionFile,
   SessionFileDownloadURL,
+  SessionFileEntry,
   SessionMutationResponse,
   SessionRecording,
   SessionsBulkResponse,
@@ -88,6 +90,11 @@ export interface UploadSessionFilesOptions {
 }
 
 export type MoveSessionFileInput = Api.MoveSessionFileInput;
+
+export interface DeleteSessionFileOptions {
+  /** Delete a directory together with everything below it. */
+  recursive?: boolean;
+}
 
 /** Browser sessions, their live browser, and their recordings. */
 export class SessionsApi extends Context.Service<
@@ -179,11 +186,14 @@ export class SessionsApi extends Context.Service<
       sessionId: string,
       recordingId: string,
     ) => Call<SessionFile>;
-    /** Every file of the session, also while it is not running. See `sessionFileTree`. */
+    /**
+     * Every file and directory of the session, also while it is not running. See
+     * `sessionFileTree`.
+     */
     readonly listSessionFiles: (
       credentials: ApiCredentials,
       sessionId: string,
-    ) => Call<ReadonlyArray<SessionFile>>;
+    ) => Call<ReadonlyArray<SessionFileEntry>>;
     /**
      * Stores files in a directory of the session's files, `uploads` by default, in any
      * retained state. Contents are sent as described for `SessionUploadFile`.
@@ -194,18 +204,25 @@ export class SessionsApi extends Context.Service<
       files: ReadonlyArray<SessionUploadFile>,
       options?: UploadSessionFilesOptions,
     ) => Call<ReadonlyArray<SessionFile>>;
-    /** Deletes one session file; directories it leaves empty go with it. */
+    /** Deletes one file, or a directory; a directory with entries needs `recursive`. */
     readonly deleteSessionFile: (
       credentials: ApiCredentials,
       sessionId: string,
       relativePath: string,
+      options?: DeleteSessionFileOptions,
     ) => Call<void>;
-    /** Moves or renames one session file. It never replaces an existing file. */
+    /** Moves or renames one file or directory. It never replaces an existing entry. */
     readonly moveSessionFile: (
       credentials: ApiCredentials,
       sessionId: string,
       input: MoveSessionFileInput,
-    ) => Call<SessionFile>;
+    ) => Call<SessionFileEntry>;
+    /** Creates a directory, with any missing parents. */
+    readonly createSessionDirectory: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      relativePath: string,
+    ) => Call<SessionDirectory>;
     /**
      * A signed URL that serves one session file without credentials until it expires.
      * `disposition: "inline"` makes it usable as an `<img>` or `<video>` source.

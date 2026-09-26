@@ -9,7 +9,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -18,14 +17,19 @@ import (
 )
 
 var (
-	ErrBusy           = errors.New("file is being written")
-	ErrExists         = errors.New("file already exists")
-	ErrTooLarge       = errors.New("file exceeds upload limit")
-	ErrQuotaExceeded  = errors.New("session storage quota exceeded")
-	ErrTooManyFiles   = errors.New("directory file limit exceeded")
-	ErrNotInFilesRoot = errors.New("file is outside the session files root")
-	ErrInvalidUpload  = errors.New("invalid multipart upload")
-	ErrNoFiles        = errors.New("no files uploaded")
+	ErrBusy              = errors.New("file is being written")
+	ErrExists            = errors.New("file or directory already exists")
+	ErrTooLarge          = errors.New("file exceeds upload limit")
+	ErrQuotaExceeded     = errors.New("session storage quota exceeded")
+	ErrTooManyFiles      = errors.New("directory file limit exceeded")
+	ErrNotInFilesRoot    = errors.New("file is outside the session files root")
+	ErrInvalidUpload     = errors.New("invalid multipart upload")
+	ErrNoFiles           = errors.New("no files uploaded")
+	ErrDirectoryNotEmpty = errors.New("directory is not empty")
+	ErrProtected         = errors.New("directory is managed by the session")
+	ErrMoveIntoItself    = errors.New("cannot move a directory into itself")
+
+	errNotDirectory = errors.New("not a directory")
 )
 
 const (
@@ -99,61 +103,187 @@ func Footprint(roots ...string) (int64, error) {
 	return size, nil
 }
 
-// Delete removes one session file. Directories it leaves empty are removed,
-// except the ones the session writes into.
-func Delete(layout paths.SessionLayout, relative string) error {
-	fullPath, _, src, err := resolve(layout, relative)
+// Delete removes one session file, or a directory below the files root. A
+// directory that still has entries is only removed when recursive is set.
+func Delete(layout paths.SessionLayout, relative string, recursive bool) (EntryType, error) {
+	dir, normalized, err := existingDirectory(layout, relative)
+	if err == nil {
+		return EntryDirectory, deleteDirectory(layout, dir, normalized, recursive)
+	}
+	if !errors.Is(err, errNotDirectory) {
+		return "", err
+	}
+	fullPath, _, _, err := resolve(layout, relative)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := checkNotBusy(fullPath); err != nil {
-		return err
+		return "", err
 	}
 	if err := os.Remove(fullPath); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return ErrNotFound
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return EntryFile, nil
+}
+
+func deleteDirectory(layout paths.SessionLayout, dir, normalized string, recursive bool) error {
+	if isProtected(layout, normalized) {
+		return ErrProtected
+	}
+	if err := checkTreeNotBusy(dir); err != nil {
+		return err
+	}
+	if !recursive {
+		err := os.Remove(dir)
+		if errors.Is(err, unix.ENOTEMPTY) || errors.Is(err, unix.EEXIST) {
+			return ErrDirectoryNotEmpty
 		}
 		return err
 	}
-	if src.prefix == "" {
-		pruneEmptyParents(layout.Files, filepath.Dir(fullPath))
-	}
-	return nil
+	return os.RemoveAll(dir)
 }
 
-// Move renames a session file to another path below the files root, creating
-// missing directories. It never replaces an existing file.
-func Move(layout paths.SessionLayout, from, to string) (File, error) {
-	fullPath, _, src, err := resolve(layout, from)
+// Move renames a session file, or a directory below the files root, to another
+// path below the files root, creating missing parent directories. It never
+// replaces an existing entry.
+func Move(layout paths.SessionLayout, from, to string) (Entry, error) {
+	source, normalizedFrom, err := existingDirectory(layout, from)
+	isDirectory := err == nil
+	if err != nil && !errors.Is(err, errNotDirectory) {
+		return nil, err
+	}
+	if isDirectory {
+		if isProtected(layout, normalizedFrom) {
+			return nil, ErrProtected
+		}
+		if err := checkTreeNotBusy(source); err != nil {
+			return nil, err
+		}
+	} else {
+		source, _, _, err = resolve(layout, from)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkNotBusy(source); err != nil {
+			return nil, err
+		}
+	}
+	normalizedTo, err := Normalize(to)
 	if err != nil {
-		return File{}, err
+		return nil, err
 	}
-	if err := checkNotBusy(fullPath); err != nil {
-		return File{}, err
+	if isDirectory && (normalizedTo == normalizedFrom || strings.HasPrefix(normalizedTo, normalizedFrom+"/")) {
+		return nil, ErrMoveIntoItself
 	}
-	target, normalized, err := prepareTarget(layout, to)
+	target, normalized, err := prepareTarget(layout, normalizedTo)
 	if err != nil {
-		return File{}, err
+		return nil, err
 	}
-	if err := unix.Renameat2(unix.AT_FDCWD, fullPath, unix.AT_FDCWD, target, unix.RENAME_NOREPLACE); err != nil {
+	if err := unix.Renameat2(unix.AT_FDCWD, source, unix.AT_FDCWD, target, unix.RENAME_NOREPLACE); err != nil {
 		if errors.Is(err, unix.EEXIST) {
-			return File{}, ErrExists
+			return nil, ErrExists
 		}
 		// Files of sessions from before the files root may sit under artifact_root,
 		// which can be another filesystem.
 		if errors.Is(err, unix.EXDEV) {
-			return File{}, ErrNotInFilesRoot
+			return nil, ErrNotInFilesRoot
 		}
-		return File{}, fmt.Errorf("rename session file: %w", err)
-	}
-	if src.prefix == "" {
-		pruneEmptyParents(layout.Files, filepath.Dir(fullPath))
+		return nil, fmt.Errorf("rename session file: %w", err)
 	}
 	info, err := os.Stat(target)
 	if err != nil {
-		return File{}, err
+		return nil, err
+	}
+	if isDirectory {
+		return describeDirectory(normalized, info), nil
 	}
 	return Describe(target, normalized, SandboxPath(normalized), info), nil
+}
+
+// CreateDirectory creates a directory below the files root, with any missing
+// parents.
+func CreateDirectory(layout paths.SessionLayout, relative string) (Directory, error) {
+	normalized, err := Normalize(relative)
+	if err != nil {
+		return Directory{}, err
+	}
+	parent, _, err := prepareDirectory(layout, path.Dir(normalized))
+	if err != nil {
+		return Directory{}, err
+	}
+	target := filepath.Join(parent, path.Base(normalized))
+	if err := os.Mkdir(target, 0o755); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return Directory{}, ErrExists
+		}
+		return Directory{}, err
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return Directory{}, err
+	}
+	return describeDirectory(normalized, info), nil
+}
+
+// existingDirectory resolves relative to a directory below the files root, or
+// fails with errNotDirectory when nothing or something else is there.
+func existingDirectory(layout paths.SessionLayout, relative string) (string, string, error) {
+	normalized, err := Normalize(relative)
+	if err != nil {
+		return "", "", err
+	}
+	dir, err := paths.JoinUnderRoot(layout.Files.Root, filepath.FromSlash(normalized))
+	if err != nil {
+		return "", "", ErrInvalidPath
+	}
+	info, err := os.Lstat(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", "", errNotDirectory
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if !info.IsDir() {
+		return "", "", errNotDirectory
+	}
+	if err := paths.ValidateTrustedPath(layout.Files.Root, dir); err != nil {
+		return "", "", ErrInvalidPath
+	}
+	return dir, normalized, nil
+}
+
+// isProtected reports the directories the browser, recorder, wrapper, and
+// Playwright write into, which must keep existing.
+func isProtected(layout paths.SessionLayout, normalized string) bool {
+	for _, dir := range []string{layout.Files.Downloads, layout.Files.Recordings, layout.Files.Uploads, layout.Files.Outputs} {
+		if filepath.Base(dir) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+// checkTreeNotBusy rejects a directory holding anything still being written.
+// Hidden entries are active recording segments and staged uploads.
+func checkTreeNotBusy(dir string) error {
+	return filepath.WalkDir(dir, func(full string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if full == dir || entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if strings.HasPrefix(entry.Name(), ".") {
+			return ErrBusy
+		}
+		if entry.Type().IsRegular() {
+			return checkNotBusy(full)
+		}
+		return nil
+	})
 }
 
 // Store writes every multipart part that has a filename into directory below the
@@ -359,16 +489,4 @@ func checkNotBusy(fullPath string) error {
 		return ErrBusy
 	}
 	return nil
-}
-
-// pruneEmptyParents removes empty directories from dir upwards. It keeps the root
-// and the directories the browser, recorder, wrapper, and Playwright write into.
-func pruneEmptyParents(files paths.SessionFilesLayout, dir string) {
-	kept := []string{files.Root, files.Downloads, files.Recordings, files.Uploads, files.Outputs}
-	for strings.HasPrefix(dir, files.Root+string(filepath.Separator)) && !slices.Contains(kept, dir) {
-		if os.Remove(dir) != nil {
-			return
-		}
-		dir = filepath.Dir(dir)
-	}
 }

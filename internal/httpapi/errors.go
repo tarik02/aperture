@@ -172,10 +172,16 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadRequest, "invalid_request_body", "invalid multipart upload"
 	case errors.Is(err, sessionfiles.ErrNoFiles):
 		return http.StatusBadRequest, "validation_failed", err.Error()
+	case errors.Is(err, sessionfiles.ErrMoveIntoItself):
+		return http.StatusBadRequest, "validation_failed", err.Error()
 	case errors.Is(err, sessionfiles.ErrInvalidPath):
 		return http.StatusBadRequest, "validation_failed", "session file path is invalid"
 	case errors.Is(err, sessionfiles.ErrBusy):
 		return http.StatusConflict, "session_file_busy", err.Error()
+	case errors.Is(err, sessionfiles.ErrDirectoryNotEmpty):
+		return http.StatusConflict, "session_directory_not_empty", err.Error()
+	case errors.Is(err, sessionfiles.ErrProtected):
+		return http.StatusConflict, "session_directory_protected", err.Error()
 	case errors.Is(err, sessionfiles.ErrExists):
 		return http.StatusConflict, "session_file_exists", err.Error()
 	case errors.Is(err, sessionfiles.ErrNotInFilesRoot):

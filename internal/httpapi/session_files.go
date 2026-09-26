@@ -98,7 +98,7 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, events); err != nil {
 		// An upload that cannot be audited is not kept.
 		for _, file := range files {
-			_ = sessionfiles.Delete(layout, file.RelativePath)
+			_, _ = sessionfiles.Delete(layout, file.RelativePath, false)
 		}
 		WriteError(c, err)
 		return
@@ -106,20 +106,27 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 	c.JSON(http.StatusCreated, gin.H{"files": files})
 }
 
-func (s *Server) deleteSessionFile(c *gin.Context, relativePath string) {
+func (s *Server) deleteSessionFile(c *gin.Context, relativePath string, recursive bool) {
 	layout, ok := s.retainedSessionLayout(c)
 	if !ok {
 		return
 	}
-	if err := sessionfiles.Delete(layout, relativePath); err != nil {
+	entryType, err := sessionfiles.Delete(layout, relativePath, recursive)
+	if err != nil {
 		WriteError(c, err)
 		return
 	}
-	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, []session.FileEvent{{
+	event := session.FileEvent{
 		Type:    "session.file_deleted",
 		Message: "file deleted",
 		Data:    map[string]any{"path": relativePath, "clientIp": requestClientIP(c)},
-	}}); err != nil {
+	}
+	if entryType == sessionfiles.EntryDirectory {
+		event.Type = "session.directory_deleted"
+		event.Message = "directory deleted"
+		event.Data["recursive"] = recursive
+	}
+	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, []session.FileEvent{event}); err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -136,20 +143,51 @@ func (s *Server) moveSessionFile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	file, err := sessionfiles.Move(layout, request.From, request.To)
+	entry, err := sessionfiles.Move(layout, request.From, request.To)
+	if err != nil {
+		WriteError(c, err)
+		return
+	}
+	event := session.FileEvent{
+		Type:    "session.file_moved",
+		Message: "file moved",
+		Data:    map[string]any{"from": request.From, "to": request.To, "clientIp": requestClientIP(c)},
+	}
+	if _, ok := entry.(sessionfiles.Directory); ok {
+		event.Type = "session.directory_moved"
+		event.Message = "directory moved"
+	}
+	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, []session.FileEvent{event}); err != nil {
+		WriteError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, entry)
+}
+
+func (s *Server) createSessionDirectory(c *gin.Context) {
+	var request createSessionDirectoryRequest
+	if err := bindJSON(c, &request); err != nil {
+		WriteError(c, err)
+		return
+	}
+	layout, ok := s.retainedSessionLayout(c)
+	if !ok {
+		return
+	}
+	directory, err := sessionfiles.CreateDirectory(layout, request.RelativePath)
 	if err != nil {
 		WriteError(c, err)
 		return
 	}
 	if err := s.Sessions.RecordFileEvents(c.Request.Context(), tenantIDFromContext(c), layout.SessionID, []session.FileEvent{{
-		Type:    "session.file_moved",
-		Message: "file moved",
-		Data:    map[string]any{"from": request.From, "to": file.RelativePath, "clientIp": requestClientIP(c)},
+		Type:    "session.directory_created",
+		Message: "directory created",
+		Data:    map[string]any{"path": directory.RelativePath, "clientIp": requestClientIP(c)},
 	}}); err != nil {
 		WriteError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, file)
+	c.JSON(http.StatusCreated, directory)
 }
 
 // retainedSessionLayout resolves the session of a file request. Files are managed
@@ -174,7 +212,7 @@ func (s *Server) retainedSessionLayout(c *gin.Context) (paths.SessionLayout, boo
 
 // retainedSessionFiles reads the session directory on disk rather than asking the
 // wrapper, so files stay listable while the session is suspended or stopped.
-func (s *Server) retainedSessionFiles(sessionID string) ([]sessionfiles.File, error) {
+func (s *Server) retainedSessionFiles(sessionID string) ([]sessionfiles.Entry, error) {
 	layout, err := paths.Session(s.Config, sessionID)
 	if err != nil {
 		return nil, err

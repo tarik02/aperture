@@ -850,7 +850,7 @@ paths:
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_service_unavailable]
-      description: Lists the files below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+      description: Lists the files and directories below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Directories are entries of their own, so empty ones appear too; build a tree from `relativePath`. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -859,7 +859,7 @@ paths:
           description: Session files
           content:
             application/json:
-              schema: {type: array, items: {$ref: '#/components/schemas/SessionFile'}}
+              schema: {type: array, items: {$ref: '#/components/schemas/SessionFileEntry'}}
         default: {$ref: '#/components/responses/Error'}
     post:
       operationId: uploadSessionFiles
@@ -889,42 +889,64 @@ paths:
     delete:
       operationId: deleteSessionFile
       tags: [sessions]
-      summary: Delete a session file
+      summary: Delete a session file or directory
       x-aperture-auth:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_service_unavailable]
-      description: Deletes one session file. Directories it leaves empty are removed, except the top-level `downloads`, `recordings`, `uploads`, and `outputs`. Files still being written, such as in-progress downloads, are rejected.
+      x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_directory_not_empty, session_directory_protected, session_service_unavailable]
+      description: Deletes one session file, or a directory below the session files root. A directory with entries is deleted only with `recursive=true`. `downloads`, `recordings`, `uploads`, and `outputs` cannot be deleted. Anything still being written, such as an in-progress download, upload, or recording, is rejected.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
         - name: relativePath
           in: query
           required: true
-          description: Path from a `SessionFile` result.
+          description: Path from a `SessionFileEntry` result.
           schema: {type: string, minLength: 1}
           example: downloads/invoice.pdf
+        - name: recursive
+          in: query
+          description: Delete a directory together with everything below it.
+          schema: {type: boolean, default: false}
       responses:
-        '204': {description: Deleted session file}
+        '204': {description: Deleted session file or directory}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files/move:
     post:
       operationId: moveSessionFile
       tags: [sessions]
-      summary: Move or rename a session file
+      summary: Move or rename a session file or directory
       x-aperture-auth:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_file_exists, session_file_not_movable, session_service_unavailable]
-      description: Moves one session file to another path below the session files root, creating missing directories and removing ones it leaves empty, except `downloads`, `recordings`, `uploads`, and `outputs`. It never replaces an existing file. Files still being written are rejected.
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_not_found, session_file_busy, session_file_exists, session_file_not_movable, session_directory_protected, session_service_unavailable]
+      description: Moves one session file, or a directory below the session files root, to another path below the root, creating missing parent directories. It never replaces an existing entry and cannot move a directory into itself. `downloads`, `recordings`, `uploads`, and `outputs` cannot be moved. Anything still being written is rejected.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       requestBody: {$ref: '#/components/requestBodies/MoveSessionFile'}
       responses:
-        '200': {description: Moved session file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
+        '200': {description: Moved session file or directory, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFileEntry'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/files/directories:
+    post:
+      operationId: createSessionDirectory
+      tags: [sessions]
+      summary: Create a session directory
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:write]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_file_exists, session_service_unavailable]
+      description: Creates a directory below the session files root, with any missing parents. Fails when a file or directory already exists at the path.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/CreateSessionDirectory'}
+      responses:
+        '201': {description: Created directory, content: {application/json: {schema: {$ref: '#/components/schemas/SessionDirectory'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files/download-url:
     post:
@@ -1287,6 +1309,10 @@ components:
               files:
                 type: array
                 items: {type: string, format: binary}
+    CreateSessionDirectory:
+      required: true
+      description: Path of the directory to create. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/CreateSessionDirectoryInput'}}}
     MoveSessionFile:
       required: true
       description: Current and new session file path. The JSON body must not exceed 1 MiB.
@@ -1566,6 +1592,8 @@ components:
         - session_file_too_large
         - session_storage_quota_exceeded
         - session_file_limit_exceeded
+        - session_directory_not_empty
+        - session_directory_protected
         - browser_start_failed
         - browser_initialization_failed
         - snapshot_not_found
@@ -1624,6 +1652,8 @@ components:
         session_file_too_large: 413
         session_storage_quota_exceeded: 507
         session_file_limit_exceeded: 507
+        session_directory_not_empty: 409
+        session_directory_protected: 409
         browser_start_failed: 502
         browser_initialization_failed: 502
         snapshot_not_found: 404
@@ -2832,8 +2862,11 @@ components:
     SessionFile:
       type: object
       description: Regular file retained with a browser session.
-      required: [name, relativePath, size, modifiedAt, mimeType]
+      required: [type, name, relativePath, size, modifiedAt, mimeType]
       properties:
+        type:
+          type: string
+          enum: [file]
         name:
           type: string
           description: File name without directory components.
@@ -2861,6 +2894,45 @@ components:
           type: string
           description: Path of the file inside the session's browser sandbox, under the fixed `/session/files` root, for CDP `DOM.setFileInputFiles`. It is readable by the browser while the session runs. Absent for files of sessions created before session files moved under one root that are still in their old location.
           example: /session/files/recordings/screencast-20260801T120000Z.webm
+    SessionDirectory:
+      type: object
+      description: Directory below the session files root.
+      required: [type, name, relativePath, modifiedAt]
+      properties:
+        type:
+          type: string
+          enum: [directory]
+        name:
+          type: string
+          description: Directory name without parent components.
+          example: invoices
+        relativePath:
+          type: string
+          description: Path below the session files root.
+          example: uploads/invoices
+        modifiedAt:
+          type: string
+          format: date-time
+    SessionFileEntry:
+      description: A session file or directory, told apart by `type`.
+      oneOf:
+        - {$ref: '#/components/schemas/SessionFile'}
+        - {$ref: '#/components/schemas/SessionDirectory'}
+      discriminator:
+        propertyName: type
+        mapping:
+          file: '#/components/schemas/SessionFile'
+          directory: '#/components/schemas/SessionDirectory'
+    CreateSessionDirectoryInput:
+      type: object
+      description: Directory to create.
+      required: [relativePath]
+      properties:
+        relativePath:
+          type: string
+          minLength: 1
+          description: Path below the session files root. Missing parents are created.
+          example: uploads/invoices
     SessionFileDownloadURLInput:
       type: object
       description: Session file path and requested signed URL lifetime.
@@ -2890,7 +2962,7 @@ components:
         from:
           type: string
           minLength: 1
-          description: Current path from a `SessionFile` result.
+          description: Current path from a `SessionFileEntry` result.
           example: downloads/invoice.pdf
         to:
           type: string

@@ -96,13 +96,14 @@ Each session keeps its files below one root, and every file is named by its path
 ```text
 GET    /api/sessions/<session-id>/files
 POST   /api/sessions/<session-id>/files?directory=uploads
-DELETE /api/sessions/<session-id>/files?relativePath=<path>
+POST   /api/sessions/<session-id>/files/directories
+DELETE /api/sessions/<session-id>/files?relativePath=<path>[&recursive=true]
 POST   /api/sessions/<session-id>/files/move
 POST   /api/sessions/<session-id>/files/download-url
 POST   /sessions/<session-id>/uploads
 ```
 
-The `/api` routes work in every retained state, including suspended and stopped sessions. Uploads use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file; the response lists the stored files with the same fields as the listing. Moves never overwrite either. Directories follow from file paths and disappear once empty, except the four top-level ones. In-progress downloads and uploads cannot be moved or deleted. Signed download URLs default to attachment disposition; `"disposition": "inline"` gives a URL for previews such as an `<img>` source. Downloads carry the detected content type, support HTTP byte ranges, and are served with `Content-Security-Policy: sandbox`.
+The `/api` routes work in every retained state, including suspended and stopped sessions. Uploads use `multipart/form-data` and may contain multiple files. Names are sanitized and collisions receive a numeric suffix instead of overwriting an existing file; the response lists the stored files with the same fields as the listing. The listing includes directories, so empty ones show up; they are created, moved, and deleted explicitly, and a non-empty directory is deleted only with `recursive=true`. Moves never overwrite. The four top-level directories cannot be deleted or moved, and nothing still being written, such as an in-progress download or recording, can be moved or deleted. Signed download URLs default to attachment disposition; `"disposition": "inline"` gives a URL for previews such as an `<img>` source. Downloads carry the detected content type, support HTTP byte ranges, and are served with `Content-Security-Policy: sandbox`.
 
 `POST /sessions/<session-id>/uploads` reaches the running session itself and stores files in `uploads/`; it also accepts the owner session token.
 
@@ -110,7 +111,7 @@ Playwright MCP's `browser_file_upload` accepts any session file relative path, s
 
 Each upload request accepts at most 100 files, and a directory may hold at most 1,000 files.
 
-Listing and download URLs need API credentials with `sessions:read`; uploads, deletes, and moves need `sessions:write`. Session-token holders use session-bound MCP or the data-plane upload. Editor and viewer capabilities cannot access files.
+Listing and download URLs need API credentials with `sessions:read`; uploads, directory creation, deletes, and moves need `sessions:write`. Session-token holders use session-bound MCP or the data-plane upload. Editor and viewer capabilities cannot access files.
 
 ## Limits and audit events
 
@@ -123,4 +124,4 @@ session_upload_max_file_bytes = 104857600
 session_storage_quota_bytes = 1073741824
 ```
 
-Successful uploads append a `session.file_uploaded` event containing the relative path, size, actor kind, and client IP. Deletes and moves through the API append `session.file_deleted` and `session.file_moved` events with the paths and client IP. The event never contains the session token or host storage path.
+Successful uploads append a `session.file_uploaded` event containing the relative path, size, actor kind, and client IP. Changes through the API append `session.file_deleted`, `session.file_moved`, `session.directory_created`, `session.directory_deleted`, and `session.directory_moved` events with the paths and client IP. The event never contains the session token or host storage path.

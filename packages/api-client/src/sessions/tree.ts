@@ -1,6 +1,9 @@
-import type { SessionFile } from "../schemas.ts";
+import type { SessionDirectory, SessionFile, SessionFileEntry } from "../schemas.ts";
 
-/** The directories below every session's files root, which exist even when empty. */
+/**
+ * The top-level directories the session writes into. They always exist and cannot be
+ * deleted, moved or renamed.
+ */
 export const sessionFileRootDirectories = [
   "downloads",
   "recordings",
@@ -12,6 +15,8 @@ export interface SessionFileDirectoryNode {
   readonly kind: "directory";
   readonly name: string;
   readonly relativePath: string;
+  /** Absent for a directory known only from the paths of legacy files. */
+  readonly directory: SessionDirectory | undefined;
   readonly children: ReadonlyArray<SessionFileTreeNode>;
 }
 
@@ -25,18 +30,42 @@ export interface SessionFileNode {
 export type SessionFileTreeNode = SessionFileDirectoryNode | SessionFileNode;
 
 interface DirectoryBuilder {
+  directory: SessionDirectory | undefined;
   readonly directories: Map<string, DirectoryBuilder>;
   readonly files: Array<SessionFileNode>;
 }
 
-const emptyDirectory = (): DirectoryBuilder => ({ directories: new Map(), files: [] });
+const emptyDirectory = (): DirectoryBuilder => ({
+  directory: undefined,
+  directories: new Map(),
+  files: [],
+});
+
+function directoryAt(root: DirectoryBuilder, segments: ReadonlyArray<string>): DirectoryBuilder {
+  let directory = root;
+  for (const segment of segments) {
+    let child = directory.directories.get(segment);
+    if (child === undefined) {
+      child = emptyDirectory();
+      directory.directories.set(segment, child);
+    }
+    directory = child;
+  }
+  return directory;
+}
 
 function toNodes(directory: DirectoryBuilder, parentPath: string): Array<SessionFileTreeNode> {
   const directories = [...directory.directories.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, child]): SessionFileDirectoryNode => {
       const relativePath = parentPath === "" ? name : `${parentPath}/${name}`;
-      return { kind: "directory", name, relativePath, children: toNodes(child, relativePath) };
+      return {
+        kind: "directory",
+        name,
+        relativePath,
+        directory: child.directory,
+        children: toNodes(child, relativePath),
+      };
     });
   const files = [...directory.files].sort((left, right) => left.name.localeCompare(right.name));
   return [...directories, ...files];
@@ -44,29 +73,25 @@ function toNodes(directory: DirectoryBuilder, parentPath: string): Array<Session
 
 /**
  * Arranges `listSessionFiles` results into a tree: directories first, then files, each
- * sorted by name. The listing holds only files, so directories are derived from their
- * paths, and the top-level `sessionFileRootDirectories` are always present.
+ * sorted by name. Empty directories appear because the listing includes them.
  */
 export function sessionFileTree(
-  files: ReadonlyArray<SessionFile>,
+  entries: ReadonlyArray<SessionFileEntry>,
 ): ReadonlyArray<SessionFileTreeNode> {
   const root = emptyDirectory();
-  for (const name of sessionFileRootDirectories) {
-    root.directories.set(name, emptyDirectory());
-  }
-  for (const file of files) {
-    const segments = file.relativePath.split("/");
-    const name = segments.pop() ?? file.relativePath;
-    let directory = root;
-    for (const segment of segments) {
-      let child = directory.directories.get(segment);
-      if (child === undefined) {
-        child = emptyDirectory();
-        directory.directories.set(segment, child);
-      }
-      directory = child;
+  for (const entry of entries) {
+    const segments = entry.relativePath.split("/");
+    if (entry.type === "directory") {
+      directoryAt(root, segments).directory = entry;
+      continue;
     }
-    directory.files.push({ kind: "file", name, relativePath: file.relativePath, file });
+    const name = segments.pop() ?? entry.relativePath;
+    directoryAt(root, segments).files.push({
+      kind: "file",
+      name,
+      relativePath: entry.relativePath,
+      file: entry,
+    });
   }
   return toNodes(root, "");
 }

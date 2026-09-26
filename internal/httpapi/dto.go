@@ -693,3 +693,14 @@ func (r moveSessionFileRequest) Validate() error {
 	}
 	return nil
 }
+
+type createSessionDirectoryRequest struct {
+	RelativePath string `json:"relativePath"`
+}
+
+func (r createSessionDirectoryRequest) Validate() error {
+	if r.RelativePath == "" {
+		return validationError("relativePath is required")
+	}
+	return nil
+}

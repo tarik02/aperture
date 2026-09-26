@@ -20,6 +20,7 @@ import {
   type SessionFileDownloadURLInput,
   type SessionsFilter,
   type SessionsListParams,
+  type DeleteSessionFileOptions,
   type MoveSessionFileInput,
   type SessionUploadFile,
   type UploadSessionFilesOptions,
@@ -329,9 +330,22 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionId: string,
     relativePath: string,
+    options: DeleteSessionFileOptions = {},
   ) {
     yield* api
-      .deleteSessionFile(sessionId, { params: { relativePath } })
+      .deleteSessionFile(sessionId, {
+        params: compactQuery({ relativePath, recursive: options.recursive }),
+      })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const createSessionDirectory = Effect.fn("SessionsApi.createSessionDirectory")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    relativePath: string,
+  ) {
+    return yield* api
+      .createSessionDirectory(sessionId, { payload: { relativePath } })
       .pipe(tenantScoped(credentials));
   });
 
@@ -404,6 +418,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     uploadLiveSessionFiles,
     deleteSessionFile,
     moveSessionFile,
+    createSessionDirectory,
     setSessionViewport,
   });
 });
