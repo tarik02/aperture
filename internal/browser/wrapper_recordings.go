@@ -16,12 +16,18 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/google/uuid"
+	"golang.org/x/sys/unix"
 )
 
 const wrapperRecordingCapacity = 4
 
-var errWrapperRecordingNotFound = errors.New("recording not found")
+var (
+	errWrapperRecordingNotFound         = errors.New("recording not found")
+	errWrapperRecordingEmpty            = errors.New("recording is empty")
+	errWrapperRecordingCodecUnavailable = errors.New("recording codec is unavailable on this host")
+)
 
 type wrapperRecordingStatus string
 
@@ -44,13 +50,14 @@ type wrapperRecording struct {
 	CaptureGeneration uint64                 `json:"captureGeneration"`
 	Status            wrapperRecordingStatus `json:"status"`
 	StopReason        string                 `json:"stopReason,omitempty"`
-	Path              string                 `json:"path"`
+	Path              string                 `json:"-"`
 	StartedAt         time.Time              `json:"startedAt"`
 	StoppedAt         *time.Time             `json:"stoppedAt,omitempty"`
 	SizeBytes         int64                  `json:"sizeBytes,omitempty"`
 	FPS               int                    `json:"fps"`
 	BitrateKbps       int                    `json:"bitrateKbps"`
 	Codec             string                 `json:"codec"`
+	filesRoot         string
 	segmentDir        string
 	segments          []string
 	cmd               *exec.Cmd
@@ -90,6 +97,10 @@ func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Re
 			body.Path = ""
 		}
 		recording, err := session.startRecording(body)
+		if errors.Is(err, errWrapperRecordingCodecUnavailable) {
+			writeWrapperError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 		if err != nil {
 			writeWrapperError(w, http.StatusConflict, err.Error())
 			return
@@ -216,21 +227,18 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	codec := normalizeWrapperCodec(request.Codec, r.values.MediaProducerCodec)
 	id := uuid.NewString()
-	path := strings.TrimSpace(request.Path)
-	if path == "" {
-		extension := ".webm"
-		if codec == "h264-va" {
-			extension = ".mkv"
+	if codec == "h264-va" {
+		if err := probeGStreamerElements(r.values, codec, []string{"vapostproc", "vah264enc", "h264parse", "matroskamux"}); err != nil {
+			return wrapperRecording{}, fmt.Errorf("%w: %w", errWrapperRecordingCodecUnavailable, err)
 		}
-		path = filepath.Join(r.values.RecordingsDir, "recording-"+id+extension)
 	}
-	if !filepath.IsAbs(path) {
-		return wrapperRecording{}, errors.New("recording path must be absolute")
+	files := paths.SessionFiles(r.values.FilesDir)
+	recordingsDir := files.Recordings
+	path, err := recordingPath(files, request.Path, id, codec)
+	if err != nil {
+		return wrapperRecording{}, err
 	}
-	if err := paths.ValidateTrustedPath(r.values.RecordingsDir, path); err != nil {
-		return wrapperRecording{}, fmt.Errorf("recording path must be inside recordings root: %w", err)
-	}
-	segmentDir := filepath.Join(r.values.RecordingsDir, ".recording-"+id)
+	segmentDir := filepath.Join(recordingsDir, ".recording-"+id)
 	if err := os.MkdirAll(segmentDir, 0o700); err != nil {
 		return wrapperRecording{}, fmt.Errorf("mkdir recording segment dir: %w", err)
 	}
@@ -274,6 +282,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		CaptureGeneration: target.Generation,
 		Status:            wrapperRecordingStarting,
 		Path:              path,
+		filesRoot:         files.Root,
 		StartedAt:         time.Now().UTC(),
 		FPS:               fps,
 		BitrateKbps:       bitrateKbps,
@@ -290,6 +299,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "start_failed"
 		r.mu.Unlock()
+		_ = os.RemoveAll(segmentDir)
 		session.broadcastRecordings()
 		return wrapperRecording{}, err
 	}
@@ -420,41 +430,43 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	r.mu.Unlock()
 
 	if err := stopRecordingSegment(recording); err != nil {
-		r.mu.Lock()
-		recording.finalizing = false
-		recording.Status = wrapperRecordingFailed
-		recording.StopReason = "pipeline_failed"
-		status := *recording
-		r.mu.Unlock()
-		return status, err
+		return session.failRecording(recording, "pipeline_failed", err)
 	}
-	if err := session.joinRecordingSegments(recording); err != nil {
-		r.mu.Lock()
-		recording.finalizing = false
-		recording.Status = wrapperRecordingFailed
-		recording.StopReason = "finalize_failed"
-		status := *recording
-		r.mu.Unlock()
-		return status, err
+	finalPath, size, err := session.joinRecordingSegments(recording)
+	if errors.Is(err, errWrapperRecordingEmpty) {
+		return session.failRecording(recording, reason, err)
+	}
+	if err != nil {
+		return session.failRecording(recording, "finalize_failed", err)
 	}
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()
+	recording.Path = finalPath
+	recording.SizeBytes = size
 	recording.StoppedAt = &stoppedAt
 	recording.Status = wrapperRecordingStopped
 	recording.StopReason = reason
 	recording.finalizing = false
-	if info, err := os.Stat(recording.Path); err == nil {
-		recording.SizeBytes = info.Size()
-	}
-	if recording.SizeBytes <= 0 {
-		recording.Status = wrapperRecordingFailed
-		status := *recording
-		r.mu.Unlock()
-		return status, errors.New("recording is empty")
-	}
 	status := *recording
 	r.mu.Unlock()
 	return status, nil
+}
+
+// failRecording marks a recording failed after keeping what it captured.
+func (session *liveSession) failRecording(recording *wrapperRecording, reason string, cause error) (wrapperRecording, error) {
+	salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path)
+	r := session.runtime
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stoppedAt := time.Now().UTC()
+	recording.finalizing = false
+	recording.Status = wrapperRecordingFailed
+	recording.StopReason = reason
+	recording.StoppedAt = &stoppedAt
+	if salvaged != "" {
+		recording.Path = salvaged
+	}
+	return *recording, cause
 }
 
 func stopRecordingSegment(recording *wrapperRecording) error {
@@ -730,13 +742,13 @@ func (session *liveSession) stopAllRecordings(reason string) {
 	}
 }
 
-func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) error {
+// joinRecordingSegments finalizes a recording and returns the path it was saved
+// under, which differs from the requested path when a file already exists there,
+// and its size, measured before it becomes visible and movable.
+func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) (string, int64, error) {
 	r := session.runtime
 	if len(recording.segments) == 1 {
-		if err := os.Rename(recording.segments[0], recording.Path); err != nil {
-			return fmt.Errorf("finalize recording: %w", err)
-		}
-		return os.RemoveAll(recording.segmentDir)
+		return publishFinishedRecording(recording.segments[0], recording.Path, recording.segmentDir)
 	}
 	mux := "webmmux"
 	parser := ""
@@ -744,7 +756,10 @@ func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) e
 		parser = "h264parse"
 		mux = "matroskamux"
 	}
-	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + recording.Path, "sync=false"}
+	// Join inside the hidden segment directory, so the visible recording appears only
+	// once complete and cannot be moved or deleted while it is still being written.
+	joined := filepath.Join(recording.segmentDir, "joined"+filepath.Ext(recording.Path))
+	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + joined, "sync=false"}
 	for _, segment := range recording.segments {
 		args = append(args, "filesrc", "location="+segment, "!", "matroskademux", "!", "queue", "!")
 		if parser != "" {
@@ -757,9 +772,153 @@ func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) e
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("join recording segments: %w", err)
+		return "", 0, fmt.Errorf("join recording segments: %w", err)
 	}
-	return os.RemoveAll(recording.segmentDir)
+	return publishFinishedRecording(joined, recording.Path, recording.segmentDir)
+}
+
+func publishFinishedRecording(source, target, segmentDir string) (string, int64, error) {
+	info, err := os.Stat(source)
+	if err != nil {
+		return "", 0, fmt.Errorf("finalize recording: %w", err)
+	}
+	if info.Size() == 0 {
+		return "", 0, errWrapperRecordingEmpty
+	}
+	final, err := publishRecording(source, target)
+	if err != nil {
+		return "", 0, err
+	}
+	return final, info.Size(), os.RemoveAll(segmentDir)
+}
+
+// abandonRecordingSegments keeps the non-empty segments of a recording that did
+// not finish as numbered "-failed" files next to its target, and removes its
+// hidden segment directory, which the API could never reach or delete. It returns
+// the first kept file.
+func abandonRecordingSegments(segmentDir, target string) string {
+	entries, _ := os.ReadDir(segmentDir)
+	extension := filepath.Ext(target)
+	failed := strings.TrimSuffix(target, extension) + "-failed" + extension
+	salvaged := ""
+	for _, entry := range entries {
+		// A join output may be incomplete; the segments it came from are kept.
+		if !entry.Type().IsRegular() || strings.HasPrefix(entry.Name(), "joined") {
+			continue
+		}
+		source := filepath.Join(segmentDir, entry.Name())
+		info, err := entry.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+		final, err := publishRecording(source, failed)
+		if err == nil && salvaged == "" {
+			salvaged = final
+		}
+	}
+	_ = os.RemoveAll(segmentDir)
+	return salvaged
+}
+
+// sweepRecordingSegments abandons the segment directories a previous wrapper
+// process left behind; no recording of this process has started yet.
+func sweepRecordingSegments(recordingsDir string) {
+	entries, _ := os.ReadDir(recordingsDir)
+	for _, entry := range entries {
+		id, ok := strings.CutPrefix(entry.Name(), ".recording-")
+		if !ok || !entry.IsDir() {
+			continue
+		}
+		segmentDir := filepath.Join(recordingsDir, entry.Name())
+		extension := ".webm"
+		if segments, _ := filepath.Glob(filepath.Join(segmentDir, "segment-*")); len(segments) > 0 {
+			extension = filepath.Ext(segments[0])
+		}
+		abandonRecordingSegments(segmentDir, filepath.Join(recordingsDir, "recording-"+id+extension))
+	}
+}
+
+// recordingPath resolves where a recording is saved: a path relative to the files
+// root, or an absolute path, inside the recordings directory, or a generated name.
+// Its directory is created now, so finalizing cannot fail on it.
+func recordingPath(files paths.SessionFilesLayout, requested, id, codec string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		extension := ".webm"
+		if codec == "h264-va" {
+			extension = ".mkv"
+		}
+		return filepath.Join(files.Recordings, "recording-"+id+extension), nil
+	}
+	target := requested
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(files.Root, filepath.FromSlash(requested))
+	}
+	relative, err := filepath.Rel(files.Root, target)
+	if err != nil {
+		return "", errors.New("recording path is invalid")
+	}
+	if _, err := sessionfiles.Normalize(filepath.ToSlash(relative)); err != nil {
+		return "", errors.New("recording path is invalid")
+	}
+	if err := paths.ValidateTrustedPath(files.Recordings, target); err != nil || target == files.Recordings {
+		return "", errors.New("recording path must be inside the recordings directory")
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", fmt.Errorf("create recording directory: %w", err)
+	}
+	// MkdirAll follows symlinks, so check again now that the directory exists.
+	if err := paths.ValidateTrustedPath(files.Recordings, target); err != nil {
+		return "", errors.New("recording path must be inside the recordings directory")
+	}
+	return target, nil
+}
+
+// MarshalJSON reports the recording's file relative to the session files root;
+// host paths never leave the wrapper.
+func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
+	type fields wrapperRecording
+	relative := ""
+	sandboxPath := ""
+	if rel, err := filepath.Rel(recording.filesRoot, recording.Path); err == nil {
+		relative = filepath.ToSlash(rel)
+	}
+	if relative != "" {
+		sandboxPath = sessionfiles.SandboxPath(relative)
+	}
+	return json.Marshal(struct {
+		fields
+		RelativePath string `json:"relativePath"`
+		SandboxPath  string `json:"sandboxPath,omitempty"`
+		// Path repeats RelativePath for clients that still read the field it replaced.
+		// It used to carry a host path, which it never does now.
+		Path string `json:"path"`
+	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, Path: relative})
+}
+
+// publishRecording moves a finished recording into place without replacing an
+// existing file, numbering the name instead, as uploads do.
+func publishRecording(source, target string) (string, error) {
+	// The target's directory may have been deleted since the recording started.
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", fmt.Errorf("finalize recording: %w", err)
+	}
+	extension := filepath.Ext(target)
+	stem := strings.TrimSuffix(target, extension)
+	for sequence := 0; ; sequence++ {
+		candidate := target
+		if sequence > 0 {
+			candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
+		}
+		err := sessionfiles.RenameNoReplace(source, candidate)
+		if errors.Is(err, unix.EEXIST) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("finalize recording: %w", err)
+		}
+		return candidate, nil
+	}
 }
 
 func (session *liveSession) recording(recordingID string) (wrapperRecording, bool) {
@@ -819,4 +978,7 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 	recording.StopReason = "pipeline_exited"
 	stoppedAt := time.Now().UTC()
 	recording.StoppedAt = &stoppedAt
+	if salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path); salvaged != "" {
+		recording.Path = salvaged
+	}
 }

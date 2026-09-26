@@ -69,6 +69,45 @@ networking.firewall.allowedUDPPortRanges = [
 
 The base Compose definition runs in software mode without a GPU. On amd64, the image still contains the Intel drivers so the same tag can use hardware acceleration when started with the GPU override. The container grants `CAP_SYS_ADMIN` for overlay mounts, allocates 2 GiB of shared memory, persists all state in the `aperture-data` volume, and keeps `/run/aperture` ephemeral. Replacing the container may terminate active browser sessions; the Docker deployment does not provide blue/green rollout semantics.
 
+### Storage
+
+By default all persistent state lives in the `aperture-data` volume at `/var/lib/aperture`. The three storage locations described in [Installation](/docs/installation#storage) can be separate mounts:
+
+- `/var/lib/aperture` (`store_root`) holds session overlay state and must stay on a local volume.
+- `cold_root` holds snapshots and session files and may be an NFS volume. Mount it and set `APERTURE_COLD_ROOT` to its path; the container writes the value into `/etc/aperture/aperture.toml`, which the mount helpers read.
+- `database_path` must stay local. Set `APERTURE_DATABASE_PATH` to move it to another local volume.
+
+```yaml
+# compose.storage.yaml
+services:
+  aperture:
+    environment:
+      APERTURE_COLD_ROOT: /var/lib/aperture-cold
+    volumes:
+      - aperture-cold:/var/lib/aperture-cold
+
+volumes:
+  aperture-cold:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=nfs.example.com,nfsvers=4.2,rw
+      device: ":/export/aperture"
+```
+
+Mount the `cold_root` share before the first start: a fresh install marks whatever directory is there, so starting without the share marks the bare mount point and keeps data there. The export must not squash root. On start the container makes the mounted directory owned by its `aperture` user. Aperture refuses to start when the volume is missing its `.aperture-root` marker while the database has snapshots or sessions, which catches a share that failed to mount, and when a root set only in the environment differs from the config file the mount helpers read; see [Storage](/docs/installation#storage).
+
+To move an existing deployment's snapshots and session files to the new `cold_root`, start the container with the storage override. Aperture refuses to start until the data is moved and s6 keeps retrying, so run the migration in the container, after which Aperture starts on its own:
+
+```bash
+docker compose \
+  -f packaging/docker/compose.yaml \
+  -f compose.storage.yaml \
+  up -d
+docker compose -f packaging/docker/compose.yaml -f compose.storage.yaml exec aperture \
+  s6-setuidgid aperture aperture --config /etc/aperture/aperture.toml storage migrate
+```
+
 ### GPU rendering and encoding
 
 Select a DRM render node and add the GPU override:

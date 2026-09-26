@@ -7,38 +7,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/aperture/aperture/internal/ids"
+	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"golang.org/x/sys/unix"
 )
 
 const defaultUploadMaxFileBytes int64 = 100 << 20
 const defaultSessionStorageQuotaBytes int64 = 1 << 30
-const maxUploadFilesPerRequest = 100
-const maxUploadFilesPerSession = 1000
-
-type wrapperFile struct {
-	Kind         string    `json:"kind"`
-	Name         string    `json:"name"`
-	Path         string    `json:"path"`
-	AbsolutePath string    `json:"absolutePath"`
-	SizeBytes    int64     `json:"sizeBytes"`
-	ModifiedAt   time.Time `json:"modifiedAt"`
-}
 
 type pendingUpload struct {
 	eventID string
-	file    *os.File
-	result  wrapperFile
+	staged  sessionfiles.Staged
+	name    string
+	info    os.FileInfo
 }
 
 type pendingUploadAudit struct {
@@ -47,100 +36,17 @@ type pendingUploadAudit struct {
 	SizeBytes int64  `json:"sizeBytes"`
 }
 
-func (r *wrapperRuntime) handleFiles(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	files := make([]wrapperFile, 0)
-	for _, kind := range []string{"uploads", "downloads", "artifacts"} {
-		dir, _ := r.fileDirectory(kind)
-		entries, err := os.ReadDir(dir)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			writeWrapperError(w, http.StatusInternalServerError, "list files failed")
-			return
-		}
-		for _, entry := range entries {
-			if entry.Type()&os.ModeSymlink != 0 || strings.HasPrefix(entry.Name(), ".upload-") {
-				continue
-			}
-			info, err := entry.Info()
-			if err != nil {
-				writeWrapperError(w, http.StatusInternalServerError, "list files failed")
-				return
-			}
-			if info.Mode().IsRegular() {
-				files = append(files, wrapperFileResponse(kind, entry.Name(), dir, info))
-			}
-		}
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].Kind == files[j].Kind {
-			return files[i].Name < files[j].Name
-		}
-		return files[i].Kind < files[j].Kind
-	})
-	writeWrapperJSON(w, http.StatusOK, map[string]any{"files": files})
+// uploadRejection is an upload failure and the response it maps to.
+type uploadRejection struct {
+	status  int
+	message string
 }
 
-func (r *wrapperRuntime) handleFileDownload(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet && req.Method != http.MethodHead {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
+func (e uploadRejection) Error() string { return e.message }
 
-	path := strings.TrimPrefix(req.URL.Path, "/files/")
-	kind, name, ok := strings.Cut(path, "/")
-	if !ok || kind == "" || name == "" || strings.Contains(name, "/") || filepath.Base(name) != name || strings.HasPrefix(name, ".upload-") {
-		writeWrapperError(w, http.StatusBadRequest, "invalid file path")
-		return
-	}
-	dir, ok := r.fileDirectory(kind)
-	if !ok {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-	dirFD, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-	if errors.Is(err, os.ErrNotExist) {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "open file failed")
-		return
-	}
-	defer func() { _ = unix.Close(dirFD) }()
-	fileFD, err := unix.Openat2(dirFD, name, &unix.OpenHow{
-		Flags:   unix.O_RDONLY | unix.O_CLOEXEC,
-		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-	})
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ELOOP) {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "open file failed")
-		return
-	}
-	file := os.NewFile(uintptr(fileFD), name)
-	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "inspect file failed")
-		return
-	}
-	if !info.Mode().IsRegular() {
-		writeWrapperError(w, http.StatusNotFound, "file not found")
-		return
-	}
-
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-	http.ServeContent(w, req, name, info.ModTime(), file)
+type uploadLimits struct {
+	maxFileBytes      int64
+	storageQuotaBytes int64
 }
 
 func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request) {
@@ -149,10 +55,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	r.uploadMu.Lock()
-	defer r.uploadMu.Unlock()
-
-	uploadsDir, _ := r.fileDirectory("uploads")
+	uploadsDir := paths.SessionFiles(r.values.FilesDir).Uploads
 	if err := ensureRegularDirectory(uploadsDir); err != nil {
 		writeWrapperError(w, http.StatusInternalServerError, "uploads directory unavailable")
 		return
@@ -162,224 +65,279 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 		writeWrapperError(w, http.StatusInternalServerError, "uploads directory unavailable")
 		return
 	}
-	uploadsDirectory := os.NewFile(uintptr(uploadsDirFD), uploadsDir)
-	defer func() { _ = uploadsDirectory.Close() }()
-	existingUploads, err := uploadsDirectory.ReadDir(-1)
+	defer func() { _ = unix.Close(uploadsDirFD) }()
+	limits := uploadLimits{
+		maxFileBytes:      r.values.SessionUploadMaxFileBytes,
+		storageQuotaBytes: r.values.SessionStorageQuotaBytes,
+	}
+	if limits.maxFileBytes <= 0 {
+		limits.maxFileBytes = defaultUploadMaxFileBytes
+	}
+	if limits.storageQuotaBytes <= 0 {
+		limits.storageQuotaBytes = defaultSessionStorageQuotaBytes
+	}
+
+	release, err := sessionfiles.AcquireUploadSlot(r.values.FilesDir)
 	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "list uploads failed")
+		writeWrapperError(w, http.StatusTooManyRequests, "too many uploads in progress for this session")
 		return
 	}
-	existingUploadCount := 0
-	for _, entry := range existingUploads {
-		if entry.Type()&os.ModeSymlink == 0 && entry.Type().IsRegular() && !strings.HasPrefix(entry.Name(), ".upload-") {
-			existingUploadCount++
+	defer release()
+	pending, err := r.stageUploads(req, uploadsDirFD, limits)
+	defer func() {
+		for _, upload := range pending {
+			upload.staged.Discard()
 		}
+	}()
+	if err == nil {
+		err = r.commitUploads(req, uploadsDirFD, pending, limits)
 	}
-	if existingUploadCount >= maxUploadFilesPerSession {
-		writeWrapperError(w, http.StatusInsufficientStorage, "session upload file limit exceeded")
+	var rejection uploadRejection
+	if errors.As(err, &rejection) {
+		writeWrapperError(w, rejection.status, rejection.message)
 		return
 	}
-	footprint, err := r.sessionFootprint()
 	if err != nil {
-		writeWrapperError(w, http.StatusInternalServerError, "calculate session footprint failed")
+		writeWrapperError(w, http.StatusInternalServerError, "upload failed")
 		return
 	}
-	maxFileBytes := r.values.SessionUploadMaxFileBytes
-	if maxFileBytes <= 0 {
-		maxFileBytes = defaultUploadMaxFileBytes
+	uploaded := make([]sessionfiles.File, 0, len(pending))
+	for _, upload := range pending {
+		relative := "uploads/" + upload.name
+		uploaded = append(uploaded, sessionfiles.Describe(filepath.Join(uploadsDir, upload.name), relative, sessionfiles.SandboxPath(relative), upload.info))
 	}
-	storageQuotaBytes := r.values.SessionStorageQuotaBytes
-	if storageQuotaBytes <= 0 {
-		storageQuotaBytes = defaultSessionStorageQuotaBytes
+	writeWrapperJSON(w, http.StatusCreated, map[string]any{"files": uploaded})
+}
+
+// stageUploads streams every file part into an unlinked temporary file without
+// holding any lock, so a slow client delays only its own upload. The limits are
+// checked again when the files are committed.
+func (r *wrapperRuntime) stageUploads(req *http.Request, uploadsDirFD int, limits uploadLimits) ([]pendingUpload, error) {
+	existingUploadCount, err := countVisibleUploads(uploadsDirFD)
+	if err != nil {
+		return nil, uploadRejection{http.StatusInternalServerError, "list uploads failed"}
+	}
+	if existingUploadCount >= sessionfiles.MaxUploadFilesPerDirectory {
+		return nil, uploadRejection{http.StatusInsufficientStorage, "session upload file limit exceeded"}
+	}
+	footprint, err := sessionfiles.Footprint(r.values.UpperDir, r.values.FilesDir, r.values.CacheDir)
+	if err != nil {
+		return nil, uploadRejection{http.StatusInternalServerError, "calculate session footprint failed"}
 	}
 	reader, err := req.MultipartReader()
 	if err != nil {
-		writeWrapperError(w, http.StatusBadRequest, "multipart upload required")
-		return
+		return nil, uploadRejection{http.StatusBadRequest, "multipart upload required"}
 	}
 
-	uploaded := make([]wrapperFile, 0)
 	pending := make([]pendingUpload, 0)
-	defer func() {
-		for _, upload := range pending {
-			_ = upload.file.Close()
-		}
-	}()
-	createdNames := make([]string, 0)
-	removeCreated := func() {
-		for _, upload := range pending {
-			_ = upload.file.Close()
-		}
-		for _, name := range createdNames {
-			_ = unix.Unlinkat(uploadsDirFD, name, 0)
-		}
-	}
 	for {
 		part, err := reader.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			removeCreated()
-			writeWrapperError(w, http.StatusBadRequest, "invalid multipart upload")
-			return
+			return pending, uploadRejection{http.StatusBadRequest, "invalid multipart upload"}
 		}
 		if part.FileName() == "" {
 			_ = part.Close()
 			continue
 		}
-		if len(uploaded) >= maxUploadFilesPerRequest || existingUploadCount+len(uploaded) >= maxUploadFilesPerSession {
+		if len(pending) >= sessionfiles.MaxUploadFilesPerRequest || existingUploadCount+len(pending) >= sessionfiles.MaxUploadFilesPerDirectory {
 			_ = part.Close()
-			removeCreated()
-			writeWrapperError(w, http.StatusInsufficientStorage, "session upload file limit exceeded")
-			return
+			return pending, uploadRejection{http.StatusInsufficientStorage, "session upload file limit exceeded"}
 		}
-
 		eventID, err := ids.NewUUIDv7()
 		if err != nil {
 			_ = part.Close()
-			removeCreated()
-			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
-			return
+			return pending, err
 		}
-		name := sanitizeUploadName(part.FileName())
-		extension := filepath.Ext(name)
-		stem := strings.TrimSuffix(name, extension)
-		var placeholderFD int
-		for sequence := 0; ; sequence++ {
-			candidate := name
-			if sequence > 0 {
-				candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
-			}
-			placeholderFD, err = unix.Openat2(uploadsDirFD, candidate, &unix.OpenHow{
-				Flags:   unix.O_WRONLY | unix.O_CREAT | unix.O_EXCL | unix.O_CLOEXEC,
-				Mode:    0o600,
-				Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-			})
-			if errors.Is(err, os.ErrExist) {
-				continue
-			}
-			if err != nil {
-				_ = part.Close()
-				removeCreated()
-				writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
-				return
-			}
-			name = candidate
-			break
+		remaining := max(limits.storageQuotaBytes-footprint, 0)
+		staged, err := sessionfiles.Stage(r.values.FilesDir, uploadsDirFD, part, min(limits.maxFileBytes, remaining))
+		_ = part.Close()
+		if err != nil {
+			return pending, uploadRejection{http.StatusInternalServerError, "write upload failed"}
 		}
-		placeholder := os.NewFile(uintptr(placeholderFD), name)
-		if _, err := io.WriteString(placeholder, "aperture-pending:"+eventID); err != nil {
-			_ = part.Close()
-			_ = placeholder.Close()
+		info, err := staged.File.Stat()
+		if err != nil {
+			staged.Discard()
+			return pending, uploadRejection{http.StatusInternalServerError, "write upload failed"}
+		}
+		if staged.Size > limits.maxFileBytes {
+			staged.Discard()
+			return pending, uploadRejection{http.StatusRequestEntityTooLarge, "file exceeds upload limit"}
+		}
+		if staged.Size > remaining {
+			staged.Discard()
+			return pending, uploadRejection{http.StatusInsufficientStorage, "session storage quota exceeded"}
+		}
+		footprint += staged.Size
+		pending = append(pending, pendingUpload{eventID: eventID, staged: staged, name: sessionfiles.SanitizeName(part.FileName()), info: info})
+	}
+	if len(pending) == 0 {
+		return pending, uploadRejection{http.StatusBadRequest, "no files uploaded"}
+	}
+	return pending, nil
+}
+
+// commitUploads reserves the upload names, records the uploads, and publishes them.
+// Only the final limit check and publishing hold the session files lock.
+func (r *wrapperRuntime) commitUploads(req *http.Request, uploadsDirFD int, pending []pendingUpload, limits uploadLimits) error {
+	// Reconciling pending uploads after a failed publish would cancel another
+	// request's prepared uploads, so committing is serialized within the wrapper.
+	r.uploadMu.Lock()
+	defer r.uploadMu.Unlock()
+
+	createdNames := make([]string, 0, len(pending))
+	removeCreated := func() {
+		for _, name := range createdNames {
 			_ = unix.Unlinkat(uploadsDirFD, name, 0)
-			removeCreated()
-			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
-			return
 		}
-		if err := placeholder.Close(); err != nil {
-			_ = part.Close()
-			_ = unix.Unlinkat(uploadsDirFD, name, 0)
+	}
+	for index := range pending {
+		name, err := reserveUploadName(uploadsDirFD, pending[index].name, pending[index].eventID)
+		if err != nil {
 			removeCreated()
-			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
-			return
+			return uploadRejection{http.StatusInternalServerError, "create upload failed"}
 		}
 		createdNames = append(createdNames, name)
-		fileFD, err := unix.Openat2(uploadsDirFD, ".", &unix.OpenHow{
-			Flags:   unix.O_WRONLY | unix.O_TMPFILE | unix.O_CLOEXEC,
-			Mode:    0o600,
-			Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-		})
-		if err != nil {
-			_ = part.Close()
-			removeCreated()
-			writeWrapperError(w, http.StatusInternalServerError, "create upload failed")
-			return
-		}
-		file := os.NewFile(uintptr(fileFD), name)
-		remaining := storageQuotaBytes - footprint
-		if remaining < 0 {
-			remaining = 0
-		}
-		limit := maxFileBytes
-		if remaining < limit {
-			limit = remaining
-		}
-		written, copyErr := io.Copy(file, io.LimitReader(part, limit+1))
-		info, statErr := file.Stat()
-		syncErr := file.Sync()
-		_ = part.Close()
-		if copyErr != nil || statErr != nil || syncErr != nil {
-			_ = file.Close()
-			removeCreated()
-			writeWrapperError(w, http.StatusInternalServerError, "write upload failed")
-			return
-		}
-		if written > maxFileBytes {
-			_ = file.Close()
-			removeCreated()
-			writeWrapperError(w, http.StatusRequestEntityTooLarge, "file exceeds upload limit")
-			return
-		}
-		if written > remaining {
-			_ = file.Close()
-			removeCreated()
-			writeWrapperError(w, http.StatusInsufficientStorage, "session storage quota exceeded")
-			return
-		}
-
-		footprint += written
-		result := wrapperFileResponse("uploads", name, uploadsDir, info)
-		uploaded = append(uploaded, result)
-		pending = append(pending, pendingUpload{eventID: eventID, file: file, result: result})
-	}
-
-	if len(uploaded) == 0 {
-		writeWrapperError(w, http.StatusBadRequest, "no files uploaded")
-		return
-	}
-	if err := r.prepareUploads(req, pending); err != nil {
-		removeCreated()
-		writeWrapperError(w, http.StatusBadGateway, "record upload failed")
-		return
-	}
-	publishFailed := false
-	for _, upload := range pending {
-		hiddenName := ".upload-" + upload.eventID
-		if err := unix.Linkat(int(upload.file.Fd()), "", uploadsDirFD, hiddenName, unix.AT_EMPTY_PATH); err != nil {
-			publishFailed = true
-			break
-		}
-		if err := unix.Renameat2(uploadsDirFD, hiddenName, uploadsDirFD, upload.result.Name, unix.RENAME_EXCHANGE); err != nil {
-			publishFailed = true
-			break
-		}
-		_ = unix.Unlinkat(uploadsDirFD, hiddenName, 0)
-		_ = upload.file.Close()
-	}
-	if publishFailed {
-		if err := r.reconcilePendingUploads(); err != nil {
-			writeWrapperError(w, http.StatusInternalServerError, "recover upload failed")
-			return
-		}
-		writeWrapperError(w, http.StatusInternalServerError, "publish upload failed")
-		return
+		pending[index].name = name
 	}
 	eventIDs := make([]string, 0, len(pending))
 	for _, upload := range pending {
 		eventIDs = append(eventIDs, upload.eventID)
 	}
-	if err := r.updateUploadEvents("finalize", eventIDs); err != nil {
-		writeWrapperError(w, http.StatusBadGateway, "finalize upload failed")
-		return
+	if err := r.prepareUploads(req, pending); err != nil {
+		removeCreated()
+		return uploadRejection{http.StatusBadGateway, "record upload failed"}
 	}
-	writeWrapperJSON(w, http.StatusCreated, map[string]any{"files": uploaded})
+	cancelPrepared := func() {
+		removeCreated()
+		_ = r.updateUploadEvents("cancel", eventIDs)
+	}
+
+	unlockFiles, err := sessionfiles.Lock(req.Context(), r.values.FilesDir)
+	if err != nil {
+		cancelPrepared()
+		return uploadRejection{http.StatusServiceUnavailable, "session files are busy"}
+	}
+	if err := checkCommittedUploadLimits(r.values, uploadsDirFD, pending, limits); err != nil {
+		unlockFiles()
+		cancelPrepared()
+		return err
+	}
+	for index := range pending {
+		upload := &pending[index]
+		hiddenName := ".upload-" + upload.eventID
+		err := upload.staged.Link(uploadsDirFD, hiddenName)
+		if err == nil {
+			upload.staged.DropName()
+			err = sessionfiles.ReplaceWith(uploadsDirFD, hiddenName, upload.name)
+		}
+		if err != nil {
+			unlockFiles()
+			if err := r.reconcilePendingUploads(); err != nil {
+				return uploadRejection{http.StatusInternalServerError, "recover upload failed"}
+			}
+			return uploadRejection{http.StatusInternalServerError, "publish upload failed"}
+		}
+		_ = unix.Unlinkat(uploadsDirFD, hiddenName, 0)
+	}
+	unlockFiles()
+
+	if err := r.updateUploadEvents("finalize", eventIDs); err != nil {
+		return uploadRejection{http.StatusBadGateway, "finalize upload failed"}
+	}
+	return nil
+}
+
+// checkCommittedUploadLimits repeats the limit checks under the session files lock,
+// where usage by other uploads that were published meanwhile is visible. The
+// reserved names already count as entries.
+func checkCommittedUploadLimits(values RuntimeEnvValues, uploadsDirFD int, pending []pendingUpload, limits uploadLimits) error {
+	entries, err := sessionfiles.CountEntries(values.FilesDir)
+	if err != nil {
+		return err
+	}
+	uploads, err := countVisibleUploads(uploadsDirFD)
+	if err != nil {
+		return err
+	}
+	if entries > sessionfiles.MaxEntriesPerSession || uploads > sessionfiles.MaxUploadFilesPerDirectory {
+		return uploadRejection{http.StatusInsufficientStorage, "session upload file limit exceeded"}
+	}
+	footprint, err := sessionfiles.Footprint(values.UpperDir, values.FilesDir, values.CacheDir)
+	if err != nil {
+		return err
+	}
+	// Named staging files are below the files root, so Footprint counts them.
+	for _, upload := range pending {
+		if !upload.staged.OnDisk() {
+			footprint += upload.staged.Size
+		}
+	}
+	if footprint > limits.storageQuotaBytes {
+		return uploadRejection{http.StatusInsufficientStorage, "session storage quota exceeded"}
+	}
+	return nil
+}
+
+// reserveUploadName creates a placeholder under name, or under a numbered variant
+// when it is taken, and returns the name it got.
+func reserveUploadName(uploadsDirFD int, name, eventID string) (string, error) {
+	extension := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, extension)
+	for sequence := 0; ; sequence++ {
+		candidate := name
+		if sequence > 0 {
+			candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
+		}
+		fd, err := unix.Openat2(uploadsDirFD, candidate, &unix.OpenHow{
+			Flags:   unix.O_WRONLY | unix.O_CREAT | unix.O_EXCL | unix.O_CLOEXEC,
+			Mode:    0o600,
+			Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+		})
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		placeholder := os.NewFile(uintptr(fd), candidate)
+		_, writeErr := io.WriteString(placeholder, sessionfiles.PendingUploadMarker+eventID)
+		closeErr := placeholder.Close()
+		if err := errors.Join(writeErr, closeErr); err != nil {
+			_ = unix.Unlinkat(uploadsDirFD, candidate, 0)
+			return "", err
+		}
+		return candidate, nil
+	}
+}
+
+func countVisibleUploads(uploadsDirFD int) (int, error) {
+	// A fresh open, unlike Dup, gets its own read offset.
+	fd, err := unix.Openat(uploadsDirFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return 0, err
+	}
+	directory := os.NewFile(uintptr(fd), "uploads")
+	defer func() { _ = directory.Close() }()
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink == 0 && entry.Type().IsRegular() && !strings.HasPrefix(entry.Name(), ".upload-") {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (r *wrapperRuntime) prepareUploads(req *http.Request, files []pendingUpload) error {
 	auditFiles := make([]pendingUploadAudit, 0, len(files))
 	for _, file := range files {
-		auditFiles = append(auditFiles, pendingUploadAudit{EventID: file.eventID, Path: file.result.Path, SizeBytes: file.result.SizeBytes})
+		auditFiles = append(auditFiles, pendingUploadAudit{EventID: file.eventID, Path: "uploads/" + file.name, SizeBytes: file.info.Size()})
 	}
 	return r.uploadAuditRequest(http.MethodPost, "prepare", map[string]any{
 		"files":     auditFiles,
@@ -460,7 +418,7 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 	if err := r.uploadAuditRequest(http.MethodGet, "pending", nil, &response); err != nil {
 		return err
 	}
-	uploadsDir, _ := r.fileDirectory("uploads")
+	uploadsDir := paths.SessionFiles(r.values.FilesDir).Uploads
 	if err := ensureRegularDirectory(uploadsDir); err != nil {
 		return err
 	}
@@ -478,7 +436,7 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 			continue
 		}
 		hiddenName := ".upload-" + upload.EventID
-		marker := "aperture-pending:" + upload.EventID
+		marker := sessionfiles.PendingUploadMarker + upload.EventID
 		var hiddenStat unix.Stat_t
 		hiddenExists := false
 		if unix.Fstatat(uploadsDirFD, hiddenName, &hiddenStat, unix.AT_SYMLINK_NOFOLLOW) == nil && hiddenStat.Mode&unix.S_IFMT == unix.S_IFREG && hiddenStat.Size == upload.SizeBytes {
@@ -518,7 +476,7 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 		}
 		if hiddenExists {
 			if finalExists {
-				err = unix.Renameat2(uploadsDirFD, hiddenName, uploadsDirFD, name, unix.RENAME_EXCHANGE)
+				err = sessionfiles.ReplaceWith(uploadsDirFD, hiddenName, name)
 			} else {
 				err = unix.Renameat(uploadsDirFD, hiddenName, uploadsDirFD, name)
 			}
@@ -566,65 +524,6 @@ func (r *wrapperRuntime) reconcilePendingUploads() error {
 	return nil
 }
 
-func (r *wrapperRuntime) fileDirectory(kind string) (string, bool) {
-	switch kind {
-	case "uploads":
-		return filepath.Join(r.values.ArtifactsDir, "uploads"), true
-	case "downloads":
-		return r.values.DownloadsDir, true
-	case "artifacts":
-		return r.values.ArtifactsDir, true
-	default:
-		return "", false
-	}
-}
-
-func (r *wrapperRuntime) sessionFootprint() (int64, error) {
-	var size int64
-	for _, root := range []string{r.values.UpperDir, r.values.DownloadsDir, r.values.CacheDir, r.values.ArtifactsDir} {
-		if root == "" {
-			continue
-		}
-		err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, err error) error {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				if entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if info.Mode().IsRegular() {
-				size += info.Size()
-			}
-			return nil
-		})
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return 0, err
-		}
-	}
-	return size, nil
-}
-
-func wrapperFileResponse(kind, name, dir string, info os.FileInfo) wrapperFile {
-	return wrapperFile{
-		Kind:         kind,
-		Name:         name,
-		Path:         filepath.ToSlash(filepath.Join(kind, name)),
-		AbsolutePath: filepath.Join(dir, name),
-		SizeBytes:    info.Size(),
-		ModifiedAt:   info.ModTime(),
-	}
-}
-
 func ensureRegularDirectory(path string) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
@@ -637,19 +536,4 @@ func ensureRegularDirectory(path string) error {
 		return fmt.Errorf("not a regular directory")
 	}
 	return nil
-}
-
-func sanitizeUploadName(name string) string {
-	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
-	name = strings.Map(func(char rune) rune {
-		if unicode.IsLetter(char) || unicode.IsDigit(char) || char == '.' || char == '-' || char == '_' {
-			return char
-		}
-		return '_'
-	}, name)
-	name = strings.Trim(name, ".")
-	if name == "" {
-		return "upload"
-	}
-	return name
 }

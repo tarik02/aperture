@@ -28,6 +28,7 @@ func TestLiveStoppedSessionPromotionAndRestoreSmoke(t *testing.T) {
 	}
 	cfg := config.Config{
 		StoreRoot:             filepath.Join(root, "store"),
+		ColdRoot:              filepath.Join(root, "cold"),
 		RuntimeRoot:           filepath.Join(root, "runtime"),
 		ArtifactRoot:          filepath.Join(root, "artifacts"),
 		SessionRetentionDays:  7,
@@ -69,7 +70,7 @@ func TestLiveStoppedSessionPromotionAndRestoreSmoke(t *testing.T) {
 		UpperPath:       layout.Upper,
 		WorkPath:        layout.Work,
 		MergedPath:      layout.Merged,
-		DownloadsPath:   layout.Downloads,
+		DownloadsPath:   layout.Files.Downloads,
 		CachePath:       layout.Cache,
 		ArtifactsPath:   layout.Artifacts,
 		BrowserChannel:  "chromium",

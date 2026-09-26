@@ -2,19 +2,23 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type { ApiCredentials } from "../authorization/service.ts";
 import type { ApiRequestError } from "../errors.ts";
-import type { CreateTokenResponse, ResourceGrant, ResourceMode, TokensPage } from "../schemas.ts";
+import type { PageCursor, PaginatedList } from "../pagination.ts";
+import type { ApiToken, CreateTokenResponse, ResourceGrant, ResourceMode } from "../schemas.ts";
 
 type Call<A> = Effect.Effect<A, ApiRequestError>;
 
-export interface TokensListParams {
+export interface TokensFilter {
   limit?: number;
-  cursor?: string;
   tenantId?: string;
   name?: string;
   authorityType?: "system_admin" | "tenant";
   revoked?: "all" | "active" | "revoked";
   scope?: string;
 }
+
+export type TokensListParams = TokensFilter & PageCursor;
+
+type TokensList = PaginatedList<TokensFilter, ApiToken>;
 
 export interface CreateAdminTokenInput {
   name: string;
@@ -38,19 +42,17 @@ export interface CreateTenantTokenInput {
 export class TokensApi extends Context.Service<
   TokensApi,
   {
-    readonly listAdminTokens: (
-      credentials: ApiCredentials,
-      params?: TokensListParams,
-    ) => Call<TokensPage>;
+    readonly listAdminTokens: TokensList["list"];
+    readonly streamAdminTokens: TokensList["stream"];
+    readonly listAllAdminTokens: TokensList["listAll"];
     readonly createAdminToken: (
       credentials: ApiCredentials,
       input: CreateAdminTokenInput,
     ) => Call<CreateTokenResponse>;
     readonly revokeAdminToken: (credentials: ApiCredentials, tokenId: string) => Call<void>;
-    readonly listTenantTokens: (
-      credentials: ApiCredentials,
-      params?: TokensListParams,
-    ) => Call<TokensPage>;
+    readonly listTenantTokens: TokensList["list"];
+    readonly streamTenantTokens: TokensList["stream"];
+    readonly listAllTenantTokens: TokensList["listAll"];
     readonly createTenantToken: (
       credentials: ApiCredentials,
       input: CreateTenantTokenInput,

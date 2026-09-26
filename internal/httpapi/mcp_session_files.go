@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -18,17 +17,23 @@ func (s *Server) mcpSessionFilesList(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, err
 	}
-	layout, err := paths.Session(s.Config, view.Session.ID)
+	scope, err := s.sessionFilesScope(view.Session)
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, mcpToolError("internal", err)
 	}
-	files, err := sessionfiles.List(layout)
+	files, err := sessionfiles.List(scope.layout)
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, mcpToolError("internal", err)
 	}
 	out := mcpSessionFilesOutput{Files: make([]mcpSessionFile, 0, len(files))}
-	for _, file := range files {
-		out.Files = append(out.Files, mcpSessionFile{Name: file.Name, RelativePath: file.RelativePath, Size: file.Size, ModifiedAt: file.ModifiedAt, MIMEType: file.MIMEType})
+	for _, entry := range files {
+		// MCP clients address files; directories only matter to file managers.
+		file, ok := entry.(sessionfiles.File)
+		if !ok {
+			continue
+		}
+		file = scope.presentFile(file)
+		out.Files = append(out.Files, mcpSessionFile{Name: file.Name, RelativePath: file.RelativePath, Size: file.Size, ModifiedAt: file.ModifiedAt, MIMEType: file.MIMEType, SandboxPath: file.SandboxPath})
 	}
 	return nil, out, nil
 }
@@ -50,7 +55,7 @@ func (s *Server) mcpSessionFileURL(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSessionFileURLOutput{}, err
 	}
-	result, err := s.sessionFileDownloadURL(view.Session.ID, in.RelativePath, in.TTLSeconds)
+	result, err := s.sessionFileDownloadURL(view.Session.ID, in.RelativePath, sessionfiles.DispositionAttachment, in.TTLSeconds)
 	if errors.Is(err, errSessionFileNotFound) {
 		return nil, mcpSessionFileURLOutput{}, mcpToolError("file_not_found", err)
 	}

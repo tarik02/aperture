@@ -29,6 +29,8 @@ let
       (
         lib.recursiveUpdate cfg.settings {
           store_root = cfg.storeRoot;
+          cold_root = cfg.coldRoot;
+          database_path = cfg.databasePath;
           runtime_root = cfg.runtimeRoot;
           listen_address = cfg.deployment.blueAddress;
           artifact_root = "${cfg.storeRoot}/artifacts";
@@ -200,7 +202,22 @@ in
       type = lib.types.str;
       default = "${userHome}/.local/state/aperture";
       defaultText = lib.literalExpression ''"/home/''${config.services.aperture.user}/.local/state/aperture"'';
-      description = "Persistent Aperture state root.";
+      description = "Local root for session overlay state. overlayfs needs it on a local filesystem, not NFS.";
+    };
+    coldRoot = lib.mkOption {
+      type = lib.types.str;
+      default = cfg.storeRoot;
+      defaultText = lib.literalExpression "config.services.aperture.storeRoot";
+      description = ''
+        Root for snapshots and session files. It may be on NFS v3 or later with a lock manager, exported without
+        root squashing. When changed on an existing install, run `aperture storage migrate` while Aperture is stopped.
+      '';
+    };
+    databasePath = lib.mkOption {
+      type = lib.types.str;
+      default = "${cfg.storeRoot}/aperture.db";
+      defaultText = lib.literalExpression ''"''${config.services.aperture.storeRoot}/aperture.db"'';
+      description = "SQLite database path. Keep it on a local filesystem, not NFS.";
     };
     runtimeRoot = lib.mkOption {
       type = lib.types.str;

@@ -25,10 +25,8 @@ type RuntimeEnvValues struct {
 	InternalAPIURL            string
 	MergedUserDataDir         string
 	UpperDir                  string
-	DownloadsDir              string
-	RecordingsDir             string
+	FilesDir                  string
 	CacheDir                  string
-	ArtifactsDir              string
 	SessionUploadMaxFileBytes int64
 	SessionStorageQuotaBytes  int64
 	CDPPort                   int
@@ -84,17 +82,11 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 	if strings.TrimSpace(values.MergedUserDataDir) == "" {
 		return nil, fmt.Errorf("merged user data dir is required")
 	}
-	if strings.TrimSpace(values.DownloadsDir) == "" {
-		return nil, fmt.Errorf("downloads dir is required")
-	}
-	if strings.TrimSpace(values.RecordingsDir) == "" {
-		return nil, fmt.Errorf("recordings dir is required")
+	if strings.TrimSpace(values.FilesDir) == "" {
+		return nil, fmt.Errorf("files dir is required")
 	}
 	if strings.TrimSpace(values.CacheDir) == "" {
 		return nil, fmt.Errorf("cache dir is required")
-	}
-	if strings.TrimSpace(values.ArtifactsDir) == "" {
-		return nil, fmt.Errorf("artifacts dir is required")
 	}
 	if values.CDPPort <= 0 || values.CDPPort > 65535 {
 		return nil, fmt.Errorf("cdp port must be between 1 and 65535")
@@ -199,10 +191,8 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		"SESSION_TOKEN=" + shellQuote(values.SessionToken),
 		"SESSION_TOKEN_PATH=" + shellQuote(values.SessionTokenPath),
 		"MERGED_USER_DATA_DIR=" + shellQuote(values.MergedUserDataDir),
-		"DOWNLOADS_DIR=" + shellQuote(values.DownloadsDir),
-		"RECORDINGS_DIR=" + shellQuote(values.RecordingsDir),
+		"FILES_DIR=" + shellQuote(values.FilesDir),
 		"CACHE_DIR=" + shellQuote(values.CacheDir),
-		"ARTIFACTS_DIR=" + shellQuote(values.ArtifactsDir),
 		"CDP_PORT=" + strconv.Itoa(values.CDPPort),
 		"WRAPPER_PORT=" + strconv.Itoa(values.WrapperPort),
 		"BROWSER_EXECUTABLE=" + shellQuote(values.BrowserExecutable),
@@ -308,7 +298,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "DOWNLOADS_DIR", "RECORDINGS_DIR", "CACHE_DIR", "ARTIFACTS_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "FILES_DIR", "CACHE_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -406,6 +396,9 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 				return RuntimeEnvValues{}, fmt.Errorf("decode extra args: %w", err)
 			}
 			values.BrowserExtraArgs = args
+		case "DOWNLOADS_DIR", "RECORDINGS_DIR", "ARTIFACTS_DIR":
+			// Written before the single files root. The wrapper started from such a file
+			// keeps its own copy, and FilesDir stays empty to mark the old layout.
 		default:
 			return RuntimeEnvValues{}, fmt.Errorf("unexpected env key: %s", key)
 		}
@@ -434,14 +427,10 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.MergedUserDataDir = value
 	case "UPPER_DIR":
 		values.UpperDir = value
-	case "DOWNLOADS_DIR":
-		values.DownloadsDir = value
-	case "RECORDINGS_DIR":
-		values.RecordingsDir = value
+	case "FILES_DIR":
+		values.FilesDir = value
 	case "CACHE_DIR":
 		values.CacheDir = value
-	case "ARTIFACTS_DIR":
-		values.ArtifactsDir = value
 	case "BROWSER_EXECUTABLE":
 		values.BrowserExecutable = value
 	case "CAPTURE_PROOF_EXTENSION_DIR":

@@ -8,6 +8,7 @@ import (
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const maxSessionUploadEventFiles = 100
@@ -16,6 +17,7 @@ type gcJobResponse struct {
 	ExpiredSessions    int `json:"expiredSessions"`
 	RemovedArtifacts   int `json:"removedArtifacts"`
 	CollectedSnapshots int `json:"collectedSnapshots"`
+	StagingSweepErrors int `json:"stagingSweepErrors"`
 }
 
 type sessionUploadEventFile struct {
@@ -158,10 +160,14 @@ func (s *Server) runGCJob(c *gin.Context) {
 		WriteInternalError(c, err)
 		return
 	}
+	for _, sweepErr := range result.StagingSweepErrors {
+		s.Logger.Warn("gc could not sweep upload staging", zap.Error(sweepErr))
+	}
 
 	c.JSON(http.StatusOK, gcJobResponse{
 		ExpiredSessions:    result.ExpiredSessions,
 		RemovedArtifacts:   result.RemovedArtifacts,
 		CollectedSnapshots: result.CollectedSnapshots,
+		StagingSweepErrors: len(result.StagingSweepErrors),
 	})
 }

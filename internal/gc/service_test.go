@@ -30,7 +30,7 @@ func (f *gcFakeOverlay) Mount(_ context.Context, sessionID string, _ *string) er
 	if err != nil {
 		return err
 	}
-	for _, dir := range []string{layout.Upper, layout.Work, layout.Merged, layout.Downloads, layout.Cache, layout.Metadata} {
+	for _, dir := range []string{layout.Upper, layout.Work, layout.Merged, layout.Files.Downloads, layout.Cache, layout.Metadata} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -92,6 +92,7 @@ func newGCTestService(t *testing.T) (*Service, config.Config, *db.Repository, *g
 	root := t.TempDir()
 	cfg := config.Config{
 		StoreRoot:               filepath.Join(root, "store"),
+		ColdRoot:                filepath.Join(root, "cold"),
 		RuntimeRoot:             filepath.Join(root, "runtime"),
 		ArtifactRoot:            filepath.Join(root, "artifacts"),
 		DatabasePath:            filepath.Join(root, "store", "aperture.db"),
@@ -175,7 +176,7 @@ func TestGCExpiresDeletedSessionAndRemovesOverlay(t *testing.T) {
 		UpperPath:       layout.Upper,
 		WorkPath:        layout.Work,
 		MergedPath:      layout.Merged,
-		DownloadsPath:   layout.Downloads,
+		DownloadsPath:   layout.Files.Downloads,
 		CachePath:       layout.Cache,
 		ArtifactsPath:   layout.Artifacts,
 		BrowserChannel:  "chromium",
@@ -324,7 +325,7 @@ func TestGCSkipsSnapshotReferencedByRetainedSession(t *testing.T) {
 		UpperPath:       sessionLayout.Upper,
 		WorkPath:        sessionLayout.Work,
 		MergedPath:      sessionLayout.Merged,
-		DownloadsPath:   sessionLayout.Downloads,
+		DownloadsPath:   sessionLayout.Files.Downloads,
 		CachePath:       sessionLayout.Cache,
 		ArtifactsPath:   sessionLayout.Artifacts,
 		BrowserChannel:  "chromium",
@@ -401,7 +402,7 @@ func TestGCAbortExpireWhenOverlayUnmountFails(t *testing.T) {
 		UpperPath:       layout.Upper,
 		WorkPath:        layout.Work,
 		MergedPath:      layout.Merged,
-		DownloadsPath:   layout.Downloads,
+		DownloadsPath:   layout.Files.Downloads,
 		CachePath:       layout.Cache,
 		ArtifactsPath:   layout.Artifacts,
 		BrowserChannel:  "chromium",

@@ -6,6 +6,8 @@ generate:
   gin-server: true
   strict-server: true
   client: true
-  embedded-spec: true
 output-options:
   skip-prune: true
+  # Traefik sends live-session routes to the session's wrapper. The daemon must not
+  # register them, or it would answer them itself while the session is not running.
+  exclude-tags: [live-session]

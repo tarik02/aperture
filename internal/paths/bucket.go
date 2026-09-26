@@ -9,24 +9,54 @@ import (
 	"github.com/aperture/aperture/internal/ids"
 )
 
-// SessionLayout holds derived filesystem paths for a session.
+// SessionLayout holds derived filesystem paths for a session. Root and the
+// overlay directories below it are under store_root, which overlayfs needs on a
+// local filesystem; Files is under cold_root.
 type SessionLayout struct {
-	SessionID  string
-	Root       string
-	Upper      string
-	Work       string
-	Merged     string
-	Downloads  string
-	Cache      string
-	Metadata   string
-	Recordings string
+	SessionID string
+	Root      string
+	Upper     string
+	Work      string
+	Merged    string
+	Cache     string
+	Metadata  string
+	Files     SessionFilesLayout
+	// Artifacts holds operational output such as logs and crash dumps, which are
+	// not session files.
 	Artifacts  string
 	Logs       string
 	CrashDumps string
 	RuntimeEnv string
 }
 
-// SnapshotLayout holds derived filesystem paths for a snapshot.
+// SessionFilesLayout holds the single root of a session's files and the
+// directories below it that the browser, recorder, uploads, and Playwright MCP
+// write to. Session file relative paths are relative to Root.
+type SessionFilesLayout struct {
+	Root       string
+	Downloads  string
+	Recordings string
+	Uploads    string
+	Outputs    string
+}
+
+// SandboxFilesRoot is where the browser sandbox mounts a session's files root.
+// It is the same for every session, so paths below it can be handed to CDP
+// clients and stored in browser profiles without revealing host paths.
+const SandboxFilesRoot = "/session/files"
+
+// SessionFiles derives the session file directories below root.
+func SessionFiles(root string) SessionFilesLayout {
+	return SessionFilesLayout{
+		Root:       root,
+		Downloads:  filepath.Join(root, "downloads"),
+		Recordings: filepath.Join(root, "recordings"),
+		Uploads:    filepath.Join(root, "uploads"),
+		Outputs:    filepath.Join(root, "outputs"),
+	}
+}
+
+// SnapshotLayout holds derived filesystem paths for a snapshot, under cold_root.
 type SnapshotLayout struct {
 	SnapshotID string
 	Root       string
@@ -64,6 +94,13 @@ func Session(cfg config.Config, sessionID string) (SessionLayout, error) {
 		return SessionLayout{}, err
 	}
 
+	// The files root keeps its path relative to the root it moved to, so an
+	// install whose cold_root is its store_root keeps its files where they are.
+	filesRoot, err := JoinUnderRoot(cfg.ColdRoot, "sessions", bucket, sessionID, "files")
+	if err != nil {
+		return SessionLayout{}, err
+	}
+
 	artifactsRoot, err := JoinUnderRoot(cfg.ArtifactRoot, bucket, sessionID)
 	if err != nil {
 		return SessionLayout{}, err
@@ -80,10 +117,9 @@ func Session(cfg config.Config, sessionID string) (SessionLayout, error) {
 		Upper:      filepath.Join(root, "upper"),
 		Work:       filepath.Join(root, "work"),
 		Merged:     filepath.Join(root, "merged"),
-		Downloads:  filepath.Join(root, "downloads"),
 		Cache:      filepath.Join(root, "cache"),
 		Metadata:   filepath.Join(root, "metadata"),
-		Recordings: filepath.Join(root, "recordings"),
+		Files:      SessionFiles(filesRoot),
 		Artifacts:  artifactsRoot,
 		Logs:       filepath.Join(artifactsRoot, "logs"),
 		CrashDumps: filepath.Join(artifactsRoot, "crash-dumps"),
@@ -102,7 +138,7 @@ func Snapshot(cfg config.Config, snapshotID string) (SnapshotLayout, error) {
 		return SnapshotLayout{}, err
 	}
 
-	root, err := JoinUnderRoot(cfg.StoreRoot, "snapshots", bucket, snapshotID)
+	root, err := JoinUnderRoot(cfg.ColdRoot, "snapshots", bucket, snapshotID)
 	if err != nil {
 		return SnapshotLayout{}, err
 	}

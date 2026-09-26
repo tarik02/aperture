@@ -78,19 +78,33 @@ export const ProxyTunnelConfig = Schema.Struct({ "url": Schema.optionalKey(Schem
 export type CursorVisibility = { readonly "visible": boolean }
 export const CursorVisibility = Schema.Struct({ "visible": Schema.Boolean.annotate({ "description": "Whether to include the remote cursor in live streams and recordings." }) }).annotate({ "description": "Whether the remote browser cursor is composited into session media.", "identifier": "CursorVisibility" })
 export type Recording = { readonly "recordingId": string, readonly "mode": "tab" | "viewer", readonly "targetId": string, readonly "captureGeneration": number, readonly "status": "starting" | "running" | "stopped" | "failed", readonly "stopReason"?: string, readonly "relativePath": string, readonly "startedAt": string, readonly "stoppedAt"?: string, readonly "sizeBytes"?: number, readonly "fps": number, readonly "bitrateKbps": number, readonly "codec": "vp8" | "h264-va" }
-export const Recording = Schema.Struct({ "recordingId": Schema.String.annotate({ "description": "Stable recording identifier retained across target changes.", "format": "uuid" }), "mode": Schema.Literals(["tab", "viewer"]).annotate({ "description": "Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted." }), "targetId": Schema.String.annotate({ "description": "Identifier of the top-level target currently recorded." }), "captureGeneration": Schema.Number.annotate({ "description": "Assignment generation for the current top-level target.", "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "status": Schema.Literals(["starting", "running", "stopped", "failed"]), "stopReason": Schema.optionalKey(Schema.String.annotate({ "description": "Lifecycle reason recorded after the recording stops or fails." })), "relativePath": Schema.String.annotate({ "description": "Path below the session root; absolute host paths are never exposed.", "examples": ["recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm"] }), "startedAt": Schema.String.annotate({ "format": "date-time" }), "stoppedAt": Schema.optionalKey(Schema.String.annotate({ "format": "date-time" })), "sizeBytes": Schema.optionalKey(Schema.Number.annotate({ "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" }))), "fps": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "bitrateKbps": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "codec": Schema.Literals(["vp8", "h264-va"]) }).annotate({ "description": "One logical recording of a top-level target.", "identifier": "Recording" })
+export const Recording = Schema.Struct({ "recordingId": Schema.String.annotate({ "description": "Stable recording identifier retained across target changes.", "format": "uuid" }), "mode": Schema.Literals(["tab", "viewer"]).annotate({ "description": "Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted." }), "targetId": Schema.String.annotate({ "description": "Identifier of the top-level target currently recorded." }), "captureGeneration": Schema.Number.annotate({ "description": "Assignment generation for the current top-level target.", "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "status": Schema.Literals(["starting", "running", "stopped", "failed"]), "stopReason": Schema.optionalKey(Schema.String.annotate({ "description": "Lifecycle reason recorded after the recording stops or fails." })), "relativePath": Schema.String.annotate({ "description": "Session file path below the session files root; host paths are never exposed.", "examples": ["recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm"] }), "startedAt": Schema.String.annotate({ "format": "date-time" }), "stoppedAt": Schema.optionalKey(Schema.String.annotate({ "format": "date-time" })), "sizeBytes": Schema.optionalKey(Schema.Number.annotate({ "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" }))), "fps": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "bitrateKbps": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "codec": Schema.Literals(["vp8", "h264-va"]) }).annotate({ "description": "One logical recording of a top-level target.", "identifier": "Recording" })
 export type CreateSessionRecordingInput = { readonly "targetId": string, readonly "fps"?: number, readonly "bitrateKbps"?: number, readonly "codec"?: "vp8" | "h264-va" }
 export const CreateSessionRecordingInput = Schema.Struct({ "targetId": Schema.String.annotate({ "description": "Identifier of the ready top-level target to record." }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "fps": Schema.optionalKey(Schema.Number.annotate({ "description": "Requested frames per second. Omit or use a non-positive value for the instance default.", "examples": [60] }).check(Schema.isInt().annotate({ "expected": "an integer" }))), "bitrateKbps": Schema.optionalKey(Schema.Number.annotate({ "description": "Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.", "examples": [6000] }).check(Schema.isInt().annotate({ "expected": "an integer" }))), "codec": Schema.optionalKey(Schema.Literals(["vp8", "h264-va"]).annotate({ "description": "Video codec. Omit for the instance default.", "examples": ["vp8"] })) }).annotate({ "description": "Top-level target and optional recording settings.", "identifier": "CreateSessionRecordingInput" })
 export type RetargetSessionRecordingInput = { readonly "targetId": string }
 export const RetargetSessionRecordingInput = Schema.Struct({ "targetId": Schema.String.annotate({ "description": "Identifier of the ready destination top-level target." }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) }).annotate({ "description": "Destination for a running tab recording.", "identifier": "RetargetSessionRecordingInput" })
-export type SessionFile = { readonly "name": string, readonly "relativePath": string, readonly "size": number, readonly "modifiedAt": string, readonly "mimeType": string }
-export const SessionFile = Schema.Struct({ "name": Schema.String.annotate({ "description": "File name without directory components.", "examples": ["screencast-20260801T120000Z.webm"] }), "relativePath": Schema.String.annotate({ "description": "Path below the session root. The first component is `downloads` or `recordings`.", "examples": ["recordings/screencast-20260801T120000Z.webm"] }), "size": Schema.Number.annotate({ "description": "File size in bytes.", "examples": [1048576], "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "modifiedAt": Schema.String.annotate({ "description": "Last file modification time.", "examples": ["2026-08-01T12:05:00Z"], "format": "date-time" }), "mimeType": Schema.String.annotate({ "description": "Detected media type.", "examples": ["video/webm"] }) }).annotate({ "description": "Regular file retained with a browser session.", "identifier": "SessionFile" })
-export type SessionFileDownloadURLInput = { readonly "relativePath": string, readonly "ttlSeconds"?: number }
-export const SessionFileDownloadURLInput = Schema.Struct({ "relativePath": Schema.String.annotate({ "description": "Path from a `SessionFile` result.", "examples": ["recordings/screencast-20260801T120000Z.webm"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "ttlSeconds": Schema.optionalKey(Schema.Number.annotate({ "description": "Requested lifetime in seconds. Omit it to use `signed_file_url_ttl`; values above `signed_file_url_max_ttl` are rejected.", "examples": [900] }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" }))) }).annotate({ "description": "Session file path and requested signed URL lifetime.", "identifier": "SessionFileDownloadURLInput" })
+export type SessionFile = { readonly "type": "file", readonly "name": string, readonly "relativePath": string, readonly "size": number, readonly "modifiedAt": string, readonly "mimeType": string, readonly "sandboxPath"?: string }
+export const SessionFile = Schema.Struct({ "type": Schema.Literal("file"), "name": Schema.String.annotate({ "description": "File name without directory components.", "examples": ["screencast-20260801T120000Z.webm"] }), "relativePath": Schema.String.annotate({ "description": "Path below the session files root. Browser downloads are under `downloads/`, recordings under `recordings/`, uploads under `uploads/`, and Playwright MCP output under `outputs/`. Pass it to `browser_file_upload` or to create a signed download URL.", "examples": ["recordings/screencast-20260801T120000Z.webm"] }), "size": Schema.Number.annotate({ "description": "File size in bytes.", "examples": [1048576], "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "modifiedAt": Schema.String.annotate({ "description": "Last file modification time.", "examples": ["2026-08-01T12:05:00Z"], "format": "date-time" }), "mimeType": Schema.String.annotate({ "description": "Detected media type.", "examples": ["video/webm"] }), "sandboxPath": Schema.optionalKey(Schema.String.annotate({ "description": "Path of the file inside the session's browser sandbox, under the fixed `/session/files` root, for CDP `DOM.setFileInputFiles`. It is readable by the browser while the session runs. Absent for files of sessions created before session files moved under one root that are still in their old location.", "examples": ["/session/files/recordings/screencast-20260801T120000Z.webm"] })) }).annotate({ "description": "Regular file retained with a browser session.", "identifier": "SessionFile" })
+export type SessionDirectory = { readonly "type": "directory", readonly "name": string, readonly "relativePath": string, readonly "modifiedAt": string }
+export const SessionDirectory = Schema.Struct({ "type": Schema.Literal("directory"), "name": Schema.String.annotate({ "description": "Directory name without parent components.", "examples": ["invoices"] }), "relativePath": Schema.String.annotate({ "description": "Path below the session files root.", "examples": ["uploads/invoices"] }), "modifiedAt": Schema.String.annotate({ "format": "date-time" }) }).annotate({ "description": "Directory below the session files root.", "identifier": "SessionDirectory" })
+export type __ClientMultipartFile = globalThis.File | globalThis.Blob
+export const __ClientMultipartFile = Schema.instanceOf(globalThis.Blob, { expected: "File | Blob" })
+export type MoveSessionFileInput = { readonly "from": string, readonly "to": string }
+export const MoveSessionFileInput = Schema.Struct({ "from": Schema.String.annotate({ "description": "Current path from a `SessionFileEntry` result.", "examples": ["downloads/invoice.pdf"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "to": Schema.String.annotate({ "description": "New path below the session files root. Missing directories are created.", "examples": ["uploads/invoices/2026-08.pdf"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) }).annotate({ "description": "Current and new path of a session file.", "identifier": "MoveSessionFileInput" })
+export type CreateSessionDirectoryInput = { readonly "relativePath": string }
+export const CreateSessionDirectoryInput = Schema.Struct({ "relativePath": Schema.String.annotate({ "description": "Path below the session files root. Missing parents are created.", "examples": ["uploads/invoices"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) }).annotate({ "description": "Directory to create.", "identifier": "CreateSessionDirectoryInput" })
+export type SessionFileDownloadURLInput = { readonly "relativePath": string, readonly "ttlSeconds"?: number, readonly "disposition"?: "attachment" | "inline" }
+export const SessionFileDownloadURLInput = Schema.Struct({ "relativePath": Schema.String.annotate({ "description": "Path from a `SessionFile` result.", "examples": ["recordings/screencast-20260801T120000Z.webm"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "ttlSeconds": Schema.optionalKey(Schema.Number.annotate({ "description": "Requested lifetime in seconds. Omit it to use `signed_file_url_ttl`; values above `signed_file_url_max_ttl` are rejected.", "examples": [900] }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" }))), "disposition": Schema.optionalKey(Schema.Literals(["attachment", "inline"]).annotate({ "description": "How the URL presents the file. `inline` lets browsers display it, for example as an `<img>` source. Either way it is served with its detected `Content-Type`, `X-Content-Type-Options: nosniff`, and byte-range support. Content that can run scripts, such as HTML or SVG, also gets `Content-Security-Policy: sandbox`; images, audio, video, PDFs, and plain text do not, so browser viewers keep working.", "default": "attachment" })) }).annotate({ "description": "Session file path and requested signed URL lifetime.", "identifier": "SessionFileDownloadURLInput" })
 export type SessionFileDownloadURL = { readonly "url": string, readonly "expiresAt": string }
-export const SessionFileDownloadURL = Schema.Struct({ "url": Schema.String.annotate({ "description": "URL containing a path-bound `apf_` token.", "examples": ["https://aperture.example.com/sessions/019f6cf0-0000-7000-8000-000000000010/files/recordings/screencast-20260801T120000Z.webm?token=apf_REDACTED"], "format": "uri" }), "expiresAt": Schema.String.annotate({ "description": "Time after which the URL is rejected.", "examples": ["2026-08-01T12:20:00Z"], "format": "date-time" }) }).annotate({ "description": "Signed attachment URL for one session file.", "identifier": "SessionFileDownloadURL" })
+export const SessionFileDownloadURL = Schema.Struct({ "url": Schema.String.annotate({ "description": "URL containing a path-bound `apf_` token.", "examples": ["https://aperture.example.com/sessions/019f6cf0-0000-7000-8000-000000000010/files/recordings/screencast-20260801T120000Z.webm?token=apf_REDACTED"], "format": "uri" }), "expiresAt": Schema.String.annotate({ "description": "Time after which the URL is rejected.", "examples": ["2026-08-01T12:20:00Z"], "format": "date-time" }) }).annotate({ "description": "Signed URL for one session file.", "identifier": "SessionFileDownloadURL" })
 export type UpdateSnapshotInput = { readonly "description"?: string | null }
 export const UpdateSnapshotInput = Schema.Struct({ "description": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "New description. Send `null` to clear it; an empty string is stored as an empty description.", "examples": ["Updated signed-in state"] })) }).annotate({ "description": "Replacement snapshot description.", "identifier": "UpdateSnapshotInput" })
+export type LiveSessionErrorBody = { readonly "error": string }
+export const LiveSessionErrorBody = Schema.Struct({ "error": Schema.String.annotate({ "examples": ["file exceeds upload limit"] }) }).annotate({ "description": "Error raised inside a running session. It carries a message but no stable code.", "identifier": "LiveSessionErrorBody" })
+export type SetViewportInput = { readonly "targetId": string, readonly "width": number, readonly "height": number, readonly "deviceScaleFactor"?: number }
+export const SetViewportInput = Schema.Struct({ "targetId": Schema.String.annotate({ "description": "Identifier of the top-level target to resize." }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "width": Schema.Number.annotate({ "description": "Logical width in CSS pixels. Widths below 500 are raised to 500.", "examples": [1280] }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })).check(Schema.isLessThanOrEqualTo(16384).annotate({ "expected": "a value less than or equal to 16384" })), "height": Schema.Number.annotate({ "description": "Logical height in CSS pixels.", "examples": [720] }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })).check(Schema.isLessThanOrEqualTo(16384).annotate({ "expected": "a value less than or equal to 16384" })), "deviceScaleFactor": Schema.optionalKey(Schema.Number.annotate({ "description": "Device pixel ratio, rounded to 1/120. Omit or use a non-positive value for 1. The scaled content size may not exceed 16384 pixels.", "examples": [1] }).check(Schema.isFinite().annotate({ "expected": "a finite number" }))) }).annotate({ "description": "Requested logical viewport of one top-level target.", "identifier": "SetViewportInput" })
+export type Viewport = { readonly "width": number, readonly "height": number, readonly "contentWidth": number, readonly "contentHeight": number, readonly "canvasWidth": number, readonly "canvasHeight": number, readonly "deviceScaleFactor": number }
+export const Viewport = Schema.Struct({ "width": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "height": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "contentWidth": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "contentHeight": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "canvasWidth": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "canvasHeight": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "deviceScaleFactor": Schema.Number.annotate({ "description": "Effective device pixel ratio." }).check(Schema.isFinite().annotate({ "expected": "a finite number" })) }).annotate({ "description": "Logical size, DPR-scaled content rectangle, and 64x64-bucketed media canvas of a target.", "identifier": "Viewport" })
 export type Tenant = { readonly "id": UUIDv7, readonly "displayName": string, readonly "createdAt": string, readonly "deletedAt"?: string | null }
 export const Tenant = Schema.Struct({ "id": Schema.suspend((): Schema.Codec<UUIDv7> => UUIDv7).annotate({ "description": "Tenant identifier." }), "displayName": Schema.String.annotate({ "description": "Human-readable tenant name.", "examples": ["Example engineering"] }), "createdAt": Schema.String.annotate({ "description": "Time the tenant was created.", "examples": ["2026-07-17T12:00:00Z"], "format": "date-time" }), "deletedAt": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "Soft-deactivation time, or `null` for an active tenant.", "examples": [null], "format": "date-time" })) }).annotate({ "description": "Tenant account. Deletion is a reversible soft deactivation.", "identifier": "Tenant" })
 export type User = { readonly "id": UUIDv7, readonly "email"?: string | null, readonly "displayName": string, readonly "isSystemAdmin": boolean, readonly "createdAt": string, readonly "updatedAt": string, readonly "disabledAt"?: string | null, readonly "passwordSetupStatus"?: "available" | "configured" | "email_required" | "user_disabled" | "login_disabled" }
@@ -135,6 +149,10 @@ export type ProxyConfig = { readonly "upstreams"?: { readonly [x: string]: Proxy
 export const ProxyConfig = Schema.Struct({ "upstreams": Schema.optionalKey(Schema.Record(Schema.String, ProxyUpstream).annotate({ "description": "Upstreams by name. Names use lowercase letters, digits and dashes; `direct`, `refuse` and `local` are reserved." })), "rules": Schema.optionalKey(Schema.Array(ProxyRule).check(Schema.isMaxLength(256).annotate({ "expected": "a value with a length of at most 256" }))), "upstream": Schema.optionalKey(Schema.Literals(["direct", "proxy", "tunnel"]).annotate({ "description": "Legacy single-upstream shape; use `upstreams` and `rules`. Cannot be combined with them. `proxy` becomes a final `*` rule via `url`, `tunnel` a `tunnel` upstream and a final `*` rule via it, each preceded by `direct` rules for the `bypass` entries. `direct` or omitted means no rules.", "examples": ["tunnel"] })), "url": Schema.optionalKey(Schema.String.annotate({ "description": "Legacy upstream proxy URL, required with `upstream` `proxy`. Use `upstreams` and `rules`.", "examples": ["socks5://user:pass@proxy.example.com:1080"] })), "tunnel": Schema.optionalKey(ProxyTunnelConfig), "bypass": Schema.optionalKey(Schema.String.annotate({ "description": "Legacy hosts to send direct, separated by `;` or `,`. Each entry must be a valid rule `match`; a leading `.` means any subdomain. CIDR ranges, `<local>` and scheme prefixes are rejected. Use `upstreams` and `rules`.", "examples": ["*.internal.example.com"] })) }).annotate({ "description": "Session egress proxy configuration. Rules are checked in order and the first match routes the connection; unmatched connections go direct, and unmatched `localhost` stays on the session host. Omitted for direct egress.", "identifier": "ProxyConfig" })
 export type UpdateProxyConfig = { readonly "upstreams"?: { readonly [x: string]: ProxyUpstream }, readonly "rules"?: ReadonlyArray<ProxyRule>, readonly "upstream"?: "direct" | "proxy" | "tunnel", readonly "url"?: string, readonly "tunnel"?: ProxyTunnelConfig, readonly "bypass"?: string, readonly "drain"?: boolean }
 export const UpdateProxyConfig = Schema.Struct({ "upstreams": Schema.optionalKey(Schema.Record(Schema.String, ProxyUpstream)), "rules": Schema.optionalKey(Schema.Array(ProxyRule).check(Schema.isMaxLength(256).annotate({ "expected": "a value with a length of at most 256" }))), "upstream": Schema.optionalKey(Schema.Literals(["direct", "proxy", "tunnel"]).annotate({ "description": "Legacy single-upstream shape; use `upstreams` and `rules`." })), "url": Schema.optionalKey(Schema.String.annotate({ "description": "Legacy upstream proxy URL; use `upstreams` and `rules`." })), "tunnel": Schema.optionalKey(ProxyTunnelConfig), "bypass": Schema.optionalKey(Schema.String.annotate({ "description": "Legacy hosts to send direct; use `upstreams` and `rules`." })), "drain": Schema.optionalKey(Schema.Boolean.annotate({ "description": "Reset live tunnel streams instead of letting them drain. New connections use the new rules either way.", "examples": [false] })) }).annotate({ "description": "Replacement session egress proxy configuration. Fields other than `drain` are as in `ProxyConfig`.", "identifier": "UpdateProxyConfig" })
+export type SessionFileEntry = SessionFile | SessionDirectory
+export const SessionFileEntry = Schema.Union([SessionFile, SessionDirectory], { mode: "oneOf" }).annotate({ "description": "A session file or directory, told apart by `type`.", "identifier": "SessionFileEntry" })
+export type TargetViewport = { readonly "targetId": string, readonly "generation": number, readonly "viewport": Viewport }
+export const TargetViewport = Schema.Struct({ "targetId": Schema.String, "generation": Schema.Number.annotate({ "description": "Assignment generation of the target's media output.", "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "viewport": Viewport }).annotate({ "description": "Viewport applied to a top-level target.", "identifier": "TargetViewport" })
 export type TenantPage = { readonly "data": ReadonlyArray<Tenant>, readonly "meta": PageMeta }
 export const TenantPage = Schema.Struct({ "data": Schema.Array(Tenant), "meta": PageMeta }).annotate({ "description": "Cursor-paginated tenants.", "identifier": "TenantPage" })
 export type UserPage = { readonly "data": ReadonlyArray<User>, readonly "meta": PageMeta }
@@ -151,6 +169,8 @@ export type CreateAdminTokenInput = { readonly "name": string, readonly "authori
 export const CreateAdminTokenInput = Schema.Union([Schema.Struct({ "name": Schema.String.annotate({ "description": "Operator-assigned name. Leading and trailing whitespace is removed.", "examples": ["platform admin"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isPattern(new RegExp(".*\\S.*")).annotate({ "expected": "a string matching the RegExp .*\\S.*" })), "authorityType": Schema.Literal("system_admin"), "scopes": Schema.Array(Scope).annotate({ "description": "Must include `system:admin`.", "examples": [["system:admin"]] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isUnique().annotate({ "expected": "an array with unique items" })), "expiresAt": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.", "examples": ["2026-08-17T12:00:00Z"], "format": "date-time" })), "resourceMode": Schema.optionalKey(Schema.Literal("all").annotate({ "description": "System administrator tokens cannot use resource allowlists.", "default": "all" })), "resourceGrants": Schema.optionalKey(Schema.Array(ResourceGrant).annotate({ "description": "Must be empty for a system administrator token." }).check(Schema.isMaxLength(0).annotate({ "expected": "a value with a length of at most 0" }))) }), Schema.Struct({ "name": Schema.String.annotate({ "description": "Operator-assigned name. Leading and trailing whitespace is removed.", "examples": ["tenant automation"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isPattern(new RegExp(".*\\S.*")).annotate({ "expected": "a string matching the RegExp .*\\S.*" })), "authorityType": Schema.Literal("tenant"), "tenantId": Schema.suspend((): Schema.Codec<UUIDv7> => UUIDv7).annotate({ "description": "Active tenant to bind permanently to the token." }), "scopes": Schema.Array(TenantScope).annotate({ "description": "Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.", "examples": [["sessions:read", "sessions:write"]] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isUnique().annotate({ "expected": "an array with unique items" })), "expiresAt": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.", "examples": ["2026-08-17T12:00:00Z"], "format": "date-time" })), "resourceMode": Schema.optionalKey(ResourceMode), "resourceGrants": Schema.optionalKey(Schema.Array(ResourceGrant).annotate({ "description": "Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`." }).check(Schema.isUnique().annotate({ "expected": "an array with unique items" }))) })], { mode: "oneOf" }).annotate({ "description": "Token definition accepted by the system administrator token endpoint.", "identifier": "CreateAdminTokenInput" })
 export type CreateTenantTokenInput = { readonly "name": string, readonly "scopes": ReadonlyArray<TenantScope>, readonly "expiresAt"?: string | null, readonly "resourceMode"?: ResourceMode, readonly "resourceGrants"?: ReadonlyArray<ResourceGrant> }
 export const CreateTenantTokenInput = Schema.Struct({ "name": Schema.String.annotate({ "description": "Operator-assigned name. Leading and trailing whitespace is removed.", "examples": ["browser worker"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isPattern(new RegExp(".*\\S.*")).annotate({ "expected": "a string matching the RegExp .*\\S.*" })), "scopes": Schema.Array(TenantScope).annotate({ "description": "Tenant-compatible scopes. `system:admin` and `tenants:write` are rejected.", "examples": [["sessions:read", "sessions:write"]] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isUnique().annotate({ "expected": "an array with unique items" })), "expiresAt": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "Optional RFC3339 timestamp. Omit or send `null` for no automatic expiry.", "examples": ["2026-08-17T12:00:00Z"], "format": "date-time" })), "resourceMode": Schema.optionalKey(ResourceMode), "resourceGrants": Schema.optionalKey(Schema.Array(ResourceGrant).annotate({ "description": "Existing tenant resources granted when `resourceMode` is `allowlist`; must be empty for `all`." }).check(Schema.isUnique().annotate({ "expected": "an array with unique items" }))) }).annotate({ "description": "Token definition automatically bound to the authenticated tenant.", "identifier": "CreateTenantTokenInput" })
+export type LiveSessionFailure = Error | LiveSessionErrorBody
+export const LiveSessionFailure = Schema.Union([Error, LiveSessionErrorBody], { mode: "oneOf" }).annotate({ "description": "Failure of a live-session route.", "identifier": "LiveSessionFailure" })
 export type InitialCacheStorageCache = { readonly "name": string, readonly "entries": ReadonlyArray<InitialCacheStorageEntry> }
 export const InitialCacheStorageCache = Schema.Struct({ "name": Schema.String, "entries": Schema.Array(InitialCacheStorageEntry) }).annotate({ "identifier": "InitialCacheStorageCache" })
 export type SnapshotMutation = { readonly "snapshot": Snapshot }
@@ -452,6 +472,40 @@ export type StopSessionRecording200 = SessionFile
 export const StopSessionRecording200 = SessionFile
 export type StopSessionRecordingdefault = Error
 export const StopSessionRecordingdefault = Error
+export type ListSessionFilesParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const ListSessionFilesParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type ListSessionFiles200 = ReadonlyArray<SessionFileEntry>
+export const ListSessionFiles200 = Schema.Array(SessionFileEntry)
+export type ListSessionFilesdefault = Error
+export const ListSessionFilesdefault = Error
+export type UploadSessionFilesParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7, readonly "directory"?: string }
+export const UploadSessionFilesParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7), "directory": Schema.optionalKey(Schema.String.annotate({ "default": "uploads" })) })
+export type UploadSessionFilesRequestFormData = { readonly "files"?: ReadonlyArray<__ClientMultipartFile> }
+export const UploadSessionFilesRequestFormData = Schema.Struct({ "files": Schema.optionalKey(Schema.Array(__ClientMultipartFile)) })
+export type UploadSessionFiles201 = { readonly "files": ReadonlyArray<SessionFile> }
+export const UploadSessionFiles201 = Schema.Struct({ "files": Schema.Array(SessionFile) }).annotate({ "description": "Files stored by this request, in request order." })
+export type UploadSessionFilesdefault = Error
+export const UploadSessionFilesdefault = Error
+export type DeleteSessionFileParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7, readonly "relativePath": string, readonly "recursive"?: boolean }
+export const DeleteSessionFileParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7), "relativePath": Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "recursive": Schema.optionalKey(Schema.Boolean.annotate({ "default": false })) })
+export type DeleteSessionFiledefault = Error
+export const DeleteSessionFiledefault = Error
+export type MoveSessionFileParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const MoveSessionFileParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type MoveSessionFileRequestJson = MoveSessionFileInput
+export const MoveSessionFileRequestJson = MoveSessionFileInput
+export type MoveSessionFile200 = SessionFileEntry
+export const MoveSessionFile200 = SessionFileEntry
+export type MoveSessionFiledefault = Error
+export const MoveSessionFiledefault = Error
+export type CreateSessionDirectoryParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const CreateSessionDirectoryParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type CreateSessionDirectoryRequestJson = CreateSessionDirectoryInput
+export const CreateSessionDirectoryRequestJson = CreateSessionDirectoryInput
+export type CreateSessionDirectory201 = SessionDirectory
+export const CreateSessionDirectory201 = SessionDirectory
+export type CreateSessionDirectorydefault = Error
+export const CreateSessionDirectorydefault = Error
 export type CreateSessionFileDownloadURLParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
 export const CreateSessionFileDownloadURLParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
 export type CreateSessionFileDownloadURLRequestJson = SessionFileDownloadURLInput
@@ -508,6 +562,22 @@ export type ListEvents200 = EventPage
 export const ListEvents200 = EventPage
 export type ListEventsdefault = Error
 export const ListEventsdefault = Error
+export type UploadLiveSessionFilesParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const UploadLiveSessionFilesParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type UploadLiveSessionFilesRequestFormData = { readonly "files"?: ReadonlyArray<__ClientMultipartFile> }
+export const UploadLiveSessionFilesRequestFormData = Schema.Struct({ "files": Schema.optionalKey(Schema.Array(__ClientMultipartFile)) })
+export type UploadLiveSessionFiles201 = { readonly "files": ReadonlyArray<SessionFile> }
+export const UploadLiveSessionFiles201 = Schema.Struct({ "files": Schema.Array(SessionFile) }).annotate({ "description": "Files stored by this request, in request order." })
+export type UploadLiveSessionFilesdefault = LiveSessionFailure
+export const UploadLiveSessionFilesdefault = LiveSessionFailure
+export type SetSessionViewportParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const SetSessionViewportParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type SetSessionViewportRequestJson = SetViewportInput
+export const SetSessionViewportRequestJson = SetViewportInput
+export type SetSessionViewport200 = TargetViewport
+export const SetSessionViewport200 = TargetViewport
+export type SetSessionViewportdefault = LiveSessionFailure
+export const SetSessionViewportdefault = LiveSessionFailure
 
 export interface OperationConfig {
   /**
@@ -987,6 +1057,57 @@ export const make = (
     }))
     ))
   ),
+    "listSessionFiles": (sessionId, options) => __makePathRequest(HttpClientRequest.get, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options?.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      withResponse(options?.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(ListSessionFiles200),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "uploadSessionFiles": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setUrlParams({ "directory": options.params?.["directory"] as any }),
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyFormDataRecord(options.payload as any),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(UploadSessionFiles201),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "deleteSessionFile": (sessionId, options) => __makePathRequest(HttpClientRequest.delete, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setUrlParams({ "relativePath": options.params["relativePath"] as any, "recursive": options.params["recursive"] as any }),
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params["X-Aperture-Tenant-Id"] ?? undefined }),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(DeleteSessionFiledefault),
+      "204": () => Effect.void,
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "moveSessionFile": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files/move").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyJsonUnsafe(options.payload),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(MoveSessionFile200),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "createSessionDirectory": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files/directories").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyJsonUnsafe(options.payload),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(CreateSessionDirectory201),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
     "createSessionFileDownloadURL": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/files/download-url").pipe(
     Effect.flatMap((request) => request.pipe(
       HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
@@ -1060,7 +1181,27 @@ export const make = (
       "2xx": decodeSuccess(ListEvents200),
       orElse: unexpectedStatus
     }))
-    )
+    ),
+    "uploadLiveSessionFiles": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/sessions/" + __encodePathParam(sessionId) + "/uploads").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyFormDataRecord(options.payload as any),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(UploadLiveSessionFiles201),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "setSessionViewport": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/sessions/" + __encodePathParam(sessionId) + "/browser/viewport").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyJsonUnsafe(options.payload),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(SetSessionViewport200),
+      orElse: unexpectedStatus
+    }))
+    ))
+  )
   }
 }
 
@@ -1235,7 +1376,7 @@ readonly "setSessionCursor": <Config extends OperationConfig>(sessionId: string,
 */
 readonly "listSessionRecordings": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof ListSessionRecordingsParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListSessionRecordings200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Starts a tab recording of one ready top-level target.
+* Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
 */
 readonly "createSessionRecording": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof CreateSessionRecordingParams.Encoded | undefined; readonly payload: typeof CreateSessionRecordingRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof CreateSessionRecording201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
@@ -1250,6 +1391,28 @@ readonly "retargetSessionRecording": <Config extends OperationConfig>(sessionId:
 * Stops the selected recording without transferring its media data and returns the resulting session file.
 */
 readonly "stopSessionRecording": <Config extends OperationConfig>(sessionId: string, recordingId: string, options: { readonly params?: typeof StopSessionRecordingParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof StopSessionRecording200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Lists the files and directories below the session files root, including browser downloads, recordings, uploads, and Playwright MCP output. Directories are entries of their own, so empty ones appear too; build a tree from `relativePath`. Works for any retained session, running or not, until it expires. The list is complete rather than paginated.
+*/
+readonly "listSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof ListSessionFilesParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListSessionFiles200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Stores every multipart part that has a filename in `directory` below the session files root, creating the directory when needed. Works for any retained session, running or not. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. A rejected request stores none of its files.
+* 
+* A single file may not exceed `session_upload_max_file_bytes`, all session storage may not exceed `session_storage_quota_bytes`, a request may carry at most 100 files, a directory may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once; more fail with `session_upload_concurrency_exceeded`. The request body may be as large as those limits allow.
+*/
+readonly "uploadSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof UploadSessionFilesParams.Encoded | undefined; readonly payload: typeof UploadSessionFilesRequestFormData.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof UploadSessionFiles201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Deletes one session file, or a directory below the session files root. A directory with entries is deleted only with `recursive=true`. `downloads`, `recordings`, `uploads`, and `outputs` cannot be deleted. Anything still being written, such as an in-progress download, upload, or recording, is rejected.
+*/
+readonly "deleteSessionFile": <Config extends OperationConfig>(sessionId: string, options: { readonly params: typeof DeleteSessionFileParams.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof DeleteSessionFiledefault.Type | void, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Moves one session file, or a directory below the session files root, to another path below the root, creating missing parent directories. It never replaces an existing entry and cannot move a directory into itself. `downloads`, `recordings`, `uploads`, and `outputs` cannot be moved. Anything still being written is rejected.
+*/
+readonly "moveSessionFile": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof MoveSessionFileParams.Encoded | undefined; readonly payload: typeof MoveSessionFileRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof MoveSessionFile200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Creates a directory below the session files root, with any missing parents. Fails when a file or directory already exists at the path.
+*/
+readonly "createSessionDirectory": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof CreateSessionDirectoryParams.Encoded | undefined; readonly payload: typeof CreateSessionDirectoryRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof CreateSessionDirectory201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
 * Creates a signed URL for one retained session file. Anyone with the URL can download the file until it expires.
 */
@@ -1282,6 +1445,18 @@ readonly "restoreSnapshot": <Config extends OperationConfig>(name: string, optio
 * Newest-first tenant events. A resource-restricted token receives only events for granted sessions and snapshots; filtering occurs before pagination. `resourceType` and `resourceId` are exact-match filters.
 */
 readonly "listEvents": <Config extends OperationConfig>(options: { readonly params?: typeof ListEventsParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListEvents200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Stores every multipart part that has a filename below `uploads/` in the session files, where `browser_file_upload` can pick it up. Names are sanitized, and a numeric suffix is added instead of overwriting an existing file. Other parts are ignored.
+* 
+* A single file may not exceed `session_upload_max_file_bytes` (100 MiB by default), all session storage may not exceed `session_storage_quota_bytes` (1 GiB by default), a request may carry at most 100 files, `uploads` may hold at most 1000 files, and the session files root at most 10000 files and directories. At most 3 uploads per session stream at once through this route; more fail with `429`. A rejected request stores none of its files.
+* 
+* `POST /api/sessions/{sessionId}/files` does the same for any retained session and any directory.
+*/
+readonly "uploadLiveSessionFiles": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof UploadLiveSessionFilesParams.Encoded | undefined; readonly payload: typeof UploadLiveSessionFilesRequestFormData.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof UploadLiveSessionFiles201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Resizes one top-level target and waits until the browser and media pipeline apply it. Concurrent requests for the same target coalesce, so every waiter receives the final applied viewport.
+*/
+readonly "setSessionViewport": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof SetSessionViewportParams.Encoded | undefined; readonly payload: typeof SetSessionViewportRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof SetSessionViewport200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
 }
 
 export interface ApertureApiError<Tag extends string, E> {

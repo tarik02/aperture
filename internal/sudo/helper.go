@@ -32,8 +32,11 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 		{cfg.StoreRoot, layout.Upper},
 		{cfg.StoreRoot, layout.Work},
 		{cfg.StoreRoot, layout.Merged},
-		{cfg.StoreRoot, layout.Downloads},
-		{cfg.StoreRoot, layout.Recordings},
+		{cfg.ColdRoot, layout.Files.Root},
+		{cfg.ColdRoot, layout.Files.Downloads},
+		{cfg.ColdRoot, layout.Files.Recordings},
+		{cfg.ColdRoot, layout.Files.Uploads},
+		{cfg.ColdRoot, layout.Files.Outputs},
 		{cfg.StoreRoot, layout.Cache},
 		{cfg.StoreRoot, layout.Metadata},
 		{cfg.ArtifactRoot, layout.Artifacts},
@@ -48,6 +51,7 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 	}
 
 	var lowerDir string
+	lowerRoot := cfg.StoreRoot
 	if req.Empty {
 		lowerDir, err = paths.EmptyLowerDir(cfg)
 		if err != nil {
@@ -59,12 +63,10 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 			return fmt.Errorf("derive snapshot paths: %w", err)
 		}
 		lowerDir = snapshotLayout.Profile
-		if err := paths.ValidateTrustedPath(cfg.StoreRoot, lowerDir); err != nil {
-			return fmt.Errorf("validate lower dir: %w", err)
-		}
+		lowerRoot = cfg.ColdRoot
 	}
 
-	if err := paths.ValidateTrustedPath(cfg.StoreRoot, lowerDir); err != nil {
+	if err := paths.ValidateTrustedPath(lowerRoot, lowerDir); err != nil {
 		return fmt.Errorf("validate lower dir: %w", err)
 	}
 
@@ -72,8 +74,11 @@ func MountSession(ctx context.Context, cfg config.Config, req MountRequest) erro
 		layout.Upper,
 		layout.Work,
 		layout.Merged,
-		layout.Downloads,
-		layout.Recordings,
+		layout.Files.Root,
+		layout.Files.Downloads,
+		layout.Files.Recordings,
+		layout.Files.Uploads,
+		layout.Files.Outputs,
 		layout.Cache,
 		layout.Metadata,
 		layout.Artifacts,
@@ -124,8 +129,15 @@ func chownSessionTreeToInvoker(layout paths.SessionLayout) error {
 		layout.Upper,
 		layout.Work,
 		layout.Merged,
-		layout.Downloads,
-		layout.Recordings,
+		// Below cold_root the session's own directory and its bucket are not the
+		// session root, so they are chowned separately.
+		filepath.Dir(filepath.Dir(layout.Files.Root)),
+		filepath.Dir(layout.Files.Root),
+		layout.Files.Root,
+		layout.Files.Downloads,
+		layout.Files.Recordings,
+		layout.Files.Uploads,
+		layout.Files.Outputs,
 		layout.Cache,
 		layout.Metadata,
 		filepath.Dir(layout.Artifacts),

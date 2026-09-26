@@ -33,7 +33,8 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().String("listen-address", "", "loopback listen address")
 	cmd.PersistentFlags().String("browser-supervisor", "", "browser supervisor (systemd, direct)")
 	cmd.PersistentFlags().String("log-level", "", "log level (debug, info, warn, error)")
-	cmd.PersistentFlags().String("store-root", "", "persistent store root")
+	cmd.PersistentFlags().String("store-root", "", "local root for session overlay state")
+	cmd.PersistentFlags().String("cold-root", "", "root for snapshots and session files, may be NFS (default: store root)")
 	cmd.PersistentFlags().String("runtime-root", "", "runtime state root")
 	cmd.PersistentFlags().String("artifact-root", "", "artifact storage root")
 	cmd.PersistentFlags().String("database-path", "", "sqlite database path")
@@ -75,6 +76,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(
 		newServeCmd(),
 		newMigrateCmd(),
+		newStorageCmd(),
 		newAdminCmd(),
 		newDeploymentCmd(),
 		newTriggerCmd(),

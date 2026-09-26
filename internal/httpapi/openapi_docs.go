@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 
 	generated "github.com/aperture/aperture/internal/httpapi/openapi"
@@ -111,7 +112,12 @@ func openAPISpec(c *gin.Context) {
 				documentedErrors[strconv.Itoa(status)] = codes
 			}
 			operation.Extensions["x-aperture-errors"] = documentedErrors
-			operation.Responses.Delete("default")
+			// The codes cover only the authorization Aperture performs before forwarding a
+			// live-session route; its default response describes the running session's own
+			// failures, which carry no stable code.
+			if !isLiveSessionOperation(operation) {
+				operation.Responses.Delete("default")
+			}
 			for status, codes := range codesByStatus {
 				enum := make([]any, len(codes))
 				for index, code := range codes {
@@ -136,6 +142,14 @@ func openAPISpec(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, spec)
+}
+
+// liveSessionTag marks operations served by a running session's wrapper through
+// Traefik rather than by this router; api/oapi-codegen.yaml excludes them.
+const liveSessionTag = "live-session"
+
+func isLiveSessionOperation(operation *openapi3.Operation) bool {
+	return slices.Contains(operation.Tags, liveSessionTag)
 }
 
 func scalarAPIReference(c *gin.Context) {

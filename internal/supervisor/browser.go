@@ -56,7 +56,7 @@ func (b *Browser) PrepareRuntime(values browser.RuntimeEnvValues) error {
 		return fmt.Errorf("derive session paths: %w", err)
 	}
 
-	if err := browser.WriteProfilePreferences(values.MergedUserDataDir, values.DownloadsDir); err != nil {
+	if err := browser.WriteProfilePreferences(values.MergedUserDataDir, paths.SessionFiles(paths.SandboxFilesRoot).Downloads); err != nil {
 		return fmt.Errorf("write chromium preferences: %w", err)
 	}
 	if values.SessionTokenPath != "" {

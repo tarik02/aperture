@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aperture/aperture/internal/config"
@@ -11,6 +12,7 @@ import (
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/aperture/aperture/internal/traefik"
 )
@@ -56,6 +58,9 @@ type RunResult struct {
 	ExpiredSessions    int
 	RemovedArtifacts   int
 	CollectedSnapshots int
+	// StagingSweepErrors lists sessions whose upload staging could not be swept.
+	// They do not stop the rest of the run.
+	StagingSweepErrors []error
 }
 
 // Run expires sessions and snapshots past retention.
@@ -77,6 +82,7 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 			result.ExpiredSessions++
 		}
 	}
+	result.StagingSweepErrors = s.sweepUploadStaging()
 
 	artifactsCutoff := now.Add(-time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 	artifactSessions, err := s.repo.ListSessionsWithExpiredArtifacts(ctx, artifactsCutoff)
@@ -195,7 +201,9 @@ func (s *Service) removeSessionOverlayState(sessionRow *db.Session) error {
 		sessionRow.OverlayPath,
 	}
 	if layout, err := paths.Session(s.cfg, sessionRow.ID); err == nil {
-		dirs = append(dirs, layout.Metadata)
+		// The files root sits in its own session directory under cold_root, which
+		// is the overlay root only when cold_root is store_root.
+		dirs = append(dirs, layout.Metadata, filepath.Dir(layout.Files.Root))
 	}
 	seen := make(map[string]struct{}, len(dirs))
 	for _, dir := range dirs {
@@ -249,4 +257,20 @@ func (s *Service) collectSnapshot(ctx context.Context, snapshotRow *db.Snapshot,
 		return false, err
 	}
 	return true, nil
+}
+
+// sweepUploadStaging removes upload staging files that a process stopped
+// mid-upload left behind, on filesystems where uploads cannot stage unnamed files.
+func (s *Service) sweepUploadStaging() []error {
+	roots, err := filepath.Glob(filepath.Join(s.cfg.ColdRoot, "sessions", "*", "*", "*", "files"))
+	if err != nil {
+		return []error{fmt.Errorf("find upload staging: %w", err)}
+	}
+	var failures []error
+	for _, root := range roots {
+		if err := sessionfiles.SweepStaging(root, sessionfiles.StaleStagingAge); err != nil {
+			failures = append(failures, fmt.Errorf("sweep upload staging in %s: %w", root, err))
+		}
+	}
+	return failures
 }

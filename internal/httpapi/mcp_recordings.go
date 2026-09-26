@@ -162,7 +162,7 @@ func (s *Server) mcpRecordingsRequest(ctx context.Context, tenantID, sessionID s
 }
 
 func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRecordingStatus) (mcpRecordingOutput, error) {
-	relativePath, err := s.recordingRelativePath(sessionID, status.Path)
+	relativePath, err := s.recordingRelativePath(sessionID, status)
 	if err != nil {
 		return mcpRecordingOutput{}, err
 	}

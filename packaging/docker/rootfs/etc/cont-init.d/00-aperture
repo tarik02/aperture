@@ -12,6 +12,24 @@ if [ -n "${APERTURE_CONFIG_SOURCE:-}" ]; then
     /etc/aperture/aperture.toml
 fi
 
+# The mount helpers read cold_root only from the config file, not the
+# environment, so a cold root chosen by environment is written into it.
+cold_root="${APERTURE_COLD_ROOT:-}"
+if [ -n "$cold_root" ]; then
+  if grep -qxF "cold_root = \"$cold_root\"" /etc/aperture/aperture.toml; then
+    :
+  elif grep -q '^cold_root = ' /etc/aperture/aperture.toml; then
+    sed -i "s|^cold_root = .*|cold_root = \"$cold_root\"|" /etc/aperture/aperture.toml
+  else
+    sed -i "1i cold_root = \"$cold_root\"" /etc/aperture/aperture.toml
+  fi
+  install -d -m 0750 -o aperture -g aperture "$cold_root"
+fi
+
+if [ -n "${APERTURE_DATABASE_PATH:-}" ]; then
+  install -d -m 0700 -o aperture -g aperture "$(dirname "$APERTURE_DATABASE_PATH")"
+fi
+
 seen_device_gids=""
 for device in /dev/dri/card* /dev/dri/renderD*; do
   [ -e "$device" ] || continue

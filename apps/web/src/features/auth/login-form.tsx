@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { startAuthentication } from "@simplewebauthn/browser";
 import { Fingerprint, Key, KeyRound, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -16,6 +15,7 @@ import { parseTokenId } from "#/lib/token-id.ts";
 import { useAuthSessionStore } from "#/stores/auth-session.ts";
 import type { LoginMethods } from "@aperture-browser/api-client";
 import { AuthApi } from "@aperture-browser/api-client";
+import { loginWithPasskey, PasskeyCeremonyError } from "@aperture-browser/api-client/passkeys";
 import { useRunApi } from "@aperture-browser/session-react";
 
 interface LoginFormProps {
@@ -81,13 +81,15 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
   async function handlePasskeyLogin() {
     setPasskeySubmitting(true);
     try {
-      const options = await runApi(AuthApi.use((auth) => auth.beginPasskeyLogin()));
-      const credential = await startAuthentication({ optionsJSON: options.publicKey });
-      await runApi(AuthApi.use((auth) => auth.finishPasskeyLogin(credential)));
+      await runApi(loginWithPasskey());
       setAuthenticated(await runApi(AuthApi.use((auth) => auth.getAuthMe())));
       toast.success("Logged in");
       onDone();
     } catch (error) {
+      if (error instanceof PasskeyCeremonyError && error.reason === "cancelled") {
+        toast(error.message);
+        return;
+      }
       toast.error(error instanceof Error ? error.message : "Passkey login failed");
     } finally {
       setPasskeySubmitting(false);

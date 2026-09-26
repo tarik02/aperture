@@ -11,6 +11,7 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/ids"
 	"github.com/aperture/aperture/internal/proxy"
+	"github.com/aperture/aperture/internal/sessionfiles"
 )
 
 var (
@@ -583,8 +584,9 @@ type sessionMutationResponse struct {
 }
 
 type createSessionFileDownloadURLRequest struct {
-	RelativePath string `json:"relativePath"`
-	TTLSeconds   *int   `json:"ttlSeconds"`
+	RelativePath string                   `json:"relativePath"`
+	TTLSeconds   *int                     `json:"ttlSeconds"`
+	Disposition  sessionfiles.Disposition `json:"disposition"`
 }
 
 func (r createSessionFileDownloadURLRequest) Validate() error {
@@ -593,6 +595,9 @@ func (r createSessionFileDownloadURLRequest) Validate() error {
 	}
 	if r.TTLSeconds != nil && *r.TTLSeconds <= 0 {
 		return validationError("ttlSeconds must be positive")
+	}
+	if r.Disposition != "" && r.Disposition != sessionfiles.DispositionAttachment && r.Disposition != sessionfiles.DispositionInline {
+		return validationError("disposition must be attachment or inline")
 	}
 	return nil
 }
@@ -670,6 +675,32 @@ func (r replaceTagsRequest) Validate() error {
 		if strings.TrimSpace(value) == "" {
 			return validationError("tag values must be non-empty")
 		}
+	}
+	return nil
+}
+
+type moveSessionFileRequest struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+func (r moveSessionFileRequest) Validate() error {
+	if r.From == "" {
+		return validationError("from is required")
+	}
+	if r.To == "" {
+		return validationError("to is required")
+	}
+	return nil
+}
+
+type createSessionDirectoryRequest struct {
+	RelativePath string `json:"relativePath"`
+}
+
+func (r createSessionDirectoryRequest) Validate() error {
+	if r.RelativePath == "" {
+		return validationError("relativePath is required")
 	}
 	return nil
 }

@@ -141,6 +141,12 @@ func writeLiveSessionForwardAuthSuccess(c *gin.Context, actorKind, collaboration
 	if capabilityGeneration != "" {
 		c.Header(forwardedCapabilityGenerationHeader, capabilityGeneration)
 	}
+	c.Header(forwardedClientIPHeader, requestClientIP(c))
+	c.Status(http.StatusOK)
+}
+
+// requestClientIP is the client address Traefik reports for the request.
+func requestClientIP(c *gin.Context) string {
 	clientIP := strings.TrimSpace(c.GetHeader("X-Real-Ip"))
 	if net.ParseIP(clientIP) == nil {
 		forwarded := strings.Split(c.GetHeader("X-Forwarded-For"), ",")
@@ -155,8 +161,7 @@ func writeLiveSessionForwardAuthSuccess(c *gin.Context, actorKind, collaboration
 	if net.ParseIP(clientIP) == nil {
 		clientIP, _, _ = net.SplitHostPort(c.Request.RemoteAddr)
 	}
-	c.Header(forwardedClientIPHeader, clientIP)
-	c.Status(http.StatusOK)
+	return clientIP
 }
 
 func liveSessionTokenAuthorization(c *gin.Context) string {

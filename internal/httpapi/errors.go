@@ -8,6 +8,7 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/jobtoken"
 	"github.com/aperture/aperture/internal/session"
+	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/aperture/aperture/internal/supervisor"
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,7 @@ var (
 	errBrowserControlFailed        = errors.New("browser control failed")
 	errRecordingInvalidState       = errors.New("recording invalid state")
 	errRecordingNotFound           = errors.New("recording not found")
+	errRecordingCodecUnavailable   = errors.New("recording codec unavailable")
 	errSessionFileNotFound         = errors.New("session file not found")
 )
 
@@ -161,12 +163,40 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_invalid_state", err.Error()
 	case errors.Is(err, session.ErrNotRunning):
 		return http.StatusConflict, "session_not_running", err.Error()
+	case errors.Is(err, errRecordingCodecUnavailable):
+		return http.StatusUnprocessableEntity, "recording_codec_unavailable", err.Error()
 	case errors.Is(err, errRecordingNotFound):
 		return http.StatusNotFound, "recording_not_found", err.Error()
 	case errors.Is(err, errRecordingInvalidState):
 		return http.StatusConflict, "recording_invalid_state", err.Error()
-	case errors.Is(err, errSessionFileNotFound):
-		return http.StatusNotFound, "session_file_not_found", err.Error()
+	case errors.Is(err, errSessionFileNotFound), errors.Is(err, sessionfiles.ErrNotFound):
+		return http.StatusNotFound, "session_file_not_found", "session file not found"
+	case errors.Is(err, sessionfiles.ErrInvalidUpload):
+		return http.StatusBadRequest, "invalid_request_body", "invalid multipart upload"
+	case errors.Is(err, sessionfiles.ErrNoFiles):
+		return http.StatusBadRequest, "validation_failed", err.Error()
+	case errors.Is(err, sessionfiles.ErrMoveIntoItself):
+		return http.StatusBadRequest, "validation_failed", err.Error()
+	case errors.Is(err, sessionfiles.ErrInvalidPath):
+		return http.StatusBadRequest, "validation_failed", "session file path is invalid"
+	case errors.Is(err, sessionfiles.ErrBusy):
+		return http.StatusConflict, "session_file_busy", err.Error()
+	case errors.Is(err, sessionfiles.ErrDirectoryNotEmpty):
+		return http.StatusConflict, "session_directory_not_empty", err.Error()
+	case errors.Is(err, sessionfiles.ErrProtected):
+		return http.StatusConflict, "session_directory_protected", err.Error()
+	case errors.Is(err, sessionfiles.ErrExists):
+		return http.StatusConflict, "session_file_exists", err.Error()
+	case errors.Is(err, sessionfiles.ErrNotInFilesRoot):
+		return http.StatusConflict, "session_file_not_movable", err.Error()
+	case errors.Is(err, sessionfiles.ErrTooLarge):
+		return http.StatusRequestEntityTooLarge, "session_file_too_large", err.Error()
+	case errors.Is(err, sessionfiles.ErrQuotaExceeded):
+		return http.StatusInsufficientStorage, "session_storage_quota_exceeded", err.Error()
+	case errors.Is(err, sessionfiles.ErrTooManyUploads):
+		return http.StatusTooManyRequests, "session_upload_concurrency_exceeded", err.Error()
+	case errors.Is(err, sessionfiles.ErrTooManyFiles):
+		return http.StatusInsufficientStorage, "session_file_limit_exceeded", err.Error()
 	case errors.Is(err, errBrowserControlFailed):
 		return http.StatusBadGateway, "browser_control_failed", errBrowserControlFailed.Error()
 	case errors.Is(err, session.ErrInvalidChannel), errors.Is(err, browser.ErrDeniedBrowserArg), errors.Is(err, browser.ErrDeniedCompositorBrowserArg):

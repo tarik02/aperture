@@ -127,12 +127,6 @@ func accessibleRenderNode() (string, error) {
 }
 
 func probeMediaCodec(values RuntimeEnvValues, codec string) error {
-	inspectExecutable := filepath.Join(filepath.Dir(values.MediaProducerGSTExecutable), "gst-inspect-1.0")
-	registryPath := filepath.Join(values.CacheDir, "gstreamer-registry.bin")
-	cache := values.mediaProbeCache
-	if cache == nil {
-		cache = newMediaProbeCache()
-	}
 	elements := []string{"pipewiresrc", "queue", "videorate", "udpsink"}
 	switch codec {
 	case mediaCodecVP8:
@@ -143,6 +137,18 @@ func probeMediaCodec(values RuntimeEnvValues, codec string) error {
 		elements = append(elements, "videoconvert", "x264enc", "h264parse", "rtph264pay")
 	default:
 		return fmt.Errorf("unsupported media producer codec %q", codec)
+	}
+	return probeGStreamerElements(values, codec, elements)
+}
+
+// probeGStreamerElements fails naming the first element the host's GStreamer
+// lacks for codec.
+func probeGStreamerElements(values RuntimeEnvValues, codec string, elements []string) error {
+	inspectExecutable := filepath.Join(filepath.Dir(values.MediaProducerGSTExecutable), "gst-inspect-1.0")
+	registryPath := filepath.Join(values.CacheDir, "gstreamer-registry.bin")
+	cache := values.mediaProbeCache
+	if cache == nil {
+		cache = newMediaProbeCache()
 	}
 	for _, element := range elements {
 		result := cache.probe(inspectExecutable, values.MediaProducerPluginPath, registryPath, element)

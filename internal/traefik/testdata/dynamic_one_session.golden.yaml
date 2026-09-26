@@ -45,15 +45,6 @@ http:
       priority: 120
       entryPoints:
         - web
-    aperture-files-018f1234000070008000000000000001:
-      rule: "(Path(`/sessions/018f1234-0000-7000-8000-000000000001/files`) || PathPrefix(`/sessions/018f1234-0000-7000-8000-000000000001/files/`)) && !QueryRegexp(`token`, `^apf_`)"
-      service: aperture-wrapper-018f1234000070008000000000000001
-      middlewares:
-        - aperture-live-session-forward-auth-018f1234000070008000000000000001-owner
-        - aperture-strip-session-018f1234000070008000000000000001-files
-      priority: 100
-      entryPoints:
-        - web
     aperture-live-session-018f1234000070008000000000000001:
       rule: "Path(`/sessions/018f1234-0000-7000-8000-000000000001/session`)"
       service: aperture-wrapper-018f1234000070008000000000000001
@@ -186,10 +177,6 @@ http:
     aperture-replace-path-018f1234000070008000000000000001-browserviewport:
       replacePath:
         path: "/viewport"
-    aperture-strip-session-018f1234000070008000000000000001-files:
-      stripPrefix:
-        prefixes:
-          - /sessions/018f1234-0000-7000-8000-000000000001
     aperture-strip-session-018f1234000070008000000000000001-recordings:
       stripPrefix:
         prefixes:

@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.0/configuration-schema.json
+# The embedded spec is generated separately because exclude-tags in oapi-codegen.yaml also
+# strips the excluded operations from the spec it embeds, and /openapi.json documents them.
+package: openapi
+output: ../internal/httpapi/openapi/spec.gen.go
+generate:
+  embedded-spec: true
+output-options:
+  skip-prune: true

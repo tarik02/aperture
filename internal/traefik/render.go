@@ -177,7 +177,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		webrtcStrip := stripSessionPrefixMiddlewareName(session.ID, "webrtc")
 		sessionStrip := stripSessionPrefixMiddlewareName(session.ID, "session")
 		recordingsStrip := stripSessionPrefixMiddlewareName(session.ID, "recordings")
-		filesStrip := stripSessionPrefixMiddlewareName(session.ID, "files")
 		uploadsStrip := stripSessionPrefixMiddlewareName(session.ID, "uploads")
 		tunnelStrip := stripSessionPrefixMiddlewareName(session.ID, "tunnel")
 		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
@@ -191,9 +190,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[recordingsStrip] = middlewareConfig{
-			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
-		}
-		doc.HTTP.Middlewares[filesStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
 		}
 		doc.HTTP.Middlewares[uploadsStrip] = middlewareConfig{
@@ -271,12 +267,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				auth:        readAuth,
 				middlewares: []string{statusReplace},
 				embeddable:  true,
-			},
-			{
-				name:        filesRouterName(session.ID),
-				rule:        fmt.Sprintf("(%s) && !QueryRegexp(`token`, `^apf_`)", pathTreeRouterRule(sessionBase+"/files")),
-				auth:        ownerAuth,
-				middlewares: []string{filesStrip},
 			},
 			{
 				name:        uploadsRouterName(session.ID),
@@ -456,10 +446,6 @@ func browserCursorRouterName(sessionID string) string {
 
 func browserStatusRouterName(sessionID string) string {
 	return "aperture-browser-status-" + sanitizeName(sessionID)
-}
-
-func filesRouterName(sessionID string) string {
-	return "aperture-files-" + sanitizeName(sessionID)
 }
 
 func uploadsRouterName(sessionID string) string {

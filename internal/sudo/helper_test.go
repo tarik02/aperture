@@ -116,6 +116,7 @@ func TestMountSessionCreatesTrustedDirectories(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{
 		StoreRoot:    filepath.Join(root, "store"),
+		ColdRoot:     filepath.Join(root, "cold"),
 		RuntimeRoot:  filepath.Join(root, "runtime"),
 		ArtifactRoot: filepath.Join(root, "artifacts"),
 	}

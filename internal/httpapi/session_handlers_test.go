@@ -27,6 +27,7 @@ func newSessionTestEnv(t *testing.T) *testEnv {
 	root := t.TempDir()
 	cfg := config.Config{
 		StoreRoot:               filepath.Join(root, "store"),
+		ColdRoot:                filepath.Join(root, "cold"),
 		RuntimeRoot:             filepath.Join(root, "runtime"),
 		ArtifactRoot:            filepath.Join(root, "artifacts"),
 		DatabasePath:            filepath.Join(root, "unused.db"),
@@ -70,7 +71,7 @@ func (f sessionHandlerFakeOverlay) Mount(_ context.Context, sessionID string, _ 
 	if err != nil {
 		return err
 	}
-	for _, dir := range []string{layout.Upper, layout.Work, layout.Merged, layout.Downloads, layout.Cache} {
+	for _, dir := range []string{layout.Upper, layout.Work, layout.Merged, layout.Files.Downloads, layout.Cache} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}

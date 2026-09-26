@@ -528,10 +528,8 @@ func (s *Service) runtimeEnvValues(
 
 		MergedUserDataDir:          layout.Merged,
 		UpperDir:                   layout.Upper,
-		DownloadsDir:               layout.Downloads,
-		RecordingsDir:              layout.Recordings,
+		FilesDir:                   layout.Files.Root,
 		CacheDir:                   layout.Cache,
-		ArtifactsDir:               layout.Artifacts,
 		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
 		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
 		CDPPort:                    port,

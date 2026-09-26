@@ -3,7 +3,6 @@ import * as Layer from "effect/Layer";
 import * as HttpBody from "effect/unstable/http/HttpBody";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
-import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import * as Api from "@aperture-browser/api-schema";
 import {
   ApiAuthorization,
@@ -22,7 +21,7 @@ import {
   SecurityStatus,
   TOTPEnrollment,
 } from "./schemas.ts";
-import { AuthApi } from "./service.ts";
+import { AuthApi, type PasskeyCredentialJSON } from "./service.ts";
 
 const jsonBody = (body: unknown) => ({ body: HttpBody.jsonUnsafe(body) });
 
@@ -64,7 +63,7 @@ export const makeAuthApi = Effect.gen(function* () {
   });
 
   const finishPasskeyLogin = Effect.fn("AuthApi.finishPasskeyLogin")(function* (
-    credential: AuthenticationResponseJSON,
+    credential: PasskeyCredentialJSON,
   ) {
     yield* http.post("/auth/passkeys/login/finish", jsonBody(credential)).pipe(anonymous);
   });
@@ -123,7 +122,7 @@ export const makeAuthApi = Effect.gen(function* () {
   });
 
   const finishPasskeyRegistration = Effect.fn("AuthApi.finishPasskeyRegistration")(function* (
-    credential: RegistrationResponseJSON,
+    credential: PasskeyCredentialJSON,
   ) {
     return yield* http
       .post("/auth/passkeys/registration/finish", jsonBody(credential))

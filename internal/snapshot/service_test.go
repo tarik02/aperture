@@ -23,6 +23,7 @@ func testStoreRoot(t *testing.T) (string, config.Config) {
 	storeRoot := filepath.Join(root, "store")
 	return storeRoot, config.Config{
 		StoreRoot:             storeRoot,
+		ColdRoot:              filepath.Join(root, "cold"),
 		RuntimeRoot:           filepath.Join(root, "runtime"),
 		ArtifactRoot:          filepath.Join(root, "artifacts"),
 		SessionRetentionDays:  7,
@@ -153,7 +154,7 @@ func TestPromotionFromStoppedSession(t *testing.T) {
 		UpperPath:       layout.Upper,
 		WorkPath:        layout.Work,
 		MergedPath:      layout.Merged,
-		DownloadsPath:   layout.Downloads,
+		DownloadsPath:   layout.Files.Downloads,
 		CachePath:       layout.Cache,
 		ArtifactsPath:   layout.Artifacts,
 		BrowserChannel:  "chromium",
@@ -223,7 +224,7 @@ func TestPromotionRejectsRunningSession(t *testing.T) {
 		UpperPath:       layout.Upper,
 		WorkPath:        layout.Work,
 		MergedPath:      layout.Merged,
-		DownloadsPath:   layout.Downloads,
+		DownloadsPath:   layout.Files.Downloads,
 		CachePath:       layout.Cache,
 		ArtifactsPath:   layout.Artifacts,
 		BrowserChannel:  "chromium",

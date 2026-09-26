@@ -62,11 +62,19 @@ func Validate(cfg Config) error {
 	}
 
 	errs = append(errs, validateRequiredAbsolutePath("store_root", cfg.StoreRoot)...)
+	errs = append(errs, validateRequiredAbsolutePath("cold_root", cfg.ColdRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("runtime_root", cfg.RuntimeRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("artifact_root", cfg.ArtifactRoot)...)
 	errs = append(errs, validateRequiredAbsolutePath("database_path", cfg.DatabasePath)...)
 	errs = append(errs, validateRequiredAbsolutePath("traefik_dynamic_config_dir", cfg.TraefikDynamicConfigDir)...)
 	errs = append(errs, validateRequiredAbsolutePath("deploy_state_path", cfg.DeployStatePath)...)
+	// runtime_root is usually a tmpfs cleared on reboot, which would silently lose
+	// snapshots and session files.
+	if filepath.IsAbs(cfg.ColdRoot) && filepath.IsAbs(cfg.RuntimeRoot) {
+		if pathWithin(cfg.ColdRoot, cfg.RuntimeRoot) || pathWithin(cfg.RuntimeRoot, cfg.ColdRoot) {
+			errs = append(errs, errors.New("cold_root must not overlap runtime_root"))
+		}
+	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.DeployColor)) {
 	case DeployColorBlue, DeployColorGreen:
@@ -331,4 +339,10 @@ func validateEmbedOrigin(origin string) error {
 		return errors.New("must not end with /")
 	}
 	return nil
+}
+
+// pathWithin reports whether path is root or below it.
+func pathWithin(path, root string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

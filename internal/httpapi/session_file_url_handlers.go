@@ -30,7 +30,11 @@ func (s *Server) createSessionFileDownloadURL(c *gin.Context) {
 	if request.TTLSeconds != nil {
 		ttlSeconds = *request.TTLSeconds
 	}
-	result, err := s.sessionFileDownloadURL(c.Param("sessionId"), request.RelativePath, ttlSeconds)
+	disposition := request.Disposition
+	if disposition == "" {
+		disposition = sessionfiles.DispositionAttachment
+	}
+	result, err := s.sessionFileDownloadURL(c.Param("sessionId"), request.RelativePath, disposition, ttlSeconds)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -38,7 +42,7 @@ func (s *Server) createSessionFileDownloadURL(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-func (s *Server) sessionFileDownloadURL(sessionID, relativePath string, ttlSeconds int) (sessionFileDownloadURLResponse, error) {
+func (s *Server) sessionFileDownloadURL(sessionID, relativePath string, disposition sessionfiles.Disposition, ttlSeconds int) (sessionFileDownloadURLResponse, error) {
 	layout, err := paths.Session(s.Config, sessionID)
 	if err != nil {
 		return sessionFileDownloadURLResponse{}, err
@@ -70,7 +74,7 @@ func (s *Server) sessionFileDownloadURL(sessionID, relativePath string, ttlSecon
 		return sessionFileDownloadURLResponse{}, errors.New("job token is required")
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
-	token, err := sessionfiles.IssueToken(s.jobToken, sessionID, normalized, expiresAt)
+	token, err := sessionfiles.IssueToken(s.jobToken, sessionID, normalized, disposition, expiresAt)
 	if err != nil {
 		return sessionFileDownloadURLResponse{}, err
 	}
