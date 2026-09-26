@@ -4,6 +4,7 @@ import {
   Copy,
   Download,
   Gauge,
+  Hand,
   Info,
   Lock,
   LockOpen,
@@ -605,6 +606,21 @@ function ViewportMenu({
   control: UseBrowserControlResult;
   connected: boolean;
 }) {
+  const ownership = control.viewportOwnership;
+  const ownerClientId = ownership?.ownerClientId ?? null;
+  const ownerName =
+    control.collaboration.participants.find((participant) => participant.clientId === ownerClientId)
+      ?.name ?? null;
+  // Shown whenever another client, or an explicit resize, decides the shared size.
+  const sizeController =
+    ownership === null || ownerClientId === control.collaboration.clientId
+      ? null
+      : ownerName !== null
+        ? `Size controlled by ${ownerName}`
+        : control.viewportAutoSync
+          ? "Paused: size was set explicitly"
+          : null;
+
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
@@ -626,7 +642,28 @@ function ViewportMenu({
           onCheckedChange={control.setViewportAutoSync}
         >
           <Monitor />
-          Auto sync browser size
+          <span className="flex min-w-0 flex-col">
+            <span>Auto-size</span>
+            {sizeController !== null ? (
+              <span className="truncate text-xs text-muted-foreground">{sizeController}</span>
+            ) : null}
+          </span>
+        </DropdownMenuCheckboxItem>
+        {sizeController !== null ? (
+          <DropdownMenuItem
+            disabled={!connected || !control.browserViewportSize}
+            onClick={() => control.takeOverViewport()}
+          >
+            <Hand />
+            Take over size
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuCheckboxItem
+          checked={control.viewportAutoSizeDefault}
+          onCheckedChange={control.setViewportAutoSizeDefault}
+        >
+          <Monitor />
+          Auto-size by default
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup

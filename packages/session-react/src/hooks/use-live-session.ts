@@ -80,6 +80,13 @@ interface UseLiveSessionOptions {
   enabled: boolean;
   webrtcSupported: boolean;
   iceServers: readonly IceServer[];
+  autoSize: () => boolean;
+}
+
+/** Session-wide auto-size arbitration, known only when the server supports it. */
+export interface LiveSessionViewportOwnership {
+  ownerClientId: string | null;
+  autoSize: boolean;
 }
 
 export interface LiveSessionControl {
@@ -94,6 +101,7 @@ export interface LiveSessionControl {
   presentation: LiveSessionPresentation | null;
   mediaSwitching: boolean;
   recordings: readonly Recording[];
+  viewportOwnership: LiveSessionViewportOwnership | null;
   collaboration: CollaborationControl;
   sendBrowserInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
   selectTarget: (targetId: string) => boolean;
@@ -132,6 +140,7 @@ export function useLiveSession({
   enabled,
   webrtcSupported,
   iceServers,
+  autoSize,
 }: UseLiveSessionOptions): LiveSessionControl {
   const identity = useMemo(() => collaborationIdentity(role, displayName), [displayName, role]);
   const runtime = useRuntime();
@@ -178,6 +187,9 @@ export function useLiveSession({
   const [presentationSwitching, setPresentationSwitching] = useState(false);
   const [presentation, setPresentation] = useState<LiveSessionPresentation | null>(null);
   const [recordings, setRecordings] = useState<readonly Recording[]>([]);
+  const [viewportOwnership, setViewportOwnership] = useState<LiveSessionViewportOwnership | null>(
+    null,
+  );
   const [clientId, setClientId] = useState("");
   const [holderClientId, setHolderClientId] = useState<string | null>(null);
   const [leaseMode, setLeaseMode] = useState<CollaborationLeaseMode | null>(null);
@@ -208,6 +220,14 @@ export function useLiveSession({
           setMediaSize(resolveMediaSize(message.targets, message.activeTargetId));
           setRecordings(message.recordings);
           setPresentation(message.presentation ?? null);
+          setViewportOwnership(
+            message.autoSize === undefined
+              ? null
+              : {
+                  ownerClientId: message.viewportOwnerClientId ?? null,
+                  autoSize: message.autoSize,
+                },
+          );
           setLastError(null);
           return;
         case "targets.state":
@@ -241,6 +261,12 @@ export function useLiveSession({
           setLastError((current) =>
             current?.code === "input_busy" || current?.code === "input_not_owned" ? null : current,
           );
+          return;
+        case "viewport.state":
+          setViewportOwnership({
+            ownerClientId: message.viewportOwnerClientId ?? null,
+            autoSize: message.autoSize,
+          });
           return;
         case "presence.cursor":
           if (message.clientId !== followingClientIdRef.current) {
@@ -306,6 +332,7 @@ export function useLiveSession({
       setParticipants([]);
       setCursors(new Map());
       setRecordings([]);
+      setViewportOwnership(null);
       publishFrame(null);
       publishPaint({ type: "clear" });
       return undefined;
@@ -319,6 +346,7 @@ export function useLiveSession({
         credentials,
         sessionToken,
         identity,
+        autoSize,
         iceServers,
         webrtcSupported,
         callbacks: {
@@ -349,6 +377,7 @@ export function useLiveSession({
       ),
     );
   }, [
+    autoSize,
     baseUrl,
     credentials,
     enabled,
@@ -773,6 +802,7 @@ export function useLiveSession({
     presentation,
     mediaSwitching: targetSwitching || presentationSwitching,
     recordings,
+    viewportOwnership,
     sendBrowserInput,
     selectTarget,
     requestSelectTarget,

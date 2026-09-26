@@ -74,6 +74,9 @@ type liveSession struct {
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
 	cursorVisible  bool
+	// viewportOwner is the only session client whose auto-size requests resize targets.
+	viewportOwner    *liveSessionClient
+	autoSizeSequence uint64
 }
 
 type liveSessionClient struct {
@@ -110,6 +113,9 @@ type liveSessionClient struct {
 	activePaintTarget         string
 	capabilityRole            string
 	sessionTokenAuthenticated bool
+	autoSizeAware             bool
+	autoSize                  bool
+	autoSizeSequence          uint64
 }
 
 type liveSessionCloseRequest struct {
@@ -178,6 +184,8 @@ type liveSessionClientMessage struct {
 	Codec                 string  `json:"codec"`
 	RealtimeCounter       uint64  `json:"realtimeCounter"`
 	Visible               *bool   `json:"visible"`
+	AutoSize              *bool   `json:"autoSize"`
+	Enabled               *bool   `json:"enabled"`
 }
 
 type liveSessionParticipant struct {
@@ -218,6 +226,10 @@ type liveSessionServerMessage struct {
 	Recording       *wrapperRecording        `json:"recording,omitempty"`
 	Presentation    *liveSessionPresentation `json:"presentation,omitempty"`
 	RealtimeCounter uint64                   `json:"realtimeCounter,omitempty"`
+	// Viewport ownership fields are sent only to clients whose hello carried autoSize,
+	// because older clients reject unknown properties.
+	ViewportOwnerClientID string `json:"viewportOwnerClientId,omitempty"`
+	AutoSize              *bool  `json:"autoSize,omitempty"`
 }
 
 type liveSessionPresentation struct {
@@ -335,6 +347,8 @@ func liveSessionErrorCode(err error) string {
 		return "input_not_owned"
 	case errors.Is(err, remoteinput.ErrNotReady):
 		return "input_unavailable"
+	case errors.Is(err, errViewportNotOwned):
+		return "viewport_not_owned"
 	default:
 		return "request_rejected"
 	}
@@ -406,6 +420,10 @@ func (session *liveSession) removeClient(client *liveSessionClient) {
 	if holder {
 		session.holder = nil
 		session.leaseMode = ""
+	}
+	if session.viewportOwner == client {
+		session.handOverViewportOwnerLocked()
+		session.broadcastViewportStateLocked()
 	}
 	session.mu.Unlock()
 	session.recordingMu.Unlock()
@@ -745,6 +763,7 @@ func (session *liveSession) close() {
 	}
 	session.clients = make(map[string]*liveSessionClient)
 	session.holder = nil
+	session.viewportOwner = nil
 	session.mu.Unlock()
 	_ = session.input.close()
 	session.browser.close()

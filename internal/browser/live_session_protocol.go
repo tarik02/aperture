@@ -118,6 +118,8 @@ func isLiveSessionCommand(messageType string) bool {
 		"page.reload",
 		"page.stop-loading",
 		"viewport.set",
+		"viewport.auto-size.set",
+		"viewport.owner.claim",
 		"presentation.quality.set",
 		"presentation.cursor.set",
 		"recording.start",
@@ -192,12 +194,31 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err := requireBrowserMutation(client); err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		return liveSessionServerMessage{}, session.browser.setViewport(
+		autoSize := message.AutoSize != nil && *message.AutoSize
+		if autoSize {
+			if err := session.requireViewportOwner(client); err != nil {
+				return liveSessionServerMessage{}, err
+			}
+		}
+		if err := session.browser.setViewport(
 			message.TargetID,
 			int(message.Width),
 			int(message.Height),
 			message.DeviceScaleFactor,
-		)
+		); err != nil {
+			return liveSessionServerMessage{}, err
+		}
+		if !autoSize {
+			session.overrideViewportOwner(client)
+		}
+		return liveSessionServerMessage{}, nil
+	case "viewport.auto-size.set":
+		if message.Enabled == nil {
+			return liveSessionServerMessage{}, errors.New("auto-size state is required")
+		}
+		return liveSessionServerMessage{}, session.setAutoSize(client, *message.Enabled)
+	case "viewport.owner.claim":
+		return liveSessionServerMessage{}, session.claimViewportOwner(client)
 	case "presentation.quality.set":
 		if err := requireBrowserMutation(client); err != nil {
 			return liveSessionServerMessage{}, err

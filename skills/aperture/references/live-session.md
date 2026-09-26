@@ -43,7 +43,9 @@ WebRTC clients create ordered `application` and unordered, zero-retransmit `appl
 
 The `/session` fallback carries the same JSON messages. Its presentation frames are binary packets containing a four-byte big-endian JSON-header length, the UTF-8 `presentation.frame` header, and raw JPEG bytes. Coalesce disposable realtime messages before writing them to this ordered socket.
 
-Reliable commands use a nonempty `requestId` and receive a matching typed `.result` message. Commands are `target.select`, `target.create`, `target.close`, `page.navigate`, `page.history-back`, `page.history-forward`, `page.reload`, `page.stop-loading`, `viewport.set`, `presentation.quality.set`, `presentation.cursor.set`, `recording.start`, `recording.stop`, and `recording.cancel`. A transport failure fails outstanding commands. Use the replacement snapshot to reconcile state and wait for a new caller action instead of retrying them.
+Reliable commands use a nonempty `requestId` and receive a matching typed `.result` message. Commands are `target.select`, `target.create`, `target.close`, `page.navigate`, `page.history-back`, `page.history-forward`, `page.reload`, `page.stop-loading`, `viewport.set`, `viewport.auto-size.set`, `viewport.owner.claim`, `presentation.quality.set`, `presentation.cursor.set`, `recording.start`, `recording.stop`, and `recording.cancel`. A transport failure fails outstanding commands. Use the replacement snapshot to reconcile state and wait for a new caller action instead of retrying them.
+
+Auto-size is arbitrated by one session-wide viewport owner. A client opts in by adding `"autoSize": true|false` to its hello; only such clients receive `viewportOwnerClientId` and `autoSize` in the snapshot and later `viewport.state` events. `viewport.auto-size.set` takes `enabled`, `viewport.owner.claim` takes over, and `viewport.set` with `"autoSize": true` resizes only for the owner, failing with `viewport_not_owned` otherwise. A `viewport.set` without it, or the viewport route below, is explicit: it applies and leaves ownership vacant.
 
 ## Viewport
 

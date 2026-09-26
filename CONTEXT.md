@@ -57,6 +57,10 @@ _Avoid_: State event, command
 The session-wide right held by one session actor to send direct input such as pointer, wheel, keyboard, text, and clipboard actions through the live session. It does not restrict authorized target and navigation commands or privileged owner CDP access.
 _Avoid_: Input lock, tab lock, control ownership
 
+**Viewport owner**:
+The one interactive session client, an owner or editor with auto-size enabled, whose own presentation size resizes the browser viewport. Other auto-sizing clients are suspended and see the shared viewport scaled. Ownership passes to the most recent auto-sizing client when the owner disables auto-size or disconnects, becomes vacant after an explicit viewport change by anyone else, and can be taken over explicitly. Automation and viewers are never viewport owners.
+_Avoid_: Size lock, viewport lease, auto-sync leader
+
 **Editor capability**:
 A rotatable session secret that permits collaborative browser control without session management, recording, file, or unrestricted CDP authority.
 _Avoid_: Share token, session token
