@@ -7,5 +7,6 @@ apps/*/dist/
 packages/*/dist/
 apps/web/.output/
 extensions/*/dist/
+extensions/aperture-companion/public/icon-*.png
 .scaffold-tmp/
 .data/

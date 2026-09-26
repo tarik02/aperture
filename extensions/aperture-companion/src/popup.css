@@ -1,0 +1,20 @@
+@import "@aperture-browser/ui/styles.css";
+@source "./";
+
+html,
+body {
+  width: 24rem;
+  height: auto;
+  min-height: 24rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--background);
+  color: var(--foreground);
+  color-scheme: dark;
+}
+
+#root {
+  width: 100%;
+  min-height: inherit;
+  overflow-x: hidden;
+}

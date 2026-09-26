@@ -137,7 +137,7 @@ Adding one of these labels to a pull request starts a build of its head commit:
 
 | Label            | Result                                                             |
 | ---------------- | ------------------------------------------------------------------ |
-| `build-binaries` | The release archives, as a workflow artifact                       |
+| `build-binaries` | The release archives and extension zips, as a workflow artifact    |
 | `build-docker`   | Docker images tagged `pr-<number>` on GHCR, linked in a PR comment |
 
 Both workflows run on `pull_request_target`, so their definition comes from the default branch, their runs show on the pull request, and pull requests from forks build too. A shared gate job removes the label and stops the run unless whoever added it has write access. The build then checks out the pull request's head commit. Adding a label approves running that commit with the workflow's credentials, so review it first.

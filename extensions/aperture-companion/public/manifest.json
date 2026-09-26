@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Aperture Companion",
+  "version": "0.1.0",
+  "description": "Teleport pages and browser state into Aperture.",
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "permissions": ["activeTab", "contextMenus", "cookies", "scripting", "storage", "tabs"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": {
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "Aperture Companion"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
