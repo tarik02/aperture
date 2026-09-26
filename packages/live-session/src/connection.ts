@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import {
   resolveTenantHeader,
@@ -703,7 +704,11 @@ class WebRTCSessionTransport implements SessionTransport {
     this.callbacks = options.callbacks;
     this.fork = options.fork;
     this.connection = new RTCPeerConnection({
-      iceServers: options.iceServers.map((server) => ({ ...server, urls: [...server.urls] })),
+      iceServers: options.iceServers.map((server) => ({
+        urls: [...server.urls],
+        username: server.username,
+        credential: server.credential === undefined ? undefined : Redacted.value(server.credential),
+      })),
     });
     this.reliable = this.connection.createDataChannel("application", { ordered: true });
     this.realtime = this.connection.createDataChannel("application-realtime", {
@@ -949,7 +954,7 @@ function sessionProtocols(credentials: ApiCredentials, sessionToken?: string) {
   if (sessionToken) {
     protocols.push(`authorization.bearer.${sessionToken}`);
   } else if (credentials.kind === "bearer") {
-    protocols.push(`authorization.bearer.${credentials.token}`);
+    protocols.push(`authorization.bearer.${Redacted.value(credentials.token)}`);
   }
   const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
   if (tenantId) {

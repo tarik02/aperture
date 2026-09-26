@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
-import type * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as HttpClientError from "effect/unstable/http/HttpClientError";
 
 export const ApiErrorBody = Schema.Struct({
   error: Schema.Struct({
@@ -27,22 +27,25 @@ const ErrorResponseBody = Schema.Union([ApiErrorBody, LiveSessionErrorBody]);
 
 /**
  * A failed API request. `code` and `message` come from the server's error body when it
- * sent one; `status` is 0 when no HTTP status applies.
+ * sent one; `status` is 0 when no HTTP status applies. `cause` is the underlying HTTP or
+ * decoding failure when the server's error body alone does not explain it.
  */
 export class ApiRequestError extends Schema.TaggedError<ApiRequestError>()("ApiRequestError", {
   code: Schema.String,
   message: Schema.String,
   status: Schema.Number,
+  cause: Schema.optional(
+    Schema.Union([
+      Schema.instanceOf(HttpClientError.HttpClientError),
+      Schema.instanceOf(Schema.SchemaError),
+    ]),
+  ),
 }) {}
 
-const invalidResponse = (status: number) =>
-  new ApiRequestError({ code: "internal_error", message: "Invalid response", status });
-
-const networkError = new ApiRequestError({
-  code: "network_error",
-  message: "The server could not be reached",
-  status: 0,
-});
+const invalidResponse = (
+  status: number,
+  cause: HttpClientError.HttpClientError | Schema.SchemaError,
+) => new ApiRequestError({ code: "internal_error", message: "Invalid response", status, cause });
 
 /**
  * Maps HTTP and decoding failures to ApiRequestError. Error responses keep the code and
@@ -53,7 +56,7 @@ export const toApiRequestError = <A, R>(
 ): Effect.Effect<A, ApiRequestError, R> =>
   self.pipe(
     Effect.catchReasons("HttpClientError", {
-      StatusCodeError: ({ response }) =>
+      StatusCodeError: ({ response }, cause) =>
         HttpClientResponse.schemaBodyJson(ErrorResponseBody)(response).pipe(
           Effect.map(({ error }) =>
             typeof error === "string"
@@ -70,14 +73,23 @@ export const toApiRequestError = <A, R>(
                 code: "internal_error",
                 message: "Request failed",
                 status: response.status,
+                cause,
               }),
           ),
           Effect.flatMap(Effect.fail),
         ),
-      DecodeError: ({ response }) => Effect.fail(invalidResponse(response.status)),
+      DecodeError: ({ response }, cause) => Effect.fail(invalidResponse(response.status, cause)),
     }),
     Effect.catchTags({
-      HttpClientError: () => Effect.fail(networkError),
-      SchemaError: () => Effect.fail(invalidResponse(0)),
+      HttpClientError: (cause) =>
+        Effect.fail(
+          new ApiRequestError({
+            code: "network_error",
+            message: "The server could not be reached",
+            status: 0,
+            cause,
+          }),
+        ),
+      SchemaError: (cause) => Effect.fail(invalidResponse(0, cause)),
     }),
   );
