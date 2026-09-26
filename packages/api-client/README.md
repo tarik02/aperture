@@ -6,7 +6,7 @@ Effect services for the [Aperture](https://github.com/tarik02/aperture) API.
 npm install @aperture-browser/api-client effect
 ```
 
-Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsApi`, `UsersApi`, `TokensApi`, `EventsApi` and `HealthApi`. `apiClientLayer` provides all of them over the `HttpClient` your app supplies. Their methods take the caller's credentials first. Failures are `ApiRequestError`s carrying the server's error code and HTTP status.
+Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsApi`, `UsersApi`, `TokensApi`, `EventsApi` and `HealthApi`. `apiClientLayer` provides all of them over the `HttpClient` your app supplies. Their methods take the caller's credentials first. Failures are `ApiRequestError`s carrying the server's error code and HTTP status, plus the underlying HTTP or decoding failure as `cause` when the server sent no error body to explain it.
 
 A caller that always acts with the same credentials, such as a server holding one API token, can bind them once: `apertureClientLayer(credentials)` provides `ApertureClient`, which exposes the same methods without the credentials argument, plus `auth.getAuthMe()` and `health.getHealth()`.
 
@@ -14,13 +14,14 @@ A caller that always acts with the same credentials, such as a server holding on
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import { ApertureClient, apertureClientLayer, baseUrlLayer } from "@aperture-browser/api-client";
 
 const layer = apertureClientLayer({
   kind: "bearer",
-  token: process.env.APERTURE_TOKEN!,
+  token: Redacted.make(process.env.APERTURE_TOKEN!),
   authorityType: "tenant",
   tenantId: null,
   selectedTenantId: null,
@@ -102,7 +103,7 @@ const program = Effect.gen(function* () {
 
 ## The live session
 
-The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadLiveSessionFiles` stores files in its `uploads` directory, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording without buffering it (`downloadSessionRecording` returns a `Blob`). A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
+The live-session calls reach the running session directly and take an optional `Redacted` `sessionToken` in place of the credentials: `uploadLiveSessionFiles` stores files in its `uploads` directory, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording without buffering it (`downloadSessionRecording` returns a `Blob`). A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
 
 ```ts
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";

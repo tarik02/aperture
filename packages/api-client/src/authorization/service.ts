@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Redacted from "effect/Redacted";
 import type * as Schema from "effect/Schema";
 import type * as Stream from "effect/Stream";
 import type * as HttpClientError from "effect/unstable/http/HttpClientError";
@@ -16,7 +17,7 @@ interface CredentialContext {
 export type ApiCredentials =
   | (CredentialContext & {
       kind: "bearer";
-      token: string;
+      token: Redacted.Redacted<string>;
     })
   | (CredentialContext & {
       kind: "session";
@@ -62,7 +63,7 @@ export function resolveTenantHeader(
 /** How a request authenticates, and which tenant it acts for. */
 export interface Authorization {
   readonly credentials?: ApiCredentials;
-  readonly bearerToken?: string;
+  readonly bearerToken?: Redacted.Redacted<string>;
   readonly tenantHeader?: TenantHeaderMode;
 }
 

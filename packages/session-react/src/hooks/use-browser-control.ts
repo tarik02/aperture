@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
 import type * as Stream from "effect/Stream";
 import {
   useLiveSession,
@@ -418,7 +419,12 @@ export function useBrowserControl({
         live.request("recording.stop", { recordingId }).pipe(
           Effect.andThen(
             SessionsApi.use((sessions) =>
-              sessions.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
+              sessions.downloadSessionRecording(
+                credentials,
+                sessionId,
+                recordingId,
+                sessionToken === undefined ? undefined : Redacted.make(sessionToken),
+              ),
             ),
           ),
           Effect.flatMap(({ blob, filename }) => {

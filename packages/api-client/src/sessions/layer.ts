@@ -1,5 +1,7 @@
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import type * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
@@ -32,6 +34,8 @@ const contentDispositionFilename = (header: string | undefined): string | null =
 
 const recordingContentPath = (sessionId: string, recordingId: string) =>
   `/sessions/${encodeURIComponent(sessionId)}/recordings/${encodeURIComponent(recordingId)}/content`;
+
+const BULK_SESSION_IDS_LIMIT = 100;
 
 export const makeSessionsApi = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -71,9 +75,11 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionIds: readonly string[],
   ) {
-    return yield* api
-      .getSessionsBulk({ payload: { ids: sessionIds } })
-      .pipe(tenantScoped(credentials));
+    const responses = yield* Effect.forEach(
+      Arr.chunksOf(sessionIds, BULK_SESSION_IDS_LIMIT),
+      (ids) => api.getSessionsBulk({ payload: { ids } }).pipe(tenantScoped(credentials)),
+    );
+    return { sessions: responses.flatMap((response) => response.sessions) };
   });
 
   const createSession = Effect.fn("SessionsApi.createSession")(function* (
@@ -259,7 +265,7 @@ export const makeSessionsApi = Effect.gen(function* () {
   const getBrowserStatus = Effect.fn("SessionsApi.getBrowserStatus")(function* (
     credentials: ApiCredentials,
     sessionId: string,
-    sessionToken?: string,
+    sessionToken?: Redacted.Redacted<string>,
   ) {
     return yield* http
       .get(`/sessions/${encodeURIComponent(sessionId)}/browser/status`)
@@ -273,7 +279,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionId: string,
     recordingId: string,
-    sessionToken?: string,
+    sessionToken?: Redacted.Redacted<string>,
   ) {
     return yield* http.get(recordingContentPath(sessionId, recordingId)).pipe(
       Effect.flatMap((response) =>
@@ -293,7 +299,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionId: string,
     recordingId: string,
-    sessionToken?: string,
+    sessionToken?: Redacted.Redacted<string>,
   ) =>
     http.get(recordingContentPath(sessionId, recordingId)).pipe(
       authorize({ credentials, bearerToken: sessionToken, tenantHeader: "tenant-scoped" }),
@@ -363,7 +369,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionId: string,
     files: ReadonlyArray<SessionUploadFile>,
-    sessionToken?: string,
+    sessionToken?: Redacted.Redacted<string>,
   ) {
     const body = yield* uploadBody(files);
     const response = yield* http
@@ -379,7 +385,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionId: string,
     input: SetViewportInput,
-    sessionToken?: string,
+    sessionToken?: Redacted.Redacted<string>,
   ) {
     return yield* api
       .setSessionViewport(sessionId, { payload: input })
