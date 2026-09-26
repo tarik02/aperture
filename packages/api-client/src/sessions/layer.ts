@@ -2,6 +2,7 @@ import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
@@ -90,7 +91,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     return yield* api
       .createSession({
         params: compactQuery({ waitForReady: options.waitForReady }),
-        payload: {
+        payload: Schema.encodeSync(Api.CreateSessionRequestJson)({
           baseSnapshotName: input.baseSnapshotName ?? null,
           label: input.label ?? null,
           browser: { channel: input.browser.channel, args: input.browser.args ?? [] },
@@ -98,7 +99,7 @@ export const makeSessionsApi = Effect.gen(function* () {
           ...(input.storageState === undefined ? {} : { storageState: input.storageState }),
           tags: input.tags ?? {},
           ...(input.proxy === undefined ? {} : { proxy: input.proxy }),
-        },
+        }),
       })
       .pipe(tenantScoped(credentials));
   });
@@ -155,7 +156,9 @@ export const makeSessionsApi = Effect.gen(function* () {
     proxy: UpdateProxyConfig,
   ) {
     return yield* api
-      .updateSessionProxy(sessionId, { payload: proxy })
+      .updateSessionProxy(sessionId, {
+        payload: Schema.encodeSync(Api.UpdateSessionProxyRequestJson)(proxy),
+      })
       .pipe(tenantScoped(credentials));
   });
 

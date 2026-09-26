@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import * as Redacted from "effect/Redacted";
 import { PanelLeftIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
@@ -55,7 +56,11 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   const cdpUrl = useMemo(
     () =>
       selectedSession?.cdpUrl && selectedSession.sessionToken && publicOrigin
-        ? devToolsUrl(publicOrigin, selectedSession.cdpUrl, selectedSession.sessionToken)
+        ? devToolsUrl(
+            publicOrigin,
+            selectedSession.cdpUrl,
+            Redacted.value(selectedSession.sessionToken),
+          )
         : null,
     [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl],
   );
@@ -64,8 +69,8 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
       return null;
     }
     return {
-      editor: shareURL(publicOrigin, selectedSession.collaboration.editorToken),
-      viewer: shareURL(publicOrigin, selectedSession.collaboration.viewerToken),
+      editor: shareURL(publicOrigin, Redacted.value(selectedSession.collaboration.editorToken)),
+      viewer: shareURL(publicOrigin, Redacted.value(selectedSession.collaboration.viewerToken)),
     };
   }, [selectedSession?.collaboration, publicOrigin]);
 
@@ -73,7 +78,10 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
     sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
     credentials,
     displayName: principal?.name ?? null,
-    sessionToken: selectedSession?.sessionToken,
+    sessionToken:
+      selectedSession?.sessionToken === undefined
+        ? undefined
+        : Redacted.value(selectedSession.sessionToken),
     collaborationRole: "owner",
     enabled: canControl && tenantReady && canConnectSession,
     webrtcProducerSupported:

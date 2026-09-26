@@ -704,7 +704,11 @@ class WebRTCSessionTransport implements SessionTransport {
     this.callbacks = options.callbacks;
     this.fork = options.fork;
     this.connection = new RTCPeerConnection({
-      iceServers: options.iceServers.map((server) => ({ ...server, urls: [...server.urls] })),
+      iceServers: options.iceServers.map((server) => ({
+        urls: [...server.urls],
+        username: server.username,
+        credential: server.credential === undefined ? undefined : Redacted.value(server.credential),
+      })),
     });
     this.reliable = this.connection.createDataChannel("application", { ordered: true });
     this.realtime = this.connection.createDataChannel("application-realtime", {

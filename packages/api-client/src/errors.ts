@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
-import type * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as HttpClientError from "effect/unstable/http/HttpClientError";
 
 export const ApiErrorBody = Schema.Struct({
   error: Schema.Struct({
@@ -34,11 +34,18 @@ export class ApiRequestError extends Schema.TaggedError<ApiRequestError>()("ApiR
   code: Schema.String,
   message: Schema.String,
   status: Schema.Number,
-  cause: Schema.optional(Schema.Defect()),
+  cause: Schema.optional(
+    Schema.Union([
+      Schema.instanceOf(HttpClientError.HttpClientError),
+      Schema.instanceOf(Schema.SchemaError),
+    ]),
+  ),
 }) {}
 
-const invalidResponse = (status: number, cause: unknown) =>
-  new ApiRequestError({ code: "internal_error", message: "Invalid response", status, cause });
+const invalidResponse = (
+  status: number,
+  cause: HttpClientError.HttpClientError | Schema.SchemaError,
+) => new ApiRequestError({ code: "internal_error", message: "Invalid response", status, cause });
 
 /**
  * Maps HTTP and decoding failures to ApiRequestError. Error responses keep the code and
