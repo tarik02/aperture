@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
 import {
   SessionsApi,
   type ApiCredentials,
@@ -59,7 +60,7 @@ export function useSharedSession({
     () =>
       share && {
         kind: "bearer",
-        token: share.token,
+        token: Redacted.make(share.token),
         authorityType: null,
         tenantId: null,
         selectedTenantId: null,
