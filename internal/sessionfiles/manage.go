@@ -1,6 +1,7 @@
 package sessionfiles
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/aperture/aperture/internal/paths"
@@ -150,7 +152,7 @@ func deleteDirectory(layout paths.SessionLayout, dir, normalized string, recursi
 // Move renames a session file, or a directory below the files root, to another
 // path below the files root, creating missing parent directories. It never
 // replaces an existing entry.
-func Move(layout paths.SessionLayout, from, to string) (Entry, error) {
+func Move(ctx context.Context, layout paths.SessionLayout, from, to string) (Entry, error) {
 	source, normalizedFrom, err := existingDirectory(layout, from)
 	isDirectory := err == nil
 	if err != nil && !errors.Is(err, errNotDirectory) {
@@ -179,7 +181,7 @@ func Move(layout paths.SessionLayout, from, to string) (Entry, error) {
 	if isDirectory && (normalizedTo == normalizedFrom || strings.HasPrefix(normalizedTo, normalizedFrom+"/")) {
 		return nil, ErrMoveIntoItself
 	}
-	unlock, err := Lock(layout.Files.Root)
+	unlock, err := Lock(ctx, layout.Files.Root)
 	if err != nil {
 		return nil, err
 	}
@@ -214,12 +216,12 @@ func Move(layout paths.SessionLayout, from, to string) (Entry, error) {
 
 // CreateDirectory creates a directory below the files root, with any missing
 // parents.
-func CreateDirectory(layout paths.SessionLayout, relative string) (Directory, error) {
+func CreateDirectory(ctx context.Context, layout paths.SessionLayout, relative string) (Directory, error) {
 	normalized, err := Normalize(relative)
 	if err != nil {
 		return Directory{}, err
 	}
-	unlock, err := Lock(layout.Files.Root)
+	unlock, err := Lock(ctx, layout.Files.Root)
 	if err != nil {
 		return Directory{}, err
 	}
@@ -257,7 +259,7 @@ func existingDirectory(layout paths.SessionLayout, relative string) (string, str
 		return "", "", ErrInvalidPath
 	}
 	info, err := os.Lstat(dir)
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOTDIR) {
 		return "", "", errNotDirectory
 	}
 	if err != nil {
@@ -306,35 +308,19 @@ func checkTreeNotBusy(dir string) error {
 // Store writes every multipart part that has a filename into directory below the
 // files root under a sanitized name, adding a numeric suffix instead of replacing
 // an existing file. Either every part is stored or none is.
-func Store(layout paths.SessionLayout, directory string, parts *multipart.Reader, limits Limits) ([]File, error) {
-	unlock, err := Lock(layout.Files.Root)
-	if err != nil {
-		return nil, err
-	}
-	defer unlock()
+func Store(ctx context.Context, layout paths.SessionLayout, directory string, parts *multipart.Reader, limits Limits) ([]File, error) {
 	dir, dirRelative, err := prepareDirectory(layout, directory)
 	if err != nil {
 		return nil, err
-	}
-	sessionEntries, err := CountEntries(layout.Files.Root)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	visible := 0
-	for _, entry := range entries {
-		if entry.Type().IsRegular() && !strings.HasPrefix(entry.Name(), ".") {
-			visible++
-		}
 	}
 	footprint, err := Footprint(layout.Upper, layout.Files.Root, layout.Cache)
 	if err != nil {
 		return nil, err
 	}
 
+	// Parts stream into hidden temporary files without the lock, so a slow client
+	// delays only its own upload. The staged bytes live below the files root, so
+	// the checks under the lock count them, along with other uploads in flight.
 	type staged struct {
 		temp string
 		name string
@@ -362,13 +348,13 @@ func Store(layout paths.SessionLayout, directory string, parts *multipart.Reader
 			_ = part.Close()
 			continue
 		}
-		if len(pending) >= MaxUploadFilesPerRequest || visible+len(pending) >= MaxUploadFilesPerDirectory || sessionEntries+len(pending) >= MaxEntriesPerSession {
+		if len(pending) >= MaxUploadFilesPerRequest {
 			_ = part.Close()
 			discard()
 			return nil, ErrTooManyFiles
 		}
-		limit := min(limits.MaxFileBytes, max(limits.StorageQuotaBytes-footprint, 0))
-		temp, written, err := writeTemp(dir, part, limit)
+		remaining := max(limits.StorageQuotaBytes-footprint, 0)
+		temp, written, err := writeTemp(dir, part, min(limits.MaxFileBytes, remaining))
 		_ = part.Close()
 		if err != nil {
 			discard()
@@ -379,7 +365,7 @@ func Store(layout paths.SessionLayout, directory string, parts *multipart.Reader
 			discard()
 			return nil, ErrTooLarge
 		}
-		if written > limit {
+		if written > remaining {
 			discard()
 			return nil, ErrQuotaExceeded
 		}
@@ -389,6 +375,16 @@ func Store(layout paths.SessionLayout, directory string, parts *multipart.Reader
 		return nil, ErrNoFiles
 	}
 
+	unlock, err := Lock(ctx, layout.Files.Root)
+	if err != nil {
+		discard()
+		return nil, err
+	}
+	defer unlock()
+	if err := checkStagedLimits(layout, dir, len(pending), limits); err != nil {
+		discard()
+		return nil, err
+	}
 	files := make([]File, 0, len(pending))
 	for len(pending) > 0 {
 		upload := pending[0]
@@ -408,6 +404,39 @@ func Store(layout paths.SessionLayout, directory string, parts *multipart.Reader
 		files = append(files, Describe(final, relative, SandboxPath(relative), info))
 	}
 	return files, nil
+}
+
+// checkStagedLimits checks, under the lock, that the staged files fit. They are
+// already on disk, so current usage includes them and publishing adds nothing.
+func checkStagedLimits(layout paths.SessionLayout, dir string, staged int, limits Limits) error {
+	footprint, err := Footprint(layout.Upper, layout.Files.Root, layout.Cache)
+	if err != nil {
+		return err
+	}
+	if footprint > limits.StorageQuotaBytes {
+		return ErrQuotaExceeded
+	}
+	entries, err := CountEntries(layout.Files.Root)
+	if err != nil {
+		return err
+	}
+	if entries > MaxEntriesPerSession {
+		return ErrTooManyFiles
+	}
+	listing, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	visible := 0
+	for _, entry := range listing {
+		if entry.Type().IsRegular() && !strings.HasPrefix(entry.Name(), ".") {
+			visible++
+		}
+	}
+	if visible+staged > MaxUploadFilesPerDirectory {
+		return ErrTooManyFiles
+	}
+	return nil
 }
 
 // writeTemp copies at most limit+1 bytes into a hidden file in dir, so a result
@@ -463,8 +492,10 @@ func prepareTarget(layout paths.SessionLayout, relative string) (string, string,
 }
 
 // Lock serializes limit checks and changes below a session's files root across the
-// daemon and the session's wrapper, which both write there.
-func Lock(root string) (func(), error) {
+// daemon and the session's wrapper, which both write there. It gives up when ctx
+// ends, so a caller whose client went away does not keep waiting. Holders only
+// check limits and rename; nobody streams request bodies under it.
+func Lock(ctx context.Context, root string) (func(), error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
@@ -472,9 +503,21 @@ func Lock(root string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
-		_ = unix.Close(fd)
-		return nil, err
+	for {
+		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, unix.EWOULDBLOCK) {
+			_ = unix.Close(fd)
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			_ = unix.Close(fd)
+			return nil, context.Cause(ctx)
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 	return func() {
 		_ = unix.Flock(fd, unix.LOCK_UN)

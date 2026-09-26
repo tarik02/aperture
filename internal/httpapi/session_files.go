@@ -85,7 +85,7 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 	if !ok {
 		return
 	}
-	files, err := sessionfiles.Store(scope.layout, directory, parts, sessionfiles.Limits{
+	files, err := sessionfiles.Store(c.Request.Context(), scope.layout, directory, parts, sessionfiles.Limits{
 		MaxFileBytes:      s.Config.SessionUploadMaxFileBytes,
 		StorageQuotaBytes: s.Config.SessionStorageQuotaBytes,
 	})
@@ -153,7 +153,7 @@ func (s *Server) moveSessionFile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	entry, err := sessionfiles.Move(scope.layout, request.From, request.To)
+	entry, err := sessionfiles.Move(c.Request.Context(), scope.layout, request.From, request.To)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -184,7 +184,7 @@ func (s *Server) createSessionDirectory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	directory, err := sessionfiles.CreateDirectory(scope.layout, request.RelativePath)
+	directory, err := sessionfiles.CreateDirectory(c.Request.Context(), scope.layout, request.RelativePath)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -212,12 +212,20 @@ func (s *Server) fileRequestScope(c *gin.Context) (sessionFilesScope, bool) {
 		WriteError(c, err)
 		return sessionFilesScope{}, false
 	}
-	layout, err := paths.Session(s.Config, view.Session.ID)
+	scope, err := s.sessionFilesScope(view.Session)
 	if err != nil {
 		WriteError(c, err)
 		return sessionFilesScope{}, false
 	}
-	return sessionFilesScope{layout: layout, hideSandboxPaths: startedBeforeFilesRoot(view.Session)}, true
+	return scope, true
+}
+
+func (s *Server) sessionFilesScope(sessionRow db.Session) (sessionFilesScope, error) {
+	layout, err := paths.Session(s.Config, sessionRow.ID)
+	if err != nil {
+		return sessionFilesScope{}, err
+	}
+	return sessionFilesScope{layout: layout, hideSandboxPaths: startedBeforeFilesRoot(sessionRow)}, nil
 }
 
 type sessionFilesScope struct {
@@ -228,11 +236,16 @@ type sessionFilesScope struct {
 }
 
 func (scope sessionFilesScope) present(entry sessionfiles.Entry) sessionfiles.Entry {
-	file, ok := entry.(sessionfiles.File)
-	if !ok || !scope.hideSandboxPaths {
-		return entry
+	if file, ok := entry.(sessionfiles.File); ok {
+		return scope.presentFile(file)
 	}
-	file.SandboxPath = ""
+	return entry
+}
+
+func (scope sessionFilesScope) presentFile(file sessionfiles.File) sessionfiles.File {
+	if scope.hideSandboxPaths {
+		file.SandboxPath = ""
+	}
 	return file
 }
 
@@ -251,16 +264,6 @@ func startedBeforeFilesRoot(sessionRow db.Session) bool {
 		return false
 	}
 	return values.FilesDir == ""
-}
-
-// retainedSessionFiles reads the session directory on disk rather than asking the
-// wrapper, so files stay listable while the session is suspended or stopped.
-func (s *Server) retainedSessionFiles(sessionID string) ([]sessionfiles.Entry, error) {
-	layout, err := paths.Session(s.Config, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return sessionfiles.List(layout)
 }
 
 // mayRunScripts reports content a browser renders as a document that can run

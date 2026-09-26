@@ -186,15 +186,19 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 	if err != nil {
 		return sessionfiles.File{}, err
 	}
-	layout, err := paths.Session(s.Config, sessionID)
+	view, err := s.Sessions.Get(ctx, tenantID, sessionID)
 	if err != nil {
 		return sessionfiles.File{}, err
 	}
-	file, err := sessionfiles.Get(layout, relativePath)
+	scope, err := s.sessionFilesScope(view.Session)
+	if err != nil {
+		return sessionfiles.File{}, err
+	}
+	file, err := sessionfiles.Get(scope.layout, relativePath)
 	if err != nil {
 		return sessionfiles.File{}, fmt.Errorf("%w: %w", errBrowserControlFailed, err)
 	}
-	return file, nil
+	return scope.presentFile(file), nil
 }
 
 func (s *Server) getRecording(ctx context.Context, tenantID, sessionID, recordingID string) (wrapperRecordingStatus, error) {

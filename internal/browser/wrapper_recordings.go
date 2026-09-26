@@ -17,6 +17,7 @@ import (
 
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/google/uuid"
+	"golang.org/x/sys/unix"
 )
 
 const wrapperRecordingCapacity = 4
@@ -429,7 +430,8 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 		r.mu.Unlock()
 		return status, err
 	}
-	if err := session.joinRecordingSegments(recording); err != nil {
+	finalPath, err := session.joinRecordingSegments(recording)
+	if err != nil {
 		r.mu.Lock()
 		recording.finalizing = false
 		recording.Status = wrapperRecordingFailed
@@ -440,6 +442,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	}
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()
+	recording.Path = finalPath
 	recording.StoppedAt = &stoppedAt
 	recording.Status = wrapperRecordingStopped
 	recording.StopReason = reason
@@ -731,13 +734,16 @@ func (session *liveSession) stopAllRecordings(reason string) {
 	}
 }
 
-func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) error {
+// joinRecordingSegments finalizes a recording and returns the path it was saved
+// under, which differs from the requested path when a file already exists there.
+func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) (string, error) {
 	r := session.runtime
 	if len(recording.segments) == 1 {
-		if err := os.Rename(recording.segments[0], recording.Path); err != nil {
-			return fmt.Errorf("finalize recording: %w", err)
+		final, err := publishRecording(recording.segments[0], recording.Path)
+		if err != nil {
+			return "", err
 		}
-		return os.RemoveAll(recording.segmentDir)
+		return final, os.RemoveAll(recording.segmentDir)
 	}
 	mux := "webmmux"
 	parser := ""
@@ -761,12 +767,34 @@ func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) e
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("join recording segments: %w", err)
+		return "", fmt.Errorf("join recording segments: %w", err)
 	}
-	if err := os.Rename(joined, recording.Path); err != nil {
-		return fmt.Errorf("finalize recording: %w", err)
+	final, err := publishRecording(joined, recording.Path)
+	if err != nil {
+		return "", err
 	}
-	return os.RemoveAll(recording.segmentDir)
+	return final, os.RemoveAll(recording.segmentDir)
+}
+
+// publishRecording moves a finished recording into place without replacing an
+// existing file, numbering the name instead, as uploads do.
+func publishRecording(source, target string) (string, error) {
+	extension := filepath.Ext(target)
+	stem := strings.TrimSuffix(target, extension)
+	for sequence := 0; ; sequence++ {
+		candidate := target
+		if sequence > 0 {
+			candidate = fmt.Sprintf("%s-%d%s", stem, sequence, extension)
+		}
+		err := unix.Renameat2(unix.AT_FDCWD, source, unix.AT_FDCWD, candidate, unix.RENAME_NOREPLACE)
+		if errors.Is(err, unix.EEXIST) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("finalize recording: %w", err)
+		}
+		return candidate, nil
+	}
 }
 
 func (session *liveSession) recording(recordingID string) (wrapperRecording, bool) {

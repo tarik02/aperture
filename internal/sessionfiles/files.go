@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -121,7 +122,8 @@ func resolve(layout paths.SessionLayout, relative string) (string, string, sourc
 			return "", "", source{}, ErrInvalidPath
 		}
 		info, err := os.Stat(target)
-		if errors.Is(err, fs.ErrNotExist) {
+		// ENOTDIR: a parent component is a file, so nothing is at the path.
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOTDIR) {
 			continue
 		}
 		if err != nil {
