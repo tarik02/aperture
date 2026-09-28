@@ -86,7 +86,7 @@ Authenticated users can register discoverable passkeys from the web UI. Aperture
 
 Users with an email address can set an Argon2id password from the web UI. They can also enable TOTP for password login; enrollment creates ten one-time recovery codes that are shown once and stored only as SHA-256 hashes. OIDC and passkey login remain available when TOTP is enabled.
 
-The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the owner-only `sessionToken` (`aps_<sessionId>_<secret>`). Share links instead use editor (`ape_`) and viewer (`apv_`) capabilities with narrower live-session access; they do not authorize MCP, files, recordings, or `/api/*`. Signed session-file URLs use `apf_<payload>.<signature>` query tokens. OIDC, passkey, and password browser sessions authorize the web UI and same-origin API or live-session requests, but not MCP clients.
+The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the owner-only `sessionToken` (`aps_<sessionId>_<secret>`). Share links instead use editor (`ape_`) and viewer (`apv_`) capabilities with narrower live-session access; editors may also record. They do not authorize MCP, files, or `/api/*`. Signed session-file URLs use `apf_<payload>.<signature>` query tokens. OIDC, passkey, and password browser sessions authorize the web UI and same-origin API or live-session requests, but not MCP clients.
 
 ### Storage
 
