@@ -65,6 +65,16 @@ export const makeSessionsApi = Effect.gen(function* () {
 
   const sessions = paginated<SessionsFilter, Session>(listSessions);
 
+  const exportSessionStorageState = Effect.fn("SessionsApi.exportSessionStorageState")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    input: Api.ExportSessionStorageStateInput,
+  ) {
+    return yield* api
+      .exportSessionStorageState(sessionId, { payload: input })
+      .pipe(tenantScoped(credentials));
+  });
+
   const getSession = Effect.fn("SessionsApi.getSession")(function* (
     credentials: ApiCredentials,
     sessionId: string,
@@ -400,6 +410,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     streamSessions: sessions.stream,
     listAllSessions: sessions.listAll,
     getSession,
+    exportSessionStorageState,
     getSessionsBulk,
     createSession,
     deleteSession,

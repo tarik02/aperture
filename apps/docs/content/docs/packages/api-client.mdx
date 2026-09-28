@@ -72,6 +72,63 @@ const all = yield * client.sessions.listAllSessions({ status: "running", limit: 
 
 `getSnapshotByName(name)` returns an `Option`, since the API has no direct lookup by name.
 
+### Export browser storage
+
+Export storage from a running session and pass it directly to session creation:
+
+```ts
+const storageState =
+  yield *
+  client.sessions.exportSessionStorageState(sessionId, {
+    origins: ["*"],
+  });
+const restored =
+  yield *
+  client.sessions.createSession({
+    browser: { channel: "chromium" },
+    storageState,
+  });
+```
+
+The REST equivalent is `POST /api/sessions/{sessionId}/storage-state` with the same body.
+It requires `sessions:read` and access to that session. Suspended sessions must be woken first.
+
+| Selection                                        | Body                                                                |
+| ------------------------------------------------ | ------------------------------------------------------------------- |
+| Every stored HTTP origin, including closed sites | `{ "origins": ["*"] }`                                              |
+| Exact origins                                    | `{ "origins": ["https://example.com", "https://app.example.org"] }` |
+| Partial wildcards                                | `{ "origins": ["https://*.example.com"] }`                          |
+| Current pages and their frames                   | `{ "origins": "open-tabs" }`                                        |
+
+Lists can mix exact origins and patterns. Only `*` is special; it matches zero or more
+characters in the complete origin, including its scheme and non-default port. Paths, queries,
+fragments, and credentials are not accepted. Exact origins include their stored partitions;
+`open-tabs` includes only the partitions used by the current frames.
+
+Cookies follow the selection, including all cookie paths and matching parent-domain cookies.
+For `open-tabs`, partitioned cookies must also match an open frame's top-level site and
+cross-site status. `["*"]` exports every representable cookie in the profile.
+
+The result includes localStorage, IndexedDB, Cache Storage, and OPFS files in the existing
+`storageState` format. Sensitive fields remain redacted values in the TypeScript client.
+Session storage is target-specific and belongs to `initialTargets` instead.
+
+Export briefly creates helper pages, serves synthetic documents without fetching the selected
+sites, and closes them afterward. It does not pause other pages, so concurrent writes can appear
+at different points in the export. Partition ancestor chains may be replaced by equivalent
+chains that recreate the same Chromium storage key. This is a portable storage export, not a
+filesystem snapshot.
+
+Chromium's inventory omits the top-level scheme for partitioned site data. List and wildcard
+selection therefore reject partitioned HTTP site data rather than risk omitting an inaccessible
+HTTPS-ancestor partition. Use `open-tabs` for an accessible HTTP partition. HTTPS origins support
+both HTTP and HTTPS top-level partitions.
+
+Exports also fail for unsupported partitions, named storage buckets, opaque cache responses,
+non-extractable cryptographic keys, or data exceeding the import limits: 100 origin partitions,
+10,000 cookies, and 64 MiB of JSON. Failures return no partial state. The JSON response uses
+`Cache-Control: no-store`.
+
 ### Session files
 
 `listSessionFiles(sessionId)` lists a session's files and directories, tagged with `type`, and `sessionFileTree(entries)` arranges them into directory and file nodes for a tree view; `sessionFileRootDirectories` names the top-level directories that cannot be deleted, moved or renamed. `uploadSessionFiles(sessionId, files, { directory })`, `createSessionDirectory(sessionId, relativePath)`, `deleteSessionFile(sessionId, relativePath, { recursive })` and `moveSessionFile(sessionId, { from, to })` manage files and folders in any retained state; moves never overwrite, and a non-empty folder is deleted only with `recursive`. `createSessionFileDownloadURL(sessionId, { relativePath, disposition: "inline" })` returns a signed URL usable as an `<img>` source. Upload contents may be a `Blob`, a `Uint8Array` or a byte `Stream`. Any stream makes the whole request body streamed, which browsers other than Chromium cannot send. Each file carries `relativePath` for `browser_file_upload` and `sandboxPath` for CDP `DOM.setFileInputFiles`.

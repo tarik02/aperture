@@ -20,8 +20,11 @@ import { PayloadSource } from "./payload-source.js";
 import { restoreStorage } from "./restore-storage.js";
 import { restoreTargets } from "./restore-targets.js";
 import { Capsule } from "./schema.js";
+import { StorageExportInput } from "./export-schema.js";
+import { exportStorage } from "./export-storage.js";
 
-const usage = "usage: aperture-browser-restore validate <capsule> | restore <cdp-url> <capsule>";
+const usage =
+  "usage: aperture-browser-restore validate <capsule> | restore <cdp-url> <capsule> | export <cdp-url> <selection>";
 
 // Exit code 2 tells Go that the capsule itself is invalid; stderr then holds the reason.
 class InvalidCapsule extends Data.TaggedError("InvalidCapsule")<{ readonly message: string }> {
@@ -103,10 +106,30 @@ const main = Effect.fnUntraced(function* () {
   }
 
   const [cdpURL, capsulePath] = args;
-  if (command !== "restore" || args.length !== 2 || !/^http:\/\/127\.0\.0\.1:\d+$/.test(cdpURL)) {
+  if (
+    (command !== "restore" && command !== "export") ||
+    args.length !== 2 ||
+    !/^http:\/\/127\.0\.0\.1:\d+$/.test(cdpURL)
+  ) {
     return yield* new UsageError({ message: usage });
   }
 
+  if (command === "export") {
+    const fs = yield* FileSystem.FileSystem;
+    const parsed = Schema.decodeUnknownResult(Schema.fromJsonString(StorageExportInput))(
+      yield* fs.readFileString(capsulePath),
+    );
+    if (Result.isFailure(parsed))
+      return yield* new InvalidCapsule({ message: "invalid storage export selection" });
+    const playwright = yield* Playwright.Playwright;
+    const browser = yield* playwright.connectCDPScoped(cdpURL, { timeout: 15_000 });
+    const result = yield* exportStorage(browser, parsed.success);
+    const output = JSON.stringify(result);
+    if (new TextEncoder().encode(output).byteLength > 64 * 1024 * 1024)
+      return yield* new RestoreFailed({ message: "storage export exceeds 64 MiB" });
+    yield* Stream.make(output).pipe(Stream.run(stdio.stdout()));
+    return;
+  }
   const capsule = yield* readCapsule(capsulePath);
   const playwright = yield* Playwright.Playwright;
   const browser = yield* playwright.connectCDPScoped(cdpURL, { timeout: 15_000 });

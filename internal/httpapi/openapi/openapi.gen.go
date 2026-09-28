@@ -318,6 +318,21 @@ func (e ErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for ExportSessionStorageStateInputOrigins0.
+const (
+	OpenTabs ExportSessionStorageStateInputOrigins0 = "open-tabs"
+)
+
+// Valid indicates whether the value is a known member of the ExportSessionStorageStateInputOrigins0 enum.
+func (e ExportSessionStorageStateInputOrigins0) Valid() bool {
+	switch e {
+	case OpenTabs:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthActiveColor.
 const (
 	HealthActiveColorBlue  HealthActiveColor = "blue"
@@ -1334,6 +1349,23 @@ type EventPage struct {
 
 	// Meta Cursor pagination metadata for a newest-first result page.
 	Meta PageMeta `json:"meta"`
+}
+
+// ExportSessionStorageStateInput Examples: {"origins":["*"]}, {"origins":["https://example.com","https://*.example.org"]}, {"origins":"open-tabs"}
+type ExportSessionStorageStateInput struct {
+	// Origins Exact origins and/or * patterns, or open-tabs to select current pages and frames.
+	Origins ExportSessionStorageStateInput_Origins `json:"origins"`
+}
+
+// ExportSessionStorageStateInputOrigins0 defines model for ExportSessionStorageStateInput.Origins.0.
+type ExportSessionStorageStateInputOrigins0 string
+
+// ExportSessionStorageStateInputOrigins1 defines model for ExportSessionStorageStateInput.Origins.1.
+type ExportSessionStorageStateInputOrigins1 = []string
+
+// ExportSessionStorageStateInput_Origins Exact origins and/or * patterns, or open-tabs to select current pages and frames.
+type ExportSessionStorageStateInput_Origins struct {
+	union json.RawMessage
 }
 
 // Health Local deployment health and blue-green role information.
@@ -2733,6 +2765,12 @@ type RotateSessionTokenParams struct {
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
 
+// ExportSessionStorageStateParams defines parameters for ExportSessionStorageState.
+type ExportSessionStorageStateParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
 // SuspendSessionParams defines parameters for SuspendSession.
 type SuspendSessionParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
@@ -2878,6 +2916,9 @@ type CreateSessionRecordingJSONRequestBody = CreateSessionRecordingInput
 // RetargetSessionRecordingJSONRequestBody defines body for RetargetSessionRecording for application/json ContentType.
 type RetargetSessionRecordingJSONRequestBody = RetargetSessionRecordingInput
 
+// ExportSessionStorageStateJSONRequestBody defines body for ExportSessionStorageState for application/json ContentType.
+type ExportSessionStorageStateJSONRequestBody = ExportSessionStorageStateInput
+
 // ReplaceSessionTagsJSONRequestBody defines body for ReplaceSessionTags for application/json ContentType.
 type ReplaceSessionTagsJSONRequestBody = ReplaceTagsInput
 
@@ -2951,6 +2992,68 @@ func (t CreateAdminTokenInput) MarshalJSON() ([]byte, error) {
 }
 
 func (t *CreateAdminTokenInput) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsExportSessionStorageStateInputOrigins0 returns the union data inside the ExportSessionStorageStateInput_Origins as a ExportSessionStorageStateInputOrigins0
+func (t ExportSessionStorageStateInput_Origins) AsExportSessionStorageStateInputOrigins0() (ExportSessionStorageStateInputOrigins0, error) {
+	var body ExportSessionStorageStateInputOrigins0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromExportSessionStorageStateInputOrigins0 overwrites any union data inside the ExportSessionStorageStateInput_Origins as the provided ExportSessionStorageStateInputOrigins0
+func (t *ExportSessionStorageStateInput_Origins) FromExportSessionStorageStateInputOrigins0(v ExportSessionStorageStateInputOrigins0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeExportSessionStorageStateInputOrigins0 performs a merge with any union data inside the ExportSessionStorageStateInput_Origins, using the provided ExportSessionStorageStateInputOrigins0
+func (t *ExportSessionStorageStateInput_Origins) MergeExportSessionStorageStateInputOrigins0(v ExportSessionStorageStateInputOrigins0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsExportSessionStorageStateInputOrigins1 returns the union data inside the ExportSessionStorageStateInput_Origins as a ExportSessionStorageStateInputOrigins1
+func (t ExportSessionStorageStateInput_Origins) AsExportSessionStorageStateInputOrigins1() (ExportSessionStorageStateInputOrigins1, error) {
+	var body ExportSessionStorageStateInputOrigins1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromExportSessionStorageStateInputOrigins1 overwrites any union data inside the ExportSessionStorageStateInput_Origins as the provided ExportSessionStorageStateInputOrigins1
+func (t *ExportSessionStorageStateInput_Origins) FromExportSessionStorageStateInputOrigins1(v ExportSessionStorageStateInputOrigins1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeExportSessionStorageStateInputOrigins1 performs a merge with any union data inside the ExportSessionStorageStateInput_Origins, using the provided ExportSessionStorageStateInputOrigins1
+func (t *ExportSessionStorageStateInput_Origins) MergeExportSessionStorageStateInputOrigins1(v ExportSessionStorageStateInputOrigins1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ExportSessionStorageStateInput_Origins) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ExportSessionStorageStateInput_Origins) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -3672,6 +3775,50 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/session-token/rotate (the `RotateSessionToken` operationId).
 	RotateSessionToken(ctx context.Context, sessionId SessionId, params *RotateSessionTokenParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExportSessionStorageStateWithBody Export browser storage from a running session
+	//
+	// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+	// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+	// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+	// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+	// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+	// Full export includes all cookies with representable HTTP partition keys.
+	// Closed sites are discovered through Chromium's site-data and quota inventories.
+	// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+	// export. A live export is not an atomic snapshot: pages may change data during collection.
+	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+	ExportSessionStorageStateWithBody(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExportSessionStorageState Export browser storage from a running session
+	//
+	// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+	// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+	// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+	// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+	// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+	// Full export includes all cookies with representable HTTP partition keys.
+	// Closed sites are discovered through Chromium's site-data and quota inventories.
+	// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+	// export. A live export is not an atomic snapshot: pages may change data during collection.
+	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+	ExportSessionStorageState(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, body ExportSessionStorageStateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SuspendSession Suspend a browser session
 	//
@@ -4914,6 +5061,70 @@ func (c *Client) ReopenSession(ctx context.Context, sessionId SessionId, params 
 // Corresponds with POST /api/sessions/{sessionId}/session-token/rotate (the `RotateSessionToken` operationId).
 func (c *Client) RotateSessionToken(ctx context.Context, sessionId SessionId, params *RotateSessionTokenParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRotateSessionTokenRequest(c.Server, sessionId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExportSessionStorageStateWithBody Export browser storage from a running session
+//
+// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+// Full export includes all cookies with representable HTTP partition keys.
+// Closed sites are discovered through Chromium's site-data and quota inventories.
+// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+// export. A live export is not an atomic snapshot: pages may change data during collection.
+// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+// the export to fail. Session storage belongs to initialTargets and is not included here.
+// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+func (c *Client) ExportSessionStorageStateWithBody(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExportSessionStorageStateRequestWithBody(c.Server, sessionId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExportSessionStorageState Export browser storage from a running session
+//
+// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+// Full export includes all cookies with representable HTTP partition keys.
+// Closed sites are discovered through Chromium's site-data and quota inventories.
+// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+// export. A live export is not an atomic snapshot: pages may change data during collection.
+// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+// the export to fail. Session storage belongs to initialTargets and is not included here.
+// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+func (c *Client) ExportSessionStorageState(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, body ExportSessionStorageStateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExportSessionStorageStateRequest(c.Server, sessionId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -7947,6 +8158,68 @@ func NewRotateSessionTokenRequest(server string, sessionId SessionId, params *Ro
 	return req, nil
 }
 
+// NewExportSessionStorageStateRequest calls the generic ExportSessionStorageState builder with application/json body
+func NewExportSessionStorageStateRequest(server string, sessionId SessionId, params *ExportSessionStorageStateParams, body ExportSessionStorageStateJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewExportSessionStorageStateRequestWithBody(server, sessionId, params, "application/json", bodyReader)
+}
+
+// NewExportSessionStorageStateRequestWithBody constructs an http.Request for the ExportSessionStorageState method, with any body, and a specified content type
+func NewExportSessionStorageStateRequestWithBody(server string, sessionId SessionId, params *ExportSessionStorageStateParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/storage-state", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewSuspendSessionRequest constructs an http.Request for the SuspendSession method
 func NewSuspendSessionRequest(server string, sessionId SessionId, params *SuspendSessionParams) (*http.Request, error) {
 	var err error
@@ -9260,6 +9533,50 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/session-token/rotate (the `RotateSessionToken` operationId).
 	RotateSessionTokenWithResponse(ctx context.Context, sessionId SessionId, params *RotateSessionTokenParams, reqEditors ...RequestEditorFn) (*RotateSessionTokenResponse, error)
+
+	// ExportSessionStorageStateWithBodyWithResponse Export browser storage from a running session
+	//
+	// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+	// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+	// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+	// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+	// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+	// Full export includes all cookies with representable HTTP partition keys.
+	// Closed sites are discovered through Chromium's site-data and quota inventories.
+	// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+	// export. A live export is not an atomic snapshot: pages may change data during collection.
+	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+	ExportSessionStorageStateWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExportSessionStorageStateResponse, error)
+
+	// ExportSessionStorageStateWithResponse Export browser storage from a running session
+	//
+	// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+	// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+	// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+	// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+	// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+	// Full export includes all cookies with representable HTTP partition keys.
+	// Closed sites are discovered through Chromium's site-data and quota inventories.
+	// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+	// export. A live export is not an atomic snapshot: pages may change data during collection.
+	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+	ExportSessionStorageStateWithResponse(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, body ExportSessionStorageStateJSONRequestBody, reqEditors ...RequestEditorFn) (*ExportSessionStorageStateResponse, error)
 
 	// SuspendSessionWithResponse Suspend a browser session
 	//
@@ -11643,6 +11960,61 @@ func (r RotateSessionTokenResponse) ContentType() string {
 	return ""
 }
 
+// ExportSessionStorageStateResponse200Headers the declared response headers of an HTTP 200 response for ExportSessionStorageState
+type ExportSessionStorageStateResponse200Headers struct {
+	CacheControl *string
+}
+
+type ExportSessionStorageStateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InitialBrowserStorageState
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ExportSessionStorageStateResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExportSessionStorageStateResponse) GetJSON200() *InitialBrowserStorageState {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ExportSessionStorageStateResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ExportSessionStorageStateResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExportSessionStorageStateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExportSessionStorageStateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExportSessionStorageStateResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type SuspendSessionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -13129,6 +13501,62 @@ func (c *ClientWithResponses) RotateSessionTokenWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseRotateSessionTokenResponse(rsp)
+}
+
+// ExportSessionStorageStateWithBodyWithResponse Export browser storage from a running session
+//
+// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+// Full export includes all cookies with representable HTTP partition keys.
+// Closed sites are discovered through Chromium's site-data and quota inventories.
+// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+// export. A live export is not an atomic snapshot: pages may change data during collection.
+// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+// the export to fail. Session storage belongs to initialTargets and is not included here.
+// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+func (c *ClientWithResponses) ExportSessionStorageStateWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExportSessionStorageStateResponse, error) {
+	rsp, err := c.ExportSessionStorageStateWithBody(ctx, sessionId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExportSessionStorageStateResponse(rsp)
+}
+
+// ExportSessionStorageStateWithResponse Export browser storage from a running session
+//
+// Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+// origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+// HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+// Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+// Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+// Full export includes all cookies with representable HTTP partition keys.
+// Closed sites are discovered through Chromium's site-data and quota inventories.
+// Temporary isolated pages read storage without fetching the selected sites. They are closed after
+// export. A live export is not an atomic snapshot: pages may change data during collection.
+// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+// Named storage buckets, opaque partitions, and values the import format cannot represent cause
+// the export to fail. Session storage belongs to initialTargets and is not included here.
+// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/storage-state (the `ExportSessionStorageState` operationId).
+func (c *ClientWithResponses) ExportSessionStorageStateWithResponse(ctx context.Context, sessionId SessionId, params *ExportSessionStorageStateParams, body ExportSessionStorageStateJSONRequestBody, reqEditors ...RequestEditorFn) (*ExportSessionStorageStateResponse, error) {
+	rsp, err := c.ExportSessionStorageState(ctx, sessionId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExportSessionStorageStateResponse(rsp)
 }
 
 // SuspendSessionWithResponse Suspend a browser session
@@ -14918,6 +15346,52 @@ func ParseRotateSessionTokenResponse(rsp *http.Response) (*RotateSessionTokenRes
 	return response, nil
 }
 
+// ParseExportSessionStorageStateResponse parses an HTTP response from a ExportSessionStorageStateWithResponse call
+func ParseExportSessionStorageStateResponse(rsp *http.Response) (*ExportSessionStorageStateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExportSessionStorageStateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InitialBrowserStorageState
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ExportSessionStorageStateResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseSuspendSessionResponse parses an HTTP response from a SuspendSessionWithResponse call
 func ParseSuspendSessionResponse(rsp *http.Response) (*SuspendSessionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -15453,6 +15927,9 @@ type ServerInterface interface {
 	// RotateSessionToken Rotate a browser session token
 	// (POST /api/sessions/{sessionId}/session-token/rotate)
 	RotateSessionToken(c *gin.Context, sessionId SessionId, params RotateSessionTokenParams)
+	// ExportSessionStorageState Export browser storage from a running session
+	// (POST /api/sessions/{sessionId}/storage-state)
+	ExportSessionStorageState(c *gin.Context, sessionId SessionId, params ExportSessionStorageStateParams)
 	// SuspendSession Suspend a browser session
 	// (POST /api/sessions/{sessionId}/suspend)
 	SuspendSession(c *gin.Context, sessionId SessionId, params SuspendSessionParams)
@@ -17504,6 +17981,55 @@ func (siw *ServerInterfaceWrapper) RotateSessionToken(c *gin.Context) {
 	siw.Handler.RotateSessionToken(c, sessionId, params)
 }
 
+// ExportSessionStorageState operation middleware
+func (siw *ServerInterfaceWrapper) ExportSessionStorageState(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportSessionStorageStateParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ExportSessionStorageState(c, sessionId, params)
+}
+
 // SuspendSession operation middleware
 func (siw *ServerInterfaceWrapper) SuspendSession(c *gin.Context) {
 
@@ -18093,6 +18619,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/collaboration-capabilities/:role/rotate", wrapper.RotateCollaborationCapability)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/cursor", wrapper.GetSessionCursor)
 	router.PUT(options.BaseURL+"/api/sessions/:sessionId/cursor", wrapper.SetSessionCursor)
+	router.POST(options.BaseURL+"/api/sessions/:sessionId/storage-state", wrapper.ExportSessionStorageState)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.ListSessionRecordings)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.CreateSessionRecording)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/recordings/:recordingId", wrapper.GetSessionRecording)
@@ -19975,6 +20502,57 @@ func (response RotateSessionTokendefaultJSONResponse) VisitRotateSessionTokenRes
 	return err
 }
 
+type ExportSessionStorageStateRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    ExportSessionStorageStateParams
+	Body      *ExportSessionStorageStateJSONRequestBody
+}
+
+type ExportSessionStorageStateResponseObject interface {
+	VisitExportSessionStorageStateResponse(w http.ResponseWriter) error
+}
+
+type ExportSessionStorageState200ResponseHeaders struct {
+	CacheControl *string
+}
+
+type ExportSessionStorageState200JSONResponse struct {
+	Body    InitialBrowserStorageState
+	Headers ExportSessionStorageState200ResponseHeaders
+}
+
+func (response ExportSessionStorageState200JSONResponse) VisitExportSessionStorageStateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportSessionStorageStatedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ExportSessionStorageStatedefaultJSONResponse) VisitExportSessionStorageStateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SuspendSessionRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Params    SuspendSessionParams
@@ -20588,6 +21166,9 @@ type StrictServerInterface interface {
 	// RotateSessionToken Rotate a browser session token
 	// (POST /api/sessions/{sessionId}/session-token/rotate)
 	RotateSessionToken(ctx context.Context, request RotateSessionTokenRequestObject) (RotateSessionTokenResponseObject, error)
+	// ExportSessionStorageState Export browser storage from a running session
+	// (POST /api/sessions/{sessionId}/storage-state)
+	ExportSessionStorageState(ctx context.Context, request ExportSessionStorageStateRequestObject) (ExportSessionStorageStateResponseObject, error)
 	// SuspendSession Suspend a browser session
 	// (POST /api/sessions/{sessionId}/suspend)
 	SuspendSession(ctx context.Context, request SuspendSessionRequestObject) (SuspendSessionResponseObject, error)
@@ -22033,6 +22614,40 @@ func (sh *strictHandler) RotateSessionToken(ctx *gin.Context, sessionId SessionI
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(RotateSessionTokenResponseObject); ok {
 		if err := validResponse.VisitRotateSessionTokenResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExportSessionStorageState operation middleware
+func (sh *strictHandler) ExportSessionStorageState(ctx *gin.Context, sessionId SessionId, params ExportSessionStorageStateParams) {
+	var request ExportSessionStorageStateRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	var body ExportSessionStorageStateJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ExportSessionStorageState(ctx, request.(ExportSessionStorageStateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExportSessionStorageState")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(ExportSessionStorageStateResponseObject); ok {
+		if err := validResponse.VisitExportSessionStorageStateResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

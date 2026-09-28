@@ -750,6 +750,48 @@ paths:
       responses:
         '200': {description: Updated remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/storage-state:
+    post:
+      operationId: exportSessionStorageState
+      tags: [sessions]
+      summary: Export browser storage from a running session
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
+      description: |
+        Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+        origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+        HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+        Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+        Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+        Full export includes all cookies with representable HTTP partition keys.
+        Closed sites are discovered through Chromium's site-data and quota inventories.
+        Temporary isolated pages read storage without fetching the selected sites. They are closed after
+        export. A live export is not an atomic snapshot: pages may change data during collection.
+        Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+        be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+        Named storage buckets, opaque partitions, and values the import format cannot represent cause
+        the export to fail. Session storage belongs to initialTargets and is not included here.
+        The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExportSessionStorageStateInput'}
+      responses:
+        '200':
+          description: Portable browser storage
+          headers:
+            Cache-Control: {schema: {type: string}, description: Always no-store.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InitialBrowserStorageState'}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/recordings:
     parameters:
       - {$ref: '#/components/parameters/SessionId'}
@@ -2396,6 +2438,22 @@ components:
         opfs:
           type: array
           items: {$ref: '#/components/schemas/InitialOPFSFile'}
+    ExportSessionStorageStateInput:
+      type: object
+      required: [origins]
+      properties:
+        origins:
+          description: Exact origins and/or * patterns, or open-tabs to select current pages and frames.
+          oneOf:
+            - {type: string, enum: [open-tabs]}
+            - type: array
+              minItems: 1
+              maxItems: 100
+              items: {type: string, minLength: 1, maxLength: 2048}
+      examples:
+        - {origins: ['*']}
+        - {origins: ['https://example.com', 'https://*.example.org']}
+        - {origins: open-tabs}
     InitialBrowserStorageState:
       type: object
       description: Profile-scoped browser storage imported before initial browser targets are opened.

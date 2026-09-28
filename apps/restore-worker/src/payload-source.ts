@@ -19,6 +19,7 @@ export class PayloadSource extends Context.Service<
     readonly targetHistoryState: (encoded: string) => string;
     readonly sessionStorage: (state: unknown) => string;
     readonly originStorage: (state: unknown) => string;
+    readonly exportOriginStorage: (quota: boolean) => string;
     /** Evaluates to the src/browser/document.ts module, for use through a JSHandle. */
     readonly documentHelpers: () => string;
   }
@@ -32,12 +33,14 @@ export class PayloadSource extends Context.Service<
         path
           .fromFileUrl(new URL(`./${name}`, import.meta.url))
           .pipe(Effect.flatMap(fs.readFileString));
-      const [target, sessionStorage, originStorage, document] = yield* Effect.all([
-        read("target.js"),
-        read("session-storage.js"),
-        read("origin-storage.js"),
-        read("document.js"),
-      ]);
+      const [target, sessionStorage, originStorage, document, exportOriginStorage] =
+        yield* Effect.all([
+          read("target.js"),
+          read("session-storage.js"),
+          read("origin-storage.js"),
+          read("document.js"),
+          read("export-origin-storage.js"),
+        ]);
 
       return PayloadSource.of({
         target: (state) => source(target, "ApertureTargetRestore", state),
@@ -45,6 +48,8 @@ export class PayloadSource extends Context.Service<
           `(() => {\n${target}\nreturn ApertureTargetRestore.restoreHistoryState(${JSON.stringify(encoded)});\n})()`,
         sessionStorage: (state) => source(sessionStorage, "ApertureSessionStorageRestore", state),
         originStorage: (state) => source(originStorage, "ApertureOriginStorageRestore", state),
+        exportOriginStorage: (quota) =>
+          source(exportOriginStorage, "ApertureOriginStorageExport", quota),
         documentHelpers: () => `(() => {\n${document}\nreturn ApertureDocument;\n})()`,
       });
     }),

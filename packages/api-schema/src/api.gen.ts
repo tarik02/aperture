@@ -66,6 +66,8 @@ export type InitialIndexedDBIndexKeyPath = { readonly "kind": "string" | "array"
 export const InitialIndexedDBIndexKeyPath = Schema.Struct({ "kind": Schema.Literals(["string", "array"]), "value": Schema.Array(Schema.String).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) }).annotate({ "description": "Index key path. String paths contain one value; array paths contain at least one.", "identifier": "InitialIndexedDBIndexKeyPath" })
 export type CursorVisibility = { readonly "visible": boolean }
 export const CursorVisibility = Schema.Struct({ "visible": Schema.Boolean.annotate({ "description": "Whether to include the remote cursor in live streams and recordings." }) }).annotate({ "description": "Whether the remote browser cursor is composited into session media.", "identifier": "CursorVisibility" })
+export type ExportSessionStorageStateInput = { readonly "origins": "open-tabs" | ReadonlyArray<string> }
+export const ExportSessionStorageStateInput = Schema.Struct({ "origins": Schema.Union([Schema.Literal("open-tabs"), Schema.Array(Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isMaxLength(2048).annotate({ "expected": "a value with a length of at most 2048" }))).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isMaxLength(100).annotate({ "expected": "a value with a length of at most 100" }))], { mode: "oneOf" }).annotate({ "description": "Exact origins and/or * patterns, or open-tabs to select current pages and frames." }) }).annotate({ "examples": [{ "origins": ["*"] }, { "origins": ["https://example.com", "https://*.example.org"] }, { "origins": "open-tabs" }], "identifier": "ExportSessionStorageStateInput" })
 export type Recording = { readonly "recordingId": string, readonly "mode": "tab" | "viewer", readonly "targetId": string, readonly "captureGeneration": number, readonly "status": "starting" | "running" | "stopped" | "failed", readonly "stopReason"?: string, readonly "relativePath": string, readonly "startedAt": string, readonly "stoppedAt"?: string, readonly "sizeBytes"?: number, readonly "fps": number, readonly "bitrateKbps": number, readonly "codec": "vp8" | "h264-va" }
 export const Recording = Schema.Struct({ "recordingId": Schema.String.annotate({ "description": "Stable recording identifier retained across target changes.", "format": "uuid" }), "mode": Schema.Literals(["tab", "viewer"]).annotate({ "description": "Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted." }), "targetId": Schema.String.annotate({ "description": "Identifier of the top-level target currently recorded." }), "captureGeneration": Schema.Number.annotate({ "description": "Assignment generation for the current top-level target.", "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })), "status": Schema.Literals(["starting", "running", "stopped", "failed"]), "stopReason": Schema.optionalKey(Schema.String.annotate({ "description": "Lifecycle reason recorded after the recording stops or fails." })), "relativePath": Schema.String.annotate({ "description": "Session file path below the session files root; host paths are never exposed.", "examples": ["recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm"] }), "startedAt": Schema.String.annotate({ "format": "date-time" }), "stoppedAt": Schema.optionalKey(Schema.String.annotate({ "format": "date-time" })), "sizeBytes": Schema.optionalKey(Schema.Number.annotate({ "format": "int64" }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" }))), "fps": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "bitrateKbps": Schema.Number.check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(1).annotate({ "expected": "a value greater than or equal to 1" })), "codec": Schema.Literals(["vp8", "h264-va"]) }).annotate({ "description": "One logical recording of a top-level target.", "identifier": "Recording" })
 export type CreateSessionRecordingInput = { readonly "targetId": string, readonly "fps"?: number, readonly "bitrateKbps"?: number, readonly "codec"?: "vp8" | "h264-va" }
@@ -441,6 +443,14 @@ export type SetSessionCursor200 = CursorVisibility
 export const SetSessionCursor200 = CursorVisibility
 export type SetSessionCursordefault = Error
 export const SetSessionCursordefault = Error
+export type ExportSessionStorageStateParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const ExportSessionStorageStateParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type ExportSessionStorageStateRequestJson = ExportSessionStorageStateInput
+export const ExportSessionStorageStateRequestJson = ExportSessionStorageStateInput
+export type ExportSessionStorageState200 = InitialBrowserStorageState
+export const ExportSessionStorageState200 = InitialBrowserStorageState
+export type ExportSessionStorageStatedefault = Error
+export const ExportSessionStorageStatedefault = Error
 export type ListSessionRecordingsParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
 export const ListSessionRecordingsParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
 export type ListSessionRecordings200 = ReadonlyArray<Recording>
@@ -1013,6 +1023,16 @@ export const make = (
     }))
     ))
   ),
+    "exportSessionStorageState": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/storage-state").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      HttpClientRequest.bodyJsonUnsafe(options.payload),
+      withResponse(options.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(ExportSessionStorageState200),
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
     "listSessionRecordings": (sessionId, options) => __makePathRequest(HttpClientRequest.get, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/recordings").pipe(
     Effect.flatMap((request) => request.pipe(
       HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options?.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
@@ -1374,6 +1394,23 @@ readonly "getSessionCursor": <Config extends OperationConfig>(sessionId: string,
 * Enables or disables compositing the remote browser cursor into the live stream and recordings.
 */
 readonly "setSessionCursor": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof SetSessionCursorParams.Encoded | undefined; readonly payload: typeof SetSessionCursorRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof SetSessionCursor200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
+* origin patterns containing * (which matches zero or more characters), ["*"] for every stored
+* HTTP origin, or "open-tabs" for the origins and partitions of current pages and frames.
+* Patterns match the complete origin, including scheme and non-default port; paths are not allowed.
+* Cookies are filtered by domain, secure flag, and selected partition; every path is included.
+* Full export includes all cookies with representable HTTP partition keys.
+* Closed sites are discovered through Chromium's site-data and quota inventories.
+* Temporary isolated pages read storage without fetching the selected sites. They are closed after
+* export. A live export is not an atomic snapshot: pages may change data during collection.
+* Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
+* be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
+* Named storage buckets, opaque partitions, and values the import format cannot represent cause
+* the export to fail. Session storage belongs to initialTargets and is not included here.
+* The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
+*/
+readonly "exportSessionStorageState": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof ExportSessionStorageStateParams.Encoded | undefined; readonly payload: typeof ExportSessionStorageStateRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof ExportSessionStorageState200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
 * Lists logical recordings without exposing host filesystem paths.
 */

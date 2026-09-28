@@ -104,6 +104,11 @@ export class SessionsApi extends Context.Service<
     readonly listSessions: SessionsList["list"];
     readonly streamSessions: SessionsList["stream"];
     readonly listAllSessions: SessionsList["listAll"];
+    readonly exportSessionStorageState: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      input: Api.ExportSessionStorageStateInput,
+    ) => Call<Api.InitialBrowserStorageState>;
     readonly getSession: (credentials: ApiCredentials, sessionId: string) => Call<Session>;
     /** Any number of IDs; the API takes 100 per request, so larger lists are sent in batches. */
     readonly getSessionsBulk: (
