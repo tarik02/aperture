@@ -5,7 +5,7 @@ import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { ApiCredentials, IceServer } from "@aperture-browser/api-client";
+import type { IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
 import type { BrowserInputMessage } from "@aperture-browser/live-session";
 import { evdevKeycodeByCode } from "@aperture-browser/live-session";
@@ -13,6 +13,7 @@ import { windowsVirtualKeyCodeForCodeOrKey } from "@aperture-browser/live-sessio
 import { LiveSessionConnection } from "@aperture-browser/live-session";
 import {
   strictParseOptions,
+  type SessionAccess,
   type CollaborationCursor,
   type CollaborationError,
   type CollaborationLeaseMode,
@@ -28,7 +29,7 @@ import {
   type LiveSessionServerMessage,
   type LiveSessionTarget,
 } from "@aperture-browser/live-session";
-import { useBaseUrl, useEffectCallback, useFork, useRuntime } from "../effect.tsx";
+import { useEffectCallback, useFork, useRuntime } from "../effect.tsx";
 
 interface InputDimensions {
   width: number;
@@ -72,11 +73,8 @@ export interface CollaborationControl {
 }
 
 interface UseLiveSessionOptions {
-  sessionId: string | null;
+  access: SessionAccess | null;
   displayName?: string | null;
-  credentials: ApiCredentials | null;
-  sessionToken?: string;
-  role: CollaborationRole;
   enabled: boolean;
   webrtcSupported: boolean;
   iceServers: readonly IceServer[];
@@ -132,19 +130,16 @@ const pointerButtonCode: Record<"left" | "right" | "middle", number> = {
 };
 
 export function useLiveSession({
-  sessionId,
+  access,
   displayName = null,
-  credentials,
-  sessionToken,
-  role,
   enabled,
   webrtcSupported,
   iceServers,
   autoSize,
 }: UseLiveSessionOptions): LiveSessionControl {
-  const identity = useMemo(() => collaborationIdentity(role, displayName), [displayName, role]);
+  const identity = useMemo(() => collaborationIdentity(displayName), [displayName]);
+  const [role, setRole] = useState<CollaborationRole>("viewer");
   const runtime = useRuntime();
-  const baseUrl = useBaseUrl();
   const frameRef = useMemo(
     () => runtime.runSync(SubscriptionRef.make<LiveSessionRasterFrame | null>(null)),
     [runtime],
@@ -205,6 +200,7 @@ export function useLiveSession({
     (message: LiveSessionServerMessage) => {
       switch (message.type) {
         case "session.snapshot":
+          setRole(message.role);
           clientIdRef.current = message.clientId;
           setClientId(message.clientId);
           holderClientIdRef.current = message.holderClientId ?? null;
@@ -318,9 +314,10 @@ export function useLiveSession({
   );
 
   useFork(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || access === null) {
       connectionRef.current = null;
       setPhase("idle");
+      setRole("viewer");
       setTargets([]);
       setActiveTargetId(null);
       setMediaStream(null);
@@ -338,13 +335,11 @@ export function useLiveSession({
       return undefined;
     }
 
+    setRole("viewer");
     // The connection lives as long as this fiber; interrupting it closes the connection.
     return Effect.gen(function* () {
       const connection = yield* LiveSessionConnection.make({
-        baseUrl,
-        sessionId,
-        credentials,
-        sessionToken,
+        access,
         identity,
         autoSize,
         iceServers,
@@ -378,16 +373,13 @@ export function useLiveSession({
     );
   }, [
     autoSize,
-    baseUrl,
-    credentials,
+    access,
     enabled,
     handleMessage,
     iceServers,
     identity,
     publishFrame,
     publishPaint,
-    sessionId,
-    sessionToken,
     webrtcSupported,
   ]);
 
@@ -850,9 +842,9 @@ const decodeStoredIdentity = Schema.decodeUnknownOption(
   strictParseOptions,
 );
 
-function collaborationIdentity(role: CollaborationRole, accountName: string | null) {
+function collaborationIdentity(accountName: string | null) {
   const anonymous = loadAnonymousIdentity();
-  if (role !== "owner" || !accountName?.trim()) {
+  if (!accountName?.trim()) {
     return anonymous;
   }
   return {
