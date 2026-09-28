@@ -12,12 +12,10 @@ import {
 
 /** Convert an editor/viewer share link into direct session access. */
 export function shareSessionAccess(token: string, baseUrl?: string): SessionAccess | null {
+  // Share tokens are `ape_` or `apv_`, the 36-character session ID, `_`, and a secret.
   const sessionId = token.slice(4, 40);
-  if (
-    (!token.startsWith("ape_") && !token.startsWith("apv_")) ||
-    token[40] !== "_" ||
-    token.slice(41).length === 0
-  ) {
+  const hasRolePrefix = token.startsWith("ape_") || token.startsWith("apv_");
+  if (!hasRolePrefix || token[40] !== "_" || token.length <= 41) {
     return null;
   }
   return {
@@ -43,6 +41,12 @@ interface SessionState {
 }
 
 const emptyIceServers: readonly IceServer[] = [];
+
+function failedStatus(httpStatus: number): SessionState["status"] {
+  if (httpStatus === 401 || httpStatus === 403) return "denied";
+  if (httpStatus === 410) return "expired";
+  return "unavailable";
+}
 
 export interface UseSessionOptions {
   readonly access: SessionAccess | null;
@@ -70,16 +74,8 @@ export function useSession({ access, displayName, onNotice }: UseSessionOptions)
     return getSessionStatus(access).pipe(
       Effect.match({
         onFailure: (error) =>
-          setState({
-            access,
-            status:
-              error.status === 401 || error.status === 403
-                ? "denied"
-                : error.status === 410
-                  ? "expired"
-                  : "unavailable",
-            browser: null,
-          }),
+          setState({ access, status: failedStatus(error.status), browser: null }),
+        // A relay may map an app-owned alias to the Aperture session, so only direct IDs must match.
         onSuccess: (browser) =>
           setState(
             access.kind === "direct" && browser.sessionId !== access.sessionId

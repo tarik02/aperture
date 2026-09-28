@@ -46,39 +46,37 @@ export function sessionWebSocketURL(access: SessionAccess, route: string): strin
   return url.toString();
 }
 
+/** Credentials the browser sends itself; relay access is authenticated by the consumer backend instead. */
+function directAuthorization(access: SessionAccess) {
+  if (access.kind !== "direct") return { token: undefined, tenantId: undefined };
+  const { credentials } = access;
+  return {
+    token: credentials.kind === "bearer" ? Redacted.value(credentials.token) : undefined,
+    tenantId: resolveTenantHeader(credentials, "tenant-scoped"),
+  };
+}
+
 export function sessionProtocols(access: SessionAccess): string[] {
+  const { token, tenantId } = directAuthorization(access);
   const protocols = [LIVE_SESSION_PROTOCOL];
-  if (access.kind === "direct") {
-    if (access.credentials.kind === "bearer") {
-      protocols.push(`authorization.bearer.${Redacted.value(access.credentials.token)}`);
-    }
-    const tenantId = resolveTenantHeader(access.credentials, "tenant-scoped");
-    if (tenantId !== undefined) {
-      protocols.push(`x-aperture-tenant-id.${tenantId}`);
-    }
-  }
+  if (token !== undefined) protocols.push(`authorization.bearer.${token}`);
+  if (tenantId !== undefined) protocols.push(`x-aperture-tenant-id.${tenantId}`);
   return protocols;
 }
 
 export const getSessionStatus = Effect.fn("getSessionStatus")(function* (access: SessionAccess) {
   const http = yield* HttpClient.HttpClient;
+  const { token, tenantId } = directAuthorization(access);
   const headers: Record<string, string> = {};
-  if (access.kind === "direct") {
-    if (access.credentials.kind === "bearer") {
-      headers.Authorization = `Bearer ${Redacted.value(access.credentials.token)}`;
-    }
-    const tenantId = resolveTenantHeader(access.credentials, "tenant-scoped");
-    if (tenantId !== undefined) {
-      headers["X-Aperture-Tenant-Id"] = tenantId;
-    }
-  }
+  if (token !== undefined) headers.Authorization = `Bearer ${token}`;
+  if (tenantId !== undefined) headers["X-Aperture-Tenant-Id"] = tenantId;
   return yield* HttpClient.filterStatusOk(http)
     .get(sessionURL(access, "browser/status").toString(), { headers })
     .pipe(
       Effect.flatMap(HttpClientResponse.schemaBodyJson(BrowserStatus)),
       Effect.provideService(FetchHttpClient.RequestInit, {
-        credentials:
-          access.kind === "direct" && access.credentials.kind === "bearer" ? "omit" : "same-origin",
+        // Bearer access must not also carry the page's cookies; relay and cookie access need them.
+        credentials: token === undefined ? "same-origin" : "omit",
         redirect: "error",
         cache: "no-store",
       }),

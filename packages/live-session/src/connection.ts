@@ -326,23 +326,29 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     }
   };
 
+  /** Closes every transport and clears what they presented; the connection itself stays usable. */
+  const stopTransports = (reason: string) => {
+    clearRetry();
+    dropCandidate();
+    active?.close();
+    active = null;
+    rejectTransportRequest(reason);
+    rejectPending(reason);
+    callbacks.onFrame(null);
+    callbacks.onStream(null);
+    callbacks.onTransport(null);
+  };
+
   const transportFailed = (transport: SessionTransport, error: LiveSessionError) => {
     if (disposed) {
       return;
     }
+    // Denied or missing sessions stop retrying until reconnect() is called explicitly.
     if (error.terminalReason !== undefined && (candidate === transport || active === transport)) {
       terminalError = error;
-      clearRetry();
-      dropCandidate();
-      active?.close();
-      active = null;
-      rejectPending(error.message);
-      rejectTransportRequest(error.message);
+      stopTransports(error.message);
       callbacks.onPhase("error");
       callbacks.onError(error.message);
-      callbacks.onFrame(null);
-      callbacks.onStream(null);
-      callbacks.onTransport(null);
       return;
     }
     if (candidate === transport) {
@@ -465,15 +471,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
 
   const close = () => {
     disposed = true;
-    clearRetry();
-    dropCandidate();
-    active?.close();
-    active = null;
-    rejectTransportRequest("live session connection closed");
-    rejectPending("live session connection closed");
-    callbacks.onFrame(null);
-    callbacks.onStream(null);
-    callbacks.onTransport(null);
+    stopTransports("live session connection closed");
   };
 
   yield* Effect.addFinalizer(() => Effect.sync(close));

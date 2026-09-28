@@ -1,4 +1,3 @@
-import { shareSessionAccess, type SessionAccess } from "@aperture-browser/session-react/headless";
 import { useEffect, useMemo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as Effect from "effect/Effect";
@@ -7,9 +6,11 @@ import {
   LiveSessionError,
   SessionViewport,
   useSession,
+  type SessionAccess,
   type SessionNotice,
   type UseBrowserControlResult,
 } from "@aperture-browser/session-react/headless";
+import { attributeAccess } from "./attribute-access.ts";
 
 export interface ApertureTab {
   readonly id: string;
@@ -46,7 +47,7 @@ const hostStyles = `
 `;
 
 interface HeadlessSessionProps {
-  readonly access: SessionAccess;
+  readonly access: SessionAccess | null;
   readonly onControl: (control: UseBrowserControlResult) => void;
   readonly onSnapshot: (snapshot: ApertureSessionSnapshot) => void;
   readonly onNotice: (notice: SessionNotice) => void;
@@ -76,6 +77,7 @@ export class ApertureSessionViewElement extends HTMLElement {
 
   #root: Root | null = null;
   #access: SessionAccess | null = null;
+  #attributeAccess = attributeAccess();
 
   get access(): SessionAccess | null {
     return this.#access;
@@ -209,15 +211,12 @@ export class ApertureSessionViewElement extends HTMLElement {
   };
 
   #render(): void {
-    const token = this.getAttribute("token");
-    const access =
-      this.#access ??
-      (token === null
-        ? null
-        : shareSessionAccess(token, this.getAttribute("base-url") ?? undefined));
+    const access = this.#access ?? this.#attributeAccess(this);
+    // An invalid token still renders, so the snapshot reports the invalid status.
+    const configured = this.#access !== null || this.hasAttribute("token");
     const baseUrl = access?.baseUrl;
     this.#root?.render(
-      access !== null ? (
+      configured ? (
         <ApertureProvider key={baseUrl ?? ""} baseUrl={baseUrl}>
           <HeadlessSession
             access={access}
