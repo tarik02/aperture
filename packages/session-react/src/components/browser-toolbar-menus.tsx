@@ -145,7 +145,7 @@ export function BrowserMenus({
             <DropdownMenuSeparator />
             <RecordingMenuItems
               control={control}
-              connected={connected && control.collaboration.role === "owner"}
+              connected={connected}
               runningRecordings={runningRecordings}
               now={now}
             />
@@ -187,7 +187,7 @@ export function BrowserMenus({
           <DropdownMenuContent align="end" className="w-72">
             <RecordingMenuItems
               control={control}
-              connected={connected && control.collaboration.role === "owner"}
+              connected={connected}
               runningRecordings={runningRecordings}
               now={now}
             />
@@ -383,7 +383,7 @@ function RecordingMenuItems({
   runningRecordings: UseBrowserControlResult["recordings"];
   now: number;
 }) {
-  const recordingAvailable = connected && control.collaboration.role === "owner";
+  const recordingAvailable = connected && control.canRecord;
   const canStart = recordingAvailable && Boolean(control.activeTargetId) && !control.recordingBusy;
   return (
     <>

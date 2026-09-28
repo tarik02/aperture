@@ -259,8 +259,8 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		}
 		return liveSessionServerMessage{Presentation: &presentation}, nil
 	case "recording.start":
-		if client.role != "owner" {
-			return liveSessionServerMessage{}, errors.New("recording requires the owner role")
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errRecordingRole
 		}
 		recording, err := session.startRecording(wrapperRecordingRequest{
 			Mode:        wrapperRecordingMode(message.Mode),
@@ -275,8 +275,8 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		}
 		return liveSessionServerMessage{Recording: &recording}, nil
 	case "recording.stop", "recording.cancel":
-		if client.role != "owner" {
-			return liveSessionServerMessage{}, errors.New("recording requires the owner role")
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errRecordingRole
 		}
 		reason := "requested"
 		if message.Type == "recording.cancel" {
@@ -394,7 +394,7 @@ func (session *liveSession) broadcastRecordings() {
 	session.mu.Lock()
 	clients := make([]*liveSessionClient, 0, len(session.clients))
 	for _, client := range session.clients {
-		if client.role == "owner" {
+		if client.canRecord() {
 			clients = append(clients, client)
 		}
 	}
@@ -472,6 +472,13 @@ func (session *liveSession) updateCursorVisibility(ctx context.Context, visible 
 	presentation := session.presentationLocked()
 	session.broadcastPresentation(presentation)
 	return presentation, nil
+}
+
+var errRecordingRole = errors.New("recording requires the owner or editor role")
+
+// canRecord reports whether the client may start, stop, and see session recordings.
+func (client *liveSessionClient) canRecord() bool {
+	return client.role == "owner" || client.role == "editor"
 }
 
 func requireBrowserMutation(client *liveSessionClient) error {

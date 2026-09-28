@@ -93,6 +93,8 @@ export interface UseBrowserControlResult {
   viewportAutoSizeDefault: boolean;
   captured: boolean;
   recordings: readonly Recording[];
+  /** Owners and editors can start, stop, and download recordings. */
+  canRecord: boolean;
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
   collaboration: CollaborationControl;
@@ -182,6 +184,7 @@ export function useBrowserControl({
   );
   const [captured, setCaptured] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
+  const canRecord = collaborationRole === "owner" || collaborationRole === "editor";
   const activeTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
   const inputDimensionsRef = useRef<BrowserViewportSize>(DEFAULT_VIEWPORT);
@@ -476,13 +479,13 @@ export function useBrowserControl({
   const startRecording = useCallback(
     (mode: "tab" | "viewer") => {
       const targetId = activeTargetIdRef.current;
-      if (!targetId || collaborationRole !== "owner" || recordingBusy) {
+      if (!targetId || !canRecord || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
       runStartRecording(mode, targetId);
     },
-    [collaborationRole, recordingBusy, runStartRecording],
+    [canRecord, recordingBusy, runStartRecording],
   );
 
   const runStopRecording = useEffectCallback(
@@ -665,6 +668,7 @@ export function useBrowserControl({
     viewportAutoSizeDefault,
     captured,
     recordings: live.recordings,
+    canRecord,
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
     collaboration: live.collaboration,

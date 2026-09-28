@@ -4,11 +4,11 @@ Apply the credential and tenant-selection rules from [authentication.md](authent
 
 ## Live-session HTTP routes
 
-- `GET /sessions/:sessionId/recordings` — list recordings, `sessions:write`
-- `POST /sessions/:sessionId/recordings` — start a recording, `sessions:write`
-- `GET /sessions/:sessionId/recordings/:recordingId` — recording status, `sessions:write`
-- `POST /sessions/:sessionId/recordings/:recordingId/stop` — stop and download, `sessions:write`
-- `GET /sessions/:sessionId/recordings/:recordingId/content` — download a stopped recording, `sessions:write`
+- `GET /sessions/:sessionId/recordings` — list recordings, `sessions:write`, `sessionToken`, or an editor capability
+- `POST /sessions/:sessionId/recordings` — start a recording, `sessions:write`, `sessionToken`, or an editor capability
+- `GET /sessions/:sessionId/recordings/:recordingId` — recording status, `sessions:write`, `sessionToken`, or an editor capability
+- `POST /sessions/:sessionId/recordings/:recordingId/stop` — stop and download, `sessions:write`, `sessionToken`, or an editor capability
+- `GET /sessions/:sessionId/recordings/:recordingId/content` — download a stopped recording, `sessions:write`, `sessionToken`, or an editor capability
 
 Tab recording body:
 

@@ -225,7 +225,7 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			rule        string
 			auth        string
 			middlewares []string
-			embeddable bool
+			embeddable  bool
 		}{
 			{
 				name:        webrtcRouterName(session.ID),
@@ -244,8 +244,9 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			{
 				name:        recordingsRouterName(session.ID),
 				rule:        pathPrefixRouterRule(sessionBase + "/recordings"),
-				auth:        ownerAuth,
+				auth:        writeAuth,
 				middlewares: []string{recordingsStrip},
+				embeddable:  true,
 			},
 			{
 				name:        browserViewportRouterName(session.ID),

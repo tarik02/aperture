@@ -259,7 +259,7 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 		return liveSessionServerMessage{}, err
 	}
 	var recordings []wrapperRecording
-	if client.role == "owner" {
+	if client.canRecord() {
 		recordings = session.listRecordings()
 	}
 	presentation := session.presentation()
