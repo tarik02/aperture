@@ -1,3 +1,4 @@
+import type { SessionAccess } from "@aperture-browser/live-session";
 import { Link } from "@tanstack/react-router";
 import * as Redacted from "effect/Redacted";
 import { PanelLeftIcon } from "lucide-react";
@@ -74,15 +75,27 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
     };
   }, [selectedSession?.collaboration, publicOrigin]);
 
+  const access = useMemo<SessionAccess | null>(
+    () =>
+      canConnectSession && selectedSession && credentials
+        ? {
+            kind: "direct",
+            sessionId: selectedSession.id,
+            credentials:
+              selectedSession.sessionToken === undefined
+                ? credentials
+                : {
+                    ...credentials,
+                    kind: "bearer",
+                    token: selectedSession.sessionToken,
+                  },
+          }
+        : null,
+    [canConnectSession, selectedSession?.id, selectedSession?.sessionToken, credentials],
+  );
   const control = useBrowserControl({
-    sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
-    credentials,
+    access,
     displayName: principal?.name ?? null,
-    sessionToken:
-      selectedSession?.sessionToken === undefined
-        ? undefined
-        : Redacted.value(selectedSession.sessionToken),
-    collaborationRole: "owner",
     enabled: canControl && tenantReady && canConnectSession,
     webrtcProducerSupported:
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,

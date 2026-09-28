@@ -12,18 +12,20 @@ The package has two entry points:
 - `@aperture-browser/session-react`: the session with its UI: tab strip, toolbar and menus.
 - `@aperture-browser/session-react/headless`: the session alone, with no UI kit or stylesheet, for apps that build their own controls.
 
-Both take a share link's editor (`ape_…`) or viewer (`apv_…`) token and grant exactly what the link grants. When Aperture runs on another origin, it must list your origin in [`embed_allowed_origins`](/docs/session-sharing#embedding).
+Both use a `SessionAccess` connection: direct Aperture access or a same-origin [backend relay](/docs/packages/session-relay). The relay authenticates the app user and keeps Aperture credentials on the backend. Direct cross-origin access requires [`embed_allowed_origins`](/docs/session-sharing#embedding).
 
 ## Full UI
 
 ```tsx
-import { ApertureSession } from "@aperture-browser/session-react";
+import { useMemo } from "react";
+import { ApertureSession, shareSessionAccess } from "@aperture-browser/session-react";
 import "@aperture-browser/session-react/styles.css";
 
 export function SharedBrowser({ token }: { token: string }) {
+  const access = useMemo(() => shareSessionAccess(token, "https://aperture.example"), [token]);
   return (
     <div style={{ height: 600 }}>
-      <ApertureSession baseUrl="https://aperture.example" token={token} />
+      <ApertureSession access={access} />
     </div>
   );
 }
@@ -34,6 +36,16 @@ export function SharedBrowser({ token }: { token: string }) {
   path="../../packages/session-react/src/aperture-session.tsx"
   name="ApertureSessionProps"
 />
+
+### Consumer-authenticated relay
+
+```tsx
+const access = { kind: "relay", baseUrl: "/aperture", sessionId: "your-session-id" } as const;
+
+<ApertureSession access={access} />;
+```
+
+No token or role is supplied by the browser. The consumer backend authenticates its own login cookie and selects an upstream viewer/editor capability. Relative mount prefixes are preserved for status and both WebSockets. WebRTC video and data channels still connect directly to Aperture.
 
 ### Features
 
@@ -57,11 +69,12 @@ The component uses your page's font. To pick others, set `--aperture-font-sans` 
 import {
   ApertureProvider,
   SessionViewport,
-  useSharedSession,
+  useSession,
+  type SessionAccess,
 } from "@aperture-browser/session-react/headless";
 
-function Browser({ token }: { token: string }) {
-  const { status, control } = useSharedSession({ token, onNotice: console.warn });
+function Browser({ access }: { access: SessionAccess }) {
+  const { status, control } = useSession({ access, onNotice: console.warn });
   if (status !== "ready") return <p>{status}</p>;
   return (
     <>
@@ -76,29 +89,31 @@ function Browser({ token }: { token: string }) {
   );
 }
 
-export const App = ({ token }: { token: string }) => (
-  <ApertureProvider baseUrl="https://aperture.example">
-    <Browser token={token} />
+const access: SessionAccess = { kind: "relay", baseUrl: "/aperture", sessionId: "your-session-id" };
+
+export const App = () => (
+  <ApertureProvider>
+    <Browser access={access} />
   </ApertureProvider>
 );
 ```
 
-`ApertureProvider` creates the Effect runtime the hooks run on, pointed at `baseUrl`.
+`ApertureProvider` creates the Effect runtime the hooks run on. Session routes use `access.baseUrl`; the provider's optional `baseUrl` configures account/management API calls only. Keep the `access` object stable across renders, for example with `useMemo`.
 
-### useSharedSession
+### useSession
 
-Resolves the token and connects once it is ready. `status` is `loading`, `ready`, `invalid`, `expired` or `unavailable`. `onNotice` receives the errors and confirmations the full UI shows as toasts.
+Loads session status and connects. `status` is `loading`, `ready`, `invalid`, `denied`, `expired` or `unavailable`. `ready` means bootstrap succeeded; inspect `control.phase` for the live connection. The server snapshot supplies `control.collaboration.role`; controls remain restricted until connected. `onNotice` receives the errors and confirmations the full UI shows as toasts.
 
 <auto-type-table
   cwd
-  path="../../packages/session-react/src/shared-session.ts"
-  name="UseSharedSessionOptions"
+  path="../../packages/session-react/src/session.ts"
+  name="UseSessionOptions"
 />
 
 <auto-type-table
   cwd
-  path="../../packages/session-react/src/shared-session.ts"
-  name="UseSharedSessionResult"
+  path="../../packages/session-react/src/session.ts"
+  name="UseSessionResult"
 />
 
 `control` lists the tabs (`targets`, `activeTargetId`) and has fire-and-forget actions such as `navigate`, `historyBack`, `createTarget` and `activateTarget`. `control.commands` has the same actions as Effects that succeed once Aperture has carried them out and fail with a `LiveSessionError` otherwise:
@@ -132,6 +147,6 @@ Shows the active tab and forwards keyboard, pointer and clipboard input to it. I
 
 ## Lower-level pieces
 
-`SharedSession` is the full view without its own runtime, tooltip provider and toaster, for apps that provide them (`RuntimeProvider` with `makeApertureRuntime`, and `TooltipProvider`). `useBrowserControl` and `BrowserControlPane` drive and render a session for other credentials. These are what the Aperture web app is built from.
+`Session` is the full view without its own runtime, tooltip provider and toaster, for apps that provide them (`RuntimeProvider` with `makeApertureRuntime`, and `TooltipProvider`). `useBrowserControl` and `BrowserControlPane` drive and render a session for other credentials. These are what the Aperture web app is built from.
 
 Requires `effect` 4 and React 19.

@@ -15,27 +15,22 @@ import { BrowserControlPane } from "./components/browser-control-pane.tsx";
 import type { ApertureSessionFeatures, SessionFeatures } from "./features.ts";
 import { showNotice } from "./notices.ts";
 import { ApertureProvider } from "./provider.tsx";
-import { useSharedSession } from "./shared-session.ts";
+import { useSession } from "./session.ts";
+import type { SessionAccess } from "@aperture-browser/live-session";
 
-export interface SharedSessionProps {
-  readonly token: string;
+export interface SessionProps {
+  readonly access: SessionAccess | null;
   readonly features?: SessionFeatures;
   readonly leading?: ReactNode;
 }
 
-export interface ApertureSessionProps extends SharedSessionProps {
-  readonly baseUrl?: string;
+export interface ApertureSessionProps extends SessionProps {
   readonly features?: ApertureSessionFeatures;
   readonly theme?: "light" | "dark" | "system";
   readonly className?: string;
 }
 
-export function ApertureSession({
-  baseUrl,
-  theme = "system",
-  className,
-  ...props
-}: ApertureSessionProps) {
+export function ApertureSession({ theme = "system", className, ...props }: ApertureSessionProps) {
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const dark = useDarkTheme(theme);
 
@@ -45,10 +40,10 @@ export function ApertureSession({
       className={cn("aperture-root relative h-full w-full", dark && "dark", className)}
     >
       {root ? (
-        <ApertureProvider baseUrl={baseUrl}>
+        <ApertureProvider baseUrl={props.access?.baseUrl}>
           <PortalContainerProvider container={root}>
             <TooltipProvider>
-              <SharedSession {...props} />
+              <Session {...props} />
               {props.features?.toaster !== false ? (
                 <Toaster
                   theme={dark ? "dark" : "light"}
@@ -82,36 +77,42 @@ function useDarkTheme(theme: "light" | "dark" | "system"): boolean {
   return theme === "dark" || (theme === "system" && systemDark);
 }
 
-export function SharedSession({ token, features, leading }: SharedSessionProps) {
-  const { status, share, control } = useSharedSession({ token, onNotice: showNotice });
+export function Session({ access, features, leading }: SessionProps) {
+  const { status, control } = useSession({ access, onNotice: showNotice });
 
   switch (status) {
     case "invalid":
       return (
         <SessionState
           icon={<Link2Off />}
-          title="Invalid share link"
-          description="This link does not contain a valid session capability."
+          title="Invalid session access"
+          description="Provide a valid session connection."
         />
       );
     case "loading":
+      return <SessionState icon={<Loader2 className="animate-spin" />} title="Opening session" />;
+    case "denied":
       return (
-        <SessionState icon={<Loader2 className="animate-spin" />} title="Opening shared session" />
+        <SessionState
+          icon={<Link2Off />}
+          title="Session access denied"
+          description="Sign in to the app or ask for access to this session."
+        />
       );
     case "expired":
       return (
         <SessionState
           icon={<Link2Off />}
-          title="Share link expired"
-          description="This session capability has expired. Ask the session owner for a new link."
+          title="Session access expired"
+          description="Ask the session owner to renew access."
         />
       );
     case "unavailable":
       return (
         <SessionState
           icon={<Link2Off />}
-          title="Shared session unavailable"
-          description="This link is invalid, revoked, or the shared session is no longer available."
+          title="Session unavailable"
+          description="This session is unavailable or access has been revoked."
         />
       );
     case "ready":
@@ -119,7 +120,7 @@ export function SharedSession({ token, features, leading }: SharedSessionProps) 
         <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
           <BrowserControlPane
             control={control}
-            collaborationRole={share?.role ?? "viewer"}
+            collaborationRole={control.collaboration.role}
             cdpUrl={null}
             shareUrls={null}
             leading={leading}
