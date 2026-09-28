@@ -1,23 +1,27 @@
 package browser
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os/exec"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
-
-	"github.com/chromedp/cdproto/page"
 )
 
 const (
 	// ThumbnailWidth bounds the width of captured thumbnails in pixels.
 	ThumbnailWidth = 640
 	// Repeated hovers share one capture instead of screenshotting the page each time.
-	thumbnailCacheTTL = 2 * time.Second
-	thumbnailQuality  = 70
+	thumbnailCacheTTL     = 2 * time.Second
+	thumbnailQuality      = 70
+	thumbnailCaptureLimit = 4 * 1024 * 1024
 
 	// ThumbnailTargetHeader names the target a session thumbnail shows.
 	ThumbnailTargetHeader = "X-Aperture-Thumbnail-Target"
@@ -76,30 +80,17 @@ func (session *liveSession) thumbnail(targetID string) (wrapperThumbnail, error)
 		return cached, nil
 	}
 
-	var image []byte
-	err := session.browser.withTarget(targetID, func(ctx context.Context) error {
-		_, _, _, _, viewport, _, err := page.GetLayoutMetrics().Do(ctx)
-		if err != nil {
-			return err
-		}
-		if viewport == nil || viewport.ClientWidth <= 0 || viewport.ClientHeight <= 0 {
-			return errors.New("target has no visible viewport")
-		}
-		scale := min(1, float64(ThumbnailWidth)/viewport.ClientWidth)
-		image, err = page.CaptureScreenshot().
-			WithFormat(page.CaptureScreenshotFormatJpeg).
-			WithQuality(thumbnailQuality).
-			WithOptimizeForSpeed(true).
-			WithClip(&page.Viewport{
-				X:      viewport.PageX,
-				Y:      viewport.PageY,
-				Width:  viewport.ClientWidth,
-				Height: viewport.ClientHeight,
-				Scale:  scale,
-			}).
-			Do(ctx)
-		return err
-	})
+	session.runtime.mu.Lock()
+	registry := session.runtime.targets
+	session.runtime.mu.Unlock()
+	if registry == nil {
+		return wrapperThumbnail{}, errors.New("target registry is unavailable")
+	}
+	target, ready := registry.readyTarget(targetID)
+	if !ready {
+		return wrapperThumbnail{}, errThumbnailTargetNotFound
+	}
+	image, err := session.captureThumbnail(target)
 	if err != nil {
 		return wrapperThumbnail{}, err
 	}
@@ -112,6 +103,92 @@ func (session *liveSession) thumbnail(targetID string) (wrapperThumbnail, error)
 	cache.entries[targetID] = captured
 	cache.mu.Unlock()
 	return captured, nil
+}
+
+func (session *liveSession) captureThumbnail(target wrapperTargetSnapshot) ([]byte, error) {
+	viewport := target.Viewport
+	if target.PipeWireTarget == "" || target.CaptureID == "" || viewport.ContentWidth <= 0 || viewport.ContentHeight <= 0 {
+		return nil, errors.New("target has no capturable compositor output")
+	}
+	cropRight := viewport.CanvasWidth - viewport.ContentWidth
+	cropBottom := viewport.CanvasHeight - viewport.ContentHeight
+	if cropRight < 0 || cropBottom < 0 {
+		return nil, errors.New("target compositor viewport is invalid")
+	}
+	width := min(ThumbnailWidth, viewport.ContentWidth)
+	height := max(1, (viewport.ContentHeight*width+viewport.ContentWidth/2)/viewport.ContentWidth)
+
+	ctx, cancel := context.WithTimeout(session.runtime.ctx, liveSessionBrowserCommandTimeout)
+	defer cancel()
+	args := []string{
+		"-q",
+		"-e",
+		"pipewiresrc",
+		"target-object=" + target.PipeWireTarget,
+		"do-timestamp=true",
+		"provide-clock=false",
+		"use-bufferpool=false",
+		"min-buffers=4",
+		"max-buffers=8",
+		"keepalive-time=100",
+		"num-buffers=1",
+		"!",
+		fmt.Sprintf("video/x-raw,width=%d,height=%d,pixel-aspect-ratio=1/1", viewport.CanvasWidth, viewport.CanvasHeight),
+		"!",
+		"queue",
+		"max-size-buffers=1",
+		"leaky=downstream",
+		"!",
+		"videocrop",
+		"right=" + strconv.Itoa(cropRight),
+		"bottom=" + strconv.Itoa(cropBottom),
+		"!",
+		"videoconvert",
+		"!",
+		"videoscale",
+		"!",
+		fmt.Sprintf("video/x-raw,width=%d,height=%d,pixel-aspect-ratio=1/1", width, height),
+		"!",
+		"jpegenc",
+		"quality=" + strconv.Itoa(thumbnailQuality),
+		"!",
+		"fdsink",
+		"fd=1",
+		"sync=false",
+	}
+	cmd := exec.CommandContext(ctx, session.runtime.values.MediaProducerGSTExecutable, args...)
+	cmd.Env = wrapperMediaProcessEnv(session.runtime.values.MediaProducerPluginPath)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("open thumbnail capture output: %w", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start thumbnail capture: %w", err)
+	}
+	image, readErr := io.ReadAll(io.LimitReader(stdout, thumbnailCaptureLimit+1))
+	if len(image) > thumbnailCaptureLimit {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if readErr != nil {
+		return nil, fmt.Errorf("read thumbnail capture: %w", readErr)
+	}
+	if len(image) > thumbnailCaptureLimit {
+		return nil, errors.New("thumbnail capture exceeded the response limit")
+	}
+	if waitErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return nil, fmt.Errorf("capture compositor output: %w: %s", waitErr, detail)
+		}
+		return nil, fmt.Errorf("capture compositor output: %w", waitErr)
+	}
+	if len(image) < 2 || image[0] != 0xff || image[1] != 0xd8 {
+		return nil, errors.New("compositor did not produce a JPEG thumbnail")
+	}
+	return image, nil
 }
 
 // handleThumbnail serves a JPEG of one target, or of the session's target when none is given.

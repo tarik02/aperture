@@ -26,8 +26,18 @@ import type { LiveSessionTarget } from "@aperture-browser/live-session";
 import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
+const TAB_PREVIEW_WIDTH = 320;
+const TAB_PREVIEW_CAPTURE_WIDTH = 640;
+const TAB_PREVIEW_MARGIN = 16;
+const TAB_PREVIEW_GAP = 8;
 
 type LoadThumbnail = UseBrowserControlResult["loadTargetThumbnail"];
+
+interface TabPreviewState {
+  targetId: string;
+  top: number;
+  left: number;
+}
 
 interface BrowserTabStripProps {
   targets: readonly LiveSessionTarget[];
@@ -71,17 +81,7 @@ export function BrowserTabStrip({
   onReorder,
   loadThumbnail = null,
 }: BrowserTabStripProps) {
-  const [previewTargetId, setPreviewTargetId] = useState<string | null>(null);
-  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (previewTimer.current !== null) {
-        clearTimeout(previewTimer.current);
-      }
-    },
-    [],
-  );
+  const [preview, setPreview] = useState<TabPreviewState | null>(null);
 
   if (targets.length === 0) {
     return (
@@ -92,7 +92,7 @@ export function BrowserTabStrip({
     );
   }
 
-  const previewTarget = targets.find((target) => target.id === previewTargetId) ?? null;
+  const previewTarget = targets.find((target) => target.id === preview?.targetId) ?? null;
 
   return (
     <>
@@ -114,21 +114,23 @@ export function BrowserTabStrip({
                 onClose={onClose}
                 onReload={onReload}
                 onReorder={onReorder}
-                onPreviewEnter={(targetId) => {
-                  if (previewTimer.current !== null) {
-                    clearTimeout(previewTimer.current);
-                  }
-                  previewTimer.current = setTimeout(() => {
-                    previewTimer.current = null;
-                    setPreviewTargetId(targetId);
-                  }, 400);
+                onPreviewEnter={(targetId, element) => {
+                  const rect = element.getBoundingClientRect();
+                  const width = Math.min(
+                    TAB_PREVIEW_WIDTH,
+                    window.innerWidth - TAB_PREVIEW_MARGIN * 2,
+                  );
+                  setPreview({
+                    targetId,
+                    top: rect.bottom + TAB_PREVIEW_GAP,
+                    left: Math.max(
+                      TAB_PREVIEW_MARGIN,
+                      Math.min(rect.left, window.innerWidth - width - TAB_PREVIEW_MARGIN),
+                    ),
+                  });
                 }}
                 onPreviewLeave={(targetId) => {
-                  if (previewTimer.current !== null) {
-                    clearTimeout(previewTimer.current);
-                    previewTimer.current = null;
-                  }
-                  setPreviewTargetId((current) => (current === targetId ? null : current));
+                  setPreview((current) => (current?.targetId === targetId ? null : current));
                 }}
                 closeOtherTargetIds={targets
                   .filter((current) => current.id !== target.id)
@@ -140,11 +142,14 @@ export function BrowserTabStrip({
           <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
         </div>
       </ScrollArea>
-      {previewTarget && loadThumbnail ? (
+      {preview && previewTarget && loadThumbnail ? (
         <TabPreviewPanel
           key={previewTarget.id}
           target={previewTarget}
+          active={previewTarget.id === activeTargetId}
           loadThumbnail={loadThumbnail}
+          top={preview.top}
+          left={preview.left}
         />
       ) : null}
     </>
@@ -183,7 +188,7 @@ function BrowserTab({
     destinationTargetId: string,
     placement: DropPlacement,
   ) => void;
-  onPreviewEnter: (targetId: string) => void;
+  onPreviewEnter: (targetId: string, element: HTMLElement) => void;
   onPreviewLeave: (targetId: string) => void;
   closeOtherTargetIds: string[];
   closeRightTargetIds: string[];
@@ -249,7 +254,7 @@ function BrowserTab({
                 : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
               dragging && "opacity-60",
             )}
-            onPointerEnter={() => onPreviewEnter(target.id)}
+            onPointerEnter={(event) => onPreviewEnter(target.id, event.currentTarget)}
             onPointerLeave={() => onPreviewLeave(target.id)}
             onMouseDown={(event) => {
               if (event.button === 1) {
@@ -443,32 +448,79 @@ function dropPlacementFromClientX(element: Element, clientX: number): DropPlacem
   return clientX < rect.left + rect.width / 2 ? "before" : "after";
 }
 
+function capturePresentedThumbnail(): Effect.Effect<Blob, Error> {
+  return Effect.tryPromise({
+    try: async () => {
+      const video = document.querySelector<HTMLVideoElement>("video[data-viewport-width]");
+      if (
+        !video ||
+        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+        video.videoWidth <= 0
+      ) {
+        throw new Error("presented browser frame is unavailable");
+      }
+      const viewportWidth = Number(video.dataset.viewportWidth);
+      const viewportHeight = Number(video.dataset.viewportHeight);
+      const contentHeight =
+        viewportWidth > 0 && viewportHeight > 0
+          ? Math.min(
+              video.videoHeight,
+              Math.round((viewportHeight * video.videoWidth) / viewportWidth),
+            )
+          : video.videoHeight;
+      const width = Math.min(TAB_PREVIEW_CAPTURE_WIDTH, video.videoWidth);
+      const height = Math.max(1, Math.round((contentHeight * width) / video.videoWidth));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("browser frame canvas is unavailable");
+      }
+      context.drawImage(video, 0, 0, video.videoWidth, contentHeight, 0, 0, width, height);
+      return await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error("browser frame encoding failed"))),
+          "image/jpeg",
+          0.7,
+        );
+      });
+    },
+    catch: (cause) => (cause instanceof Error ? cause : new Error("browser frame capture failed")),
+  });
+}
+
 function TabPreviewPanel({
   target,
+  active,
   loadThumbnail,
+  top,
+  left,
 }: {
   target: LiveSessionTarget;
+  active: boolean;
   loadThumbnail: NonNullable<LoadThumbnail>;
+  top: number;
+  left: number;
 }) {
   const portalContainer = usePortalContainer();
   const [src, setSrc] = useState<string | null>(null);
 
   useFork(
     () =>
-      loadThumbnail(target.id).pipe(
-        Effect.match({
-          onFailure: () => setSrc(null),
-          onSuccess: (blob) => setSrc(URL.createObjectURL(blob)),
-        }),
+      Effect.gen(function* () {
+        const thumbnail = active ? capturePresentedThumbnail() : loadThumbnail(target.id);
+        const blob = yield* thumbnail;
+        const objectUrl = URL.createObjectURL(blob);
+        yield* Effect.addFinalizer(() => Effect.sync(() => URL.revokeObjectURL(objectUrl)));
+        setSrc(objectUrl);
+        return yield* Effect.never;
+      }).pipe(
+        Effect.catch(() => Effect.void),
+        Effect.scoped,
       ),
-    [loadThumbnail, target.id],
+    [active, loadThumbnail, target.id],
   );
-  useEffect(() => {
-    if (src === null) {
-      return undefined;
-    }
-    return () => URL.revokeObjectURL(src);
-  }, [src]);
 
   const container = portalContainer ?? (typeof document === "undefined" ? null : document.body);
   if (container === null) {
@@ -478,12 +530,11 @@ function TabPreviewPanel({
   return createPortal(
     <div
       data-browser-tab-preview
-      className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2 rounded-lg bg-popover p-2 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      style={{ top, left }}
+      className="pointer-events-none fixed z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-lg bg-popover p-2 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
     >
       <div className="aspect-video w-full overflow-hidden rounded-md bg-muted">
-        {src === null ? null : (
-          <img src={src} alt="" className="size-full object-cover object-top" />
-        )}
+        {src ? <img src={src} alt="" className="size-full object-cover object-top" /> : null}
       </div>
       <span className="truncate text-xs font-medium">
         {target.title || simplifyUrl(target.url)}
