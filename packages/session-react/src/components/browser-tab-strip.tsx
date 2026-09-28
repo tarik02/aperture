@@ -441,23 +441,6 @@ function TabPreview({
   target: LiveSessionTarget;
   loadThumbnail: NonNullable<LoadThumbnail>;
 }) {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useFork(
-    () =>
-      Effect.gen(function* () {
-        const blob = yield* loadThumbnail(target.id);
-        const objectUrl = URL.createObjectURL(blob);
-        yield* Effect.addFinalizer(() => Effect.sync(() => URL.revokeObjectURL(objectUrl)));
-        setSrc(objectUrl);
-        return yield* Effect.never;
-      }).pipe(
-        Effect.catch(() => Effect.void),
-        Effect.scoped,
-      ),
-    [loadThumbnail, target.id],
-  );
-
   return (
     <HoverCardContent
       data-browser-tab-preview
@@ -466,9 +449,7 @@ function TabPreview({
       collisionPadding={16}
       className="pointer-events-none flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 p-2"
     >
-      <div className="aspect-video w-full overflow-hidden rounded-md bg-muted">
-        {src ? <img src={src} alt="" className="size-full object-cover object-top" /> : null}
-      </div>
+      <TabThumbnail targetId={target.id} loadThumbnail={loadThumbnail} />
       <span className="truncate text-xs font-medium">
         {target.title || simplifyUrl(target.url)}
       </span>
@@ -476,5 +457,37 @@ function TabPreview({
         {target.url || "about:blank"}
       </span>
     </HoverCardContent>
+  );
+}
+
+// Lives inside the popup, which unmounts on close, so every opening loads a fresh thumbnail.
+function TabThumbnail({
+  targetId,
+  loadThumbnail,
+}: {
+  targetId: string;
+  loadThumbnail: NonNullable<LoadThumbnail>;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useFork(
+    () =>
+      Effect.gen(function* () {
+        const blob = yield* loadThumbnail(targetId);
+        const objectUrl = URL.createObjectURL(blob);
+        yield* Effect.addFinalizer(() => Effect.sync(() => URL.revokeObjectURL(objectUrl)));
+        setSrc(objectUrl);
+        return yield* Effect.never;
+      }).pipe(
+        Effect.catch(() => Effect.void),
+        Effect.scoped,
+      ),
+    [loadThumbnail, targetId],
+  );
+
+  return (
+    <div className="aspect-video w-full overflow-hidden rounded-md bg-muted">
+      {src ? <img src={src} alt="" className="size-full object-cover object-top" /> : null}
+    </div>
   );
 }
