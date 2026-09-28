@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,7 +25,6 @@ const (
 	thumbnailCacheTTL     = 2 * time.Second
 	thumbnailQuality      = 70
 	thumbnailCaptureLimit = 4 * 1024 * 1024
-	thumbnailStderrLimit  = 32 * 1024
 	thumbnailMaxAttempts  = 2
 
 	// ThumbnailTargetHeader names the target a session thumbnail shows.
@@ -46,23 +46,6 @@ type wrapperThumbnailCache struct {
 	captureMu sync.Mutex
 	mu        sync.Mutex
 	entries   map[string]wrapperThumbnail
-}
-
-type thumbnailErrorOutput struct {
-	data []byte
-}
-
-func (output *thumbnailErrorOutput) Write(p []byte) (int, error) {
-	written := len(p)
-	remaining := thumbnailStderrLimit - len(output.data)
-	if remaining > 0 {
-		output.data = append(output.data, p[:min(len(p), remaining)]...)
-	}
-	return written, nil
-}
-
-func (output *thumbnailErrorOutput) String() string {
-	return string(output.data)
 }
 
 // WrapperThumbnailTargets lists the targets that have thumbnails and the one that represents the session.
@@ -180,7 +163,7 @@ func (session *liveSession) captureThumbnail(target wrapperTargetSnapshot) ([]by
 		ctx,
 		session.runtime.controlSocket,
 		"capture-client "+target.CaptureID+"\n",
-		int(compositorSocket.Fd()),
+		compositorSocket,
 	); err != nil {
 		return nil, fmt.Errorf("authorize thumbnail capture: %w", err)
 	}
@@ -205,7 +188,7 @@ func (session *liveSession) captureThumbnail(target wrapperTargetSnapshot) ([]by
 	if err != nil {
 		return nil, fmt.Errorf("open thumbnail capture output: %w", err)
 	}
-	var stderr thumbnailErrorOutput
+	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start thumbnail capture: %w", err)

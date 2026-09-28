@@ -4,10 +4,16 @@ import {
   dropTargetForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import * as Effect from "effect/Effect";
 import { Globe2, Plus, Wrench, X } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
+import {
+  createHoverCardHandle,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+  type HoverCardHandle,
+} from "@aperture-browser/ui/components/hover-card";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -18,7 +24,6 @@ import {
 } from "@aperture-browser/ui/components/context-menu";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
-import { usePortalContainer } from "@aperture-browser/ui/portal";
 import { copyTextWithToast } from "../clipboard.ts";
 import { useEffectCallback, useFork } from "../effect.tsx";
 import { cn } from "@aperture-browser/ui/utils";
@@ -26,17 +31,8 @@ import type { LiveSessionTarget } from "@aperture-browser/live-session";
 import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
-const TAB_PREVIEW_WIDTH = 320;
-const TAB_PREVIEW_MARGIN = 16;
-const TAB_PREVIEW_GAP = 8;
 
 type LoadThumbnail = UseBrowserControlResult["loadTargetThumbnail"];
-
-interface TabPreviewState {
-  targetId: string;
-  top: number;
-  left: number;
-}
 
 interface BrowserTabStripProps {
   targets: readonly LiveSessionTarget[];
@@ -80,7 +76,7 @@ export function BrowserTabStrip({
   onReorder,
   loadThumbnail = null,
 }: BrowserTabStripProps) {
-  const [preview, setPreview] = useState<TabPreviewState | null>(null);
+  const [previewHandle] = useState(() => createHoverCardHandle<string>());
 
   if (targets.length === 0) {
     return (
@@ -90,8 +86,6 @@ export function BrowserTabStrip({
       </div>
     );
   }
-
-  const previewTarget = targets.find((target) => target.id === preview?.targetId) ?? null;
 
   return (
     <>
@@ -113,24 +107,7 @@ export function BrowserTabStrip({
                 onClose={onClose}
                 onReload={onReload}
                 onReorder={onReorder}
-                onPreviewEnter={(targetId, element) => {
-                  const rect = element.getBoundingClientRect();
-                  const width = Math.min(
-                    TAB_PREVIEW_WIDTH,
-                    window.innerWidth - TAB_PREVIEW_MARGIN * 2,
-                  );
-                  setPreview({
-                    targetId,
-                    top: rect.bottom + TAB_PREVIEW_GAP,
-                    left: Math.max(
-                      TAB_PREVIEW_MARGIN,
-                      Math.min(rect.left, window.innerWidth - width - TAB_PREVIEW_MARGIN),
-                    ),
-                  });
-                }}
-                onPreviewLeave={(targetId) => {
-                  setPreview((current) => (current?.targetId === targetId ? null : current));
-                }}
+                previewHandle={loadThumbnail ? previewHandle : null}
                 closeOtherTargetIds={targets
                   .filter((current) => current.id !== target.id)
                   .map((current) => current.id)}
@@ -141,14 +118,15 @@ export function BrowserTabStrip({
           <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
         </div>
       </ScrollArea>
-      {preview && previewTarget && loadThumbnail ? (
-        <TabPreviewPanel
-          key={previewTarget.id}
-          target={previewTarget}
-          loadThumbnail={loadThumbnail}
-          top={preview.top}
-          left={preview.left}
-        />
+      {loadThumbnail ? (
+        <HoverCard handle={previewHandle}>
+          {({ payload }) => {
+            const target = targets.find((current) => current.id === payload);
+            return target ? (
+              <TabPreview key={target.id} target={target} loadThumbnail={loadThumbnail} />
+            ) : null;
+          }}
+        </HoverCard>
       ) : null}
     </>
   );
@@ -166,8 +144,7 @@ function BrowserTab({
   onClose,
   onReload,
   onReorder,
-  onPreviewEnter,
-  onPreviewLeave,
+  previewHandle,
   closeOtherTargetIds,
   closeRightTargetIds,
 }: {
@@ -186,8 +163,7 @@ function BrowserTab({
     destinationTargetId: string,
     placement: DropPlacement,
   ) => void;
-  onPreviewEnter: (targetId: string, element: HTMLElement) => void;
-  onPreviewLeave: (targetId: string) => void;
+  previewHandle: HoverCardHandle<string> | null;
   closeOtherTargetIds: string[];
   closeRightTargetIds: string[];
 }) {
@@ -238,34 +214,46 @@ function BrowserTab({
     );
   }, [onReorder, target.id]);
 
+  const tab = (
+    <div
+      ref={tabRef}
+      data-browser-tab
+      className={cn(
+        "group relative flex h-7 w-52 max-w-[38vw] min-w-28 cursor-grab select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-[background-color,border-color,color,opacity] active:cursor-grabbing",
+        active
+          ? "border-border bg-background text-foreground"
+          : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
+        dragging && "opacity-60",
+      )}
+      onMouseDown={(event) => {
+        if (event.button === 1) {
+          event.preventDefault();
+        }
+      }}
+      onAuxClick={(event) => {
+        if (event.button === 1 && !disabled && !mutationDisabled) {
+          event.preventDefault();
+          onClose(target.id);
+        }
+      }}
+    />
+  );
+
   return (
     <ContextMenu>
       <ContextMenuTrigger
         render={
-          <div
-            ref={tabRef}
-            data-browser-tab
-            className={cn(
-              "group relative flex h-7 w-52 max-w-[38vw] min-w-28 cursor-grab select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-[background-color,border-color,color,opacity] active:cursor-grabbing",
-              active
-                ? "border-border bg-background text-foreground"
-                : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
-              dragging && "opacity-60",
-            )}
-            onPointerEnter={(event) => onPreviewEnter(target.id, event.currentTarget)}
-            onPointerLeave={() => onPreviewLeave(target.id)}
-            onMouseDown={(event) => {
-              if (event.button === 1) {
-                event.preventDefault();
-              }
-            }}
-            onAuxClick={(event) => {
-              if (event.button === 1 && !disabled && !mutationDisabled) {
-                event.preventDefault();
-                onClose(target.id);
-              }
-            }}
-          />
+          previewHandle ? (
+            <HoverCardTrigger
+              handle={previewHandle}
+              payload={target.id}
+              delay={0}
+              closeDelay={0}
+              render={tab}
+            />
+          ) : (
+            tab
+          )
         }
       >
         <span
@@ -446,18 +434,13 @@ function dropPlacementFromClientX(element: Element, clientX: number): DropPlacem
   return clientX < rect.left + rect.width / 2 ? "before" : "after";
 }
 
-function TabPreviewPanel({
+function TabPreview({
   target,
   loadThumbnail,
-  top,
-  left,
 }: {
   target: LiveSessionTarget;
   loadThumbnail: NonNullable<LoadThumbnail>;
-  top: number;
-  left: number;
 }) {
-  const portalContainer = usePortalContainer();
   const [src, setSrc] = useState<string | null>(null);
 
   useFork(
@@ -475,16 +458,13 @@ function TabPreviewPanel({
     [loadThumbnail, target.id],
   );
 
-  const container = portalContainer ?? (typeof document === "undefined" ? null : document.body);
-  if (container === null) {
-    return null;
-  }
-
-  return createPortal(
-    <div
+  return (
+    <HoverCardContent
       data-browser-tab-preview
-      style={{ top, left }}
-      className="pointer-events-none fixed z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-lg bg-popover p-2 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      align="start"
+      sideOffset={8}
+      collisionPadding={16}
+      className="pointer-events-none flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 p-2"
     >
       <div className="aspect-video w-full overflow-hidden rounded-md bg-muted">
         {src ? <img src={src} alt="" className="size-full object-cover object-top" /> : null}
@@ -495,7 +475,6 @@ function TabPreviewPanel({
       <span className="truncate font-mono text-xs text-muted-foreground">
         {target.url || "about:blank"}
       </span>
-    </div>,
-    container,
+    </HoverCardContent>
   );
 }

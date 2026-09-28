@@ -770,10 +770,10 @@ func viewportScaleNumerator(deviceScaleFactor float64) int {
 }
 
 func sendCompositorControlCommand(ctx context.Context, socketPath string, command string) (string, error) {
-	return sendCompositorControlCommandWithFD(ctx, socketPath, command, -1)
+	return sendCompositorControlCommandWithFD(ctx, socketPath, command, nil)
 }
 
-func sendCompositorControlCommandWithFD(ctx context.Context, socketPath string, command string, fd int) (string, error) {
+func sendCompositorControlCommandWithFD(ctx context.Context, socketPath string, command string, file *os.File) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -786,12 +786,12 @@ func sendCompositorControlCommandWithFD(ctx context.Context, socketPath string, 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
-	if fd >= 0 {
+	if file != nil {
 		unixConn, ok := conn.(*net.UnixConn)
 		if !ok {
 			return "", errors.New("compositor control connection is not a Unix socket")
 		}
-		rights := unix.UnixRights(fd)
+		rights := unix.UnixRights(int(file.Fd()))
 		written, rightsWritten, err := unixConn.WriteMsgUnix([]byte(command), rights, nil)
 		if err != nil {
 			return "", fmt.Errorf("send compositor control command with fd: %w", err)

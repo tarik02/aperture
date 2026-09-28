@@ -2,7 +2,6 @@
 
 #include <drm_fourcc.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <jpeglib.h>
 #include <pixman.h>
@@ -24,13 +23,9 @@
 /* Must match aperture_capture_attempt_limit in the shell. */
 #define CAPTURE_ATTEMPTS 3
 
-struct capture_app;
-
 struct capture_output {
-	struct capture_app *app;
 	struct capture_output *next;
 	struct wl_output *output;
-	uint32_t registry_name;
 	char *name;
 };
 
@@ -78,43 +73,22 @@ output_geometry(void *data, struct wl_output *output, int32_t x, int32_t y,
 		int32_t physical_width, int32_t physical_height, int32_t subpixel,
 		const char *make, const char *model, int32_t transform)
 {
-	(void)data;
-	(void)output;
-	(void)x;
-	(void)y;
-	(void)physical_width;
-	(void)physical_height;
-	(void)subpixel;
-	(void)make;
-	(void)model;
-	(void)transform;
 }
 
 static void
 output_mode(void *data, struct wl_output *output, uint32_t flags, int32_t width,
 	    int32_t height, int32_t refresh)
 {
-	(void)data;
-	(void)output;
-	(void)flags;
-	(void)width;
-	(void)height;
-	(void)refresh;
 }
 
 static void
 output_done(void *data, struct wl_output *output)
 {
-	(void)data;
-	(void)output;
 }
 
 static void
 output_scale(void *data, struct wl_output *output, int32_t factor)
 {
-	(void)data;
-	(void)output;
-	(void)factor;
 }
 
 static void
@@ -123,7 +97,6 @@ output_name(void *data, struct wl_output *output, const char *name)
 	struct capture_output *capture_output = data;
 	char *copy;
 
-	(void)output;
 	copy = strdup(name);
 	if (!copy)
 		return;
@@ -134,9 +107,6 @@ output_name(void *data, struct wl_output *output, const char *name)
 static void
 output_description(void *data, struct wl_output *output, const char *description)
 {
-	(void)data;
-	(void)output;
-	(void)description;
 }
 
 static const struct wl_output_listener output_listener = {
@@ -162,8 +132,6 @@ registry_global(void *data, struct wl_registry *registry, uint32_t name,
 		output = calloc(1, sizeof *output);
 		if (!output)
 			return;
-		output->app = app;
-		output->registry_name = name;
 		output->output = wl_registry_bind(registry, name, &wl_output_interface, 4);
 		if (!output->output) {
 			free(output);
@@ -186,9 +154,6 @@ registry_global(void *data, struct wl_registry *registry, uint32_t name,
 static void
 registry_global_remove(void *data, struct wl_registry *registry, uint32_t name)
 {
-	(void)data;
-	(void)registry;
-	(void)name;
 }
 
 static const struct wl_registry_listener registry_listener = {
@@ -201,7 +166,6 @@ source_format(void *data, struct weston_capture_source_v1 *source, uint32_t form
 {
 	struct capture_source *capture = data;
 
-	(void)source;
 	if (capture->formats_done) {
 		capture->format_count = 0;
 		capture->formats_done = false;
@@ -216,7 +180,6 @@ source_size(void *data, struct weston_capture_source_v1 *source, int32_t width,
 {
 	struct capture_source *capture = data;
 
-	(void)source;
 	capture->width = width;
 	capture->height = height;
 	capture->size_received = true;
@@ -227,7 +190,6 @@ source_complete(void *data, struct weston_capture_source_v1 *source)
 {
 	struct capture_source *capture = data;
 
-	(void)source;
 	capture->complete = true;
 }
 
@@ -236,7 +198,6 @@ source_retry(void *data, struct weston_capture_source_v1 *source)
 {
 	struct capture_source *capture = data;
 
-	(void)source;
 	capture->retry = true;
 }
 
@@ -245,7 +206,6 @@ source_failed(void *data, struct weston_capture_source_v1 *source, const char *m
 {
 	struct capture_source *capture = data;
 
-	(void)source;
 	capture->failed = true;
 	if (message)
 		snprintf(capture->failure, sizeof capture->failure, "%s", message);
@@ -256,7 +216,6 @@ source_formats_done(void *data, struct weston_capture_source_v1 *source)
 {
 	struct capture_source *capture = data;
 
-	(void)source;
 	capture->formats_done = true;
 }
 
@@ -274,8 +233,6 @@ sync_done(void *data, struct wl_callback *callback, uint32_t serial)
 {
 	bool *done = data;
 
-	(void)callback;
-	(void)serial;
 	*done = true;
 }
 
@@ -387,48 +344,29 @@ find_output(struct capture_app *app, const char *name)
 }
 
 static bool
-format_parameters(uint32_t drm_format, uint32_t *shm_format,
-		  pixman_format_code_t *pixman_format)
-{
-	switch (drm_format) {
-	case DRM_FORMAT_XRGB8888:
-		*shm_format = WL_SHM_FORMAT_XRGB8888;
-		*pixman_format = PIXMAN_x8r8g8b8;
-		return true;
-	case DRM_FORMAT_ARGB8888:
-		*shm_format = WL_SHM_FORMAT_ARGB8888;
-		*pixman_format = PIXMAN_a8r8g8b8;
-		return true;
-	case DRM_FORMAT_XBGR8888:
-		*shm_format = WL_SHM_FORMAT_XBGR8888;
-		*pixman_format = PIXMAN_x8b8g8r8;
-		return true;
-	case DRM_FORMAT_ABGR8888:
-		*shm_format = WL_SHM_FORMAT_ABGR8888;
-		*pixman_format = PIXMAN_a8b8g8r8;
-		return true;
-	default:
-		return false;
-	}
-}
-
-static bool
 select_format(const struct capture_source *source, uint32_t *shm_format,
 	      pixman_format_code_t *pixman_format)
 {
-	static const uint32_t preferred[] = {
-		DRM_FORMAT_XRGB8888,
-		DRM_FORMAT_ARGB8888,
-		DRM_FORMAT_XBGR8888,
-		DRM_FORMAT_ABGR8888,
+	static const struct {
+		uint32_t drm;
+		uint32_t shm;
+		pixman_format_code_t pixman;
+	} supported[] = {
+		{ DRM_FORMAT_XRGB8888, WL_SHM_FORMAT_XRGB8888, PIXMAN_x8r8g8b8 },
+		{ DRM_FORMAT_ARGB8888, WL_SHM_FORMAT_ARGB8888, PIXMAN_a8r8g8b8 },
+		{ DRM_FORMAT_XBGR8888, WL_SHM_FORMAT_XBGR8888, PIXMAN_x8b8g8r8 },
+		{ DRM_FORMAT_ABGR8888, WL_SHM_FORMAT_ABGR8888, PIXMAN_a8b8g8r8 },
 	};
 	size_t i;
 	size_t j;
 
-	for (i = 0; i < sizeof preferred / sizeof preferred[0]; i++) {
+	for (i = 0; i < sizeof supported / sizeof supported[0]; i++) {
 		for (j = 0; j < source->format_count; j++) {
-			if (source->formats[j] == preferred[i])
-				return format_parameters(preferred[i], shm_format, pixman_format);
+			if (source->formats[j] == supported[i].drm) {
+				*shm_format = supported[i].shm;
+				*pixman_format = supported[i].pixman;
+				return true;
+			}
 		}
 	}
 	return false;

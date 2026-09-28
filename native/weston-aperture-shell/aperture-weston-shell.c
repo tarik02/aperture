@@ -114,7 +114,6 @@ struct aperture_output {
 
 struct aperture_capture_client {
 	struct wl_list link;
-	struct aperture_shell *shell;
 	struct aperture_output *output;
 	struct wl_client *client;
 	struct wl_listener destroy_listener;
@@ -384,42 +383,14 @@ set_nonblock_cloexec(int fd)
 }
 
 static void
-destroy_capture_client(struct aperture_capture_client *capture_client)
-{
-	wl_client_destroy(capture_client->client);
-}
-
-static void
 handle_capture_client_destroy(struct wl_listener *listener, void *data)
 {
 	struct aperture_capture_client *capture_client =
 		wl_container_of(listener, capture_client, destroy_listener);
 
-	(void)data;
 	wl_list_remove(&capture_client->destroy_listener.link);
 	wl_list_remove(&capture_client->link);
 	free(capture_client);
-}
-
-static bool
-connected_unix_socket(int fd)
-{
-	struct sockaddr_storage peer;
-	socklen_t peer_length = sizeof peer;
-	int socket_type;
-	socklen_t type_length = sizeof socket_type;
-	int accepting;
-	socklen_t accepting_length = sizeof accepting;
-
-	if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &socket_type, &type_length) < 0 ||
-	    socket_type != SOCK_STREAM)
-		return false;
-	if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &accepting, &accepting_length) < 0 ||
-	    accepting)
-		return false;
-	if (getpeername(fd, (struct sockaddr *)&peer, &peer_length) < 0)
-		return false;
-	return peer.ss_family == AF_UNIX;
 }
 
 static const char *
@@ -428,8 +399,6 @@ create_capture_client(struct aperture_shell *shell, struct aperture_output *outp
 	struct aperture_capture_client *capture_client;
 	struct wl_client *client;
 
-	if (!connected_unix_socket(*fd))
-		return "capture client fd is not a connected Unix socket";
 	if (set_nonblock_cloexec(*fd) < 0)
 		return "configure capture client socket failed";
 	capture_client = calloc(1, sizeof *capture_client);
@@ -441,7 +410,6 @@ create_capture_client(struct aperture_shell *shell, struct aperture_output *outp
 		return "create capture Wayland client failed";
 	}
 	*fd = -1;
-	capture_client->shell = shell;
 	capture_client->output = output;
 	capture_client->client = client;
 	capture_client->attempts_remaining = aperture_capture_attempt_limit;
@@ -1627,7 +1595,7 @@ destroy_capture_output(struct aperture_shell *shell, struct aperture_output *cap
 	wl_list_for_each_safe(capture_client, next_capture_client,
 			      &shell->capture_clients, link) {
 		if (capture_client->output == capture)
-			destroy_capture_client(capture_client);
+			wl_client_destroy(capture_client->client);
 	}
 	wl_list_remove(&capture->link);
 	if (capture->background)
@@ -2111,7 +2079,6 @@ dispatch_control_client(int fd, uint32_t mask, void *data)
 		return 0;
 	}
 
-	(void)fd;
 	n = receive_control_data(client);
 	if (n <= 0) {
 		destroy_control_client(client);
@@ -2296,7 +2263,7 @@ destroy_shell(struct wl_listener *listener, void *data)
 		destroy_control_client(control_client);
 	wl_list_for_each_safe(capture_client, next_capture_client,
 			      &shell->capture_clients, link)
-		destroy_capture_client(capture_client);
+		wl_client_destroy(capture_client->client);
 	if (shell->desktop)
 		weston_desktop_destroy(shell->desktop);
 	wl_list_for_each_safe(capture, next_capture, &shell->outputs, link) {
