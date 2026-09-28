@@ -36,13 +36,16 @@ type liveSessionBrowser struct {
 	mu     sync.Mutex
 	client *liveSessionCDP
 
-	stateMu                      sync.Mutex
-	observedClient               *liveSessionCDP
-	observedTargets              map[string]string
-	targetBySession              map[string]string
-	attaching                    map[string]struct{}
-	loading                      map[string]bool
-	initialOrder                 map[string]int
+	stateMu         sync.Mutex
+	observedClient  *liveSessionCDP
+	observedTargets map[string]string
+	targetBySession map[string]string
+	attaching       map[string]struct{}
+	loading         map[string]bool
+	initialOrder    map[string]int
+	// CDP target IDs are random, so preserve discovery order for tabs created after restore.
+	firstSeen                    map[string]uint64
+	nextFirstSeen                uint64
 	initialActiveID              string
 	initialSessionStorageScripts map[string]map[string]string
 }
@@ -55,6 +58,7 @@ func newLiveSessionBrowser(runtime *wrapperRuntime) *liveSessionBrowser {
 		attaching:                    make(map[string]struct{}),
 		loading:                      make(map[string]bool),
 		initialOrder:                 make(map[string]int),
+		firstSeen:                    make(map[string]uint64),
 		initialSessionStorageScripts: make(map[string]map[string]string),
 	}
 }
@@ -98,8 +102,10 @@ func (browser *liveSessionBrowser) targets() ([]liveSessionTarget, error) {
 	}
 	browser.stateMu.Lock()
 	initialOrder := maps.Clone(browser.initialOrder)
+	firstSeen := browser.recordFirstSeenLocked(targets)
 	browser.stateMu.Unlock()
-	// Restored targets keep their requested order ahead of any others.
+	// Restored targets keep their requested order ahead of any others, which follow in the order
+	// they appeared, so a new tab lands at the end.
 	sort.Slice(targets, func(left, right int) bool {
 		leftIndex, leftInitialized := initialOrder[targets[left].ID]
 		rightIndex, rightInitialized := initialOrder[targets[right].ID]
@@ -109,9 +115,29 @@ func (browser *liveSessionBrowser) targets() ([]liveSessionTarget, error) {
 		if leftInitialized && leftIndex != rightIndex {
 			return leftIndex < rightIndex
 		}
+		if firstSeen[targets[left].ID] != firstSeen[targets[right].ID] {
+			return firstSeen[targets[left].ID] < firstSeen[targets[right].ID]
+		}
 		return targets[left].ID < targets[right].ID
 	})
 	return targets, nil
+}
+
+func (browser *liveSessionBrowser) recordFirstSeenLocked(targets []liveSessionTarget) map[string]uint64 {
+	present := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		present[target.ID] = struct{}{}
+		if _, seen := browser.firstSeen[target.ID]; !seen {
+			browser.nextFirstSeen++
+			browser.firstSeen[target.ID] = browser.nextFirstSeen
+		}
+	}
+	for targetID := range browser.firstSeen {
+		if _, ok := present[targetID]; !ok {
+			delete(browser.firstSeen, targetID)
+		}
+	}
+	return maps.Clone(browser.firstSeen)
 }
 
 func (browser *liveSessionBrowser) firstSelectableTargetID(targets []liveSessionTarget) string {
