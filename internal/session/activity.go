@@ -14,6 +14,7 @@ import (
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
+	"github.com/aperture/aperture/internal/metrics"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/proxy"
 )
@@ -338,6 +339,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 		return ErrOverlayMissing
 	}
 
+	startBegan := time.Now()
 	if err := s.mountOverlay(ctx, sessionRow.ID, sessionRow.BaseSnapshotID); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return &OverlayMountError{SessionID: sessionRow.ID, Err: err}
@@ -382,6 +384,7 @@ func (s *Service) wakeSuspendedSession(ctx context.Context, sessionRow *db.Sessi
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return err
 	}
+	s.metrics.SessionStarted(metrics.StartWake, metrics.SessionWoken, time.Since(startBegan))
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return err
 	}
@@ -446,6 +449,7 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 	if err := s.repo.UpdateSession(ctx, latest); err != nil {
 		return false, err
 	}
+	s.metrics.SessionEvent(metrics.SessionSuspended)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return false, err
 	}

@@ -3,9 +3,11 @@ import * as Schema from "effect/Schema";
 
 // Structure and simple limits come from api/openapi.yaml through @aperture-browser/api-schema.
 // The checks below cover the rules OpenAPI cannot express.
+// Decoded on the encoded side: sensitive values stay plain strings because the worker
+// serializes them into the page, where a Redacted would arrive as "<redacted>".
 export const Capsule = Schema.Struct({
-  initialTargets: CreateSessionInput.fields.initialTargets,
-  storageState: CreateSessionInput.fields.storageState,
+  initialTargets: Schema.toEncoded(CreateSessionInput.fields.initialTargets),
+  storageState: Schema.toEncoded(CreateSessionInput.fields.storageState),
 }).check(
   Schema.makeFilter((capsule) => {
     const issues: { path: Path; issue: string }[] = [];

@@ -6,12 +6,17 @@ import {
   type CollaborationControl,
   type LiveSessionControl,
   type LiveSessionMediaSelection,
+  type LiveSessionViewportOwnership,
 } from "./use-live-session.ts";
-import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture-browser/api-client";
+import type { IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
-import { LiveSessionError, type BrowserInputMessage } from "@aperture-browser/live-session";
+import {
+  downloadSessionRecording,
+  LiveSessionError,
+  type BrowserInputMessage,
+} from "@aperture-browser/live-session";
 import type {
-  CollaborationRole,
+  SessionAccess,
   LiveSessionPresentation,
   LiveSessionPresentationQuality,
   LiveSessionRasterFrame,
@@ -30,11 +35,8 @@ export interface SessionNotice {
 }
 
 interface UseBrowserControlOptions {
-  sessionId: string | null;
-  credentials: ApiCredentials | null;
+  access: SessionAccess | null;
   displayName?: string | null;
-  sessionToken?: string;
-  collaborationRole?: CollaborationRole;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: readonly IceServer[];
@@ -83,8 +85,16 @@ export interface UseBrowserControlResult {
   viewport: ViewportPreset;
   browserViewportSize: BrowserViewportSize | null;
   viewportAutoSync: boolean;
+  /** Whether this client's auto-size currently resizes the browser. */
+  viewportAutoSizeActive: boolean;
+  /** Session-wide auto-size owner, or null when the server does not arbitrate auto-size. */
+  viewportOwnership: LiveSessionViewportOwnership | null;
+  /** Auto-size preference new session clients start with, persisted in local storage. */
+  viewportAutoSizeDefault: boolean;
   captured: boolean;
   recordings: readonly Recording[];
+  /** Owners and editors can start, stop, and download recordings. */
+  canRecord: boolean;
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
   collaboration: CollaborationControl;
@@ -95,6 +105,8 @@ export interface UseBrowserControlResult {
   setBrowserViewportSize: (size: BrowserViewportSize) => void;
   setViewportAutoSync: (enabled: boolean) => void;
   setViewportToBrowserSize: () => void;
+  setViewportAutoSizeDefault: (enabled: boolean) => void;
+  takeOverViewport: () => void;
   setWebRTCStreamSettings: (settings: LiveSessionPresentationQuality) => boolean;
   selectMediaStream: (selection: LiveSessionMediaSelection) => boolean;
   sendInput: (message: BrowserInputMessage) => boolean;
@@ -120,13 +132,11 @@ export interface UseBrowserControlResult {
 }
 
 const emptyIceServers: readonly IceServer[] = [];
+const AUTO_SIZE_DEFAULT_STORAGE_KEY = "aperture.viewport.auto-size-default";
 
 export function useBrowserControl({
-  sessionId,
-  credentials,
+  access,
   displayName,
-  sessionToken,
-  collaborationRole = "owner",
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
@@ -137,16 +147,21 @@ export function useBrowserControl({
   onNoticeRef.current = onNotice;
   const notify = (level: SessionNotice["level"], message: string) =>
     Effect.sync(() => onNoticeRef.current?.({ level, message }));
+  const [viewportAutoSizeDefault, setViewportAutoSizeDefaultState] = useState(loadAutoSizeDefault);
+  // The local preference is sent with every hello; the server state wins once it answers.
+  const [viewportAutoSync, setViewportAutoSyncState] = useState(() => viewportAutoSizeDefault);
+  const viewportAutoSyncRef = useRef(viewportAutoSync);
+  viewportAutoSyncRef.current = viewportAutoSync;
+  const autoSizePreference = useCallback(() => viewportAutoSyncRef.current, []);
   const live = useLiveSession({
-    sessionId,
+    access,
     displayName,
-    credentials,
-    sessionToken,
-    role: collaborationRole,
-    enabled: Boolean(enabled && sessionId && credentials),
+    enabled: enabled && access !== null,
     webrtcSupported: webrtcProducerSupported,
     iceServers: webrtcIceServers,
+    autoSize: autoSizePreference,
   });
+  const collaborationRole = live.collaboration.role;
   const [targetOrder, setTargetOrder] = useState<readonly string[]>([]);
   const targets = useMemo(
     () => mergeTargetsInCurrentOrder(targetOrder, live.targets),
@@ -160,19 +175,17 @@ export function useBrowserControl({
   const [browserViewportSize, setBrowserViewportSizeState] = useState<BrowserViewportSize | null>(
     null,
   );
-  const [viewportAutoSync, setViewportAutoSyncState] = useState(false);
   const [captured, setCaptured] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
+  const canRecord = collaborationRole === "owner" || collaborationRole === "editor";
   const activeTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
   const inputDimensionsRef = useRef<BrowserViewportSize>(DEFAULT_VIEWPORT);
   const browserViewportSizeRef = useRef<BrowserViewportSize | null>(null);
-  const viewportAutoSyncRef = useRef(false);
 
   activeTargetIdRef.current = live.activeTargetId;
   viewportRef.current = viewport;
   browserViewportSizeRef.current = browserViewportSize;
-  viewportAutoSyncRef.current = viewportAutoSync;
 
   useEffect(() => {
     if (live.phase !== "connected") {
@@ -197,12 +210,12 @@ export function useBrowserControl({
 
   const sendInput = useCallback(
     (message: BrowserInputMessage): boolean => {
-      if (!enabled || !sessionId || !credentials) {
+      if (!enabled || access === null) {
         return false;
       }
       return live.sendBrowserInput(message, inputDimensionsRef.current);
     },
-    [credentials, enabled, live, sessionId],
+    [access, enabled, live],
   );
 
   const activateTarget = useCallback(
@@ -317,29 +330,83 @@ export function useBrowserControl({
     }
   }, [live]);
 
+  const viewportOwnership = live.viewportOwnership;
+  const viewportOwnershipRef = useRef(viewportOwnership);
+  viewportOwnershipRef.current = viewportOwnership;
+  // Without server arbitration every auto-sizing client resizes, as before ownership existed.
+  const viewportAutoSizeActive =
+    viewportAutoSync &&
+    (viewportOwnership === null || viewportOwnership.ownerClientId === live.collaboration.clientId);
+  const viewportAutoSizeActiveRef = useRef(viewportAutoSizeActive);
+  viewportAutoSizeActiveRef.current = viewportAutoSizeActive;
+
+  useEffect(() => {
+    if (viewportOwnership !== null) {
+      viewportAutoSyncRef.current = viewportOwnership.autoSize;
+      setViewportAutoSyncState(viewportOwnership.autoSize);
+    }
+  }, [viewportOwnership]);
+
+  // Ownership can move while a resize is in flight; the next viewport state decides who resizes.
+  const runAutoSizeViewport = useEffectCallback(
+    (payload: Record<string, unknown>) => live.request("viewport.set", payload).pipe(Effect.ignore),
+    [live.request],
+  );
+
   const commitViewport = useCallback(
-    (preset: ViewportPreset) => {
+    (preset: ViewportPreset, autoSize: boolean) => {
       setViewportState(preset);
       const targetId = activeTargetIdRef.current;
-      if (targetId) {
-        live.command("viewport.set", {
-          targetId,
-          width: preset.width,
-          height: preset.height,
-          deviceScaleFactor: preset.deviceScaleFactor,
-        });
+      if (targetId === null) {
+        return;
+      }
+      const payload = {
+        targetId,
+        width: preset.width,
+        height: preset.height,
+        deviceScaleFactor: preset.deviceScaleFactor,
+      };
+      if (autoSize && viewportOwnershipRef.current !== null) {
+        runAutoSizeViewport({ ...payload, autoSize: true });
+      } else {
+        live.command("viewport.set", payload);
       }
     },
-    [live],
+    [live.command, runAutoSizeViewport],
   );
+
+  const setViewportAutoSync = useCallback(
+    (nextEnabled: boolean) => {
+      if (viewportAutoSyncRef.current === nextEnabled) {
+        return;
+      }
+      viewportAutoSyncRef.current = nextEnabled;
+      setViewportAutoSyncState(nextEnabled);
+      if (viewportOwnershipRef.current !== null) {
+        live.command("viewport.auto-size.set", { enabled: nextEnabled });
+      }
+    },
+    [live.command],
+  );
+
+  useEffect(() => {
+    const size = browserViewportSizeRef.current;
+    if (
+      viewportAutoSizeActive &&
+      live.phase === "connected" &&
+      live.activeTargetId !== null &&
+      size !== null
+    ) {
+      commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor), true);
+    }
+  }, [commitViewport, live.activeTargetId, live.phase, viewportAutoSizeActive]);
 
   const setViewport = useCallback(
     (preset: ViewportPreset) => {
-      viewportAutoSyncRef.current = false;
-      setViewportAutoSyncState(false);
-      commitViewport(preset);
+      setViewportAutoSync(false);
+      commitViewport(preset, false);
     },
-    [commitViewport],
+    [commitViewport, setViewportAutoSync],
   );
 
   const setBrowserViewportSize = useCallback(
@@ -354,20 +421,8 @@ export function useBrowserControl({
       }
       browserViewportSizeRef.current = next;
       setBrowserViewportSizeState(next);
-      if (viewportAutoSyncRef.current) {
-        commitViewport(createBrowserViewport(next, viewportRef.current.deviceScaleFactor));
-      }
-    },
-    [commitViewport],
-  );
-
-  const setViewportAutoSync = useCallback(
-    (nextEnabled: boolean) => {
-      viewportAutoSyncRef.current = nextEnabled;
-      setViewportAutoSyncState(nextEnabled);
-      const size = browserViewportSizeRef.current;
-      if (nextEnabled && size) {
-        commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
+      if (viewportAutoSizeActiveRef.current) {
+        commitViewport(createBrowserViewport(next, viewportRef.current.deviceScaleFactor), true);
       }
     },
     [commitViewport],
@@ -378,13 +433,27 @@ export function useBrowserControl({
     if (!size) {
       return;
     }
-    viewportAutoSyncRef.current = false;
-    setViewportAutoSyncState(false);
-    commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor));
-  }, [commitViewport]);
+    setViewportAutoSync(false);
+    commitViewport(createBrowserViewport(size, viewportRef.current.deviceScaleFactor), false);
+  }, [commitViewport, setViewportAutoSync]);
 
-  const settleRecording = <A, E extends Error>(
-    effect: Effect.Effect<A, E, SessionsApi>,
+  const takeOverViewport = useCallback(() => {
+    viewportAutoSyncRef.current = true;
+    setViewportAutoSyncState(true);
+    live.command("viewport.owner.claim");
+  }, [live.command]);
+
+  const setViewportAutoSizeDefault = useCallback((nextEnabled: boolean) => {
+    setViewportAutoSizeDefaultState(nextEnabled);
+    try {
+      window.localStorage.setItem(AUTO_SIZE_DEFAULT_STORAGE_KEY, String(nextEnabled));
+    } catch {
+      // Keep the default for this page when storage is unavailable.
+    }
+  }, []);
+
+  const settleRecording = <A, E extends Error, R>(
+    effect: Effect.Effect<A, E, R>,
     failure: string,
   ) =>
     effect.pipe(
@@ -403,48 +472,45 @@ export function useBrowserControl({
   const startRecording = useCallback(
     (mode: "tab" | "viewer") => {
       const targetId = activeTargetIdRef.current;
-      if (!targetId || collaborationRole !== "owner" || recordingBusy) {
+      if (!targetId || !canRecord || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
       runStartRecording(mode, targetId);
     },
-    [collaborationRole, recordingBusy, runStartRecording],
+    [canRecord, recordingBusy, runStartRecording],
   );
 
   const runStopRecording = useEffectCallback(
-    (credentials: ApiCredentials, sessionId: string, recordingId: string) =>
+    (access: SessionAccess, recordingId: string) =>
       settleRecording(
         live.request("recording.stop", { recordingId }).pipe(
-          Effect.andThen(
-            SessionsApi.use((sessions) =>
-              sessions.downloadSessionRecording(credentials, sessionId, recordingId, sessionToken),
-            ),
-          ),
+          Effect.andThen(downloadSessionRecording(access, recordingId)),
           Effect.flatMap(({ blob, filename }) => {
             const recording = live.recordings.find(
               (candidate) => candidate.recordingId === recordingId,
             );
             return downloadBlob(
               blob,
-              filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
+              filename ??
+                `${access.sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
             );
           }),
           Effect.andThen(notify("success", "Recording saved")),
         ),
         "Recording failed to stop",
       ),
-    [live, sessionToken],
+    [live],
   );
   const stopRecording = useCallback(
     (recordingId: string) => {
-      if (!sessionId || !credentials || recordingBusy) {
+      if (access === null || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      runStopRecording(credentials, sessionId, recordingId);
+      runStopRecording(access, recordingId);
     },
-    [credentials, recordingBusy, runStopRecording, sessionId],
+    [access, recordingBusy, runStopRecording],
   );
 
   const runCancelRecording = useEffectCallback(
@@ -481,11 +547,11 @@ export function useBrowserControl({
   );
   const setRemoteCursorEnabled = useCallback(
     (visible: boolean) => {
-      if (sessionId && credentials) {
+      if (access !== null) {
         runSetRemoteCursor(visible);
       }
     },
-    [credentials, runSetRemoteCursor, sessionId],
+    [access, runSetRemoteCursor],
   );
 
   const runSelectPresentation = useEffectCallback(
@@ -501,13 +567,13 @@ export function useBrowserControl({
   );
   const selectMediaStream = useCallback(
     (selection: LiveSessionMediaSelection) => {
-      if (!enabled || !sessionId || !credentials || live.mediaSwitching) {
+      if (!enabled || access === null || live.mediaSwitching) {
         return false;
       }
       runSelectPresentation(selection);
       return true;
     },
-    [credentials, enabled, live.mediaSwitching, runSelectPresentation, sessionId],
+    [access, enabled, live.mediaSwitching, runSelectPresentation],
   );
 
   const setWebRTCStreamSettings = useCallback(
@@ -582,8 +648,12 @@ export function useBrowserControl({
     viewport,
     browserViewportSize,
     viewportAutoSync,
+    viewportAutoSizeActive,
+    viewportOwnership,
+    viewportAutoSizeDefault,
     captured,
     recordings: live.recordings,
+    canRecord,
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
     collaboration: live.collaboration,
@@ -596,6 +666,8 @@ export function useBrowserControl({
     setBrowserViewportSize,
     setViewportAutoSync,
     setViewportToBrowserSize,
+    setViewportAutoSizeDefault,
+    takeOverViewport,
     setWebRTCStreamSettings,
     selectMediaStream,
     sendInput,
@@ -637,6 +709,14 @@ function mergeTargetsInCurrentOrder(
     }
   }
   return ordered;
+}
+
+function loadAutoSizeDefault() {
+  try {
+    return window.localStorage.getItem(AUTO_SIZE_DEFAULT_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 function createBrowserViewport(

@@ -4,15 +4,12 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as Option from "effect/Option";
+import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import {
-  resolveTenantHeader,
-  type ApiCredentials,
-  type IceServer,
-} from "@aperture-browser/api-client";
+import type { IceServer } from "@aperture-browser/api-client";
+import { sessionWebSocketURL, sessionProtocols, type SessionAccess } from "./access.ts";
 import {
   decodeServerMessage,
-  LIVE_SESSION_PROTOCOL,
   RasterFrameHeader,
   strictParseOptions,
   type LiveSessionCommandResult,
@@ -24,6 +21,7 @@ import {
 /** A live session operation that could not complete. */
 export class LiveSessionError extends Data.TaggedError("LiveSessionError")<{
   readonly message: string;
+  readonly terminalReason?: "access_denied" | "session_unavailable";
 }> {}
 
 interface SessionIdentity {
@@ -48,11 +46,13 @@ interface LiveSessionConnectionCallbacks {
 }
 
 interface LiveSessionConnectionOptions {
-  baseUrl?: string;
-  sessionId: string;
-  credentials: ApiCredentials;
-  sessionToken?: string;
+  access: SessionAccess;
   identity: SessionHelloIdentity;
+  /**
+   * Reads the current auto-size preference for each hello. Sending it opts the client into
+   * viewport ownership state; omit it to keep the pre-ownership protocol.
+   */
+  autoSize?: () => boolean;
   iceServers: readonly IceServer[];
   webrtcSupported: boolean;
   callbacks: LiveSessionConnectionCallbacks;
@@ -150,6 +150,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     : "websocket";
   let transportRequest: TransportRequest | null = null;
   let disposed = false;
+  let terminalError: LiveSessionError | null = null;
   let retryTimer: Fiber.Fiber<void> | null = null;
   let webrtcRetryMs = 1_000;
   let nextRequestId = 0;
@@ -162,7 +163,11 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     Deferred.Deferred<LiveSessionCommandResult, LiveSessionError>
   >();
 
-  const hello = () => ({ type: "session.hello", ...(identity ?? options.identity) });
+  const hello = () => ({
+    type: "session.hello",
+    ...(identity ?? options.identity),
+    ...(options.autoSize === undefined ? {} : { autoSize: options.autoSize() }),
+  });
 
   const transportCallbacks: TransportCallbacks = {
     hello,
@@ -216,16 +221,13 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
   };
 
   const startWebRTC = () => {
-    if (disposed || candidate) {
+    if (disposed || terminalError !== null || candidate) {
       return;
     }
     let transport: WebRTCSessionTransport;
     try {
       transport = new WebRTCSessionTransport({
-        baseUrl: options.baseUrl,
-        sessionId: options.sessionId,
-        credentials: options.credentials,
-        sessionToken: options.sessionToken,
+        access: options.access,
         iceServers: options.iceServers,
         callbacks: transportCallbacks,
         fork,
@@ -248,16 +250,13 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
   };
 
   const startWebSocket = () => {
-    if (disposed || candidate) {
+    if (disposed || terminalError !== null || candidate) {
       return;
     }
     let transport: WebSocketSessionTransport;
     try {
       transport = new WebSocketSessionTransport({
-        baseUrl: options.baseUrl,
-        sessionId: options.sessionId,
-        credentials: options.credentials,
-        sessionToken: options.sessionToken,
+        access: options.access,
         callbacks: transportCallbacks,
         fork,
       });
@@ -327,8 +326,29 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
     }
   };
 
+  /** Closes every transport and clears what they presented; the connection itself stays usable. */
+  const stopTransports = (reason: string) => {
+    clearRetry();
+    dropCandidate();
+    active?.close();
+    active = null;
+    rejectTransportRequest(reason);
+    rejectPending(reason);
+    callbacks.onFrame(null);
+    callbacks.onStream(null);
+    callbacks.onTransport(null);
+  };
+
   const transportFailed = (transport: SessionTransport, error: LiveSessionError) => {
     if (disposed) {
+      return;
+    }
+    // Denied or missing sessions stop retrying until reconnect() is called explicitly.
+    if (error.terminalReason !== undefined && (candidate === transport || active === transport)) {
+      terminalError = error;
+      stopTransports(error.message);
+      callbacks.onPhase("error");
+      callbacks.onError(error.message);
       return;
     }
     if (candidate === transport) {
@@ -451,15 +471,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
 
   const close = () => {
     disposed = true;
-    clearRetry();
-    dropCandidate();
-    active?.close();
-    active = null;
-    rejectTransportRequest("live session connection closed");
-    rejectPending("live session connection closed");
-    callbacks.onFrame(null);
-    callbacks.onStream(null);
-    callbacks.onTransport(null);
+    stopTransports("live session connection closed");
   };
 
   yield* Effect.addFinalizer(() => Effect.sync(close));
@@ -469,6 +481,7 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
 
   return {
     reconnect: Effect.sync(() => {
+      terminalError = null;
       clearRetry();
       dropCandidate();
       active?.close();
@@ -476,11 +489,15 @@ export const make = Effect.fnUntraced(function* (options: LiveSessionConnectionO
       rejectTransportRequest("live session transport replaced");
       rejectPending("live session transport replaced");
       callbacks.onPhase("connecting");
-      startPreferredTransport();
+      // Restore identity before WebRTC negotiation can exhaust the server recovery window.
+      startWebSocket();
     }),
 
     selectTransport: (kind) =>
       Effect.suspend(() => {
+        if (terminalError !== null) {
+          return Effect.fail(terminalError);
+        }
         if (kind === "webrtc" && !options.webrtcSupported) {
           return Effect.fail(
             new LiveSessionError({ message: "WebRTC presentation is unavailable" }),
@@ -547,19 +564,12 @@ class WebSocketSessionTransport implements SessionTransport {
   private realtimeFrame: number | null = null;
   private closed = false;
 
-  constructor(options: {
-    baseUrl: string | undefined;
-    sessionId: string;
-    credentials: ApiCredentials;
-    sessionToken?: string;
-    callbacks: TransportCallbacks;
-    fork: Fork;
-  }) {
+  constructor(options: { access: SessionAccess; callbacks: TransportCallbacks; fork: Fork }) {
     this.callbacks = options.callbacks;
     this.fork = options.fork;
     this.socket = new WebSocket(
-      sessionWebSocketURL(options.baseUrl, options.sessionId),
-      sessionProtocols(options.credentials, options.sessionToken),
+      sessionWebSocketURL(options.access, "session"),
+      sessionProtocols(options.access),
     );
     this.socket.binaryType = "blob";
   }
@@ -585,11 +595,11 @@ class WebSocketSessionTransport implements SessionTransport {
         }
       }
     });
-    this.socket.addEventListener("close", () => {
+    this.socket.addEventListener("close", (event) => {
       if (!this.closed) {
         this.callbacks.failed(
           this,
-          new LiveSessionError({ message: "WebSocket session transport closed" }),
+          transportError("WebSocket session transport closed", event.code),
         );
       }
     });
@@ -692,10 +702,7 @@ class WebRTCSessionTransport implements SessionTransport {
   private closed = false;
 
   constructor(options: {
-    baseUrl: string | undefined;
-    sessionId: string;
-    credentials: ApiCredentials;
-    sessionToken?: string;
+    access: SessionAccess;
     iceServers: readonly IceServer[];
     callbacks: TransportCallbacks;
     fork: Fork;
@@ -703,7 +710,11 @@ class WebRTCSessionTransport implements SessionTransport {
     this.callbacks = options.callbacks;
     this.fork = options.fork;
     this.connection = new RTCPeerConnection({
-      iceServers: options.iceServers.map((server) => ({ ...server, urls: [...server.urls] })),
+      iceServers: options.iceServers.map((server) => ({
+        urls: [...server.urls],
+        username: server.username,
+        credential: server.credential === undefined ? undefined : Redacted.value(server.credential),
+      })),
     });
     this.reliable = this.connection.createDataChannel("application", { ordered: true });
     this.realtime = this.connection.createDataChannel("application-realtime", {
@@ -712,8 +723,8 @@ class WebRTCSessionTransport implements SessionTransport {
     });
     this.connection.addTransceiver("video", { direction: "recvonly" });
     this.signal = new WebSocket(
-      signalWebSocketURL(options.baseUrl, options.sessionId),
-      sessionProtocols(options.credentials, options.sessionToken),
+      sessionWebSocketURL(options.access, "webrtc/signal"),
+      sessionProtocols(options.access),
     );
   }
 
@@ -776,7 +787,9 @@ class WebRTCSessionTransport implements SessionTransport {
       );
     });
     this.signal.addEventListener("message", (event) => this.handleSignal(event));
-    this.signal.addEventListener("close", () => this.fail("WebRTC signaling closed"));
+    this.signal.addEventListener("close", (event) =>
+      this.fail("WebRTC signaling closed", event.code),
+    );
     this.signal.addEventListener("error", () => this.fail("WebRTC signaling failed"));
   }
 
@@ -899,11 +912,27 @@ class WebRTCSessionTransport implements SessionTransport {
     }
   }
 
-  private fail(message: string) {
+  private fail(message: string, closeCode = 0) {
     if (!this.closed) {
-      this.callbacks.failed(this, new LiveSessionError({ message }));
+      this.callbacks.failed(this, transportError(message, closeCode));
     }
   }
+}
+
+function transportError(message: string, closeCode: number): LiveSessionError {
+  if (closeCode === 4401 || closeCode === 4403) {
+    return new LiveSessionError({
+      message: "Session access denied. Sign in or request access before reconnecting.",
+      terminalReason: "access_denied",
+    });
+  }
+  if (closeCode === 4404 || closeCode === 4410) {
+    return new LiveSessionError({
+      message: "Session is no longer available.",
+      terminalReason: "session_unavailable",
+    });
+  }
+  return new LiveSessionError({ message });
 }
 
 // A raster packet is a 4-byte header length, a JSON header, and the JPEG image. Malformed
@@ -928,34 +957,6 @@ function decodeRasterFrame(packet: Blob): Effect.Effect<Option.Option<LiveSessio
       height: value.height,
     }));
   }).pipe(Effect.orElseSucceed(() => Option.none()));
-}
-
-function sessionWebSocketURL(baseUrl: string | undefined, sessionId: string) {
-  return webSocketURL(baseUrl, `/sessions/${encodeURIComponent(sessionId)}/session`);
-}
-
-function signalWebSocketURL(baseUrl: string | undefined, sessionId: string) {
-  return webSocketURL(baseUrl, `/sessions/${encodeURIComponent(sessionId)}/webrtc/signal`);
-}
-
-function webSocketURL(baseUrl: string | undefined, path: string) {
-  const url = new URL(path, baseUrl ?? window.location.href);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
-}
-
-function sessionProtocols(credentials: ApiCredentials, sessionToken?: string) {
-  const protocols = [LIVE_SESSION_PROTOCOL];
-  if (sessionToken) {
-    protocols.push(`authorization.bearer.${sessionToken}`);
-  } else if (credentials.kind === "bearer") {
-    protocols.push(`authorization.bearer.${credentials.token}`);
-  }
-  const tenantId = resolveTenantHeader(credentials, "tenant-scoped");
-  if (tenantId) {
-    protocols.push(`x-aperture-tenant-id.${tenantId}`);
-  }
-  return protocols;
 }
 
 export type { LiveSessionConnectionCallbacks, LiveSessionConnectionOptions, LiveSessionSnapshot };

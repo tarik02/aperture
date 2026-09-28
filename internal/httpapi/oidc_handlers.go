@@ -52,6 +52,7 @@ func (s *Server) completeOIDC(c *gin.Context) {
 		c.Query("state"),
 		c.Query("code"),
 	)
+	s.recordLogin(authMethodOIDC, err)
 	if err != nil {
 		WriteError(c, err)
 		return

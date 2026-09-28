@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import * as Redacted from "effect/Redacted";
 import { CalendarClock, Check, ChevronsUpDown } from "lucide-react";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
@@ -150,7 +151,7 @@ export function TokenCreateForm() {
         <DialogTitle>Token created</DialogTitle>
       </DialogHeader>
       <div className="flex flex-col gap-3 py-2">
-        <CopyField value={createdToken.rawToken} />
+        <CopyField value={Redacted.value(createdToken.rawToken)} />
       </div>
       <DialogFooter>
         <Button type="button" onClick={closeModal}>

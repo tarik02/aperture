@@ -7,17 +7,18 @@ description: Effect services for the Aperture REST API.
 npm install @aperture-browser/api-client effect
 ```
 
-Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsApi`, `UsersApi`, `TokensApi`, `EventsApi` and `HealthApi`. `apiClientLayer` provides all of them over the `HttpClient` your app supplies, and `baseUrlLayer` points it at an instance on another origin. Failures are `ApiRequestError`s carrying the server's error code and HTTP status.
+Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsApi`, `UsersApi`, `TokensApi`, `EventsApi` and `HealthApi`. `apiClientLayer` provides all of them over the `HttpClient` your app supplies, and `baseUrlLayer` points it at an instance on another origin. Failures are `ApiRequestError`s carrying the server's error code and HTTP status, plus the underlying HTTP or decoding failure as `cause` when the server sent no error body to explain it.
 
 ```ts
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
 import { apiClientLayer, baseUrlLayer, SessionsApi } from "@aperture-browser/api-client";
 
 const credentials = {
   kind: "bearer",
-  token: process.env.APERTURE_TOKEN!,
+  token: Redacted.make(process.env.APERTURE_TOKEN!),
   authorityType: "tenant",
   tenantId: "my-tenant",
   selectedTenantId: null,
@@ -94,7 +95,7 @@ const program = Effect.gen(function* () {
 
 ### The live session
 
-The live-session calls reach the running session directly and take an optional `sessionToken` in place of the credentials: `uploadLiveSessionFiles` stores files in its `uploads` directory, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording as a `Stream` of bytes without buffering it; `downloadSessionRecording` still returns a `Blob`. A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
+The live-session calls reach the running session directly and take an optional `Redacted` `sessionToken` in place of the credentials: `uploadLiveSessionFiles` stores files in its `uploads` directory, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording as a `Stream` of bytes without buffering it; `downloadSessionRecording` still returns a `Blob`. A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
 
 ### Passkeys
 

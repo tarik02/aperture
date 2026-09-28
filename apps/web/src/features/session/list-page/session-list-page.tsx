@@ -17,6 +17,7 @@ import {
 import { useMemo, useState } from "react";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
 import { toast } from "sonner";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { SessionCreateModal } from "#/features/session/create-modal/session-create-modal.tsx";
@@ -269,7 +270,7 @@ export function SessionListPage() {
           return yield* new ViewerCapabilityUnavailableError();
         }
         const shareUrl = new URL("/share/", window.location.origin);
-        shareUrl.hash = new URLSearchParams({ token: viewerToken }).toString();
+        shareUrl.hash = new URLSearchParams({ token: Redacted.value(viewerToken) }).toString();
         yield* copyText(shareUrl.toString());
         toast.success("Share URL copied");
       }).pipe(

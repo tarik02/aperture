@@ -5,3 +5,4 @@ export * from "./components/browser-control-pane.tsx";
 export * from "./components/browser-viewport.tsx";
 export * from "./features.ts";
 export * from "./notices.ts";
+export type { SessionAccess } from "@aperture-browser/live-session";

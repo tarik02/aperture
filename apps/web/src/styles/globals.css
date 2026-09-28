@@ -1,5 +1,6 @@
 @import "@aperture-browser/ui/styles.css";
 @source "../";
+@source "../../../../packages/session-react/src";
 
 :root {
   --app-titlebar-min-height: 2.25rem;

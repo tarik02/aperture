@@ -118,6 +118,8 @@ func isLiveSessionCommand(messageType string) bool {
 		"page.reload",
 		"page.stop-loading",
 		"viewport.set",
+		"viewport.auto-size.set",
+		"viewport.owner.claim",
 		"presentation.quality.set",
 		"presentation.cursor.set",
 		"recording.start",
@@ -192,12 +194,31 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if err := requireBrowserMutation(client); err != nil {
 			return liveSessionServerMessage{}, err
 		}
-		return liveSessionServerMessage{}, session.browser.setViewport(
+		autoSize := message.AutoSize != nil && *message.AutoSize
+		if autoSize {
+			if err := session.requireViewportOwner(client); err != nil {
+				return liveSessionServerMessage{}, err
+			}
+		}
+		if err := session.browser.setViewport(
 			message.TargetID,
 			int(message.Width),
 			int(message.Height),
 			message.DeviceScaleFactor,
-		)
+		); err != nil {
+			return liveSessionServerMessage{}, err
+		}
+		if !autoSize {
+			session.overrideViewportOwner(client)
+		}
+		return liveSessionServerMessage{}, nil
+	case "viewport.auto-size.set":
+		if message.Enabled == nil {
+			return liveSessionServerMessage{}, errors.New("auto-size state is required")
+		}
+		return liveSessionServerMessage{}, session.setAutoSize(client, *message.Enabled)
+	case "viewport.owner.claim":
+		return liveSessionServerMessage{}, session.claimViewportOwner(client)
 	case "presentation.quality.set":
 		if err := requireBrowserMutation(client); err != nil {
 			return liveSessionServerMessage{}, err
@@ -238,8 +259,8 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		}
 		return liveSessionServerMessage{Presentation: &presentation}, nil
 	case "recording.start":
-		if client.role != "owner" {
-			return liveSessionServerMessage{}, errors.New("recording requires the owner role")
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errRecordingRole
 		}
 		recording, err := session.startRecording(wrapperRecordingRequest{
 			Mode:        wrapperRecordingMode(message.Mode),
@@ -254,8 +275,8 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		}
 		return liveSessionServerMessage{Recording: &recording}, nil
 	case "recording.stop", "recording.cancel":
-		if client.role != "owner" {
-			return liveSessionServerMessage{}, errors.New("recording requires the owner role")
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errRecordingRole
 		}
 		reason := "requested"
 		if message.Type == "recording.cancel" {
@@ -373,7 +394,7 @@ func (session *liveSession) broadcastRecordings() {
 	session.mu.Lock()
 	clients := make([]*liveSessionClient, 0, len(session.clients))
 	for _, client := range session.clients {
-		if client.role == "owner" {
+		if client.canRecord() {
 			clients = append(clients, client)
 		}
 	}
@@ -451,6 +472,13 @@ func (session *liveSession) updateCursorVisibility(ctx context.Context, visible 
 	presentation := session.presentationLocked()
 	session.broadcastPresentation(presentation)
 	return presentation, nil
+}
+
+var errRecordingRole = errors.New("recording requires the owner or editor role")
+
+// canRecord reports whether the client may start, stop, and see session recordings.
+func (client *liveSessionClient) canRecord() bool {
+	return client.role == "owner" || client.role == "editor"
 }
 
 func requireBrowserMutation(client *liveSessionClient) error {

@@ -96,6 +96,9 @@ func (s *Server) loginWithPassword(c *gin.Context) {
 		return
 	}
 	result, err := s.WebAuth.LoginWithPassword(c.Request.Context(), request.Email, request.Password)
+	if err != nil || !result.MFARequired {
+		s.recordLogin(authMethodPassword, err)
+	}
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -110,7 +113,9 @@ func (s *Server) loginWithAPIToken(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	if err := s.WebAuth.LoginWithAPIToken(c.Request.Context(), request.Token); err != nil {
+	err := s.WebAuth.LoginWithAPIToken(c.Request.Context(), request.Token)
+	s.recordLogin(authMethodAPIToken, err)
+	if err != nil {
 		WriteError(c, err)
 		return
 	}
@@ -124,7 +129,9 @@ func (s *Server) completePasswordMFA(c *gin.Context) {
 		WriteError(c, err)
 		return
 	}
-	if err := s.WebAuth.CompletePasswordMFA(c.Request.Context(), request.Code); err != nil {
+	err := s.WebAuth.CompletePasswordMFA(c.Request.Context(), request.Code)
+	s.recordLogin(authMethodPasswordMFA, err)
+	if err != nil {
 		WriteError(c, err)
 		return
 	}

@@ -1091,7 +1091,7 @@ func (s *Server) mcpSessionsPromote(ctx context.Context, _ *mcp.CallToolRequest,
 	if err := s.Auth.AuthorizeSnapshotNameIfExists(ctx, *a.principal, view.Session.TenantID, in.Name); err != nil {
 		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", err)
 	}
-	promoted, err := s.Promotion.Promote(ctx, snapshot.PromoteInput{TenantID: view.Session.TenantID, SessionID: view.Session.ID, Name: in.Name, Description: in.Description, Force: in.Force, Tags: in.Tags})
+	promoted, err := s.promote(ctx, snapshot.PromoteInput{TenantID: view.Session.TenantID, SessionID: view.Session.ID, Name: in.Name, Description: in.Description, Force: in.Force, Tags: in.Tags})
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, mcpToolError("session_unavailable", err)
 	}

@@ -396,3 +396,25 @@ func (r *Repository) ListEventsForResource(ctx context.Context, resourceType, re
 	}
 	return events, nil
 }
+
+// CountSessionsByStatus returns the number of sessions in each status.
+func (r *Repository) CountSessionsByStatus(ctx context.Context) (map[string]int, error) {
+	var rows []struct {
+		Status string `bun:"status"`
+		Count  int    `bun:"count"`
+	}
+	err := r.db.bun.NewSelect().
+		Model((*Session)(nil)).
+		Column("status").
+		ColumnExpr("COUNT(*) AS count").
+		Group("status").
+		Scan(ctx, &rows)
+	if err != nil {
+		return nil, fmt.Errorf("count sessions by status: %w", err)
+	}
+	counts := make(map[string]int, len(rows))
+	for _, row := range rows {
+		counts[row.Status] = row.Count
+	}
+	return counts, nil
+}

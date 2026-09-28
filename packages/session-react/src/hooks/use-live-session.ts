@@ -5,7 +5,7 @@ import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { ApiCredentials, IceServer } from "@aperture-browser/api-client";
+import type { IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
 import type { BrowserInputMessage } from "@aperture-browser/live-session";
 import { evdevKeycodeByCode } from "@aperture-browser/live-session";
@@ -13,6 +13,7 @@ import { windowsVirtualKeyCodeForCodeOrKey } from "@aperture-browser/live-sessio
 import { LiveSessionConnection } from "@aperture-browser/live-session";
 import {
   strictParseOptions,
+  type SessionAccess,
   type CollaborationCursor,
   type CollaborationError,
   type CollaborationLeaseMode,
@@ -28,7 +29,7 @@ import {
   type LiveSessionServerMessage,
   type LiveSessionTarget,
 } from "@aperture-browser/live-session";
-import { useBaseUrl, useEffectCallback, useFork, useRuntime } from "../effect.tsx";
+import { useEffectCallback, useFork, useRuntime } from "../effect.tsx";
 
 interface InputDimensions {
   width: number;
@@ -72,14 +73,18 @@ export interface CollaborationControl {
 }
 
 interface UseLiveSessionOptions {
-  sessionId: string | null;
+  access: SessionAccess | null;
   displayName?: string | null;
-  credentials: ApiCredentials | null;
-  sessionToken?: string;
-  role: CollaborationRole;
   enabled: boolean;
   webrtcSupported: boolean;
   iceServers: readonly IceServer[];
+  autoSize: () => boolean;
+}
+
+/** Session-wide auto-size arbitration, known only when the server supports it. */
+export interface LiveSessionViewportOwnership {
+  ownerClientId: string | null;
+  autoSize: boolean;
 }
 
 export interface LiveSessionControl {
@@ -94,6 +99,7 @@ export interface LiveSessionControl {
   presentation: LiveSessionPresentation | null;
   mediaSwitching: boolean;
   recordings: readonly Recording[];
+  viewportOwnership: LiveSessionViewportOwnership | null;
   collaboration: CollaborationControl;
   sendBrowserInput: (message: BrowserInputMessage, dimensions: InputDimensions) => boolean;
   selectTarget: (targetId: string) => boolean;
@@ -124,18 +130,16 @@ const pointerButtonCode: Record<"left" | "right" | "middle", number> = {
 };
 
 export function useLiveSession({
-  sessionId,
+  access,
   displayName = null,
-  credentials,
-  sessionToken,
-  role,
   enabled,
   webrtcSupported,
   iceServers,
+  autoSize,
 }: UseLiveSessionOptions): LiveSessionControl {
-  const identity = useMemo(() => collaborationIdentity(role, displayName), [displayName, role]);
+  const identity = useMemo(() => collaborationIdentity(displayName), [displayName]);
+  const [role, setRole] = useState<CollaborationRole>("viewer");
   const runtime = useRuntime();
-  const baseUrl = useBaseUrl();
   const frameRef = useMemo(
     () => runtime.runSync(SubscriptionRef.make<LiveSessionRasterFrame | null>(null)),
     [runtime],
@@ -178,6 +182,9 @@ export function useLiveSession({
   const [presentationSwitching, setPresentationSwitching] = useState(false);
   const [presentation, setPresentation] = useState<LiveSessionPresentation | null>(null);
   const [recordings, setRecordings] = useState<readonly Recording[]>([]);
+  const [viewportOwnership, setViewportOwnership] = useState<LiveSessionViewportOwnership | null>(
+    null,
+  );
   const [clientId, setClientId] = useState("");
   const [holderClientId, setHolderClientId] = useState<string | null>(null);
   const [leaseMode, setLeaseMode] = useState<CollaborationLeaseMode | null>(null);
@@ -193,6 +200,7 @@ export function useLiveSession({
     (message: LiveSessionServerMessage) => {
       switch (message.type) {
         case "session.snapshot":
+          setRole(message.role);
           clientIdRef.current = message.clientId;
           setClientId(message.clientId);
           holderClientIdRef.current = message.holderClientId ?? null;
@@ -208,6 +216,14 @@ export function useLiveSession({
           setMediaSize(resolveMediaSize(message.targets, message.activeTargetId));
           setRecordings(message.recordings);
           setPresentation(message.presentation ?? null);
+          setViewportOwnership(
+            message.autoSize === undefined
+              ? null
+              : {
+                  ownerClientId: message.viewportOwnerClientId ?? null,
+                  autoSize: message.autoSize,
+                },
+          );
           setLastError(null);
           return;
         case "targets.state":
@@ -241,6 +257,12 @@ export function useLiveSession({
           setLastError((current) =>
             current?.code === "input_busy" || current?.code === "input_not_owned" ? null : current,
           );
+          return;
+        case "viewport.state":
+          setViewportOwnership({
+            ownerClientId: message.viewportOwnerClientId ?? null,
+            autoSize: message.autoSize,
+          });
           return;
         case "presence.cursor":
           if (message.clientId !== followingClientIdRef.current) {
@@ -292,9 +314,10 @@ export function useLiveSession({
   );
 
   useFork(() => {
-    if (!enabled || !sessionId || !credentials) {
+    if (!enabled || access === null) {
       connectionRef.current = null;
       setPhase("idle");
+      setRole("viewer");
       setTargets([]);
       setActiveTargetId(null);
       setMediaStream(null);
@@ -306,19 +329,19 @@ export function useLiveSession({
       setParticipants([]);
       setCursors(new Map());
       setRecordings([]);
+      setViewportOwnership(null);
       publishFrame(null);
       publishPaint({ type: "clear" });
       return undefined;
     }
 
+    setRole("viewer");
     // The connection lives as long as this fiber; interrupting it closes the connection.
     return Effect.gen(function* () {
       const connection = yield* LiveSessionConnection.make({
-        baseUrl,
-        sessionId,
-        credentials,
-        sessionToken,
+        access,
         identity,
+        autoSize,
         iceServers,
         webrtcSupported,
         callbacks: {
@@ -349,16 +372,14 @@ export function useLiveSession({
       ),
     );
   }, [
-    baseUrl,
-    credentials,
+    autoSize,
+    access,
     enabled,
     handleMessage,
     iceServers,
     identity,
     publishFrame,
     publishPaint,
-    sessionId,
-    sessionToken,
     webrtcSupported,
   ]);
 
@@ -773,6 +794,7 @@ export function useLiveSession({
     presentation,
     mediaSwitching: targetSwitching || presentationSwitching,
     recordings,
+    viewportOwnership,
     sendBrowserInput,
     selectTarget,
     requestSelectTarget,
@@ -820,9 +842,9 @@ const decodeStoredIdentity = Schema.decodeUnknownOption(
   strictParseOptions,
 );
 
-function collaborationIdentity(role: CollaborationRole, accountName: string | null) {
+function collaborationIdentity(accountName: string | null) {
   const anonymous = loadAnonymousIdentity();
-  if (role !== "owner" || !accountName?.trim()) {
+  if (!accountName?.trim()) {
     return anonymous;
   }
   return {

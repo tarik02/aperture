@@ -9,3 +9,7 @@ The framework-agnostic client for [Aperture](https://github.com/tarik02/aperture
 For a ready-made UI, see [`@aperture-browser/session-react`](https://www.npmjs.com/package/@aperture-browser/session-react). Requires `effect` 4.
 
 Documentation: https://aperture-browser-docs.pages.dev/docs/packages/live-session
+
+## Server compatibility
+
+When the `autoSize` connection option is set, the hello carries an `autoSize` field that opts the client into viewport ownership. Servers without viewport ownership (before [#126](https://github.com/tarik02/aperture/pull/126), the first nightly after it) reject that hello. Use this package with a server at least as new as it, or leave `autoSize` unset.

@@ -1,4 +1,6 @@
+import type { SessionAccess } from "@aperture-browser/live-session";
 import { Link } from "@tanstack/react-router";
+import * as Redacted from "effect/Redacted";
 import { PanelLeftIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
@@ -55,7 +57,11 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   const cdpUrl = useMemo(
     () =>
       selectedSession?.cdpUrl && selectedSession.sessionToken && publicOrigin
-        ? devToolsUrl(publicOrigin, selectedSession.cdpUrl, selectedSession.sessionToken)
+        ? devToolsUrl(
+            publicOrigin,
+            selectedSession.cdpUrl,
+            Redacted.value(selectedSession.sessionToken),
+          )
         : null,
     [publicOrigin, selectedSession?.sessionToken, selectedSession?.cdpUrl],
   );
@@ -64,17 +70,32 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
       return null;
     }
     return {
-      editor: shareURL(publicOrigin, selectedSession.collaboration.editorToken),
-      viewer: shareURL(publicOrigin, selectedSession.collaboration.viewerToken),
+      editor: shareURL(publicOrigin, Redacted.value(selectedSession.collaboration.editorToken)),
+      viewer: shareURL(publicOrigin, Redacted.value(selectedSession.collaboration.viewerToken)),
     };
   }, [selectedSession?.collaboration, publicOrigin]);
 
+  const access = useMemo<SessionAccess | null>(
+    () =>
+      canConnectSession && selectedSession && credentials
+        ? {
+            kind: "direct",
+            sessionId: selectedSession.id,
+            credentials:
+              selectedSession.sessionToken === undefined
+                ? credentials
+                : {
+                    ...credentials,
+                    kind: "bearer",
+                    token: selectedSession.sessionToken,
+                  },
+          }
+        : null,
+    [canConnectSession, selectedSession?.id, selectedSession?.sessionToken, credentials],
+  );
   const control = useBrowserControl({
-    sessionId: canConnectSession && selectedSession ? selectedSession.id : null,
-    credentials,
+    access,
     displayName: principal?.name ?? null,
-    sessionToken: selectedSession?.sessionToken,
-    collaborationRole: "owner",
     enabled: canControl && tenantReady && canConnectSession,
     webrtcProducerSupported:
       selectedSession?.media.mode === "auto" && selectedSession.media.webrtcProducer,

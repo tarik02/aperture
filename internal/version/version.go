@@ -9,6 +9,10 @@ import (
 
 var Version = "dev"
 
+// Commit is set by builds without Go VCS metadata, such as Nix builds from a
+// source snapshot. Go build metadata fills it otherwise.
+var Commit = ""
+
 // Info contains build and runtime version details.
 type Info struct {
 	Version   string
@@ -23,9 +27,10 @@ func Get() Info {
 		Version:   Version,
 		GoVersion: runtime.Version(),
 		Platform:  fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		Commit:    Commit,
 	}
 
-	if buildInfo, ok := debug.ReadBuildInfo(); ok {
+	if buildInfo, ok := debug.ReadBuildInfo(); ok && info.Commit == "" {
 		for _, setting := range buildInfo.Settings {
 			if setting.Key == "vcs.revision" {
 				info.Commit = setting.Value

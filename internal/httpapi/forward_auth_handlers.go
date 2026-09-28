@@ -30,6 +30,7 @@ func (s *Server) sessionTokenForwardAuth(c *gin.Context) {
 	credential := sessionTokenForwardAuthCredential(c)
 	role, err := s.validateCDPForwardAuth(c.Request.Context(), sessionID, credential)
 	if err != nil {
+		s.recordAuthFailure(authMethodSessionToken, err)
 		status, _ := mapForwardAuthError(err)
 		c.Status(status)
 		return
@@ -63,6 +64,7 @@ func (s *Server) liveSessionForwardAuth(c *gin.Context) {
 	if authorization := liveSessionTokenAuthorization(c); authorization != "" {
 		role, generation, err := s.authorizeLiveCapability(c.Request.Context(), c.Param("sessionId"), authorization, c.Param("access"))
 		if err != nil {
+			s.recordAuthFailure(authMethodSessionToken, err)
 			status, _ := mapForwardAuthError(err)
 			c.Status(status)
 			return

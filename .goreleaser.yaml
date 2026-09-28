@@ -22,7 +22,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X github.com/aperture/aperture/internal/version.Version={{ .Version }}
+      - -s -w -X github.com/aperture/aperture/internal/version.Version={{ .Version }} -X github.com/aperture/aperture/internal/version.Commit={{ .FullCommit }}
 
   - id: aperture-mount-session
     main: ./cmd/aperture-mount-session

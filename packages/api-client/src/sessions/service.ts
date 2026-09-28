@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Redacted from "effect/Redacted";
 import type * as Stream from "effect/Stream";
 import type * as Api from "@aperture-browser/api-schema";
 import type { ApiCredentials } from "../authorization/service.ts";
@@ -104,6 +105,7 @@ export class SessionsApi extends Context.Service<
     readonly streamSessions: SessionsList["stream"];
     readonly listAllSessions: SessionsList["listAll"];
     readonly getSession: (credentials: ApiCredentials, sessionId: string) => Call<Session>;
+    /** Any number of IDs; the API takes 100 per request, so larger lists are sent in batches. */
     readonly getSessionsBulk: (
       credentials: ApiCredentials,
       sessionIds: readonly string[],
@@ -236,20 +238,20 @@ export class SessionsApi extends Context.Service<
     readonly getBrowserStatus: (
       credentials: ApiCredentials,
       sessionId: string,
-      sessionToken?: string,
+      sessionToken?: Redacted.Redacted<string>,
     ) => Call<BrowserStatus>;
     readonly downloadSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
-      sessionToken?: string,
+      sessionToken?: Redacted.Redacted<string>,
     ) => Call<DownloadedFile>;
     /** The recording's bytes as they arrive, for files too large to hold in memory. */
     readonly streamSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
-      sessionToken?: string,
+      sessionToken?: Redacted.Redacted<string>,
     ) => Stream.Stream<Uint8Array, ApiRequestError>;
     /**
      * Stores files in the running session's `uploads` directory through the session itself,
@@ -259,14 +261,14 @@ export class SessionsApi extends Context.Service<
       credentials: ApiCredentials,
       sessionId: string,
       files: ReadonlyArray<SessionUploadFile>,
-      sessionToken?: string,
+      sessionToken?: Redacted.Redacted<string>,
     ) => Call<ReadonlyArray<SessionFile>>;
     /** Resizes a top-level target of the running session and returns the applied viewport. */
     readonly setSessionViewport: (
       credentials: ApiCredentials,
       sessionId: string,
       input: SetViewportInput,
-      sessionToken?: string,
+      sessionToken?: Redacted.Redacted<string>,
     ) => Call<TargetViewport>;
   }
 >()("@aperture-browser/api-client/SessionsApi") {}

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { Link2Off, Loader2 } from "lucide-react";
 import {
   Empty,
@@ -8,7 +8,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@aperture-browser/ui/components/empty";
-import { parseShareToken, SharedSession } from "@aperture-browser/session-react";
+import { shareSessionAccess, Session } from "@aperture-browser/session-react";
 
 const capabilityStorageKey = "aperture.share.session-token";
 
@@ -40,7 +40,7 @@ function ShareRoute() {
           setCapability({ kind: "invalid" });
           return;
         }
-        if (!parseShareToken(fragmentToken)) {
+        if (!shareSessionAccess(fragmentToken)) {
           window.sessionStorage.removeItem(capabilityStorageKey);
           setCapability({ kind: "invalid" });
           return;
@@ -56,7 +56,7 @@ function ShareRoute() {
         setCapability({ kind: "missing" });
         return;
       }
-      if (!parseShareToken(storedToken)) {
+      if (!shareSessionAccess(storedToken)) {
         window.sessionStorage.removeItem(capabilityStorageKey);
         setCapability({ kind: "invalid" });
         return;
@@ -69,6 +69,11 @@ function ShareRoute() {
     window.addEventListener("hashchange", loadCapability);
     return () => window.removeEventListener("hashchange", loadCapability);
   }, []);
+
+  const access = useMemo(
+    () => (capability.kind === "ready" ? shareSessionAccess(capability.token) : null),
+    [capability],
+  );
 
   if (capability.kind === "loading") {
     return (
@@ -86,7 +91,7 @@ function ShareRoute() {
     );
   }
 
-  return <SharedSession key={capability.revision} token={capability.token} />;
+  return <Session key={capability.revision} access={access} />;
 }
 
 function ShareState({

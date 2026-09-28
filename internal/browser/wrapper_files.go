@@ -79,6 +79,7 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 
 	release, err := sessionfiles.AcquireUploadSlot(r.values.FilesDir)
 	if err != nil {
+		r.uploads.failures.Add(1)
 		writeWrapperError(w, http.StatusTooManyRequests, "too many uploads in progress for this session")
 		return
 	}
@@ -94,15 +95,19 @@ func (r *wrapperRuntime) handleUploads(w http.ResponseWriter, req *http.Request)
 	}
 	var rejection uploadRejection
 	if errors.As(err, &rejection) {
+		r.uploads.failures.Add(1)
 		writeWrapperError(w, rejection.status, rejection.message)
 		return
 	}
 	if err != nil {
+		r.uploads.failures.Add(1)
 		writeWrapperError(w, http.StatusInternalServerError, "upload failed")
 		return
 	}
 	uploaded := make([]sessionfiles.File, 0, len(pending))
 	for _, upload := range pending {
+		r.uploads.files.Add(1)
+		r.uploads.bytes.Add(uint64(upload.info.Size()))
 		relative := "uploads/" + upload.name
 		uploaded = append(uploaded, sessionfiles.Describe(filepath.Join(uploadsDir, upload.name), relative, sessionfiles.SandboxPath(relative), upload.info))
 	}

@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import * as Redacted from "effect/Redacted";
 import { AppWindow, Cable, ChevronDown, KeyRound } from "lucide-react";
 import { CopyField } from "#/components/resources/copy-field.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
@@ -48,7 +49,7 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
   const tokenizedCdpUrl = useMemo(
     () =>
       cdpUrl && currentSession.sessionToken
-        ? cdpUrlWithToken(cdpUrl, currentSession.sessionToken)
+        ? cdpUrlWithToken(cdpUrl, Redacted.value(currentSession.sessionToken))
         : null,
     [cdpUrl, currentSession.sessionToken],
   );
@@ -57,7 +58,9 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
       return null;
     }
     const url = new URL("/share/", publicOrigin);
-    url.hash = new URLSearchParams({ token: currentSession.collaboration.viewerToken }).toString();
+    url.hash = new URLSearchParams({
+      token: Redacted.value(currentSession.collaboration.viewerToken),
+    }).toString();
     return url.toString();
   }, [currentSession.collaboration?.viewerToken, publicOrigin]);
   const canOpen = currentSession.status === "running" || currentSession.status === "suspended";
@@ -80,7 +83,7 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
     <div className="flex flex-col gap-3">
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
       {currentSession.sessionToken ? (
-        <CopyField value={currentSession.sessionToken} label="Token" />
+        <CopyField value={Redacted.value(currentSession.sessionToken)} label="Token" />
       ) : null}
       {tokenizedCdpUrl ? <CopyField value={tokenizedCdpUrl} label="CDP URL with token" /> : null}
       {shareLink ? <CopyField value={shareLink} label="Share link" /> : null}

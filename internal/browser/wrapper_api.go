@@ -55,6 +55,8 @@ type wrapperRuntime struct {
 	liveSession              *liveSession
 	proxyManager             *proxy.Manager
 	playwright               *playwrightMCPBackend
+	startedAt                time.Time
+	uploads                  wrapperUploadCounters
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -141,6 +143,7 @@ func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRu
 		ctx:                      context.Background(),
 		viewers:                  make(map[*wrapperViewer]struct{}),
 		revokedAccessGenerations: make(map[string]map[string]struct{}),
+		startedAt:                time.Now(),
 	}
 }
 
@@ -343,6 +346,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/health", r.handleHealth)
 	mux.HandleFunc("/status", r.handleStatus)
 	mux.HandleFunc("/activity", r.handleActivity)
+	mux.HandleFunc("/stats", r.handleStats)
 	mux.HandleFunc("/sessions/", r.handleCDPDiscovery)
 	mux.HandleFunc("/json", r.handleCDPDiscovery)
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
@@ -364,7 +368,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
-		case "/health", "/status", "/activity":
+		case "/health", "/status", "/activity", "/stats":
 			mux.ServeHTTP(w, req)
 			return
 		}
@@ -545,6 +549,7 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 	}
 	r.mu.Lock()
 	registry := r.targets
+	liveSession := r.liveSession
 	r.mu.Unlock()
 	if registry == nil {
 		writeWrapperError(w, http.StatusConflict, "target registry is unavailable")
@@ -558,6 +563,9 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if liveSession != nil {
+		liveSession.overrideViewportOwner(nil)
 	}
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
 }

@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
+import * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
 import type * as Schema from "effect/Schema";
 import * as Function from "effect/Function";
@@ -24,8 +25,8 @@ const CurrentAuthorization = Context.Reference<Authorization>(
 
 const authorizeRequest = (request: HttpClientRequest.HttpClientRequest) =>
   CurrentAuthorization.useSync(({ credentials, bearerToken, tenantHeader = "none" }) => {
-    const token =
-      bearerToken ?? (credentials?.kind === "bearer" ? credentials.token.trim() : undefined);
+    const secret = bearerToken ?? (credentials?.kind === "bearer" ? credentials.token : undefined);
+    const token = secret === undefined ? undefined : Redacted.value(secret).trim();
     const tenantId = credentials ? resolveTenantHeader(credentials, tenantHeader) : undefined;
     return request.pipe(
       HttpClientRequest.acceptJson,
