@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <linux/input-event-codes.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -8,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
@@ -57,10 +60,12 @@ struct aperture_shell {
 	struct wl_list surfaces;
 	struct wl_list outputs;
 	struct wl_list control_clients;
+	struct wl_list capture_clients;
 	struct wl_list fractional_scales;
 	struct wl_list text_inputs;
 	struct wl_event_source *control_source;
 	struct wl_listener destroy_listener;
+	struct wl_listener capture_authority_listener;
 	struct wl_listener text_input_focus_listener;
 	struct wl_global *fractional_scale_global;
 	struct wl_global *text_input_global;
@@ -69,6 +74,8 @@ struct aperture_shell {
 	char *control_socket_path;
 	char *pending_surface_nonce;
 	int control_fd;
+	pid_t control_pid;
+	uid_t control_uid;
 	uint32_t width;
 	uint32_t height;
 	uint32_t scale_numerator;
@@ -105,6 +112,15 @@ struct aperture_output {
 	uint32_t height;
 };
 
+struct aperture_capture_client {
+	struct wl_list link;
+	struct aperture_shell *shell;
+	struct aperture_output *output;
+	struct wl_client *client;
+	struct wl_listener destroy_listener;
+	uint32_t attempts_remaining;
+};
+
 struct aperture_fractional_scale {
 	struct wl_list link;
 	struct aperture_shell *shell;
@@ -124,8 +140,10 @@ struct aperture_control_client {
 	struct aperture_shell *shell;
 	struct wl_event_source *source;
 	int fd;
+	int received_fd;
 	char buffer[aperture_control_buffer_size];
 	size_t length;
+	bool ancillary_invalid;
 };
 
 struct aperture_text_input {
@@ -146,6 +164,8 @@ static const uint32_t aperture_scale_denominator = 120;
 static const uint32_t aperture_min_scale_numerator = 30;
 static const uint32_t aperture_max_scale_numerator = 480;
 static const uint32_t aperture_media_canvas_bucket = 64;
+/* Weston asks the authority for every capture attempt; this covers the helper's retries. */
+static const uint32_t aperture_capture_attempt_limit = 3;
 
 static int
 create_background(struct aperture_shell *shell);
@@ -361,6 +381,96 @@ set_nonblock_cloexec(int fd)
 		return -1;
 
 	return 0;
+}
+
+static void
+destroy_capture_client(struct aperture_capture_client *capture_client)
+{
+	wl_client_destroy(capture_client->client);
+}
+
+static void
+handle_capture_client_destroy(struct wl_listener *listener, void *data)
+{
+	struct aperture_capture_client *capture_client =
+		wl_container_of(listener, capture_client, destroy_listener);
+
+	(void)data;
+	wl_list_remove(&capture_client->destroy_listener.link);
+	wl_list_remove(&capture_client->link);
+	free(capture_client);
+}
+
+static bool
+connected_unix_socket(int fd)
+{
+	struct sockaddr_storage peer;
+	socklen_t peer_length = sizeof peer;
+	int socket_type;
+	socklen_t type_length = sizeof socket_type;
+	int accepting;
+	socklen_t accepting_length = sizeof accepting;
+
+	if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &socket_type, &type_length) < 0 ||
+	    socket_type != SOCK_STREAM)
+		return false;
+	if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &accepting, &accepting_length) < 0 ||
+	    accepting)
+		return false;
+	if (getpeername(fd, (struct sockaddr *)&peer, &peer_length) < 0)
+		return false;
+	return peer.ss_family == AF_UNIX;
+}
+
+static const char *
+create_capture_client(struct aperture_shell *shell, struct aperture_output *output, int *fd)
+{
+	struct aperture_capture_client *capture_client;
+	struct wl_client *client;
+
+	if (!connected_unix_socket(*fd))
+		return "capture client fd is not a connected Unix socket";
+	if (set_nonblock_cloexec(*fd) < 0)
+		return "configure capture client socket failed";
+	capture_client = calloc(1, sizeof *capture_client);
+	if (!capture_client)
+		return "out of memory";
+	client = wl_client_create(shell->compositor->wl_display, *fd);
+	if (!client) {
+		free(capture_client);
+		return "create capture Wayland client failed";
+	}
+	*fd = -1;
+	capture_client->shell = shell;
+	capture_client->output = output;
+	capture_client->client = client;
+	capture_client->attempts_remaining = aperture_capture_attempt_limit;
+	capture_client->destroy_listener.notify = handle_capture_client_destroy;
+	wl_client_add_destroy_listener(client, &capture_client->destroy_listener);
+	wl_list_insert(&shell->capture_clients, &capture_client->link);
+	return NULL;
+}
+
+static void
+authorize_capture(struct wl_listener *listener,
+		  struct weston_output_capture_attempt *attempt)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, capture_authority_listener);
+	struct aperture_capture_client *capture_client;
+
+	wl_list_for_each(capture_client, &shell->capture_clients, link) {
+		if (capture_client->client != attempt->who->client)
+			continue;
+		if (capture_client->output->output == attempt->who->output &&
+		    capture_client->attempts_remaining > 0) {
+			capture_client->attempts_remaining--;
+			attempt->authorized = true;
+		} else {
+			attempt->denied = true;
+		}
+		return;
+	}
 }
 
 static struct weston_seat *
@@ -1506,11 +1616,18 @@ destroy_capture_output(struct aperture_shell *shell, struct aperture_output *cap
 	const struct weston_pipewire_output_api *api =
 		weston_pipewire_output_get_api(shell->compositor);
 	struct aperture_shell_surface *surface;
+	struct aperture_capture_client *capture_client;
+	struct aperture_capture_client *next_capture_client;
 	struct weston_head *head = weston_output_iterate_heads(capture->output, NULL);
 
 	wl_list_for_each(surface, &shell->surfaces, link) {
 		if (surface->capture_output == capture)
 			return "output still has bound surfaces";
+	}
+	wl_list_for_each_safe(capture_client, next_capture_client,
+			      &shell->capture_clients, link) {
+		if (capture_client->output == capture)
+			destroy_capture_client(capture_client);
 	}
 	wl_list_remove(&capture->link);
 	if (capture->background)
@@ -1587,6 +1704,8 @@ destroy_control_client(struct aperture_control_client *client)
 		wl_event_source_remove(client->source);
 	if (client->fd >= 0)
 		close(client->fd);
+	if (client->received_fd >= 0)
+		close(client->received_fd);
 	wl_list_remove(&client->link);
 	free(client);
 }
@@ -1618,6 +1737,31 @@ handle_control_command(struct aperture_control_client *client)
 	char response[512];
 	struct aperture_shell_surface *surface;
 	struct aperture_output *capture;
+
+	if (sscanf(client->buffer, "capture-client %128s %c", identifier, &trailing) == 1) {
+		if (client->ancillary_invalid || client->received_fd < 0) {
+			write_control_response(client, "error capture client requires exactly one fd\n");
+			return;
+		}
+		capture = find_capture_output(client->shell, identifier);
+		if (!capture) {
+			write_control_response(client, "error output not found\n");
+			return;
+		}
+		error = create_capture_client(client->shell, capture, &client->received_fd);
+		if (error) {
+			snprintf(response, sizeof response, "error %s\n", error);
+			write_control_response(client, response);
+			return;
+		}
+		write_control_response(client, "ok\n");
+		return;
+	}
+
+	if (client->ancillary_invalid || client->received_fd >= 0) {
+		write_control_response(client, "error unexpected ancillary fds\n");
+		return;
+	}
 
 	if (strcmp(client->buffer, "cursor-status") == 0) {
 		snprintf(response, sizeof response, "ok %u\n",
@@ -1903,6 +2047,58 @@ handle_control_command(struct aperture_control_client *client)
 	write_control_response(client, "error invalid command\n");
 }
 
+static ssize_t
+receive_control_data(struct aperture_control_client *client)
+{
+	char control[CMSG_SPACE(sizeof(int) * 8)] = {0};
+	struct iovec iov = {
+		.iov_base = client->buffer + client->length,
+		.iov_len = sizeof client->buffer - client->length - 1,
+	};
+	struct msghdr message = {
+		.msg_iov = &iov,
+		.msg_iovlen = 1,
+		.msg_control = control,
+		.msg_controllen = sizeof control,
+	};
+	struct cmsghdr *header;
+	ssize_t n = recvmsg(client->fd, &message, MSG_CMSG_CLOEXEC);
+
+	if (n <= 0)
+		return n;
+	if (message.msg_flags & (MSG_CTRUNC | MSG_TRUNC))
+		client->ancillary_invalid = true;
+	for (header = CMSG_FIRSTHDR(&message); header;
+	     header = CMSG_NXTHDR(&message, header)) {
+		size_t payload;
+		size_t count;
+		size_t i;
+		int *fds;
+
+		if (header->cmsg_level != SOL_SOCKET || header->cmsg_type != SCM_RIGHTS ||
+		    header->cmsg_len < CMSG_LEN(0)) {
+			client->ancillary_invalid = true;
+			continue;
+		}
+		payload = header->cmsg_len - CMSG_LEN(0);
+		if (payload == 0 || payload % sizeof(int) != 0) {
+			client->ancillary_invalid = true;
+			continue;
+		}
+		count = payload / sizeof(int);
+		fds = (int *)CMSG_DATA(header);
+		for (i = 0; i < count; i++) {
+			if (client->received_fd < 0 && !client->ancillary_invalid) {
+				client->received_fd = fds[i];
+				continue;
+			}
+			client->ancillary_invalid = true;
+			close(fds[i]);
+		}
+	}
+	return n;
+}
+
 static int
 dispatch_control_client(int fd, uint32_t mask, void *data)
 {
@@ -1915,8 +2111,8 @@ dispatch_control_client(int fd, uint32_t mask, void *data)
 		return 0;
 	}
 
-	n = read(fd, client->buffer + client->length,
-		 sizeof client->buffer - client->length - 1);
+	(void)fd;
+	n = receive_control_data(client);
 	if (n <= 0) {
 		destroy_control_client(client);
 		return 0;
@@ -1937,6 +2133,18 @@ dispatch_control_client(int fd, uint32_t mask, void *data)
 	handle_control_command(client);
 	destroy_control_client(client);
 	return 0;
+}
+
+static bool
+control_peer_authorized(struct aperture_shell *shell, int fd)
+{
+	struct ucred credentials;
+	socklen_t length = sizeof credentials;
+
+	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length) < 0 ||
+	    length != sizeof credentials)
+		return false;
+	return credentials.pid == shell->control_pid && credentials.uid == shell->control_uid;
 }
 
 static int
@@ -1960,7 +2168,8 @@ dispatch_control_listener(int fd, uint32_t mask, void *data)
 			return 0;
 		}
 
-		if (set_nonblock_cloexec(client_fd) < 0) {
+		if (!control_peer_authorized(shell, client_fd) ||
+		    set_nonblock_cloexec(client_fd) < 0) {
 			close(client_fd);
 			continue;
 		}
@@ -1973,6 +2182,7 @@ dispatch_control_listener(int fd, uint32_t mask, void *data)
 
 		client->shell = shell;
 		client->fd = client_fd;
+		client->received_fd = -1;
 		client->source = wl_event_loop_add_fd(loop, client_fd, WL_EVENT_READABLE,
 						     dispatch_control_client, client);
 		if (!client->source) {
@@ -1988,12 +2198,23 @@ static int
 setup_control_socket(struct aperture_shell *shell)
 {
 	const char *socket_path = getenv("APERTURE_CONTROL_SOCKET");
+	const char *control_pid = getenv("APERTURE_CONTROL_PID");
 	struct wl_event_loop *loop;
 	struct sockaddr_un addr = {0};
+	char *end = NULL;
+	long parsed_pid;
 	int fd;
 
 	if (!socket_path || !socket_path[0])
 		return 0;
+	errno = 0;
+	parsed_pid = control_pid ? strtol(control_pid, &end, 10) : 0;
+	if (errno || !end || *end || parsed_pid <= 0 || parsed_pid > INT_MAX) {
+		weston_log("aperture-shell: APERTURE_CONTROL_PID is invalid\n");
+		return -1;
+	}
+	shell->control_pid = (pid_t)parsed_pid;
+	shell->control_uid = getuid();
 	if (strlen(socket_path) >= sizeof addr.sun_path) {
 		weston_log("aperture-shell: control socket path is too long\n");
 		return -1;
@@ -2013,6 +2234,8 @@ setup_control_socket(struct aperture_shell *shell)
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, socket_path, sizeof addr.sun_path - 1);
 	if (bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0)
+		goto err_path;
+	if (chmod(socket_path, 0600) < 0)
 		goto err_path;
 	if (listen(fd, 8) < 0)
 		goto err_path;
@@ -2043,6 +2266,8 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_shell *shell = wl_container_of(listener, shell, destroy_listener);
 	struct aperture_control_client *control_client;
 	struct aperture_control_client *next_control_client;
+	struct aperture_capture_client *capture_client;
+	struct aperture_capture_client *next_capture_client;
 	struct aperture_fractional_scale *fractional_scale;
 	struct aperture_fractional_scale *next_fractional_scale;
 	struct aperture_text_input *text_input;
@@ -2051,6 +2276,7 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_output *next_capture;
 
 	wl_list_remove(&shell->destroy_listener.link);
+	wl_list_remove(&shell->capture_authority_listener.link);
 	wl_list_remove(&shell->text_input_focus_listener.link);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
@@ -2068,6 +2294,9 @@ destroy_shell(struct wl_listener *listener, void *data)
 	wl_list_for_each_safe(control_client, next_control_client,
 			      &shell->control_clients, link)
 		destroy_control_client(control_client);
+	wl_list_for_each_safe(capture_client, next_capture_client,
+			      &shell->capture_clients, link)
+		destroy_capture_client(capture_client);
 	if (shell->desktop)
 		weston_desktop_destroy(shell->desktop);
 	wl_list_for_each_safe(capture, next_capture, &shell->outputs, link) {
@@ -2117,8 +2346,10 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	wl_list_init(&shell->surfaces);
 	wl_list_init(&shell->outputs);
 	wl_list_init(&shell->control_clients);
+	wl_list_init(&shell->capture_clients);
 	wl_list_init(&shell->fractional_scales);
 	wl_list_init(&shell->text_inputs);
+	wl_list_init(&shell->capture_authority_listener.link);
 	wl_list_init(&shell->text_input_focus_listener.link);
 	weston_layer_init(&shell->background_layer, compositor);
 	weston_layer_init(&shell->normal_layer, compositor);
@@ -2127,6 +2358,9 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 
 	shell->destroy_listener.notify = destroy_shell;
 	wl_signal_add(&compositor->destroy_signal, &shell->destroy_listener);
+	weston_compositor_add_screenshot_authority(compositor,
+						  &shell->capture_authority_listener,
+						  authorize_capture);
 
 	weston_seat_init(&shell->input_seat, compositor, "aperture");
 	shell->input_seat_initialized = true;

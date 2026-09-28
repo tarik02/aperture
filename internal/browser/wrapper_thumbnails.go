@@ -1,18 +1,20 @@
 package browser
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -22,6 +24,8 @@ const (
 	thumbnailCacheTTL     = 2 * time.Second
 	thumbnailQuality      = 70
 	thumbnailCaptureLimit = 4 * 1024 * 1024
+	thumbnailStderrLimit  = 32 * 1024
+	thumbnailMaxAttempts  = 2
 
 	// ThumbnailTargetHeader names the target a session thumbnail shows.
 	ThumbnailTargetHeader = "X-Aperture-Thumbnail-Target"
@@ -34,11 +38,31 @@ var errThumbnailTargetNotFound = errors.New("thumbnail target not found")
 type wrapperThumbnail struct {
 	image      []byte
 	capturedAt time.Time
+	generation uint64
+	viewport   compositorViewport
 }
 
 type wrapperThumbnailCache struct {
-	mu      sync.Mutex
-	entries map[string]wrapperThumbnail
+	captureMu sync.Mutex
+	mu        sync.Mutex
+	entries   map[string]wrapperThumbnail
+}
+
+type thumbnailErrorOutput struct {
+	data []byte
+}
+
+func (output *thumbnailErrorOutput) Write(p []byte) (int, error) {
+	written := len(p)
+	remaining := thumbnailStderrLimit - len(output.data)
+	if remaining > 0 {
+		output.data = append(output.data, p[:min(len(p), remaining)]...)
+	}
+	return written, nil
+}
+
+func (output *thumbnailErrorOutput) String() string {
+	return string(output.data)
 }
 
 // WrapperThumbnailTargets lists the targets that have thumbnails and the one that represents the session.
@@ -73,12 +97,8 @@ func (session *liveSession) thumbnailTargets() (WrapperThumbnailTargets, error) 
 
 func (session *liveSession) thumbnail(targetID string) (wrapperThumbnail, error) {
 	cache := &session.thumbnails
-	cache.mu.Lock()
-	cached, ok := cache.entries[targetID]
-	cache.mu.Unlock()
-	if ok && time.Since(cached.capturedAt) < thumbnailCacheTTL {
-		return cached, nil
-	}
+	cache.captureMu.Lock()
+	defer cache.captureMu.Unlock()
 
 	session.runtime.mu.Lock()
 	registry := session.runtime.targets
@@ -86,86 +106,114 @@ func (session *liveSession) thumbnail(targetID string) (wrapperThumbnail, error)
 	if registry == nil {
 		return wrapperThumbnail{}, errors.New("target registry is unavailable")
 	}
-	target, ready := registry.readyTarget(targetID)
-	if !ready {
-		return wrapperThumbnail{}, errThumbnailTargetNotFound
-	}
-	image, err := session.captureThumbnail(target)
-	if err != nil {
-		return wrapperThumbnail{}, err
-	}
 
-	captured := wrapperThumbnail{image: image, capturedAt: time.Now().UTC()}
-	cache.mu.Lock()
-	if cache.entries == nil {
-		cache.entries = make(map[string]wrapperThumbnail)
+	for range thumbnailMaxAttempts {
+		target, ready := registry.readyTarget(targetID)
+		if !ready {
+			return wrapperThumbnail{}, errThumbnailTargetNotFound
+		}
+		cache.mu.Lock()
+		cached, ok := cache.entries[targetID]
+		cache.mu.Unlock()
+		if ok && cached.generation == target.Generation && cached.viewport == target.Viewport &&
+			time.Since(cached.capturedAt) < thumbnailCacheTTL {
+			return cached, nil
+		}
+
+		image, err := session.captureThumbnail(target)
+		if err != nil {
+			return wrapperThumbnail{}, err
+		}
+		current, ready := registry.readyTarget(targetID)
+		if !ready {
+			return wrapperThumbnail{}, errThumbnailTargetNotFound
+		}
+		if current.Generation != target.Generation || current.Viewport != target.Viewport {
+			continue
+		}
+
+		captured := wrapperThumbnail{
+			image:      image,
+			capturedAt: time.Now().UTC(),
+			generation: target.Generation,
+			viewport:   target.Viewport,
+		}
+		cache.mu.Lock()
+		if cache.entries == nil {
+			cache.entries = make(map[string]wrapperThumbnail)
+		}
+		cache.entries[targetID] = captured
+		for id := range cache.entries {
+			if _, ready := registry.readyTarget(id); !ready {
+				delete(cache.entries, id)
+			}
+		}
+		cache.mu.Unlock()
+		return captured, nil
 	}
-	cache.entries[targetID] = captured
-	cache.mu.Unlock()
-	return captured, nil
+	return wrapperThumbnail{}, errors.New("target changed during thumbnail capture")
 }
 
 func (session *liveSession) captureThumbnail(target wrapperTargetSnapshot) ([]byte, error) {
 	viewport := target.Viewport
-	if target.PipeWireTarget == "" || target.CaptureID == "" || viewport.ContentWidth <= 0 || viewport.ContentHeight <= 0 {
+	if target.CaptureID == "" || viewport.ContentWidth <= 0 || viewport.ContentHeight <= 0 ||
+		viewport.ContentWidth > viewport.CanvasWidth || viewport.ContentHeight > viewport.CanvasHeight {
 		return nil, errors.New("target has no capturable compositor output")
 	}
-	cropRight := viewport.CanvasWidth - viewport.ContentWidth
-	cropBottom := viewport.CanvasHeight - viewport.ContentHeight
-	if cropRight < 0 || cropBottom < 0 {
-		return nil, errors.New("target compositor viewport is invalid")
+	helperPath, err := apertureWestonCapturePath()
+	if err != nil {
+		return nil, err
 	}
-	width := min(ThumbnailWidth, viewport.ContentWidth)
-	height := max(1, (viewport.ContentHeight*width+viewport.ContentWidth/2)/viewport.ContentWidth)
+
+	sockets, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("create thumbnail Wayland socket: %w", err)
+	}
+	compositorSocket := os.NewFile(uintptr(sockets[0]), "thumbnail-compositor-wayland")
+	helperSocket := os.NewFile(uintptr(sockets[1]), "thumbnail-helper-wayland")
+	defer func() { _ = compositorSocket.Close() }()
+	defer func() { _ = helperSocket.Close() }()
 
 	ctx, cancel := context.WithTimeout(session.runtime.ctx, liveSessionBrowserCommandTimeout)
 	defer cancel()
-	args := []string{
-		"-q",
-		"-e",
-		"pipewiresrc",
-		"target-object=" + target.PipeWireTarget,
-		"do-timestamp=true",
-		"provide-clock=false",
-		"use-bufferpool=false",
-		"min-buffers=4",
-		"max-buffers=8",
-		"keepalive-time=100",
-		"num-buffers=1",
-		"!",
-		fmt.Sprintf("video/x-raw,width=%d,height=%d,pixel-aspect-ratio=1/1", viewport.CanvasWidth, viewport.CanvasHeight),
-		"!",
-		"queue",
-		"max-size-buffers=1",
-		"leaky=downstream",
-		"!",
-		"videocrop",
-		"right=" + strconv.Itoa(cropRight),
-		"bottom=" + strconv.Itoa(cropBottom),
-		"!",
-		"videoconvert",
-		"!",
-		"videoscale",
-		"!",
-		fmt.Sprintf("video/x-raw,width=%d,height=%d,pixel-aspect-ratio=1/1", width, height),
-		"!",
-		"jpegenc",
-		"quality=" + strconv.Itoa(thumbnailQuality),
-		"!",
-		"fdsink",
-		"fd=1",
-		"sync=false",
+	if _, err := sendCompositorControlCommandWithFD(
+		ctx,
+		session.runtime.controlSocket,
+		"capture-client "+target.CaptureID+"\n",
+		int(compositorSocket.Fd()),
+	); err != nil {
+		return nil, fmt.Errorf("authorize thumbnail capture: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, session.runtime.values.MediaProducerGSTExecutable, args...)
-	cmd.Env = wrapperMediaProcessEnv(session.runtime.values.MediaProducerPluginPath)
+	if err := compositorSocket.Close(); err != nil {
+		return nil, fmt.Errorf("close thumbnail compositor socket: %w", err)
+	}
+
+	cmd := exec.CommandContext(
+		ctx,
+		helperPath,
+		target.CaptureID,
+		strconv.Itoa(viewport.CanvasWidth),
+		strconv.Itoa(viewport.CanvasHeight),
+		strconv.Itoa(viewport.ContentWidth),
+		strconv.Itoa(viewport.ContentHeight),
+		strconv.Itoa(ThumbnailWidth),
+		strconv.Itoa(thumbnailQuality),
+	)
+	cmd.Env = []string{"WAYLAND_SOCKET=3"}
+	cmd.ExtraFiles = []*os.File{helperSocket}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("open thumbnail capture output: %w", err)
 	}
-	var stderr bytes.Buffer
+	var stderr thumbnailErrorOutput
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start thumbnail capture: %w", err)
+	}
+	if err := helperSocket.Close(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("close thumbnail helper socket: %w", err)
 	}
 	image, readErr := io.ReadAll(io.LimitReader(stdout, thumbnailCaptureLimit+1))
 	if len(image) > thumbnailCaptureLimit {

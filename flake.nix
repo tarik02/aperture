@@ -449,6 +449,21 @@
                    ${"\t"}/** Set the size and frame rate of a PipeWire output to the specified value.
                    ${"\t"} *
                 '')
+                # Async SHM captures reversed rows whenever the ANGLE row-order extension
+                # was missing, which flipped captures of top-down PipeWire outputs.
+                (builtins.toFile "weston-gl-capture-row-order.patch" ''
+                  diff --git a/libweston/renderer-gl/gl-renderer.c b/libweston/renderer-gl/gl-renderer.c
+                  --- a/libweston/renderer-gl/gl-renderer.c
+                  +++ b/libweston/renderer-gl/gl-renderer.c
+                  @@ -1444,6 +1444,7 @@ gl_renderer_do_read_pixels_async(struct gl_renderer *gr,
+                   ${"\t"}${"\t"}glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_TRUE);
+
+                   ${"\t"}shm_state = create_capture_task_shm_state(gr, rect);
+                  +${"\t"}shm_state.reverse = shm_state.reverse && is_y_flipped(go);
+
+                   ${"\t"}glBindBuffer(GL_PIXEL_PACK_BUFFER, shm_state.pbo);
+                   ${"\t"}glBufferData(GL_PIXEL_PACK_BUFFER, shm_state.stride * shm_state.height,
+                '')
               ];
             });
 
@@ -544,6 +559,8 @@
             buildInputs = with pkgs; [
               runtimeGstreamer
               runtimeGstPluginsBase
+              libdrm
+              libjpeg
               libxkbcommon
               pixman
               wayland.dev
@@ -592,8 +609,14 @@
                 --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
               makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \
                 --add-flags $out/share/aperture/restore-worker/node_modules/@playwright/mcp/cli.js
-              mkdir -p $out/lib/weston
+              mkdir -p $out/lib/weston $out/libexec/aperture
               mkdir -p $TMPDIR/aperture-wayland-protocols
+              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
+                ${patchedWeston}/share/libweston-${lib.versions.major patchedWeston.version}/protocols/weston-output-capture.xml \
+                $TMPDIR/aperture-wayland-protocols/weston-output-capture-protocol.c
+              ${pkgs.wayland-scanner.bin}/bin/wayland-scanner client-header \
+                ${patchedWeston}/share/libweston-${lib.versions.major patchedWeston.version}/protocols/weston-output-capture.xml \
+                $TMPDIR/aperture-wayland-protocols/weston-output-capture-client-protocol.h
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \
                 ${pkgs.wayland-protocols}/share/wayland-protocols/staging/fractional-scale/fractional-scale-v1.xml \
                 $TMPDIR/aperture-wayland-protocols/fractional-scale-v1-protocol.c
@@ -624,6 +647,12 @@
                 $TMPDIR/aperture-wayland-protocols/text-input-unstable-v3-protocol.c \
                 -o $out/lib/weston/aperture-weston-shell.so \
                 $(pkg-config --cflags --libs weston libweston-${lib.versions.major patchedWeston.version} wayland-server pixman-1 xkbcommon)
+              $CC \
+                -I$TMPDIR/aperture-wayland-protocols \
+                native/aperture-weston-capture/aperture-weston-capture.c \
+                $TMPDIR/aperture-wayland-protocols/weston-output-capture-protocol.c \
+                -o $out/libexec/aperture/aperture-weston-capture \
+                $(pkg-config --cflags --libs wayland-client pixman-1 libdrm libjpeg)
 
               mkdir -p $out/share/aperture/extensions/tab-window-enforcer
               cp extensions/tab-window-enforcer/dist/* $out/share/aperture/extensions/tab-window-enforcer/
@@ -1100,6 +1129,8 @@
             runtimeGstreamer
             pkgs.gst_all_1.gst-plugins-base
             pkgs.bubblewrap
+            pkgs.libdrm
+            pkgs.libjpeg
             pkgs.libxkbcommon
             pkgs.pixman
             pkgs.wayland.dev

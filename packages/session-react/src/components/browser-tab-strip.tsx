@@ -27,7 +27,6 @@ import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
 const TAB_PREVIEW_WIDTH = 320;
-const TAB_PREVIEW_CAPTURE_WIDTH = 640;
 const TAB_PREVIEW_MARGIN = 16;
 const TAB_PREVIEW_GAP = 8;
 
@@ -146,7 +145,6 @@ export function BrowserTabStrip({
         <TabPreviewPanel
           key={previewTarget.id}
           target={previewTarget}
-          active={previewTarget.id === activeTargetId}
           loadThumbnail={loadThumbnail}
           top={preview.top}
           left={preview.left}
@@ -448,57 +446,13 @@ function dropPlacementFromClientX(element: Element, clientX: number): DropPlacem
   return clientX < rect.left + rect.width / 2 ? "before" : "after";
 }
 
-function capturePresentedThumbnail(): Effect.Effect<Blob, Error> {
-  return Effect.tryPromise({
-    try: async () => {
-      const video = document.querySelector<HTMLVideoElement>("video[data-viewport-width]");
-      if (
-        !video ||
-        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-        video.videoWidth <= 0
-      ) {
-        throw new Error("presented browser frame is unavailable");
-      }
-      const viewportWidth = Number(video.dataset.viewportWidth);
-      const viewportHeight = Number(video.dataset.viewportHeight);
-      const contentHeight =
-        viewportWidth > 0 && viewportHeight > 0
-          ? Math.min(
-              video.videoHeight,
-              Math.round((viewportHeight * video.videoWidth) / viewportWidth),
-            )
-          : video.videoHeight;
-      const width = Math.min(TAB_PREVIEW_CAPTURE_WIDTH, video.videoWidth);
-      const height = Math.max(1, Math.round((contentHeight * width) / video.videoWidth));
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        throw new Error("browser frame canvas is unavailable");
-      }
-      context.drawImage(video, 0, 0, video.videoWidth, contentHeight, 0, 0, width, height);
-      return await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (blob) => (blob ? resolve(blob) : reject(new Error("browser frame encoding failed"))),
-          "image/jpeg",
-          0.7,
-        );
-      });
-    },
-    catch: (cause) => (cause instanceof Error ? cause : new Error("browser frame capture failed")),
-  });
-}
-
 function TabPreviewPanel({
   target,
-  active,
   loadThumbnail,
   top,
   left,
 }: {
   target: LiveSessionTarget;
-  active: boolean;
   loadThumbnail: NonNullable<LoadThumbnail>;
   top: number;
   left: number;
@@ -509,8 +463,7 @@ function TabPreviewPanel({
   useFork(
     () =>
       Effect.gen(function* () {
-        const thumbnail = active ? capturePresentedThumbnail() : loadThumbnail(target.id);
-        const blob = yield* thumbnail;
+        const blob = yield* loadThumbnail(target.id);
         const objectUrl = URL.createObjectURL(blob);
         yield* Effect.addFinalizer(() => Effect.sync(() => URL.revokeObjectURL(objectUrl)));
         setSrc(objectUrl);
@@ -519,7 +472,7 @@ function TabPreviewPanel({
         Effect.catch(() => Effect.void),
         Effect.scoped,
       ),
-    [active, loadThumbnail, target.id],
+    [loadThumbnail, target.id],
   );
 
   const container = portalContainer ?? (typeof document === "undefined" ? null : document.body);
