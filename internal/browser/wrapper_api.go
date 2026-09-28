@@ -44,6 +44,7 @@ type wrapperRuntime struct {
 	controlSocket            string
 	ctx                      context.Context
 	mu                       sync.Mutex
+	storageExportMu          sync.Mutex
 	uploadMu                 sync.Mutex
 	compositorPID            int
 	mediaProducer            *producer
@@ -357,6 +358,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/automation/playwright", r.handlePlaywrightCall)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/initialize", r.handleInitialization)
+	mux.HandleFunc("/storage-state", r.handleStorageExport)
 	mux.HandleFunc("/proxy/config", r.handleProxyConfig)
 	mux.HandleFunc("/tunnel", r.handleLocalTunnel)
 	mux.HandleFunc("/targets", r.handleTargets)

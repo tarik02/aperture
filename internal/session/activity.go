@@ -117,6 +117,22 @@ func (s *Service) AcquireWrapperPort(ctx context.Context, tenantID, sessionID st
 	return port, s.releaseInhibitor(sessionRow.ID, release), nil
 }
 
+// AcquireRunningWrapperControl holds an activity inhibitor without waking a suspended session.
+func (s *Service) AcquireRunningWrapperControl(ctx context.Context, tenantID, sessionID string) (int, string, func(), error) {
+	unlock := s.repo.LockSession(sessionID)
+	defer unlock()
+	row, err := s.requireTenantSession(ctx, tenantID, sessionID)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	port, token, err := wrapperControl(row)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	release := s.acquireInhibitor(sessionID)
+	return port, token, s.releaseInhibitor(sessionID, release), nil
+}
+
 // AcquireWrapperControl wakes a tenant-owned session and returns its internal
 // wrapper endpoint while holding an activity inhibitor.
 func (s *Service) AcquireWrapperControl(ctx context.Context, tenantID, sessionID string) (int, string, func(), error) {

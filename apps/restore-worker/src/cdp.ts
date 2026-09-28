@@ -1,7 +1,7 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { Playwright } from "effect-playwright";
-import { errors, type CDPSession } from "playwright-core";
+import { errors, type CDPSession, type Frame } from "playwright-core";
 
 export interface FrameTree {
   frame: { id: string; url: string };
@@ -55,6 +55,25 @@ export function makeCdp(session: CDPSession): Cdp {
       attempt(() => send(method, params)) as Effect.Effect<A, Playwright.PlaywrightError>,
     detach: attempt(() => session.detach()),
   };
+}
+
+/** In-process frames share their parent's CDP session; remote frames own one. */
+export function cdpForFrame(frame: Frame): Effect.Effect<Cdp, Playwright.PlaywrightError> {
+  return attempt(() => frame.page().context().newCDPSession(frame)).pipe(
+    Effect.map(makeCdp),
+    Effect.catchTag("PlaywrightError", (error) => {
+      const parent = frame.parentFrame();
+      if (
+        parent !== null &&
+        error.cause instanceof Error &&
+        error.cause.message.endsWith(
+          "This frame does not have a separate CDP session, it is a part of the parent frame's session",
+        )
+      )
+        return cdpForFrame(parent);
+      return Effect.fail(error);
+    }),
+  );
 }
 
 export const cdpForPage = Effect.fnUntraced(function* (page: Playwright.Page) {
