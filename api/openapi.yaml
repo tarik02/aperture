@@ -759,7 +759,7 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, storage_export_unsupported, browser_control_failed]
       description: |
         Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
         origin patterns containing * (which matches zero or more characters), ["*"] for every stored
@@ -772,8 +772,9 @@ paths:
         export. A live export is not an atomic snapshot: pages may change data during collection.
         Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
         be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-        Named storage buckets, opaque partitions, and values the import format cannot represent cause
-        the export to fail. Session storage belongs to initialTargets and is not included here.
+        Named storage buckets, opaque partitions, and values the import format cannot represent fail
+        with storage_export_unsupported, whose message names the reason. Session storage belongs to
+        initialTargets and is not included here.
         The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
@@ -1628,6 +1629,7 @@ components:
         - recording_not_found
         - recording_invalid_state
         - recording_codec_unavailable
+        - storage_export_unsupported
         - session_file_not_found
         - session_file_busy
         - session_file_exists
@@ -1690,6 +1692,7 @@ components:
         recording_not_found: 404
         recording_invalid_state: 409
         recording_codec_unavailable: 422
+        storage_export_unsupported: 422
         session_file_not_found: 404
         session_file_busy: 409
         session_file_exists: 409

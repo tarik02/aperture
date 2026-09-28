@@ -14,12 +14,16 @@ import (
 func (s *Server) exportSessionStorageState(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	body, err := io.ReadAll(io.LimitReader(c.Request.Body, browser.MaxStorageExportRequestBytes+1))
-	if err != nil || !json.Valid(body) {
+	if err != nil {
 		WriteError(c, errRequestDecode)
 		return
 	}
 	if len(body) > browser.MaxStorageExportRequestBytes {
 		WriteError(c, validationError("storage export request exceeds 256 KiB"))
+		return
+	}
+	if !json.Valid(body) {
+		WriteError(c, errRequestDecode)
 		return
 	}
 	if s.Sessions == nil {
@@ -41,16 +45,20 @@ func (s *Server) exportSessionStorageState(c *gin.Context) {
 	request.Header.Set("Content-Type", "application/json")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		WriteError(c, errBrowserControlFailed)
+		WriteError(c, fmt.Errorf("%w: %w", errBrowserControlFailed, err))
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode == http.StatusBadRequest {
-		WriteError(c, validationError("origins must be open-tabs or a nonempty list of at most 100 HTTP origins or origin patterns"))
-		return
-	}
 	if response.StatusCode != http.StatusOK {
-		WriteError(c, errBrowserControlFailed)
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		switch response.StatusCode {
+		case http.StatusBadRequest:
+			WriteError(c, validationError(wrapperErrorMessage(message)))
+		case http.StatusUnprocessableEntity:
+			WriteError(c, fmt.Errorf("%w: %s", errStorageExportUnsupported, wrapperErrorMessage(message)))
+		default:
+			WriteError(c, fmt.Errorf("%w: wrapper returned %s", errBrowserControlFailed, response.Status))
+		}
 		return
 	}
 	result, err := io.ReadAll(io.LimitReader(response.Body, browser.MaxSessionInitializationBytes+1))

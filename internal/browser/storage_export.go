@@ -10,10 +10,20 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
 const MaxStorageExportRequestBytes = 256 * 1024
+
+// storageExportRejection is a worker refusal of the selection or of the selected
+// storage. Its message is meant for the API caller.
+type storageExportRejection struct {
+	status  int
+	message string
+}
+
+func (e *storageExportRejection) Error() string { return e.message }
 
 // runStorageExport runs the browser worker, bounding both runtime and output.
 func runStorageExport(ctx context.Context, cdpPort int, selection []byte) ([]byte, error) {
@@ -41,13 +51,27 @@ func runStorageExport(ctx context.Context, cdpPort int, selection []byte) ([]byt
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
-	body, readErr := io.ReadAll(io.LimitReader(stdout, MaxSessionInitializationBytes+1))
-	if readErr != nil || len(body) > MaxSessionInitializationBytes {
+	body, err := io.ReadAll(io.LimitReader(stdout, MaxSessionInitializationBytes+1))
+	if err == nil && len(body) > MaxSessionInitializationBytes {
+		err = errors.New("storage export exceeds 64 MiB")
+	}
+	if err != nil {
 		cancel()
 		_ = command.Wait()
-		return nil, errors.New("storage export exceeds 64 MiB or could not be read")
+		return nil, fmt.Errorf("read storage export: %w", err)
 	}
-	if err := restoreWorkerError(ctx, &stderr, command.Wait()); err != nil {
+	waitErr := command.Wait()
+	var exit *exec.ExitError
+	if ctx.Err() == nil && errors.As(waitErr, &exit) {
+		message := strings.TrimSpace(stderr.String())
+		switch exit.ExitCode() {
+		case 2:
+			return nil, &storageExportRejection{status: http.StatusBadRequest, message: message}
+		case 3:
+			return nil, &storageExportRejection{status: http.StatusUnprocessableEntity, message: message}
+		}
+	}
+	if err := restoreWorkerError(ctx, &stderr, waitErr); err != nil {
 		return nil, err
 	}
 	if !json.Valid(body) {
@@ -77,12 +101,13 @@ func (r *wrapperRuntime) handleStorageExport(w http.ResponseWriter, req *http.Re
 		return
 	}
 	result, err := runStorageExport(req.Context(), r.values.CDPPort, body)
+	var rejection *storageExportRejection
+	if errors.As(err, &rejection) {
+		writeWrapperError(w, rejection.status, rejection.message)
+		return
+	}
 	if err != nil {
-		status := http.StatusBadGateway
-		if errors.Is(err, ErrInvalidSessionInitialization) {
-			status = http.StatusBadRequest
-		}
-		writeWrapperError(w, status, err.Error())
+		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

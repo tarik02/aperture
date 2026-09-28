@@ -174,6 +174,7 @@ const (
 	ErrorCodeSnapshotNotDeleted               ErrorCode = "snapshot_not_deleted"
 	ErrorCodeSnapshotNotFound                 ErrorCode = "snapshot_not_found"
 	ErrorCodeSnapshotServiceUnavailable       ErrorCode = "snapshot_service_unavailable"
+	ErrorCodeStorageExportUnsupported         ErrorCode = "storage_export_unsupported"
 	ErrorCodeTenantDeactivated                ErrorCode = "tenant_deactivated"
 	ErrorCodeTenantNotFound                   ErrorCode = "tenant_not_found"
 	ErrorCodeTenantSelectionNotPermitted      ErrorCode = "tenant_selection_not_permitted"
@@ -288,6 +289,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeSnapshotNotFound:
 		return true
 	case ErrorCodeSnapshotServiceUnavailable:
+		return true
+	case ErrorCodeStorageExportUnsupported:
 		return true
 	case ErrorCodeTenantDeactivated:
 		return true
@@ -3789,8 +3792,9 @@ type ClientInterface interface {
 	// export. A live export is not an atomic snapshot: pages may change data during collection.
 	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+	// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+	// initialTargets and is not included here.
 	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 	//
 	// Takes any type of body and a specified content type.
@@ -3811,8 +3815,9 @@ type ClientInterface interface {
 	// export. A live export is not an atomic snapshot: pages may change data during collection.
 	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+	// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+	// initialTargets and is not included here.
 	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 	//
 	// Takes a body of the `application/json` content type.
@@ -5084,8 +5089,9 @@ func (c *Client) RotateSessionToken(ctx context.Context, sessionId SessionId, pa
 // export. A live export is not an atomic snapshot: pages may change data during collection.
 // Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 // be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-// the export to fail. Session storage belongs to initialTargets and is not included here.
+// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+// initialTargets and is not included here.
 // The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 //
 // Takes any type of body and a specified content type.
@@ -5116,8 +5122,9 @@ func (c *Client) ExportSessionStorageStateWithBody(ctx context.Context, sessionI
 // export. A live export is not an atomic snapshot: pages may change data during collection.
 // Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 // be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-// the export to fail. Session storage belongs to initialTargets and is not included here.
+// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+// initialTargets and is not included here.
 // The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 //
 // Takes a body of the `application/json` content type.
@@ -9547,8 +9554,9 @@ type ClientWithResponsesInterface interface {
 	// export. A live export is not an atomic snapshot: pages may change data during collection.
 	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+	// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+	// initialTargets and is not included here.
 	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -9569,8 +9577,9 @@ type ClientWithResponsesInterface interface {
 	// export. A live export is not an atomic snapshot: pages may change data during collection.
 	// Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 	// be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-	// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-	// the export to fail. Session storage belongs to initialTargets and is not included here.
+	// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+	// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+	// initialTargets and is not included here.
 	// The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
@@ -13516,8 +13525,9 @@ func (c *ClientWithResponses) RotateSessionTokenWithResponse(ctx context.Context
 // export. A live export is not an atomic snapshot: pages may change data during collection.
 // Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 // be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-// the export to fail. Session storage belongs to initialTargets and is not included here.
+// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+// initialTargets and is not included here.
 // The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -13544,8 +13554,9 @@ func (c *ClientWithResponses) ExportSessionStorageStateWithBodyWithResponse(ctx 
 // export. A live export is not an atomic snapshot: pages may change data during collection.
 // Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 // be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-// Named storage buckets, opaque partitions, and values the import format cannot represent cause
-// the export to fail. Session storage belongs to initialTargets and is not included here.
+// Named storage buckets, opaque partitions, and values the import format cannot represent fail
+// with storage_export_unsupported, whose message names the reason. Session storage belongs to
+// initialTargets and is not included here.
 // The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).

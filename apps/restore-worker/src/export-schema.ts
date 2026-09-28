@@ -25,6 +25,12 @@ export const ExportedStorageState = Schema.toEncoded(InitialBrowserStorageState)
 export type ExportedStorageState = typeof ExportedStorageState.Type;
 export const ExportedStorageOrigin = Schema.toEncoded(InitialStorageOrigin);
 export type ExportedStorageOrigin = typeof ExportedStorageOrigin.Type;
+/** What the browser payload reports for one origin. */
+export const OriginStorageExport = Schema.Union([
+  Schema.Struct({ storage: ExportedStorageOrigin }),
+  Schema.Struct({ unsupported: Schema.String }),
+]);
+export type OriginStorageExport = typeof OriginStorageExport.Type;
 export const ExportedCookie = Schema.toEncoded(InitialBrowserCookie);
 export type ExportedCookie = typeof ExportedCookie.Type;
 

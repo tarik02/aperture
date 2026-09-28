@@ -8,7 +8,21 @@ import type {
 } from "@aperture-browser/api-schema";
 import type * as Schema from "effect/Schema";
 import { openDB } from "idb";
-import type { ExportedStorageOrigin } from "../export-schema.js";
+import type { ExportedStorageOrigin, OriginStorageExport } from "../export-schema.js";
+
+/** Stored data the import format cannot represent, as opposed to a failed read. */
+class UnsupportedValue extends Error {}
+
+async function encodeRecordPart(value: unknown, database: string, store: string) {
+  try {
+    return await encodeStructuredClone(value, true);
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new UnsupportedValue(
+      `IndexedDB store ${JSON.stringify(store)} of database ${JSON.stringify(database)} holds a value that is not portable: ${reason}`,
+    );
+  }
+}
 
 function keyPath(value: string | string[] | null) {
   if (value === null) return { kind: "none" } as const;
@@ -70,8 +84,8 @@ async function exportIndexedDB(): Promise<
           const records = [];
           for (let index = 0; index < keys.length; index++) {
             records.push({
-              key: await encodeStructuredClone(keys[index], true),
-              value: await encodeStructuredClone(values[index], true),
+              key: await encodeRecordPart(keys[index], name, store.name),
+              value: await encodeRecordPart(values[index], name, store.name),
             });
           }
           stores.push({ ...store, records });
@@ -101,7 +115,7 @@ async function exportCaches(): Promise<
         response.type === "opaqueredirect" ||
         response.status === 0
       ) {
-        throw new Error("Opaque cache responses are not portable");
+        throw new UnsupportedValue("opaque Cache Storage responses are not portable");
       }
       entries.push({
         url: request.url,
@@ -130,7 +144,8 @@ async function exportFiles(): Promise<readonly Schema.Codec.Encoded<typeof Initi
         await readDirectory(handle, `${path}/`);
       } else {
         const file = await handle.getFile();
-        if (file.size > 64 * 1024 * 1024) throw new Error("OPFS file exceeds the export limit");
+        if (file.size > 64 * 1024 * 1024)
+          throw new UnsupportedValue("an OPFS file exceeds the 64 MiB export limit");
         result.push({ path, body: new Uint8Array(await file.arrayBuffer()).toBase64() });
       }
     }
@@ -139,7 +154,16 @@ async function exportFiles(): Promise<readonly Schema.Codec.Encoded<typeof Initi
   return result;
 }
 
-export async function run(quota: boolean): Promise<ExportedStorageOrigin> {
+export async function run(quota: boolean): Promise<OriginStorageExport> {
+  try {
+    return { storage: await readOrigin(quota) };
+  } catch (error) {
+    if (error instanceof UnsupportedValue) return { unsupported: error.message };
+    throw error;
+  }
+}
+
+async function readOrigin(quota: boolean): Promise<ExportedStorageOrigin> {
   const local = [];
   for (let index = 0; index < localStorage.length; index++) {
     const name = localStorage.key(index);

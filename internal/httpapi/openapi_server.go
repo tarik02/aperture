@@ -153,19 +153,19 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 // keeps this in step with the spec.
 var openAPIRoutesWithRequestBody = map[string]map[string]struct{}{
 	http.MethodPost: {
-		"/api/sessions/:sessionId/storage-state": {},
-		"/api/admin/tenants":                     {},
-		"/api/admin/users":                       {},
-		"/api/admin/tokens":                      {},
-		"/api/tenant/tokens":                     {},
-		"/api/sessions":                          {},
-		"/api/sessions/bulk":                     {},
-		"/api/sessions/:sessionId/recordings":    {},
+		"/api/admin/tenants":                  {},
+		"/api/admin/users":                    {},
+		"/api/admin/tokens":                   {},
+		"/api/tenant/tokens":                  {},
+		"/api/sessions":                       {},
+		"/api/sessions/bulk":                  {},
+		"/api/sessions/:sessionId/recordings": {},
 		"/api/sessions/:sessionId/recordings/:recordingId/retarget": {},
 		"/api/sessions/:sessionId/files/download-url":               {},
 		"/api/sessions/:sessionId/files/move":                       {},
 		"/api/sessions/:sessionId/files/directories":                {},
 		"/api/sessions/:sessionId/promote":                          {},
+		"/api/sessions/:sessionId/storage-state":                    {},
 	},
 	http.MethodPatch: {
 		"/api/admin/tenants/:tenantId": {},

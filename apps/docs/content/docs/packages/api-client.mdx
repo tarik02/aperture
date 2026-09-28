@@ -126,7 +126,8 @@ both HTTP and HTTPS top-level partitions.
 
 Exports also fail for unsupported partitions, named storage buckets, opaque cache responses,
 non-extractable cryptographic keys, or data exceeding the import limits: 100 origin partitions,
-10,000 cookies, and 64 MiB of JSON. Failures return no partial state. The JSON response uses
+10,000 cookies, and 64 MiB of JSON. These fail with `storage_export_unsupported` (`422`), whose
+message names the reason. Failures return no partial state. The JSON response uses
 `Cache-Control: no-store`.
 
 ### Session files

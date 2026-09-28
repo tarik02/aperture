@@ -25,6 +25,7 @@ var (
 	errRecordingInvalidState       = errors.New("recording invalid state")
 	errRecordingNotFound           = errors.New("recording not found")
 	errRecordingCodecUnavailable   = errors.New("recording codec unavailable")
+	errStorageExportUnsupported    = errors.New("storage export unsupported")
 	errSessionFileNotFound         = errors.New("session file not found")
 )
 
@@ -167,6 +168,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusConflict, "session_not_running", err.Error()
 	case errors.Is(err, errRecordingCodecUnavailable):
 		return http.StatusUnprocessableEntity, "recording_codec_unavailable", err.Error()
+	case errors.Is(err, errStorageExportUnsupported):
+		return http.StatusUnprocessableEntity, "storage_export_unsupported", err.Error()
 	case errors.Is(err, errRecordingNotFound):
 		return http.StatusNotFound, "recording_not_found", err.Error()
 	case errors.Is(err, errRecordingInvalidState):

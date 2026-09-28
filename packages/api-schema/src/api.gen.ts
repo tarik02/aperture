@@ -1406,8 +1406,9 @@ readonly "setSessionCursor": <Config extends OperationConfig>(sessionId: string,
 * export. A live export is not an atomic snapshot: pages may change data during collection.
 * Profile-wide selection rejects partitioned HTTP site data whose top-level scheme cannot
 * be recovered from Chromium's inventory; open-tabs can export an accessible HTTP partition.
-* Named storage buckets, opaque partitions, and values the import format cannot represent cause
-* the export to fail. Session storage belongs to initialTargets and is not included here.
+* Named storage buckets, opaque partitions, and values the import format cannot represent fail
+* with storage_export_unsupported, whose message names the reason. Session storage belongs to
+* initialTargets and is not included here.
 * The response is limited to 64 MiB and the import format's 100 origins and 10,000 cookies.
 */
 readonly "exportSessionStorageState": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof ExportSessionStorageStateParams.Encoded | undefined; readonly payload: typeof ExportSessionStorageStateRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof ExportSessionStorageState200.Type, Config>, HttpClientError.HttpClientError | SchemaError>

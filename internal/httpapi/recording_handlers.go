@@ -268,7 +268,7 @@ func requestWrapperRecording(ctx context.Context, port int, method, path string,
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
-		return &wrapperRecordingRequestError{StatusCode: response.StatusCode, Status: response.Status, Message: wrapperRecordingErrorMessage(message)}
+		return &wrapperRecordingRequestError{StatusCode: response.StatusCode, Status: response.Status, Message: wrapperErrorMessage(message)}
 	}
 	if output == nil {
 		return nil
@@ -296,7 +296,7 @@ func mapWrapperRecordingRequestError(err error) error {
 	}
 }
 
-func wrapperRecordingErrorMessage(body []byte) string {
+func wrapperErrorMessage(body []byte) string {
 	var response struct {
 		Error string `json:"error"`
 	}
