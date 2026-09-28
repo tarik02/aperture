@@ -5,7 +5,8 @@ import * as Effect from "effect/Effect"
 import type { SchemaError } from "effect/Schema"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
-import type * as HttpClient from "effect/unstable/http/HttpClient"
+import * as Stream from "effect/Stream"
+import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
@@ -120,6 +121,8 @@ export type IceServer = { readonly "urls": ReadonlyArray<string>, readonly "user
 export const IceServer = Schema.Struct({ "urls": Schema.Array(Schema.String).annotate({ "description": "STUN or TURN server URLs.", "examples": [["turn:turn.example.com:3478?transport=udp"]] }), "username": Schema.optionalKey(Schema.String.annotate({ "description": "TURN username. Omitted when the server does not require authentication.", "examples": ["aperture-session"] })), "credential": Schema.optionalKey(Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "TURN credential. Treat it as a secret and do not persist it in logs.", "examples": ["REDACTED"] })) }).annotate({ "description": "ICE server configuration supplied to WebRTC consumers.", "identifier": "IceServer" })
 export type SessionCollaborationCapabilities = { readonly "editorToken": SensitiveString, readonly "viewerToken": SensitiveString }
 export const SessionCollaborationCapabilities = Schema.Struct({ "editorToken": Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "examples": ["ape_019f6cf0000070008000000000000010_REDACTED"] }), "viewerToken": Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "examples": ["apv_019f6cf0000070008000000000000010_REDACTED"] }) }).annotate({ "description": "Owner-visible role-scoped secrets used to build collaboration links.", "identifier": "SessionCollaborationCapabilities" })
+export type SessionThumbnail = { readonly "url": SensitiveString, readonly "targetUrlTemplate": SensitiveString, readonly "expiresAt": string }
+export const SessionThumbnail = Schema.Struct({ "url": Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "Thumbnail of the tab most recently shown to a live-session client.", "format": "uri" }), "targetUrlTemplate": Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "Tab thumbnail URL with a literal `{targetId}` placeholder for a top-level target ID." }), "expiresAt": Schema.String.annotate({ "format": "date-time" }) }).annotate({ "description": "Signed thumbnail URLs for image elements. They need no other credentials and expire after the\nconfigured signed URL lifetime; every session response returns fresh ones. Present while the\nsession is running, or while suspended when thumbnails were saved.\n", "identifier": "SessionThumbnail" })
 export type BrowserStorageEntry = { readonly "name": string, readonly "value": SensitiveString }
 export const BrowserStorageEntry = Schema.Struct({ "name": Schema.String, "value": Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "Browser storage value. Never log this field." }) }).annotate({ "identifier": "BrowserStorageEntry" })
 export type InitialIndexedDBRecord = { readonly "key": SensitiveString, readonly "value": SensitiveString }
@@ -198,8 +201,8 @@ export type TokenPage = { readonly "data": ReadonlyArray<Token>, readonly "meta"
 export const TokenPage = Schema.Struct({ "data": Schema.Array(Token), "meta": PageMeta }).annotate({ "description": "Cursor-paginated API token metadata without bearer secrets.", "identifier": "TokenPage" })
 export type CreateTokenResponse = { readonly "token": Token, readonly "rawToken": SensitiveString }
 export const CreateTokenResponse = Schema.Struct({ "token": Token, "rawToken": Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "One-time Aperture API bearer token. Store it immediately; later reads return only token metadata.", "examples": ["apt_019f6cf0000070008000000000000002_REDACTED"] }) }).annotate({ "description": "Created token metadata and its one-time bearer secret.", "identifier": "CreateTokenResponse" })
-export type Session = { readonly "id": UUIDv7, readonly "tenantId": UUIDv7, readonly "baseSnapshotName"?: string, readonly "label"?: string, readonly "status": SessionStatus, readonly "browserChannel"?: string, readonly "media": SessionMedia, readonly "createdAt": string, readonly "startedAt"?: string, readonly "stoppedAt"?: string, readonly "deletedAt"?: string | null, readonly "expiresAt": string, readonly "lastConnectedAt"?: string, readonly "suspendedAt"?: string, readonly "tags"?: StringMap, readonly "cdpUrl"?: string, readonly "sessionToken"?: SensitiveString, readonly "collaboration"?: SessionCollaborationCapabilities, readonly "proxy"?: SessionProxy }
-export const Session = Schema.Struct({ "id": Schema.suspend((): Schema.Codec<UUIDv7> => UUIDv7).annotate({ "description": "Session identifier." }), "tenantId": Schema.suspend((): Schema.Codec<UUIDv7> => UUIDv7).annotate({ "description": "Tenant that owns the session." }), "baseSnapshotName": Schema.optionalKey(Schema.String.annotate({ "description": "Snapshot name used as the session base. Omitted for a blank session.", "examples": ["signed-in-base"] })), "label": Schema.optionalKey(Schema.String.annotate({ "description": "Optional operator-facing session label.", "examples": ["checkout smoke test"] })), "status": SessionStatus, "browserChannel": Schema.optionalKey(Schema.String.annotate({ "description": "Browser channel used to create and reopen the session.", "examples": ["chromium"] })), "media": SessionMedia, "createdAt": Schema.String.annotate({ "description": "Time the session record was created.", "examples": ["2026-07-17T12:00:00Z"], "format": "date-time" }), "startedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent successful browser start time. Omitted before startup succeeds.", "examples": ["2026-07-17T12:00:03Z"], "format": "date-time" })), "stoppedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent browser stop time. Omitted while no stop has occurred.", "examples": ["2026-07-17T13:00:00Z"], "format": "date-time" })), "deletedAt": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "Soft-deletion time, or `null` for a session that has not been deleted.", "examples": [null], "format": "date-time" })), "expiresAt": Schema.String.annotate({ "description": "Retention deadline after which the session and its overlay may be purged. This is not token expiry.", "examples": ["2026-07-24T12:00:00Z"], "format": "date-time" }), "lastConnectedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent routed client activity time. Omitted until a client connects.", "examples": ["2026-07-17T12:30:00Z"], "format": "date-time" })), "suspendedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent suspension time. Omitted unless the session is suspended.", "examples": ["2026-07-17T13:00:00Z"], "format": "date-time" })), "tags": Schema.optionalKey(Schema.suspend((): Schema.Codec<StringMap> => StringMap).annotate({ "description": "Session metadata tags. Omitted when no tags are set." })), "cdpUrl": Schema.optionalKey(Schema.String.annotate({ "description": "Authenticated Chrome DevTools endpoint. Omitted when the session is not currently routable. Use it with `sessionToken`.", "examples": ["https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010"], "format": "uri" })), "sessionToken": Schema.optionalKey(Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "Session access secret returned when live access credentials are available. Rotation invalidates the previous token immediately.", "examples": ["aps_019f6cf0000070008000000000000010_REDACTED"] })), "collaboration": Schema.optionalKey(SessionCollaborationCapabilities), "proxy": Schema.optionalKey(SessionProxy) }).annotate({ "description": "Browser session state, retention metadata, tags, and currently available access credentials.", "identifier": "Session" })
+export type Session = { readonly "id": UUIDv7, readonly "tenantId": UUIDv7, readonly "baseSnapshotName"?: string, readonly "label"?: string, readonly "status": SessionStatus, readonly "browserChannel"?: string, readonly "media": SessionMedia, readonly "createdAt": string, readonly "startedAt"?: string, readonly "stoppedAt"?: string, readonly "deletedAt"?: string | null, readonly "expiresAt": string, readonly "lastConnectedAt"?: string, readonly "suspendedAt"?: string, readonly "tags"?: StringMap, readonly "cdpUrl"?: string, readonly "sessionToken"?: SensitiveString, readonly "collaboration"?: SessionCollaborationCapabilities, readonly "thumbnail"?: SessionThumbnail, readonly "proxy"?: SessionProxy }
+export const Session = Schema.Struct({ "id": Schema.suspend((): Schema.Codec<UUIDv7> => UUIDv7).annotate({ "description": "Session identifier." }), "tenantId": Schema.suspend((): Schema.Codec<UUIDv7> => UUIDv7).annotate({ "description": "Tenant that owns the session." }), "baseSnapshotName": Schema.optionalKey(Schema.String.annotate({ "description": "Snapshot name used as the session base. Omitted for a blank session.", "examples": ["signed-in-base"] })), "label": Schema.optionalKey(Schema.String.annotate({ "description": "Optional operator-facing session label.", "examples": ["checkout smoke test"] })), "status": SessionStatus, "browserChannel": Schema.optionalKey(Schema.String.annotate({ "description": "Browser channel used to create and reopen the session.", "examples": ["chromium"] })), "media": SessionMedia, "createdAt": Schema.String.annotate({ "description": "Time the session record was created.", "examples": ["2026-07-17T12:00:00Z"], "format": "date-time" }), "startedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent successful browser start time. Omitted before startup succeeds.", "examples": ["2026-07-17T12:00:03Z"], "format": "date-time" })), "stoppedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent browser stop time. Omitted while no stop has occurred.", "examples": ["2026-07-17T13:00:00Z"], "format": "date-time" })), "deletedAt": Schema.optionalKey(Schema.Union([Schema.String, Schema.Null]).annotate({ "description": "Soft-deletion time, or `null` for a session that has not been deleted.", "examples": [null], "format": "date-time" })), "expiresAt": Schema.String.annotate({ "description": "Retention deadline after which the session and its overlay may be purged. This is not token expiry.", "examples": ["2026-07-24T12:00:00Z"], "format": "date-time" }), "lastConnectedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent routed client activity time. Omitted until a client connects.", "examples": ["2026-07-17T12:30:00Z"], "format": "date-time" })), "suspendedAt": Schema.optionalKey(Schema.String.annotate({ "description": "Most recent suspension time. Omitted unless the session is suspended.", "examples": ["2026-07-17T13:00:00Z"], "format": "date-time" })), "tags": Schema.optionalKey(Schema.suspend((): Schema.Codec<StringMap> => StringMap).annotate({ "description": "Session metadata tags. Omitted when no tags are set." })), "cdpUrl": Schema.optionalKey(Schema.String.annotate({ "description": "Authenticated Chrome DevTools endpoint. Omitted when the session is not currently routable. Use it with `sessionToken`.", "examples": ["https://aperture.example.com/cdp/019f6cf0-0000-7000-8000-000000000010"], "format": "uri" })), "sessionToken": Schema.optionalKey(Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "Session access secret returned when live access credentials are available. Rotation invalidates the previous token immediately.", "examples": ["aps_019f6cf0000070008000000000000010_REDACTED"] })), "collaboration": Schema.optionalKey(SessionCollaborationCapabilities), "thumbnail": Schema.optionalKey(SessionThumbnail), "proxy": Schema.optionalKey(SessionProxy) }).annotate({ "description": "Browser session state, retention metadata, tags, and currently available access credentials.", "identifier": "Session" })
 export type InitialBrowserDocumentSelection = { readonly "anchor": InitialBrowserSelectionEndpoint, readonly "focus": InitialBrowserSelectionEndpoint }
 export const InitialBrowserDocumentSelection = Schema.Struct({ "anchor": InitialBrowserSelectionEndpoint, "focus": InitialBrowserSelectionEndpoint }).annotate({ "identifier": "InitialBrowserDocumentSelection" })
 export type InitialIndexedDBDatabase = { readonly "name": string, readonly "version": number, readonly "objectStores": ReadonlyArray<InitialIndexedDBObjectStore> }
@@ -443,6 +446,14 @@ export type SetSessionCursor200 = CursorVisibility
 export const SetSessionCursor200 = CursorVisibility
 export type SetSessionCursordefault = Error
 export const SetSessionCursordefault = Error
+export type GetSessionThumbnailParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const GetSessionThumbnailParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type GetSessionThumbnaildefault = Error
+export const GetSessionThumbnaildefault = Error
+export type GetSessionTargetThumbnailParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
+export const GetSessionTargetThumbnailParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
+export type GetSessionTargetThumbnaildefault = Error
+export const GetSessionTargetThumbnaildefault = Error
 export type ExportSessionStorageStateParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
 export const ExportSessionStorageStateParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
 export type ExportSessionStorageStateRequestJson = ExportSessionStorageStateInput
@@ -679,6 +690,19 @@ export const make = (
     }
     return Effect.succeed(method(path))
   })
+  const executeStreamRequest = (request: HttpClientRequest.HttpClientRequest) =>
+    Effect.suspend(() =>
+      options.transformClient
+        ? Effect.flatMap(options.transformClient(httpClient), (client) => HttpClient.filterStatusOk(client).execute(request))
+        : HttpClient.filterStatusOk(httpClient).execute(request)
+    )
+  const decodeBinary = (response: HttpClientResponse.HttpClientResponse) =>
+    Effect.map(response.arrayBuffer, (buffer) => new Uint8Array(buffer))
+  const binaryRequest = (request: HttpClientRequest.HttpClientRequest): Stream.Stream<Uint8Array, HttpClientError.HttpClientError> =>
+    executeStreamRequest(request).pipe(
+      Effect.map((response) => response.stream),
+      Stream.unwrap
+    )
   const decodeSuccess =
     <Schema extends Schema.Constraint>(schema: Schema) =>
     (response: HttpClientResponse.HttpClientResponse) =>
@@ -1023,6 +1047,38 @@ export const make = (
     }))
     ))
   ),
+    "getSessionThumbnail": (sessionId, options) => __makePathRequest(HttpClientRequest.get, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/thumbnail").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options?.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      withResponse(options?.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(GetSessionThumbnaildefault),
+      "200": decodeBinary,
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "getSessionThumbnailStream": (sessionId, options) => Stream.unwrap(__makePathRequest(HttpClientRequest.get, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/thumbnail").pipe(
+    Effect.map((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options?.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      binaryRequest
+    ))
+  )),
+    "getSessionTargetThumbnail": (sessionId, targetId, options) => __makePathRequest(HttpClientRequest.get, [sessionId, targetId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/targets/" + __encodePathParam(targetId) + "/thumbnail").pipe(
+    Effect.flatMap((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options?.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      withResponse(options?.config)(HttpClientResponse.matchStatus({
+      "2xx": decodeSuccess(GetSessionTargetThumbnaildefault),
+      "200": decodeBinary,
+      orElse: unexpectedStatus
+    }))
+    ))
+  ),
+    "getSessionTargetThumbnailStream": (sessionId, targetId, options) => Stream.unwrap(__makePathRequest(HttpClientRequest.get, [sessionId, targetId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/targets/" + __encodePathParam(targetId) + "/thumbnail").pipe(
+    Effect.map((request) => request.pipe(
+      HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options?.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
+      binaryRequest
+    ))
+  )),
     "exportSessionStorageState": (sessionId, options) => __makePathRequest(HttpClientRequest.post, [sessionId], () => "/api/sessions/" + __encodePathParam(sessionId) + "/storage-state").pipe(
     Effect.flatMap((request) => request.pipe(
       HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
@@ -1394,6 +1450,34 @@ readonly "getSessionCursor": <Config extends OperationConfig>(sessionId: string,
 * Enables or disables compositing the remote browser cursor into the live stream and recordings.
 */
 readonly "setSessionCursor": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof SetSessionCursorParams.Encoded | undefined; readonly payload: typeof SetSessionCursorRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof SetSessionCursor200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Returns a JPEG, at most 640 pixels wide, of the tab most recently shown to a live-session client,
+* or of the first tab when no client has connected. Running sessions capture it live; repeated
+* requests within two seconds share one capture. Suspended sessions serve the thumbnails saved when
+* they suspended, unless `thumbnails_persist_on_suspend` is disabled. The request never wakes the
+* session. Use `Last-Modified` with `If-Modified-Since` to avoid transferring an unchanged image.
+*/
+readonly "getSessionThumbnail": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof GetSessionThumbnailParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof GetSessionThumbnaildefault.Type | Uint8Array, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Returns a JPEG, at most 640 pixels wide, of the tab most recently shown to a live-session client,
+* or of the first tab when no client has connected. Running sessions capture it live; repeated
+* requests within two seconds share one capture. Suspended sessions serve the thumbnails saved when
+* they suspended, unless `thumbnails_persist_on_suspend` is disabled. The request never wakes the
+* session. Use `Last-Modified` with `If-Modified-Since` to avoid transferring an unchanged image.
+*/
+readonly "getSessionThumbnailStream": (sessionId: string, options: { readonly params?: typeof GetSessionThumbnailParams.Encoded | undefined } | undefined) => Stream.Stream<Uint8Array, HttpClientError.HttpClientError>
+  /**
+* Returns a JPEG thumbnail of one top-level tab, like the session thumbnail. Every tab renders in its
+* own compositor window, so background tabs are captured live too. A suspended session serves the
+* tabs it had when it suspended; tab IDs change when the browser restarts.
+*/
+readonly "getSessionTargetThumbnail": <Config extends OperationConfig>(sessionId: string, targetId: string, options: { readonly params?: typeof GetSessionTargetThumbnailParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof GetSessionTargetThumbnaildefault.Type | Uint8Array, Config>, HttpClientError.HttpClientError | SchemaError>
+  /**
+* Returns a JPEG thumbnail of one top-level tab, like the session thumbnail. Every tab renders in its
+* own compositor window, so background tabs are captured live too. A suspended session serves the
+* tabs it had when it suspended; tab IDs change when the browser restarts.
+*/
+readonly "getSessionTargetThumbnailStream": (sessionId: string, targetId: string, options: { readonly params?: typeof GetSessionTargetThumbnailParams.Encoded | undefined } | undefined) => Stream.Stream<Uint8Array, HttpClientError.HttpClientError>
   /**
 * Returns storage accepted by session creation's storageState field. Select exact HTTP origins,
 * origin patterns containing * (which matches zero or more characters), ["*"] for every stored

@@ -251,6 +251,12 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
       sessionToken?: Redacted.Redacted<string>,
     ) => Call<DownloadedFile>;
+    /** A JPEG of the session, or of one tab when `targetId` is given. Never wakes a suspended session. */
+    readonly getSessionThumbnail: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      targetId?: string,
+    ) => Call<Blob>;
     /** The recording's bytes as they arrive, for files too large to hold in memory. */
     readonly streamSessionRecording: (
       credentials: ApiCredentials,

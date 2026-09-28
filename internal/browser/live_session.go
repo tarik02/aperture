@@ -79,6 +79,9 @@ type liveSession struct {
 	autoSizeSequence uint64
 	// viewportSetExplicitly keeps a vacant viewport from being claimed by a hello preference.
 	viewportSetExplicitly bool
+	// lastActiveTargetID is the target most recently shown to any client; the session thumbnail shows it.
+	lastActiveTargetID string
+	thumbnails         wrapperThumbnailCache
 }
 
 type liveSessionClient struct {
@@ -581,6 +584,7 @@ func (session *liveSession) applyActiveTargetChanges(changes []liveSessionTarget
 	for _, change := range changed {
 		change.client.activeTargetID = targetID
 	}
+	session.lastActiveTargetID = targetID
 	session.mu.Unlock()
 	return nil
 }

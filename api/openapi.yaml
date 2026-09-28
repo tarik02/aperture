@@ -750,6 +750,65 @@ paths:
       responses:
         '200': {description: Updated remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
         default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/thumbnail:
+    get:
+      operationId: getSessionThumbnail
+      tags: [sessions]
+      summary: Get a session thumbnail
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [resource_access_denied, session_not_found, session_expired, session_not_running, thumbnail_not_found, session_service_unavailable, browser_control_failed]
+      description: |
+        Returns a JPEG, at most 640 pixels wide, of the tab most recently shown to a live-session client,
+        or of the first tab when no client has connected. Running sessions capture it live; repeated
+        requests within two seconds share one capture. Suspended sessions serve the thumbnails saved when
+        they suspended, unless `thumbnails_persist_on_suspend` is disabled. The request never wakes the
+        session. Use `Last-Modified` with `If-Modified-Since` to avoid transferring an unchanged image.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200':
+          description: Session thumbnail
+          headers:
+            Last-Modified: {schema: {type: string}, description: Capture time.}
+          content:
+            image/jpeg:
+              schema: {type: string, format: binary}
+        default: {$ref: '#/components/responses/Error'}
+  /api/sessions/{sessionId}/targets/{targetId}/thumbnail:
+    get:
+      operationId: getSessionTargetThumbnail
+      tags: [sessions]
+      summary: Get a tab thumbnail
+      x-aperture-auth:
+        authorityTypes: [system_admin, tenant]
+        requiredScopes: [sessions:read]
+        tenantResolution: token_tenant_or_required_header
+      x-aperture-errors: [resource_access_denied, session_not_found, session_expired, session_not_running, thumbnail_not_found, session_service_unavailable, browser_control_failed]
+      description: |
+        Returns a JPEG thumbnail of one top-level tab, like the session thumbnail. Every tab renders in its
+        own compositor window, so background tabs are captured live too. A suspended session serves the
+        tabs it had when it suspended; tab IDs change when the browser restarts.
+      parameters:
+        - {$ref: '#/components/parameters/SessionId'}
+        - name: targetId
+          in: path
+          required: true
+          description: Top-level target ID from the live session's target list.
+          schema: {type: string, pattern: '^[A-Za-z0-9_-]{1,128}$'}
+        - {$ref: '#/components/parameters/SelectedTenantId'}
+      responses:
+        '200':
+          description: Tab thumbnail
+          headers:
+            Last-Modified: {schema: {type: string}, description: Capture time.}
+          content:
+            image/jpeg:
+              schema: {type: string, format: binary}
+        default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/storage-state:
     post:
       operationId: exportSessionStorageState
@@ -1629,6 +1688,7 @@ components:
         - recording_not_found
         - recording_invalid_state
         - recording_codec_unavailable
+        - thumbnail_not_found
         - storage_export_unsupported
         - session_file_not_found
         - session_file_busy
@@ -1692,6 +1752,7 @@ components:
         recording_not_found: 404
         recording_invalid_state: 409
         recording_codec_unavailable: 422
+        thumbnail_not_found: 404
         storage_export_unsupported: 422
         session_file_not_found: 404
         session_file_busy: 409
@@ -2765,8 +2826,30 @@ components:
           example: aps_019f6cf0000070008000000000000010_REDACTED
         collaboration:
           $ref: '#/components/schemas/SessionCollaborationCapabilities'
+        thumbnail:
+          $ref: '#/components/schemas/SessionThumbnail'
         proxy:
           $ref: '#/components/schemas/SessionProxy'
+    SessionThumbnail:
+      type: object
+      description: |
+        Signed thumbnail URLs for image elements. They need no other credentials and expire after the
+        configured signed URL lifetime; every session response returns fresh ones. Present while the
+        session is running, or while suspended when thumbnails were saved.
+      required: [url, targetUrlTemplate, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+          x-sensitive: true
+          description: Thumbnail of the tab most recently shown to a live-session client.
+        targetUrlTemplate:
+          type: string
+          x-sensitive: true
+          description: Tab thumbnail URL with a literal `{targetId}` placeholder for a top-level target ID.
+        expiresAt:
+          type: string
+          format: date-time
     SessionCollaborationCapabilities:
       type: object
       description: Owner-visible role-scoped secrets used to build collaboration links.

@@ -4,8 +4,16 @@ import {
   dropTargetForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { useEffect, useRef, useState } from "react";
+import * as Effect from "effect/Effect";
 import { Globe2, Plus, Wrench, X } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
+import {
+  createHoverCardHandle,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+  type HoverCardHandle,
+} from "@aperture-browser/ui/components/hover-card";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -17,11 +25,14 @@ import {
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
 import { copyTextWithToast } from "../clipboard.ts";
-import { useEffectCallback } from "../effect.tsx";
+import { useEffectCallback, useFork } from "../effect.tsx";
 import { cn } from "@aperture-browser/ui/utils";
 import type { LiveSessionTarget } from "@aperture-browser/live-session";
+import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
+
+type LoadThumbnail = UseBrowserControlResult["loadTargetThumbnail"];
 
 interface BrowserTabStripProps {
   targets: readonly LiveSessionTarget[];
@@ -40,6 +51,7 @@ interface BrowserTabStripProps {
     destinationTargetId: string,
     placement: "before" | "after",
   ) => void;
+  loadThumbnail?: LoadThumbnail;
 }
 
 interface BrowserTabDragData extends Record<string, unknown> {
@@ -62,7 +74,10 @@ export function BrowserTabStrip({
   onClose,
   onReload,
   onReorder,
+  loadThumbnail = null,
 }: BrowserTabStripProps) {
+  const [previewHandle] = useState(() => createHoverCardHandle<string>());
+
   if (targets.length === 0) {
     return (
       <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2 text-xs text-muted-foreground">
@@ -73,34 +88,47 @@ export function BrowserTabStrip({
   }
 
   return (
-    <ScrollArea scrollbars="horizontal" className="h-8 min-w-0 flex-1">
-      <div className="flex min-w-max items-end gap-0.5 px-1 pt-1">
-        {targets.map((target, index) => {
-          const active = target.id === activeTargetId;
-          return (
-            <BrowserTab
-              key={target.id}
-              target={target}
-              active={active}
-              recording={recordingTargetIds.has(target.id)}
-              devToolsOpen={devToolsTargetIds.has(target.id)}
-              disabled={disabled}
-              mutationDisabled={mutationDisabled}
-              onActivate={onActivate}
-              onDuplicate={onDuplicate}
-              onClose={onClose}
-              onReload={onReload}
-              onReorder={onReorder}
-              closeOtherTargetIds={targets
-                .filter((current) => current.id !== target.id)
-                .map((current) => current.id)}
-              closeRightTargetIds={targets.slice(index + 1).map((current) => current.id)}
-            />
-          );
-        })}
-        <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
-      </div>
-    </ScrollArea>
+    <>
+      <ScrollArea scrollbars="horizontal" className="h-8 min-w-0 flex-1">
+        <div className="flex min-w-max items-end gap-0.5 px-1 pt-1">
+          {targets.map((target, index) => {
+            const active = target.id === activeTargetId;
+            return (
+              <BrowserTab
+                key={target.id}
+                target={target}
+                active={active}
+                recording={recordingTargetIds.has(target.id)}
+                devToolsOpen={devToolsTargetIds.has(target.id)}
+                disabled={disabled}
+                mutationDisabled={mutationDisabled}
+                onActivate={onActivate}
+                onDuplicate={onDuplicate}
+                onClose={onClose}
+                onReload={onReload}
+                onReorder={onReorder}
+                previewHandle={loadThumbnail ? previewHandle : null}
+                closeOtherTargetIds={targets
+                  .filter((current) => current.id !== target.id)
+                  .map((current) => current.id)}
+                closeRightTargetIds={targets.slice(index + 1).map((current) => current.id)}
+              />
+            );
+          })}
+          <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
+        </div>
+      </ScrollArea>
+      {loadThumbnail ? (
+        <HoverCard handle={previewHandle}>
+          {({ payload }) => {
+            const target = targets.find((current) => current.id === payload);
+            return target ? (
+              <TabPreview key={target.id} target={target} loadThumbnail={loadThumbnail} />
+            ) : null;
+          }}
+        </HoverCard>
+      ) : null}
+    </>
   );
 }
 
@@ -116,6 +144,7 @@ function BrowserTab({
   onClose,
   onReload,
   onReorder,
+  previewHandle,
   closeOtherTargetIds,
   closeRightTargetIds,
 }: {
@@ -134,6 +163,7 @@ function BrowserTab({
     destinationTargetId: string,
     placement: DropPlacement,
   ) => void;
+  previewHandle: HoverCardHandle<string> | null;
   closeOtherTargetIds: string[];
   closeRightTargetIds: string[];
 }) {
@@ -184,33 +214,46 @@ function BrowserTab({
     );
   }, [onReorder, target.id]);
 
+  const tab = (
+    <div
+      ref={tabRef}
+      data-browser-tab
+      className={cn(
+        "group relative flex h-7 w-52 max-w-[38vw] min-w-28 cursor-grab select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-[background-color,border-color,color,opacity] active:cursor-grabbing",
+        active
+          ? "border-border bg-background text-foreground"
+          : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
+        dragging && "opacity-60",
+      )}
+      onMouseDown={(event) => {
+        if (event.button === 1) {
+          event.preventDefault();
+        }
+      }}
+      onAuxClick={(event) => {
+        if (event.button === 1 && !disabled && !mutationDisabled) {
+          event.preventDefault();
+          onClose(target.id);
+        }
+      }}
+    />
+  );
+
   return (
     <ContextMenu>
       <ContextMenuTrigger
         render={
-          <div
-            ref={tabRef}
-            data-browser-tab
-            className={cn(
-              "group relative flex h-7 w-52 max-w-[38vw] min-w-28 cursor-grab select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-[background-color,border-color,color,opacity] active:cursor-grabbing",
-              active
-                ? "border-border bg-background text-foreground"
-                : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
-              dragging && "opacity-60",
-            )}
-            title={target.url || "about:blank"}
-            onMouseDown={(event) => {
-              if (event.button === 1) {
-                event.preventDefault();
-              }
-            }}
-            onAuxClick={(event) => {
-              if (event.button === 1 && !disabled && !mutationDisabled) {
-                event.preventDefault();
-                onClose(target.id);
-              }
-            }}
-          />
+          previewHandle ? (
+            <HoverCardTrigger
+              handle={previewHandle}
+              payload={target.id}
+              delay={0}
+              closeDelay={0}
+              render={tab}
+            />
+          ) : (
+            tab
+          )
         }
       >
         <span
@@ -389,4 +432,62 @@ function isBrowserTabDragData(data: Record<string, unknown>): data is BrowserTab
 function dropPlacementFromClientX(element: Element, clientX: number): DropPlacement {
   const rect = element.getBoundingClientRect();
   return clientX < rect.left + rect.width / 2 ? "before" : "after";
+}
+
+function TabPreview({
+  target,
+  loadThumbnail,
+}: {
+  target: LiveSessionTarget;
+  loadThumbnail: NonNullable<LoadThumbnail>;
+}) {
+  return (
+    <HoverCardContent
+      data-browser-tab-preview
+      align="start"
+      sideOffset={8}
+      collisionPadding={16}
+      className="pointer-events-none flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 p-2"
+    >
+      <TabThumbnail targetId={target.id} loadThumbnail={loadThumbnail} />
+      <span className="truncate text-xs font-medium">
+        {target.title || simplifyUrl(target.url)}
+      </span>
+      <span className="truncate font-mono text-xs text-muted-foreground">
+        {target.url || "about:blank"}
+      </span>
+    </HoverCardContent>
+  );
+}
+
+// Lives inside the popup, which unmounts on close, so every opening loads a fresh thumbnail.
+function TabThumbnail({
+  targetId,
+  loadThumbnail,
+}: {
+  targetId: string;
+  loadThumbnail: NonNullable<LoadThumbnail>;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useFork(
+    () =>
+      Effect.gen(function* () {
+        const blob = yield* loadThumbnail(targetId);
+        const objectUrl = URL.createObjectURL(blob);
+        yield* Effect.addFinalizer(() => Effect.sync(() => URL.revokeObjectURL(objectUrl)));
+        setSrc(objectUrl);
+        return yield* Effect.never;
+      }).pipe(
+        Effect.catch(() => Effect.void),
+        Effect.scoped,
+      ),
+    [loadThumbnail, targetId],
+  );
+
+  return (
+    <div className="aspect-video w-full overflow-hidden rounded-md bg-muted">
+      {src ? <img src={src} alt="" className="size-full object-cover object-top" /> : null}
+    </div>
+  );
 }

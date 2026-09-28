@@ -128,6 +128,7 @@ export function BrowserToolbar({
               onClose={control.closeTarget}
               onReload={control.reload}
               onReorder={control.reorderTargets}
+              loadThumbnail={control.loadTargetThumbnail}
             />
           ) : (
             <div className="min-w-0 flex-1" />

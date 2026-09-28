@@ -144,7 +144,9 @@ func (s *Server) getSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toSessionResponse(view))
+	response := toSessionResponse(view)
+	response.Thumbnail = s.sessionThumbnailLinks(view.Session)
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) deleteSession(c *gin.Context) {
