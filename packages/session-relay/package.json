@@ -1,0 +1,54 @@
+{
+  "name": "@aperture-browser/session-relay",
+  "version": "0.0.0",
+  "description": "Authenticated HTTP and WebSocket relay for Aperture sessions, controlled by the consuming backend.",
+  "homepage": "https://github.com/tarik02/aperture#readme",
+  "bugs": "https://github.com/tarik02/aperture/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tarik02/aperture.git",
+    "directory": "packages/session-relay"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "./node": {
+        "types": "./dist/node.d.mts",
+        "default": "./dist/node.mjs"
+      }
+    },
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "effect": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@effect/platform-node": "catalog:peers",
+    "effect": "catalog:peers"
+  },
+  "peerDependenciesMeta": {
+    "@effect/platform-node": {
+      "optional": true
+    }
+  }
+}

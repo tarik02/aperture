@@ -8,9 +8,15 @@ npm install @aperture-browser/live-session effect
 ```
 
 - The `aperture-session.v1` protocol, decoded with Effect Schema.
-- `LiveSessionConnection.make`, a scoped Effect that connects over WebRTC and falls back to WebSocket raster frames. Its `baseUrl` option targets an instance on another origin.
+- `LiveSessionConnection.make`, a scoped Effect that connects over WebRTC and falls back to WebSocket raster frames. Its `access` option selects direct credentials or a consumer-authenticated relay. `access.baseUrl` supports relative URLs and preserves mount prefixes.
 - Helpers that map DOM keyboard and pointer events to browser input messages, and the viewport math for scaling between the page and the remote browser.
 
-Failures are `LiveSessionError`s with a `message`.
+`getSessionStatus(access)` loads media/ICE configuration using the same connection settings. Direct access takes `{ kind: "direct", baseUrl?, sessionId, credentials }`; relay access takes `{ kind: "relay", baseUrl, sessionId }` and must use the page's origin.
+
+Failures are `LiveSessionError`s with a `message`. Relay denial (4401/4403) and unavailable-session (4404/4410) close codes stop automatic retries and close both active and candidate transports. Call `reconnect` explicitly after restoring access.
 
 For a ready-made UI, or a React hook over this client, see [session-react](/docs/packages/session-react). Requires `effect` 4.
+
+## Server compatibility
+
+Setting the `autoSize` connection option adds an `autoSize` field to the session hello, which opts the client into [viewport ownership](https://github.com/tarik02/aperture/blob/master/docs/adr/0014-one-viewport-owner-for-auto-size.md). Servers without viewport ownership, from before [#126](https://github.com/tarik02/aperture/pull/126) and the first nightly that includes it, reject that hello and close the connection. `session-react` always sets it. Run a server at least as new as the packages you embed, or leave `autoSize` unset when using this package directly against an older server.

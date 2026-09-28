@@ -193,3 +193,24 @@ func (r *Repository) ListSnapshotTags(ctx context.Context, snapshotID string) (m
 	}
 	return result, nil
 }
+
+// SnapshotCounts splits snapshots whose files still exist by whether they are deleted.
+type SnapshotCounts struct {
+	Active  int
+	Deleted int
+}
+
+// CountSnapshots counts snapshots garbage collection has not removed yet.
+func (r *Repository) CountSnapshots(ctx context.Context) (SnapshotCounts, error) {
+	var counts SnapshotCounts
+	err := r.db.bun.NewSelect().
+		Model((*Snapshot)(nil)).
+		ColumnExpr("COUNT(*) FILTER (WHERE deleted_at IS NULL) AS active").
+		ColumnExpr("COUNT(*) FILTER (WHERE deleted_at IS NOT NULL) AS deleted").
+		Where("gc_completed_at IS NULL").
+		Scan(ctx, &counts.Active, &counts.Deleted)
+	if err != nil {
+		return SnapshotCounts{}, fmt.Errorf("count snapshots: %w", err)
+	}
+	return counts, nil
+}

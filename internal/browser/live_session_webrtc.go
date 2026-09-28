@@ -173,6 +173,7 @@ func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTrans
 			return nil, err
 		}
 		client.resumeSecret = secret
+		session.applyHelloAutoSize(client, hello.AutoSize)
 		transport.mu.Lock()
 		transport.client = client
 		transport.mu.Unlock()
@@ -201,6 +202,7 @@ func (session *liveSession) attachWebRTCClient(transport *liveSessionWebRTCTrans
 	client.capabilityRole = metadata.capabilityRole
 	client.sessionTokenAuthenticated = metadata.sessionTokenAuthenticated
 	session.mu.Unlock()
+	session.applyHelloAutoSize(client, hello.AutoSize)
 	previous := client.transport()
 	transport.mu.Lock()
 	transport.client = client

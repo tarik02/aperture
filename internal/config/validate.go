@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -91,6 +92,7 @@ func Validate(cfg Config) error {
 	} else if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
 		errs = append(errs, errors.New("listen_address must be loopback"))
 	}
+	errs = append(errs, validateMetricsAddress(cfg)...)
 
 	switch strings.ToLower(strings.TrimSpace(cfg.BrowserSupervisor)) {
 	case BrowserSupervisorDirect:
@@ -318,6 +320,31 @@ func validateDeployURL(name, value string) []error {
 	case "http", "https":
 	default:
 		return []error{fmt.Errorf("%s scheme must be http or https", name)}
+	}
+	return nil
+}
+
+// validateMetricsAddress accepts an empty address, which disables metrics.
+// Both API colors bind their own addresses, so the metrics listener must not
+// take one of them.
+func validateMetricsAddress(cfg Config) []error {
+	address := strings.TrimSpace(cfg.MetricsAddress)
+	if address == "" {
+		return nil
+	}
+	if _, port, err := net.SplitHostPort(address); err != nil {
+		return []error{fmt.Errorf("metrics_address: %w", err)}
+	} else if port == "" || port == "0" {
+		return []error{errors.New("metrics_address must include a port")}
+	}
+	taken := []string{cfg.ListenAddress}
+	for _, deployURL := range []string{cfg.DeployBlueURL, cfg.DeployGreenURL} {
+		if parsed, err := url.Parse(deployURL); err == nil {
+			taken = append(taken, parsed.Host)
+		}
+	}
+	if slices.Contains(taken, address) {
+		return []error{errors.New("metrics_address must differ from the API listen addresses")}
 	}
 	return nil
 }

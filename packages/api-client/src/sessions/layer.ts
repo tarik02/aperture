@@ -30,7 +30,7 @@ import {
 } from "./service.ts";
 import { uploadBody } from "./uploads.ts";
 
-const contentDispositionFilename = (header: string | undefined): string | null =>
+export const contentDispositionFilename = (header: string | undefined): string | null =>
   header?.match(/filename="([^"]+)"/)?.[1] ?? null;
 
 const recordingContentPath = (sessionId: string, recordingId: string) =>
@@ -64,6 +64,16 @@ export const makeSessionsApi = Effect.gen(function* () {
   });
 
   const sessions = paginated<SessionsFilter, Session>(listSessions);
+
+  const exportSessionStorageState = Effect.fn("SessionsApi.exportSessionStorageState")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    input: Api.ExportSessionStorageStateInput,
+  ) {
+    return yield* api
+      .exportSessionStorageState(sessionId, { payload: input })
+      .pipe(tenantScoped(credentials));
+  });
 
   const getSession = Effect.fn("SessionsApi.getSession")(function* (
     credentials: ApiCredentials,
@@ -400,6 +410,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     streamSessions: sessions.stream,
     listAllSessions: sessions.listAll,
     getSession,
+    exportSessionStorageState,
     getSessionsBulk,
     createSession,
     deleteSession,

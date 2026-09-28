@@ -34,6 +34,8 @@ func (r *wrapperRuntime) handleInitialization(w http.ResponseWriter, req *http.R
 		return
 	}
 
+	r.storageExportMu.Lock()
+	defer r.storageExportMu.Unlock()
 	unlock := live.lockTargetChanges()
 	defer unlock()
 	if err := live.browser.waitUntilStartupTargetReady(req.Context()); err != nil {

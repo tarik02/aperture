@@ -45,6 +45,10 @@ export default defineConfig({
       devalueLicense,
       idbLicense,
     ]),
+    exportOriginStorage: browserPayload("export-origin-storage", "ApertureOriginStorageExport", [
+      devalueLicense,
+      idbLicense,
+    ]),
     // The Node worker Go spawns. Everything but playwright-core, which the Nix package
     // installs next to it, is bundled.
     worker: {

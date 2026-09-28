@@ -139,6 +139,10 @@ func (a *App) Serve(ctx context.Context) error {
 		return err
 	}
 	a.WebAuth = webAuth
+	appMetrics, err := a.initMetrics()
+	if err != nil {
+		return err
+	}
 
 	role, err := a.deployRole()
 	if err != nil {
@@ -168,6 +172,9 @@ func (a *App) Serve(ctx context.Context) error {
 	defer cancelMonitor()
 	go monitor.Run(monitorCtx)
 	go a.reconcileSessionRoutesOnActivation(monitorCtx, role == deploystate.RoleActive)
+	if appMetrics != nil {
+		go a.serveMetricsWhileActive(monitorCtx, appMetrics.Handler())
+	}
 
 	server := &httpapi.Server{
 		Config:        a.Config,
@@ -183,6 +190,7 @@ func (a *App) Serve(ctx context.Context) error {
 		Deploy:        a.Deploy,
 		DeployColor:   a.Config.DeployColor,
 		DeployVersion: a.Config.DeployVersion,
+		Metrics:       appMetrics,
 	}
 	server.SetJobToken(jobToken)
 	router := httpapi.NewRouter(a.Logger, server, web.StaticAssets(), a.Config.CdpRouteBasePath)

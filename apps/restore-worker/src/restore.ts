@@ -10,20 +10,27 @@ import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
-import * as SchemaIssue from "effect/SchemaIssue";
 import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
 import { Playwright } from "effect-playwright";
 import { errorMessage } from "./browser/error.js";
 import { makeCdp, restoreError } from "./cdp.js";
+import { StorageExportInput } from "./export-schema.js";
+import { exportStorage } from "./export-storage.js";
 import { PayloadSource } from "./payload-source.js";
 import { restoreStorage } from "./restore-storage.js";
 import { restoreTargets } from "./restore-targets.js";
-import { Capsule } from "./schema.js";
+import { Capsule, describeIssue } from "./schema.js";
+import { UnsupportedStorageError } from "./storage-inventory.js";
 
-const usage = "usage: aperture-browser-restore validate <capsule> | restore <cdp-url> <capsule>";
+// Go reads at most this much worker output.
+const maxExportBytes = 64 * 1024 * 1024;
+
+const usage =
+  "usage: aperture-browser-restore validate <capsule> | restore <cdp-url> <capsule> | export <cdp-url> <selection>";
 
 // Exit code 2 tells Go that the capsule itself is invalid; stderr then holds the reason.
+// UnsupportedStorageError uses exit code 3 the same way for storage an export cannot represent.
 class InvalidCapsule extends Data.TaggedError("InvalidCapsule")<{ readonly message: string }> {
   readonly [Runtime.errorExitCode] = 2;
 }
@@ -48,22 +55,6 @@ function diagnosticMessage(error: unknown): string {
 
 const decodeCapsule = Schema.decodeUnknownResult(Capsule);
 
-// Formats the first validation issue as "initialTargets[0].url: message". Issues never
-// include input values, which may be sensitive.
-const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
-
-function describeIssue(issue: SchemaIssue.Issue): string {
-  const first = formatIssues(issue).issues[0];
-  if (!first) return "invalid browser initialization";
-  const path = (first.path ?? [])
-    .map((segment) => (typeof segment === "object" ? segment.key : segment))
-    .map((part, index) =>
-      typeof part === "number" ? `[${part}]` : `${index === 0 ? "" : "."}${String(part)}`,
-    )
-    .join("");
-  return path === "" ? first.message : `${path}: ${first.message}`;
-}
-
 const readCapsule = Effect.fnUntraced(function* (path: string) {
   const fs = yield* FileSystem.FileSystem;
   const text = yield* fs.readFileString(path);
@@ -80,6 +71,14 @@ const readCapsule = Effect.fnUntraced(function* (path: string) {
     return yield* new InvalidCapsule({ message: describeIssue(result.failure.issue) });
   }
   return result.success;
+});
+
+const readExportSelection = Effect.fnUntraced(function* (path: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const text = yield* fs.readFileString(path);
+  return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(StorageExportInput))(text).pipe(
+    Effect.mapError((error) => new InvalidCapsule({ message: describeIssue(error.issue) })),
+  );
 });
 
 const restore = Effect.fnUntraced(function* (browser: Playwright.Browser, capsule: Capsule) {
@@ -102,13 +101,27 @@ const main = Effect.fnUntraced(function* () {
     return;
   }
 
-  const [cdpURL, capsulePath] = args;
-  if (command !== "restore" || args.length !== 2 || !/^http:\/\/127\.0\.0\.1:\d+$/.test(cdpURL)) {
+  const [cdpURL, inputPath] = args;
+  if (
+    (command !== "restore" && command !== "export") ||
+    args.length !== 2 ||
+    !/^http:\/\/127\.0\.0\.1:\d+$/.test(cdpURL)
+  ) {
     return yield* new UsageError({ message: usage });
   }
 
-  const capsule = yield* readCapsule(capsulePath);
   const playwright = yield* Playwright.Playwright;
+  if (command === "export") {
+    const selection = yield* readExportSelection(inputPath);
+    const browser = yield* playwright.connectCDPScoped(cdpURL, { timeout: 15_000 });
+    const output = JSON.stringify(yield* exportStorage(browser, selection));
+    if (new TextEncoder().encode(output).byteLength > maxExportBytes)
+      return yield* new UnsupportedStorageError({ message: "storage export exceeds 64 MiB" });
+    yield* Stream.make(output).pipe(Stream.run(stdio.stdout()));
+    return;
+  }
+
+  const capsule = yield* readCapsule(inputPath);
   const browser = yield* playwright.connectCDPScoped(cdpURL, { timeout: 15_000 });
   const result = yield* restore(browser, capsule);
   yield* Stream.make(`${JSON.stringify(result)}\n`).pipe(Stream.run(stdio.stdout()));
@@ -120,11 +133,19 @@ const main = Effect.fnUntraced(function* () {
 
 const program = main().pipe(
   Effect.catchCause(
-    (cause): Effect.Effect<never, InvalidCapsule | UsageError | RestoreFailed, Stdio.Stdio> => {
+    (
+      cause,
+    ): Effect.Effect<
+      never,
+      InvalidCapsule | UsageError | UnsupportedStorageError | RestoreFailed,
+      Stdio.Stdio
+    > => {
       if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
       const error = Cause.squash(cause);
       const reported =
-        error instanceof InvalidCapsule || error instanceof UsageError
+        error instanceof InvalidCapsule ||
+        error instanceof UsageError ||
+        error instanceof UnsupportedStorageError
           ? error
           : new RestoreFailed({ message: diagnosticMessage(error) });
       return Stdio.Stdio.use((stdio) =>

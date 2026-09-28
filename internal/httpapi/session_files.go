@@ -90,6 +90,7 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 		StorageQuotaBytes: s.Config.SessionStorageQuotaBytes,
 	})
 	if err != nil {
+		s.Metrics.SessionUploads(0, 0, 1)
 		WriteError(c, err)
 		return
 	}
@@ -106,13 +107,17 @@ func (s *Server) uploadSessionFiles(c *gin.Context, directory string, parts *mul
 		for _, file := range files {
 			_, _ = sessionfiles.Delete(scope.layout, file.RelativePath, false)
 		}
+		s.Metrics.SessionUploads(0, 0, 1)
 		WriteError(c, err)
 		return
 	}
+	var uploadedBytes int64
 	presented := make([]sessionfiles.Entry, 0, len(files))
 	for _, file := range files {
+		uploadedBytes += file.Size
 		presented = append(presented, scope.present(file))
 	}
+	s.Metrics.SessionUploads(float64(len(files)), float64(uploadedBytes), 0)
 	c.JSON(http.StatusCreated, gin.H{"files": presented})
 }
 

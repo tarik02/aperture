@@ -41,6 +41,7 @@ Create `~/.config/aperture/aperture.yaml` (or set `APERTURE_*` environment varia
 - `embed_allowed_origins` — optional origins of other web apps that embed shared sessions (see [Session sharing](/docs/session-sharing#embedding))
 - MCP settings — enabled by default; see the example below
 - `channels` — browser channel registry (`executable` paths only; API accepts channel names)
+- `metrics_address` — optional Prometheus metrics listener, disabled by default; see [Monitoring](/docs/monitoring)
 
 Example:
 
@@ -85,7 +86,7 @@ Authenticated users can register discoverable passkeys from the web UI. Aperture
 
 Users with an email address can set an Argon2id password from the web UI. They can also enable TOTP for password login; enrollment creates ten one-time recovery codes that are shown once and stored only as SHA-256 hashes. OIDC and passkey login remain available when TOTP is enabled.
 
-The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the owner-only `sessionToken` (`aps_<sessionId>_<secret>`). Share links instead use editor (`ape_`) and viewer (`apv_`) capabilities with narrower live-session access; they do not authorize MCP, files, recordings, or `/api/*`. Signed session-file URLs use `apf_<payload>.<signature>` query tokens. OIDC, passkey, and password browser sessions authorize the web UI and same-origin API or live-session requests, but not MCP clients.
+The central Streamable HTTP MCP endpoint is `/mcp`; the per-session endpoint is `/sessions/:sessionId/mcp`. Central MCP requires an Aperture API bearer token (`apt_<tokenId>_<secret>`). Per-session MCP accepts an authorized API bearer token or the owner-only `sessionToken` (`aps_<sessionId>_<secret>`). Share links instead use editor (`ape_`) and viewer (`apv_`) capabilities with narrower live-session access; editors may also record. They do not authorize MCP, files, or `/api/*`. Signed session-file URLs use `apf_<payload>.<signature>` query tokens. OIDC, passkey, and password browser sessions authorize the web UI and same-origin API or live-session requests, but not MCP clients.
 
 ### Storage
 
@@ -223,6 +224,8 @@ The deployment defaults are:
 - candidate health timeout: 30 seconds
 
 Enable the edge proxy with `services.aperture.traefik.enable = true`; its default entrypoint is `127.0.0.1:28081`. TLS and external ingress remain outside the module.
+
+Enable Prometheus metrics with `services.aperture.metrics.enable = true`; they are served on `127.0.0.1:9464` by default. See [Monitoring](/docs/monitoring).
 
 On the first activation, reload the user manager, start blue, and make that instance persistent:
 

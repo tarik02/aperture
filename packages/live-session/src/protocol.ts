@@ -119,6 +119,8 @@ const Snapshot = Schema.Struct({
   participants: arrayOrEmpty(Participant),
   recordings: arrayOrEmpty(Recording),
   presentation: Presentation,
+  viewportOwnerClientId: Schema.optionalKey(Schema.String),
+  autoSize: Schema.optionalKey(Schema.Boolean),
 });
 
 const PresenceState = Schema.Struct({
@@ -130,6 +132,12 @@ const InputState = Schema.Struct({
   type: Schema.Literal("input.state"),
   holderClientId: Schema.optionalKey(Schema.String),
   mode: Schema.optionalKey(LeaseMode),
+});
+
+const ViewportState = Schema.Struct({
+  type: Schema.Literal("viewport.state"),
+  viewportOwnerClientId: Schema.optionalKey(Schema.String),
+  autoSize: Schema.Boolean,
 });
 
 const Cursor = Schema.Struct({
@@ -193,6 +201,8 @@ const CommandResult = Schema.Struct({
     "page.reload.result",
     "page.stop-loading.result",
     "viewport.set.result",
+    "viewport.auto-size.set.result",
+    "viewport.owner.claim.result",
     "presentation.quality.set.result",
     "presentation.cursor.set.result",
     "recording.start.result",
@@ -212,6 +222,7 @@ export const LiveSessionServerMessage = Schema.Union([
   Snapshot,
   PresenceState,
   InputState,
+  ViewportState,
   Cursor,
   CursorClear,
   Paint,

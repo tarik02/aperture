@@ -1,5 +1,6 @@
 import { CreateSessionInput } from "@aperture-browser/api-schema";
 import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
 
 // Structure and simple limits come from api/openapi.yaml through @aperture-browser/api-schema.
 // The checks below cover the rules OpenAPI cannot express.
@@ -286,4 +287,20 @@ export function canonicalOrigin(value: string): string | null {
 /** Returns the canonical HTTP(S) origin of a URL, or null for anything else (e.g. about:blank). */
 export function urlOrigin(url: string): string | null {
   return URL.canParse(url) ? canonicalOrigin(new URL(url).origin) : null;
+}
+
+// Formats the first validation issue as "initialTargets[0].url: message". Issues never
+// include input values, which may be sensitive.
+const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
+
+export function describeIssue(issue: SchemaIssue.Issue): string {
+  const first = formatIssues(issue).issues[0];
+  if (!first) return "invalid browser initialization";
+  const path = (first.path ?? [])
+    .map((segment) => (typeof segment === "object" ? segment.key : segment))
+    .map((part, index) =>
+      typeof part === "number" ? `[${part}]` : `${index === 0 ? "" : "."}${String(part)}`,
+    )
+    .join("");
+  return path === "" ? first.message : `${path}: ${first.message}`;
 }

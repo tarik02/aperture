@@ -197,6 +197,10 @@ docker compose \
 
 Point the external HTTP proxy at port `18080`. Preserve the original `Host`, `X-Forwarded-Proto`, and WebSocket upgrade headers. The public base URL must match `APERTURE_EXTERNAL_BASE_URL`.
 
+### Metrics
+
+Set `APERTURE_METRICS_ADDRESS`, for example to `127.0.0.1:9464`, to serve Prometheus metrics on the host. See [Monitoring](/docs/monitoring) for a Compose override that adds Prometheus.
+
 ### Bootstrap and verify a session
 
 A new data volume has no API tokens. Bootstrap it once and store the printed system-admin token:

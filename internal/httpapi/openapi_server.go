@@ -101,6 +101,7 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		path == "/api/sessions/bulk",
 		path == "/api/sessions/:sessionId" && c.Request.Method == http.MethodGet,
 		path == "/api/sessions/:sessionId/cursor" && c.Request.Method == http.MethodGet,
+		path == "/api/sessions/:sessionId/storage-state",
 		path == "/api/events":
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
 			return
@@ -164,6 +165,7 @@ var openAPIRoutesWithRequestBody = map[string]map[string]struct{}{
 		"/api/sessions/:sessionId/files/move":                       {},
 		"/api/sessions/:sessionId/files/directories":                {},
 		"/api/sessions/:sessionId/promote":                          {},
+		"/api/sessions/:sessionId/storage-state":                    {},
 	},
 	http.MethodPatch: {
 		"/api/admin/tenants/:tenantId": {},
@@ -477,6 +479,15 @@ func (s openAPIServer) GetSession(ctx context.Context, _ generated.GetSessionReq
 		return nil, errOpenAPIContext
 	}
 	s.server.getSession(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) ExportSessionStorageState(ctx context.Context, _ generated.ExportSessionStorageStateRequestObject) (generated.ExportSessionStorageStateResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.exportSessionStorageState(c)
 	return openAPIPassthroughResponse{}, nil
 }
 
@@ -877,6 +888,10 @@ func (openAPIPassthroughResponse) VisitDeleteSessionResponse(http.ResponseWriter
 }
 
 func (openAPIPassthroughResponse) VisitGetSessionResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitExportSessionStorageStateResponse(http.ResponseWriter) error {
 	return nil
 }
 

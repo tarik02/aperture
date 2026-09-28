@@ -10,6 +10,7 @@ import (
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/ids"
+	"github.com/aperture/aperture/internal/metrics"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/sessionfiles"
@@ -30,6 +31,7 @@ type Service struct {
 	overlay OverlayClient
 	traefik traefik.Reconciler
 	now     func() time.Time
+	metrics *metrics.Metrics
 }
 
 // NewService constructs a GC service.
@@ -63,20 +65,41 @@ type RunResult struct {
 	StagingSweepErrors []error
 }
 
+// SetMetrics configures where garbage collection runs are recorded.
+func (s *Service) SetMetrics(m *metrics.Metrics) {
+	s.metrics = m
+}
+
 // Run expires sessions and snapshots past retention.
 func (s *Service) Run(ctx context.Context) (*RunResult, error) {
+	started := time.Now()
 	result := &RunResult{}
+	err := s.run(ctx, result)
+	s.metrics.GCRun(time.Since(started), metrics.GCRemoved{
+		ExpiredSessions:    result.ExpiredSessions,
+		RemovedArtifacts:   result.RemovedArtifacts,
+		CollectedSnapshots: result.CollectedSnapshots,
+		StagingSweepErrors: len(result.StagingSweepErrors),
+	}, err)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// run fills result as it goes, so a failed run still reports what it removed.
+func (s *Service) run(ctx context.Context, result *RunResult) error {
 	now := s.now().UTC()
 	nowText := now.Format(time.RFC3339Nano)
 
 	expiring, err := s.repo.ListSessionsExpiringBefore(ctx, nowText)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, sessionRow := range expiring {
 		expired, err := s.expireSession(ctx, &sessionRow, now)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if expired {
 			result.ExpiredSessions++
@@ -87,23 +110,23 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 	artifactsCutoff := now.Add(-time.Duration(s.cfg.SessionRetentionDays) * 24 * time.Hour).Format(time.RFC3339Nano)
 	artifactSessions, err := s.repo.ListSessionsWithExpiredArtifacts(ctx, artifactsCutoff)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, sessionRow := range artifactSessions {
 		if err := s.removeSessionArtifacts(&sessionRow); err != nil {
-			return nil, err
+			return err
 		}
 		result.RemovedArtifacts++
 	}
 
 	snapshots, err := s.repo.ListSnapshotsEligibleForGC(ctx, nowText)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, snapshotRow := range snapshots {
 		collected, err := s.collectSnapshot(ctx, &snapshotRow, now)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if collected {
 			result.CollectedSnapshots++
@@ -111,9 +134,9 @@ func (s *Service) Run(ctx context.Context) (*RunResult, error) {
 	}
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
-		return nil, err
+		return err
 	}
-	return result, nil
+	return nil
 }
 
 func (s *Service) expireSession(ctx context.Context, sessionRow *db.Session, now time.Time) (bool, error) {

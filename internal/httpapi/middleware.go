@@ -17,6 +17,7 @@ import (
 	"github.com/aperture/aperture/internal/deploystate"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/gc"
+	"github.com/aperture/aperture/internal/metrics"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,7 @@ type Server struct {
 	DeployColor   string
 	DeployVersion string
 	Logger        *zap.Logger
+	Metrics       *metrics.Metrics
 	jobToken      string
 	mcpHandler    http.Handler
 }
@@ -138,11 +140,14 @@ func (s *Server) deployRole() (deploystate.State, string, string, error) {
 func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 	rawToken, err := rawTokenFromRequest(c)
 	if err != nil && !errors.Is(err, auth.ErrTokenMissing) {
+		s.recordAuthFailure(authMethodAPIToken, err)
 		return auth.Principal{}, err
 	}
 
 	var principal auth.Principal
+	method := authMethodWebSession
 	if err == nil {
+		method = authMethodAPIToken
 		principal, err = s.Auth.Authenticate(c.Request.Context(), rawToken)
 	} else if s.WebAuth != nil {
 		selectedTenant := selectedTenantID(c)
@@ -156,6 +161,7 @@ func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 		}
 	}
 	if err != nil {
+		s.recordAuthFailure(method, err)
 		return auth.Principal{}, err
 	}
 

@@ -1,3 +1,4 @@
+import type * as HttpClient from "effect/unstable/http/HttpClient";
 import {
   createContext,
   useCallback,
@@ -61,7 +62,7 @@ export function useBaseUrl(): string | undefined {
  * on cleanup, so its synchronous finalizers have run before the next effect starts.
  */
 export function useFork(
-  effect: () => Effect.Effect<unknown, never, ApiServices> | undefined,
+  effect: () => Effect.Effect<unknown, never, ApiServices | HttpClient.HttpClient> | undefined,
   deps: DependencyList,
 ): void {
   const runtime = useRuntime();
@@ -81,7 +82,7 @@ export function useFork(
  * when the component unmounts are interrupted.
  */
 export function useEffectCallback<Args extends ReadonlyArray<unknown>>(
-  callback: (...args: Args) => Effect.Effect<unknown, never, ApiServices>,
+  callback: (...args: Args) => Effect.Effect<unknown, never, ApiServices | HttpClient.HttpClient>,
   deps: DependencyList,
 ): (...args: Args) => void {
   const runtime = useRuntime();

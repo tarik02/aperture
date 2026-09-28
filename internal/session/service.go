@@ -16,6 +16,7 @@ import (
 	"github.com/aperture/aperture/internal/config"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/ids"
+	"github.com/aperture/aperture/internal/metrics"
 	"github.com/aperture/aperture/internal/overlay"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/proxy"
@@ -51,6 +52,7 @@ type Service struct {
 	mu              sync.Mutex
 	inhibitors      map[string]int
 	wakes           map[string]*wakeCall
+	metrics         *metrics.Metrics
 }
 
 // NewService constructs a session service.
@@ -229,6 +231,7 @@ func (s *Service) create(
 	if err := s.repo.CreateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
+	s.metrics.SessionEvent(metrics.SessionCreated)
 
 	rawSessionToken, hashSessionToken, err := GenerateSessionToken(sessionID)
 	if err != nil {
@@ -258,6 +261,7 @@ func (s *Service) create(
 		})
 	}
 
+	startBegan := time.Now()
 	if err := s.mountOverlay(ctx, sessionID, baseSnapshotID); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "overlay mount failed", err)
 		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
@@ -373,6 +377,7 @@ func (s *Service) create(
 		_ = s.markFailed(ctx, sessionRow, "session activation failed", err)
 		return nil, err
 	}
+	s.metrics.SessionStarted(metrics.StartCreate, metrics.SessionStarted, time.Since(startBegan))
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
@@ -543,6 +548,7 @@ func (s *Service) Delete(ctx context.Context, tenantID, sessionID string) (*Sess
 	if err := s.repo.UpdateSession(ctx, sessionRow); err != nil {
 		return nil, err
 	}
+	s.metrics.SessionEvent(metrics.SessionDeleted)
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
 	}
@@ -601,6 +607,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
+	startBegan := time.Now()
 	if err := s.mountOverlay(ctx, sessionID, sessionRow.BaseSnapshotID); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, &OverlayMountError{SessionID: sessionID, Err: err}
@@ -733,6 +740,7 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
+	s.metrics.SessionStarted(metrics.StartReopen, metrics.SessionReopened, time.Since(startBegan))
 
 	if err := s.traefik.Reconcile(ctx); err != nil {
 		return nil, err
@@ -1307,6 +1315,7 @@ func (s *Service) markFailedRetained(ctx context.Context, sessionRow *db.Session
 	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
+	s.metrics.SessionEvent(metrics.SessionFailed)
 	if err := s.traefik.Reconcile(cleanupCtx); err != nil {
 		return err
 	}
@@ -1335,6 +1344,7 @@ func (s *Service) markReopenFailedRetained(ctx context.Context, sessionRow *db.S
 	if err := s.repo.UpdateSession(cleanupCtx, sessionRow); err != nil {
 		return err
 	}
+	s.metrics.SessionEvent(metrics.SessionFailed)
 	if err := s.traefik.Reconcile(cleanupCtx); err != nil {
 		return err
 	}
@@ -1474,6 +1484,11 @@ func isRetainedOrRunning(status string) bool {
 // SetCDPReadyWaiter configures the browser CDP readiness check.
 func (s *Service) SetCDPReadyWaiter(waiter CDPReadyWaiter) {
 	s.waitForCDPReady = waiter
+}
+
+// SetMetrics configures where session lifecycle transitions are recorded.
+func (s *Service) SetMetrics(m *metrics.Metrics) {
+	s.metrics = m
 }
 
 // SetDirectOverlayHooks configures in-process overlay mount hooks for tests.

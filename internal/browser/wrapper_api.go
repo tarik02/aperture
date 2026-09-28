@@ -44,6 +44,7 @@ type wrapperRuntime struct {
 	controlSocket            string
 	ctx                      context.Context
 	mu                       sync.Mutex
+	storageExportMu          sync.Mutex
 	uploadMu                 sync.Mutex
 	compositorPID            int
 	mediaProducer            *producer
@@ -55,6 +56,8 @@ type wrapperRuntime struct {
 	liveSession              *liveSession
 	proxyManager             *proxy.Manager
 	playwright               *playwrightMCPBackend
+	startedAt                time.Time
+	uploads                  wrapperUploadCounters
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {
@@ -141,6 +144,7 @@ func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRu
 		ctx:                      context.Background(),
 		viewers:                  make(map[*wrapperViewer]struct{}),
 		revokedAccessGenerations: make(map[string]map[string]struct{}),
+		startedAt:                time.Now(),
 	}
 }
 
@@ -343,6 +347,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/health", r.handleHealth)
 	mux.HandleFunc("/status", r.handleStatus)
 	mux.HandleFunc("/activity", r.handleActivity)
+	mux.HandleFunc("/stats", r.handleStats)
 	mux.HandleFunc("/sessions/", r.handleCDPDiscovery)
 	mux.HandleFunc("/json", r.handleCDPDiscovery)
 	mux.HandleFunc("/json/", r.handleCDPDiscovery)
@@ -353,6 +358,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/automation/playwright", r.handlePlaywrightCall)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/initialize", r.handleInitialization)
+	mux.HandleFunc("/storage-state", r.handleStorageExport)
 	mux.HandleFunc("/proxy/config", r.handleProxyConfig)
 	mux.HandleFunc("/tunnel", r.handleLocalTunnel)
 	mux.HandleFunc("/targets", r.handleTargets)
@@ -364,7 +370,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch req.URL.Path {
-		case "/health", "/status", "/activity":
+		case "/health", "/status", "/activity", "/stats":
 			mux.ServeHTTP(w, req)
 			return
 		}
@@ -545,6 +551,7 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 	}
 	r.mu.Lock()
 	registry := r.targets
+	liveSession := r.liveSession
 	r.mu.Unlock()
 	if registry == nil {
 		writeWrapperError(w, http.StatusConflict, "target registry is unavailable")
@@ -558,6 +565,9 @@ func (r *wrapperRuntime) handleViewport(w http.ResponseWriter, req *http.Request
 	if err != nil {
 		writeWrapperError(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if liveSession != nil {
+		liveSession.overrideViewportOwner(nil)
 	}
 	writeWrapperJSON(w, http.StatusOK, map[string]any{"targetId": target.TargetID, "generation": target.Generation, "viewport": target.Viewport})
 }
@@ -657,7 +667,9 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 		"!",
 	}
 	args = append(args, wrapperRecordingPipeline(codec, bitrateKbps, values.MediaProducerKeyframe)...)
-	args = append(args, "!", "filesink", "location="+path, "sync=false")
+	// A replacement segment takes over once its file has data; buffered, the file
+	// stays empty for up to a second after the first frame and the segments overlap.
+	args = append(args, "!", "filesink", "location="+path, "sync=false", "buffer-mode=unbuffered")
 	cmd := exec.CommandContext(ctx, values.MediaProducerGSTExecutable, args...)
 	cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
 	cmd.Stdout = os.Stdout
