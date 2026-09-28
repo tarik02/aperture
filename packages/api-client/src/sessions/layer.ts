@@ -30,7 +30,7 @@ import {
 } from "./service.ts";
 import { uploadBody } from "./uploads.ts";
 
-const contentDispositionFilename = (header: string | undefined): string | null =>
+export const contentDispositionFilename = (header: string | undefined): string | null =>
   header?.match(/filename="([^"]+)"/)?.[1] ?? null;
 
 const recordingContentPath = (sessionId: string, recordingId: string) =>

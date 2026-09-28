@@ -1,6 +1,8 @@
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
@@ -34,15 +36,29 @@ export interface SessionRelayOptions<R = never> {
   ) => Effect.Effect<RelayGrant, RelayDenied, R>;
 }
 
-type RelayRoute = "browser/status" | "session" | "webrtc/signal";
-const routes: readonly RelayRoute[] = ["browser/status", "session", "webrtc/signal"];
+type SocketRoute = "session" | "webrtc/signal";
 
 /** Statuses the browser treats as final: it stops retrying until reconnected explicitly. */
 type TerminalStatus = 401 | 403 | 404 | 410;
 const isTerminalStatus = (status: number): status is TerminalStatus =>
   status === 401 || status === 403 || status === 404 || status === 410;
 
-/** Registers only status, session WebSocket, and signaling; the consumer owns login. */
+const recordingParams = Schema.Struct({
+  recordingId: Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]+$/)),
+});
+
+/** Ends a handler early with a finished response. */
+class Respond extends Data.TaggedError("Respond")<{
+  readonly response: HttpServerResponse.HttpServerResponse;
+}> {}
+
+const respond = (response: HttpServerResponse.HttpServerResponse) =>
+  Effect.fail(new Respond({ response }));
+
+/**
+ * Registers session status, the session and signaling WebSockets, and recording downloads;
+ * the consumer owns login.
+ */
 export function sessionRelay<R>(options: SessionRelayOptions<R>) {
   const publicOrigin = new URL(options.publicOrigin).origin;
   const upstream = parseUpstream(options.apertureBaseUrl);
@@ -51,99 +67,169 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
   }
   const prefix = options.prefix.replace(/\/$/, "");
 
-  const upstreamURL = (sessionId: string, route: RelayRoute) => {
+  const upstreamURL = (sessionId: string, route: string) => {
     const url = new URL(upstream);
     url.pathname = `${upstream.pathname.replace(/\/$/, "")}/sessions/${encodeURIComponent(sessionId)}/${route}`;
     return url;
-  };
-
-  const handle = (
-    route: RelayRoute,
-    http: HttpClient.HttpClient,
-    makeSocket: Socket.WebSocketConstructor["Service"],
-  ) => {
-    const websocket = route !== "browser/status";
-    return Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      // Browsers always send Origin on WebSocket upgrades, but may omit it on same-origin GETs.
-      const origin = request.headers.origin;
-      if (origin !== publicOrigin && (websocket || origin !== undefined)) {
-        return relayError(403, "origin_denied", "Request origin is not allowed");
-      }
-      if (websocket && request.headers["sec-websocket-protocol"] !== protocol) {
-        return relayError(400, "invalid_protocol", "Session subprotocol is required");
-      }
-
-      const { sessionId } = yield* HttpRouter.schemaPathParams(pathParams);
-      const grant = yield* options.authorize(request, sessionId);
-      const capability = Redacted.value(grant.capability);
-      if (!capability.startsWith("ape_") && !capability.startsWith("apv_")) {
-        return relayError(
-          500,
-          "invalid_relay_grant",
-          "Relay requires an editor or viewer capability",
-        );
-      }
-      if (grant.signal.aborted) return yield* rejectAccess(request, websocket, 403);
-
-      // Check upstream authorization before upgrading: browser WebSockets cannot expose HTTP status.
-      const response = yield* http
-        .get(upstreamURL(grant.sessionId, "browser/status").toString(), {
-          headers: { Authorization: `Bearer ${capability}` },
-        })
-        .pipe(
-          Effect.timeout("15 seconds"),
-          Effect.provideService(HttpClient.TracerPropagationEnabled, false),
-        );
-      if (isTerminalStatus(response.status)) {
-        return yield* rejectAccess(request, websocket, response.status);
-      }
-      if (response.status !== 200) {
-        const status = response.status >= 400 ? response.status : 502;
-        return relayError(status, "session_unavailable", "Upstream session is unavailable");
-      }
-      const statusBody = yield* response.arrayBuffer.pipe(Effect.timeout("15 seconds"));
-      if (grant.signal.aborted) return yield* rejectAccess(request, websocket, 403);
-
-      if (!websocket) {
-        return HttpServerResponse.uint8Array(new Uint8Array(statusBody), {
-          contentType: "application/json",
-          headers: { "cache-control": "no-store" },
-        });
-      }
-      const url = upstreamURL(grant.sessionId, route);
-      url.protocol = upstream.protocol === "https:" ? "wss:" : "ws:";
-      yield* relaySocket(request, url, capability, grant.signal).pipe(
-        Effect.provideService(Socket.WebSocketConstructor, makeSocket),
-      );
-      return HttpServerResponse.empty();
-    }).pipe(
-      Effect.catchTags({
-        RelayDenied: (error) =>
-          Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
-            rejectAccess(request, websocket, error.status),
-          ),
-        SchemaError: () =>
-          Effect.succeed(relayError(400, "invalid_session", "Invalid session identifier")),
-        TimeoutError: () =>
-          Effect.succeed(relayError(504, "upstream_timeout", "Aperture did not respond in time")),
-        HttpClientError: () =>
-          Effect.succeed(relayError(502, "upstream_unavailable", "Aperture is unavailable")),
-      }),
-      Effect.scoped,
-    );
   };
 
   return HttpRouter.use(
     Effect.fn("sessionRelay.routes")(function* (router) {
       const http = yield* HttpClient.HttpClient;
       const makeSocket = yield* Socket.WebSocketConstructor;
+
+      const upstreamGet = (url: URL, capability: string) =>
+        http
+          .get(url.toString(), { headers: { Authorization: `Bearer ${capability}` } })
+          .pipe(
+            Effect.timeout("15 seconds"),
+            Effect.provideService(HttpClient.TracerPropagationEnabled, false),
+          );
+
+      /** Checks the browser request and asks the consumer for a grant. */
+      const admit = Effect.fnUntraced(function* (websocket: boolean) {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        // Browsers always send Origin on WebSocket upgrades, but may omit it on same-origin GETs.
+        const origin = request.headers.origin;
+        if (origin !== publicOrigin && (websocket || origin !== undefined)) {
+          return yield* respond(relayError(403, "origin_denied", "Request origin is not allowed"));
+        }
+        if (websocket && request.headers["sec-websocket-protocol"] !== protocol) {
+          return yield* respond(
+            relayError(400, "invalid_protocol", "Session subprotocol is required"),
+          );
+        }
+
+        const { sessionId } = yield* HttpRouter.schemaPathParams(pathParams);
+        const grant = yield* options.authorize(request, sessionId);
+        const capability = Redacted.value(grant.capability);
+        if (!capability.startsWith("ape_") && !capability.startsWith("apv_")) {
+          return yield* respond(
+            relayError(500, "invalid_relay_grant", "Relay requires an editor or viewer capability"),
+          );
+        }
+        if (grant.signal.aborted) {
+          return yield* respond(yield* rejectAccess(request, websocket, 403));
+        }
+        return { request, grant, capability };
+      });
+
+      /** Reads upstream session status, turning refusals into the browser's terminal responses. */
+      const sessionStatus = Effect.fnUntraced(function* (
+        admitted: Effect.Success<ReturnType<typeof admit>>,
+        websocket: boolean,
+      ) {
+        const { request, grant, capability } = admitted;
+        const response = yield* upstreamGet(
+          upstreamURL(grant.sessionId, "browser/status"),
+          capability,
+        );
+        if (isTerminalStatus(response.status)) {
+          return yield* respond(yield* rejectAccess(request, websocket, response.status));
+        }
+        if (response.status !== 200) {
+          const status = response.status >= 400 ? response.status : 502;
+          return yield* respond(
+            relayError(status, "session_unavailable", "Upstream session is unavailable"),
+          );
+        }
+        const body = yield* response.arrayBuffer.pipe(Effect.timeout("15 seconds"));
+        if (grant.signal.aborted) {
+          return yield* respond(yield* rejectAccess(request, websocket, 403));
+        }
+        return body;
+      });
+
+      const status = Effect.gen(function* () {
+        const body = yield* sessionStatus(yield* admit(false), false);
+        return HttpServerResponse.uint8Array(new Uint8Array(body), {
+          contentType: "application/json",
+          headers: { "cache-control": "no-store" },
+        });
+      });
+
+      // Check upstream authorization before upgrading: browser WebSockets cannot expose HTTP status.
+      const socket = (route: SocketRoute) =>
+        Effect.gen(function* () {
+          const admitted = yield* admit(true);
+          yield* sessionStatus(admitted, true);
+          const url = upstreamURL(admitted.grant.sessionId, route);
+          url.protocol = upstream.protocol === "https:" ? "wss:" : "ws:";
+          yield* relaySocket(
+            admitted.request,
+            url,
+            admitted.capability,
+            admitted.grant.signal,
+          ).pipe(Effect.provideService(Socket.WebSocketConstructor, makeSocket));
+          return HttpServerResponse.empty();
+        });
+
+      // Aperture itself restricts recordings to editor capabilities.
+      const recording = Effect.gen(function* () {
+        const { request, grant, capability } = yield* admit(false);
+        const { recordingId } = yield* HttpRouter.schemaPathParams(recordingParams);
+        const url = upstreamURL(
+          grant.sessionId,
+          `recordings/${encodeURIComponent(recordingId)}/content`,
+        );
+        const response = yield* upstreamGet(url, capability);
+        if (response.status === 404) {
+          return relayError(404, "recording_not_found", "Recording not found");
+        }
+        if (response.status === 409) {
+          return relayError(409, "recording_not_ready", "Recording is not ready for download");
+        }
+        if (isTerminalStatus(response.status)) {
+          return yield* rejectAccess(request, false, response.status);
+        }
+        if (response.status !== 200) {
+          return relayError(502, "upstream_unavailable", "Aperture is unavailable");
+        }
+        const headers: Record<string, string> = { "cache-control": "no-store" };
+        const disposition = response.headers["content-disposition"];
+        if (disposition !== undefined) headers["content-disposition"] = disposition;
+        const contentLength = Number(response.headers["content-length"]);
+        return HttpServerResponse.stream(
+          response.stream.pipe(Stream.interruptWhen(revoked(grant.signal))),
+          {
+            contentType: response.headers["content-type"] ?? "application/octet-stream",
+            contentLength: Number.isSafeInteger(contentLength) ? contentLength : undefined,
+            headers,
+          },
+        );
+      });
+
+      const routes = [
+        { path: "browser/status", websocket: false, handler: status },
+        { path: "session", websocket: true, handler: socket("session") },
+        { path: "webrtc/signal", websocket: true, handler: socket("webrtc/signal") },
+        { path: "recordings/:recordingId/content", websocket: false, handler: recording },
+      ];
       const prefixed = router.prefixed(prefix);
-      for (const route of routes) {
+      for (const { path, websocket, handler } of routes) {
         yield* prefixed.add(
           "GET",
-          `/sessions/:sessionId/${route}`,
-          handle(route, http, makeSocket),
+          `/sessions/:sessionId/${path}`,
+          handler.pipe(
+            Effect.catchTags({
+              Respond: (early) => Effect.succeed(early.response),
+              RelayDenied: (error) =>
+                Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
+                  rejectAccess(request, websocket, error.status),
+                ),
+              SchemaError: () =>
+                Effect.succeed(
+                  relayError(400, "invalid_path", "Invalid session or recording identifier"),
+                ),
+              TimeoutError: () =>
+                Effect.succeed(
+                  relayError(504, "upstream_timeout", "Aperture did not respond in time"),
+                ),
+              HttpClientError: () =>
+                Effect.succeed(relayError(502, "upstream_unavailable", "Aperture is unavailable")),
+            }),
+            Effect.scoped,
+          ),
         );
       }
     }),

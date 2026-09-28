@@ -8,9 +8,13 @@ import {
   type LiveSessionMediaSelection,
   type LiveSessionViewportOwnership,
 } from "./use-live-session.ts";
-import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture-browser/api-client";
+import type { IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
-import { LiveSessionError, type BrowserInputMessage } from "@aperture-browser/live-session";
+import {
+  downloadSessionRecording,
+  LiveSessionError,
+  type BrowserInputMessage,
+} from "@aperture-browser/live-session";
 import type {
   SessionAccess,
   LiveSessionPresentation,
@@ -139,8 +143,6 @@ export function useBrowserControl({
   onNotice,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const runtime = useRuntime();
-  const sessionId = access?.sessionId ?? null;
-  const credentials = access?.kind === "direct" ? access.credentials : null;
   const onNoticeRef = useRef(onNotice);
   onNoticeRef.current = onNotice;
   const notify = (level: SessionNotice["level"], message: string) =>
@@ -450,8 +452,8 @@ export function useBrowserControl({
     }
   }, []);
 
-  const settleRecording = <A, E extends Error>(
-    effect: Effect.Effect<A, E, SessionsApi>,
+  const settleRecording = <A, E extends Error, R>(
+    effect: Effect.Effect<A, E, R>,
     failure: string,
   ) =>
     effect.pipe(
@@ -480,21 +482,18 @@ export function useBrowserControl({
   );
 
   const runStopRecording = useEffectCallback(
-    (credentials: ApiCredentials, sessionId: string, recordingId: string) =>
+    (access: SessionAccess, recordingId: string) =>
       settleRecording(
         live.request("recording.stop", { recordingId }).pipe(
-          Effect.andThen(
-            SessionsApi.use((sessions) =>
-              sessions.downloadSessionRecording(credentials, sessionId, recordingId),
-            ),
-          ),
+          Effect.andThen(downloadSessionRecording(access, recordingId)),
           Effect.flatMap(({ blob, filename }) => {
             const recording = live.recordings.find(
               (candidate) => candidate.recordingId === recordingId,
             );
             return downloadBlob(
               blob,
-              filename ?? `${sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
+              filename ??
+                `${access.sessionId}-${recording?.targetId ?? "target"}-${recordingId}.webm`,
             );
           }),
           Effect.andThen(notify("success", "Recording saved")),
@@ -505,13 +504,13 @@ export function useBrowserControl({
   );
   const stopRecording = useCallback(
     (recordingId: string) => {
-      if (!sessionId || !credentials || recordingBusy) {
+      if (access === null || recordingBusy) {
         return;
       }
       setRecordingBusy(true);
-      runStopRecording(credentials, sessionId, recordingId);
+      runStopRecording(access, recordingId);
     },
-    [credentials, recordingBusy, runStopRecording, sessionId],
+    [access, recordingBusy, runStopRecording],
   );
 
   const runCancelRecording = useEffectCallback(
