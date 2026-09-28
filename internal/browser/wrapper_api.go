@@ -20,7 +20,6 @@ import (
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/proxy"
 	"github.com/aperture/aperture/internal/sessionfiles"
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -770,10 +769,6 @@ func viewportScaleNumerator(deviceScaleFactor float64) int {
 }
 
 func sendCompositorControlCommand(ctx context.Context, socketPath string, command string) (string, error) {
-	return sendCompositorControlCommandWithFD(ctx, socketPath, command, nil)
-}
-
-func sendCompositorControlCommandWithFD(ctx context.Context, socketPath string, command string, file *os.File) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -786,20 +781,7 @@ func sendCompositorControlCommandWithFD(ctx context.Context, socketPath string, 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
-	if file != nil {
-		unixConn, ok := conn.(*net.UnixConn)
-		if !ok {
-			return "", errors.New("compositor control connection is not a Unix socket")
-		}
-		rights := unix.UnixRights(int(file.Fd()))
-		written, rightsWritten, err := unixConn.WriteMsgUnix([]byte(command), rights, nil)
-		if err != nil {
-			return "", fmt.Errorf("send compositor control command with fd: %w", err)
-		}
-		if written != len(command) || rightsWritten != len(rights) {
-			return "", errors.New("send compositor control command with fd: short write")
-		}
-	} else if _, err := conn.Write([]byte(command)); err != nil {
+	if _, err := conn.Write([]byte(command)); err != nil {
 		return "", fmt.Errorf("send compositor control command: %w", err)
 	}
 	response, err := bufio.NewReader(conn).ReadString('\n')

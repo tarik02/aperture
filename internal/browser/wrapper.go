@@ -33,14 +33,6 @@ func apertureWestonShellPath() (string, error) {
 	return filepath.Join(filepath.Dir(filepath.Dir(executable)), "lib", "weston", "aperture-weston-shell.so"), nil
 }
 
-func apertureWestonCapturePath() (string, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("resolve wrapper executable: %w", err)
-	}
-	return filepath.Join(filepath.Dir(filepath.Dir(executable)), "libexec", "aperture", "aperture-weston-capture"), nil
-}
-
 func apertureTabWindowExtensionPath() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -737,7 +729,7 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 		return fmt.Errorf("mkdir compositor cache dir: %w", err)
 	}
 
-	controlSocket := filepath.Join(runtimeDir, "aperture-"+values.SessionID+".control")
+	controlSocket := filepath.Join(values.CacheDir, "compositor.control")
 	if err := os.Remove(controlSocket); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale compositor control socket: %w", err)
 	}
@@ -835,7 +827,6 @@ func launchWithCompositor(values RuntimeEnvValues, bwrapPath string) error {
 	compositor.Env = append(
 		compositor.Env,
 		"APERTURE_CONTROL_SOCKET="+controlSocket,
-		"APERTURE_CONTROL_PID="+strconv.Itoa(os.Getpid()),
 		"APERTURE_VIEWPORT_WIDTH="+strconv.Itoa(values.CompositorWidth),
 		"APERTURE_VIEWPORT_HEIGHT="+strconv.Itoa(values.CompositorHeight),
 	)

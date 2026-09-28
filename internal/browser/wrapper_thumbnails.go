@@ -5,27 +5,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+	"image"
+	"image/jpeg"
 	"net/http"
-	"os"
 	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 const (
 	// ThumbnailWidth bounds the width of captured thumbnails in pixels.
 	ThumbnailWidth = 640
 	// Repeated hovers share one capture instead of screenshotting the page each time.
-	thumbnailCacheTTL     = 2 * time.Second
-	thumbnailQuality      = 70
-	thumbnailCaptureLimit = 4 * 1024 * 1024
-	thumbnailMaxAttempts  = 2
+	thumbnailCacheTTL    = 2 * time.Second
+	thumbnailQuality     = 70
+	thumbnailMaxAttempts = 2
 
 	// ThumbnailTargetHeader names the target a session thumbnail shows.
 	ThumbnailTargetHeader = "X-Aperture-Thumbnail-Target"
@@ -139,87 +136,57 @@ func (session *liveSession) thumbnail(targetID string) (wrapperThumbnail, error)
 
 func (session *liveSession) captureThumbnail(target wrapperTargetSnapshot) ([]byte, error) {
 	viewport := target.Viewport
-	if target.CaptureID == "" || viewport.ContentWidth <= 0 || viewport.ContentHeight <= 0 ||
+	if target.PipeWireTarget == "" || viewport.ContentWidth <= 0 || viewport.ContentHeight <= 0 ||
 		viewport.ContentWidth > viewport.CanvasWidth || viewport.ContentHeight > viewport.CanvasHeight {
 		return nil, errors.New("target has no capturable compositor output")
 	}
-	helperPath, err := apertureWestonCapturePath()
-	if err != nil {
-		return nil, err
-	}
-
-	sockets, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
-	if err != nil {
-		return nil, fmt.Errorf("create thumbnail Wayland socket: %w", err)
-	}
-	compositorSocket := os.NewFile(uintptr(sockets[0]), "thumbnail-compositor-wayland")
-	helperSocket := os.NewFile(uintptr(sockets[1]), "thumbnail-helper-wayland")
-	defer func() { _ = compositorSocket.Close() }()
-	defer func() { _ = helperSocket.Close() }()
+	width := min(ThumbnailWidth, viewport.ContentWidth)
+	height := max(1, (viewport.ContentHeight*width+viewport.ContentWidth/2)/viewport.ContentWidth)
 
 	ctx, cancel := context.WithTimeout(session.runtime.ctx, liveSessionBrowserCommandTimeout)
 	defer cancel()
-	if _, err := sendCompositorControlCommandWithFD(
-		ctx,
-		session.runtime.controlSocket,
-		"capture-client "+target.CaptureID+"\n",
-		compositorSocket,
-	); err != nil {
-		return nil, fmt.Errorf("authorize thumbnail capture: %w", err)
-	}
-	if err := compositorSocket.Close(); err != nil {
-		return nil, fmt.Errorf("close thumbnail compositor socket: %w", err)
-	}
-
-	cmd := exec.CommandContext(
-		ctx,
-		helperPath,
-		target.CaptureID,
-		strconv.Itoa(viewport.CanvasWidth),
-		strconv.Itoa(viewport.CanvasHeight),
-		strconv.Itoa(viewport.ContentWidth),
-		strconv.Itoa(viewport.ContentHeight),
-		strconv.Itoa(ThumbnailWidth),
-		strconv.Itoa(thumbnailQuality),
+	cmd := exec.CommandContext(ctx, session.runtime.values.MediaProducerGSTExecutable,
+		"-q",
+		"pipewiresrc", "target-object="+target.PipeWireTarget, "num-buffers=1",
+		"!", "videocrop",
+		"right="+strconv.Itoa(viewport.CanvasWidth-viewport.ContentWidth),
+		"bottom="+strconv.Itoa(viewport.CanvasHeight-viewport.ContentHeight),
+		"!", "videoscale",
+		"!", "videoconvert",
+		"!", fmt.Sprintf("video/x-raw,format=RGBx,width=%d,height=%d,pixel-aspect-ratio=1/1", width, height),
+		"!", "fdsink", "fd=1", "sync=false",
 	)
-	cmd.Env = []string{"WAYLAND_SOCKET=3"}
-	cmd.ExtraFiles = []*os.File{helperSocket}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("open thumbnail capture output: %w", err)
-	}
+	cmd.Env = wrapperMediaProcessEnv(session.runtime.values.MediaProducerPluginPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start thumbnail capture: %w", err)
-	}
-	if err := helperSocket.Close(); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return nil, fmt.Errorf("close thumbnail helper socket: %w", err)
-	}
-	image, readErr := io.ReadAll(io.LimitReader(stdout, thumbnailCaptureLimit+1))
-	if len(image) > thumbnailCaptureLimit {
-		_ = cmd.Process.Kill()
-	}
-	waitErr := cmd.Wait()
-	if readErr != nil {
-		return nil, fmt.Errorf("read thumbnail capture: %w", readErr)
-	}
-	if len(image) > thumbnailCaptureLimit {
-		return nil, errors.New("thumbnail capture exceeded the response limit")
-	}
-	if waitErr != nil {
+	// An output nobody watches has no damage, so it only sends a frame once repainted.
+	go func() {
+		for _, delay := range []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 250 * time.Millisecond} {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+			_, _ = sendCompositorControlCommand(ctx, session.runtime.controlSocket, "output-repaint "+target.CaptureID+"\n")
+		}
+	}()
+	pixels, err := cmd.Output()
+	if err != nil {
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
-			return nil, fmt.Errorf("capture compositor output: %w: %s", waitErr, detail)
+			return nil, fmt.Errorf("capture PipeWire output: %w: %s", err, detail)
 		}
-		return nil, fmt.Errorf("capture compositor output: %w", waitErr)
+		return nil, fmt.Errorf("capture PipeWire output: %w", err)
 	}
-	if len(image) < 2 || image[0] != 0xff || image[1] != 0xd8 {
-		return nil, errors.New("compositor did not produce a JPEG thumbnail")
+	if len(pixels) != width*height*4 {
+		return nil, fmt.Errorf("capture PipeWire output: got %d bytes for a %dx%d frame", len(pixels), width, height)
 	}
-	return image, nil
+	frame := &image.RGBA{Pix: pixels, Stride: width * 4, Rect: image.Rect(0, 0, width, height)}
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, frame, &jpeg.Options{Quality: thumbnailQuality}); err != nil {
+		return nil, fmt.Errorf("encode thumbnail: %w", err)
+	}
+	return encoded.Bytes(), nil
 }
 
 // handleThumbnail serves a JPEG of one target, or of the session's target when none is given.
