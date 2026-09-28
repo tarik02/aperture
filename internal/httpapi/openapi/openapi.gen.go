@@ -179,6 +179,7 @@ const (
 	ErrorCodeTenantNotFound                   ErrorCode = "tenant_not_found"
 	ErrorCodeTenantSelectionNotPermitted      ErrorCode = "tenant_selection_not_permitted"
 	ErrorCodeTenantSelectionRequired          ErrorCode = "tenant_selection_required"
+	ErrorCodeThumbnailNotFound                ErrorCode = "thumbnail_not_found"
 	ErrorCodeTokenDelegationExceeded          ErrorCode = "token_delegation_exceeded"
 	ErrorCodeTokenNameConflict                ErrorCode = "token_name_conflict"
 	ErrorCodeTokenNotFound                    ErrorCode = "token_not_found"
@@ -299,6 +300,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeTenantSelectionNotPermitted:
 		return true
 	case ErrorCodeTenantSelectionRequired:
+		return true
+	case ErrorCodeThumbnailNotFound:
 		return true
 	case ErrorCodeTokenDelegationExceeded:
 		return true
@@ -1932,6 +1935,11 @@ type Session struct {
 
 	// TenantId Tenant that owns the session.
 	TenantId UUIDv7 `json:"tenantId"`
+
+	// Thumbnail Signed thumbnail URLs for image elements. They need no other credentials and expire after the
+	// configured signed URL lifetime; every session response returns fresh ones. Present while the
+	// session is running, or while suspended when thumbnails were saved.
+	Thumbnail *SessionThumbnail `json:"thumbnail,omitempty"`
 }
 
 // SessionBulkInput Ordered session IDs for a tenant-scoped bulk lookup. Missing, foreign, and deleted IDs are omitted from the result.
@@ -2097,6 +2105,19 @@ type SessionProxyUpstream struct {
 // - `expired`: retention elapsed and the session can no longer be used.
 // - `failed`: startup or reopen failed; retained state may still be reopenable.
 type SessionStatus string
+
+// SessionThumbnail Signed thumbnail URLs for image elements. They need no other credentials and expire after the
+// configured signed URL lifetime; every session response returns fresh ones. Present while the
+// session is running, or while suspended when thumbnails were saved.
+type SessionThumbnail struct {
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// TargetUrlTemplate Tab thumbnail URL with a literal `{targetId}` placeholder for a top-level target ID.
+	TargetUrlTemplate string `json:"targetUrlTemplate"`
+
+	// Url Thumbnail of the tab most recently shown to a live-session client.
+	Url string `json:"url"`
+}
 
 // SetViewportInput Requested logical viewport of one top-level target.
 type SetViewportInput struct {
@@ -2782,6 +2803,18 @@ type SuspendSessionParams struct {
 
 // ReplaceSessionTagsParams defines parameters for ReplaceSessionTags.
 type ReplaceSessionTagsParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// GetSessionTargetThumbnailParams defines parameters for GetSessionTargetThumbnail.
+type GetSessionTargetThumbnailParams struct {
+	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
+	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
+}
+
+// GetSessionThumbnailParams defines parameters for GetSessionThumbnail.
+type GetSessionThumbnailParams struct {
 	// XApertureTenantId Tenant selected for a tenant-scoped operation. System administrators and account sessions may provide this header. A tenant API token uses its bound tenant and may omit the header; selecting a different tenant is forbidden.
 	XApertureTenantId *SelectedTenantId `json:"X-Aperture-Tenant-Id,omitempty"`
 }
@@ -3849,6 +3882,26 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /api/sessions/{sessionId}/tags (the `ReplaceSessionTags` operationId).
 	ReplaceSessionTags(ctx context.Context, sessionId SessionId, params *ReplaceSessionTagsParams, body ReplaceSessionTagsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionTargetThumbnail Get a tab thumbnail
+	//
+	// Returns a JPEG thumbnail of one top-level tab, like the session thumbnail. Every tab renders in its
+	// own compositor window, so background tabs are captured live too. A suspended session serves the
+	// tabs it had when it suspended; tab IDs change when the browser restarts.
+	//
+	// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail (the `GetSessionTargetThumbnail` operationId).
+	GetSessionTargetThumbnail(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetThumbnailParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionThumbnail Get a session thumbnail
+	//
+	// Returns a JPEG, at most 640 pixels wide, of the tab most recently shown to a live-session client,
+	// or of the first tab when no client has connected. Running sessions capture it live; repeated
+	// requests within two seconds share one capture. Suspended sessions serve the thumbnails saved when
+	// they suspended, unless `thumbnails_persist_on_suspend` is disabled. The request never wakes the
+	// session. Use `Last-Modified` with `If-Modified-Since` to avoid transferring an unchanged image.
+	//
+	// Corresponds with GET /api/sessions/{sessionId}/thumbnail (the `GetSessionThumbnail` operationId).
+	GetSessionThumbnail(ctx context.Context, sessionId SessionId, params *GetSessionThumbnailParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSnapshots List snapshots
 	//
@@ -5187,6 +5240,46 @@ func (c *Client) ReplaceSessionTagsWithBody(ctx context.Context, sessionId Sessi
 // Corresponds with PUT /api/sessions/{sessionId}/tags (the `ReplaceSessionTags` operationId).
 func (c *Client) ReplaceSessionTags(ctx context.Context, sessionId SessionId, params *ReplaceSessionTagsParams, body ReplaceSessionTagsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceSessionTagsRequest(c.Server, sessionId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionTargetThumbnail Get a tab thumbnail
+//
+// Returns a JPEG thumbnail of one top-level tab, like the session thumbnail. Every tab renders in its
+// own compositor window, so background tabs are captured live too. A suspended session serves the
+// tabs it had when it suspended; tab IDs change when the browser restarts.
+//
+// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail (the `GetSessionTargetThumbnail` operationId).
+func (c *Client) GetSessionTargetThumbnail(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetThumbnailParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionTargetThumbnailRequest(c.Server, sessionId, targetId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionThumbnail Get a session thumbnail
+//
+// Returns a JPEG, at most 640 pixels wide, of the tab most recently shown to a live-session client,
+// or of the first tab when no client has connected. Running sessions capture it live; repeated
+// requests within two seconds share one capture. Suspended sessions serve the thumbnails saved when
+// they suspended, unless `thumbnails_persist_on_suspend` is disabled. The request never wakes the
+// session. Use `Last-Modified` with `If-Modified-Since` to avoid transferring an unchanged image.
+//
+// Corresponds with GET /api/sessions/{sessionId}/thumbnail (the `GetSessionThumbnail` operationId).
+func (c *Client) GetSessionThumbnail(ctx context.Context, sessionId SessionId, params *GetSessionThumbnailParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionThumbnailRequest(c.Server, sessionId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -8338,6 +8431,111 @@ func NewReplaceSessionTagsRequestWithBody(server string, sessionId SessionId, pa
 	return req, nil
 }
 
+// NewGetSessionTargetThumbnailRequest constructs an http.Request for the GetSessionTargetThumbnail method
+func NewGetSessionTargetThumbnailRequest(server string, sessionId SessionId, targetId string, params *GetSessionTargetThumbnailParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "targetId", targetId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/targets/%s/thumbnail", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetSessionThumbnailRequest constructs an http.Request for the GetSessionThumbnail method
+func NewGetSessionThumbnailRequest(server string, sessionId SessionId, params *GetSessionThumbnailParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "sessionId", sessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/sessions/%s/thumbnail", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XApertureTenantId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Aperture-Tenant-Id", *params.XApertureTenantId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Aperture-Tenant-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewListSnapshotsRequest constructs an http.Request for the ListSnapshots method
 func NewListSnapshotsRequest(server string, params *ListSnapshotsParams) (*http.Request, error) {
 	var err error
@@ -9613,6 +9811,30 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /api/sessions/{sessionId}/tags (the `ReplaceSessionTags` operationId).
 	ReplaceSessionTagsWithResponse(ctx context.Context, sessionId SessionId, params *ReplaceSessionTagsParams, body ReplaceSessionTagsJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceSessionTagsResponse, error)
+
+	// GetSessionTargetThumbnailWithResponse Get a tab thumbnail
+	//
+	// Returns a JPEG thumbnail of one top-level tab, like the session thumbnail. Every tab renders in its
+	// own compositor window, so background tabs are captured live too. A suspended session serves the
+	// tabs it had when it suspended; tab IDs change when the browser restarts.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail (the `GetSessionTargetThumbnail` operationId).
+	GetSessionTargetThumbnailWithResponse(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetThumbnailParams, reqEditors ...RequestEditorFn) (*GetSessionTargetThumbnailResponse, error)
+
+	// GetSessionThumbnailWithResponse Get a session thumbnail
+	//
+	// Returns a JPEG, at most 640 pixels wide, of the tab most recently shown to a live-session client,
+	// or of the first tab when no client has connected. Running sessions capture it live; repeated
+	// requests within two seconds share one capture. Suspended sessions serve the thumbnails saved when
+	// they suspended, unless `thumbnails_persist_on_suspend` is disabled. The request never wakes the
+	// session. Use `Last-Modified` with `If-Modified-Since` to avoid transferring an unchanged image.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/sessions/{sessionId}/thumbnail (the `GetSessionThumbnail` operationId).
+	GetSessionThumbnailWithResponse(ctx context.Context, sessionId SessionId, params *GetSessionThumbnailParams, reqEditors ...RequestEditorFn) (*GetSessionThumbnailResponse, error)
 
 	// ListSnapshotsWithResponse List snapshots
 	//
@@ -12120,6 +12342,102 @@ func (r ReplaceSessionTagsResponse) ContentType() string {
 	return ""
 }
 
+// GetSessionTargetThumbnailResponse200Headers the declared response headers of an HTTP 200 response for GetSessionTargetThumbnail
+type GetSessionTargetThumbnailResponse200Headers struct {
+	LastModified *string
+}
+
+type GetSessionTargetThumbnailResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionTargetThumbnailResponse200Headers
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetSessionTargetThumbnailResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionTargetThumbnailResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionTargetThumbnailResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionTargetThumbnailResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionTargetThumbnailResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSessionThumbnailResponse200Headers the declared response headers of an HTTP 200 response for GetSessionThumbnail
+type GetSessionThumbnailResponse200Headers struct {
+	LastModified *string
+}
+
+type GetSessionThumbnailResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionThumbnailResponse200Headers
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetSessionThumbnailResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionThumbnailResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionThumbnailResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionThumbnailResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionThumbnailResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListSnapshotsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -13613,6 +13931,42 @@ func (c *ClientWithResponses) ReplaceSessionTagsWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReplaceSessionTagsResponse(rsp)
+}
+
+// GetSessionTargetThumbnailWithResponse Get a tab thumbnail
+//
+// Returns a JPEG thumbnail of one top-level tab, like the session thumbnail. Every tab renders in its
+// own compositor window, so background tabs are captured live too. A suspended session serves the
+// tabs it had when it suspended; tab IDs change when the browser restarts.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail (the `GetSessionTargetThumbnail` operationId).
+func (c *ClientWithResponses) GetSessionTargetThumbnailWithResponse(ctx context.Context, sessionId SessionId, targetId string, params *GetSessionTargetThumbnailParams, reqEditors ...RequestEditorFn) (*GetSessionTargetThumbnailResponse, error) {
+	rsp, err := c.GetSessionTargetThumbnail(ctx, sessionId, targetId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionTargetThumbnailResponse(rsp)
+}
+
+// GetSessionThumbnailWithResponse Get a session thumbnail
+//
+// Returns a JPEG, at most 640 pixels wide, of the tab most recently shown to a live-session client,
+// or of the first tab when no client has connected. Running sessions capture it live; repeated
+// requests within two seconds share one capture. Suspended sessions serve the thumbnails saved when
+// they suspended, unless `thumbnails_persist_on_suspend` is disabled. The request never wakes the
+// session. Use `Last-Modified` with `If-Modified-Since` to avoid transferring an unchanged image.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/sessions/{sessionId}/thumbnail (the `GetSessionThumbnail` operationId).
+func (c *ClientWithResponses) GetSessionThumbnailWithResponse(ctx context.Context, sessionId SessionId, params *GetSessionThumbnailParams, reqEditors ...RequestEditorFn) (*GetSessionThumbnailResponse, error) {
+	rsp, err := c.GetSessionThumbnail(ctx, sessionId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionThumbnailResponse(rsp)
 }
 
 // ListSnapshotsWithResponse List snapshots
@@ -15469,6 +15823,84 @@ func ParseReplaceSessionTagsResponse(rsp *http.Response) (*ReplaceSessionTagsRes
 	return response, nil
 }
 
+// ParseGetSessionTargetThumbnailResponse parses an HTTP response from a GetSessionTargetThumbnailWithResponse call
+func ParseGetSessionTargetThumbnailResponse(rsp *http.Response) (*GetSessionTargetThumbnailResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionTargetThumbnailResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionTargetThumbnailResponse200Headers
+		if values := rsp.Header.Values("Last-Modified"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Last-Modified", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.LastModified = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionThumbnailResponse parses an HTTP response from a GetSessionThumbnailWithResponse call
+func ParseGetSessionThumbnailResponse(rsp *http.Response) (*GetSessionThumbnailResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionThumbnailResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionThumbnailResponse200Headers
+		if values := rsp.Header.Values("Last-Modified"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Last-Modified", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.LastModified = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseListSnapshotsResponse parses an HTTP response from a ListSnapshotsWithResponse call
 func ParseListSnapshotsResponse(rsp *http.Response) (*ListSnapshotsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -15947,6 +16379,12 @@ type ServerInterface interface {
 	// ReplaceSessionTags Replace browser session tags
 	// (PUT /api/sessions/{sessionId}/tags)
 	ReplaceSessionTags(c *gin.Context, sessionId SessionId, params ReplaceSessionTagsParams)
+	// GetSessionTargetThumbnail Get a tab thumbnail
+	// (GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail)
+	GetSessionTargetThumbnail(c *gin.Context, sessionId SessionId, targetId string, params GetSessionTargetThumbnailParams)
+	// GetSessionThumbnail Get a session thumbnail
+	// (GET /api/sessions/{sessionId}/thumbnail)
+	GetSessionThumbnail(c *gin.Context, sessionId SessionId, params GetSessionThumbnailParams)
 	// ListSnapshots List snapshots
 	// (GET /api/snapshots)
 	ListSnapshots(c *gin.Context, params ListSnapshotsParams)
@@ -18139,6 +18577,113 @@ func (siw *ServerInterfaceWrapper) ReplaceSessionTags(c *gin.Context) {
 	siw.Handler.ReplaceSessionTags(c, sessionId, params)
 }
 
+// GetSessionTargetThumbnail operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionTargetThumbnail(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "targetId" -------------
+	var targetId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "targetId", c.Param("targetId"), &targetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter targetId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionTargetThumbnailParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetSessionTargetThumbnail(c, sessionId, targetId, params)
+}
+
+// GetSessionThumbnail operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionThumbnail(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", c.Param("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sessionId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionThumbnailParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Aperture-Tenant-Id" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Aperture-Tenant-Id")]; found {
+		var XApertureTenantId SelectedTenantId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Aperture-Tenant-Id, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Aperture-Tenant-Id", valueList[0], &XApertureTenantId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Aperture-Tenant-Id: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XApertureTenantId = &XApertureTenantId
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetSessionThumbnail(c, sessionId, params)
+}
+
 // ListSnapshots operation middleware
 func (siw *ServerInterfaceWrapper) ListSnapshots(c *gin.Context) {
 
@@ -18630,6 +19175,8 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/collaboration-capabilities/:role/rotate", wrapper.RotateCollaborationCapability)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/cursor", wrapper.GetSessionCursor)
 	router.PUT(options.BaseURL+"/api/sessions/:sessionId/cursor", wrapper.SetSessionCursor)
+	router.GET(options.BaseURL+"/api/sessions/:sessionId/thumbnail", wrapper.GetSessionThumbnail)
+	router.GET(options.BaseURL+"/api/sessions/:sessionId/targets/:targetId/thumbnail", wrapper.GetSessionTargetThumbnail)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/storage-state", wrapper.ExportSessionStorageState)
 	router.GET(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.ListSessionRecordings)
 	router.POST(options.BaseURL+"/api/sessions/:sessionId/recordings", wrapper.CreateSessionRecording)
@@ -20645,6 +21192,115 @@ func (response ReplaceSessionTagsdefaultJSONResponse) VisitReplaceSessionTagsRes
 	return err
 }
 
+type GetSessionTargetThumbnailRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	TargetId  string    `json:"targetId"`
+	Params    GetSessionTargetThumbnailParams
+}
+
+type GetSessionTargetThumbnailResponseObject interface {
+	VisitGetSessionTargetThumbnailResponse(w http.ResponseWriter) error
+}
+
+type GetSessionTargetThumbnail200ResponseHeaders struct {
+	LastModified *string
+}
+
+type GetSessionTargetThumbnail200ImagejpegResponse struct {
+	Body          io.Reader
+	Headers       GetSessionTargetThumbnail200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionTargetThumbnail200ImagejpegResponse) VisitGetSessionTargetThumbnailResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.LastModified != nil {
+		w.Header().Set("Last-Modified", fmt.Sprint(*response.Headers.LastModified))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionTargetThumbnaildefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSessionTargetThumbnaildefaultJSONResponse) VisitGetSessionTargetThumbnailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionThumbnailRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Params    GetSessionThumbnailParams
+}
+
+type GetSessionThumbnailResponseObject interface {
+	VisitGetSessionThumbnailResponse(w http.ResponseWriter) error
+}
+
+type GetSessionThumbnail200ResponseHeaders struct {
+	LastModified *string
+}
+
+type GetSessionThumbnail200ImagejpegResponse struct {
+	Body          io.Reader
+	Headers       GetSessionThumbnail200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetSessionThumbnail200ImagejpegResponse) VisitGetSessionThumbnailResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.LastModified != nil {
+		w.Header().Set("Last-Modified", fmt.Sprint(*response.Headers.LastModified))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSessionThumbnaildefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSessionThumbnaildefaultJSONResponse) VisitGetSessionThumbnailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSnapshotsRequestObject struct {
 	Params ListSnapshotsParams
 }
@@ -21186,6 +21842,12 @@ type StrictServerInterface interface {
 	// ReplaceSessionTags Replace browser session tags
 	// (PUT /api/sessions/{sessionId}/tags)
 	ReplaceSessionTags(ctx context.Context, request ReplaceSessionTagsRequestObject) (ReplaceSessionTagsResponseObject, error)
+	// GetSessionTargetThumbnail Get a tab thumbnail
+	// (GET /api/sessions/{sessionId}/targets/{targetId}/thumbnail)
+	GetSessionTargetThumbnail(ctx context.Context, request GetSessionTargetThumbnailRequestObject) (GetSessionTargetThumbnailResponseObject, error)
+	// GetSessionThumbnail Get a session thumbnail
+	// (GET /api/sessions/{sessionId}/thumbnail)
+	GetSessionThumbnail(ctx context.Context, request GetSessionThumbnailRequestObject) (GetSessionThumbnailResponseObject, error)
 	// ListSnapshots List snapshots
 	// (GET /api/snapshots)
 	ListSnapshots(ctx context.Context, request ListSnapshotsRequestObject) (ListSnapshotsResponseObject, error)
@@ -22720,6 +23382,61 @@ func (sh *strictHandler) ReplaceSessionTags(ctx *gin.Context, sessionId SessionI
 		sh.options.HandlerErrorFunc(ctx, err)
 	} else if validResponse, ok := response.(ReplaceSessionTagsResponseObject); ok {
 		if err := validResponse.VisitReplaceSessionTagsResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionTargetThumbnail operation middleware
+func (sh *strictHandler) GetSessionTargetThumbnail(ctx *gin.Context, sessionId SessionId, targetId string, params GetSessionTargetThumbnailParams) {
+	var request GetSessionTargetThumbnailRequestObject
+
+	request.SessionId = sessionId
+	request.TargetId = targetId
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionTargetThumbnail(ctx, request.(GetSessionTargetThumbnailRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionTargetThumbnail")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(GetSessionTargetThumbnailResponseObject); ok {
+		if err := validResponse.VisitGetSessionTargetThumbnailResponse(ctx.Writer); err != nil {
+			sh.options.ResponseErrorHandlerFunc(ctx, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(ctx, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionThumbnail operation middleware
+func (sh *strictHandler) GetSessionThumbnail(ctx *gin.Context, sessionId SessionId, params GetSessionThumbnailParams) {
+	var request GetSessionThumbnailRequestObject
+
+	request.SessionId = sessionId
+	request.Params = params
+
+	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionThumbnail(ctx, request.(GetSessionThumbnailRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionThumbnail")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		sh.options.HandlerErrorFunc(ctx, err)
+	} else if validResponse, ok := response.(GetSessionThumbnailResponseObject); ok {
+		if err := validResponse.VisitGetSessionThumbnailResponse(ctx.Writer); err != nil {
 			sh.options.ResponseErrorHandlerFunc(ctx, err)
 		}
 	} else if response != nil {

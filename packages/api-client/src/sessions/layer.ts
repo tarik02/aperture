@@ -308,6 +308,24 @@ export const makeSessionsApi = Effect.gen(function* () {
     );
   });
 
+  const getSessionThumbnail = Effect.fn("SessionsApi.getSessionThumbnail")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    targetId?: string,
+  ) {
+    const session = `/api/sessions/${encodeURIComponent(sessionId)}`;
+    const path =
+      targetId === undefined
+        ? `${session}/thumbnail`
+        : `${session}/targets/${encodeURIComponent(targetId)}/thumbnail`;
+    return yield* http.get(path).pipe(
+      Effect.flatMap((response) =>
+        Effect.map(response.arrayBuffer, (body) => new Blob([body], { type: "image/jpeg" })),
+      ),
+      authorize({ credentials, tenantHeader: "tenant-scoped" }),
+    );
+  });
+
   const streamSessionRecording = (
     credentials: ApiCredentials,
     sessionId: string,
@@ -433,6 +451,7 @@ export const makeSessionsApi = Effect.gen(function* () {
     getBrowserChannels,
     getBrowserStatus,
     downloadSessionRecording,
+    getSessionThumbnail,
     streamSessionRecording,
     uploadSessionFiles,
     uploadLiveSessionFiles,

@@ -28,6 +28,8 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	router.Any("/mcp", server.mcp)
 	router.Any("/sessions/:sessionId/mcp", server.mcp)
 	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
+	router.GET("/sessions/:sessionId/thumbnail", server.sessionThumbnail)
+	router.GET("/sessions/:sessionId/targets/:targetId/thumbnail", server.sessionThumbnail)
 	router.GET("/auth/login-methods", server.listLoginMethods)
 	if server.WebAuth != nil {
 		if slices.Contains(server.Config.LoginMethods, config.LoginMethodAPIToken) {

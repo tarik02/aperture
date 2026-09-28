@@ -115,6 +115,23 @@ Each upload request accepts at most 100 files, a directory may hold at most 1,00
 
 Listing and download URLs need API credentials with `sessions:read`; uploads, directory creation, deletes, and moves need `sessions:write`. Session-token holders use session-bound MCP or the data-plane upload. Editor and viewer capabilities cannot access files.
 
+## Thumbnails
+
+Every session can serve a JPEG thumbnail, at most 640 pixels wide, of the tab most recently shown to a live-session client, and of each top-level tab. Each tab renders in its own compositor window, so background tabs are captured live too. Repeated requests within two seconds share one capture. Thumbnail requests never wake a suspended session and do not count as session activity.
+
+```text
+GET /api/sessions/<session-id>/thumbnail
+GET /api/sessions/<session-id>/targets/<target-id>/thumbnail
+GET /sessions/<session-id>/thumbnail
+GET /sessions/<session-id>/targets/<target-id>/thumbnail
+```
+
+The `/api` routes need `sessions:read` and accept API tokens or a signed-in browser session. The `/sessions` routes accept a signed `token` query parameter, the owner session token, or an editor or viewer capability as a bearer token.
+
+`GET /api/sessions` and `GET /api/sessions/<session-id>` return signed URLs under `thumbnail` for image elements: `url` for the session and `targetUrlTemplate`, whose literal `{targetId}` placeholder takes a tab ID. They expire after `signed_file_url_ttl` (15 minutes by default); every response carries fresh ones. `thumbnail` is omitted when the session has nothing to show.
+
+When a session suspends, Aperture saves the thumbnails of the session and its tabs, and serves them until the session runs again. Tab IDs change when the browser restarts. Set `thumbnails_persist_on_suspend = false` (`APERTURE_THUMBNAILS_PERSIST_ON_SUSPEND=false`) to skip saving them; suspended sessions then have no thumbnail. Responses carry `Last-Modified`, so clients can revalidate with `If-Modified-Since`.
+
 ## Limits and audit events
 
 The default per-file upload limit is 100 MiB. Before accepting an upload, Aperture measures writable session data under the overlay upper directory, the session files, and the cache. The default admission limit is 1 GiB. The merged overlay and base snapshot are not double-counted. Browser activity can exceed the limit after admission; this is not a filesystem-enforced quota.
