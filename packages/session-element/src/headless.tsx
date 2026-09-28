@@ -1,3 +1,4 @@
+import { shareSessionAccess, type SessionAccess } from "@aperture-browser/session-react/headless";
 import { useEffect, useMemo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as Effect from "effect/Effect";
@@ -5,7 +6,7 @@ import {
   ApertureProvider,
   LiveSessionError,
   SessionViewport,
-  useSharedSession,
+  useSession,
   type SessionNotice,
   type UseBrowserControlResult,
 } from "@aperture-browser/session-react/headless";
@@ -18,8 +19,8 @@ export interface ApertureTab {
 }
 
 export interface ApertureSessionSnapshot {
-  readonly status: "invalid" | "loading" | "expired" | "unavailable" | "ready";
-  readonly role: "editor" | "viewer" | null;
+  readonly status: "invalid" | "loading" | "denied" | "expired" | "unavailable" | "ready";
+  readonly role: "owner" | "editor" | "viewer" | null;
   readonly connection: "idle" | "connecting" | "connected" | "disconnected" | "error";
   readonly tabs: readonly ApertureTab[];
   readonly activeTabId: string | null;
@@ -45,23 +46,23 @@ const hostStyles = `
 `;
 
 interface HeadlessSessionProps {
-  readonly token: string;
+  readonly access: SessionAccess;
   readonly onControl: (control: UseBrowserControlResult) => void;
   readonly onSnapshot: (snapshot: ApertureSessionSnapshot) => void;
   readonly onNotice: (notice: SessionNotice) => void;
 }
 
-function HeadlessSession({ token, onControl, onSnapshot, onNotice }: HeadlessSessionProps) {
-  const { status, share, control } = useSharedSession({ token, onNotice });
+function HeadlessSession({ access, onControl, onSnapshot, onNotice }: HeadlessSessionProps) {
+  const { status, control } = useSession({ access, onNotice });
   const snapshot = useMemo<ApertureSessionSnapshot>(
     () => ({
       status,
-      role: share?.role ?? null,
+      role: control.phase === "connected" ? control.collaboration.role : null,
       connection: control.phase,
       tabs: control.targets.map(({ id, title, url, loading }) => ({ id, title, url, loading })),
       activeTabId: control.activeTargetId,
     }),
-    [control.activeTargetId, control.phase, control.targets, share, status],
+    [control.activeTargetId, control.phase, control.targets, control.collaboration.role, status],
   );
 
   useEffect(() => onControl(control));
@@ -74,6 +75,17 @@ export class ApertureSessionViewElement extends HTMLElement {
   static readonly observedAttributes = ["token", "base-url"];
 
   #root: Root | null = null;
+  #access: SessionAccess | null = null;
+
+  get access(): SessionAccess | null {
+    return this.#access;
+  }
+
+  set access(access: SessionAccess | null) {
+    this.#access = access;
+    this.#render();
+  }
+
   #control: UseBrowserControlResult | null = null;
   #snapshot = initialSnapshot;
 
@@ -133,6 +145,8 @@ export class ApertureSessionViewElement extends HTMLElement {
           resolve(snapshot);
         } else if (
           snapshot.status === "invalid" ||
+          snapshot.status === "denied" ||
+          snapshot.connection === "error" ||
           snapshot.status === "expired" ||
           snapshot.status === "unavailable"
         ) {
@@ -196,12 +210,17 @@ export class ApertureSessionViewElement extends HTMLElement {
 
   #render(): void {
     const token = this.getAttribute("token");
-    const baseUrl = this.getAttribute("base-url") ?? undefined;
+    const access =
+      this.#access ??
+      (token === null
+        ? null
+        : shareSessionAccess(token, this.getAttribute("base-url") ?? undefined));
+    const baseUrl = access?.baseUrl;
     this.#root?.render(
-      token ? (
+      access !== null ? (
         <ApertureProvider key={baseUrl ?? ""} baseUrl={baseUrl}>
           <HeadlessSession
-            token={token}
+            access={access}
             onControl={this.#setControl}
             onSnapshot={this.#setSnapshot}
             onNotice={this.#notice}

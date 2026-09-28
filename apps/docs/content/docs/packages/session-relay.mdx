@@ -1,0 +1,85 @@
+---
+title: session-relay
+description: Consumer-authenticated session access through a same-origin backend.
+---
+
+Relay Aperture session access through your application's backend. Your application authenticates the browser and decides which session it may access; Aperture credentials stay on the backend.
+
+```sh
+npm install @aperture-browser/session-relay effect @effect/platform-node
+```
+
+## Mount the relay
+
+`sessionRelay` registers three GET routes on an Effect `HttpRouter`: `/browser/status`, `/session`, and `/webrtc/signal` below `<prefix>/sessions/:sessionId`. The two latter routes upgrade to WebSockets. The Node adapter supplies upstream HTTP and WebSocket clients; it does not start a server.
+
+```ts
+import * as Layer from "effect/Layer";
+import { sessionRelay, type SessionRelayOptions } from "@aperture-browser/session-relay";
+import { nodeRelayLayer } from "@aperture-browser/session-relay/node";
+
+export function relayRoutes(authorize: SessionRelayOptions["authorize"]) {
+  return sessionRelay({
+    prefix: "/aperture",
+    publicOrigin: "https://app.example.com",
+    apertureBaseUrl: "https://aperture.example.com",
+    authorize,
+  }).pipe(Layer.provide(nodeRelayLayer));
+}
+```
+
+Merge the returned layer with your app's other routes and serve it with `HttpRouter.serve` and `NodeHttpServer`. Existing Node HTTP servers can use `NodeHttpServer.makeHandler` and `makeUpgradeHandler` for the corresponding request and upgrade events. Configure the server's WebSocket `maxPayload` for your expected raster frames, for example 16 MiB. Your ingress must support persistent WebSocket upgrades.
+
+## Authorize every request
+
+The callback receives the original `HttpServerRequest` and the requested session identifier. Read your app's login cookie, verify the user's session access, and return an Effect containing:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Redacted from "effect/Redacted";
+import { RelayDenied, type RelayGrant } from "@aperture-browser/session-relay";
+
+// After your application's authentication and authorization have succeeded:
+export function grantSession(
+  sessionId: string,
+  capability: Redacted.Redacted<string>,
+  signal: AbortSignal,
+): Effect.Effect<RelayGrant> {
+  return Effect.succeed({ sessionId, capability, signal });
+}
+
+// Return these from the authorization callback for login/access failures:
+export const signInRequired = Effect.fail(new RelayDenied({ status: 401 }));
+export const accessDenied = Effect.fail(new RelayDenied({ status: 403 }));
+```
+
+Select the session's `collaboration.editorToken` or `collaboration.viewerToken` from your server-side `ApertureClient.sessions.getSession` result according to the app user's permissions. An `aps_` owner token or account API token is rejected as a relay grant. The browser cannot select its role. Aperture enforces that role on both WebSockets and direct WebRTC data channels.
+
+The requested identifier is one path segment containing letters, digits, underscores, or hyphens. It may be an app-owned alias; the callback maps it to the actual Aperture `sessionId`. Every status request, fallback connection, and reconnect calls the callback again. Authentication callbacks may depend on Effect services; supply those services to the served router.
+
+Own an `AbortController` for each access lifetime. Return its signal for all connections belonging to that access. Abort it when login expires, the user logs out, or their access is revoked or downgraded. This closes active signaling/session connections and their upstream peers. Reject later callback invocations until the user has access again. Use a fresh controller for a newly granted lifetime. Merely checking login when a socket opens does not revoke an already connected browser.
+
+## Connect the browser
+
+```tsx
+import { ApertureSession } from "@aperture-browser/session-react";
+import "@aperture-browser/session-react/styles.css";
+
+const access = { kind: "relay", baseUrl: "/aperture", sessionId: "your-session-id" } as const;
+
+export function Browser() {
+  return <ApertureSession access={access} className="h-full" />;
+}
+```
+
+For custom elements, assign the same object to `element.access`. Headless React uses `useSession({ access })`. Keep the access object stable across renders. No token or role is supplied to the browser; same-origin cookies authenticate it to the consumer app.
+
+## Connection behavior
+
+- Status and both WebSockets use the relay mount. WebRTC video and data channels connect directly to Aperture, subject to its ICE/TURN connectivity. Raster fallback travels through the relay.
+- The relay checks browser Origin against the configured public origin before authentication. It constructs upstream requests afresh, sending only the selected capability and session subprotocol. Browser cookies, Origin, authorization, and tenant headers are not forwarded. `embed_allowed_origins` needs no entry for the app.
+- Upstream status authorization is checked before each WebSocket upgrade. Denials become close codes 4401/4403; missing or expired sessions use 4404/4410. All four stop client retries. Restore login/access before calling `reconnect()` explicitly. Transient transport failures retain normal fallback and reconnect behavior.
+- Message boundaries and text/binary framing are preserved. Effect sockets apply backpressure; either connection closing disposes the other. No session protocol interpretation or input filtering happens in the relay.
+- HTTP responses are not cacheable. The upstream HTTP client must not follow redirects or inject unrelated credentials; `nodeRelayLayer` supplies an undecorated client.
+
+Only viewer/editor live-session access is exposed. Session management, raw CDP, files, and recording downloads are separate backend integrations.

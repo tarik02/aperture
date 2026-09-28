@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Effect from "effect/Effect";
-import * as Redacted from "effect/Redacted";
 import type * as Stream from "effect/Stream";
 import {
   useLiveSession,
@@ -13,7 +12,7 @@ import { SessionsApi, type ApiCredentials, type IceServer } from "@aperture-brow
 import type { Recording } from "@aperture-browser/api-client";
 import { LiveSessionError, type BrowserInputMessage } from "@aperture-browser/live-session";
 import type {
-  CollaborationRole,
+  SessionAccess,
   LiveSessionPresentation,
   LiveSessionPresentationQuality,
   LiveSessionRasterFrame,
@@ -32,11 +31,8 @@ export interface SessionNotice {
 }
 
 interface UseBrowserControlOptions {
-  sessionId: string | null;
-  credentials: ApiCredentials | null;
+  access: SessionAccess | null;
   displayName?: string | null;
-  sessionToken?: string;
-  collaborationRole?: CollaborationRole;
   enabled?: boolean;
   webrtcProducerSupported?: boolean;
   webrtcIceServers?: readonly IceServer[];
@@ -133,40 +129,35 @@ const emptyIceServers: readonly IceServer[] = [];
 const AUTO_SIZE_DEFAULT_STORAGE_KEY = "aperture.viewport.auto-size-default";
 
 export function useBrowserControl({
-  sessionId,
-  credentials,
+  access,
   displayName,
-  sessionToken,
-  collaborationRole = "owner",
   enabled = true,
   webrtcProducerSupported = false,
   webrtcIceServers = emptyIceServers,
   onNotice,
 }: UseBrowserControlOptions): UseBrowserControlResult {
   const runtime = useRuntime();
+  const sessionId = access?.sessionId ?? null;
+  const credentials = access?.kind === "direct" ? access.credentials : null;
   const onNoticeRef = useRef(onNotice);
   onNoticeRef.current = onNotice;
   const notify = (level: SessionNotice["level"], message: string) =>
     Effect.sync(() => onNoticeRef.current?.({ level, message }));
   const [viewportAutoSizeDefault, setViewportAutoSizeDefaultState] = useState(loadAutoSizeDefault);
   // The local preference is sent with every hello; the server state wins once it answers.
-  const [viewportAutoSync, setViewportAutoSyncState] = useState(
-    () => collaborationRole !== "viewer" && viewportAutoSizeDefault,
-  );
+  const [viewportAutoSync, setViewportAutoSyncState] = useState(() => viewportAutoSizeDefault);
   const viewportAutoSyncRef = useRef(viewportAutoSync);
   viewportAutoSyncRef.current = viewportAutoSync;
   const autoSizePreference = useCallback(() => viewportAutoSyncRef.current, []);
   const live = useLiveSession({
-    sessionId,
+    access,
     displayName,
-    credentials,
-    sessionToken,
-    role: collaborationRole,
-    enabled: Boolean(enabled && sessionId && credentials),
+    enabled: enabled && access !== null,
     webrtcSupported: webrtcProducerSupported,
     iceServers: webrtcIceServers,
     autoSize: autoSizePreference,
   });
+  const collaborationRole = live.collaboration.role;
   const [targetOrder, setTargetOrder] = useState<readonly string[]>([]);
   const targets = useMemo(
     () => mergeTargetsInCurrentOrder(targetOrder, live.targets),
@@ -214,12 +205,12 @@ export function useBrowserControl({
 
   const sendInput = useCallback(
     (message: BrowserInputMessage): boolean => {
-      if (!enabled || !sessionId || !credentials) {
+      if (!enabled || access === null) {
         return false;
       }
       return live.sendBrowserInput(message, inputDimensionsRef.current);
     },
-    [credentials, enabled, live, sessionId],
+    [access, enabled, live],
   );
 
   const activateTarget = useCallback(
@@ -491,12 +482,7 @@ export function useBrowserControl({
         live.request("recording.stop", { recordingId }).pipe(
           Effect.andThen(
             SessionsApi.use((sessions) =>
-              sessions.downloadSessionRecording(
-                credentials,
-                sessionId,
-                recordingId,
-                sessionToken === undefined ? undefined : Redacted.make(sessionToken),
-              ),
+              sessions.downloadSessionRecording(credentials, sessionId, recordingId),
             ),
           ),
           Effect.flatMap(({ blob, filename }) => {
@@ -512,7 +498,7 @@ export function useBrowserControl({
         ),
         "Recording failed to stop",
       ),
-    [live, sessionToken],
+    [live],
   );
   const stopRecording = useCallback(
     (recordingId: string) => {
@@ -559,11 +545,11 @@ export function useBrowserControl({
   );
   const setRemoteCursorEnabled = useCallback(
     (visible: boolean) => {
-      if (sessionId && credentials) {
+      if (access !== null) {
         runSetRemoteCursor(visible);
       }
     },
-    [credentials, runSetRemoteCursor, sessionId],
+    [access, runSetRemoteCursor],
   );
 
   const runSelectPresentation = useEffectCallback(
@@ -579,13 +565,13 @@ export function useBrowserControl({
   );
   const selectMediaStream = useCallback(
     (selection: LiveSessionMediaSelection) => {
-      if (!enabled || !sessionId || !credentials || live.mediaSwitching) {
+      if (!enabled || access === null || live.mediaSwitching) {
         return false;
       }
       runSelectPresentation(selection);
       return true;
     },
-    [credentials, enabled, live.mediaSwitching, runSelectPresentation, sessionId],
+    [access, enabled, live.mediaSwitching, runSelectPresentation],
   );
 
   const setWebRTCStreamSettings = useCallback(

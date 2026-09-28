@@ -41,13 +41,15 @@ Other web apps can show a shared session with the npm packages built from this r
 
 Both take an editor or viewer token and grant exactly what the share link grants. Parts of the UI can be turned off (`hide="tabs menus"`, or `features={{ tabs: false, menus: false }}`). For your own controls, the headless `<aperture-session-view>` and `@aperture-browser/session-react/headless` render only the browser and expose its tabs and navigation through an API.
 
-A page on another origin can only reach the session routes if its origin is listed in `embed_allowed_origins`:
+For direct cross-origin connections, the embedding page must be listed in `embed_allowed_origins`:
 
 ```yaml
 embed_allowed_origins: [https://app.example.com, http://localhost:3000]
 ```
 
 Aperture then answers CORS requests from those origins on the session routes share tokens use, and accepts live-session WebSockets from them. `*` allows any origin. Requests never carry cookies, so an embedding page only gets what the token it holds grants.
+
+For applications that own their users' authentication, use a [same-origin backend relay](/docs/packages/session-relay). The browser authenticates to your app, which supplies the Aperture capability upstream. This requires no `embed_allowed_origins` entry. WebRTC media and data channels remain direct; status and both WebSockets pass through your backend.
 
 ## Capability authentication
 

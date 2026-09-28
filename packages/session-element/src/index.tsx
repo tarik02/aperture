@@ -1,3 +1,4 @@
+import { shareSessionAccess, type SessionAccess } from "@aperture-browser/session-react/headless";
 import { createRoot, type Root } from "react-dom/client";
 import { ApertureSession } from "@aperture-browser/session-react";
 import styles from "@aperture-browser/session-react/styles.css?inline";
@@ -60,6 +61,17 @@ export class ApertureSessionElement extends HTMLElement {
   static readonly observedAttributes = ["token", "base-url", "theme", "hide"];
 
   #root: Root | null = null;
+  #access: SessionAccess | null = null;
+
+  get access(): SessionAccess | null {
+    return this.#access;
+  }
+
+  set access(access: SessionAccess | null) {
+    this.#access = access;
+    this.#render();
+  }
+
   #features: ApertureSessionFeatures = {};
 
   get features(): ApertureSessionFeatures {
@@ -95,13 +107,17 @@ export class ApertureSessionElement extends HTMLElement {
 
   #render(): void {
     const token = this.getAttribute("token");
+    const access =
+      this.#access ??
+      (token === null
+        ? null
+        : shareSessionAccess(token, this.getAttribute("base-url") ?? undefined));
     const theme = this.getAttribute("theme");
     this.#root?.render(
-      token ? (
+      access !== null ? (
         <ApertureSession
           key={this.getAttribute("base-url") ?? ""}
-          token={token}
-          baseUrl={this.getAttribute("base-url") ?? undefined}
+          access={access}
           theme={theme === "light" || theme === "dark" ? (theme as Theme) : "system"}
           features={{ ...hiddenFeatures(this.getAttribute("hide")), ...this.#features }}
         />
