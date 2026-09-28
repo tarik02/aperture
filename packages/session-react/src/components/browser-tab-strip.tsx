@@ -4,6 +4,8 @@ import {
   dropTargetForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import * as Effect from "effect/Effect";
 import { Globe2, Plus, Wrench, X } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
@@ -16,12 +18,16 @@ import {
 } from "@aperture-browser/ui/components/context-menu";
 import { ScrollArea } from "@aperture-browser/ui/components/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@aperture-browser/ui/components/tooltip";
+import { usePortalContainer } from "@aperture-browser/ui/portal";
 import { copyTextWithToast } from "../clipboard.ts";
-import { useEffectCallback } from "../effect.tsx";
+import { useEffectCallback, useFork } from "../effect.tsx";
 import { cn } from "@aperture-browser/ui/utils";
 import type { LiveSessionTarget } from "@aperture-browser/live-session";
+import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 
 const BROWSER_TAB_DRAG_KIND = "browser-tab";
+
+type LoadThumbnail = UseBrowserControlResult["loadTargetThumbnail"];
 
 interface BrowserTabStripProps {
   targets: readonly LiveSessionTarget[];
@@ -40,6 +46,7 @@ interface BrowserTabStripProps {
     destinationTargetId: string,
     placement: "before" | "after",
   ) => void;
+  loadThumbnail?: LoadThumbnail;
 }
 
 interface BrowserTabDragData extends Record<string, unknown> {
@@ -62,7 +69,20 @@ export function BrowserTabStrip({
   onClose,
   onReload,
   onReorder,
+  loadThumbnail = null,
 }: BrowserTabStripProps) {
+  const [previewTargetId, setPreviewTargetId] = useState<string | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (previewTimer.current !== null) {
+        clearTimeout(previewTimer.current);
+      }
+    },
+    [],
+  );
+
   if (targets.length === 0) {
     return (
       <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2 text-xs text-muted-foreground">
@@ -72,35 +92,62 @@ export function BrowserTabStrip({
     );
   }
 
+  const previewTarget = targets.find((target) => target.id === previewTargetId) ?? null;
+
   return (
-    <ScrollArea scrollbars="horizontal" className="h-8 min-w-0 flex-1">
-      <div className="flex min-w-max items-end gap-0.5 px-1 pt-1">
-        {targets.map((target, index) => {
-          const active = target.id === activeTargetId;
-          return (
-            <BrowserTab
-              key={target.id}
-              target={target}
-              active={active}
-              recording={recordingTargetIds.has(target.id)}
-              devToolsOpen={devToolsTargetIds.has(target.id)}
-              disabled={disabled}
-              mutationDisabled={mutationDisabled}
-              onActivate={onActivate}
-              onDuplicate={onDuplicate}
-              onClose={onClose}
-              onReload={onReload}
-              onReorder={onReorder}
-              closeOtherTargetIds={targets
-                .filter((current) => current.id !== target.id)
-                .map((current) => current.id)}
-              closeRightTargetIds={targets.slice(index + 1).map((current) => current.id)}
-            />
-          );
-        })}
-        <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
-      </div>
-    </ScrollArea>
+    <>
+      <ScrollArea scrollbars="horizontal" className="h-8 min-w-0 flex-1">
+        <div className="flex min-w-max items-end gap-0.5 px-1 pt-1">
+          {targets.map((target, index) => {
+            const active = target.id === activeTargetId;
+            return (
+              <BrowserTab
+                key={target.id}
+                target={target}
+                active={active}
+                recording={recordingTargetIds.has(target.id)}
+                devToolsOpen={devToolsTargetIds.has(target.id)}
+                disabled={disabled}
+                mutationDisabled={mutationDisabled}
+                onActivate={onActivate}
+                onDuplicate={onDuplicate}
+                onClose={onClose}
+                onReload={onReload}
+                onReorder={onReorder}
+                onPreviewEnter={(targetId) => {
+                  if (previewTimer.current !== null) {
+                    clearTimeout(previewTimer.current);
+                  }
+                  previewTimer.current = setTimeout(() => {
+                    previewTimer.current = null;
+                    setPreviewTargetId(targetId);
+                  }, 400);
+                }}
+                onPreviewLeave={(targetId) => {
+                  if (previewTimer.current !== null) {
+                    clearTimeout(previewTimer.current);
+                    previewTimer.current = null;
+                  }
+                  setPreviewTargetId((current) => (current === targetId ? null : current));
+                }}
+                closeOtherTargetIds={targets
+                  .filter((current) => current.id !== target.id)
+                  .map((current) => current.id)}
+                closeRightTargetIds={targets.slice(index + 1).map((current) => current.id)}
+              />
+            );
+          })}
+          <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
+        </div>
+      </ScrollArea>
+      {previewTarget && loadThumbnail ? (
+        <TabPreviewPanel
+          key={previewTarget.id}
+          target={previewTarget}
+          loadThumbnail={loadThumbnail}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -116,6 +163,8 @@ function BrowserTab({
   onClose,
   onReload,
   onReorder,
+  onPreviewEnter,
+  onPreviewLeave,
   closeOtherTargetIds,
   closeRightTargetIds,
 }: {
@@ -134,6 +183,8 @@ function BrowserTab({
     destinationTargetId: string,
     placement: DropPlacement,
   ) => void;
+  onPreviewEnter: (targetId: string) => void;
+  onPreviewLeave: (targetId: string) => void;
   closeOtherTargetIds: string[];
   closeRightTargetIds: string[];
 }) {
@@ -198,7 +249,8 @@ function BrowserTab({
                 : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
               dragging && "opacity-60",
             )}
-            title={target.url || "about:blank"}
+            onPointerEnter={() => onPreviewEnter(target.id)}
+            onPointerLeave={() => onPreviewLeave(target.id)}
             onMouseDown={(event) => {
               if (event.button === 1) {
                 event.preventDefault();
@@ -389,4 +441,57 @@ function isBrowserTabDragData(data: Record<string, unknown>): data is BrowserTab
 function dropPlacementFromClientX(element: Element, clientX: number): DropPlacement {
   const rect = element.getBoundingClientRect();
   return clientX < rect.left + rect.width / 2 ? "before" : "after";
+}
+
+function TabPreviewPanel({
+  target,
+  loadThumbnail,
+}: {
+  target: LiveSessionTarget;
+  loadThumbnail: NonNullable<LoadThumbnail>;
+}) {
+  const portalContainer = usePortalContainer();
+  const [src, setSrc] = useState<string | null>(null);
+
+  useFork(
+    () =>
+      loadThumbnail(target.id).pipe(
+        Effect.match({
+          onFailure: () => setSrc(null),
+          onSuccess: (blob) => setSrc(URL.createObjectURL(blob)),
+        }),
+      ),
+    [loadThumbnail, target.id],
+  );
+  useEffect(() => {
+    if (src === null) {
+      return undefined;
+    }
+    return () => URL.revokeObjectURL(src);
+  }, [src]);
+
+  const container = portalContainer ?? (typeof document === "undefined" ? null : document.body);
+  if (container === null) {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      data-browser-tab-preview
+      className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2 rounded-lg bg-popover p-2 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+    >
+      <div className="aspect-video w-full overflow-hidden rounded-md bg-muted">
+        {src === null ? null : (
+          <img src={src} alt="" className="size-full object-cover object-top" />
+        )}
+      </div>
+      <span className="truncate text-xs font-medium">
+        {target.title || simplifyUrl(target.url)}
+      </span>
+      <span className="truncate font-mono text-xs text-muted-foreground">
+        {target.url || "about:blank"}
+      </span>
+    </div>,
+    container,
+  );
 }
