@@ -61,6 +61,10 @@ _Avoid_: Input lock, tab lock, control ownership
 The one interactive session client, an owner or editor with auto-size enabled, whose own presentation size resizes the browser viewport. Other auto-sizing clients are suspended and see the shared viewport scaled. Ownership passes to the most recent auto-sizing client when the owner disables auto-size or disconnects, becomes vacant after an explicit viewport change by anyone else and stays vacant until a client toggles auto-size on or takes over explicitly. Automation and viewers are never viewport owners.
 _Avoid_: Size lock, viewport lease, auto-sync leader
 
+**Recording timeline**:
+A session file written next to a completed recording that describes it in video time: the capture segments, the browser tool calls with their captions and pointer gestures, and the spans in which the page's content changed.
+_Avoid_: Recording metadata, event log
+
 **Editor capability**:
 A rotatable session secret that permits collaborative browser control without session management, recording, file, or unrestricted CDP authority.
 _Avoid_: Share token, session token

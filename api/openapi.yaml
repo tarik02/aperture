@@ -2988,6 +2988,10 @@ components:
           type: string
           description: Session file path below the session files root; host paths are never exposed.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
+        timelineRelativePath:
+          type: string
+          description: Session file path of the timeline JSON written next to a stopped recording (`<video>.timeline.json`); absent while it runs, when it failed, or when nothing could be timed.
+          example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm.timeline.json
         startedAt:
           type: string
           format: date-time

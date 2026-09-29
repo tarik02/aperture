@@ -36,7 +36,7 @@ Viewer recording body:
 
 Supported codecs are `vp8` and `h264-va`; `h264-va` is rejected up front where the host's GStreamer lacks its VA-API elements (`422`, or `recording_codec_unavailable` through the API). Omitted or non-positive FPS and bitrate values use instance defaults. Omit `path` to generate a file in the session's `recordings` directory. A supplied `path` is a session file path below `recordings/`, such as `recordings/demo/intro.webm`; missing directories are created. Session tokens cannot override the generated path.
 
-Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, and `codec`; host paths are never returned. `path` repeats `relativePath` for older clients and is deprecated. Completed jobs may also include `stopReason`, `stoppedAt`, and `sizeBytes`. When a recording fails, what it captured is kept as `…-failed` files next to its target and `relativePath` points at the first one. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
+Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, and `codec`; host paths are never returned. `path` repeats `relativePath` for older clients and is deprecated. Completed jobs may also include `stopReason`, `stoppedAt`, `sizeBytes`, and `timelineRelativePath`. When a recording fails, what it captured is kept as `…-failed` files next to its target and `relativePath` points at the first one. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
 
 The live-session HTTP stop request finalizes the recording and serves the completed media attachment. Interactive clients start and stop through `aperture-session.v1`; after `recording.stop.result`, fetch `/content` to download without issuing a second stop.
 
@@ -55,6 +55,19 @@ Public recording results use `relativePath`; absolute host paths are never retur
 ## MCP
 
 MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Call `browser.targets` and select a target whose `state` is `ready` before starting or retargeting a recording. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
+
+## Timeline
+
+A recording that stops normally gets a **recording timeline** next to its video: `demo.webm` gets `demo.webm.timeline.json` (numbered like the video when the name is taken), reported as `timelineRelativePath` once the recording is `stopped`. It is not written for failed recordings, and the video does not depend on it. It describes what the Playwright browser tools did while the recording ran; actions taken in other ways (the workbench, raw CDP) are not in it.
+
+All times are milliseconds of video time, counted across target changes; coordinates are pixels of the video frame.
+
+- ``durationMs`, `segments[]` — the video's length and one entry per capture (`targetId`, `start`, `end`, `width`, `height`); retargeting starts a new segment.
+- `actions[]` — every tool call that changes something: `tool`, `targetId`, `start`, `end`, `ok`, and the `caption` given to the tool. A target other than the recorded one can appear here.
+- `gestures[]` — pointer tools only: `kind` (`click`, `move`, `drag`, `scroll`), `start`, `end`, `hold`, the pointer `path` as `[ms, x, y]`, `clicks[]` (`t`, `x`, `y`, `button`, `count`), and for scrolls `scroll` (`deltaX`, `deltaY`, and the point scrolled at). Path and clicks exist only in sessions with a compositor, and only for the recorded target.
+- `activity[]` — spans (`start`, `end`) in which the recorded page's content changed, sampled 20 times a second. A static page stays idle however the pointer moves; the spans cover new buffer content, not repaints.
+
+Each list is truncated at a fixed size (2000 actions, 1000 gestures, 5000 activity spans, 600 path points per gesture).
 
 ## Lifecycle
 

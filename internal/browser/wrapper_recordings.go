@@ -67,6 +67,8 @@ type wrapperRecording struct {
 	replacing         bool
 	clientID          string
 	operationMu       *sync.Mutex
+	timeline          *recordingTimeline
+	timelinePath      string
 }
 
 type wrapperRecordingRequest struct {
@@ -294,7 +296,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		operationMu:       &sync.Mutex{},
 	}
 	session.recordings[id] = recording
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err != nil {
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "start_failed"
@@ -305,6 +307,9 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	recording.cmd = cmd
 	recording.done = done
+	recording.timeline = &recordingTimeline{}
+	recording.timeline.begin(target, clock)
+	go recording.timeline.sample(r.ctx, r.controlSocket)
 	recording.Status = wrapperRecordingRunning
 	status := *recording
 	r.mu.Unlock()
@@ -439,9 +444,11 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	if err != nil {
 		return session.failRecording(recording, "finalize_failed", err)
 	}
+	timelinePath := recording.publishTimeline(finalPath)
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()
 	recording.Path = finalPath
+	recording.timelinePath = timelinePath
 	recording.SizeBytes = size
 	recording.StoppedAt = &stoppedAt
 	recording.Status = wrapperRecordingStopped
@@ -473,6 +480,7 @@ func stopRecordingSegment(recording *wrapperRecording) error {
 	if recording.cmd == nil || recording.cmd.Process == nil {
 		return nil
 	}
+	defer recording.timeline.end()
 	select {
 	case err := <-recording.done:
 		recording.cmd = nil
@@ -612,8 +620,10 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		r.mu.Unlock()
 	}()
 
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err == nil {
+		// The old capture keeps recording until the new one has data, so both are sampled.
+		recording.timeline.begin(target, clock)
 		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		for waitCtx.Err() == nil {
 			if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
@@ -650,11 +660,15 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 			replacement := &wrapperRecording{cmd: cmd, done: done}
 			_ = stopRecordingSegment(replacement)
 		}
+		if clock != nil {
+			recording.timeline.discard()
+		}
 		return err
 	}
 	if err := stopRecordingSegment(recording); err != nil {
 		replacement := &wrapperRecording{cmd: cmd, done: done}
 		_ = stopRecordingSegment(replacement)
+		recording.timeline.discard()
 		r.mu.Lock()
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "replacement_failed"
@@ -880,8 +894,12 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 	type fields wrapperRecording
 	relative := ""
 	sandboxPath := ""
+	timelineRelative := ""
 	if rel, err := filepath.Rel(recording.filesRoot, recording.Path); err == nil {
 		relative = filepath.ToSlash(rel)
+	}
+	if rel, err := filepath.Rel(recording.filesRoot, recording.timelinePath); err == nil && recording.timelinePath != "" {
+		timelineRelative = filepath.ToSlash(rel)
 	}
 	if relative != "" {
 		sandboxPath = sessionfiles.SandboxPath(relative)
@@ -889,11 +907,13 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		fields
 		RelativePath string `json:"relativePath"`
-		SandboxPath  string `json:"sandboxPath,omitempty"`
+		// TimelineRelativePath names the recording's timeline file, once it is stopped.
+		TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
+		SandboxPath          string `json:"sandboxPath,omitempty"`
 		// Path repeats RelativePath for clients that still read the field it replaced.
 		// It used to carry a host path, which it never does now.
 		Path string `json:"path"`
-	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, Path: relative})
+	}{fields: fields(recording), RelativePath: relative, TimelineRelativePath: timelineRelative, SandboxPath: sandboxPath, Path: relative})
 }
 
 // publishRecording moves a finished recording into place without replacing an
@@ -974,6 +994,7 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 	}
 	recording.cmd = nil
 	recording.done = nil
+	recording.timeline.end()
 	recording.Status = wrapperRecordingFailed
 	recording.StopReason = "pipeline_exited"
 	stoppedAt := time.Now().UTC()

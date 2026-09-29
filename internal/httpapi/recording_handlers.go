@@ -26,6 +26,8 @@ type wrapperRecordingStatus struct {
 	Status            string `json:"status"`
 	StopReason        string `json:"stopReason,omitempty"`
 	RelativePath      string `json:"relativePath"`
+	// TimelineRelativePath is set once a stopped recording has a timeline file.
+	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
 	// Path is the host path wrappers reported before they reported relativePath.
 	Path        string `json:"path"`
 	StartedAt   string `json:"startedAt"`
@@ -50,6 +52,9 @@ type recordingResponse struct {
 	FPS               int    `json:"fps"`
 	BitrateKbps       int    `json:"bitrateKbps"`
 	Codec             string `json:"codec"`
+
+	// TimelineRelativePath names the timeline file of a stopped recording, when it has one.
+	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
 }
 
 type createSessionRecordingRequest struct {
@@ -311,11 +316,29 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 	if err != nil {
 		return recordingResponse{}, err
 	}
+	timelinePath, err := recordingTimelinePath(status)
+	if err != nil {
+		return recordingResponse{}, err
+	}
 	return recordingResponse{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		TimelineRelativePath: timelinePath,
+		RecordingID:          status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}, nil
+}
+
+// recordingTimelinePath validates the timeline path a wrapper reports, which is empty
+// until the recording has stopped with one.
+func recordingTimelinePath(status wrapperRecordingStatus) (string, error) {
+	if status.TimelineRelativePath == "" {
+		return "", nil
+	}
+	relativePath, err := sessionfiles.Normalize(status.TimelineRelativePath)
+	if err != nil || !strings.HasPrefix(relativePath, "recordings/") {
+		return "", fmt.Errorf("%w: invalid wrapper recording timeline path %q", errBrowserControlFailed, status.TimelineRelativePath)
+	}
+	return relativePath, nil
 }
 
 func (s *Server) recordingRelativePath(sessionID string, status wrapperRecordingStatus) (string, error) {

@@ -166,8 +166,13 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 	if err != nil {
 		return mcpRecordingOutput{}, err
 	}
+	timelinePath, err := recordingTimelinePath(status)
+	if err != nil {
+		return mcpRecordingOutput{}, err
+	}
 	output := mcpRecordingOutput{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		TimelineRelativePath: timelinePath,
+		RecordingID:          status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}

@@ -137,5 +137,12 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 		writeWrapperError(w, http.StatusBadGateway, "Playwright MCP call failed")
 		return
 	}
+	// The host's report of the call belongs to the recordings, not to the client.
+	if aperture, ok := result.Meta["aperture"].(map[string]any); ok {
+		delete(result.Meta, "aperture")
+		if r.liveSession != nil {
+			r.liveSession.recordTimeline(aperture)
+		}
+	}
 	writeWrapperJSON(w, http.StatusOK, result)
 }
