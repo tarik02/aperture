@@ -230,6 +230,15 @@ func TestPlanPointerCDPCalls(t *testing.T) {
 				{Name: "browser_mouse_wheel", Arguments: map[string]any{"deltaX": 0.0, "deltaY": 10.0}},
 			},
 		},
+		{
+			name: "scroll over a resolved ref moves to where it was found",
+			spec: mustParse(pointerToolScroll, `{"target": "e3", "deltaY": 20}`),
+			from: point(40, 50),
+			want: []playwrightCallRequest{
+				{Name: "browser_mouse_move_xy", Arguments: map[string]any{"x": 40.0, "y": 50.0}},
+				{Name: "browser_mouse_wheel", Arguments: map[string]any{"deltaX": 0.0, "deltaY": 20.0}},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -773,35 +782,6 @@ func TestCompositorPointerGlideFollowsPathToDestination(t *testing.T) {
 	}
 }
 
-func TestCompositorPointerScrollConvertsToWheelUnits(t *testing.T) {
-	fake := newFakeCompositor(t)
-	c := fake.pointer(pointer.Motion{Kind: pointer.KindDuration, Duration: 80 * time.Millisecond})
-	c.state.setPosition(7, pointer.Point{X: 300, Y: 300})
-
-	if err := c.scroll(context.Background(), pointer.Point{X: 300, Y: 300}, 0, 500); err != nil {
-		t.Fatal(err)
-	}
-	var total float64
-	var axes int
-	for _, command := range fake.recorded() {
-		var surface int
-		var x, y, dx, dy float64
-		if n, _ := fmt.Sscanf(command, "axis-at %d %f %f %f %f", &surface, &x, &y, &dx, &dy); n == 5 {
-			axes++
-			total += dy
-			if x != 300 || y != 300 || dx != 0 {
-				t.Fatalf("wheel step off the scroll point: %q", command)
-			}
-		}
-	}
-	if axes < 3 {
-		t.Fatalf("scroll was sent as %d wheel steps, want it spread out", axes)
-	}
-	if total < 49.99 || total > 50.01 {
-		t.Fatalf("total wheel movement = %.3f units, want 50 (500 px / %d)", total, westonAxisStepDistance)
-	}
-}
-
 func TestPlaywrightCallRejectsToolsReplacedByPointerTools(t *testing.T) {
 	runtime := newWrapperRuntime(RuntimeEnvValues{WrapperControlToken: "secret"}, "")
 	runtime.playwright = newPlaywrightMCPBackend(runtime.values)
@@ -848,5 +828,72 @@ func TestPointerCallWaitsForElement(t *testing.T) {
 		if got := pointerCallWaitsForElement(test.call); got != test.want {
 			t.Errorf("%s: pointerCallWaitsForElement = %t, want %t", test.call.Name, got, test.want)
 		}
+	}
+}
+
+func TestHandleCursorWithoutCompositor(t *testing.T) {
+	runtime := newWrapperRuntime(RuntimeEnvValues{WrapperControlToken: "secret"}, "")
+	session, err := newLiveSession(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.liveSession = session
+	put := func(body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPut, "/cursor", strings.NewReader(body))
+		recorder := httptest.NewRecorder()
+		runtime.handleCursor(recorder, request)
+		return recorder
+	}
+
+	if recorder := put(`{"motion": "fast"}`); recorder.Code != http.StatusOK {
+		t.Fatalf("motion-only update: status = %d, body %s", recorder.Code, recorder.Body)
+	}
+	if got := runtime.pointer.currentSessionMotion(); got.Kind != pointer.KindFast {
+		t.Fatalf("motion = %+v, want fast", got)
+	}
+	// A combined update the session cannot fully apply changes nothing.
+	if recorder := put(`{"visible": false, "motion": "instant"}`); recorder.Code != http.StatusConflict {
+		t.Fatalf("visibility without a compositor: status = %d, want %d", recorder.Code, http.StatusConflict)
+	}
+	if got := runtime.pointer.currentSessionMotion(); got.Kind != pointer.KindFast {
+		t.Fatalf("motion after a refused update = %+v, want it unchanged", got)
+	}
+}
+
+func TestPointerScrollDefaultPoint(t *testing.T) {
+	runtime := newWrapperRuntime(RuntimeEnvValues{}, "")
+	metrics := &pointerViewportMetrics{Width: 800, Height: 400, Scale: 1}
+	target := &wrapperTargetSnapshot{SurfaceID: 7, Viewport: compositorViewport{Width: 1200, Height: 600}}
+
+	if got := runtime.pointerScrollDefault(pointerScrollContext{}); got != nil {
+		t.Fatalf("without viewport metrics = %v, want nil", got)
+	}
+	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics}); got == nil || *got != (pointer.Point{X: 400, Y: 200}) {
+		t.Fatalf("center = %v, want (400, 200)", got)
+	}
+	// The pointer's last position on the surface, at 150% zoom, in CSS pixels.
+	runtime.pointer.setPosition(7, pointer.Point{X: 300, Y: 150})
+	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics, target: target}); got == nil || *got != (pointer.Point{X: 200, Y: 100}) {
+		t.Fatalf("remembered position = %v, want (200, 100)", got)
+	}
+	// The pointer is on another surface now, so this page's center stands.
+	runtime.pointer.setPosition(8, pointer.Point{X: 300, Y: 150})
+	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics, target: target}); got == nil || *got != (pointer.Point{X: 400, Y: 200}) {
+		t.Fatalf("position on another surface = %v, want the center (400, 200)", got)
+	}
+}
+
+func TestPointerScrollContextSurfacePoint(t *testing.T) {
+	target := &wrapperTargetSnapshot{SurfaceID: 7, Viewport: compositorViewport{Width: 1200, Height: 600}}
+	metrics := &pointerViewportMetrics{Width: 800, Height: 400, Scale: 1}
+	scroll := pointerScrollContext{target: target, metrics: metrics}
+	if got := scroll.surfacePoint(&pointer.Point{X: 100, Y: 50}, pointerEndpoint{}); got == nil || *got != (pointer.Point{X: 150, Y: 75}) {
+		t.Fatalf("resolved ref = %v, want (150, 75)", got)
+	}
+	if got := scroll.surfacePoint(nil, pointerEndpoint{Point: &pointer.Point{X: 10, Y: 20}}); got == nil || *got != (pointer.Point{X: 15, Y: 30}) {
+		t.Fatalf("coordinates = %v, want (15, 30)", got)
+	}
+	if got := (&pointerScrollContext{}).surfacePoint(&pointer.Point{X: 1, Y: 1}, pointerEndpoint{}); got != nil {
+		t.Fatalf("without a compositor surface = %v, want nil", got)
 	}
 }

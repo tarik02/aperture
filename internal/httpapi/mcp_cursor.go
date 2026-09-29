@@ -42,7 +42,7 @@ func mcpCursorOutputSchema() map[string]any {
 func mcpCursorSetInputSchema(pathBound bool) map[string]any {
 	properties := map[string]any{
 		"visible": map[string]any{"type": "boolean", "description": "Whether to include the remote cursor in the live stream and recordings. Give visible, motion, or both."},
-		"motion":  mcpPointerMotionSchema(`Default motion for the browser_click, browser_move, browser_drag and browser_scroll tools in this session: "natural", "fast", "instant", {"speed": px/s} or {"durationMs": ms}. A tool's own motion parameter overrides it. It lasts until the session stops.`),
+		"motion":  mcpPointerMotionSchema(`Default motion for the browser_click, browser_move and browser_drag tools in this session: "natural", "fast", "instant", {"speed": px/s} or {"durationMs": ms}. A tool's own motion parameter overrides it. It lasts until the session stops.`),
 	}
 	schema := map[string]any{
 		"type":                 "object",

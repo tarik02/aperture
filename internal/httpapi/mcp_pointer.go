@@ -91,6 +91,11 @@ func pointerToolDefinition(name, title, description string, properties map[strin
 		schema["required"] = []any{"sessionId"}
 	}
 	destructive, openWorld := true, true
+	if name == mcpToolBrowserScroll {
+		// Scrolling has no pointer travel to shape; the wheel is turned with
+		// Playwright's own input and Chromium animates the scroll.
+		delete(all, "motion")
+	}
 	return &mcp.Tool{
 		Name:        name,
 		Title:       title,
@@ -114,7 +119,7 @@ func pointerToolDefinitions(pathBound bool) []*mcp.Tool {
 	maps.Copy(drag, mcpPointerPosition("end", "destination"))
 
 	scroll := mcpPointerPosition("", "scroll")
-	scroll["target"] = map[string]any{"type": "string", "description": "Exact target element reference from the page snapshot, or a unique element selector, to scroll over. Use this or x and y. Without either, the wheel turns at the current pointer position."}
+	scroll["target"] = map[string]any{"type": "string", "description": "Exact target element reference from the page snapshot, or a unique element selector, to scroll over. Use this or x and y. Without either, the wheel turns where the pointer last was on the page (the viewport center if it has not been there)."}
 	scroll["deltaX"] = map[string]any{"type": "number", "description": "Horizontal scroll distance in CSS pixels; positive scrolls right. Defaults to 0."}
 	scroll["deltaY"] = map[string]any{"type": "number", "description": "Vertical scroll distance in CSS pixels; positive scrolls down. Defaults to 0."}
 
@@ -129,7 +134,7 @@ func pointerToolDefinitions(pathBound bool) []*mcp.Tool {
 			"Drag with the left mouse button from one element or viewport position to another, for drag and drop or sliders. Give the start as startTarget or startX and startY, and the end as endTarget or endX and endY.",
 			drag, pathBound),
 		pointerToolDefinition(mcpToolBrowserScroll, "Scroll mouse wheel",
-			"Turn the mouse wheel over an element or a viewport position. The scroll is spread over the motion's duration as smooth wheel steps.",
+			"Turn the mouse wheel over an element or a viewport position to scroll by a distance in CSS pixels. The page animates the scroll itself; there is no cursor travel, so this tool takes no motion. Pass a snapshot ref (target) or viewport coordinates (x and y).",
 			scroll, pathBound),
 	}
 }

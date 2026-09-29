@@ -67,6 +67,9 @@ type pointerGestureRecord struct {
 	Clicks  []pointerClickPoint
 	ScrollX float64
 	ScrollY float64
+	// Point is where a scroll's wheel turned, in surface pixels, when the page
+	// has a compositor surface. Scrolls carry no Path.
+	Point   *pointer.Point
 	Caption string
 }
 

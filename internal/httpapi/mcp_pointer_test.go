@@ -84,8 +84,10 @@ func TestMCPServerExposesApertureNativePointerTools(t *testing.T) {
 			}
 			properties := schemaProperties(t, tool)
 			for _, property := range []string{"motion", "holdMs", "caption", "timeoutMs"} {
-				if _, ok := properties[property]; !ok {
-					t.Errorf("pathBound=%t: %s has no %s parameter", pathBound, name, property)
+				_, ok := properties[property]
+				// Scrolling has no pointer travel, so it has no motion.
+				if want := name != "browser_scroll" || property != "motion"; ok != want {
+					t.Errorf("pathBound=%t: %s has %s parameter = %t, want %t", pathBound, name, property, ok, want)
 				}
 			}
 			_, hasSessionID := properties["sessionId"]

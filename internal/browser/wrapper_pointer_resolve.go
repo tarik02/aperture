@@ -344,9 +344,22 @@ func (r *wrapperRuntime) resolvePointerElement(ctx context.Context, endpoint poi
 //     is found nowhere or on a target that is not ready), the gesture falls back
 //     to Playwright input instead of guessing a surface.
 func (r *wrapperRuntime) identifyPointerTarget(ctx context.Context, registry *wrapperTargetRegistry) (wrapperTargetSnapshot, error) {
-	pages, err := discoverCDPTargetWindows(ctx, r.values.CDPPort)
+	targetID, err := r.identifyPointerTargetID(ctx)
 	if err != nil {
 		return wrapperTargetSnapshot{}, err
+	}
+	target, ready := registry.readyTarget(targetID)
+	if !ready {
+		return wrapperTargetSnapshot{}, pointerFallback("the current page has no ready compositor surface")
+	}
+	return target, nil
+}
+
+// identifyPointerTargetID names the CDP target of the page Playwright controls.
+func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context) (string, error) {
+	pages, err := discoverCDPTargetWindows(ctx, r.values.CDPPort)
+	if err != nil {
+		return "", err
 	}
 	targetIDs := make([]string, 0, len(pages))
 	for _, page := range pages {
@@ -355,32 +368,28 @@ func (r *wrapperRuntime) identifyPointerTarget(ctx context.Context, registry *wr
 	var targetID string
 	switch len(targetIDs) {
 	case 0:
-		return wrapperTargetSnapshot{}, pointerFallback("the browser has no page")
+		return "", pointerFallback("the browser has no page")
 	case 1:
 		targetID = targetIDs[0]
 	default:
 		nonce, err := randomPointerNonce()
 		if err != nil {
-			return wrapperTargetSnapshot{}, err
+			return "", err
 		}
 		var probed bool
 		if err := r.evaluatePlaywright(ctx, pointerProbeScript(nonce), "", &probed); err != nil {
 			var toolErr *playwrightToolError
 			if errors.As(err, &toolErr) && !toolErr.blockedByPageCSP() {
-				return wrapperTargetSnapshot{}, &pointerUserError{message: toolErr.text}
+				return "", &pointerUserError{message: toolErr.text}
 			}
-			return wrapperTargetSnapshot{}, pointerFallback("the current page cannot be identified among %d pages", len(targetIDs))
+			return "", pointerFallback("the current page cannot be identified among %d pages", len(targetIDs))
 		}
 		targetID, err = r.findPointerMarker(ctx, targetIDs, nonce)
 		if err != nil {
-			return wrapperTargetSnapshot{}, err
+			return "", err
 		}
 	}
-	target, ready := registry.readyTarget(targetID)
-	if !ready {
-		return wrapperTargetSnapshot{}, pointerFallback("the current page has no ready compositor surface")
-	}
-	return target, nil
+	return targetID, nil
 }
 
 func randomPointerNonce() (string, error) {
@@ -424,27 +433,41 @@ func (r *wrapperRuntime) findPointerMarker(ctx context.Context, targetIDs []stri
 	return matches[0], nil
 }
 
-// pointerViewportScript reports the page's viewport the way the resolver does.
-const pointerViewportScript = `() => ({
+// pointerViewportExpression reports the page's viewport the way the resolver does.
+const pointerViewportExpression = `({
   width: window.innerWidth,
   height: window.innerHeight,
   scale: window.visualViewport ? window.visualViewport.scale : 1,
 })`
 
-// pointerViewportMetrics reads the page's viewport, for placing coordinates
-// the caller gave. It returns nil when the page's Content Security Policy blocks
-// evaluation, in which case coordinates are taken as surface pixels.
-func (r *wrapperRuntime) pointerViewportMetrics(ctx context.Context) (*pointerViewportMetrics, error) {
+// pointerTargetViewportMetrics reads a page's viewport, for placing coordinates
+// the caller gave. It asks the already identified target over CDP directly:
+// going through Playwright's browser_evaluate costs about half a second per
+// gesture, and Runtime.evaluate is not subject to the page's Content Security
+// Policy. A page that cannot be read makes the gesture fall back, before any
+// input is sent.
+func (r *wrapperRuntime) pointerTargetViewportMetrics(ctx context.Context, targetID string) (*pointerViewportMetrics, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	client, err := connectLiveSessionCDP(ctx, r.values.CDPPort)
+	if err != nil {
+		return nil, pointerFallback("cannot read the page viewport: %v", err)
+	}
+	defer client.close()
+	sessionID, err := cdptarget.AttachToTarget(cdptarget.ID(targetID)).WithFlatten(true).Do(client.executorContext(ctx, ""))
+	if err != nil {
+		return nil, pointerFallback("cannot read the page viewport: %v", err)
+	}
+	defer func() {
+		_ = cdptarget.DetachFromTarget().WithSessionID(sessionID).Do(client.executorContext(context.WithoutCancel(ctx), ""))
+	}()
+	value, exception, err := runtime.Evaluate(pointerViewportExpression).WithReturnByValue(true).Do(client.executorContext(ctx, sessionID))
+	if err != nil || exception != nil || value == nil {
+		return nil, pointerFallback("cannot read the page viewport")
+	}
 	var metrics pointerViewportMetrics
-	if err := r.evaluatePlaywright(ctx, pointerViewportScript, "", &metrics); err != nil {
-		var toolErr *playwrightToolError
-		if errors.As(err, &toolErr) {
-			if toolErr.blockedByPageCSP() {
-				return nil, nil
-			}
-			return nil, &pointerUserError{message: toolErr.text}
-		}
-		return nil, err
+	if err := json.Unmarshal(value.Value, &metrics); err != nil {
+		return nil, pointerFallback("cannot read the page viewport: %v", err)
 	}
 	return &metrics, nil
 }
