@@ -331,19 +331,25 @@ type mcpSessionIDInput struct {
 	TenantID  string `json:"tenantId,omitempty"`
 	SessionID string `json:"sessionId"`
 }
+
+// mcpRecordingStartInput carries the recording's effect defaults, whose zoom is a
+// boolean or a number, which the SDK cannot describe, so recording.start spells
+// out its input schema; see mcpRecordingStartInputSchema.
 type mcpRecordingStartInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
-	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
+	TargetID    string `json:"targetId"`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	recordingEffectsRequest
 }
 type mcpBoundRecordingStartInput struct {
-	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
+	TargetID    string `json:"targetId"`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	recordingEffectsRequest
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -379,6 +385,12 @@ type mcpRecordingOutput struct {
 	FPS                  int    `json:"fps,omitempty"`
 	BitrateKbps          int    `json:"bitrateKbps,omitempty"`
 	Codec                string `json:"codec,omitempty"`
+	// EditedRelativePath is the edited video, rendered when the recording stopped from what was declared while it ran (captions, zoom, ripples, idle time). Absent when there was nothing to apply or the edit failed.
+	EditedRelativePath string `json:"editedRelativePath,omitempty"`
+	// EditError says why the edit failed; the raw video and timeline are kept all the same.
+	EditError *recordingEditError `json:"editError,omitempty"`
+	// EditWarnings say what of the effects could not be applied or was left as it was.
+	EditWarnings []string `json:"editWarnings,omitempty"`
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`
@@ -554,11 +566,11 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking this session if it is suspended."}, s.mcpBoundBrowserTargets)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility and the default pointer motion for this session.", OutputSchema: mcpCursorOutputSchema()}, s.mcpBoundCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings, and the default motion of its pointer gestures.", InputSchema: mcpCursorSetInputSchema(true), OutputSchema: mcpCursorOutputSchema()}, s.mcpBoundCursorSet)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpBoundRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: mcpRecordingStartDescription, InputSchema: mcpRecordingStartInputSchema(true)}, s.mcpBoundRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for this session."}, s.mcpBoundRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpBoundRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpBoundRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID."}, s.mcpBoundRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: mcpRecordingStopDescription}, s.mcpBoundRecordingStop)
 		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
@@ -587,11 +599,11 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings, and the default motion of its pointer gestures.", InputSchema: mcpCursorSetInputSchema(false), OutputSchema: mcpCursorOutputSchema()}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: mcpRecordingStartDescription, InputSchema: mcpRecordingStartInputSchema(false)}, s.mcpRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for a session."}, s.mcpRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID."}, s.mcpRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: mcpRecordingStopDescription}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
@@ -629,6 +641,11 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 	_ = json.Unmarshal(encoded, &schema)
 	properties, _ := schema["properties"].(map[string]any)
 	delete(properties, "sessionId")
+	if properties == nil && playwrightCaptionTools[definition.Name] {
+		properties = map[string]any{}
+		schema["properties"] = properties
+	}
+	addCaptionProperty(definition.Name, properties)
 	required, _ := schema["required"].([]any)
 	filteredRequired := required[:0]
 	for _, item := range required {
@@ -676,7 +693,11 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 
 func (s *Server) playwrightToolHandler(a mcpAuth, name string, pathBound bool) mcp.ToolHandler {
 	return s.automationToolHandler(a, pathBound, "playwright_error", func(ctx context.Context, wrapperPort int, controlToken string, arguments map[string]any) (*mcp.CallToolResult, error) {
-		return callPlaywright(ctx, wrapperPort, controlToken, name, arguments, s.Config.ToolOutputMaxBytes)
+		caption, err := playwrightToolCaption(name, arguments)
+		if err != nil {
+			return nil, err
+		}
+		return callPlaywrightCaptioned(ctx, wrapperPort, controlToken, name, caption, arguments, s.Config.ToolOutputMaxBytes)
 	})
 }
 
@@ -731,17 +752,6 @@ func (s *Server) automationToolHandler(a mcpAuth, pathBound bool, errorCode stri
 	}
 }
 
-func callPlaywright(
-	ctx context.Context,
-	port int,
-	controlToken string,
-	name string,
-	arguments map[string]any,
-	maxResponseBytes int64,
-) (*mcp.CallToolResult, error) {
-	return callWrapperTool(ctx, port, controlToken, "/automation/playwright", "Playwright MCP", name, arguments, maxResponseBytes)
-}
-
 // callWrapperTool posts one tool call to a wrapper automation endpoint and
 // decodes the MCP result it returns.
 func callWrapperTool(
@@ -754,7 +764,27 @@ func callWrapperTool(
 	arguments map[string]any,
 	maxResponseBytes int64,
 ) (*mcp.CallToolResult, error) {
-	payload, err := json.Marshal(map[string]any{"name": name, "arguments": arguments})
+	return callWrapperToolWith(ctx, port, controlToken, endpoint, label, name, arguments, nil, maxResponseBytes)
+}
+
+// callWrapperToolWith is callWrapperTool with more members in the request than
+// the tool's name and arguments.
+func callWrapperToolWith(
+	ctx context.Context,
+	port int,
+	controlToken string,
+	endpoint string,
+	label string,
+	name string,
+	arguments map[string]any,
+	extra map[string]any,
+	maxResponseBytes int64,
+) (*mcp.CallToolResult, error) {
+	call := map[string]any{"name": name, "arguments": arguments}
+	for key, value := range extra {
+		call[key] = value
+	}
+	payload, err := json.Marshal(call)
 	if err != nil {
 		return nil, err
 	}

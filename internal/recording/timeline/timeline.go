@@ -101,6 +101,38 @@ type Recording struct {
 	// that failed; the other parts are published as videos of their own, each
 	// with its own timeline.
 	Salvaged bool `json:"salvaged,omitempty"`
+	// Edit holds the effect defaults the recording was started with. It is absent
+	// when it was started without any, and lets the edited video be reproduced
+	// from the timeline alone.
+	Edit *EditOptions `json:"edit,omitempty"`
+}
+
+// Idle modes of EditOptions.Idle.
+const (
+	// IdleSpeed plays the stretches in which nothing happens faster.
+	IdleSpeed = "speed"
+	// IdleCut removes them.
+	IdleCut = "cut"
+)
+
+// EditOptions are the recording-level defaults of the effects that are applied
+// to the video when the recording stops. Effects that a gesture asked for itself
+// are on the gesture; the defaults here are what its omitted arguments were
+// resolved against, so Gesture.Zoom and Gesture.Ripple already hold the
+// effective values.
+type EditOptions struct {
+	// Idle is "speed" or "cut" to shorten the stretches in which nothing happens,
+	// and empty to leave them.
+	Idle string `json:"idle,omitempty"`
+	// Ripple marks clicks that did not say otherwise.
+	Ripple bool `json:"ripple,omitempty"`
+	// Zoom is the magnification of gestures that did not say otherwise; zero is off.
+	Zoom float64 `json:"zoom,omitempty"`
+}
+
+// Empty reports whether the options ask for nothing.
+func (o *EditOptions) Empty() bool {
+	return o == nil || (o.Idle == "" && !o.Ripple && o.Zoom == 0)
 }
 
 // Clock source values of Segment.Clock.
@@ -161,6 +193,12 @@ type Gesture struct {
 	// is mapped into. Its times are cut to the segment and its points outside it are dropped.
 	Clipped bool   `json:"clipped,omitempty"`
 	Caption string `json:"caption,omitempty"`
+	// Zoom is the magnification the video zooms to while the gesture is made, and
+	// absent when it does not. It is the gesture's own zoom argument, or else the
+	// recording's default. Only gestures with a position in the video can zoom.
+	Zoom float64 `json:"zoom,omitempty"`
+	// Ripple is set on a click that is marked with a ripple in the edited video.
+	Ripple bool `json:"ripple,omitempty"`
 	// Path is where the cursor was, in order, thinned to what the shape of the
 	// motion needs. It contains the gesture's first and last position.
 	Path   []PathPoint `json:"path,omitempty"`
@@ -207,8 +245,11 @@ type Caption struct {
 	StartMs int64  `json:"startMs"`
 	EndMs   int64  `json:"endMs"`
 	Text    string `json:"text"`
-	// Gesture is the ID of the gesture the caption came with.
+	// Gesture is the ID of the gesture the caption came with. It is 0 for a
+	// caption that came with another page-changing tool, which Tool names.
 	Gesture uint64 `json:"gesture"`
+	// Tool is the tool the caption came with, when it is not a pointer gesture.
+	Tool string `json:"tool,omitempty"`
 }
 
 // Activity says when the recorded screen changed.
@@ -254,6 +295,9 @@ type Truncation struct {
 	PathPoints bool `json:"pathPoints"`
 	// Activity is set when activity spans beyond the limit were left out.
 	Activity bool `json:"activity"`
+	// Captions is set when captions of other tools than the pointer tools, beyond
+	// the limit, were left out.
+	Captions bool `json:"captions,omitempty"`
 }
 
 // Validate checks what a reader relies on: the version, and that segments,

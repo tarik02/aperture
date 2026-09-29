@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/aperture/aperture/internal/pointer"
+	"github.com/aperture/aperture/internal/recording/edit"
 )
 
 // The Aperture pointer tools replace the Playwright MCP tools of the same name,
@@ -50,6 +51,10 @@ type pointerGestureSpec struct {
 	Hold       time.Duration
 	Caption    string
 	Timeout    time.Duration
+	// Zoom and Ripple are the recording effects the caller asked for; nil leaves
+	// them to the recording's defaults.
+	Zoom   *edit.Zoom
+	Ripple *bool
 }
 
 // pointerEndpoint locates a gesture position by Playwright snapshot ref (or
@@ -82,6 +87,9 @@ type pointerCommonArgs struct {
 	HoldMs    *float64 `json:"holdMs"`
 	Caption   string   `json:"caption"`
 	TimeoutMs *float64 `json:"timeoutMs"`
+	// Zoom asks for the recording to zoom toward the gesture (true, a
+	// magnification, or false for none); see edit.Zoom.
+	Zoom *edit.Zoom `json:"zoom"`
 }
 
 // pointerMotionArgs are accepted by the tools that travel a pointer path. A
@@ -102,6 +110,8 @@ type pointerClickArgs struct {
 	// clickCount 2 so existing clients keep working.
 	DoubleClick *bool    `json:"doubleClick"`
 	Modifiers   []string `json:"modifiers"`
+	// Ripple marks the click in a recording.
+	Ripple *bool `json:"ripple"`
 	pointerCommonArgs
 	pointerMotionArgs
 }
@@ -181,6 +191,7 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 			return spec, err
 		}
 		spec.Modifiers = modifiers
+		spec.Ripple = args.Ripple
 		common, motion = args.pointerCommonArgs, args.Motion
 	case pointerToolMove:
 		var args pointerMoveArgs
@@ -265,6 +276,7 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 		return spec, fmt.Errorf("caption must be at most %d characters", pointerMaxCaption)
 	}
 	spec.Caption = common.Caption
+	spec.Zoom = common.Zoom
 	return spec, nil
 }
 

@@ -28,6 +28,9 @@ type playwrightMCPBackend struct {
 type playwrightCallRequest struct {
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
+	// Caption is text for the recording's video to show while the tool runs. The
+	// daemon takes it out of the tool's arguments, which Playwright would reject.
+	Caption string `json:"caption,omitempty"`
 }
 
 func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
@@ -132,7 +135,13 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 		call.Arguments = map[string]any{}
 	}
 
+	if err := validateToolCaption(call.Caption); err != nil {
+		writeWrapperError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	started := time.Now()
 	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments)
+	r.noteToolCaption(call, started, result, err)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: Playwright MCP tool %s failed: %v\n", call.Name, err)
 		writeWrapperError(w, http.StatusBadGateway, "Playwright MCP call failed")

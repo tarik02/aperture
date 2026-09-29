@@ -350,6 +350,8 @@ func pointerCDPRecord(spec pointerGestureSpec, page pointerScrollContext, wheel 
 		ScrollX: spec.ScrollX,
 		ScrollY: spec.ScrollY,
 		Caption: spec.Caption,
+		Zoom:    spec.Zoom,
+		Ripple:  spec.Ripple,
 	}
 	if spec.Kind == pointerGestureScroll {
 		record.TargetID = page.targetID

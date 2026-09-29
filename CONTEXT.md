@@ -9,12 +9,16 @@ The active, transient browser state and shared activity available while a browse
 _Avoid_: Collaboration hub, browser transport, wrapper runtime
 
 **Session file**:
-A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings and their timelines, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
+A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings with their timelines and edited videos, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
 _Avoid_: Retained file, recording file
 
 **Recording timeline**:
-The `timeline.json` session file saved beside a recording. It states, on the video's own clock, which segments the video is made of, which pointer gestures were made on the recorded browser target with their cursor paths, click points and captions, and when the recorded screen changed, so that editing can act on what happened instead of inspecting pixels.
+The `timeline.json` session file saved beside a recording. It states, on the video's own clock, which segments the video is made of, which pointer gestures were made on the recorded browser target with their cursor paths, click points, captions and requested effects, the captions of other page-changing tools, and when the recorded screen changed, so that editing can act on what happened instead of inspecting pixels.
 _Avoid_: Recording metadata, event log, recording sidecar
+
+**Edited recording**:
+The video rendered from a recording and its timeline when the recording is stopped, applying the effects declared on the actions made while it ran: captions burned in, zoom toward where the pointer works, click ripples, and idle stretches sped up or cut. It is a session file beside the raw recording, which is always kept, and a recording with no effects to apply has none.
+_Avoid_: Processed recording, export, render job
 
 **Hot storage**:
 Host-local storage for the overlay state of running and stopped sessions.
@@ -94,6 +98,10 @@ _Avoid_: Annotation document, whiteboard object
 Developer: "What should stopping a recording return?"
 
 Domain expert: "Return the session file. Its relative path can be used to create a signed download URL."
+
+Developer: "Where does the zoom on a click come from?"
+
+Domain expert: "The click asked for it, or the recording did by default. It is stored on the gesture in the timeline, and the edited recording is rendered from that when the recording stops."
 
 Developer: "Does following another client give me control?"
 

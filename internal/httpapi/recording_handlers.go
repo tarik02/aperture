@@ -38,6 +38,11 @@ type wrapperRecordingStatus struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+	// EditedRelativePath, EditError and EditWarnings are the outcome of the edit
+	// made when the recording stopped, reported by wrappers that make one.
+	EditedRelativePath string              `json:"editedRelativePath,omitempty"`
+	EditError          *recordingEditError `json:"editError,omitempty"`
+	EditWarnings       []string            `json:"editWarnings,omitempty"`
 }
 
 type recordingResponse struct {
@@ -57,6 +62,13 @@ type recordingResponse struct {
 	FPS                  int    `json:"fps"`
 	BitrateKbps          int    `json:"bitrateKbps"`
 	Codec                string `json:"codec"`
+	// EditedRelativePath is the video edited from the recording's effects, absent
+	// until the recording has stopped, and when it had none or the edit failed.
+	EditedRelativePath string `json:"editedRelativePath,omitempty"`
+	// EditError says why the edit failed. The raw video and timeline are kept.
+	EditError *recordingEditError `json:"editError,omitempty"`
+	// EditWarnings say what of the effects could not be applied or was left as it was.
+	EditWarnings []string `json:"editWarnings,omitempty"`
 }
 
 // stoppedRecordingFile is what stopping a recording returns: the video as a
@@ -64,6 +76,11 @@ type recordingResponse struct {
 type stoppedRecordingFile struct {
 	sessionfiles.File
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
+	// EditedRelativePath, EditError and EditWarnings report the edit made while the
+	// recording stopped, as recordingResponse does.
+	EditedRelativePath string              `json:"editedRelativePath,omitempty"`
+	EditError          *recordingEditError `json:"editError,omitempty"`
+	EditWarnings       []string            `json:"editWarnings,omitempty"`
 }
 
 type createSessionRecordingRequest struct {
@@ -71,6 +88,7 @@ type createSessionRecordingRequest struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+	recordingEffectsRequest
 }
 
 func (r createSessionRecordingRequest) Validate() error {
@@ -80,7 +98,7 @@ func (r createSessionRecordingRequest) Validate() error {
 	if r.Codec != "" && r.Codec != "vp8" && r.Codec != "h264-va" {
 		return validationError("codec must be vp8 or h264-va")
 	}
-	return nil
+	return r.validate()
 }
 
 type retargetSessionRecordingRequest struct {
@@ -111,9 +129,11 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 		return
 	}
 	var status wrapperRecordingStatus
-	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", map[string]any{
+	request := map[string]any{
 		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
-	}, false, &status)
+	}
+	input.wrapperFields(request)
+	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", request, false, &status)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -208,6 +228,10 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 	if err != nil {
 		return stoppedRecordingFile{}, err
 	}
+	editedPath, err := recordingEditedRelativePath(status)
+	if err != nil {
+		return stoppedRecordingFile{}, err
+	}
 	view, err := s.Sessions.Get(ctx, tenantID, sessionID)
 	if err != nil {
 		return stoppedRecordingFile{}, err
@@ -237,6 +261,9 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 			SandboxPath:  sessionfiles.SandboxPath(relativePath),
 		}),
 		TimelineRelativePath: timelinePath,
+		EditedRelativePath:   editedPath,
+		EditError:            status.EditError,
+		EditWarnings:         status.EditWarnings,
 	}, nil
 }
 
@@ -312,6 +339,10 @@ func mapWrapperRecordingRequestError(err error) error {
 		return fmt.Errorf("%w: %s", errRecordingInvalidState, responseErr.Message)
 	case http.StatusUnprocessableEntity:
 		return fmt.Errorf("%w: %s", errRecordingCodecUnavailable, responseErr.Message)
+	case http.StatusNotImplemented:
+		return fmt.Errorf("%w: %s", errRecordingEditUnavailable, responseErr.Message)
+	case http.StatusBadRequest:
+		return validationError(responseErr.Message)
 	default:
 		return fmt.Errorf("%w: %w", errBrowserControlFailed, err)
 	}
@@ -336,10 +367,15 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 	if err != nil {
 		return recordingResponse{}, err
 	}
+	editedPath, err := recordingEditedRelativePath(status)
+	if err != nil {
+		return recordingResponse{}, err
+	}
 	return recordingResponse{
 		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, TimelineRelativePath: timelinePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		EditedRelativePath: editedPath, EditError: status.EditError, EditWarnings: status.EditWarnings,
 	}, nil
 }
 
@@ -352,6 +388,19 @@ func recordingTimelineRelativePath(status wrapperRecordingStatus) (string, error
 	relativePath, err := sessionfiles.Normalize(status.TimelineRelativePath)
 	if err != nil || !strings.HasPrefix(relativePath, "recordings/") || !strings.HasSuffix(relativePath, timeline.FileSuffix) {
 		return "", fmt.Errorf("%w: invalid wrapper recording timeline path %q", errBrowserControlFailed, status.TimelineRelativePath)
+	}
+	return relativePath, nil
+}
+
+// recordingEditedRelativePath validates the edited video's path a wrapper
+// reported. It is empty for recordings without one.
+func recordingEditedRelativePath(status wrapperRecordingStatus) (string, error) {
+	if status.EditedRelativePath == "" {
+		return "", nil
+	}
+	relativePath, err := sessionfiles.Normalize(status.EditedRelativePath)
+	if err != nil || !strings.HasPrefix(relativePath, "recordings/") || !strings.HasSuffix(relativePath, ".mp4") {
+		return "", fmt.Errorf("%w: invalid wrapper edited recording path %q", errBrowserControlFailed, status.EditedRelativePath)
 	}
 	return relativePath, nil
 }

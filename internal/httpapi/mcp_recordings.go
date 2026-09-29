@@ -8,6 +8,29 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const mcpRecordingStartDescription = `Start a tab recording of one ready top-level target. The recording keeps the raw video and a timeline of what happened in it, and can also produce an edited video when it stops from effects declared while it runs: idle, ripple and zoom here set the recording's defaults; browser_click, browser_move, browser_drag and browser_scroll take their own zoom (and browser_click ripple), and page-changing tools such as browser_navigate and browser_type, like the pointer tools, take a caption that is burned into the edited video. A recording with none of these produces no edited video.`
+
+const mcpRecordingStopDescription = `Stop and finalize one recording by ID. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or idle), the call waits while the edited video is rendered, which takes from seconds to a minute or two, longer for long recordings; the result then has editedRelativePath next to the raw video's relativePath. If the edit fails the raw video and its timeline are returned all the same, with editError saying why (for example unsupported_mixed_sizes after the viewport was resized while recording). editWarnings say what of the effects could not be applied.`
+
+func mcpRecordingStartInputSchema(pathBound bool) map[string]any {
+	properties := map[string]any{
+		"targetId":    map[string]any{"type": "string", "description": "Identifier of the ready top-level target to record."},
+		"fps":         map[string]any{"type": "integer"},
+		"bitrateKbps": map[string]any{"type": "integer"},
+		"codec":       map[string]any{"type": "string", "enum": []any{"vp8", "h264-va"}},
+	}
+	for name, property := range mcpRecordingEffectsProperties() {
+		properties[name] = property
+	}
+	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": []any{"targetId"}}
+	if !pathBound {
+		properties["tenantId"] = map[string]any{"type": "string"}
+		properties["sessionId"] = map[string]any{"type": "string"}
+		schema["required"] = []any{"sessionId", "targetId"}
+	}
+	return schema
+}
+
 func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
@@ -17,9 +40,14 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
+	if err := in.validate(); err != nil {
+		return nil, mcpRecordingOutput{}, mcpToolError("invalid_arguments", err)
+	}
+	request := map[string]any{
 		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
-	}, false)
+	}
+	in.wrapperFields(request)
+	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", request, false)
 }
 
 func (s *Server) mcpRecordingsList(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionIDInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -80,7 +108,10 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{
+		TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec,
+		recordingEffectsRequest: in.recordingEffectsRequest,
+	})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -174,6 +205,10 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, TimelineRelativePath: timelinePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		EditError: status.EditError, EditWarnings: status.EditWarnings,
+	}
+	if output.EditedRelativePath, err = recordingEditedRelativePath(status); err != nil {
+		return mcpRecordingOutput{}, err
 	}
 	return output, nil
 }

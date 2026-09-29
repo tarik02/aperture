@@ -111,6 +111,18 @@ type GestureInput struct {
 	// ScrollAt is where a scroll's wheel turned, in page pixels, when known.
 	ScrollAt *PointInput
 	Caption  string
+	// Zoom and Ripple are the effective effects of the gesture, see Gesture.
+	Zoom   float64
+	Ripple bool
+}
+
+// CaptionInput is a caption that came with a tool other than the pointer tools,
+// shown from the tool call's start to its end.
+type CaptionInput struct {
+	Tool  string
+	Text  string
+	Start time.Time
+	End   time.Time
 }
 
 // BuildOptions describe the video a timeline is built for.
@@ -143,6 +155,7 @@ type Builder struct {
 	limits    Limits
 	segments  []*segmentState
 	gestures  []GestureInput
+	captions  []CaptionInput
 	pathTotal int
 	truncated Truncation
 	changes   map[string]*wallSpans
@@ -288,6 +301,17 @@ func (b *Builder) AddGesture(gesture GestureInput) {
 	gesture.Path = path
 	gesture.Clicks = slices.Clone(gesture.Clicks)
 	b.gestures = append(b.gestures, gesture)
+}
+
+// AddCaption records a caption that came with a page-changing tool.
+func (b *Builder) AddCaption(caption CaptionInput) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.captions) >= b.limits.MaxGestures {
+		b.truncated.Captions = true
+		return
+	}
+	b.captions = append(b.captions, caption)
 }
 
 // thinPath drops the points that interpolating in time between their

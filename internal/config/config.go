@@ -106,17 +106,24 @@ type Config struct {
 	WebRTCMediaProducerUDPPortMin    int                      `mapstructure:"webrtc_media_producer_udp_port_min"`
 	WebRTCMediaProducerUDPPortMax    int                      `mapstructure:"webrtc_media_producer_udp_port_max"`
 	WebRTCICEServers                 []WebRTCICEServer        `mapstructure:"webrtc_ice_servers"`
-	MCPEnabled                       bool                     `mapstructure:"mcp_enabled"`
-	BrowserToolsDefault              string                   `mapstructure:"browser_tools_default"`
-	ToolOutputMaxBytes               int64                    `mapstructure:"tool_output_max_bytes"`
-	SignedFileURLTTL                 time.Duration            `mapstructure:"signed_file_url_ttl"`
-	SignedFileURLMaxTTL              time.Duration            `mapstructure:"signed_file_url_max_ttl"`
-	LoginMethods                     []string                 `mapstructure:"login_methods"`
-	OIDCProviders                    []OIDCProviderConfig     `mapstructure:"oidc_providers"`
-	WebSessionLifetime               time.Duration            `mapstructure:"web_session_lifetime"`
-	WebSessionIdleTimeout            time.Duration            `mapstructure:"web_session_idle_timeout"`
-	LogLevel                         string                   `mapstructure:"log_level"`
-	ConfigFile                       string                   `mapstructure:"-"`
+	// RecordingFFmpegExecutable is the ffmpeg used to edit recordings; ffprobe is
+	// expected beside it. Editing is unavailable while it is empty.
+	RecordingFFmpegExecutable string `mapstructure:"recording_ffmpeg_executable"`
+	// RecordingEditThreads limits the threads one recording edit uses.
+	RecordingEditThreads int `mapstructure:"recording_edit_threads"`
+	// RecordingEditTimeout is the longest a single recording edit may run.
+	RecordingEditTimeout  time.Duration        `mapstructure:"recording_edit_timeout"`
+	MCPEnabled            bool                 `mapstructure:"mcp_enabled"`
+	BrowserToolsDefault   string               `mapstructure:"browser_tools_default"`
+	ToolOutputMaxBytes    int64                `mapstructure:"tool_output_max_bytes"`
+	SignedFileURLTTL      time.Duration        `mapstructure:"signed_file_url_ttl"`
+	SignedFileURLMaxTTL   time.Duration        `mapstructure:"signed_file_url_max_ttl"`
+	LoginMethods          []string             `mapstructure:"login_methods"`
+	OIDCProviders         []OIDCProviderConfig `mapstructure:"oidc_providers"`
+	WebSessionLifetime    time.Duration        `mapstructure:"web_session_lifetime"`
+	WebSessionIdleTimeout time.Duration        `mapstructure:"web_session_idle_timeout"`
+	LogLevel              string               `mapstructure:"log_level"`
+	ConfigFile            string               `mapstructure:"-"`
 }
 
 // Defaults returns built-in default configuration values.
@@ -172,6 +179,9 @@ func Defaults() Config {
 		WebRTCMediaProducerUDPPortMin:    50000,
 		WebRTCMediaProducerUDPPortMax:    50010,
 		WebRTCICEServers:                 nil,
+		RecordingFFmpegExecutable:        "",
+		RecordingEditThreads:             2,
+		RecordingEditTimeout:             30 * time.Minute,
 		MCPEnabled:                       true,
 		BrowserToolsDefault:              "core,vision,network",
 		ToolOutputMaxBytes:               16 * 1024 * 1024,
@@ -252,6 +262,8 @@ func Load(flags *viper.Viper) (Config, error) {
 	v.SetDefault("webrtc_media_producer_udp_port_min", defaults.WebRTCMediaProducerUDPPortMin)
 	v.SetDefault("webrtc_media_producer_udp_port_max", defaults.WebRTCMediaProducerUDPPortMax)
 	v.SetDefault("webrtc_ice_servers", defaults.WebRTCICEServers)
+	v.SetDefault("recording_edit_threads", defaults.RecordingEditThreads)
+	v.SetDefault("recording_edit_timeout", defaults.RecordingEditTimeout)
 	v.SetDefault("mcp_enabled", defaults.MCPEnabled)
 	v.SetDefault("browser_tools_default", defaults.BrowserToolsDefault)
 	v.SetDefault("tool_output_max_bytes", defaults.ToolOutputMaxBytes)
@@ -318,6 +330,9 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_media_producer_udp_port_min",
 		"webrtc_media_producer_udp_port_max",
 		"webrtc_ice_servers",
+		"recording_ffmpeg_executable",
+		"recording_edit_threads",
+		"recording_edit_timeout",
 		"mcp_enabled",
 		"browser_tools_default",
 		"tool_output_max_bytes",

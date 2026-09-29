@@ -27,6 +27,8 @@ var (
 	errWrapperRecordingNotFound         = errors.New("recording not found")
 	errWrapperRecordingEmpty            = errors.New("recording is empty")
 	errWrapperRecordingCodecUnavailable = errors.New("recording codec is unavailable on this host")
+	errWrapperRecordingInvalid          = errors.New("invalid recording request")
+	errWrapperRecordingEditUnavailable  = errors.New("recording edits are unavailable on this host: no ffmpeg is configured")
 )
 
 type wrapperRecordingStatus string
@@ -72,6 +74,7 @@ type wrapperRecording struct {
 	clientID          string
 	operationMu       *sync.Mutex
 	timeline          *recordingTimeline
+	recordingEdit
 }
 
 type wrapperRecordingRequest struct {
@@ -82,6 +85,7 @@ type wrapperRecordingRequest struct {
 	BitrateKbps int                  `json:"bitrateKbps"`
 	Codec       string               `json:"codec"`
 	Path        string               `json:"path"`
+	recordingEffectsRequest
 }
 
 type wrapperRecordingRetargetRequest struct {
@@ -104,6 +108,14 @@ func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Re
 		recording, err := session.startRecording(body)
 		if errors.Is(err, errWrapperRecordingCodecUnavailable) {
 			writeWrapperError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if errors.Is(err, errWrapperRecordingInvalid) {
+			writeWrapperError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, errWrapperRecordingEditUnavailable) {
+			writeWrapperError(w, http.StatusNotImplemented, err.Error())
 			return
 		}
 		if err != nil {
@@ -138,6 +150,7 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 			writeWrapperError(w, http.StatusConflict, err.Error())
 			return
 		}
+		recording = session.editStoppedRecording(req.Context(), recording)
 		serveWrapperRecording(w, req, recording)
 		return
 	}
@@ -205,6 +218,10 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		}
 	default:
 		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
+	}
+	effects, err := session.resolveRecordingEffects(request.recordingEffectsRequest)
+	if err != nil {
+		return wrapperRecording{}, err
 	}
 	r.mu.Lock()
 	registry := r.targets
@@ -297,6 +314,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		viewport:          target.Viewport,
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
+		recordingEdit:     recordingEdit{effects: effects},
 	}
 	session.recordings[id] = recording
 	pipelineStarted := time.Now()
@@ -311,7 +329,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	recording.cmd = cmd
 	recording.done = done
-	recording.timeline = r.newRecordingTimeline(target, probe, pipelineStarted)
+	recording.timeline = r.newRecordingTimeline(target, probe, pipelineStarted, effects)
 	recording.Status = wrapperRecordingRunning
 	status := *recording
 	r.mu.Unlock()

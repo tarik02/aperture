@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/renameio/v2"
 
@@ -59,7 +60,14 @@ type RuntimeEnvValues struct {
 	MediaProducerKeyframe      int
 	MediaProducerUDPPortMin    int
 	MediaProducerUDPPortMax    int
-	mediaProbeCache            *mediaProbeCache
+	// RecordingFFmpegExecutable is the ffmpeg that edits recordings, with ffprobe
+	// beside it; recordings cannot be edited while it is empty.
+	RecordingFFmpegExecutable string
+	// RecordingEditThreads and RecordingEditTimeout bound one recording edit; zero
+	// means the wrapper's defaults.
+	RecordingEditThreads int
+	RecordingEditTimeout time.Duration
+	mediaProbeCache      *mediaProbeCache
 }
 
 func multiTargetCompositorEnabled(values RuntimeEnvValues) bool {
@@ -253,6 +261,19 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		)
 	}
 
+	if strings.TrimSpace(values.RecordingFFmpegExecutable) != "" {
+		if !filepath.IsAbs(values.RecordingFFmpegExecutable) {
+			return nil, fmt.Errorf("recording ffmpeg executable must be absolute")
+		}
+		lines = append(lines, "RECORDING_FFMPEG_EXECUTABLE="+shellQuote(values.RecordingFFmpegExecutable))
+	}
+	if values.RecordingEditThreads > 0 {
+		lines = append(lines, "RECORDING_EDIT_THREADS="+strconv.Itoa(values.RecordingEditThreads))
+	}
+	if values.RecordingEditTimeout > 0 {
+		lines = append(lines, "RECORDING_EDIT_TIMEOUT_SECONDS="+strconv.FormatInt(int64(values.RecordingEditTimeout/time.Second), 10))
+	}
+
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
 }
 
@@ -298,7 +319,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "FILES_DIR", "CACHE_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "FILES_DIR", "CACHE_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC", "RECORDING_FFMPEG_EXECUTABLE":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -314,6 +335,18 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 				return RuntimeEnvValues{}, err
 			}
 			values.ProxyConfig = config
+		case "RECORDING_EDIT_THREADS":
+			threads, err := strconv.Atoi(strings.TrimSpace(val))
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse recording edit threads: %w", err)
+			}
+			values.RecordingEditThreads = threads
+		case "RECORDING_EDIT_TIMEOUT_SECONDS":
+			seconds, err := strconv.ParseInt(strings.TrimSpace(val), 10, 64)
+			if err != nil {
+				return RuntimeEnvValues{}, fmt.Errorf("parse recording edit timeout: %w", err)
+			}
+			values.RecordingEditTimeout = time.Duration(seconds) * time.Second
 		case "WEBRTC_COMPOSITOR_ENABLED":
 			values.CompositorEnabled = strings.TrimSpace(val) == "1"
 		case "WEBRTC_MEDIA_PRODUCER_ENABLED":
@@ -457,6 +490,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.MediaProducerAdvertisedIP = value
 	case "WEBRTC_MEDIA_PRODUCER_CODEC":
 		values.MediaProducerCodec = value
+	case "RECORDING_FFMPEG_EXECUTABLE":
+		values.RecordingFFmpegExecutable = value
 	}
 }
 

@@ -401,6 +401,45 @@
               fi
             '';
 
+        # ffmpeg and ffprobe for recording edits. The headless package has libx264 and
+        # libass without the desktop libraries; the wrapper points fontconfig at the
+        # session's fonts so burned-in captions render with them.
+        runtimeFfmpeg =
+          pkgs.runCommand "aperture-ffmpeg-${pkgs.ffmpeg-headless.version}"
+            {
+              nativeBuildInputs = [ pkgs.makeWrapper ];
+            }
+            ''
+              mkdir -p $out/bin
+              for tool in ffmpeg ffprobe; do
+                makeWrapper ${lib.getBin pkgs.ffmpeg-headless}/bin/$tool $out/bin/$tool \
+                  --set FONTCONFIG_FILE ${browserFontsConf}
+              done
+            '';
+
+        # Fails the build when the packaged ffmpeg lacks what recording edits need.
+        ffmpegFeatureCheck =
+          pkgs.runCommand "aperture-ffmpeg-features"
+            {
+              nativeBuildInputs = [ runtimeFfmpeg ];
+            }
+            ''
+              export HOME=$TMPDIR XDG_CACHE_HOME=$TMPDIR/cache
+              encoders=$(ffmpeg -hide_banner -encoders)
+              filters=$(ffmpeg -hide_banner -filters)
+              echo "$encoders" | grep -qw libx264 || { echo "ffmpeg lacks libx264" >&2; exit 1; }
+              for filter in ass subtitles perspective geq select setpts fps format crop; do
+                echo "$filters" | grep -Eq "^ [A-Z.]+ +$filter +" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
+              done
+              # Prove it renders end to end: an ass burn, a perspective, a geq and a select.
+              printf '[Script Info]\nPlayResX: 320\nPlayResY: 240\n\n[V4 Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, Alignment\nStyle: Default,Noto Sans,20,&H00FFFFFF,2\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,Hello\n' > c.ass
+              ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=s=320x240:r=10:d=1 \
+                -vf "format=yuv420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)',perspective=x0=0:y0=0:x1=W:y1=0:x2=0:y2=H:x3=W:y3=H:eval=frame,select='gte(t,0)',setpts=PTS-STARTPTS,ass=c.ass" \
+                -c:v libx264 -pix_fmt yuv420p out.mp4
+              ffprobe -hide_banner -loglevel error -show_entries stream=codec_name -of csv=p=0 out.mp4 | grep -qx h264
+              touch $out
+            '';
+
         patchedWeston =
           (pkgs.weston.override {
             demoSupport = false;
@@ -579,6 +618,8 @@
             };
 
             doCheck = true;
+            # The recording edit tests run the packaged ffmpeg.
+            nativeCheckInputs = [ runtimeFfmpeg ];
 
             postInstall = ''
               # Node runtime: the restore worker bundle plus the Playwright packages it
@@ -772,7 +813,8 @@
                 --replace-fail '@COMPOSITOR_RENDERER@' '${compositorRenderer}' \
                 --replace-fail '@GSTREAMER@' '${runtimeGstreamer}' \
                 --replace-fail '@GSTREAMER_PLUGIN_PATH@' '${gstreamerPluginPath}' \
-                --replace-fail '@CHROMIUM@' '${runtimeChromium}'
+                --replace-fail '@CHROMIUM@' '${runtimeChromium}' \
+                --replace-fail '@FFMPEG@' '${runtimeFfmpeg}'
               substitute ${./packaging/traefik/static.yaml.template} $out/etc/aperture/traefik.yaml \
                 --replace-fail '@ENTRYPOINT_ADDRESS@' ':8080' \
                 --replace-fail '@DYNAMIC_CONFIG_DIR@' '/run/aperture/traefik/dynamic'
@@ -1114,6 +1156,7 @@
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           aperture-chromium = runtimeChromium;
+          aperture-ffmpeg = runtimeFfmpeg;
           aperture-docker = defaultDockerImage;
           aperture-docker-gpu = gpuDockerImage;
           # The custom builds the Docker images need, which cache.nixos.org doesn't have.
@@ -1148,6 +1191,9 @@
         checks = {
           default = aperture;
           aperture-dev = apertureDev;
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          aperture-ffmpeg-features = ffmpegFeatureCheck;
         };
       }
     )

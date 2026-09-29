@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRenderRuntimeEnv(t *testing.T) {
@@ -46,6 +47,76 @@ func TestRenderRuntimeEnv(t *testing.T) {
 	}
 	if len(parsed.BrowserExtraArgs) != len(values.BrowserExtraArgs) {
 		t.Fatalf("extra args = %#v", parsed.BrowserExtraArgs)
+	}
+}
+
+func TestRuntimeEnvCarriesTheRecordingEditSettings(t *testing.T) {
+	t.Parallel()
+
+	values := RuntimeEnvValues{
+		SessionID:                 "018f1234-0000-7000-8000-000000000001",
+		MergedUserDataDir:         "/store/merged",
+		FilesDir:                  "/store/files",
+		CacheDir:                  "/store/cache",
+		CDPPort:                   9222,
+		WrapperPort:               9223,
+		BrowserExecutable:         "/usr/bin/chromium",
+		RecordingFFmpegExecutable: "/opt/it's/ffmpeg",
+		RecordingEditThreads:      3,
+		RecordingEditTimeout:      90 * time.Second,
+	}
+	body, err := RenderRuntimeEnv(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseRuntimeEnv(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.RecordingFFmpegExecutable != values.RecordingFFmpegExecutable || parsed.RecordingEditThreads != 3 || parsed.RecordingEditTimeout != 90*time.Second {
+		t.Errorf("parsed %q %d %v", parsed.RecordingFFmpegExecutable, parsed.RecordingEditThreads, parsed.RecordingEditTimeout)
+	}
+	// Without them, nothing is written, so older wrappers and hosts see no change.
+	values.RecordingFFmpegExecutable, values.RecordingEditThreads, values.RecordingEditTimeout = "", 0, 0
+	body, err = RenderRuntimeEnv(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "RECORDING_") {
+		t.Errorf("env %s", body)
+	}
+	values.RecordingFFmpegExecutable = "ffmpeg"
+	if _, err := RenderRuntimeEnv(values); err == nil {
+		t.Error("a relative ffmpeg is refused")
+	}
+}
+
+func TestParseRuntimeEnvFromProcessReadsTheRecordingEditSettings(t *testing.T) {
+	for key, value := range map[string]string{
+		"APERTURE_SESSION_ID":            "session-1",
+		"MERGED_USER_DATA_DIR":           t.TempDir(),
+		"FILES_DIR":                      t.TempDir(),
+		"CACHE_DIR":                      t.TempDir(),
+		"BROWSER_EXECUTABLE":             "/bin/true",
+		"CDP_PORT":                       "19200",
+		"WRAPPER_PORT":                   "19201",
+		"WRAPPER_CONTROL_TOKEN":          "control-token",
+		"RECORDING_FFMPEG_EXECUTABLE":    "/opt/ffmpeg/bin/ffmpeg",
+		"RECORDING_EDIT_THREADS":         "2",
+		"RECORDING_EDIT_TIMEOUT_SECONDS": "600",
+	} {
+		t.Setenv(key, value)
+	}
+	values, err := ParseRuntimeEnvFromProcess()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values.RecordingFFmpegExecutable != "/opt/ffmpeg/bin/ffmpeg" || values.RecordingEditThreads != 2 || values.RecordingEditTimeout != 10*time.Minute {
+		t.Errorf("values %+v", values)
+	}
+	t.Setenv("RECORDING_EDIT_THREADS", "many")
+	if _, err := ParseRuntimeEnvFromProcess(); err == nil {
+		t.Error("a bad thread count is refused")
 	}
 }
 

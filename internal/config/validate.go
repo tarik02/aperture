@@ -209,6 +209,15 @@ func Validate(cfg Config) error {
 			errs = append(errs, errors.New("webrtc_media_producer_udp_port_max must be greater than or equal to webrtc_media_producer_udp_port_min"))
 		}
 	}
+	if executable := strings.TrimSpace(cfg.RecordingFFmpegExecutable); executable != "" && !filepath.IsAbs(executable) {
+		errs = append(errs, errors.New("recording_ffmpeg_executable must be an absolute path"))
+	}
+	if cfg.RecordingEditThreads < 0 || cfg.RecordingEditThreads > 64 {
+		errs = append(errs, errors.New("recording_edit_threads must be between 0 and 64"))
+	}
+	if cfg.RecordingEditTimeout < 0 {
+		errs = append(errs, errors.New("recording_edit_timeout must not be negative"))
+	}
 	for index, server := range cfg.WebRTCICEServers {
 		if len(server.URLs) == 0 {
 			errs = append(errs, fmt.Errorf("webrtc_ice_servers[%d].urls is required", index))

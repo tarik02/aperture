@@ -42,6 +42,12 @@ const recordingFields = {
   sandboxPath: Schema.optionalKey(Schema.String),
   /** The recording's timeline file, below the session files root, once it has stopped. */
   timelineRelativePath: Schema.optionalKey(Schema.String),
+  /** The video edited from the recording's effects, below the session files root, once it has stopped and the edit is done. */
+  editedRelativePath: Schema.optionalKey(Schema.String),
+  /** Why the recording has effects to apply but no edited video; the raw video is kept. */
+  editError: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
+  /** What of the effects could not be applied or was left as it was. */
+  editWarnings: Schema.optionalKey(Schema.Array(Schema.String)),
   /** @deprecated Read `relativePath`. Sessions started before it existed send only this. */
   path: Schema.optionalKey(Schema.String),
   startedAt: Schema.String,

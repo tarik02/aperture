@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aperture/aperture/internal/recording/edit"
 	"github.com/aperture/aperture/internal/recording/timeline"
 )
 
@@ -29,6 +30,9 @@ type recordingTimeline struct {
 
 	mu     sync.Mutex
 	probes []*screencastProbe
+	// built is the timeline written when the recording was published, kept for the
+	// edit that is made when the recording stops.
+	built *timeline.Timeline
 
 	stopOnce      sync.Once
 	stopGestures  func()
@@ -38,15 +42,24 @@ type recordingTimeline struct {
 
 // newRecordingTimeline starts collecting for a recording whose first segment,
 // captured from target by the pipeline the probe watches, starts now.
-func (r *wrapperRuntime) newRecordingTimeline(target wrapperTargetSnapshot, probe *screencastProbe, started time.Time) *recordingTimeline {
+func (r *wrapperRuntime) newRecordingTimeline(target wrapperTargetSnapshot, probe *screencastProbe, started time.Time, effects recordingEffects) *recordingTimeline {
 	collector := &recordingTimeline{
 		builder:     timeline.NewBuilder(timeline.Limits{SampleInterval: recordingSampleInterval}),
 		samplerDone: make(chan struct{}),
 	}
 	collector.beginSegment(target, probe, started)
-	collector.stopGestures = r.pointer.observe(func(record pointerGestureRecord) {
-		collector.builder.AddGesture(timelineGesture(record))
+	stopGestures := r.pointer.observe(func(record pointerGestureRecord) {
+		input := timelineGesture(record)
+		input.Zoom, input.Ripple = effects.gesture(record)
+		collector.builder.AddGesture(input)
 	})
+	stopCaptions := r.captions.observe(func(record toolCaptionRecord) {
+		collector.builder.AddCaption(timeline.CaptionInput{Tool: record.Tool, Text: record.Text, Start: record.Start, End: record.End})
+	})
+	collector.stopGestures = func() {
+		stopGestures()
+		stopCaptions()
+	}
 	ctx, cancel := context.WithCancel(r.ctx)
 	collector.cancelSampler = cancel
 	go func() {
@@ -90,6 +103,26 @@ func (t *recordingTimeline) discardSegment(index int) {
 		t.probes = t.probes[:index]
 		t.builder.DiscardSegment(index)
 	}
+}
+
+func (t *recordingTimeline) setBuilt(built *timeline.Timeline) {
+	t.mu.Lock()
+	t.built = built
+	t.mu.Unlock()
+}
+
+// builtTimeline is the timeline written for the published video, nil until then
+// and once the edit has been made.
+func (t *recordingTimeline) builtTimeline() *timeline.Timeline {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.built
+}
+
+func (t *recordingTimeline) releaseBuilt() {
+	t.mu.Lock()
+	t.built = nil
+	t.mu.Unlock()
 }
 
 // stop ends the collection: no more gestures or samples are taken.
@@ -264,12 +297,18 @@ func (recording *wrapperRecording) finishRecordingTimeline(videoPath string, seg
 			FPS:       recording.FPS,
 			StartedAt: recording.StartedAt,
 			Salvaged:  segments != nil,
+			Edit:      recording.effects.timelineOptions(),
 		},
 		Segments: segments,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
 		return ""
+	}
+	if segments == nil && edit.Wanted(built) {
+		// Only a timeline with effects to apply is kept for the edit made when the
+		// recording stops.
+		collector.setBuilt(built)
 	}
 	path, err := timeline.Write(timeline.PathFor(videoPath), built)
 	if err != nil {

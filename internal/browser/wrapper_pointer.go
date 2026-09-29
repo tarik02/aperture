@@ -126,6 +126,8 @@ func (r *wrapperRuntime) runPointerGestureCompositor(ctx context.Context, conn *
 		Hold:     spec.Hold,
 		Motion:   motion,
 		Caption:  spec.Caption,
+		Zoom:     spec.Zoom,
+		Ripple:   spec.Ripple,
 	}
 	var summary string
 	record.Start = time.Now()

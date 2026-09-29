@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -39,6 +40,69 @@ func TestValidateRejectsRelativePaths(t *testing.T) {
 	cfg.CdpRouteBasePath = "/internal/cdp"
 	if err := Validate(cfg); err == nil {
 		t.Fatal("expected cdp_route_base_path under /internal to fail validation")
+	}
+}
+
+func TestValidateChecksRecordingEditSettings(t *testing.T) {
+	cfg := validTestConfig(t)
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("editing is optional: %v", err)
+	}
+	cfg.RecordingFFmpegExecutable = "/usr/bin/ffmpeg"
+	cfg.RecordingEditThreads = 2
+	cfg.RecordingEditTimeout = 30 * time.Minute
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("valid edit settings: %v", err)
+	}
+	for name, change := range map[string]func(*Config){
+		"a relative ffmpeg":  func(c *Config) { c.RecordingFFmpegExecutable = "ffmpeg" },
+		"negative threads":   func(c *Config) { c.RecordingEditThreads = -1 },
+		"too many threads":   func(c *Config) { c.RecordingEditThreads = 65 },
+		"a negative timeout": func(c *Config) { c.RecordingEditTimeout = -time.Second },
+	} {
+		bad := validTestConfig(t)
+		change(&bad)
+		if err := Validate(bad); err == nil {
+			t.Errorf("%s should fail validation", name)
+		}
+	}
+}
+
+func TestLoadReadsRecordingEditSettings(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "aperture.toml")
+	contents := `
+store_root = "` + filepath.Join(dir, "store") + `"
+runtime_root = "` + filepath.Join(dir, "runtime") + `"
+external_base_url = "https://file.example.test"
+recording_ffmpeg_executable = "/opt/ffmpeg/bin/ffmpeg"
+recording_edit_threads = 4
+recording_edit_timeout = "10m"
+
+[channels.chromium]
+executable = "/usr/bin/chromium"
+`
+	if err := os.WriteFile(configPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flags := viper.New()
+	flags.Set("config", configPath)
+	cfg, err := Load(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RecordingFFmpegExecutable != "/opt/ffmpeg/bin/ffmpeg" || cfg.RecordingEditThreads != 4 || cfg.RecordingEditTimeout != 10*time.Minute {
+		t.Errorf("config %q %d %v", cfg.RecordingFFmpegExecutable, cfg.RecordingEditThreads, cfg.RecordingEditTimeout)
+	}
+	t.Setenv("APERTURE_RECORDING_FFMPEG_EXECUTABLE", "/env/ffmpeg")
+	cfg, err = Load(flags)
+	if err != nil || cfg.RecordingFFmpegExecutable != "/env/ffmpeg" {
+		t.Errorf("env value %q err %v", cfg.RecordingFFmpegExecutable, err)
+	}
+	// Left out, editing is off and the limits are the defaults.
+	defaults := Defaults()
+	if defaults.RecordingFFmpegExecutable != "" || defaults.RecordingEditThreads != 2 || defaults.RecordingEditTimeout != 30*time.Minute {
+		t.Errorf("defaults %+v", defaults)
 	}
 }
 

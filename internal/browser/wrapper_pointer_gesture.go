@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/pointer"
+	"github.com/aperture/aperture/internal/recording/edit"
 )
 
 const pointerGestureHistory = 256
@@ -85,6 +86,10 @@ type pointerGestureRecord struct {
 	Point *pointer.Point
 	// Caption is the caller's text describing the gesture.
 	Caption string
+	// Zoom and Ripple are the recording effects the caller asked for on this
+	// gesture; nil leaves them to the recording's defaults.
+	Zoom   *edit.Zoom
+	Ripple *bool
 }
 
 // pointerPosition is where the compositor pointer last was.

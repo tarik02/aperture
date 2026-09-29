@@ -41,6 +41,8 @@ func (b *Builder) mapGestures(segments []*placed) ([]Gesture, []Caption) {
 			Gesture: gesture.ID,
 		})
 	}
+	captions = append(captions, b.mapToolCaptions(segments)...)
+	slices.SortStableFunc(captions, func(a, b Caption) int { return int(a.StartMs - b.StartMs) })
 	return gestures, captions
 }
 
@@ -76,6 +78,8 @@ func mapGesture(input *GestureInput, segment *placed, position int) (Gesture, bo
 		HoldMs:   toMs(hold),
 		Clipped:  !clippedStart.Equal(start) || !clippedEnd.Equal(end) || hold < input.Hold,
 		Caption:  input.Caption,
+		Zoom:     input.Zoom,
+		Ripple:   input.Ripple,
 	}
 	for _, point := range clipPath(input.Path, start, segment) {
 		x, y := segment.point(point.X, point.Y)

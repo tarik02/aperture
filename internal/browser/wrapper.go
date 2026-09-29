@@ -1489,6 +1489,21 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.MediaProducerICEServers = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ICE_SERVERS"))
 	values.MediaProducerAdvertisedIP = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP"))
 	values.MediaProducerCodec = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_CODEC"))
+	values.RecordingFFmpegExecutable = strings.TrimSpace(os.Getenv("RECORDING_FFMPEG_EXECUTABLE"))
+	if threads := strings.TrimSpace(os.Getenv("RECORDING_EDIT_THREADS")); threads != "" {
+		parsed, err := strconv.Atoi(threads)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse recording edit threads: %w", err)
+		}
+		values.RecordingEditThreads = parsed
+	}
+	if seconds := strings.TrimSpace(os.Getenv("RECORDING_EDIT_TIMEOUT_SECONDS")); seconds != "" {
+		parsed, err := strconv.ParseInt(seconds, 10, 64)
+		if err != nil {
+			return RuntimeEnvValues{}, fmt.Errorf("parse recording edit timeout: %w", err)
+		}
+		values.RecordingEditTimeout = time.Duration(parsed) * time.Second
+	}
 	if width := strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_WIDTH")); width != "" {
 		parsed, err := strconv.Atoi(width)
 		if err != nil {
