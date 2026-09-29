@@ -44,6 +44,21 @@ var blockedTools = map[string]struct{}{
 	"browser_run_code_unsafe": {},
 }
 
+// apertureReplacedTools are pointer tools that Aperture provides itself. They stay
+// callable inside the wrapper, which uses them for sessions without a compositor,
+// but are never exposed to clients.
+var apertureReplacedTools = map[string]struct{}{
+	"browser_click":          {},
+	"browser_drag":           {},
+	"browser_hover":          {},
+	"browser_mouse_click_xy": {},
+	"browser_mouse_down":     {},
+	"browser_mouse_drag_xy":  {},
+	"browser_mouse_move_xy":  {},
+	"browser_mouse_up":       {},
+	"browser_mouse_wheel":    {},
+}
+
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Fprintln(os.Stderr, "usage: generate-playwright-mcp-profiles <playwright-mcp> <output>")
@@ -69,6 +84,9 @@ func main() {
 		names := make([]string, 0, len(tools))
 		for _, tool := range tools {
 			if _, blocked := blockedTools[tool.Name]; blocked {
+				continue
+			}
+			if _, replaced := apertureReplacedTools[tool.Name]; replaced {
 				continue
 			}
 			if profile.Name != "core" {

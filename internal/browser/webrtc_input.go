@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/aperture/aperture/internal/pointer"
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
@@ -25,6 +26,9 @@ type compositorInputSender struct {
 	pointerY      float64
 	pointerSet    bool
 	closed        bool
+	// onPointer is told where interactive input moved the pointer, so
+	// automation gestures can start from there.
+	onPointer func(surfaceID uint64, point pointer.Point)
 }
 
 func newCompositorInputSender(controlSocket string, width int, height int) *compositorInputSender {
@@ -72,12 +76,16 @@ func (s *compositorInputSender) PointerAbsolute(x float64, y float64) error {
 	s.pointerX = x
 	s.pointerY = y
 	s.pointerSet = true
+	onPointer := s.onPointer
 	s.mu.Unlock()
 	if closed {
 		return errors.New("compositor input sender is closed")
 	}
 	if surfaceID == 0 {
 		return errors.New("compositor input target is unavailable")
+	}
+	if onPointer != nil {
+		onPointer(surfaceID, pointer.Point{X: x * float64(width), Y: y * float64(height)})
 	}
 	_, err := sendCompositorControlCommand(
 		context.Background(),

@@ -483,6 +483,27 @@ func (e InitialIndexedDBKeyPathKind) Valid() bool {
 	}
 }
 
+// Defines values for PointerMotion0.
+const (
+	Fast    PointerMotion0 = "fast"
+	Instant PointerMotion0 = "instant"
+	Natural PointerMotion0 = "natural"
+)
+
+// Valid indicates whether the value is a known member of the PointerMotion0 enum.
+func (e PointerMotion0) Valid() bool {
+	switch e {
+	case Fast:
+		return true
+	case Instant:
+		return true
+	case Natural:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PrincipalAuthMethod.
 const (
 	PrincipalAuthMethodApiToken PrincipalAuthMethod = "api_token"
@@ -1298,9 +1319,12 @@ type CreateTokenResponse struct {
 	Token Token `json:"token"`
 }
 
-// CursorVisibility Whether the remote browser cursor is composited into session media.
-type CursorVisibility struct {
-	// Visible Whether to include the remote cursor in live streams and recordings.
+// CursorSettings Remote cursor settings of a running session.
+type CursorSettings struct {
+	// Motion The session's default motion for Aperture pointer gestures. It is `natural` until set, and a gesture's own motion or its recording's setting takes precedence.
+	Motion PointerMotion `json:"motion"`
+
+	// Visible Whether the remote cursor is included in live streams and recordings.
 	Visible bool `json:"visible"`
 }
 
@@ -1686,6 +1710,28 @@ type PageMeta struct {
 
 	// NextCursor Opaque cursor for the next page. Omitted when there is no next page.
 	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
+// PointerMotion How Aperture pointer gestures travel. `natural` is an eased, slightly curved glide at about 1200 px/s, `fast` is a quicker glide, and `instant` jumps in one step. An object sets an average speed in px/s or a fixed duration in milliseconds.
+//
+// Examples: natural, {"speed":800}, {"durationMs":400}
+type PointerMotion struct {
+	union json.RawMessage
+}
+
+// PointerMotion0 defines model for PointerMotion.0.
+type PointerMotion0 string
+
+// PointerMotion1 defines model for PointerMotion.1.
+type PointerMotion1 struct {
+	// Speed Average speed in pixels per second.
+	Speed float32 `json:"speed"`
+}
+
+// PointerMotion2 defines model for PointerMotion.2.
+type PointerMotion2 struct {
+	// DurationMs Fixed travel time in milliseconds; 0 jumps.
+	DurationMs float32 `json:"durationMs"`
 }
 
 // Principal Authenticated subject identity and authorization context.
@@ -2119,6 +2165,17 @@ type SessionThumbnail struct {
 	Url string `json:"url"`
 }
 
+// SetCursorSettingsInput Cursor settings to change. At least one property is required.
+type SetCursorSettingsInput struct {
+	// Motion How Aperture pointer gestures travel. `natural` is an eased, slightly curved glide at about 1200 px/s, `fast` is a quicker glide, and `instant` jumps in one step. An object sets an average speed in px/s or a fixed duration in milliseconds.
+	//
+	// Examples: natural, {"speed":800}, {"durationMs":400}
+	Motion *PointerMotion `json:"motion,omitempty"`
+
+	// Visible Whether to include the remote cursor in live streams and recordings.
+	Visible *bool `json:"visible,omitempty"`
+}
+
 // SetViewportInput Requested logical viewport of one top-level target.
 type SetViewportInput struct {
 	// DeviceScaleFactor Device pixel ratio, rounded to 1/120. Omit or use a non-positive value for 1. The scaled content size may not exceed 16384 pixels.
@@ -2486,8 +2543,8 @@ type RetargetSessionRecording = RetargetSessionRecordingInput
 // SessionBulk Ordered session IDs for a tenant-scoped bulk lookup. Missing, foreign, and deleted IDs are omitted from the result.
 type SessionBulk = SessionBulkInput
 
-// SetCursorVisibility Whether the remote browser cursor is composited into session media.
-type SetCursorVisibility = CursorVisibility
+// SetCursorSettings Cursor settings to change. At least one property is required.
+type SetCursorSettings = SetCursorSettingsInput
 
 // UpdateProxy Replacement session egress proxy configuration. Fields other than `drain` are as in `ProxyConfig`.
 type UpdateProxy = UpdateProxyConfig
@@ -2926,7 +2983,7 @@ type CreateSessionJSONRequestBody = CreateSessionInput
 type GetSessionsBulkJSONRequestBody = SessionBulkInput
 
 // SetSessionCursorJSONRequestBody defines body for SetSessionCursor for application/json ContentType.
-type SetSessionCursorJSONRequestBody = CursorVisibility
+type SetSessionCursorJSONRequestBody = SetCursorSettingsInput
 
 // UploadSessionFilesMultipartRequestBody defines body for UploadSessionFiles for multipart/form-data ContentType.
 type UploadSessionFilesMultipartRequestBody UploadSessionFilesMultipartBody
@@ -3152,6 +3209,94 @@ func (t LiveSessionFailure) MarshalJSON() ([]byte, error) {
 }
 
 func (t *LiveSessionFailure) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsPointerMotion0 returns the union data inside the PointerMotion as a PointerMotion0
+func (t PointerMotion) AsPointerMotion0() (PointerMotion0, error) {
+	var body PointerMotion0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPointerMotion0 overwrites any union data inside the PointerMotion as the provided PointerMotion0
+func (t *PointerMotion) FromPointerMotion0(v PointerMotion0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePointerMotion0 performs a merge with any union data inside the PointerMotion, using the provided PointerMotion0
+func (t *PointerMotion) MergePointerMotion0(v PointerMotion0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPointerMotion1 returns the union data inside the PointerMotion as a PointerMotion1
+func (t PointerMotion) AsPointerMotion1() (PointerMotion1, error) {
+	var body PointerMotion1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPointerMotion1 overwrites any union data inside the PointerMotion as the provided PointerMotion1
+func (t *PointerMotion) FromPointerMotion1(v PointerMotion1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePointerMotion1 performs a merge with any union data inside the PointerMotion, using the provided PointerMotion1
+func (t *PointerMotion) MergePointerMotion1(v PointerMotion1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPointerMotion2 returns the union data inside the PointerMotion as a PointerMotion2
+func (t PointerMotion) AsPointerMotion2() (PointerMotion2, error) {
+	var body PointerMotion2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPointerMotion2 overwrites any union data inside the PointerMotion as the provided PointerMotion2
+func (t *PointerMotion) FromPointerMotion2(v PointerMotion2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePointerMotion2 performs a merge with any union data inside the PointerMotion, using the provided PointerMotion2
+func (t *PointerMotion) MergePointerMotion2(v PointerMotion2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t PointerMotion) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *PointerMotion) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -3601,25 +3746,25 @@ type ClientInterface interface {
 	// Corresponds with POST /api/sessions/{sessionId}/collaboration-capabilities/{role}/rotate (the `RotateCollaborationCapability` operationId).
 	RotateCollaborationCapability(ctx context.Context, sessionId SessionId, role RotateCollaborationCapabilityParamsRole, params *RotateCollaborationCapabilityParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetSessionCursor Get remote cursor visibility
+	// GetSessionCursor Get remote cursor settings
 	//
-	// Returns whether the remote browser cursor is composited into the live stream and recordings.
+	// Returns whether the remote browser cursor is composited into the live stream and recordings, and the session's default motion for Aperture pointer gestures.
 	//
 	// Corresponds with GET /api/sessions/{sessionId}/cursor (the `GetSessionCursor` operationId).
 	GetSessionCursor(ctx context.Context, sessionId SessionId, params *GetSessionCursorParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetSessionCursorWithBody Set remote cursor visibility
+	// SetSessionCursorWithBody Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PUT /api/sessions/{sessionId}/cursor (the `SetSessionCursor` operationId).
 	SetSessionCursorWithBody(ctx context.Context, sessionId SessionId, params *SetSessionCursorParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SetSessionCursor Set remote cursor visibility
+	// SetSessionCursor Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -4668,9 +4813,9 @@ func (c *Client) RotateCollaborationCapability(ctx context.Context, sessionId Se
 	return c.Client.Do(req)
 }
 
-// GetSessionCursor Get remote cursor visibility
+// GetSessionCursor Get remote cursor settings
 //
-// Returns whether the remote browser cursor is composited into the live stream and recordings.
+// Returns whether the remote browser cursor is composited into the live stream and recordings, and the session's default motion for Aperture pointer gestures.
 //
 // Corresponds with GET /api/sessions/{sessionId}/cursor (the `GetSessionCursor` operationId).
 func (c *Client) GetSessionCursor(ctx context.Context, sessionId SessionId, params *GetSessionCursorParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -4685,9 +4830,9 @@ func (c *Client) GetSessionCursor(ctx context.Context, sessionId SessionId, para
 	return c.Client.Do(req)
 }
 
-// SetSessionCursorWithBody Set remote cursor visibility
+// SetSessionCursorWithBody Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 //
 // Takes any type of body and a specified content type.
 //
@@ -4704,9 +4849,9 @@ func (c *Client) SetSessionCursorWithBody(ctx context.Context, sessionId Session
 	return c.Client.Do(req)
 }
 
-// SetSessionCursor Set remote cursor visibility
+// SetSessionCursor Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -9512,27 +9657,27 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/sessions/{sessionId}/collaboration-capabilities/{role}/rotate (the `RotateCollaborationCapability` operationId).
 	RotateCollaborationCapabilityWithResponse(ctx context.Context, sessionId SessionId, role RotateCollaborationCapabilityParamsRole, params *RotateCollaborationCapabilityParams, reqEditors ...RequestEditorFn) (*RotateCollaborationCapabilityResponse, error)
 
-	// GetSessionCursorWithResponse Get remote cursor visibility
+	// GetSessionCursorWithResponse Get remote cursor settings
 	//
-	// Returns whether the remote browser cursor is composited into the live stream and recordings.
+	// Returns whether the remote browser cursor is composited into the live stream and recordings, and the session's default motion for Aperture pointer gestures.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /api/sessions/{sessionId}/cursor (the `GetSessionCursor` operationId).
 	GetSessionCursorWithResponse(ctx context.Context, sessionId SessionId, params *GetSessionCursorParams, reqEditors ...RequestEditorFn) (*GetSessionCursorResponse, error)
 
-	// SetSessionCursorWithBodyWithResponse Set remote cursor visibility
+	// SetSessionCursorWithBodyWithResponse Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /api/sessions/{sessionId}/cursor (the `SetSessionCursor` operationId).
 	SetSessionCursorWithBodyWithResponse(ctx context.Context, sessionId SessionId, params *SetSessionCursorParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetSessionCursorResponse, error)
 
-	// SetSessionCursorWithResponse Set remote cursor visibility
+	// SetSessionCursorWithResponse Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -11386,13 +11531,13 @@ type GetSessionCursorResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *CursorVisibility
+	JSON200 *CursorSettings
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r GetSessionCursorResponse) GetJSON200() *CursorVisibility {
+func (r GetSessionCursorResponse) GetJSON200() *CursorSettings {
 	return r.JSON200
 }
 
@@ -11434,13 +11579,13 @@ type SetSessionCursorResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *CursorVisibility
+	JSON200 *CursorSettings
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r SetSessionCursorResponse) GetJSON200() *CursorVisibility {
+func (r SetSessionCursorResponse) GetJSON200() *CursorSettings {
 	return r.JSON200
 }
 
@@ -13453,9 +13598,9 @@ func (c *ClientWithResponses) RotateCollaborationCapabilityWithResponse(ctx cont
 	return ParseRotateCollaborationCapabilityResponse(rsp)
 }
 
-// GetSessionCursorWithResponse Get remote cursor visibility
+// GetSessionCursorWithResponse Get remote cursor settings
 //
-// Returns whether the remote browser cursor is composited into the live stream and recordings.
+// Returns whether the remote browser cursor is composited into the live stream and recordings, and the session's default motion for Aperture pointer gestures.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -13468,9 +13613,9 @@ func (c *ClientWithResponses) GetSessionCursorWithResponse(ctx context.Context, 
 	return ParseGetSessionCursorResponse(rsp)
 }
 
-// SetSessionCursorWithBodyWithResponse Set remote cursor visibility
+// SetSessionCursorWithBodyWithResponse Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13483,9 +13628,9 @@ func (c *ClientWithResponses) SetSessionCursorWithBodyWithResponse(ctx context.C
 	return ParseSetSessionCursorResponse(rsp)
 }
 
-// SetSessionCursorWithResponse Set remote cursor visibility
+// SetSessionCursorWithResponse Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -15169,7 +15314,7 @@ func ParseGetSessionCursorResponse(rsp *http.Response) (*GetSessionCursorRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CursorVisibility
+		var dest CursorSettings
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -15202,7 +15347,7 @@ func ParseSetSessionCursorResponse(rsp *http.Response) (*SetSessionCursorRespons
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest CursorVisibility
+		var dest CursorSettings
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -16319,10 +16464,10 @@ type ServerInterface interface {
 	// RotateCollaborationCapability Rotate a collaboration capability
 	// (POST /api/sessions/{sessionId}/collaboration-capabilities/{role}/rotate)
 	RotateCollaborationCapability(c *gin.Context, sessionId SessionId, role RotateCollaborationCapabilityParamsRole, params RotateCollaborationCapabilityParams)
-	// GetSessionCursor Get remote cursor visibility
+	// GetSessionCursor Get remote cursor settings
 	// (GET /api/sessions/{sessionId}/cursor)
 	GetSessionCursor(c *gin.Context, sessionId SessionId, params GetSessionCursorParams)
-	// SetSessionCursor Set remote cursor visibility
+	// SetSessionCursor Set remote cursor settings
 	// (PUT /api/sessions/{sessionId}/cursor)
 	SetSessionCursor(c *gin.Context, sessionId SessionId, params SetSessionCursorParams)
 	// DeleteSessionFile Delete a session file or directory
@@ -20373,7 +20518,7 @@ type GetSessionCursorResponseObject interface {
 	VisitGetSessionCursorResponse(w http.ResponseWriter) error
 }
 
-type GetSessionCursor200JSONResponse CursorVisibility
+type GetSessionCursor200JSONResponse CursorSettings
 
 func (response GetSessionCursor200JSONResponse) VisitGetSessionCursorResponse(w http.ResponseWriter) error {
 
@@ -20414,7 +20559,7 @@ type SetSessionCursorResponseObject interface {
 	VisitSetSessionCursorResponse(w http.ResponseWriter) error
 }
 
-type SetSessionCursor200JSONResponse CursorVisibility
+type SetSessionCursor200JSONResponse CursorSettings
 
 func (response SetSessionCursor200JSONResponse) VisitSetSessionCursorResponse(w http.ResponseWriter) error {
 
@@ -21782,10 +21927,10 @@ type StrictServerInterface interface {
 	// RotateCollaborationCapability Rotate a collaboration capability
 	// (POST /api/sessions/{sessionId}/collaboration-capabilities/{role}/rotate)
 	RotateCollaborationCapability(ctx context.Context, request RotateCollaborationCapabilityRequestObject) (RotateCollaborationCapabilityResponseObject, error)
-	// GetSessionCursor Get remote cursor visibility
+	// GetSessionCursor Get remote cursor settings
 	// (GET /api/sessions/{sessionId}/cursor)
 	GetSessionCursor(ctx context.Context, request GetSessionCursorRequestObject) (GetSessionCursorResponseObject, error)
-	// SetSessionCursor Set remote cursor visibility
+	// SetSessionCursor Set remote cursor settings
 	// (PUT /api/sessions/{sessionId}/cursor)
 	SetSessionCursor(ctx context.Context, request SetSessionCursorRequestObject) (SetSessionCursorResponseObject, error)
 	// DeleteSessionFile Delete a session file or directory

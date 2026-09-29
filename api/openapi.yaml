@@ -720,35 +720,35 @@ paths:
     get:
       operationId: getSessionCursor
       tags: [sessions]
-      summary: Get remote cursor visibility
+      summary: Get remote cursor settings
       x-aperture-auth:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:read]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
-      description: Returns whether the remote browser cursor is composited into the live stream and recordings.
+      description: Returns whether the remote browser cursor is composited into the live stream and recordings, and the session's default motion for Aperture pointer gestures.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
-        '200': {description: Remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
+        '200': {description: Remote cursor settings, content: {application/json: {schema: {$ref: '#/components/schemas/CursorSettings'}}}}
         default: {$ref: '#/components/responses/Error'}
     put:
       operationId: setSessionCursor
       tags: [sessions]
-      summary: Set remote cursor visibility
+      summary: Set remote cursor settings
       x-aperture-auth:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
-      description: Enables or disables compositing the remote browser cursor into the live stream and recordings.
+      description: Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
-      requestBody: {$ref: '#/components/requestBodies/SetCursorVisibility'}
+      requestBody: {$ref: '#/components/requestBodies/SetCursorSettings'}
       responses:
-        '200': {description: Updated remote cursor visibility, content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}}
+        '200': {description: Updated remote cursor settings, content: {application/json: {schema: {$ref: '#/components/schemas/CursorSettings'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/thumbnail:
     get:
@@ -1479,10 +1479,10 @@ components:
       required: true
       description: Ready destination top-level target. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/RetargetSessionRecordingInput'}}}
-    SetCursorVisibility:
+    SetCursorSettings:
       required: true
-      description: Remote cursor visibility. The JSON body must not exceed 1 MiB.
-      content: {application/json: {schema: {$ref: '#/components/schemas/CursorVisibility'}}}
+      description: Remote cursor settings to change. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/SetCursorSettingsInput'}}}
     UpdateSnapshot:
       required: true
       description: Replacement snapshot description. The JSON body must not exceed 1 MiB.
@@ -2918,14 +2918,42 @@ components:
           x-sensitive: true
           description: Current raw session access secret. Omitted by operations that do not expose or replace credentials.
           example: aps_019f6cf0000070008000000000000010_REDACTED
-    CursorVisibility:
+    PointerMotion:
+      description: How Aperture pointer gestures travel. `natural` is an eased, slightly curved glide at about 1200 px/s, `fast` is a quicker glide, and `instant` jumps in one step. An object sets an average speed in px/s or a fixed duration in milliseconds.
+      oneOf:
+        - {type: string, enum: [natural, fast, instant]}
+        - type: object
+          additionalProperties: false
+          required: [speed]
+          properties:
+            speed: {type: number, minimum: 10, maximum: 100000, description: Average speed in pixels per second.}
+        - type: object
+          additionalProperties: false
+          required: [durationMs]
+          properties:
+            durationMs: {type: number, minimum: 0, maximum: 30000, description: Fixed travel time in milliseconds; 0 jumps.}
+      examples: [natural, {speed: 800}, {durationMs: 400}]
+    CursorSettings:
       type: object
-      description: Whether the remote browser cursor is composited into session media.
-      required: [visible]
+      description: Remote cursor settings of a running session.
+      required: [visible, motion]
+      properties:
+        visible:
+          type: boolean
+          description: Whether the remote cursor is included in live streams and recordings.
+        motion:
+          allOf: [{$ref: '#/components/schemas/PointerMotion'}]
+          description: The session's default motion for Aperture pointer gestures. It is `natural` until set, and a gesture's own motion or its recording's setting takes precedence.
+    SetCursorSettingsInput:
+      type: object
+      description: Cursor settings to change. At least one property is required.
+      minProperties: 1
       properties:
         visible:
           type: boolean
           description: Whether to include the remote cursor in live streams and recordings.
+        motion:
+          $ref: '#/components/schemas/PointerMotion'
     CreateSessionRecordingInput:
       type: object
       description: Top-level target and optional recording settings.

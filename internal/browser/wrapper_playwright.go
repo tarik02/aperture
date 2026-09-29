@@ -34,11 +34,11 @@ func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
 	return &playwrightMCPBackend{values: values}
 }
 
+// Call invokes any tool of the bundled Playwright MCP. It does not apply the
+// client-facing tool gate: wrapper code uses it for tools Aperture hides from
+// clients, such as the pointer tools behind the CDP fallback. Client calls must
+// go through handlePlaywrightCall.
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
-	if !playwrightmcp.HasTool(name) {
-		return nil, fmt.Errorf("playwright tool %q is not exposed", name)
-	}
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.session == nil {

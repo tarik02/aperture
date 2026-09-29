@@ -10,7 +10,7 @@ import type { TagFilterValue } from "../query.ts";
 import type {
   BrowserChannelsResponse,
   CreateSessionResponse,
-  CursorVisibility,
+  CursorSettings,
   PromoteSessionResponse,
   ProxyConfig,
   Session,
@@ -160,12 +160,12 @@ export class SessionsApi extends Context.Service<
     readonly getSessionCursor: (
       credentials: ApiCredentials,
       sessionId: string,
-    ) => Call<CursorVisibility>;
+    ) => Call<CursorSettings>;
     readonly setSessionCursor: (
       credentials: ApiCredentials,
       sessionId: string,
       visible: boolean,
-    ) => Call<CursorVisibility>;
+    ) => Call<CursorSettings>;
     readonly listSessionRecordings: (
       credentials: ApiCredentials,
       sessionId: string,

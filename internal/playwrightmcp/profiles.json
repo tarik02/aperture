@@ -3,9 +3,7 @@
   "profiles": {
     "core": {
       "tools": [
-        "browser_click",
         "browser_console_messages",
-        "browser_drag",
         "browser_drop",
         "browser_emulate_media",
         "browser_evaluate",
@@ -13,7 +11,6 @@
         "browser_fill_form",
         "browser_find",
         "browser_handle_dialog",
-        "browser_hover",
         "browser_navigate",
         "browser_navigate_back",
         "browser_network_request",
@@ -58,73 +55,10 @@
       ]
     },
     "vision": {
-      "tools": [
-        "browser_mouse_click_xy",
-        "browser_mouse_down",
-        "browser_mouse_drag_xy",
-        "browser_mouse_move_xy",
-        "browser_mouse_up",
-        "browser_mouse_wheel"
-      ]
+      "tools": []
     }
   },
   "tools": {
-    "browser_click": {
-      "name": "browser_click",
-      "description": "Perform click on a web page",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to click, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
-          },
-          "doubleClick": {
-            "description": "Whether to perform a double click instead of a single click",
-            "type": "boolean"
-          },
-          "element": {
-            "description": "Human-readable element description used to obtain permission to interact with the element",
-            "type": "string"
-          },
-          "modifiers": {
-            "description": "Modifier keys to press",
-            "items": {
-              "enum": [
-                "Alt",
-                "Control",
-                "ControlOrMeta",
-                "Meta",
-                "Shift"
-              ],
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "target": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Click"
-      },
-      "_meta": null,
-      "icons": null
-    },
     "browser_console_messages": {
       "name": "browser_console_messages",
       "description": "Returns all console messages",
@@ -316,44 +250,6 @@
         "destructiveHint": true,
         "openWorldHint": true,
         "title": "Set cookie"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_drag": {
-      "name": "browser_drag",
-      "description": "Perform drag and drop between two elements",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "endElement": {
-            "description": "Human-readable target element description used to obtain the permission to interact with the element",
-            "type": "string"
-          },
-          "endTarget": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
-            "type": "string"
-          },
-          "startElement": {
-            "description": "Human-readable source element description used to obtain the permission to interact with the element",
-            "type": "string"
-          },
-          "startTarget": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
-            "type": "string"
-          }
-        },
-        "required": [
-          "startTarget",
-          "endTarget"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Drag mouse"
       },
       "_meta": null,
       "icons": null
@@ -679,35 +575,6 @@
       "_meta": null,
       "icons": null
     },
-    "browser_hover": {
-      "name": "browser_hover",
-      "description": "Hover over element on page",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "element": {
-            "description": "Human-readable element description used to obtain permission to interact with the element",
-            "type": "string"
-          },
-          "target": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Hover mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
     "browser_localstorage_clear": {
       "name": "browser_localstorage_clear",
       "description": "Clear all localStorage",
@@ -820,209 +687,6 @@
         "destructiveHint": true,
         "openWorldHint": true,
         "title": "Set localStorage item"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_click_xy": {
-      "name": "browser_mouse_click_xy",
-      "description": "Click mouse button at a given position",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to click, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
-          },
-          "clickCount": {
-            "description": "Number of clicks, defaults to 1",
-            "type": "number"
-          },
-          "delay": {
-            "description": "Time to wait between mouse down and mouse up in milliseconds, defaults to 0",
-            "type": "number"
-          },
-          "x": {
-            "description": "X coordinate",
-            "type": "number"
-          },
-          "y": {
-            "description": "Y coordinate",
-            "type": "number"
-          }
-        },
-        "required": [
-          "x",
-          "y"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Click"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_down": {
-      "name": "browser_mouse_down",
-      "description": "Press mouse down",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to press, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Press mouse down"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_drag_xy": {
-      "name": "browser_mouse_drag_xy",
-      "description": "Drag left mouse button to a given position",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "endX": {
-            "description": "End X coordinate",
-            "type": "number"
-          },
-          "endY": {
-            "description": "End Y coordinate",
-            "type": "number"
-          },
-          "startX": {
-            "description": "Start X coordinate",
-            "type": "number"
-          },
-          "startY": {
-            "description": "Start Y coordinate",
-            "type": "number"
-          }
-        },
-        "required": [
-          "startX",
-          "startY",
-          "endX",
-          "endY"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Drag mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_move_xy": {
-      "name": "browser_mouse_move_xy",
-      "description": "Move mouse to a given position",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "x": {
-            "description": "X coordinate",
-            "type": "number"
-          },
-          "y": {
-            "description": "Y coordinate",
-            "type": "number"
-          }
-        },
-        "required": [
-          "x",
-          "y"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Move mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_up": {
-      "name": "browser_mouse_up",
-      "description": "Press mouse up",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to press, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Press mouse up"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_wheel": {
-      "name": "browser_mouse_wheel",
-      "description": "Scroll mouse wheel",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "deltaX": {
-            "default": 0,
-            "description": "X delta",
-            "type": "number"
-          },
-          "deltaY": {
-            "default": 0,
-            "description": "Y delta",
-            "type": "number"
-          }
-        },
-        "required": [
-          "deltaX",
-          "deltaY"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Scroll mouse wheel"
       },
       "_meta": null,
       "icons": null

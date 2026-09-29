@@ -550,8 +550,8 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.connection", Description: "Get live connection data for this session without waking it."}, s.mcpBoundConnection)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.suspend", Description: "Suspend this running session."}, s.mcpBoundSuspend)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking this session if it is suspended."}, s.mcpBoundBrowserTargets)
-		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for this session."}, s.mcpBoundCursorGet)
-		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings."}, s.mcpBoundCursorSet)
+		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility and the default pointer motion for this session.", OutputSchema: mcpCursorOutputSchema()}, s.mcpBoundCursorGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings, and the default motion of its pointer gestures.", InputSchema: mcpCursorSetInputSchema(true), OutputSchema: mcpCursorOutputSchema()}, s.mcpBoundCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpBoundRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for this session."}, s.mcpBoundRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpBoundRecordingStatus)
@@ -581,8 +581,8 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote a stopped retained session into a snapshot."}, s.mcpSessionsPromote)
 		mcp.AddTool(server, &mcp.Tool{Name: "sessions.session_token_rotate", Description: "Rotate the live session token for later browser access."}, s.mcpSessionTokenRotate)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking the session if it is suspended."}, s.mcpBrowserTargets)
-		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for a session."}, s.mcpCursorGet)
-		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings."}, s.mcpCursorSet)
+		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility and the default pointer motion for a session.", OutputSchema: mcpCursorOutputSchema()}, s.mcpCursorGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings, and the default motion of its pointer gestures.", InputSchema: mcpCursorSetInputSchema(false), OutputSchema: mcpCursorOutputSchema()}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpRecordingStart)
@@ -607,9 +607,16 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 	tools, err := playwrightmcp.ToolsForProfilesMetadata(a.profiles)
 	if canProxy && err == nil {
 		for name, definition := range tools {
+			if isPointerTool(name) {
+				// Aperture's own pointer tools take these names.
+				continue
+			}
 			tool := adaptPlaywrightTool(definition, a.pathBound)
 			server.AddTool(tool, s.playwrightToolHandler(a, name, a.pathBound))
 		}
+	}
+	if canProxy {
+		s.addPointerTools(server, a)
 	}
 	return server
 }
@@ -666,6 +673,20 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 }
 
 func (s *Server) playwrightToolHandler(a mcpAuth, name string, pathBound bool) mcp.ToolHandler {
+	return s.automationToolHandler(a, pathBound, "playwright_error", func(ctx context.Context, wrapperPort int, controlToken string, arguments map[string]any) (*mcp.CallToolResult, error) {
+		return callPlaywright(ctx, wrapperPort, controlToken, name, arguments, s.Config.ToolOutputMaxBytes)
+	})
+}
+
+// automationCall runs one browser tool against a session's wrapper.
+type automationCall func(ctx context.Context, wrapperPort int, controlToken string, arguments map[string]any) (*mcp.CallToolResult, error)
+
+// automationToolHandler serves a tool that drives the session's browser: it
+// resolves the session, keeps it awake, holds the automation input lease for the
+// duration of the call, and hands the tool arguments to call. Path-bound
+// connections take the session from the URL; the others read sessionId from the
+// arguments.
+func (s *Server) automationToolHandler(a mcpAuth, pathBound bool, errorCode string, call automationCall) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		arguments := map[string]any{}
 		if len(req.Params.Arguments) > 0 {
@@ -700,9 +721,9 @@ func (s *Server) playwrightToolHandler(a mcpAuth, name string, pathBound bool) m
 			return nil, mcpToolError(code, err)
 		}
 		defer releaseLease()
-		result, err := callPlaywright(ctx, wrapperPort, controlToken, name, arguments, s.Config.ToolOutputMaxBytes)
+		result, err := call(ctx, wrapperPort, controlToken, arguments)
 		if err != nil {
-			return nil, mcpToolError("playwright_error", err)
+			return nil, mcpToolError(errorCode, err)
 		}
 		return result, nil
 	}
@@ -716,6 +737,21 @@ func callPlaywright(
 	arguments map[string]any,
 	maxResponseBytes int64,
 ) (*mcp.CallToolResult, error) {
+	return callWrapperTool(ctx, port, controlToken, "/automation/playwright", "Playwright MCP", name, arguments, maxResponseBytes)
+}
+
+// callWrapperTool posts one tool call to a wrapper automation endpoint and
+// decodes the MCP result it returns.
+func callWrapperTool(
+	ctx context.Context,
+	port int,
+	controlToken string,
+	endpoint string,
+	label string,
+	name string,
+	arguments map[string]any,
+	maxResponseBytes int64,
+) (*mcp.CallToolResult, error) {
 	payload, err := json.Marshal(map[string]any{"name": name, "arguments": arguments})
 	if err != nil {
 		return nil, err
@@ -723,7 +759,7 @@ func callPlaywright(
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/automation/playwright", port),
+		fmt.Sprintf("http://127.0.0.1:%d%s", port, endpoint),
 		bytes.NewReader(payload),
 	)
 	if err != nil {
@@ -733,7 +769,7 @@ func callPlaywright(
 	request.Header.Set("Authorization", "Bearer "+controlToken)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("call Playwright MCP: %w", err)
+		return nil, fmt.Errorf("call %s: %w", label, err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if maxResponseBytes <= 0 {
@@ -741,17 +777,17 @@ func callPlaywright(
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read Playwright MCP response: %w", err)
+		return nil, fmt.Errorf("read %s response: %w", label, err)
 	}
 	if int64(len(body)) > maxResponseBytes {
-		return nil, fmt.Errorf("playwright MCP response exceeds %d bytes", maxResponseBytes)
+		return nil, fmt.Errorf("%s response exceeds %d bytes", strings.ToLower(label), maxResponseBytes)
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("playwright MCP returned status %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("%s returned status %d: %s", strings.ToLower(label), response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var result mcp.CallToolResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("decode Playwright MCP response: %w", err)
+		return nil, fmt.Errorf("decode %s response: %w", label, err)
 	}
 	return &result, nil
 }

@@ -35,6 +35,7 @@ func newLiveSessionCompositorInput(runtime *wrapperRuntime) (*liveSessionComposi
 		return nil, err
 	}
 	sender := newCompositorInputSender(runtime.controlSocket, runtime.values.CompositorWidth, runtime.values.CompositorHeight)
+	sender.onPointer = runtime.pointer.setPosition
 	if err := controller.Attach(remoteinput.Authorization{Pointer: true, Keyboard: true}, sender); err != nil {
 		_ = controller.Close()
 		return nil, err

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/pointer"
 	"github.com/aperture/aperture/internal/proxy"
 	"github.com/aperture/aperture/internal/sessionfiles"
 )
@@ -56,6 +57,7 @@ type wrapperRuntime struct {
 	liveSession              *liveSession
 	proxyManager             *proxy.Manager
 	playwright               *playwrightMCPBackend
+	pointer                  pointerRuntime
 	startedAt                time.Time
 	uploads                  wrapperUploadCounters
 }
@@ -356,6 +358,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	mux.HandleFunc("/session", liveSession.serveSessionWebSocketHTTP)
 	mux.HandleFunc("/automation/lease", liveSession.serveAutomationLeaseHTTP)
 	mux.HandleFunc("/automation/playwright", r.handlePlaywrightCall)
+	mux.HandleFunc("/automation/pointer", r.handlePointerCall)
 	mux.HandleFunc("/collaboration/capability-rotated", r.handleCollaborationCapabilityRotated)
 	mux.HandleFunc("/initialize", r.handleInitialization)
 	mux.HandleFunc("/storage-state", r.handleStorageExport)
@@ -581,24 +584,39 @@ func (r *wrapperRuntime) handleCursor(w http.ResponseWriter, req *http.Request) 
 	case http.MethodGet:
 	case http.MethodPut:
 		var body struct {
-			Visible *bool `json:"visible"`
+			Visible *bool           `json:"visible"`
+			Motion  *pointer.Motion `json:"motion"`
 		}
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Visible == nil {
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || (body.Visible == nil && body.Motion == nil) {
 			writeWrapperError(w, http.StatusBadRequest, "invalid cursor request")
 			return
 		}
-		presentation, err := r.liveSession.updateCursorVisibility(req.Context(), *body.Visible)
-		if err != nil {
-			writeWrapperError(w, http.StatusBadGateway, err.Error())
-			return
+		if body.Motion != nil {
+			if err := body.Motion.Validate(); err != nil {
+				writeWrapperError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 		}
-		visible = presentation.CursorVisible
+		if body.Visible != nil {
+			presentation, err := r.liveSession.updateCursorVisibility(req.Context(), *body.Visible)
+			if err != nil {
+				writeWrapperError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+			visible = presentation.CursorVisible
+		}
+		if body.Motion != nil {
+			r.pointer.setSessionMotion(*body.Motion)
+		}
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	writeWrapperJSON(w, http.StatusOK, map[string]bool{"visible": visible})
+	writeWrapperJSON(w, http.StatusOK, struct {
+		Visible bool           `json:"visible"`
+		Motion  pointer.Motion `json:"motion"`
+	}{Visible: visible, Motion: r.pointer.currentSessionMotion()})
 }
 
 func (r *wrapperRuntime) handleTargets(w http.ResponseWriter, req *http.Request) {

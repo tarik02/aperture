@@ -65,8 +65,8 @@ export type InitialIndexedDBKeyPath = { readonly "kind": "none" | "string" | "ar
 export const InitialIndexedDBKeyPath = Schema.Struct({ "kind": Schema.Literals(["none", "string", "array"]), "value": Schema.optionalKey(Schema.Array(Schema.String)) }).annotate({ "description": "Object-store key path. String paths contain one value; array paths contain at least one.", "identifier": "InitialIndexedDBKeyPath" })
 export type InitialIndexedDBIndexKeyPath = { readonly "kind": "string" | "array", readonly "value": ReadonlyArray<string> }
 export const InitialIndexedDBIndexKeyPath = Schema.Struct({ "kind": Schema.Literals(["string", "array"]), "value": Schema.Array(Schema.String).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })) }).annotate({ "description": "Index key path. String paths contain one value; array paths contain at least one.", "identifier": "InitialIndexedDBIndexKeyPath" })
-export type CursorVisibility = { readonly "visible": boolean }
-export const CursorVisibility = Schema.Struct({ "visible": Schema.Boolean.annotate({ "description": "Whether to include the remote cursor in live streams and recordings." }) }).annotate({ "description": "Whether the remote browser cursor is composited into session media.", "identifier": "CursorVisibility" })
+export type PointerMotion = "natural" | "fast" | "instant" | { readonly "speed": number } | { readonly "durationMs": number }
+export const PointerMotion = Schema.Union([Schema.Literals(["natural", "fast", "instant"]), Schema.Struct({ "speed": Schema.Number.annotate({ "description": "Average speed in pixels per second." }).check(Schema.isFinite().annotate({ "expected": "a finite number" })).check(Schema.isGreaterThanOrEqualTo(10).annotate({ "expected": "a value greater than or equal to 10" })).check(Schema.isLessThanOrEqualTo(100000).annotate({ "expected": "a value less than or equal to 100000" })) }), Schema.Struct({ "durationMs": Schema.Number.annotate({ "description": "Fixed travel time in milliseconds; 0 jumps." }).check(Schema.isFinite().annotate({ "expected": "a finite number" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" })).check(Schema.isLessThanOrEqualTo(30000).annotate({ "expected": "a value less than or equal to 30000" })) })], { mode: "oneOf" }).annotate({ "description": "How Aperture pointer gestures travel. `natural` is an eased, slightly curved glide at about 1200 px/s, `fast` is a quicker glide, and `instant` jumps in one step. An object sets an average speed in px/s or a fixed duration in milliseconds.", "examples": ["natural", { "speed": 800 }, { "durationMs": 400 }], "identifier": "PointerMotion" })
 export type ExportSessionStorageStateInput = { readonly "origins": "open-tabs" | ReadonlyArray<string> }
 export const ExportSessionStorageStateInput = Schema.Struct({ "origins": Schema.Union([Schema.Literal("open-tabs"), Schema.Array(Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isMaxLength(2048).annotate({ "expected": "a value with a length of at most 2048" }))).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })).check(Schema.isMaxLength(100).annotate({ "expected": "a value with a length of at most 100" }))], { mode: "oneOf" }).annotate({ "description": "Exact origins and/or * patterns, or open-tabs to select current pages and frames." }) }).annotate({ "examples": [{ "origins": ["*"] }, { "origins": ["https://example.com", "https://*.example.org"] }, { "origins": "open-tabs" }], "identifier": "ExportSessionStorageStateInput" })
 export type Recording = { readonly "recordingId": string, readonly "mode": "tab" | "viewer", readonly "targetId": string, readonly "captureGeneration": number, readonly "status": "starting" | "running" | "stopped" | "failed", readonly "stopReason"?: string, readonly "relativePath": string, readonly "startedAt": string, readonly "stoppedAt"?: string, readonly "sizeBytes"?: number, readonly "fps": number, readonly "bitrateKbps": number, readonly "codec": "vp8" | "h264-va" }
@@ -149,6 +149,10 @@ export type InitialBrowserCookie = { readonly "name": string, readonly "value": 
 export const InitialBrowserCookie = Schema.Struct({ "name": Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "value": Schema.suspend((): Schema.Codec<SensitiveString, string> => SensitiveString).annotate({ "description": "Cookie value. Never log this field." }), "domain": Schema.String.annotate({ "examples": [".example.com"] }).check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })), "hostOnly": Schema.optionalKey(Schema.Boolean.annotate({ "description": "Scope the cookie to exactly `domain`, without subdomains. `domain` must then be a plain hostname.", "default": false })), "path": Schema.String.annotate({ "examples": ["/"] }).check(Schema.isPattern(new RegExp("^\\/")).annotate({ "expected": "a string matching the RegExp ^\\/" })), "expires": Schema.optionalKey(Schema.Number.annotate({ "description": "Unix timestamp in seconds. Omit for a session cookie." }).check(Schema.isFinite().annotate({ "expected": "a finite number" })).check(Schema.isGreaterThan(0).annotate({ "expected": "a value greater than 0" }))), "httpOnly": Schema.optionalKey(Schema.Boolean.annotate({ "default": false })), "secure": Schema.optionalKey(Schema.Boolean.annotate({ "default": false })), "sameSite": Schema.optionalKey(BrowserCookieSameSite), "partitionKey": Schema.optionalKey(InitialBrowserCookiePartitionKey) }).annotate({ "description": "Cookie imported into the new browser profile.", "identifier": "InitialBrowserCookie" })
 export type InitialIndexedDBIndex = { readonly "name": string, readonly "keyPath": InitialIndexedDBIndexKeyPath, readonly "unique": boolean, readonly "multiEntry": boolean }
 export const InitialIndexedDBIndex = Schema.Struct({ "name": Schema.String, "keyPath": InitialIndexedDBIndexKeyPath, "unique": Schema.Boolean, "multiEntry": Schema.Boolean }).annotate({ "identifier": "InitialIndexedDBIndex" })
+export type CursorSettings = { readonly "visible": boolean, readonly "motion": PointerMotion }
+export const CursorSettings = Schema.Struct({ "visible": Schema.Boolean.annotate({ "description": "Whether the remote cursor is included in live streams and recordings." }), "motion": Schema.suspend((): Schema.Codec<PointerMotion> => PointerMotion).annotate({ "description": "The session's default motion for Aperture pointer gestures. It is `natural` until set, and a gesture's own motion or its recording's setting takes precedence." }) }).annotate({ "description": "Remote cursor settings of a running session.", "identifier": "CursorSettings" })
+export type SetCursorSettingsInput = { readonly "visible"?: boolean, readonly "motion"?: PointerMotion }
+export const SetCursorSettingsInput = Schema.Struct({ "visible": Schema.optionalKey(Schema.Boolean.annotate({ "description": "Whether to include the remote cursor in live streams and recordings." })), "motion": Schema.optionalKey(PointerMotion) }).annotate({ "description": "Cursor settings to change. At least one property is required." }).check(Schema.isMinProperties(1).annotate({ "expected": "a value with at least 1 entry", "identifier": "SetCursorSettingsInput" }))
 export type SessionFileEntry = SessionFile | SessionDirectory
 export const SessionFileEntry = Schema.Union([SessionFile, SessionDirectory], { mode: "oneOf" }).annotate({ "description": "A session file or directory, told apart by `type`.", "identifier": "SessionFileEntry" })
 export type TargetViewport = { readonly "targetId": string, readonly "generation": number, readonly "viewport": Viewport }
@@ -434,16 +438,16 @@ export type RotateCollaborationCapabilitydefault = Error
 export const RotateCollaborationCapabilitydefault = Error
 export type GetSessionCursorParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
 export const GetSessionCursorParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
-export type GetSessionCursor200 = CursorVisibility
-export const GetSessionCursor200 = CursorVisibility
+export type GetSessionCursor200 = CursorSettings
+export const GetSessionCursor200 = CursorSettings
 export type GetSessionCursordefault = Error
 export const GetSessionCursordefault = Error
 export type SetSessionCursorParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
 export const SetSessionCursorParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7) })
-export type SetSessionCursorRequestJson = CursorVisibility
-export const SetSessionCursorRequestJson = CursorVisibility
-export type SetSessionCursor200 = CursorVisibility
-export const SetSessionCursor200 = CursorVisibility
+export type SetSessionCursorRequestJson = SetCursorSettingsInput
+export const SetSessionCursorRequestJson = SetCursorSettingsInput
+export type SetSessionCursor200 = CursorSettings
+export const SetSessionCursor200 = CursorSettings
 export type SetSessionCursordefault = Error
 export const SetSessionCursordefault = Error
 export type GetSessionThumbnailParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7 }
@@ -1443,11 +1447,11 @@ readonly "rotateSessionToken": <Config extends OperationConfig>(sessionId: strin
 */
 readonly "rotateCollaborationCapability": <Config extends OperationConfig>(sessionId: string, role: string, options: { readonly params?: typeof RotateCollaborationCapabilityParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof RotateCollaborationCapability200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Returns whether the remote browser cursor is composited into the live stream and recordings.
+* Returns whether the remote browser cursor is composited into the live stream and recordings, and the session's default motion for Aperture pointer gestures.
 */
 readonly "getSessionCursor": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof GetSessionCursorParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof GetSessionCursor200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Enables or disables compositing the remote browser cursor into the live stream and recordings.
+* Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
 */
 readonly "setSessionCursor": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof SetSessionCursorParams.Encoded | undefined; readonly payload: typeof SetSessionCursorRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof SetSessionCursor200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
