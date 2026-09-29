@@ -90,6 +90,10 @@ func mapGesture(input *GestureInput, segment *placed, position int) (Gesture, bo
 	}
 	if input.Kind == "scroll" || input.ScrollX != 0 || input.ScrollY != 0 {
 		mapped.Scroll = &Scroll{DX: input.ScrollX, DY: input.ScrollY}
+		if input.ScrollAt != nil {
+			x, y := segment.point(input.ScrollAt.X, input.ScrollAt.Y)
+			mapped.Scroll.At = &Point{X: x, Y: y}
+		}
 	}
 	return mapped, true
 }

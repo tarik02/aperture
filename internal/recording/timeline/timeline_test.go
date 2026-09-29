@@ -309,8 +309,8 @@ func TestRoundTripAndAtomicWrite(t *testing.T) {
 	b := twoSegments(t)
 	b.NoteSample()
 	b.AddChange("capA", at(500))
-	b.AddGesture(GestureInput{ID: 1, Kind: "scroll", Tool: "browser_scroll", Mode: "compositor", TargetID: "A", Start: at(600), End: at(900),
-		ScrollY: 300, Caption: "Scroll down", Path: []PathInput{{Offset: 0, X: 1, Y: 2}, {Offset: ms(300), X: 3, Y: 4}}})
+	b.AddGesture(GestureInput{ID: 1, Kind: "scroll", Tool: "browser_scroll", Mode: "cdp", TargetID: "A", Start: at(600), End: at(900),
+		ScrollY: 300, ScrollAt: &PointInput{X: 10, Y: 20}, Caption: "Scroll down"})
 	built, err := b.Build(BuildOptions{Recording: Recording{ID: "abc", Video: "recordings/recording-abc.webm", Mode: "tab", Codec: "vp8", FPS: 30, StartedAt: at(0)}})
 	if err != nil {
 		t.Fatal(err)
@@ -341,7 +341,7 @@ func TestRoundTripAndAtomicWrite(t *testing.T) {
 	if !reflect.DeepEqual(built, loaded) {
 		t.Fatalf("round trip changed the timeline:\n%+v\n%+v", built, loaded)
 	}
-	if loaded.Version != 1 || loaded.Recording.Video != "recordings/recording-abc.webm" || loaded.Gestures[0].Scroll.DY != 300 {
+	if loaded.Version != 1 || loaded.Recording.Video != "recordings/recording-abc.webm" || loaded.Gestures[0].Scroll.DY != 300 || loaded.Gestures[0].Scroll.At == nil {
 		t.Fatalf("%+v", loaded)
 	}
 }

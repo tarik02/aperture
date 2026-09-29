@@ -24,19 +24,16 @@ type captureDamage struct {
 	// Count is the number of changes so far. It only grows, so a sampler
 	// detects a change by comparing it with the previous sample.
 	Count uint64
-	// Mapped is the number of mapped surfaces bound to the output. With none the
-	// output shows only its background.
-	Mapped int
 	// LastChange is Since converted to wall time. The compositor answers within
 	// a millisecond, so it is placed at the middle of the request.
 	LastChange time.Time
 }
 
 // parseCaptureDamage reads a "damage-status" response: "ok <ms since last
-// change> <change count> <mapped surfaces>".
+// change> <change count>".
 func parseCaptureDamage(response string) (captureDamage, error) {
 	fields := strings.Fields(response)
-	if len(fields) != 4 || fields[0] != "ok" {
+	if len(fields) != 3 || fields[0] != "ok" {
 		return captureDamage{}, fmt.Errorf("unexpected damage status %q", response)
 	}
 	sinceMS, err := strconv.ParseUint(fields[1], 10, 63)
@@ -47,11 +44,7 @@ func parseCaptureDamage(response string) (captureDamage, error) {
 	if err != nil {
 		return captureDamage{}, fmt.Errorf("parse damage status count: %w", err)
 	}
-	mapped, err := strconv.Atoi(fields[3])
-	if err != nil || mapped < 0 {
-		return captureDamage{}, fmt.Errorf("parse damage status surfaces %q", fields[3])
-	}
-	return captureDamage{Since: time.Duration(sinceMS) * time.Millisecond, Count: count, Mapped: mapped}, nil
+	return captureDamage{Since: time.Duration(sinceMS) * time.Millisecond, Count: count}, nil
 }
 
 // readCaptureDamage asks the compositor when a capture output's content last changed.
@@ -68,15 +61,4 @@ func readCaptureDamage(ctx context.Context, controlSocket, captureID string) (ca
 	}
 	damage.LastChange = requested.Add(answered.Sub(requested) / 2).Add(-damage.Since)
 	return damage, nil
-}
-
-// captureIdleFor returns how long the content of a capture output has been
-// unchanged: zero right after a change, and growing while the page is still.
-// It is the query behind "wait until the screen settles".
-func (r *wrapperRuntime) captureIdleFor(ctx context.Context, captureID string) (time.Duration, error) {
-	damage, err := readCaptureDamage(ctx, r.controlSocket, captureID)
-	if err != nil {
-		return 0, err
-	}
-	return damage.Since, nil
 }
