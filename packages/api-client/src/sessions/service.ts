@@ -20,6 +20,7 @@ import type {
   SessionFileEntry,
   SessionMutationResponse,
   SessionRecording,
+  SessionRecordingFile,
   SessionsBulkResponse,
   SetViewportInput,
   TargetViewport,
@@ -187,12 +188,15 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
       targetId: string,
     ) => Call<SessionRecording>;
-    /** Stops a recording and returns the session file it was saved to. */
+    /**
+     * Stops a recording and returns the session file it was saved to, with the path of
+     * its timeline file.
+     */
     readonly stopSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
-    ) => Call<SessionFile>;
+    ) => Call<SessionRecordingFile>;
     /**
      * Every file and directory of the session, also while it is not running. See
      * `sessionFileTree`.

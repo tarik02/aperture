@@ -934,13 +934,13 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file.
+      description: Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
-        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
+        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/RecordingFile'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files:
     get:
@@ -3016,6 +3016,11 @@ components:
           type: string
           description: Session file path below the session files root; host paths are never exposed.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
+        timelineRelativePath:
+          type: string
+          description: >-
+            Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
+          example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.timeline.json
         startedAt:
           type: string
           format: date-time
@@ -3070,6 +3075,45 @@ components:
           type: string
           description: Path of the file inside the session's browser sandbox, under the fixed `/session/files` root, for CDP `DOM.setFileInputFiles`. It is readable by the browser while the session runs. Absent for files of sessions created before session files moved under one root that are still in their old location.
           example: /session/files/recordings/screencast-20260801T120000Z.webm
+    RecordingFile:
+      type: object
+      description: The video a stopped recording was saved to, as a session file, and where its timeline was saved.
+      required: [type, name, relativePath, size, modifiedAt, mimeType]
+      properties:
+        type:
+          type: string
+          enum: [file]
+        name:
+          type: string
+          description: File name without directory components.
+          example: recording-550e8400-e29b-41d4-a716-446655440000.webm
+        relativePath:
+          type: string
+          description: Path of the video below the session files root. Pass it to create a signed download URL.
+          example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          description: File size in bytes.
+          example: 1048576
+        modifiedAt:
+          type: string
+          format: date-time
+          description: Time the recording was published.
+          example: '2026-08-01T12:05:00Z'
+        mimeType:
+          type: string
+          description: Media type of the video.
+          example: video/webm
+        sandboxPath:
+          type: string
+          description: Path of the video inside the session's browser sandbox, under the fixed `/session/files` root. It is readable by the browser while the session runs.
+          example: /session/files/recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm
+        timelineRelativePath:
+          type: string
+          description: Session file path of the recording's `timeline.json`, saved next to the video. Absent when no timeline could be written.
+          example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.timeline.json
     SessionDirectory:
       type: object
       description: Directory below the session files root.

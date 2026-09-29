@@ -9,8 +9,12 @@ The active, transient browser state and shared activity available while a browse
 _Avoid_: Collaboration hub, browser transport, wrapper runtime
 
 **Session file**:
-A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
+A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings and their timelines, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
 _Avoid_: Retained file, recording file
+
+**Recording timeline**:
+The `timeline.json` session file saved beside a recording. It states, on the video's own clock, which segments the video is made of, which pointer gestures were made on the recorded browser target with their cursor paths, click points and captions, and when the recorded screen changed, so that editing can act on what happened instead of inspecting pixels.
+_Avoid_: Recording metadata, event log, recording sidecar
 
 **Hot storage**:
 Host-local storage for the overlay state of running and stopped sessions.

@@ -35,7 +35,7 @@ Every pointer tool accepts:
 
 - `motion`: how the pointer travels. `"natural"` (the default) is an eased, slightly curved glide at about 1200 px/s; `"fast"` is quicker; `"instant"` jumps in one step; `{"speed": pxPerSecond}` and `{"durationMs": ms}` set an average speed or a fixed travel time.
 - `holdMs`: milliseconds to wait after the gesture before the page state is returned, up to 30000. Use it to let a recording show the result.
-- `caption`: up to 500 characters of text kept with the gesture's record for later use in recordings.
+- `caption`: up to 500 characters of text kept with the gesture. A recording that captures the gesture saves it as a caption, spanning the gesture and its `holdMs`, in the recording's timeline (see [recordings.md](recordings.md)).
 - `timeoutMs`: how long to wait for a ref target to be visible, stable, enabled, and not covered, from 1 to 20000 (default 5000). In the Playwright fallback it bounds the whole call that resolves a ref instead, since Playwright's own tools take no timeout.
 
 The default motion comes from the tool's `motion`, then the recording's setting (recordings do not carry one yet), then the session setting, then `natural`. Set the session setting with `cursor.set` and read it with `cursor.get`. `cursor.set` takes `visible`, `motion`, or both; the motion lasts until the session stops and is never stored. The REST `GET` and `PUT /api/sessions/:sessionId/cursor` return and accept the same fields.

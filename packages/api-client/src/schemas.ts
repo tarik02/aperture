@@ -24,6 +24,8 @@ export type ProxyRule = Api.ProxyRule;
 export type CursorSettings = Api.CursorSettings;
 export type SessionRecording = Api.Recording;
 export type SessionFile = Api.SessionFile;
+/** The video a stopped recording was saved to, and where its timeline was saved. */
+export type SessionRecordingFile = Api.RecordingFile;
 export type SessionDirectory = Api.SessionDirectory;
 export type SessionFileEntry = Api.SessionFileEntry;
 export type SessionFileDownloadURL = Api.SessionFileDownloadURL;

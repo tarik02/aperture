@@ -658,11 +658,16 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	mediaProducer.Handler(metadata).ServeHTTP(w, req.WithContext(ctx))
 }
 
-func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {
+// startWrapperScreencast starts the pipeline that records one capture output to
+// a file. The returned probe reports when the pipeline's frames were captured.
+func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, *screencastProbe, error) {
 	keepaliveMS := 1000 / fps
 	recordingWidth := min(viewport.CanvasWidth, (viewport.ContentWidth+1)/2*2)
 	recordingHeight := min(viewport.CanvasHeight, (viewport.ContentHeight+1)/2*2)
 	args := []string{
+		// Verbose, so that the identity element in front of the encoder reports
+		// every frame it passes; see screencastProbe.
+		"-v",
 		"-e",
 		"pipewiresrc",
 		"target-object=" + target,
@@ -686,6 +691,10 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 		"right=" + strconv.Itoa(viewport.CanvasWidth-recordingWidth),
 		"bottom=" + strconv.Itoa(viewport.CanvasHeight-recordingHeight),
 		"!",
+		"identity",
+		"name=" + screencastFrameElement,
+		"silent=false",
+		"!",
 	}
 	args = append(args, wrapperRecordingPipeline(codec, bitrateKbps, values.MediaProducerKeyframe)...)
 	// A replacement segment takes over once its file has data; buffered, the file
@@ -693,10 +702,18 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 	args = append(args, "!", "filesink", "location="+path, "sync=false", "buffer-mode=unbuffered")
 	cmd := exec.CommandContext(ctx, values.MediaProducerGSTExecutable, args...)
 	cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
-	cmd.Stdout = os.Stdout
+	probe := newScreencastProbe(fps)
+	output, err := attachScreencastProbe(probe)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("start screencast pipeline: %w", err)
+	}
+	cmd.Stdout = output
 	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start screencast pipeline: %w", err)
+	err = cmd.Start()
+	// The pipeline holds its own copy; the probe sees the end of its output when that closes.
+	_ = output.Close()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("start screencast pipeline: %w", err)
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -714,7 +731,7 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 			_, _ = sendCompositorControlCommand(ctx, controlSocket, "output-repaint "+captureID+"\n")
 		}
 	}()
-	return cmd, done, nil
+	return cmd, done, probe, nil
 }
 
 func wrapperRecordingPipeline(codec string, bitrateKbps int, keyframe int) []string {

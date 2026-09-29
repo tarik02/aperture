@@ -630,6 +630,21 @@ func (e RecordingStatus) Valid() bool {
 	}
 }
 
+// Defines values for RecordingFileType.
+const (
+	RecordingFileTypeFile RecordingFileType = "file"
+)
+
+// Valid indicates whether the value is a known member of the RecordingFileType enum.
+func (e RecordingFileType) Valid() bool {
+	switch e {
+	case RecordingFileTypeFile:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResourceMode.
 const (
 	ResourceModeAll       ResourceMode = "all"
@@ -716,13 +731,13 @@ func (e SessionDirectoryType) Valid() bool {
 
 // Defines values for SessionFileType.
 const (
-	File SessionFileType = "file"
+	SessionFileTypeFile SessionFileType = "file"
 )
 
 // Valid indicates whether the value is a known member of the SessionFileType enum.
 func (e SessionFileType) Valid() bool {
 	switch e {
-	case File:
+	case SessionFileTypeFile:
 		return true
 	default:
 		return false
@@ -1875,6 +1890,9 @@ type Recording struct {
 
 	// TargetId Identifier of the top-level target currently recorded.
 	TargetId string `json:"targetId"`
+
+	// TimelineRelativePath Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
+	TimelineRelativePath *string `json:"timelineRelativePath,omitempty"`
 }
 
 // RecordingCodec defines model for Recording.Codec.
@@ -1885,6 +1903,34 @@ type RecordingMode string
 
 // RecordingStatus defines model for Recording.Status.
 type RecordingStatus string
+
+// RecordingFile The video a stopped recording was saved to, as a session file, and where its timeline was saved.
+type RecordingFile struct {
+	// MimeType Media type of the video.
+	MimeType string `json:"mimeType"`
+
+	// ModifiedAt Time the recording was published.
+	ModifiedAt time.Time `json:"modifiedAt"`
+
+	// Name File name without directory components.
+	Name string `json:"name"`
+
+	// RelativePath Path of the video below the session files root. Pass it to create a signed download URL.
+	RelativePath string `json:"relativePath"`
+
+	// SandboxPath Path of the video inside the session's browser sandbox, under the fixed `/session/files` root. It is readable by the browser while the session runs.
+	SandboxPath *string `json:"sandboxPath,omitempty"`
+
+	// Size File size in bytes.
+	Size int64 `json:"size"`
+
+	// TimelineRelativePath Session file path of the recording's `timeline.json`, saved next to the video. Absent when no timeline could be written.
+	TimelineRelativePath *string           `json:"timelineRelativePath,omitempty"`
+	Type                 RecordingFileType `json:"type"`
+}
+
+// RecordingFileType defines model for RecordingFile.Type.
+type RecordingFileType string
 
 // ReplaceTagsInput Complete replacement tag set. The map may be empty to clear all tags.
 type ReplaceTagsInput struct {
@@ -3938,7 +3984,7 @@ type ClientInterface interface {
 
 	// StopSessionRecording Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5225,7 +5271,7 @@ func (c *Client) RetargetSessionRecording(ctx context.Context, sessionId Session
 
 // StopSessionRecording Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file.
+// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file.
 //
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -9859,7 +9905,7 @@ type ClientWithResponsesInterface interface {
 
 	// StopSessionRecordingWithResponse Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -12196,13 +12242,13 @@ type StopSessionRecordingResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *SessionFile
+	JSON200 *RecordingFile
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r StopSessionRecordingResponse) GetJSON200() *SessionFile {
+func (r StopSessionRecordingResponse) GetJSON200() *RecordingFile {
 	return r.JSON200
 }
 
@@ -13932,7 +13978,7 @@ func (c *ClientWithResponses) RetargetSessionRecordingWithResponse(ctx context.C
 
 // StopSessionRecordingWithResponse Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file.
+// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -15772,7 +15818,7 @@ func ParseStopSessionRecordingResponse(rsp *http.Response) (*StopSessionRecordin
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionFile
+		var dest RecordingFile
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -21094,7 +21140,7 @@ type StopSessionRecordingResponseObject interface {
 	VisitStopSessionRecordingResponse(w http.ResponseWriter) error
 }
 
-type StopSessionRecording200JSONResponse SessionFile
+type StopSessionRecording200JSONResponse RecordingFile
 
 func (response StopSessionRecording200JSONResponse) VisitStopSessionRecordingResponse(w http.ResponseWriter) error {
 

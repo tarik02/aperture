@@ -40,6 +40,8 @@ const recordingFields = {
   status: Schema.Literals(["starting", "running", "stopped", "failed"]),
   stopReason: Schema.optionalKey(Schema.String),
   sandboxPath: Schema.optionalKey(Schema.String),
+  /** The recording's timeline file, below the session files root, once it has stopped. */
+  timelineRelativePath: Schema.optionalKey(Schema.String),
   /** @deprecated Read `relativePath`. Sessions started before it existed send only this. */
   path: Schema.optionalKey(Schema.String),
   startedAt: Schema.String,

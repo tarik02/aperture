@@ -1,0 +1,346 @@
+// Package timeline defines the timeline.json file saved next to every
+// recording, and the builder that produces it.
+//
+// The timeline records what happened while the video was being captured:
+// where the segments of the video came from, which pointer gestures were made
+// and where, the captions attached to them, and when the recorded screen
+// changed. Later stages, such as ffmpeg based editing, load it with Read and
+// cut, zoom and annotate the video from it without having to look at pixels.
+//
+// # Time
+//
+// Every time in a timeline is an integer number of milliseconds on the video's
+// own clock, which starts at 0 with the video's first frame and is the clock
+// ffmpeg and players use: a value can be passed to -ss or a trim filter as it
+// is. A video published as it was written, which is one made of a single
+// segment, has timestamps that start a few tens of milliseconds after zero
+// instead; Recording.ContainerStartMs says by how much, for readers that use the
+// container's timestamps, as ffprobe reports them.
+//
+// A time is where the moment lands on the frames that are captured at that
+// moment. What a gesture causes on screen takes a little longer to reach the
+// video than the gesture itself (the browser has to react, and the frame has to
+// pass the compositor and the encoder), so a page's reaction appears some tens
+// of milliseconds after the time of the click that caused it.
+//
+// # Coordinates
+//
+// Coordinates are pixels of the video frame, with the origin at its top left
+// corner. Each Segment says how it scales the page (CSS pixels at default
+// zoom) to the frame; the coordinates in gestures are already scaled.
+package timeline
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// Version is the schema version written to and required from timeline files.
+// It changes only when a change breaks readers of the older schema; new
+// optional fields do not.
+const Version = 1
+
+// FileSuffix ends the name of every timeline file.
+const FileSuffix = ".timeline.json"
+
+// PathFor returns where the timeline of a video is saved: the video's path
+// without its extension, followed by FileSuffix. It is a pure name change, so it
+// applies to relative and absolute paths alike.
+func PathFor(videoPath string) string {
+	return strings.TrimSuffix(videoPath, filepath.Ext(videoPath)) + FileSuffix
+}
+
+// Timeline is the content of a timeline file.
+type Timeline struct {
+	Version   int        `json:"version"`
+	Recording Recording  `json:"recording"`
+	Segments  []Segment  `json:"segments"`
+	Gestures  []Gesture  `json:"gestures"`
+	Captions  []Caption  `json:"captions"`
+	Activity  Activity   `json:"activity"`
+	Truncated Truncation `json:"truncated"`
+}
+
+// Recording describes the video the timeline belongs to.
+type Recording struct {
+	ID string `json:"id"`
+	// Video is the video's path below the session files root, with forward slashes.
+	Video string `json:"video"`
+	Mode  string `json:"mode"`
+	Codec string `json:"codec"`
+	// FPS is the frame rate the recording was asked for. The video has variable
+	// frame timing and never more frames per second than this.
+	FPS int `json:"fps"`
+	// Width and Height are the pixels of the first segment. Segments of other
+	// targets or viewport sizes can differ, so read Segment.Width and Height when
+	// drawing.
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// StartedAt is the wall time the recording was requested.
+	StartedAt time.Time `json:"startedAt"`
+	// DurationMs is the time from the video's first frame to the end of its last.
+	DurationMs int64 `json:"durationMs"`
+	// ContainerStartMs is the timestamp the video file gives its first frame: 0
+	// for a video joined from several segments and a few tens of milliseconds for
+	// one that holds a single segment. Add it to a time to get the frame's
+	// timestamp as ffprobe reports it.
+	ContainerStartMs int64 `json:"containerStartMs"`
+	// Salvaged is set on the timeline of a video that is only part of a recording
+	// that failed; the other parts are published as videos of their own, each
+	// with its own timeline.
+	Salvaged bool `json:"salvaged,omitempty"`
+}
+
+// Clock source values of Segment.Clock.
+const (
+	// ClockPipeline means the segment's start and length come from the frames
+	// the capture pipeline reported, accurate to a few milliseconds.
+	ClockPipeline = "pipeline"
+	// ClockEstimated means the pipeline reported nothing, so the segment's first
+	// frame is assumed to be at the start of the pipeline process. The error is
+	// its start-up time, typically 0.1 to 0.3 seconds, and it does not accumulate
+	// over the recording.
+	ClockEstimated = "estimated"
+)
+
+// Segment is one piece of the video: a capture of one target at one size. A
+// recording has a new segment whenever it follows another target, the target's
+// output is replaced, or the viewport size changes. Segments follow each other
+// without a gap.
+type Segment struct {
+	Index    int    `json:"index"`
+	TargetID string `json:"targetId"`
+	// StartMs and EndMs are the video times of the segment's first frame and of
+	// the end of its last frame.
+	StartMs int64 `json:"startMs"`
+	EndMs   int64 `json:"endMs"`
+	// Width and Height are the pixels of the segment's frames.
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// ScaleX and ScaleY convert page coordinates (CSS pixels at default zoom) to
+	// pixels of the frame. They are the device pixel ratio the page was captured at.
+	ScaleX float64 `json:"scaleX"`
+	ScaleY float64 `json:"scaleY"`
+	// FirstFrameAt is the wall time of the segment's first frame. Segments overlap
+	// in wall time by the time the next one needed to produce its first frame; the
+	// video contains no such overlap.
+	FirstFrameAt time.Time `json:"firstFrameAt"`
+	Clock        string    `json:"clock"`
+}
+
+// Gesture is one pointer gesture made on the recorded target while it was recorded.
+type Gesture struct {
+	ID   uint64 `json:"id"`
+	Kind string `json:"kind"`
+	Tool string `json:"tool"`
+	// Mode is "compositor" for real pointer input, whose cursor path is recorded
+	// and visible in the video, and "cdp" for input sent through the browser's
+	// debugging protocol, which has no path and no visible cursor.
+	Mode string `json:"mode"`
+	// Segment is the index of the segment the gesture is mapped into.
+	Segment  int    `json:"segment"`
+	TargetID string `json:"targetId,omitempty"`
+	// StartMs and EndMs are the video times of the physical gesture. HoldMs is
+	// the extra time the caller asked to stay on the result afterwards.
+	StartMs int64 `json:"startMs"`
+	EndMs   int64 `json:"endMs"`
+	HoldMs  int64 `json:"holdMs,omitempty"`
+	// Clipped is set when the gesture began before or ended after the segment it
+	// is mapped into. Its times are cut to the segment and its points outside it are dropped.
+	Clipped bool   `json:"clipped,omitempty"`
+	Caption string `json:"caption,omitempty"`
+	// Path is where the cursor was, in order, thinned to what the shape of the
+	// motion needs. It contains the gesture's first and last position.
+	Path   []PathPoint `json:"path,omitempty"`
+	Clicks []Click     `json:"clicks,omitempty"`
+	// Scroll is the requested wheel movement in CSS pixels.
+	Scroll *Scroll `json:"scroll,omitempty"`
+}
+
+// PathPoint is one cursor position.
+type PathPoint struct {
+	TMs int64   `json:"t"`
+	X   float64 `json:"x"`
+	Y   float64 `json:"y"`
+}
+
+// Click is one button press.
+type Click struct {
+	TMs    int64   `json:"t"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Button string  `json:"button"`
+	// Count is the press's position in a multi-click, starting at 1.
+	Count int `json:"count"`
+}
+
+// Scroll is a wheel movement.
+type Scroll struct {
+	DX float64 `json:"dx"`
+	DY float64 `json:"dy"`
+}
+
+// Caption is text to show for a span of the video.
+type Caption struct {
+	StartMs int64  `json:"startMs"`
+	EndMs   int64  `json:"endMs"`
+	Text    string `json:"text"`
+	// Gesture is the ID of the gesture the caption came with.
+	Gesture uint64 `json:"gesture"`
+}
+
+// Activity says when the recorded screen changed.
+//
+// It comes from sampling the compositor, which counts a change whenever the
+// recorded page committed new content. Moving the mouse does not count, and a
+// repaint without new content does not either, so an unchanged page has no
+// activity however often the compositor repainted it.
+type Activity struct {
+	// Available is false when the compositor could not be sampled at all, so
+	// nothing is known about the screen; Spans is then empty and does not mean
+	// the screen was still.
+	Available bool `json:"available"`
+	// SampleIntervalMs is how often the compositor was asked. A change is placed
+	// within about a millisecond of when it happened, but the change that was last
+	// before a sample is the only one the sample reports, so activity that stops
+	// and restarts within one interval is one span.
+	SampleIntervalMs int64 `json:"sampleIntervalMs"`
+	// MergeGapMs is the longest pause between changes that still counts as the
+	// same span. Consumers that want to cut out idle time should not treat a
+	// pause shorter than this as one.
+	MergeGapMs int64 `json:"mergeGapMs"`
+	// Spans are the intervals with changes, in order and without overlap. A
+	// single change is a span of length zero.
+	Spans []Span `json:"spans"`
+	// Unknown lists intervals the compositor could not be sampled in, where
+	// missing activity means nothing.
+	Unknown []Span `json:"unknown,omitempty"`
+}
+
+// Span is an interval of video time.
+type Span struct {
+	StartMs int64 `json:"startMs"`
+	EndMs   int64 `json:"endMs"`
+}
+
+// Truncation says which parts were cut to keep the file's size bounded.
+type Truncation struct {
+	// Gestures is set when gestures beyond the limit were left out.
+	Gestures bool `json:"gestures"`
+	// PathPoints is set when cursor paths were dropped or thinned beyond what
+	// their shape needs to stay within the limit.
+	PathPoints bool `json:"pathPoints"`
+	// Activity is set when activity spans beyond the limit were left out.
+	Activity bool `json:"activity"`
+}
+
+// Validate checks what a reader relies on: the version, and that segments,
+// spans and gestures are ordered and inside the video.
+func (t *Timeline) Validate() error {
+	if t.Version != Version {
+		return fmt.Errorf("unsupported timeline version %d", t.Version)
+	}
+	end := t.Recording.DurationMs
+	for index, segment := range t.Segments {
+		if segment.Index != index {
+			return fmt.Errorf("segment %d has index %d", index, segment.Index)
+		}
+		if segment.EndMs < segment.StartMs {
+			return fmt.Errorf("segment %d ends before it starts", index)
+		}
+		if index > 0 && segment.StartMs < t.Segments[index-1].EndMs-1 {
+			return fmt.Errorf("segment %d starts before segment %d ends", index, index-1)
+		}
+	}
+	for _, gesture := range t.Gestures {
+		if gesture.EndMs < gesture.StartMs || gesture.StartMs < 0 || gesture.EndMs > end {
+			return fmt.Errorf("gesture %d is outside the video", gesture.ID)
+		}
+		if gesture.Segment < 0 || gesture.Segment >= len(t.Segments) {
+			return fmt.Errorf("gesture %d refers to a missing segment", gesture.ID)
+		}
+	}
+	for _, list := range [][]Span{t.Activity.Spans, t.Activity.Unknown} {
+		for index, span := range list {
+			if span.EndMs < span.StartMs || span.StartMs < 0 || span.EndMs > end {
+				return fmt.Errorf("span %d is outside the video", index)
+			}
+			if index > 0 && span.StartMs < list[index-1].EndMs {
+				return errors.New("spans overlap or are out of order")
+			}
+		}
+	}
+	return nil
+}
+
+// Marshal encodes a timeline as it is saved.
+func (t *Timeline) Marshal() ([]byte, error) {
+	body, err := json.Marshal(t)
+	if err != nil {
+		return nil, fmt.Errorf("encode timeline: %w", err)
+	}
+	return append(body, '\n'), nil
+}
+
+// Parse decodes and validates a timeline.
+func Parse(body []byte) (*Timeline, error) {
+	var t Timeline
+	if err := json.Unmarshal(body, &t); err != nil {
+		return nil, fmt.Errorf("decode timeline: %w", err)
+	}
+	if err := t.Validate(); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// Read loads and validates a timeline file.
+func Read(path string) (*Timeline, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read timeline: %w", err)
+	}
+	return Parse(body)
+}
+
+// Write saves a timeline atomically: it is written to a hidden file in the same
+// directory and renamed over path, so readers see the old file or the whole new
+// one, never part of it. It replaces an existing timeline of the same name.
+func Write(path string, t *Timeline) error {
+	body, err := t.Marshal()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create timeline file: %w", err)
+	}
+	tempPath := temp.Name()
+	fail := func(err error) error {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if _, err := temp.Write(body); err != nil {
+		return fail(fmt.Errorf("write timeline: %w", err))
+	}
+	if err := temp.Chmod(0o644); err != nil {
+		return fail(fmt.Errorf("write timeline: %w", err))
+	}
+	if err := temp.Sync(); err != nil {
+		return fail(fmt.Errorf("write timeline: %w", err))
+	}
+	if err := temp.Close(); err != nil {
+		return fail(fmt.Errorf("write timeline: %w", err))
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fail(fmt.Errorf("publish timeline: %w", err))
+	}
+	return nil
+}

@@ -43,6 +43,9 @@ const (
 	wrapperRecordingModeViewer wrapperRecordingMode = "viewer"
 )
 
+// wrapperRecording is one recording. TimelinePath is the timeline file saved
+// next to the video once it is published; timeline collects that file's content
+// while the recording runs and is set when it starts.
 type wrapperRecording struct {
 	ID                string                 `json:"recordingId"`
 	Mode              wrapperRecordingMode   `json:"mode"`
@@ -51,6 +54,7 @@ type wrapperRecording struct {
 	Status            wrapperRecordingStatus `json:"status"`
 	StopReason        string                 `json:"stopReason,omitempty"`
 	Path              string                 `json:"-"`
+	TimelinePath      string                 `json:"-"`
 	StartedAt         time.Time              `json:"startedAt"`
 	StoppedAt         *time.Time             `json:"stoppedAt,omitempty"`
 	SizeBytes         int64                  `json:"sizeBytes,omitempty"`
@@ -67,6 +71,7 @@ type wrapperRecording struct {
 	replacing         bool
 	clientID          string
 	operationMu       *sync.Mutex
+	timeline          *recordingTimeline
 }
 
 type wrapperRecordingRequest struct {
@@ -294,7 +299,8 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		operationMu:       &sync.Mutex{},
 	}
 	session.recordings[id] = recording
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	pipelineStarted := time.Now()
+	cmd, done, probe, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err != nil {
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "start_failed"
@@ -305,6 +311,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	recording.cmd = cmd
 	recording.done = done
+	recording.timeline = r.newRecordingTimeline(target, probe, pipelineStarted)
 	recording.Status = wrapperRecordingRunning
 	status := *recording
 	r.mu.Unlock()
@@ -429,8 +436,10 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	recording.finalizing = true
 	r.mu.Unlock()
 
-	if err := stopRecordingSegment(recording); err != nil {
-		return session.failRecording(recording, "pipeline_failed", err)
+	stopErr := stopRecordingSegment(recording)
+	recording.finishTimelineCollection(len(recording.segments) - 1)
+	if stopErr != nil {
+		return session.failRecording(recording, "pipeline_failed", stopErr)
 	}
 	finalPath, size, err := session.joinRecordingSegments(recording)
 	if errors.Is(err, errWrapperRecordingEmpty) {
@@ -439,9 +448,11 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	if err != nil {
 		return session.failRecording(recording, "finalize_failed", err)
 	}
+	timelinePath := recording.finishRecordingTimeline(finalPath, nil)
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()
 	recording.Path = finalPath
+	recording.TimelinePath = timelinePath
 	recording.SizeBytes = size
 	recording.StoppedAt = &stoppedAt
 	recording.Status = wrapperRecordingStopped
@@ -454,7 +465,9 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 
 // failRecording marks a recording failed after keeping what it captured.
 func (session *liveSession) failRecording(recording *wrapperRecording, reason string, cause error) (wrapperRecording, error) {
+	recording.finishTimelineCollection(len(recording.segments) - 1)
 	salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path)
+	timelinePath := recording.salvageTimelines(salvaged)
 	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -463,8 +476,9 @@ func (session *liveSession) failRecording(recording *wrapperRecording, reason st
 	recording.Status = wrapperRecordingFailed
 	recording.StopReason = reason
 	recording.StoppedAt = &stoppedAt
-	if salvaged != "" {
-		recording.Path = salvaged
+	if len(salvaged) > 0 {
+		recording.Path = salvaged[0].path
+		recording.TimelinePath = timelinePath
 	}
 	return *recording, cause
 }
@@ -612,7 +626,19 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		r.mu.Unlock()
 	}()
 
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	pipelineStarted := time.Now()
+	cmd, done, probe, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	// The replacement is sampled from the moment its pipeline runs, so the changes
+	// its first frames show are not missed while the old segment is still recording.
+	replacementIndex := -1
+	if err == nil && recording.timeline != nil {
+		replacementIndex = recording.timeline.beginSegment(target, probe, pipelineStarted)
+	}
+	discardReplacement := func() {
+		if replacementIndex >= 0 {
+			recording.timeline.discardSegment(replacementIndex)
+		}
+	}
 	if err == nil {
 		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		for waitCtx.Err() == nil {
@@ -650,16 +676,22 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 			replacement := &wrapperRecording{cmd: cmd, done: done}
 			_ = stopRecordingSegment(replacement)
 		}
+		discardReplacement()
 		return err
 	}
 	if err := stopRecordingSegment(recording); err != nil {
 		replacement := &wrapperRecording{cmd: cmd, done: done}
 		_ = stopRecordingSegment(replacement)
+		discardReplacement()
+		recording.finishTimelineCollection(len(recording.segments) - 1)
 		r.mu.Lock()
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "replacement_failed"
 		r.mu.Unlock()
 		return err
+	}
+	if recording.timeline != nil {
+		recording.timeline.endSegment(len(recording.segments)-1, time.Now())
 	}
 	r.mu.Lock()
 	recording.segments = append(recording.segments, segment)
@@ -698,6 +730,7 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 		recording.replacing = true
 		r.mu.Unlock()
 		_ = stopRecordingSegment(recording)
+		recording.finishTimelineCollection(len(recording.segments) - 1)
 		r.mu.Lock()
 		stoppedAt := time.Now().UTC()
 		recording.cmd = nil
@@ -792,15 +825,22 @@ func publishFinishedRecording(source, target, segmentDir string) (string, int64,
 	return final, info.Size(), os.RemoveAll(segmentDir)
 }
 
+// salvagedSegment is a segment kept as a file of its own by abandonRecordingSegments.
+type salvagedSegment struct {
+	// index is the segment's position in the recording.
+	index int
+	path  string
+}
+
 // abandonRecordingSegments keeps the non-empty segments of a recording that did
 // not finish as numbered "-failed" files next to its target, and removes its
 // hidden segment directory, which the API could never reach or delete. It returns
-// the first kept file.
-func abandonRecordingSegments(segmentDir, target string) string {
+// the kept files in order.
+func abandonRecordingSegments(segmentDir, target string) []salvagedSegment {
 	entries, _ := os.ReadDir(segmentDir)
 	extension := filepath.Ext(target)
 	failed := strings.TrimSuffix(target, extension) + "-failed" + extension
-	salvaged := ""
+	var salvaged []salvagedSegment
 	for _, entry := range entries {
 		// A join output may be incomplete; the segments it came from are kept.
 		if !entry.Type().IsRegular() || strings.HasPrefix(entry.Name(), "joined") {
@@ -812,9 +852,14 @@ func abandonRecordingSegments(segmentDir, target string) string {
 			continue
 		}
 		final, err := publishRecording(source, failed)
-		if err == nil && salvaged == "" {
-			salvaged = final
+		if err != nil {
+			continue
 		}
+		index := -1
+		if _, scanErr := fmt.Sscanf(entry.Name(), "segment-%d", &index); scanErr != nil {
+			index = -1
+		}
+		salvaged = append(salvaged, salvagedSegment{index: index, path: final})
 	}
 	_ = os.RemoveAll(segmentDir)
 	return salvaged
@@ -886,14 +931,23 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 	if relative != "" {
 		sandboxPath = sessionfiles.SandboxPath(relative)
 	}
+	timelineRelative := ""
+	if recording.TimelinePath != "" {
+		if rel, err := filepath.Rel(recording.filesRoot, recording.TimelinePath); err == nil {
+			timelineRelative = filepath.ToSlash(rel)
+		}
+	}
 	return json.Marshal(struct {
 		fields
 		RelativePath string `json:"relativePath"`
 		SandboxPath  string `json:"sandboxPath,omitempty"`
+		// TimelineRelativePath is the recording's timeline file, below the session
+		// files root, once the video is published.
+		TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
 		// Path repeats RelativePath for clients that still read the field it replaced.
 		// It used to carry a host path, which it never does now.
 		Path string `json:"path"`
-	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, Path: relative})
+	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, TimelineRelativePath: timelineRelative, Path: relative})
 }
 
 // publishRecording moves a finished recording into place without replacing an
@@ -978,7 +1032,9 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 	recording.StopReason = "pipeline_exited"
 	stoppedAt := time.Now().UTC()
 	recording.StoppedAt = &stoppedAt
-	if salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path); salvaged != "" {
-		recording.Path = salvaged
+	recording.finishTimelineCollection(len(recording.segments) - 1)
+	if salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path); len(salvaged) > 0 {
+		recording.Path = salvaged[0].path
+		recording.TimelinePath = recording.salvageTimelines(salvaged)
 	}
 }

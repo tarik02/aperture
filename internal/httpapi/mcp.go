@@ -371,12 +371,14 @@ type mcpRecordingOutput struct {
 	Status            string `json:"status"`
 	StopReason        string `json:"stopReason,omitempty"`
 	RelativePath      string `json:"relativePath,omitempty"`
-	StartedAt         string `json:"startedAt,omitempty"`
-	StoppedAt         string `json:"stoppedAt,omitempty"`
-	SizeBytes         int64  `json:"sizeBytes,omitempty"`
-	FPS               int    `json:"fps,omitempty"`
-	BitrateKbps       int    `json:"bitrateKbps,omitempty"`
-	Codec             string `json:"codec,omitempty"`
+	// TimelineRelativePath is the timeline file saved next to the video: what happened while it was recorded (segments, pointer gestures with their cursor paths and click points, captions, when the screen changed), in video time. Present once the recording has stopped.
+	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
+	StartedAt            string `json:"startedAt,omitempty"`
+	StoppedAt            string `json:"stoppedAt,omitempty"`
+	SizeBytes            int64  `json:"sizeBytes,omitempty"`
+	FPS                  int    `json:"fps,omitempty"`
+	BitrateKbps          int    `json:"bitrateKbps,omitempty"`
+	Codec                string `json:"codec,omitempty"`
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`

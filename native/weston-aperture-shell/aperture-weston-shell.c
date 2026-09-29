@@ -62,6 +62,8 @@ struct aperture_shell {
 	struct wl_event_source *control_source;
 	struct wl_listener destroy_listener;
 	struct wl_listener text_input_focus_listener;
+	struct wl_listener create_surface_listener;
+	struct wl_list surface_watches;
 	struct wl_global *fractional_scale_global;
 	struct wl_global *text_input_global;
 	struct wl_global *viewporter_global;
@@ -103,6 +105,19 @@ struct aperture_output {
 	char *name;
 	uint32_t width;
 	uint32_t height;
+	/* Content activity, see note_output_damage(). Times are CLOCK_MONOTONIC. */
+	struct timespec last_damage;
+	uint64_t damage_count;
+};
+
+/* Follows one client surface so its commits can be counted as damage of the
+ * capture output its surface tree is bound to. */
+struct aperture_surface_watch {
+	struct wl_list link;
+	struct aperture_shell *shell;
+	struct weston_surface *surface;
+	struct wl_listener commit_listener;
+	struct wl_listener destroy_listener;
 };
 
 struct aperture_fractional_scale {
@@ -466,6 +481,68 @@ static void
 now(struct timespec *time)
 {
 	clock_gettime(CLOCK_MONOTONIC, time);
+}
+
+/* Records that the content shown on a capture output changed.
+ *
+ * "Content" means a bound client surface (or one of its popups or subsurfaces)
+ * committed non-empty damage, or a surface was bound to the output. Repaints are
+ * deliberately not counted: output-repaint forces full-output damage, PipeWire
+ * stream (re)starts damage the whole output, and the software cursor damages the
+ * region it moves across. None of those mean the page changed. */
+static void
+note_output_damage(struct aperture_output *capture)
+{
+	now(&capture->last_damage);
+	capture->damage_count++;
+}
+
+static void
+watch_surface_commit(struct wl_listener *listener, void *data)
+{
+	struct aperture_surface_watch *watch =
+		wl_container_of(listener, watch, commit_listener);
+	struct aperture_shell_surface *shell_surface;
+
+	/* Damage is flushed to the renderer at the next repaint, so it can outlive
+	 * the commit that added it; a damage-free commit right after one is counted too. */
+	if (!pixman_region32_not_empty(&watch->surface->damage))
+		return;
+	shell_surface = find_shell_surface_for_weston_surface(watch->shell, watch->surface);
+	if (!shell_surface || !shell_surface->capture_output)
+		return;
+	note_output_damage(shell_surface->capture_output);
+}
+
+static void
+watch_surface_destroy(struct wl_listener *listener, void *data)
+{
+	struct aperture_surface_watch *watch =
+		wl_container_of(listener, watch, destroy_listener);
+
+	wl_list_remove(&watch->commit_listener.link);
+	wl_list_remove(&watch->destroy_listener.link);
+	wl_list_remove(&watch->link);
+	free(watch);
+}
+
+static void
+handle_create_surface(struct wl_listener *listener, void *data)
+{
+	struct aperture_shell *shell =
+		wl_container_of(listener, shell, create_surface_listener);
+	struct weston_surface *surface = data;
+	struct aperture_surface_watch *watch = calloc(1, sizeof *watch);
+
+	if (!watch)
+		return;
+	watch->shell = shell;
+	watch->surface = surface;
+	watch->commit_listener.notify = watch_surface_commit;
+	wl_signal_add(&surface->commit_signal, &watch->commit_listener);
+	watch->destroy_listener.notify = watch_surface_destroy;
+	wl_signal_add(&surface->destroy_signal, &watch->destroy_listener);
+	wl_list_insert(&shell->surface_watches, &watch->link);
 }
 
 static void
@@ -1487,6 +1564,8 @@ create_capture_output(struct aperture_shell *shell, const char *capture_id,
 	capture->output = output;
 	capture->width = width;
 	capture->height = height;
+	/* A new output counts as changed now, so an idle query measures from creation. */
+	now(&capture->last_damage);
 	if (create_capture_background(shell, capture) < 0) {
 		free(capture->capture_id);
 		free(capture->name);
@@ -1540,6 +1619,8 @@ bind_surface_tree(struct aperture_shell *shell, struct aperture_shell_surface *r
 		weston_output_power_off(previous->output);
 	if (capture->output->power_state == WESTON_OUTPUT_POWER_FORCED_OFF)
 		weston_output_power_on(capture->output);
+	/* Binding or resizing shows different content on this output. */
+	note_output_damage(capture);
 
 	wl_list_for_each(surface, &shell->surfaces, link) {
 		if (root_shell_surface(shell, surface) != root)
@@ -1705,6 +1786,35 @@ handle_control_command(struct aperture_control_client *client)
 		capture->output->full_repaint_needed = true;
 		weston_output_schedule_repaint(capture->output);
 		write_control_response(client, "ok\n");
+		return;
+	}
+
+	/* damage-status <captureId> answers "ok <msSinceLastDamage> <damageCount>
+	 * <mappedSurfaces>". Damage is content damage only, see note_output_damage(). Before
+	 * any, msSinceLastDamage counts from the output's creation or last bind. */
+	if (sscanf(client->buffer, "damage-status %128s %c", identifier, &trailing) == 1) {
+		struct timespec current;
+		struct aperture_shell_surface *bound;
+		unsigned long long since_ms;
+		unsigned int mapped = 0;
+
+		capture = find_capture_output(client->shell, identifier);
+		if (!capture) {
+			write_control_response(client, "error output not found\n");
+			return;
+		}
+		now(&current);
+		since_ms = (unsigned long long)(current.tv_sec - capture->last_damage.tv_sec) * 1000ULL;
+		since_ms += (current.tv_nsec - capture->last_damage.tv_nsec) / 1000000LL;
+		wl_list_for_each(bound, &client->shell->surfaces, link) {
+			if (bound->capture_output == capture &&
+			    weston_surface_is_mapped(
+				    weston_desktop_surface_get_surface(bound->desktop_surface)))
+				mapped++;
+		}
+		snprintf(response, sizeof response, "ok %llu %llu %u\n", since_ms,
+			 (unsigned long long)capture->damage_count, mapped);
+		write_control_response(client, response);
 		return;
 	}
 
@@ -2049,9 +2159,14 @@ destroy_shell(struct wl_listener *listener, void *data)
 	struct aperture_text_input *next_text_input;
 	struct aperture_output *capture;
 	struct aperture_output *next_capture;
+	struct aperture_surface_watch *watch;
+	struct aperture_surface_watch *next_watch;
 
 	wl_list_remove(&shell->destroy_listener.link);
 	wl_list_remove(&shell->text_input_focus_listener.link);
+	wl_list_remove(&shell->create_surface_listener.link);
+	wl_list_for_each_safe(watch, next_watch, &shell->surface_watches, link)
+		watch_surface_destroy(&watch->destroy_listener, NULL);
 	if (shell->control_source)
 		wl_event_source_remove(shell->control_source);
 	if (shell->fractional_scale_global)
@@ -2120,6 +2235,9 @@ wet_shell_init(struct weston_compositor *compositor, int *argc, char *argv[])
 	wl_list_init(&shell->fractional_scales);
 	wl_list_init(&shell->text_inputs);
 	wl_list_init(&shell->text_input_focus_listener.link);
+	wl_list_init(&shell->surface_watches);
+	shell->create_surface_listener.notify = handle_create_surface;
+	wl_signal_add(&compositor->create_surface_signal, &shell->create_surface_listener);
 	weston_layer_init(&shell->background_layer, compositor);
 	weston_layer_init(&shell->normal_layer, compositor);
 	weston_layer_set_position(&shell->background_layer, WESTON_LAYER_POSITION_BACKGROUND);
