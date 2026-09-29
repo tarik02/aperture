@@ -22,6 +22,7 @@ var (
 	errPromotionServiceUnavailable = errors.New("promotion service unavailable")
 	errSnapshotServiceUnavailable  = errors.New("snapshot service unavailable")
 	errBrowserControlFailed        = errors.New("browser control failed")
+	errCursorNeedsCompositor       = errors.New("cursor visibility needs a compositor; this session has none")
 	errRecordingInvalidState       = errors.New("recording invalid state")
 	errRecordingNotFound           = errors.New("recording not found")
 	errRecordingCodecUnavailable   = errors.New("recording codec unavailable")
@@ -176,6 +177,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusUnprocessableEntity, "storage_export_unsupported", err.Error()
 	case errors.Is(err, errRecordingNotFound):
 		return http.StatusNotFound, "recording_not_found", err.Error()
+	case errors.Is(err, errCursorNeedsCompositor):
+		return http.StatusConflict, "cursor_requires_compositor", err.Error()
 	case errors.Is(err, errRecordingInvalidState):
 		return http.StatusConflict, "recording_invalid_state", err.Error()
 	case errors.Is(err, errSessionFileNotFound), errors.Is(err, sessionfiles.ErrNotFound):

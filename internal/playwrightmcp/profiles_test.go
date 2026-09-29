@@ -56,8 +56,8 @@ func TestVisionProfileStaysValidWithoutTools(t *testing.T) {
 	if len(tools) != 0 {
 		t.Fatalf("vision profile exposes %d tools", len(tools))
 	}
-	// Playwright still needs the capability for the CDP fallback's coordinate tools.
+	// The wrapper needs the capability for the coordinate tools it calls when it uses Playwright input.
 	if !slices.Contains(RuntimeCapabilities(), "vision") {
-		t.Fatal("the vision capability is no longer enabled in Playwright MCP")
+		t.Fatal("the vision capability is not enabled in Playwright MCP")
 	}
 }

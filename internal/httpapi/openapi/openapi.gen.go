@@ -134,6 +134,7 @@ const (
 	ErrorCodeBrowserControlFailed             ErrorCode = "browser_control_failed"
 	ErrorCodeBrowserInitializationFailed      ErrorCode = "browser_initialization_failed"
 	ErrorCodeBrowserStartFailed               ErrorCode = "browser_start_failed"
+	ErrorCodeCursorRequiresCompositor         ErrorCode = "cursor_requires_compositor"
 	ErrorCodeEventServiceUnavailable          ErrorCode = "event_service_unavailable"
 	ErrorCodeIdentityNotProvisioned           ErrorCode = "identity_not_provisioned"
 	ErrorCodeInsufficientScope                ErrorCode = "insufficient_scope"
@@ -210,6 +211,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeBrowserInitializationFailed:
 		return true
 	case ErrorCodeBrowserStartFailed:
+		return true
+	case ErrorCodeCursorRequiresCompositor:
 		return true
 	case ErrorCodeEventServiceUnavailable:
 		return true
@@ -3801,7 +3804,7 @@ type ClientInterface interface {
 
 	// SetSessionCursorWithBody Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -3810,7 +3813,7 @@ type ClientInterface interface {
 
 	// SetSessionCursor Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -4878,7 +4881,7 @@ func (c *Client) GetSessionCursor(ctx context.Context, sessionId SessionId, para
 
 // SetSessionCursorWithBody Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 //
 // Takes any type of body and a specified content type.
 //
@@ -4897,7 +4900,7 @@ func (c *Client) SetSessionCursorWithBody(ctx context.Context, sessionId Session
 
 // SetSessionCursor Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -9714,7 +9717,7 @@ type ClientWithResponsesInterface interface {
 
 	// SetSessionCursorWithBodyWithResponse Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9723,7 +9726,7 @@ type ClientWithResponsesInterface interface {
 
 	// SetSessionCursorWithResponse Set remote cursor settings
 	//
-	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+	// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -13661,7 +13664,7 @@ func (c *ClientWithResponses) GetSessionCursorWithResponse(ctx context.Context, 
 
 // SetSessionCursorWithBodyWithResponse Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13676,7 +13679,7 @@ func (c *ClientWithResponses) SetSessionCursorWithBodyWithResponse(ctx context.C
 
 // SetSessionCursorWithResponse Set remote cursor settings
 //
-// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+// Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

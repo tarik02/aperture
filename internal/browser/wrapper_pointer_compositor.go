@@ -3,7 +3,6 @@ package browser
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/aperture/aperture/internal/pointer"
@@ -394,52 +393,6 @@ func (c *compositorPointer) dragTravel(ctx context.Context, from, to pointer.Poi
 		}
 	}
 	return c.place(ctx, to)
-}
-
-// scroll glides to the point and turns the wheel there. The delta is spread over
-// the motion's duration as wheel steps that follow its easing.
-func (c *compositorPointer) scroll(ctx context.Context, at pointer.Point, deltaX, deltaY float64) error {
-	if err := c.glide(ctx, at); err != nil {
-		return err
-	}
-	if err := c.dwell(ctx); err != nil {
-		return err
-	}
-	duration := c.motion.TravelDuration(math.Hypot(deltaX, deltaY))
-	if duration <= 0 {
-		return c.axis(ctx, at, deltaX, deltaY)
-	}
-	ticker := time.NewTicker(c.frame)
-	defer ticker.Stop()
-	began := time.Now()
-	var sentX, sentY float64
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case now := <-ticker.C:
-			elapsed := now.Sub(began)
-			if elapsed >= duration {
-				return c.axis(ctx, at, deltaX-sentX, deltaY-sentY)
-			}
-			progress := c.motion.Ease(float64(elapsed) / float64(duration))
-			stepX, stepY := deltaX*progress-sentX, deltaY*progress-sentY
-			if err := c.axis(ctx, at, stepX, stepY); err != nil {
-				return err
-			}
-			sentX += stepX
-			sentY += stepY
-		}
-	}
-}
-
-// axis sends wheel movement in CSS pixels with the same unit conversion the
-// interactive scroll path uses.
-func (c *compositorPointer) axis(ctx context.Context, at pointer.Point, deltaX, deltaY float64) error {
-	if math.Abs(deltaX) < 1e-3 && math.Abs(deltaY) < 1e-3 {
-		return nil
-	}
-	return c.command(ctx, "axis-at %d %.3f %.3f %.3f %.3f\n", c.surfaceID, at.X, at.Y, deltaX/westonAxisStepDistance, deltaY/westonAxisStepDistance)
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {

@@ -9,7 +9,7 @@ import (
 )
 
 // Aperture provides these pointer tools itself. They take the names of the
-// Playwright MCP tools they replace, which the browser tool profiles no longer
+// Playwright MCP tools they replace, which the browser tool profiles do not
 // expose.
 const (
 	mcpToolBrowserClick  = "browser_click"
@@ -27,7 +27,7 @@ func isPointerTool(name string) bool {
 	}
 }
 
-const mcpPointerMotionDescription = `How the pointer travels. "natural" (the default) is an eased, slightly curved glide at about 1200 px/s, "fast" is a quicker glide, and "instant" jumps in one step. An object sets an average speed, {"speed": px/s}, or a fixed travel time, {"durationMs": ms}. A value here overrides the recording and session defaults (see cursor.set). Sessions without a compositor ignore it.`
+const mcpPointerMotionDescription = `How the pointer travels. "natural" (the default) is an eased, slightly curved glide at about 1200 px/s, "fast" is a quicker glide, and "instant" jumps in one step. An object sets an average speed, {"speed": px/s}, or a fixed travel time, {"durationMs": ms}. A value here overrides the recording and session defaults (see cursor.set). It has no effect when Playwright input is used.`
 
 func mcpPointerMotionSchema(description string) map[string]any {
 	return map[string]any{
@@ -68,9 +68,10 @@ func mcpPointerPosition(prefix string, what string) map[string]any {
 	}
 }
 
-func mcpPointerCommonProperties() map[string]any {
-	return map[string]any{
-		"motion": mcpPointerMotionSchema(mcpPointerMotionDescription),
+// mcpPointerCommonProperties are the parameters shared by the pointer tools;
+// includeMotion adds motion, which the tools that travel a pointer path take.
+func mcpPointerCommonProperties(includeMotion bool) map[string]any {
+	properties := map[string]any{
 		"holdMs": map[string]any{"type": "number", "minimum": 0, "maximum": 30000, "description": "Milliseconds to wait after the gesture, before the page state is returned. Use it to let a recording show the result. Defaults to 0."},
 		"caption": map[string]any{
 			"type": "string", "maxLength": 500,
@@ -78,12 +79,16 @@ func mcpPointerCommonProperties() map[string]any {
 		},
 		"timeoutMs": map[string]any{"type": "number", "minimum": 1, "maximum": 20000, "description": "How long to wait for a ref target to be visible, stable, enabled and not covered by another element. Defaults to 5000."},
 	}
+	if includeMotion {
+		properties["motion"] = mcpPointerMotionSchema(mcpPointerMotionDescription)
+	}
+	return properties
 }
 
 // pointerToolDefinition builds one pointer tool. Path-bound connections take the
 // session from the URL; the others add a required sessionId, as Playwright tools do.
 func pointerToolDefinition(name, title, description string, properties map[string]any, pathBound bool) *mcp.Tool {
-	all := mcpPointerCommonProperties()
+	all := mcpPointerCommonProperties(name != mcpToolBrowserScroll)
 	maps.Copy(all, properties)
 	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": all}
 	if !pathBound {
@@ -114,7 +119,7 @@ func pointerToolDefinitions(pathBound bool) []*mcp.Tool {
 	maps.Copy(drag, mcpPointerPosition("end", "destination"))
 
 	scroll := mcpPointerPosition("", "scroll")
-	scroll["target"] = map[string]any{"type": "string", "description": "Exact target element reference from the page snapshot, or a unique element selector, to scroll over. Use this or x and y. Without either, the wheel turns at the current pointer position."}
+	scroll["target"] = map[string]any{"type": "string", "description": "Exact target element reference from the page snapshot, or a unique element selector, to scroll over. Use this or x and y. Without either, the wheel turns where the pointer last was on the page (the viewport center if it has not been there)."}
 	scroll["deltaX"] = map[string]any{"type": "number", "description": "Horizontal scroll distance in CSS pixels; positive scrolls right. Defaults to 0."}
 	scroll["deltaY"] = map[string]any{"type": "number", "description": "Vertical scroll distance in CSS pixels; positive scrolls down. Defaults to 0."}
 
@@ -129,7 +134,7 @@ func pointerToolDefinitions(pathBound bool) []*mcp.Tool {
 			"Drag with the left mouse button from one element or viewport position to another, for drag and drop or sliders. Give the start as startTarget or startX and startY, and the end as endTarget or endX and endY.",
 			drag, pathBound),
 		pointerToolDefinition(mcpToolBrowserScroll, "Scroll mouse wheel",
-			"Turn the mouse wheel over an element or a viewport position. The scroll is spread over the motion's duration as smooth wheel steps.",
+			"Turn the mouse wheel over an element or a viewport position to scroll by a distance in CSS pixels. The page animates the scroll itself; there is no cursor travel, so this tool takes no motion. Pass a snapshot ref (target) or viewport coordinates (x and y).",
 			scroll, pathBound),
 	}
 }

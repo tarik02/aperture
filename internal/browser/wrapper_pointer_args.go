@@ -77,11 +77,18 @@ func (e pointerEndpoint) describe() string {
 	}
 }
 
+// pointerCommonArgs are accepted by every pointer tool.
 type pointerCommonArgs struct {
-	Motion    *pointer.Motion `json:"motion"`
-	HoldMs    *float64        `json:"holdMs"`
-	Caption   string          `json:"caption"`
-	TimeoutMs *float64        `json:"timeoutMs"`
+	HoldMs    *float64 `json:"holdMs"`
+	Caption   string   `json:"caption"`
+	TimeoutMs *float64 `json:"timeoutMs"`
+}
+
+// pointerMotionArgs are accepted by the tools that travel a pointer path. A
+// scroll does not embed them, so its parser rejects motion as an unknown
+// argument.
+type pointerMotionArgs struct {
+	Motion *pointer.Motion `json:"motion"`
 }
 
 type pointerClickArgs struct {
@@ -96,6 +103,7 @@ type pointerClickArgs struct {
 	DoubleClick *bool    `json:"doubleClick"`
 	Modifiers   []string `json:"modifiers"`
 	pointerCommonArgs
+	pointerMotionArgs
 }
 
 type pointerMoveArgs struct {
@@ -104,6 +112,7 @@ type pointerMoveArgs struct {
 	X       *float64 `json:"x"`
 	Y       *float64 `json:"y"`
 	pointerCommonArgs
+	pointerMotionArgs
 }
 
 type pointerDragArgs struct {
@@ -116,6 +125,7 @@ type pointerDragArgs struct {
 	EndX         *float64 `json:"endX"`
 	EndY         *float64 `json:"endY"`
 	pointerCommonArgs
+	pointerMotionArgs
 }
 
 type pointerScrollArgs struct {
@@ -135,6 +145,7 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 	}
 	spec := pointerGestureSpec{Tool: tool, Button: "left", ClickCount: 1}
 	var common pointerCommonArgs
+	var motion *pointer.Motion
 	switch tool {
 	case pointerToolClick:
 		var args pointerClickArgs
@@ -170,7 +181,7 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 			return spec, err
 		}
 		spec.Modifiers = modifiers
-		common = args.pointerCommonArgs
+		common, motion = args.pointerCommonArgs, args.Motion
 	case pointerToolMove:
 		var args pointerMoveArgs
 		if err := decodePointerArguments(arguments, &args); err != nil {
@@ -182,7 +193,7 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 			return spec, err
 		}
 		spec.From = from
-		common = args.pointerCommonArgs
+		common, motion = args.pointerCommonArgs, args.Motion
 	case pointerToolDrag:
 		var args pointerDragArgs
 		if err := decodePointerArguments(arguments, &args); err != nil {
@@ -198,7 +209,7 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 			return spec, err
 		}
 		spec.From, spec.To = from, to
-		common = args.pointerCommonArgs
+		common, motion = args.pointerCommonArgs, args.Motion
 	case pointerToolScroll:
 		var args pointerScrollArgs
 		if err := decodePointerArguments(arguments, &args); err != nil {
@@ -231,11 +242,11 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 		return spec, fmt.Errorf("unknown pointer tool %q", tool)
 	}
 
-	if common.Motion != nil {
-		if err := common.Motion.Validate(); err != nil {
+	if motion != nil {
+		if err := motion.Validate(); err != nil {
 			return spec, err
 		}
-		spec.Motion = common.Motion
+		spec.Motion = motion
 	}
 	hold, err := pointerDurationArgument("holdMs", common.HoldMs, 0, pointerMaxHold)
 	if err != nil {

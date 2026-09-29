@@ -597,6 +597,14 @@ func (r *wrapperRuntime) handleCursor(w http.ResponseWriter, req *http.Request) 
 				return
 			}
 		}
+		// The remote cursor is drawn by the compositor, so visibility needs one.
+		// The request is refused as a whole before anything is applied, so a
+		// combined update never leaves only its motion changed. Motion alone is a
+		// wrapper setting and works in every session.
+		if body.Visible != nil && !r.values.CompositorEnabled {
+			writeWrapperError(w, http.StatusConflict, "cursor visibility needs a compositor; this session has none")
+			return
+		}
 		if body.Visible != nil {
 			presentation, err := r.liveSession.updateCursorVisibility(req.Context(), *body.Visible)
 			if err != nil {
