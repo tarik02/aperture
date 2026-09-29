@@ -79,6 +79,12 @@ type PathInput struct {
 	Y      float64
 }
 
+// PointInput is a position in page pixels.
+type PointInput struct {
+	X float64
+	Y float64
+}
+
 // ClickInput is a button press at wall time At, in page pixels.
 type ClickInput struct {
 	At     time.Time
@@ -102,6 +108,8 @@ type GestureInput struct {
 	Clicks   []ClickInput
 	ScrollX  float64
 	ScrollY  float64
+	// ScrollAt is where a scroll's wheel turned, in page pixels, when known.
+	ScrollAt *PointInput
 	Caption  string
 }
 
@@ -188,13 +196,6 @@ func (b *Builder) DiscardSegment(index int) {
 	if index >= 0 && index == len(b.segments)-1 {
 		b.segments = b.segments[:index]
 	}
-}
-
-// SegmentCount is the number of segments begun.
-func (b *Builder) SegmentCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return len(b.segments)
 }
 
 // ActiveCaptures are the captures of the segments still being recorded, oldest
@@ -411,9 +412,6 @@ func (b *Builder) Build(options BuildOptions) (*Timeline, error) {
 		if index+1 < len(segments) {
 			segment.ownEnd = minTime(segment.ownEnd, segments[index+1].first)
 		}
-	}
-	for index := 1; index < len(segments); index++ {
-		segments[index].ownStart = segments[index].first
 	}
 
 	out := &Timeline{

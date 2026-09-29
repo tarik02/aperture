@@ -13,18 +13,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aperture/aperture/internal/pointer"
 	"github.com/aperture/aperture/internal/recording/timeline"
 )
 
 func TestParseCaptureDamage(t *testing.T) {
-	damage, err := parseCaptureDamage("ok 1500 42 3")
+	damage, err := parseCaptureDamage("ok 1500 42")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if damage.Since != 1500*time.Millisecond || damage.Count != 42 || damage.Mapped != 3 {
+	if damage.Since != 1500*time.Millisecond || damage.Count != 42 {
 		t.Fatalf("damage %+v", damage)
 	}
-	for _, bad := range []string{"", "ok", "ok 1 2", "ok x 2 3", "ok 1 -2 3", "error output not found", "ok 1 2 3 4"} {
+	for _, bad := range []string{"", "ok", "ok 1", "ok x 2", "ok 1 -2", "error output not found", "ok 1 2 3"} {
 		if _, err := parseCaptureDamage(bad); err == nil {
 			t.Errorf("parseCaptureDamage(%q) should fail", bad)
 		}
@@ -139,6 +140,10 @@ func TestTimelineGestureConvertsRecord(t *testing.T) {
 		input.Clicks[0].Count != 2 || input.Path[1].Offset != time.Second {
 		t.Fatalf("input %+v", input)
 	}
+	scroll := timelineGesture(pointerGestureRecord{Kind: pointerGestureScroll, Mode: pointerModeCDP, ScrollY: 200, Point: &pointer.Point{X: 5, Y: 6}})
+	if scroll.ScrollAt == nil || scroll.ScrollAt.X != 5 || scroll.ScrollAt.Y != 6 || scroll.ScrollY != 200 {
+		t.Fatalf("scroll %+v", scroll)
+	}
 }
 
 // fakeDamage stands in for the compositor: it counts changes and reports how
@@ -244,24 +249,19 @@ func serveControlSocket(t *testing.T, respond func(command string) string) strin
 	return path
 }
 
-func TestCaptureIdleForAsksTheCompositor(t *testing.T) {
+func TestReadCaptureDamageAsksTheCompositor(t *testing.T) {
 	socket := serveControlSocket(t, func(command string) string {
 		if command == "damage-status capture-a" {
-			return "ok 2500 17 1"
+			return "ok 2500 17"
 		}
 		return "error output not found"
 	})
-	runtime := &wrapperRuntime{controlSocket: socket}
-	idle, err := runtime.captureIdleFor(context.Background(), "capture-a")
-	if err != nil || idle != 2500*time.Millisecond {
-		t.Fatalf("idle %v err %v", idle, err)
-	}
-	if _, err := runtime.captureIdleFor(context.Background(), "capture-b"); err == nil {
-		t.Fatal("an unknown output must be an error, not an idle time")
+	if _, err := readCaptureDamage(context.Background(), socket, "capture-b"); err == nil {
+		t.Fatal("an unknown output must be an error")
 	}
 	before := time.Now()
 	damage, err := readCaptureDamage(context.Background(), socket, "capture-a")
-	if err != nil || damage.Count != 17 || damage.Mapped != 1 {
+	if err != nil || damage.Count != 17 {
 		t.Fatalf("damage %+v err %v", damage, err)
 	}
 	// The change is placed 2.5 s before the sample.

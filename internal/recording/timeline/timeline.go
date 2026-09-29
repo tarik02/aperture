@@ -165,7 +165,7 @@ type Gesture struct {
 	// motion needs. It contains the gesture's first and last position.
 	Path   []PathPoint `json:"path,omitempty"`
 	Clicks []Click     `json:"clicks,omitempty"`
-	// Scroll is the requested wheel movement in CSS pixels.
+	// Scroll is the wheel movement of a scroll gesture.
 	Scroll *Scroll `json:"scroll,omitempty"`
 }
 
@@ -188,8 +188,18 @@ type Click struct {
 
 // Scroll is a wheel movement.
 type Scroll struct {
+	// DX and DY are the requested distance in CSS pixels, not scaled.
 	DX float64 `json:"dx"`
 	DY float64 `json:"dy"`
+	// At is where the wheel turned, in pixels of the frame. It is absent when the
+	// position is not known.
+	At *Point `json:"at,omitempty"`
+}
+
+// Point is a position in pixels of the video frame.
+type Point struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 // Caption is text to show for a span of the video.

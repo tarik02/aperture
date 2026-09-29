@@ -147,6 +147,9 @@ func timelineGesture(record pointerGestureRecord) timeline.GestureInput {
 		Path:     make([]timeline.PathInput, 0, len(record.Path)),
 		Clicks:   make([]timeline.ClickInput, 0, len(record.Clicks)),
 	}
+	if record.Point != nil {
+		input.ScrollAt = &timeline.PointInput{X: record.Point.X, Y: record.Point.Y}
+	}
 	for _, point := range record.Path {
 		input.Path = append(input.Path, timeline.PathInput{Offset: point.Offset, X: point.X, Y: point.Y})
 	}

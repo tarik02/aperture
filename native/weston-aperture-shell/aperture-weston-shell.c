@@ -1809,14 +1809,12 @@ handle_control_command(struct aperture_control_client *client)
 		return;
 	}
 
-	/* damage-status <captureId> answers "ok <msSinceLastDamage> <damageCount>
-	 * <mappedSurfaces>". Damage is content damage only, see note_output_damage(). Before
-	 * any, msSinceLastDamage counts from the output's creation or last bind. */
+	/* damage-status <captureId> answers "ok <msSinceLastDamage> <damageCount>".
+	 * Damage is content damage only, see note_output_damage(). Before any,
+	 * msSinceLastDamage counts from the output's creation or last bind. */
 	if (sscanf(client->buffer, "damage-status %128s %c", identifier, &trailing) == 1) {
 		struct timespec current;
-		struct aperture_shell_surface *bound;
 		unsigned long long since_ms;
-		unsigned int mapped = 0;
 
 		capture = find_capture_output(client->shell, identifier);
 		if (!capture) {
@@ -1826,14 +1824,8 @@ handle_control_command(struct aperture_control_client *client)
 		now(&current);
 		since_ms = (unsigned long long)(current.tv_sec - capture->last_damage.tv_sec) * 1000ULL;
 		since_ms += (current.tv_nsec - capture->last_damage.tv_nsec) / 1000000LL;
-		wl_list_for_each(bound, &client->shell->surfaces, link) {
-			if (bound->capture_output == capture &&
-			    weston_surface_is_mapped(
-				    weston_desktop_surface_get_surface(bound->desktop_surface)))
-				mapped++;
-		}
-		snprintf(response, sizeof response, "ok %llu %llu %u\n", since_ms,
-			 (unsigned long long)capture->damage_count, mapped);
+		snprintf(response, sizeof response, "ok %llu %llu\n", since_ms,
+			 (unsigned long long)capture->damage_count);
 		write_control_response(client, response);
 		return;
 	}
