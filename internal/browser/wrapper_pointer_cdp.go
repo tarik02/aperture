@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/aperture/aperture/internal/pointer"
@@ -141,7 +142,7 @@ func (r *wrapperRuntime) runPointerGestureCDP(ctx context.Context, spec pointerG
 		if !resolve.needed {
 			continue
 		}
-		resolved, err := r.resolvePointerElement(ctx, resolve.endpoint, resolve.enabled, spec.Timeout)
+		resolved, err := r.resolvePointerElement(ctx, resolve.endpoint, resolve.enabled, false, spec.Timeout)
 		if err != nil {
 			if errors.Is(err, errPointerFallback) {
 				return nil, &pointerUserError{message: "cannot combine " + resolve.endpoint.describe() + " with coordinates: " + err.Error()}
@@ -158,7 +159,7 @@ func (r *wrapperRuntime) runPointerGestureCDP(ctx context.Context, spec pointerG
 	start := time.Now()
 	var result *mcp.CallToolResult
 	for _, call := range calls {
-		result, err = r.playwright.Call(ctx, call.Name, call.Arguments)
+		result, err = r.callPlaywrightWithinTimeout(ctx, call, spec.Timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -185,4 +186,32 @@ func (r *wrapperRuntime) runPointerGestureCDP(ctx context.Context, spec pointerG
 		return r.playwright.Call(ctx, "browser_snapshot", map[string]any{})
 	}
 	return result, nil
+}
+
+// callPlaywrightWithinTimeout makes one Playwright call. Playwright's pointer
+// tools take no timeout parameter and wait on their own clock (about five
+// seconds) for a ref target to be actionable, so timeoutMs is enforced here by
+// bounding the call's context. Calls that only take coordinates have nothing to
+// wait for and run unbounded. A call cut off this way makes the Playwright
+// backend restart its session, which costs the next call some startup time.
+func (r *wrapperRuntime) callPlaywrightWithinTimeout(ctx context.Context, call playwrightCallRequest, timeout time.Duration) (*mcp.CallToolResult, error) {
+	if timeout <= 0 || !pointerCallWaitsForElement(call) {
+		return r.playwright.Call(ctx, call.Name, call.Arguments)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	result, err := r.playwright.Call(callCtx, call.Name, call.Arguments)
+	if err != nil && ctx.Err() == nil && callCtx.Err() != nil {
+		return nil, &pointerUserError{message: fmt.Sprintf("%s did not finish within %s (timeoutMs)", call.Name, timeout)}
+	}
+	return result, err
+}
+
+func pointerCallWaitsForElement(call playwrightCallRequest) bool {
+	for _, key := range []string{"target", "startTarget", "endTarget"} {
+		if _, ok := call.Arguments[key]; ok {
+			return true
+		}
+	}
+	return false
 }

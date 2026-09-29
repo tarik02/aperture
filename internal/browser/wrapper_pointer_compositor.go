@@ -111,13 +111,36 @@ func (c *compositorPointer) moved(point pointer.Point) {
 	}
 }
 
+// bounds is the rectangle of surface coordinates the pointer travels in.
+//
+// The compositor's motion command accepts 0 <= x <= width and 0 <= y <= height
+// (it rejects only values beyond the surface). Coordinates are logical pixels
+// and the last pixel column is width-1, so the far edge is width-1: a pointer
+// parked at width would be on the neighboring surface's first pixel, not on
+// this one's. Glides therefore stay within [0, width-1] x [0, height-1].
+func (c *compositorPointer) bounds() pointer.Bounds {
+	return pointerSurfaceBounds(c.width, c.height)
+}
+
+func pointerSurfaceBounds(width, height float64) pointer.Bounds {
+	return pointer.Bounds{MaxX: max(width-1, 0), MaxY: max(height-1, 0)}
+}
+
 // start returns where a glide begins: the pointer's last position on this
 // surface, or the surface center when it has none (first gesture, or the
 // pointer was last on another target), in which case the pointer first jumps
-// there.
+// there. A remembered position outside the current surface (the window was
+// resized since) is moved to the nearest point inside it, and the pointer
+// jumps there first.
 func (c *compositorPointer) start(ctx context.Context) (pointer.Point, error) {
 	if point, ok := c.state.position(c.surfaceID); ok {
-		return point, nil
+		clamped := c.bounds().Clamp(point)
+		if clamped != point {
+			if err := c.place(ctx, clamped); err != nil {
+				return clamped, err
+			}
+		}
+		return clamped, nil
 	}
 	center := pointer.Point{X: c.width / 2, Y: c.height / 2}
 	if err := c.place(ctx, center); err != nil {
@@ -136,7 +159,7 @@ func (c *compositorPointer) glide(ctx context.Context, destination pointer.Point
 	if duration <= 0 {
 		return c.place(ctx, destination)
 	}
-	path := pointer.NewPath(from, destination, c.motion)
+	path := pointer.NewBoundedPath(from, destination, c.motion, c.bounds())
 	last := from
 	ticker := time.NewTicker(c.frame)
 	defer ticker.Stop()
@@ -181,12 +204,23 @@ func (c *compositorPointer) button(ctx context.Context, at pointer.Point, code u
 	return nil
 }
 
+// release lets go of a button without moving the pointer, so it cannot be
+// rejected for its coordinates the way "button-at" can. It retries once, since a
+// button left down would stay stuck for the page.
+func (c *compositorPointer) release(ctx context.Context, code uint32) error {
+	err := c.command(ctx, "button %d %d 0\n", c.surfaceID, code)
+	if err != nil && ctx.Err() == nil {
+		err = c.command(ctx, "button %d %d 0\n", c.surfaceID, code)
+	}
+	return err
+}
+
 // releaseQuietly lets go of a button even when the gesture's context is done,
 // so a cancelled gesture never leaves one held.
-func (c *compositorPointer) releaseQuietly(ctx context.Context, at pointer.Point, code uint32) {
+func (c *compositorPointer) releaseQuietly(ctx context.Context, code uint32) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pointerReleaseTimeout)
 	defer cancel()
-	_ = c.button(ctx, at, code, false)
+	_ = c.release(ctx, code)
 }
 
 func (c *compositorPointer) key(ctx context.Context, code uint32, pressed bool) error {
@@ -194,7 +228,12 @@ func (c *compositorPointer) key(ctx context.Context, code uint32, pressed bool) 
 	if pressed {
 		value = 1
 	}
-	return c.command(ctx, "key %d %d %d\n", c.surfaceID, code, value)
+	err := c.command(ctx, "key %d %d %d\n", c.surfaceID, code, value)
+	if err != nil && !pressed && ctx.Err() == nil {
+		// A modifier left down would stay held for the page; try once more.
+		err = c.command(ctx, "key %d %d %d\n", c.surfaceID, code, value)
+	}
+	return err
 }
 
 // withModifiers holds the modifier keys around an action and always releases
@@ -283,7 +322,7 @@ func (c *compositorPointer) tap(ctx context.Context, at pointer.Point, code uint
 	pressed := false
 	defer func() {
 		if pressed {
-			c.releaseQuietly(ctx, at, code)
+			c.releaseQuietly(ctx, code)
 		}
 	}()
 	if err := c.button(ctx, at, code, true); err != nil {
@@ -294,7 +333,7 @@ func (c *compositorPointer) tap(ctx context.Context, at pointer.Point, code uint
 	if err := sleepContext(ctx, pointerClickDownTime); err != nil {
 		return err
 	}
-	if err := c.button(ctx, at, code, false); err != nil {
+	if err := c.release(ctx, code); err != nil {
 		return err
 	}
 	pressed = false
@@ -302,7 +341,8 @@ func (c *compositorPointer) tap(ctx context.Context, at pointer.Point, code uint
 }
 
 // drag presses the left button at one point, moves to another with the button
-// held, and releases there.
+// held, and releases there. The release is a coordinate-less button command, so
+// it is not refused for a position and the pointer is already at the end point.
 func (c *compositorPointer) drag(ctx context.Context, from, to pointer.Point) error {
 	if err := c.glide(ctx, from); err != nil {
 		return err
@@ -313,7 +353,7 @@ func (c *compositorPointer) drag(ctx context.Context, from, to pointer.Point) er
 	pressed := false
 	defer func() {
 		if pressed {
-			c.releaseQuietly(ctx, c.last, evdevButtonLeft)
+			c.releaseQuietly(ctx, evdevButtonLeft)
 		}
 	}()
 	if err := c.button(ctx, from, evdevButtonLeft, true); err != nil {
@@ -327,7 +367,7 @@ func (c *compositorPointer) drag(ctx context.Context, from, to pointer.Point) er
 	if err := c.dwell(ctx); err != nil {
 		return err
 	}
-	if err := c.button(ctx, to, evdevButtonLeft, false); err != nil {
+	if err := c.release(ctx, evdevButtonLeft); err != nil {
 		return err
 	}
 	pressed = false

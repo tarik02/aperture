@@ -237,10 +237,36 @@ type Path struct {
 	to     Point
 	c1     Point
 	c2     Point
+	// bounds, when set, clamps every emitted point.
+	bounds *Bounds
+}
+
+// Bounds is the rectangle a pointer may travel in, corners included.
+type Bounds struct {
+	MinX, MinY, MaxX, MaxY float64
+}
+
+// Clamp returns the nearest point inside the bounds.
+func (b Bounds) Clamp(p Point) Point {
+	return Point{X: min(max(p.X, b.MinX), b.MaxX), Y: min(max(p.Y, b.MinY), b.MaxY)}
 }
 
 // NewPath builds the route from one point to another.
 func NewPath(from, to Point, m Motion) Path {
+	return newPath(from, to, m, nil)
+}
+
+// NewBoundedPath builds a route whose points never leave bounds, apart from the
+// two endpoints, which the caller has already validated and which may sit
+// slightly outside. The bend is placed on the side that needs the least
+// clamping, so a route near an edge still curves instead of flattening against
+// the edge. Because a Bezier curve stays inside the convex hull of its control
+// points, clamping the control points keeps the whole curve in bounds.
+func NewBoundedPath(from, to Point, m Motion, bounds Bounds) Path {
+	return newPath(from, to, m, &bounds)
+}
+
+func newPath(from, to Point, m Motion, bounds *Bounds) Path {
 	path := Path{motion: m, from: from, to: to, c1: from, c2: to}
 	distance := from.Distance(to)
 	amplitude := m.curveAmplitude(distance)
@@ -251,19 +277,40 @@ func NewPath(from, to Point, m Motion) Path {
 		return path
 	}
 	normal := Point{X: -(to.Y - from.Y) / distance, Y: (to.X - from.X) / distance}
+	controls := func(side float64) (Point, Point) {
+		c1 := Point{
+			X: from.X + (to.X-from.X)*0.3 + normal.X*amplitude*side,
+			Y: from.Y + (to.Y-from.Y)*0.3 + normal.Y*amplitude*side,
+		}
+		c2 := Point{
+			X: from.X + (to.X-from.X)*0.75 + normal.X*amplitude*side*0.5,
+			Y: from.Y + (to.Y-from.Y)*0.75 + normal.Y*amplitude*side*0.5,
+		}
+		return c1, c2
+	}
 	side := 1.0
 	if bowsLeft(from, to) {
 		side = -1
 	}
-	path.c1 = Point{
-		X: from.X + (to.X-from.X)*0.3 + normal.X*amplitude*side,
-		Y: from.Y + (to.Y-from.Y)*0.3 + normal.Y*amplitude*side,
-	}
-	path.c2 = Point{
-		X: from.X + (to.X-from.X)*0.75 + normal.X*amplitude*side*0.5,
-		Y: from.Y + (to.Y-from.Y)*0.75 + normal.Y*amplitude*side*0.5,
+	path.c1, path.c2 = controls(side)
+	if bounds != nil {
+		limit := *bounds
+		// Endpoints outside the bounds widen them so they stay reachable.
+		limit.MinX, limit.MaxX = min(limit.MinX, from.X, to.X), max(limit.MaxX, from.X, to.X)
+		limit.MinY, limit.MaxY = min(limit.MinY, from.Y, to.Y), max(limit.MaxY, from.Y, to.Y)
+		other1, other2 := controls(-side)
+		if clampCost(other1, other2, limit) < clampCost(path.c1, path.c2, limit) {
+			path.c1, path.c2 = other1, other2
+		}
+		path.c1, path.c2 = limit.Clamp(path.c1), limit.Clamp(path.c2)
+		path.bounds = &limit
 	}
 	return path
+}
+
+// clampCost is how far clamping to bounds would move the control points.
+func clampCost(c1, c2 Point, bounds Bounds) float64 {
+	return c1.Distance(bounds.Clamp(c1)) + c2.Distance(bounds.Clamp(c2))
 }
 
 func bowsLeft(from, to Point) bool {
@@ -281,10 +328,16 @@ func (p Path) At(progress float64) Point {
 	}
 	t := p.motion.Ease(progress)
 	u := 1 - t
-	return Point{
+	point := Point{
 		X: u*u*u*p.from.X + 3*u*u*t*p.c1.X + 3*u*t*t*p.c2.X + t*t*t*p.to.X,
 		Y: u*u*u*p.from.Y + 3*u*u*t*p.c1.Y + 3*u*t*t*p.c2.Y + t*t*t*p.to.Y,
 	}
+	if p.bounds != nil {
+		// Guards against rounding at the edge; the clamped control points already
+		// keep the curve inside.
+		point = p.bounds.Clamp(point)
+	}
+	return point
 }
 
 func lerp(a, b Point, t float64) Point {

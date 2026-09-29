@@ -100,8 +100,9 @@ func TestMCPServerExposesApertureNativePointerTools(t *testing.T) {
 		if _, ok := schemaProperties(t, tools["browser_click"])["clickCount"]; !ok {
 			t.Errorf("pathBound=%t: browser_click is not the Aperture tool", pathBound)
 		}
-		if _, ok := schemaProperties(t, tools["browser_click"])["doubleClick"]; ok {
-			t.Errorf("pathBound=%t: browser_click still has Playwright's doubleClick", pathBound)
+		// doubleClick stays as a documented alias for clickCount 2.
+		if _, ok := schemaProperties(t, tools["browser_click"])["doubleClick"]; !ok {
+			t.Errorf("pathBound=%t: browser_click lost the doubleClick alias", pathBound)
 		}
 
 		// Playwright's hidden pointer tools are gone; the rest are still proxied.
@@ -156,6 +157,32 @@ func TestCursorUpdateValidation(t *testing.T) {
 	for _, test := range tests {
 		if err := test.update.Validate(); (err != nil) != test.wantErr {
 			t.Errorf("%s: Validate() error = %v, wantErr %t", test.name, err, test.wantErr)
+		}
+	}
+}
+
+func TestMCPToolInputSchemasHaveNoTopLevelCombinators(t *testing.T) {
+	for _, pathBound := range []bool{true, false} {
+		tools := listMCPTools(t, mcpAuth{
+			profiles:    []string{"core", "vision", "network", "storage"},
+			sessionID:   "session-1",
+			sessionOnly: pathBound,
+			pathBound:   pathBound,
+		})
+		for name, tool := range tools {
+			encoded, err := json.Marshal(tool.InputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schema map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &schema); err != nil {
+				t.Fatal(err)
+			}
+			for _, keyword := range []string{"oneOf", "anyOf", "allOf"} {
+				if _, ok := schema[keyword]; ok {
+					t.Errorf("pathBound=%t: tool %s has a top-level %s in its input schema", pathBound, name, keyword)
+				}
+			}
 		}
 	}
 }

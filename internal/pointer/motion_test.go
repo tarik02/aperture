@@ -170,3 +170,41 @@ func TestPathEndpointsAndCurve(t *testing.T) {
 		t.Fatalf("short move should stay straight, midpoint = %+v", mid)
 	}
 }
+
+func TestBoundedPathStaysInsideBoundsAndKeepsCurving(t *testing.T) {
+	bounds := Bounds{MinX: 0, MinY: 0, MaxX: 1279, MaxY: 719}
+	cases := []struct{ from, to Point }{
+		{Point{X: 0, Y: 0}, Point{X: 1279, Y: 0}},
+		{Point{X: 3, Y: 300}, Point{X: 3, Y: 700}},
+		{Point{X: 1279, Y: 719}, Point{X: 10, Y: 719}},
+		{Point{X: 0, Y: 360}, Point{X: 0, Y: 5}},
+		{Point{X: 640, Y: 0}, Point{X: 900, Y: 0}},
+	}
+	for _, motion := range []Motion{Natural, {Kind: KindFast}} {
+		for _, c := range cases {
+			path := NewBoundedPath(c.from, c.to, motion, bounds)
+			maxDeviation := 0.0
+			length := c.from.Distance(c.to)
+			for step := 0; step <= 200; step++ {
+				p := path.At(float64(step) / 200)
+				if p.X < 0 || p.Y < 0 || p.X > 1279 || p.Y > 719 {
+					t.Fatalf("%s %+v: point %+v left the bounds", motion.Kind, c, p)
+				}
+				dev := math.Abs((c.to.X-c.from.X)*(c.from.Y-p.Y)-(c.from.X-p.X)*(c.to.Y-c.from.Y)) / length
+				maxDeviation = max(maxDeviation, dev)
+			}
+			if motion.Kind == KindNatural && maxDeviation < 1 {
+				t.Fatalf("%+v: bounded path flattened to a line (deviation %.2f)", c, maxDeviation)
+			}
+		}
+	}
+}
+
+func TestBoundedPathKeepsEndpointsOutsideBounds(t *testing.T) {
+	bounds := Bounds{MaxX: 100, MaxY: 100}
+	to := Point{X: 100.5, Y: 50}
+	path := NewBoundedPath(Point{X: 10, Y: 10}, to, Natural, bounds)
+	if got := path.At(1); got != to {
+		t.Fatalf("At(1) = %+v, want %+v", got, to)
+	}
+}

@@ -104,6 +104,7 @@ func pointerToolDefinitions(pathBound bool) []*mcp.Tool {
 	click := mcpPointerPosition("", "target")
 	click["button"] = map[string]any{"type": "string", "enum": []any{"left", "right", "middle"}, "description": "Button to click, defaults to left."}
 	click["clickCount"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "Number of clicks, defaults to 1. Use 2 for a double click."}
+	click["doubleClick"] = map[string]any{"type": "boolean", "description": "Deprecated alias for clickCount 2, kept for Playwright's browser_click. Prefer clickCount."}
 	click["modifiers"] = map[string]any{
 		"type": "array", "items": map[string]any{"type": "string", "enum": []any{"Alt", "Control", "ControlOrMeta", "Meta", "Shift"}},
 		"description": "Modifier keys held during the click.",

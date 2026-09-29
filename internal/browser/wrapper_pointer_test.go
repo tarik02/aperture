@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -66,7 +68,27 @@ func TestParsePointerGesture(t *testing.T) {
 		{name: "too many clicks", tool: pointerToolClick, args: `{"target": "e1", "clickCount": 4}`, wantErr: "clickCount must be between"},
 		{name: "unknown modifier", tool: pointerToolClick, args: `{"target": "e1", "modifiers": ["Hyper"]}`, wantErr: "modifier"},
 		{name: "unknown motion", tool: pointerToolClick, args: `{"target": "e1", "motion": "slow"}`, wantErr: "motion"},
-		{name: "playwright doubleClick is not accepted", tool: pointerToolClick, args: `{"target": "e1", "doubleClick": true}`, wantErr: "unknown field"},
+		{
+			name: "playwright doubleClick is an alias for clickCount 2",
+			tool: pointerToolClick,
+			args: `{"target": "e1", "doubleClick": true}`,
+			check: func(t *testing.T, spec pointerGestureSpec) {
+				if spec.ClickCount != 2 {
+					t.Fatalf("clickCount = %d, want 2", spec.ClickCount)
+				}
+			},
+		},
+		{
+			name: "doubleClick false leaves the click count alone",
+			tool: pointerToolClick,
+			args: `{"target": "e1", "doubleClick": false, "clickCount": 3}`,
+			check: func(t *testing.T, spec pointerGestureSpec) {
+				if spec.ClickCount != 3 {
+					t.Fatalf("clickCount = %d, want 3", spec.ClickCount)
+				}
+			},
+		},
+		{name: "doubleClick with a conflicting clickCount", tool: pointerToolClick, args: `{"target": "e1", "doubleClick": true, "clickCount": 3}`, wantErr: "conflicts"},
 		{name: "hold too long", tool: pointerToolMove, args: `{"target": "e1", "holdMs": 60000}`, wantErr: "holdMs"},
 		{name: "timeout too long", tool: pointerToolMove, args: `{"target": "e1", "timeoutMs": 60000}`, wantErr: "timeoutMs"},
 		{name: "caption too long", tool: pointerToolMove, args: fmt.Sprintf(`{"target": "e1", "caption": %q}`, strings.Repeat("x", pointerMaxCaption+1)), wantErr: "caption"},
@@ -269,15 +291,44 @@ func TestPointerSurfacePoint(t *testing.T) {
 	if _, err := pointerSurfacePoint(target, nil, pointer.Point{X: 1281, Y: 10}); err == nil {
 		t.Fatal("a point right of the surface was accepted")
 	}
-	// A page emulating a smaller viewport ends before the surface does.
-	if _, err := pointerSurfacePoint(target, &pointerViewportMetrics{Width: 800, Height: 600, Scale: 1}, pointer.Point{X: 900, Y: 100}); err == nil {
-		t.Fatal("a point outside the emulated viewport was accepted")
+	// The last pixel column is width-1, so width itself is outside the surface.
+	if _, err := pointerSurfacePoint(target, nil, pointer.Point{X: 1280, Y: 10}); err == nil {
+		t.Fatal("a point on the far edge was accepted")
+	}
+	// A page emulating a viewport that does not scale uniformly to the surface
+	// cannot take compositor coordinates.
+	if _, err := pointerSurfacePoint(target, &pointerViewportMetrics{Width: 800, Height: 600, Scale: 1}, pointer.Point{X: 100, Y: 100}); err == nil || !strings.Contains(err.Error(), "does not scale uniformly") || !errors.Is(err, errPointerFallback) {
+		t.Fatalf("emulated viewport error = %v, want a fallback", err)
 	}
 	if _, err := pointerSurfacePoint(target, &pointerViewportMetrics{Width: 1280, Height: 720, Scale: 2}, pointer.Point{X: 10, Y: 10}); err == nil || !strings.Contains(err.Error(), "pinch-zoomed") {
 		t.Fatalf("pinch-zoomed page error = %v", err)
 	}
 	if _, err := pointerSurfacePoint(wrapperTargetSnapshot{}, nil, pointer.Point{}); err == nil {
 		t.Fatal("a target without a viewport was accepted")
+	}
+}
+
+func TestPointerSurfacePointScalesForBrowserZoom(t *testing.T) {
+	target := wrapperTargetSnapshot{Viewport: compositorViewport{Width: 1280, Height: 720}}
+
+	// At 200% zoom the page is half as wide as the surface in CSS pixels.
+	got, err := pointerSurfacePoint(target, &pointerViewportMetrics{Width: 640, Height: 360, Scale: 1}, pointer.Point{X: 100, Y: 50})
+	if err != nil || got != (pointer.Point{X: 200, Y: 100}) {
+		t.Fatalf("200%% zoom: %+v, %v", got, err)
+	}
+	// At 110% zoom the page size is rounded, so the two ratios differ slightly.
+	got, err = pointerSurfacePoint(target, &pointerViewportMetrics{Width: 1164, Height: 655, Scale: 1}, pointer.Point{X: 582, Y: 327.5})
+	if err != nil || math.Abs(got.X-640) > 1.5 || math.Abs(got.Y-360) > 1.5 {
+		t.Fatalf("110%% zoom: %+v, %v", got, err)
+	}
+	// A CSS point that lies inside the page but scales past the surface is rejected.
+	if _, err := pointerSurfacePoint(target, &pointerViewportMetrics{Width: 640, Height: 360, Scale: 1}, pointer.Point{X: 640, Y: 10}); err == nil {
+		t.Fatal("a point past the zoomed page's edge was accepted")
+	}
+	// Rounding noise around 100% is not a zoom.
+	got, err = pointerSurfacePoint(target, &pointerViewportMetrics{Width: 1279, Height: 720, Scale: 1}, pointer.Point{X: 500, Y: 500})
+	if err != nil || got != (pointer.Point{X: 500, Y: 500}) {
+		t.Fatalf("100%%: %+v, %v", got, err)
 	}
 }
 
@@ -307,7 +358,7 @@ func TestPlaywrightResultParsing(t *testing.T) {
 
 func TestPointerResolveFunctionEmbedsOptions(t *testing.T) {
 	function := pointerResolveFunction(pointerResolveOptions{TimeoutMs: 1234, RequireEnable: true})
-	if strings.Contains(function, "__OPTIONS__") || !strings.Contains(function, `{"timeoutMs":1234,"requireEnabled":true}`) {
+	if strings.Contains(function, "__OPTIONS__") || !strings.Contains(function, `{"timeoutMs":1234,"requireEnabled":true,"noScroll":false}`) {
 		t.Fatalf("options were not embedded: %.200s", function)
 	}
 }
@@ -387,6 +438,8 @@ type fakeCompositor struct {
 	mu        sync.Mutex
 	commands  []string
 	onCommand func(command string)
+	// respond, when set, chooses the reply line; the default is "ok".
+	respond func(command string) string
 }
 
 func newFakeCompositor(t *testing.T) *fakeCompositor {
@@ -418,11 +471,16 @@ func newFakeCompositor(t *testing.T) *fakeCompositor {
 				fake.mu.Lock()
 				fake.commands = append(fake.commands, command)
 				hook := fake.onCommand
+				respond := fake.respond
 				fake.mu.Unlock()
 				if hook != nil {
 					hook(command)
 				}
-				_, _ = connection.Write([]byte("ok\n"))
+				reply := "ok"
+				if respond != nil {
+					reply = respond(command)
+				}
+				_, _ = connection.Write([]byte(reply + "\n"))
 			}()
 		}
 	}()
@@ -462,9 +520,9 @@ func TestCompositorPointerClickHoldsModifiersAroundEveryClick(t *testing.T) {
 		"key 7 42 1",
 		"key 7 29 1",
 		"button-at 7 100.000 200.000 273 1",
-		"button-at 7 100.000 200.000 273 0",
+		"button 7 273 0",
 		"button-at 7 100.000 200.000 273 1",
-		"button-at 7 100.000 200.000 273 0",
+		"button 7 273 0",
 		"key 7 29 0",
 		"key 7 42 0",
 	}
@@ -499,9 +557,175 @@ func TestCompositorPointerReleasesEverythingWhenCancelled(t *testing.T) {
 	}
 	commands := fake.recorded()
 	last := commands[len(commands)-2:]
-	if last[0] != "button-at 7 50.000 60.000 272 0" || last[1] != "key 7 56 0" {
+	if last[0] != "button 7 272 0" || last[1] != "key 7 56 0" {
 		t.Fatalf("button and modifier were not released, last commands: %q", commands)
 	}
+}
+
+func TestCompositorPointerReleasesWithoutCoordinatesAndRetries(t *testing.T) {
+	fake := newFakeCompositor(t)
+	var releases int
+	fake.mu.Lock()
+	fake.respond = func(command string) string {
+		if command == "button 7 272 0" {
+			fake.mu.Lock()
+			releases++
+			first := releases == 1
+			fake.mu.Unlock()
+			if first {
+				return "error pointer is not ready"
+			}
+		}
+		return "ok"
+	}
+	fake.mu.Unlock()
+	c := fake.pointer(pointer.Motion{Kind: pointer.KindInstant})
+	c.state.setPosition(7, pointer.Point{X: 5, Y: 5})
+
+	if err := c.click(context.Background(), pointer.Point{X: 50, Y: 60}, "left", 1, nil); err != nil {
+		t.Fatalf("click failed although the release retry succeeds: %v", err)
+	}
+	if releases != 2 {
+		t.Fatalf("release was sent %d times, want a retry", releases)
+	}
+}
+
+func TestCompositorPointerDragReleasesAfterRejectedMotion(t *testing.T) {
+	fake := newFakeCompositor(t)
+	fake.mu.Lock()
+	fake.respond = func(command string) string {
+		if strings.HasPrefix(command, "motion 7 610") || strings.HasPrefix(command, "motion 7 16") {
+			return "error invalid motion coordinates"
+		}
+		return "ok"
+	}
+	fake.mu.Unlock()
+	c := fake.pointer(pointer.Motion{Kind: pointer.KindInstant})
+	c.state.setPosition(7, pointer.Point{X: 10, Y: 10})
+
+	if err := c.drag(context.Background(), pointer.Point{X: 10, Y: 10}, pointer.Point{X: 610, Y: 10}); err == nil {
+		t.Fatal("drag reported success although motion was rejected")
+	}
+	commands := fake.recorded()
+	if last := commands[len(commands)-1]; last != "button 7 272 0" {
+		t.Fatalf("button was not released by a coordinate-less command, last = %q (all %q)", last, commands)
+	}
+}
+
+func TestCompositorPointerRetriesModifierRelease(t *testing.T) {
+	fake := newFakeCompositor(t)
+	var attempts int
+	fake.mu.Lock()
+	fake.respond = func(command string) string {
+		if command == "key 7 42 0" {
+			fake.mu.Lock()
+			attempts++
+			first := attempts == 1
+			fake.mu.Unlock()
+			if first {
+				return "error surface is unavailable"
+			}
+		}
+		return "ok"
+	}
+	fake.mu.Unlock()
+	c := fake.pointer(pointer.Motion{Kind: pointer.KindInstant})
+	if err := c.click(context.Background(), pointer.Point{X: 5, Y: 5}, "left", 1, []string{"Shift"}); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Fatalf("modifier release attempts = %d, want 2", attempts)
+	}
+}
+
+func TestCompositorPointerClampsStaleStartPosition(t *testing.T) {
+	fake := newFakeCompositor(t)
+	c := fake.pointer(pointer.Motion{Kind: pointer.KindInstant})
+	c.state.setPosition(7, pointer.Point{X: 2000, Y: -30})
+
+	if err := c.glide(context.Background(), pointer.Point{X: 100, Y: 100}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"motion 7 1279.000 0.000", "motion 7 100.000 100.000"}
+	if got := fake.recorded(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestCompositorPointerGlideNeverLeavesSurface(t *testing.T) {
+	fake := newFakeCompositor(t)
+	c := fake.pointer(pointer.Motion{Kind: pointer.KindDuration, Duration: 100 * time.Millisecond})
+	c.state.setPosition(7, pointer.Point{X: 0, Y: 0})
+
+	if err := c.glide(context.Background(), pointer.Point{X: 1279, Y: 0}); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range fake.recorded() {
+		var surface int
+		var x, y float64
+		if n, _ := fmt.Sscanf(command, "motion %d %f %f", &surface, &x, &y); n != 3 || x < 0 || y < 0 || x > 1279 || y > 719 {
+			t.Fatalf("motion outside the surface or malformed: %q", command)
+		}
+	}
+}
+
+func TestResolvePointerDragEndpoints(t *testing.T) {
+	spec := func(from, to pointerEndpoint) pointerGestureSpec {
+		return pointerGestureSpec{Kind: pointerGestureDrag, From: from, To: to}
+	}
+	ref := func(target string) pointerEndpoint { return pointerEndpoint{Target: target} }
+	type call struct {
+		target string
+		verify bool
+	}
+
+	t.Run("refs resolve end, start, then re-check the end", func(t *testing.T) {
+		var calls []call
+		positions := map[string]pointer.Point{"start": {X: 10, Y: 10}, "end": {X: 500, Y: 400}}
+		from, to, err := resolvePointerDragEndpoints(spec(ref("start"), ref("end")), func(endpoint pointerEndpoint, _, verify bool) (pointer.Point, error) {
+			calls = append(calls, call{endpoint.Target, verify})
+			point := positions[endpoint.Target]
+			if endpoint.Target == "end" && verify {
+				point = pointer.Point{X: 500, Y: 200} // the start's scroll moved it
+			}
+			return point, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []call{{"end", false}, {"start", false}, {"end", true}}
+		if !reflect.DeepEqual(calls, want) {
+			t.Fatalf("calls = %+v, want %+v", calls, want)
+		}
+		if from != (pointer.Point{X: 10, Y: 10}) || to != (pointer.Point{X: 500, Y: 200}) {
+			t.Fatalf("from, to = %+v, %+v; want the re-checked end", from, to)
+		}
+	})
+
+	t.Run("an end that cannot stay visible is a clear error", func(t *testing.T) {
+		_, _, err := resolvePointerDragEndpoints(spec(ref("start"), ref("end")), func(endpoint pointerEndpoint, _, verify bool) (pointer.Point, error) {
+			if verify {
+				return pointer.Point{}, &pointerUserError{message: "element is outside the viewport"}
+			}
+			return pointer.Point{}, nil
+		})
+		var userErr *pointerUserError
+		if !errors.As(err, &userErr) || !strings.Contains(err.Error(), "not visible at the same time") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("a coordinate start needs no re-check", func(t *testing.T) {
+		point := pointerEndpoint{Point: &pointer.Point{X: 1, Y: 2}}
+		var calls int
+		_, _, err := resolvePointerDragEndpoints(spec(point, ref("end")), func(pointerEndpoint, bool, bool) (pointer.Point, error) {
+			calls++
+			return pointer.Point{}, nil
+		})
+		if err != nil || calls != 2 {
+			t.Fatalf("calls = %d, err = %v", calls, err)
+		}
+	})
 }
 
 func TestCompositorPointerDragNudgesBeforeJumping(t *testing.T) {
@@ -517,7 +741,7 @@ func TestCompositorPointerDragNudgesBeforeJumping(t *testing.T) {
 		"button-at 7 10.000 10.000 272 1",
 		"motion 7 16.000 10.000",
 		"motion 7 610.000 10.000",
-		"button-at 7 610.000 10.000 272 0",
+		"button 7 272 0",
 	}
 	if got := fake.recorded(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("commands:\n got %q\nwant %q", got, want)
@@ -609,5 +833,20 @@ func TestPointerCallRequiresControlToken(t *testing.T) {
 	runtime.handlePointerCall(recorder, request)
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "given together") {
 		t.Fatalf("invalid arguments: status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPointerCallWaitsForElement(t *testing.T) {
+	for _, test := range []struct {
+		call playwrightCallRequest
+		want bool
+	}{
+		{playwrightCallRequest{Name: "browser_click", Arguments: map[string]any{"target": "e1"}}, true},
+		{playwrightCallRequest{Name: "browser_drag", Arguments: map[string]any{"startTarget": "a", "endTarget": "b"}}, true},
+		{playwrightCallRequest{Name: "browser_mouse_click_xy", Arguments: map[string]any{"x": 1.0, "y": 2.0}}, false},
+	} {
+		if got := pointerCallWaitsForElement(test.call); got != test.want {
+			t.Errorf("%s: pointerCallWaitsForElement = %t, want %t", test.call.Name, got, test.want)
+		}
 	}
 }

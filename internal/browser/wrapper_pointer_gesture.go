@@ -31,7 +31,7 @@ const (
 )
 
 // pointerPathPoint is one cursor position, Offset after the gesture started.
-// Coordinates are viewport CSS pixels of the gesture's target.
+// Coordinates are logical pixels of the gesture's compositor surface (CSS pixels at default zoom).
 type pointerPathPoint struct {
 	Offset time.Duration
 	X      float64

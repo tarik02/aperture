@@ -98,17 +98,16 @@ func (r *wrapperRuntime) runPointerGestureCompositor(ctx context.Context, regist
 		return nil, err
 	}
 	var from, to pointer.Point
-	if !spec.From.isZero() {
-		from, err = r.resolvePointerEndpoint(ctx, target, spec.From, spec.Kind == pointerGestureClick || spec.Kind == pointerGestureDrag, spec.Timeout)
-		if err != nil {
-			return nil, err
-		}
+	switch {
+	case spec.Kind == pointerGestureDrag:
+		from, to, err = resolvePointerDragEndpoints(spec, func(endpoint pointerEndpoint, requireEnabled, verify bool) (pointer.Point, error) {
+			return r.resolvePointerEndpoint(ctx, target, endpoint, requireEnabled, verify, spec.Timeout)
+		})
+	case !spec.From.isZero():
+		from, err = r.resolvePointerEndpoint(ctx, target, spec.From, spec.Kind == pointerGestureClick, false, spec.Timeout)
 	}
-	if spec.Kind == pointerGestureDrag {
-		to, err = r.resolvePointerEndpoint(ctx, target, spec.To, false, spec.Timeout)
-		if err != nil {
-			return nil, err
-		}
+	if err != nil {
+		return nil, err
 	}
 
 	motion := r.resolvePointerMotion(spec, target.TargetID)
@@ -164,18 +163,70 @@ func (r *wrapperRuntime) runPointerGestureCompositor(ctx context.Context, regist
 // pointerScrollDefault is where a scroll without a position turns the wheel:
 // the pointer if it is already on the surface, otherwise the surface center.
 func (r *wrapperRuntime) pointerScrollDefault(target wrapperTargetSnapshot) pointer.Point {
+	width, height := float64(target.Viewport.Width), float64(target.Viewport.Height)
 	if point, ok := r.pointer.position(target.SurfaceID); ok {
-		return point
+		// A remembered position may predate a resize of the surface.
+		return pointerSurfaceBounds(width, height).Clamp(point)
 	}
-	return pointer.Point{X: float64(target.Viewport.Width) / 2, Y: float64(target.Viewport.Height) / 2}
+	return pointer.Point{X: width / 2, Y: height / 2}
 }
 
-// resolvePointerEndpoint returns the surface coordinates of an endpoint.
-func (r *wrapperRuntime) resolvePointerEndpoint(ctx context.Context, target wrapperTargetSnapshot, endpoint pointerEndpoint, requireEnabled bool, timeout time.Duration) (pointer.Point, error) {
-	if endpoint.Point != nil {
-		return pointerSurfacePoint(target, nil, *endpoint.Point)
+// pointerEndpointResolver resolves one endpoint to surface coordinates.
+// verify asks for a check of where the element is now, without scrolling.
+type pointerEndpointResolver func(endpoint pointerEndpoint, requireEnabled, verify bool) (pointer.Point, error)
+
+// pointerDragVerifyTimeout bounds the check that a drag's end is still where it
+// was found; that check never scrolls, so it has nothing to wait for.
+const pointerDragVerifyTimeout = time.Second
+
+// resolvePointerDragEndpoints resolves both ends of a drag.
+//
+// Resolving a ref scrolls it into view, which can move the other end. So the end
+// is resolved first, then the start (whose scroll may invalidate the end), and
+// then, when both are refs, the end is looked up again without scrolling and its
+// fresh position is used. The start needs no second look: nothing scrolls after
+// it is found. If the start's scroll pushed the end out of view, the two are
+// not visible together and the drag fails with an error saying so; the caller
+// can scroll so both fit, or drag between coordinates. That is preferred over
+// falling back to Playwright's drag, which scrolls each ref into view in turn
+// and would hit the same problem.
+func resolvePointerDragEndpoints(spec pointerGestureSpec, resolve pointerEndpointResolver) (from, to pointer.Point, err error) {
+	to, err = resolve(spec.To, false, false)
+	if err != nil {
+		return from, to, err
 	}
-	resolved, err := r.resolvePointerElement(ctx, endpoint, requireEnabled, timeout)
+	from, err = resolve(spec.From, true, false)
+	if err != nil {
+		return from, to, err
+	}
+	if spec.From.Target != "" && spec.To.Target != "" {
+		to, err = resolve(spec.To, false, true)
+		if err != nil {
+			var userErr *pointerUserError
+			if errors.As(err, &userErr) {
+				return from, to, &pointerUserError{message: fmt.Sprintf("%s and %s are not visible at the same time (%s); scroll so both are in view, or drag between coordinates", spec.From.describe(), spec.To.describe(), userErr.message)}
+			}
+			return from, to, err
+		}
+	}
+	return from, to, nil
+}
+
+// resolvePointerEndpoint returns the surface coordinates of an endpoint. With
+// verify it only looks the element up where it is now, briefly and without
+// scrolling.
+func (r *wrapperRuntime) resolvePointerEndpoint(ctx context.Context, target wrapperTargetSnapshot, endpoint pointerEndpoint, requireEnabled, verify bool, timeout time.Duration) (pointer.Point, error) {
+	if endpoint.Point != nil {
+		metrics, err := r.pointerViewportMetrics(ctx)
+		if err != nil {
+			return pointer.Point{}, err
+		}
+		return pointerSurfacePoint(target, metrics, *endpoint.Point)
+	}
+	if verify {
+		timeout = min(timeout, pointerDragVerifyTimeout)
+	}
+	resolved, err := r.resolvePointerElement(ctx, endpoint, requireEnabled, verify, timeout)
 	if err != nil {
 		return pointer.Point{}, err
 	}

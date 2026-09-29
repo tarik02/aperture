@@ -41,17 +41,17 @@ func mcpCursorOutputSchema() map[string]any {
 
 func mcpCursorSetInputSchema(pathBound bool) map[string]any {
 	properties := map[string]any{
-		"visible": map[string]any{"type": "boolean", "description": "Whether to include the remote cursor in the live stream and recordings."},
+		"visible": map[string]any{"type": "boolean", "description": "Whether to include the remote cursor in the live stream and recordings. Give visible, motion, or both."},
 		"motion":  mcpPointerMotionSchema(`Default motion for the browser_click, browser_move, browser_drag and browser_scroll tools in this session: "natural", "fast", "instant", {"speed": px/s} or {"durationMs": ms}. A tool's own motion parameter overrides it. It lasts until the session stops.`),
 	}
 	schema := map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties":           properties,
-		"anyOf": []any{
-			map[string]any{"required": []any{"visible"}},
-			map[string]any{"required": []any{"motion"}},
-		},
+		// Top-level anyOf/oneOf/allOf are avoided because many LLM clients reject
+		// or mishandle them; the "at least one of visible and motion" rule is in
+		// the description and enforced by cursorUpdate.Validate.
+		"description": "Set at least one of visible and motion.",
 	}
 	if !pathBound {
 		properties["tenantId"] = map[string]any{"type": "string"}

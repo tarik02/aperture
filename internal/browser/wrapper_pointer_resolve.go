@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -83,6 +84,8 @@ type pointerElementResult struct {
 type pointerResolveOptions struct {
 	TimeoutMs     int64 `json:"timeoutMs"`
 	RequireEnable bool  `json:"requireEnabled"`
+	// NoScroll looks the element up where it is, without scrolling it into view.
+	NoScroll bool `json:"noScroll"`
 }
 
 // pointerResolveScript runs on the element with the given snapshot ref. It
@@ -170,6 +173,7 @@ const pointerResolveScript = `async (element) => {
   // attempts out keeps a page with a persistent overlay from jittering.
   let lastScroll = -Infinity, scrolls = 0;
   const scrollIntoView = () => {
+    if (options.noScroll) return;
     if (performance.now() - lastScroll < 250) return;
     lastScroll = performance.now();
     element.scrollIntoView({ block: alignments[scrolls++ % alignments.length], inline: 'center', behavior: 'instant' });
@@ -192,8 +196,15 @@ const pointerResolveScript = `async (element) => {
     } else {
       const box = { x: rect.left + offsets.x, y: rect.top + offsets.y, width: rect.width, height: rect.height };
       const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-      const root = topWindow.document.documentElement;
-      if (point.x < 0 || point.y < 0 || point.x >= root.clientWidth || point.y >= root.clientHeight) {
+      // The visible area is the visual viewport, which excludes scrollbars, when
+      // it is not pinch-zoomed; otherwise the window. A point over a scrollbar is
+      // outside it. innerWidth/innerHeight, which include scrollbars, are what
+      // the caller divides the surface size by to find the zoom.
+      const visual = topWindow.visualViewport;
+      const usable = visual && visual.scale === 1
+        ? { width: visual.width, height: visual.height }
+        : { width: topWindow.innerWidth, height: topWindow.innerHeight };
+      if (point.x < 0 || point.y < 0 || point.x >= usable.width || point.y >= usable.height) {
         failure = 'element is outside the viewport';
         scrollIntoView();
       } else {
@@ -208,7 +219,6 @@ const pointerResolveScript = `async (element) => {
         } else {
           const hit = hitTest(topWindow, point.x, point.y);
           if (hit && isElementOrDescendant(hit)) {
-            const visual = topWindow.visualViewport;
             return {
               status: 'ok', x: point.x, y: point.y, box,
               viewport: { width: topWindow.innerWidth, height: topWindow.innerHeight, scale: visual ? visual.scale : 1 },
@@ -292,9 +302,9 @@ func playwrightResultSection(text, title string) (string, bool) {
 // resolvePointerElement waits for the element to be actionable and returns its
 // click point. A tool failure that is not about the page's CSP is the caller's
 // to see; CSP blocks and elements the resolver cannot place fall back.
-func (r *wrapperRuntime) resolvePointerElement(ctx context.Context, endpoint pointerEndpoint, requireEnabled bool, timeout time.Duration) (pointerElementResult, error) {
+func (r *wrapperRuntime) resolvePointerElement(ctx context.Context, endpoint pointerEndpoint, requireEnabled, noScroll bool, timeout time.Duration) (pointerElementResult, error) {
 	var result pointerElementResult
-	function := pointerResolveFunction(pointerResolveOptions{TimeoutMs: timeout.Milliseconds(), RequireEnable: requireEnabled})
+	function := pointerResolveFunction(pointerResolveOptions{TimeoutMs: timeout.Milliseconds(), RequireEnable: requireEnabled, NoScroll: noScroll})
 	if err := r.evaluatePlaywright(ctx, function, endpoint.Target, &result); err != nil {
 		var toolErr *playwrightToolError
 		if errors.As(err, &toolErr) {
@@ -414,36 +424,81 @@ func (r *wrapperRuntime) findPointerMarker(ctx context.Context, targetIDs []stri
 	return matches[0], nil
 }
 
+// pointerViewportScript reports the page's viewport the way the resolver does.
+const pointerViewportScript = `() => ({
+  width: window.innerWidth,
+  height: window.innerHeight,
+  scale: window.visualViewport ? window.visualViewport.scale : 1,
+})`
+
+// pointerViewportMetrics reads the page's viewport, for placing coordinates
+// the caller gave. It returns nil when the page's Content Security Policy blocks
+// evaluation, in which case coordinates are taken as surface pixels.
+func (r *wrapperRuntime) pointerViewportMetrics(ctx context.Context) (*pointerViewportMetrics, error) {
+	var metrics pointerViewportMetrics
+	if err := r.evaluatePlaywright(ctx, pointerViewportScript, "", &metrics); err != nil {
+		var toolErr *playwrightToolError
+		if errors.As(err, &toolErr) {
+			if toolErr.blockedByPageCSP() {
+				return nil, nil
+			}
+			return nil, &pointerUserError{message: toolErr.text}
+		}
+		return nil, err
+	}
+	return &metrics, nil
+}
+
+// pointerScaleTolerance is how far the horizontal and vertical ratios of surface
+// size to page size may differ and still be read as one uniform zoom.
+const pointerScaleTolerance = 0.02
+
 // pointerSurfacePoint converts a point in the page's viewport CSS pixels to the
 // surface coordinates the compositor's motion command takes.
 //
 // The compositor surface is the Chromium window's content area, sized in
 // logical pixels (target.Viewport.Width x Height); the surface scale
 // (DPR = ScaleNumerator/120) is applied by the compositor when it maps surface
-// coordinates to output pixels. A page at default zoom lays out one CSS pixel
-// per logical pixel, so the conversion is an identity: multiplying by the device
-// pixel ratio here would double-apply the scale. What can differ is the extent.
-// A Playwright viewport emulation may make the page narrower than the surface,
-// and a pinch-zoomed page no longer maps CSS pixels one to one, so the point
-// must lie inside both, and pinch-zoomed pages are refused (the caller falls
-// back). metrics may be nil when the page reported none.
+// coordinates to output pixels, so the device pixel ratio does not enter here.
+// What does enter is the browser zoom: at 150% zoom the page's innerWidth is
+// two thirds of the surface width, and one CSS pixel spans 1.5 surface pixels.
+// The scale is therefore surface size divided by innerWidth/innerHeight. When the
+// two ratios agree it is a uniform zoom and the point is multiplied by it.
+// When they disagree the page does not fill the surface the way a zoom would, as
+// with a Playwright viewport emulation, and the caller falls back to Playwright
+// input. (An emulation with the surface's own aspect ratio is indistinguishable
+// from a zoom and is treated as one.) Pinch-zoomed pages are refused too.
+//
+// metrics may be nil when the page reported none; CSS pixels are then taken as
+// surface pixels. The converted point must lie inside the surface (the last
+// pixel column is width-1, so width itself is outside).
 func pointerSurfacePoint(target wrapperTargetSnapshot, metrics *pointerViewportMetrics, point pointer.Point) (pointer.Point, error) {
 	width := float64(target.Viewport.Width)
 	height := float64(target.Viewport.Height)
 	if width <= 0 || height <= 0 {
 		return point, pointerFallback("the target has no viewport")
 	}
+	given := point
+	cssWidth, cssHeight := width, height
 	if metrics != nil {
 		if metrics.Scale != 0 && (metrics.Scale < 0.99 || metrics.Scale > 1.01) {
 			return point, pointerFallback("the page is pinch-zoomed")
 		}
 		if metrics.Width > 0 && metrics.Height > 0 {
-			width = min(width, metrics.Width)
-			height = min(height, metrics.Height)
+			scaleX, scaleY := width/metrics.Width, height/metrics.Height
+			if math.Abs(scaleX-scaleY) > pointerScaleTolerance*max(scaleX, scaleY) {
+				return point, pointerFallback("the page viewport (%.0fx%.0f) does not scale uniformly to the surface (%.0fx%.0f)", metrics.Width, metrics.Height, width, height)
+			}
+			scale := (scaleX + scaleY) / 2
+			if math.Abs(scale-1) < 0.01 {
+				scale = 1
+			}
+			point = pointer.Point{X: point.X * scale, Y: point.Y * scale}
+			cssWidth, cssHeight = metrics.Width, metrics.Height
 		}
 	}
-	if point.X < 0 || point.Y < 0 || point.X > width || point.Y > height {
-		return point, &pointerUserError{message: fmt.Sprintf("point (%s, %s) is outside the %.0fx%.0f viewport", formatCoordinate(point.X), formatCoordinate(point.Y), width, height)}
+	if point.X < 0 || point.Y < 0 || point.X >= width || point.Y >= height {
+		return point, &pointerUserError{message: fmt.Sprintf("point (%s, %s) is outside the %.0fx%.0f viewport", formatCoordinate(given.X), formatCoordinate(given.Y), cssWidth, cssHeight)}
 	}
 	return point, nil
 }

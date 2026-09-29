@@ -91,7 +91,10 @@ type pointerClickArgs struct {
 	Y          *float64 `json:"y"`
 	Button     string   `json:"button"`
 	ClickCount *int     `json:"clickCount"`
-	Modifiers  []string `json:"modifiers"`
+	// DoubleClick is Playwright's browser_click parameter, kept as an alias for
+	// clickCount 2 so existing clients keep working.
+	DoubleClick *bool    `json:"doubleClick"`
+	Modifiers   []string `json:"modifiers"`
 	pointerCommonArgs
 }
 
@@ -155,6 +158,12 @@ func parsePointerGesture(tool string, arguments json.RawMessage) (pointerGesture
 				return spec, fmt.Errorf("clickCount must be between 1 and %d", pointerMaxClickCount)
 			}
 			spec.ClickCount = *args.ClickCount
+		}
+		if args.DoubleClick != nil && *args.DoubleClick {
+			if args.ClickCount != nil && *args.ClickCount != 2 {
+				return spec, errors.New("doubleClick conflicts with clickCount; use clickCount alone")
+			}
+			spec.ClickCount = 2
 		}
 		modifiers, err := validatePointerModifiers(args.Modifiers)
 		if err != nil {
