@@ -3,6 +3,7 @@ package browser
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 )
@@ -113,10 +114,12 @@ func burstPieces(doc timelineDoc, burst RecordingBurst, activity []span, complet
 // followAction moves a bursts recording to the tab an action ended on, which may
 // take a moment to become ready. A recording that cannot follow stays where it is.
 func (session *liveSession) followAction(recordingID, targetID string) {
+	var err error
 	for i := 0; i < burstFollowTries; i++ {
-		if _, err := session.retargetRecording(session.runtime.ctx, recordingID, targetID); err == nil || errors.Is(err, errWrapperRecordingNotFound) {
+		if _, err = session.retargetRecording(session.runtime.ctx, recordingID, targetID); err == nil || errors.Is(err, errWrapperRecordingNotFound) {
 			return
 		}
 		time.Sleep(burstFollowPeriod)
 	}
+	fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s cannot follow target %s: %v\n", recordingID, targetID, err)
 }
