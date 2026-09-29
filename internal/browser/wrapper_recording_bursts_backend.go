@@ -85,8 +85,19 @@ func (b *recordingBurstBackend) refreshTargets(ctx context.Context) {
 	r.mu.Lock()
 	registry := r.targets
 	r.mu.Unlock()
-	if registry != nil {
+	if registry == nil {
+		return
+	}
+	// The registry's sync may be running, or queued behind a slow one: the caller
+	// stops waiting when its context ends, and the sync then ends by itself.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
 		_ = registry.reconcileSettledWindows(ctx)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 

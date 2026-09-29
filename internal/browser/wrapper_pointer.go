@@ -58,6 +58,9 @@ func (r *wrapperRuntime) handlePointerCall(w http.ResponseWriter, req *http.Requ
 	}
 
 	ctx, ticket := r.beginBurstAction(req.Context(), spec.Tool, nil, spec.Hold)
+	// Whatever ends the handler, the bursts hear that the action is over: the
+	// deferred end only counts when the normal one did not run (a panic).
+	defer ticket.end(errBurstActionAbandoned)
 	result, err := r.runPointerGesture(ctx, spec)
 	ticket.end(burstFailure(result, err))
 	var userErr *pointerUserError

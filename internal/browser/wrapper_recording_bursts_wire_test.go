@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aperture/aperture/internal/pointer"
@@ -210,4 +211,91 @@ func TestBurstActionsCostNothingWithoutABurstsRecording(t *testing.T) {
 	if _, ticket := session.runtime.beginBurstAction(context.Background(), "browser_snapshot", nil, 0); ticket != nil {
 		t.Fatalf("ticket %v", ticket)
 	}
+}
+
+func TestBurstActionFindsItsPageWithinTheIdentifyDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		session, recording, backend := newBurstsTestSession(t)
+		runtime := session.runtime
+		runtime.burstIdentify = func(ctx context.Context) string {
+			_ = sleepContext(ctx, time.Second)
+			return "t2"
+		}
+		started := time.Now()
+		_, ticket := runtime.beginBurstAction(context.Background(), "browser_type", map[string]any{}, 0)
+		if ticket == nil || ticket.resolvedTarget() != "t2" || len(ticket.entries) != 1 {
+			t.Fatalf("ticket %+v", ticket)
+		}
+		if waited := time.Since(started); waited != time.Second+backend.firstFrame {
+			t.Fatalf("begin took %v", waited)
+		}
+		if backend.segment(0).target.TargetID != "t2" || recording.bursts.pending != 0 {
+			t.Fatalf("recorded %s, %d pending", backend.segment(0).target.TargetID, recording.bursts.pending)
+		}
+		ticket.end(nil)
+		recording.bursts.shutdown(false)
+	})
+}
+
+func TestBurstActionWhoseIdentificationHangsFallsBackAfterTheDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		session, recording, backend := newBurstsTestSession(t)
+		runtime := session.runtime
+		// A Playwright call that queued, or a page that never answers: the probe
+		// only ends with its context.
+		runtime.burstIdentify = func(ctx context.Context) string {
+			<-ctx.Done()
+			return ""
+		}
+		started := time.Now()
+		_, ticket := runtime.beginBurstAction(context.Background(), "browser_type", map[string]any{}, 0)
+		if ticket == nil || ticket.resolvedTarget() != "" || len(ticket.entries) != 1 {
+			t.Fatalf("ticket %+v", ticket)
+		}
+		if waited := time.Since(started); waited != burstIdentifyTimeout+backend.firstFrame {
+			t.Fatalf("begin took %v, want the identify deadline plus the first frame", waited)
+		}
+		// The action is recorded on the page the recording falls back to.
+		if backend.segmentCount() != 1 || backend.segment(0).target.TargetID != "t1" || recording.bursts.pending != 0 {
+			t.Fatalf("%d segments, %d pending", backend.segmentCount(), recording.bursts.pending)
+		}
+		ticket.end(nil)
+		recording.bursts.shutdown(false)
+	})
+}
+
+func TestBurstActionCancelledWhileFindingItsPageFreesItsBursts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		session, recording, backend := newBurstsTestSession(t)
+		runtime := session.runtime
+		runtime.burstIdentify = func(ctx context.Context) string {
+			<-ctx.Done()
+			return ""
+		}
+		// A burst is tailing off when the action arrives, and the request is
+		// cancelled while it waits: the burst must not be held open by it.
+		action := burstAction{Tool: "browser_type", Kind: burstActionChange, TargetID: "t1"}
+		handle, err := recording.bursts.begin(context.Background(), action)
+		if err != nil || handle == nil {
+			t.Fatal(err)
+		}
+		recording.bursts.end(handle, time.Now(), nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(300*time.Millisecond, cancel)
+		started := time.Now()
+		_, ticket := runtime.beginBurstAction(ctx, "browser_type", map[string]any{}, 0)
+		if waited := time.Since(started); waited != 300*time.Millisecond {
+			t.Fatalf("the cancelled request waited %v", waited)
+		}
+		// The handler ends the ticket of the action that the cancelled request ran.
+		ticket.end(context.Canceled)
+		if recording.bursts.pending != 0 {
+			t.Fatalf("%d actions still pending", recording.bursts.pending)
+		}
+		time.Sleep(3 * time.Second)
+		if backend.segment(0).closeReason() != "settled" || recording.bursts.status().State != "idle" {
+			t.Fatalf("closed %q, status %+v", backend.segment(0).closeReason(), recording.bursts.status())
+		}
+		recording.bursts.shutdown(false)
+	})
 }

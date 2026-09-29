@@ -41,8 +41,10 @@ const (
 	burstMaxLeadMs   = 10000
 	burstMaxTailMs   = 30000
 	burstMaxSettleMs = 30000
-	// burstMaxMaxTailMs keeps a graceful stop, which may wait a burst's whole tail,
-	// under the timeouts MCP clients commonly put on a tool call.
+	// burstMaxMaxTailMs bounds a burst's tail. A graceful stop waits for the actions
+	// that are running and then for the tail, but never longer than
+	// burstStopActionWait+burstStopTailSlack in all, which is what keeps it under
+	// the timeouts MCP clients commonly put on a tool call.
 	burstMaxMaxTailMs = 30000
 
 	// burstFirstFrameTimeout is how long a burst waits for its pipeline's first
@@ -79,7 +81,10 @@ const (
 	// that are running to end.
 	burstStopActionWait = 30 * time.Second
 	// burstStopTailSlack is how long past a tail's hard end a graceful stop waits
-	// for the tail to close the burst before it closes it itself.
+	// for the tail to close the burst before it closes it itself. It is also the
+	// room a stop has, beyond burstStopActionWait, for a tail: the whole graceful
+	// wait, actions and tail together, ends burstStopActionWait+burstStopTailSlack
+	// after the stop began.
 	burstStopTailSlack = 5 * time.Second
 )
 
@@ -313,6 +318,10 @@ type recordingBursts struct {
 	// background: the burst does not tail off, and no action joins it, until they
 	// are done.
 	following int
+	// followTo is the page a finished move found the automation on, when the
+	// burst could not move to it at once because it was opening or closing. The
+	// move is made when the burst settles; see settleFollowLocked.
+	followTo string
 	// pending counts the actions that have arrived and are still finding out which
 	// page they run on: the burst does not close its tail meanwhile.
 	pending int
@@ -439,6 +448,15 @@ func (b *recordingBursts) begin(ctx context.Context, action burstAction) (*burst
 				b.mu.Unlock()
 				return nil, nil
 			}
+			if b.following > 0 {
+				// The burst closed while a tab action was moving it: the move opens a
+				// burst on the page it finds, which the action joins.
+				if err := b.waitLocked(ctx); err != nil {
+					b.mu.Unlock()
+					return nil, err
+				}
+				continue
+			}
 			target, ready := b.backend.target(action.TargetID)
 			if !ready && !awaited && action.TargetID != "" {
 				awaited = true
@@ -550,6 +568,7 @@ func (b *recordingBursts) openForAction(ctx context.Context, action burstAction,
 		return nil, errBurstUnavailable
 	}
 	handle := b.registerLocked(action)
+	b.followTo = ""
 	openCtx := b.startOpeningLocked(ctx, target, true)
 	lead := time.Duration(0)
 	if action.Kind == burstActionPointer {
@@ -605,8 +624,14 @@ func (b *recordingBursts) startOpeningLocked(parent context.Context, target wrap
 func (b *recordingBursts) runOpening(ctx context.Context, target wrapperTargetSnapshot, burst uint64, lead time.Duration, newBurst bool) error {
 	seg, err := b.openSegment(ctx, target, burst, lead)
 	b.mu.Lock()
-	if err == nil && b.stopping {
+	switch {
+	case err != nil:
+	case b.stopping:
 		err = errBurstStopped
+	case ctx.Err() != nil:
+		// Cancelled while the segment finished opening (the page closed, or the
+		// caller went away): the cancellation wins, so that its reason is kept.
+		err = ctx.Err()
 	}
 	if err != nil {
 		return b.abortOpening(ctx, seg, err, newBurst)
@@ -619,6 +644,9 @@ func (b *recordingBursts) runOpening(ctx context.Context, target wrapperTargetSn
 	if current, ready := b.backend.target(target.TargetID); ready {
 		b.replaceTarget(current)
 	}
+	// A tab action may have moved on to another page while the burst was opening.
+	b.mu.Lock()
+	b.settleFollowLocked(false)
 	return nil
 }
 
@@ -687,6 +715,7 @@ func (b *recordingBursts) awaitFirstFrame(ctx context.Context, seg burstSegment,
 func (b *recordingBursts) activateLocked(seg burstSegment, newBurst bool) {
 	b.cancelOpen()
 	b.cancelOpen = nil
+	b.openCancelReason = ""
 	b.seg = seg
 	b.state = burstActive
 	b.openFailures = 0
@@ -711,6 +740,7 @@ func (b *recordingBursts) abortOpening(ctx context.Context, seg burstSegment, er
 	stopping := b.stopping
 	reason := b.openCancelReason
 	b.openCancelReason = ""
+	b.followTo = ""
 	cancelled := ctx.Err() != nil || errors.Is(err, errBurstStopped)
 	b.cancelOpen()
 	b.cancelOpen = nil
@@ -949,6 +979,16 @@ func (b *recordingBursts) finishClose(seg burstSegment, reason string, reopen *w
 	}
 	b.mu.Lock()
 	reopening := reopen != nil && !b.stopping && (len(b.handles) > 0 || b.plan.valid)
+	var reopenTarget wrapperTargetSnapshot
+	if reopening {
+		// The page may have closed while the segment was closing: reopening on it
+		// would only fail, and count as a capture failure.
+		var ready bool
+		if reopenTarget, ready = b.backend.target(reopen.TargetID); !ready {
+			reopening = false
+			b.lastError = "the page to record closed while its burst was closing"
+		}
+	}
 	if err != nil {
 		b.lastError = fmt.Sprintf("closing a burst: %v", err)
 		if b.burstKept == 0 && !reopening {
@@ -964,18 +1004,23 @@ func (b *recordingBursts) finishClose(seg burstSegment, reason string, reopen *w
 		}
 	}
 	if reopening {
-		target := *reopen
-		openCtx := b.startOpeningLocked(b.root, target, false)
+		openCtx := b.startOpeningLocked(b.root, reopenTarget, false)
 		burst := b.burstNo
 		b.mu.Unlock()
 		b.backend.changed()
-		_ = b.runOpening(openCtx, target, burst, 0, false)
+		_ = b.runOpening(openCtx, reopenTarget, burst, 0, false)
 		return
 	}
 	clear(b.handles)
 	b.plan = tailPlan{}
 	b.state = burstIdle
 	b.publishLocked()
+	if b.followTo != "" {
+		// A tab action moved the automation to another page while the burst was
+		// closing: there is no burst to move, so one opens on that page.
+		b.settleFollowLocked(false)
+		return
+	}
 	b.mu.Unlock()
 	b.backend.changed()
 }
@@ -1077,9 +1122,14 @@ func (b *recordingBursts) finishCloseAndNotify(seg burstSegment, reason string, 
 // close and reopening all run in the background, owned by the controller; until
 // they are done the burst does not tail off and later actions wait for it. The
 // action's ticket calls it before end.
-func (b *recordingBursts) startFollow(handle *burstHandle, identify func() string) {
+//
+// The move does not depend on the state the burst is in: a burst that is being
+// closed or reopened (its page's capture was replaced) makes the move when it
+// settles, and one that ended under the action (the tab it recorded was closed)
+// gets a new burst on the page the automation is on now. See settleFollowLocked.
+func (b *recordingBursts) startFollow(identify func() string) {
 	b.mu.Lock()
-	if _, taking := b.handles[handle]; !taking || b.stopping || b.state != burstActive {
+	if b.stopping || b.state == burstStopped {
 		b.mu.Unlock()
 		return
 	}
@@ -1096,15 +1146,73 @@ func (b *recordingBursts) follow(identify func() string) {
 	}
 	b.mu.Lock()
 	b.following--
-	if found && !b.stopping && b.state == burstActive && b.segTarget.TargetID != target.TargetID {
-		seg := b.startClosingLocked(true)
+	if found {
+		b.followTo = target.TargetID
+	}
+	b.settleFollowLocked(true)
+}
+
+// settleFollowLocked carries out the move to the page a follow found, once the
+// burst is in a state to make it. It runs with the lock held and unlocks, and may
+// wait for a segment to open. finished says a follow just ended, so that a burst
+// that stays where it is starts the tail its actions asked for.
+//
+//   - Running or tailing off on another page: the segment closes and one opens on
+//     the page.
+//   - Opening or closing: nothing yet. The page is kept in followTo, and the
+//     opening, or the close that leaves the controller idle, calls this again.
+//   - Idle: the burst ended while the action moved (its page closed, or its
+//     capture failed), so a new burst opens on the page, and tails off like the
+//     one that was lost.
+//
+// While other moves are running the last of them settles.
+func (b *recordingBursts) settleFollowLocked(finished bool) {
+	if b.followTo == "" && !finished {
 		b.mu.Unlock()
-		b.backend.changed()
-		b.finishClose(seg, "target_changed", &target)
 		return
 	}
-	// Nowhere to move to: the tail the actions asked for starts now.
-	b.resumeTailLocked()
+	if b.following > 0 {
+		if finished {
+			b.publishLocked()
+		}
+		b.mu.Unlock()
+		b.backend.changed()
+		return
+	}
+	id := b.followTo
+	b.followTo = ""
+	var target wrapperTargetSnapshot
+	ready := false
+	if id != "" && !b.stopping {
+		target, ready = b.backend.target(id)
+	}
+	switch b.state {
+	case burstActive, burstTail:
+		if ready && target.TargetID != b.segTarget.TargetID {
+			seg := b.startClosingLocked(true)
+			b.mu.Unlock()
+			b.backend.changed()
+			b.finishClose(seg, "target_changed", &target)
+			return
+		}
+		// Nowhere to move to: the tail the actions asked for starts now.
+		b.resumeTailLocked()
+	case burstIdle:
+		if ready && b.keptTotal < burstMaxSegments {
+			now := time.Now()
+			b.plan = tailPlan{valid: true, gestureEnd: now, minEnd: now.Add(b.cfg.Tail), hardEnd: now.Add(max(b.cfg.MaxTail, b.cfg.Tail))}
+			openCtx := b.startOpeningLocked(b.root, target, true)
+			burst := b.burstNo
+			b.mu.Unlock()
+			b.backend.changed()
+			_ = b.runOpening(openCtx, target, burst, 0, true)
+			return
+		}
+	case burstOpening, burstClosing:
+		if id != "" && !b.stopping {
+			b.followTo = id
+		}
+	}
 	b.publishLocked()
 	b.mu.Unlock()
 	b.backend.changed()
@@ -1138,11 +1246,17 @@ func (b *recordingBursts) waitUntilLocked(deadline time.Time) error {
 // running end and a burst that is tailing off finish first, so the last action's
 // result is in the video; otherwise, and for a burst that is running, it closes
 // at once. A graceful shutdown waits for actions at most burstStopActionWait and
-// for a tail until its hard end, and gives up when the controller's root ends.
+// for a tail until its hard end (plus burstStopTailSlack), but for both together
+// no longer than burstStopActionWait+burstStopTailSlack, and gives up when the
+// controller's root ends.
 // It returns when no segment is being written any more.
 func (b *recordingBursts) shutdown(graceful bool) {
 	b.mu.Lock()
 	b.stopping = true
+	// The wait for actions and for a tail together ends at gracefulEnd, so that a
+	// graceful stop stays within burstStopActionWait+burstStopTailSlack however the
+	// two add up.
+	gracefulEnd := time.Now().Add(burstStopActionWait + burstStopTailSlack)
 	var actionsDeadline time.Time
 	for {
 		if graceful && b.root.Err() != nil {
@@ -1172,7 +1286,11 @@ func (b *recordingBursts) shutdown(graceful bool) {
 			_ = b.waitLocked(context.Background())
 		case burstTail:
 			if graceful {
-				if b.waitUntilLocked(b.curPlan.hardEnd.Add(burstStopTailSlack)) != nil {
+				tailDeadline := b.curPlan.hardEnd.Add(burstStopTailSlack)
+				if tailDeadline.After(gracefulEnd) {
+					tailDeadline = gracefulEnd
+				}
+				if b.waitUntilLocked(tailDeadline) != nil {
 					graceful = false
 				}
 				continue
