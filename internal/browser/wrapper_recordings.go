@@ -465,9 +465,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 
 // failRecording marks a recording failed after keeping what it captured.
 func (session *liveSession) failRecording(recording *wrapperRecording, reason string, cause error) (wrapperRecording, error) {
-	recording.finishTimelineCollection(len(recording.segments) - 1)
-	salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path)
-	timelinePath := recording.salvageTimelines(salvaged)
+	salvagedPath, timelinePath := recording.salvageCaptured()
 	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -476,8 +474,8 @@ func (session *liveSession) failRecording(recording *wrapperRecording, reason st
 	recording.Status = wrapperRecordingFailed
 	recording.StopReason = reason
 	recording.StoppedAt = &stoppedAt
-	if len(salvaged) > 0 {
-		recording.Path = salvaged[0].path
+	if salvagedPath != "" {
+		recording.Path = salvagedPath
 		recording.TimelinePath = timelinePath
 	}
 	return *recording, cause
@@ -683,10 +681,19 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		replacement := &wrapperRecording{cmd: cmd, done: done}
 		_ = stopRecordingSegment(replacement)
 		discardReplacement()
-		recording.finishTimelineCollection(len(recording.segments) - 1)
+		// The recording is over; keep what it captured, with its timelines, like any
+		// failed recording. The slow work happens outside the runtime lock, and the
+		// recording still reads as replacing (so nobody else salvages it) until done.
+		salvagedPath, timelinePath := recording.salvageCaptured()
 		r.mu.Lock()
+		stoppedAt := time.Now().UTC()
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "replacement_failed"
+		recording.StoppedAt = &stoppedAt
+		if salvagedPath != "" {
+			recording.Path = salvagedPath
+			recording.TimelinePath = timelinePath
+		}
 		r.mu.Unlock()
 		return err
 	}
@@ -1032,9 +1039,37 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 	recording.StopReason = "pipeline_exited"
 	stoppedAt := time.Now().UTC()
 	recording.StoppedAt = &stoppedAt
-	recording.finishTimelineCollection(len(recording.segments) - 1)
-	if salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path); len(salvaged) > 0 {
-		recording.Path = salvaged[0].path
-		recording.TimelinePath = recording.salvageTimelines(salvaged)
+	// Keeping what was captured moves files and writes timelines, so it runs
+	// after the lock is released; the recording's path and timeline follow when
+	// it is done. Only a running recording gets here, and it is failed just now,
+	// so it happens once.
+	go session.salvageFailedRecording(recording)
+}
+
+// salvageFailedRecording keeps what a recording that failed on its own captured,
+// with a timeline for each kept video, and then reports where they are. It takes
+// the runtime lock only to publish the result.
+func (session *liveSession) salvageFailedRecording(recording *wrapperRecording) {
+	r := session.runtime
+	path, timelinePath := recording.salvageCaptured()
+	r.mu.Lock()
+	if path != "" {
+		recording.Path = path
+		recording.TimelinePath = timelinePath
 	}
+	r.mu.Unlock()
+	session.broadcastRecordings()
+}
+
+// salvageCaptured ends the timeline collection, keeps the recording's segments
+// as files next to its target, and writes a timeline beside each. It returns the
+// first kept video's path and its timeline's, both empty when nothing was kept.
+// It does slow file work, so it must not run under the runtime lock.
+func (recording *wrapperRecording) salvageCaptured() (path, timelinePath string) {
+	recording.finishTimelineCollection(len(recording.segments) - 1)
+	salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path)
+	if len(salvaged) == 0 {
+		return "", ""
+	}
+	return salvaged[0].path, recording.salvageTimelines(salvaged)
 }

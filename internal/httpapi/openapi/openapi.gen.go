@@ -1891,7 +1891,7 @@ type Recording struct {
 	// TargetId Identifier of the top-level target currently recorded.
 	TargetId string `json:"targetId"`
 
-	// TimelineRelativePath Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
+	// TimelineRelativePath Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.webm.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
 	TimelineRelativePath *string `json:"timelineRelativePath,omitempty"`
 }
 

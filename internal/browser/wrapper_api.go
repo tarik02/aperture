@@ -803,7 +803,22 @@ func viewportScaleNumerator(deviceScaleFactor float64) int {
 	return int(math.Round(deviceScaleFactor * viewportScaleDenominator))
 }
 
+// sendCompositorControlCommand sends one command and waits for its answer, for
+// at most the context's deadline and five seconds. A command already sent is
+// waited for even if ctx is cancelled meanwhile, so the caller learns whether it
+// was carried out; input gestures rely on that to release what they pressed.
 func sendCompositorControlCommand(ctx context.Context, socketPath string, command string) (string, error) {
+	return sendCompositorControl(ctx, socketPath, command, false)
+}
+
+// sendCompositorQuery is sendCompositorControlCommand for read-only commands,
+// which nothing depends on the outcome of: a cancelled ctx ends the wait at once,
+// so a compositor that stopped answering cannot hold the caller.
+func sendCompositorQuery(ctx context.Context, socketPath string, command string) (string, error) {
+	return sendCompositorControl(ctx, socketPath, command, true)
+}
+
+func sendCompositorControl(ctx context.Context, socketPath string, command string, interruptible bool) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -815,6 +830,10 @@ func sendCompositorControlCommand(ctx context.Context, socketPath string, comman
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
+	}
+	if interruptible {
+		stopInterrupt := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Unix(1, 0)) })
+		defer stopInterrupt()
 	}
 	if _, err := conn.Write([]byte(command)); err != nil {
 		return "", fmt.Errorf("send compositor control command: %w", err)

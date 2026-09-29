@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -158,26 +159,38 @@ func timelineGesture(record pointerGestureRecord) timeline.GestureInput {
 // damageReader reads the change counter of a capture output.
 type damageReader func(ctx context.Context, captureID string) (captureDamage, error)
 
-// sampleRecordedScreen polls the capture output of the builder's current segment
-// until ctx ends, and records into the builder when its content changed. Each
-// sample reports how long ago the last change was, so changes are placed at their
-// time, not the sample's. Samples that fail are recorded as intervals nothing is
-// known about.
+// recordingSampleTimeout bounds one sample, so a compositor that stopped
+// answering costs one interval of unknown, not the sampler.
+const recordingSampleTimeout = 500 * time.Millisecond
+
+// captureSampleState is what the sampler remembers about one capture output.
+type captureSampleState struct {
+	count       uint64
+	haveCount   bool
+	failedSince time.Time
+}
+
+// sampleRecordedScreen polls the capture outputs of the builder's active segments
+// until ctx ends, and records into the builder when their content changed. While
+// a segment is replaced, the old pipeline keeps recording until the new one has
+// its first frame, so both captures are sampled through the overlap. Each sample
+// reports how long ago the last change was, so changes are placed at their time,
+// not the sample's. Samples that fail are recorded as intervals nothing is known
+// about.
 func sampleRecordedScreen(ctx context.Context, builder *timeline.Builder, read damageReader, interval time.Duration) {
-	var (
-		previousCapture string
-		previousCount   uint64
-		havePrevious    bool
-		failedSince     time.Time
-		failedCapture   string
-	)
-	closeFailure := func(until time.Time) {
-		if !failedSince.IsZero() {
-			builder.AddUnknown(failedCapture, failedSince, until)
-			failedSince = time.Time{}
+	states := map[string]*captureSampleState{}
+	closeFailure := func(capture string, state *captureSampleState, until time.Time) {
+		if !state.failedSince.IsZero() {
+			builder.AddUnknown(capture, state.failedSince, until)
+			state.failedSince = time.Time{}
 		}
 	}
-	defer func() { closeFailure(time.Now()) }()
+	defer func() {
+		now := time.Now()
+		for capture, state := range states {
+			closeFailure(capture, state, now)
+		}
+	}()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -186,30 +199,42 @@ func sampleRecordedScreen(ctx context.Context, builder *timeline.Builder, read d
 			return
 		case <-ticker.C:
 		}
-		capture := builder.CurrentCapture()
-		if capture == "" {
-			havePrevious = false
-			continue
-		}
-		sampled := time.Now()
-		damage, err := read(ctx, capture)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
+		active := builder.ActiveCaptures()
+		// A capture whose segment ended is forgotten, so a later segment on it does
+		// not compare against a stale count.
+		for capture, state := range states {
+			if !slices.Contains(active, capture) {
+				closeFailure(capture, state, time.Now())
+				delete(states, capture)
 			}
-			if failedSince.IsZero() || failedCapture != capture {
-				closeFailure(sampled)
-				failedSince, failedCapture = sampled, capture
+		}
+		for _, capture := range active {
+			state := states[capture]
+			if state == nil {
+				state = &captureSampleState{}
+				states[capture] = state
 			}
-			havePrevious = false
-			continue
+			sampled := time.Now()
+			sampleCtx, cancel := context.WithTimeout(ctx, recordingSampleTimeout)
+			damage, err := read(sampleCtx, capture)
+			cancel()
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				if state.failedSince.IsZero() {
+					state.failedSince = sampled
+				}
+				state.haveCount = false
+				continue
+			}
+			closeFailure(capture, state, sampled)
+			builder.NoteSample()
+			if state.haveCount && damage.Count != state.count {
+				builder.AddChange(capture, damage.LastChange)
+			}
+			state.count, state.haveCount = damage.Count, true
 		}
-		closeFailure(sampled)
-		builder.NoteSample()
-		if havePrevious && previousCapture == capture && damage.Count != previousCount {
-			builder.AddChange(capture, damage.LastChange)
-		}
-		previousCapture, previousCount, havePrevious = capture, damage.Count, true
 	}
 }
 
@@ -243,8 +268,8 @@ func (recording *wrapperRecording) finishRecordingTimeline(videoPath string, seg
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
 		return ""
 	}
-	path := timeline.PathFor(videoPath)
-	if err := timeline.Write(path, built); err != nil {
+	path, err := timeline.Write(timeline.PathFor(videoPath), built)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
 		return ""
 	}

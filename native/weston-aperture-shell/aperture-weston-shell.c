@@ -118,6 +118,8 @@ struct aperture_surface_watch {
 	struct weston_surface *surface;
 	struct wl_listener commit_listener;
 	struct wl_listener destroy_listener;
+	/* weston_surface.frame_commit_counter as of the previous commit. */
+	unsigned int commit_counter;
 };
 
 struct aperture_fractional_scale {
@@ -486,7 +488,7 @@ now(struct timespec *time)
 /* Records that the content shown on a capture output changed.
  *
  * "Content" means a bound client surface (or one of its popups or subsurfaces)
- * committed non-empty damage, or a surface was bound to the output. Repaints are
+ * committed a new buffer with non-empty damage, or a surface was bound to the output. Repaints are
  * deliberately not counted: output-repaint forces full-output damage, PipeWire
  * stream (re)starts damage the whole output, and the software cursor damages the
  * region it moves across. None of those mean the page changed. */
@@ -504,9 +506,27 @@ watch_surface_commit(struct wl_listener *listener, void *data)
 		wl_container_of(listener, watch, commit_listener);
 	struct aperture_shell_surface *shell_surface;
 
-	/* Damage is flushed to the renderer at the next repaint, so it can outlive
-	 * the commit that added it; a damage-free commit right after one is counted too. */
-	if (!pixman_region32_not_empty(&watch->surface->damage))
+	/* A commit is new content only if it applied a buffer attach. Weston counts
+	 * those in frame_commit_counter, in weston_surface_apply_state(), for
+	 * exactly the commits whose state carries WESTON_SURFACE_DIRTY_BUFFER: the
+	 * counter moves once per attach commit, and is untouched by buffer-less
+	 * commits (frame callbacks, opaque or input regions, subsurface changes).
+	 * Whichever state was applied, the pending one or a cached synchronized
+	 * subsurface one, this signal follows it, so the counter is the applied
+	 * state's own record.
+	 *
+	 * surface->damage cannot tell commits apart by itself. It accumulates until
+	 * the renderer flushes it at a repaint, which does not happen while the
+	 * output is not repainting or a paint node is not flushed (a solid color
+	 * SHM buffer has none), so it stays non-empty across later commits. It is
+	 * only used here to drop an attach commit that damaged nothing, and the
+	 * counter is compared for change, not read as a count, because Weston resets
+	 * it when its optional surface statistics are enabled. */
+	unsigned int counter = watch->surface->frame_commit_counter;
+	bool attached = counter != watch->commit_counter;
+
+	watch->commit_counter = counter;
+	if (!attached || !pixman_region32_not_empty(&watch->surface->damage))
 		return;
 	shell_surface = find_shell_surface_for_weston_surface(watch->shell, watch->surface);
 	if (!shell_surface || !shell_surface->capture_output)

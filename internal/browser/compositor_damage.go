@@ -57,7 +57,7 @@ func parseCaptureDamage(response string) (captureDamage, error) {
 // readCaptureDamage asks the compositor when a capture output's content last changed.
 func readCaptureDamage(ctx context.Context, controlSocket, captureID string) (captureDamage, error) {
 	requested := time.Now()
-	response, err := sendCompositorControlCommand(ctx, controlSocket, "damage-status "+captureID+"\n")
+	response, err := sendCompositorQuery(ctx, controlSocket, "damage-status "+captureID+"\n")
 	if err != nil {
 		return captureDamage{}, err
 	}

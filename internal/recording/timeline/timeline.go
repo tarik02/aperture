@@ -38,6 +38,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/aperture/aperture/internal/sessionfiles"
 )
 
 // Version is the schema version written to and required from timeline files.
@@ -48,11 +52,14 @@ const Version = 1
 // FileSuffix ends the name of every timeline file.
 const FileSuffix = ".timeline.json"
 
-// PathFor returns where the timeline of a video is saved: the video's path
-// without its extension, followed by FileSuffix. It is a pure name change, so it
+// PathFor returns where the timeline of a video is saved: the video's whole
+// name, extension included, followed by FileSuffix (`demo.webm` has
+// `demo.webm.timeline.json`). Keeping the extension means videos that differ only
+// in it (`demo.webm`, `demo.mkv`) never share a timeline, and a numbered video
+// (`demo-1.webm`) has a numbered timeline. It is a pure name change, so it
 // applies to relative and absolute paths alike.
 func PathFor(videoPath string) string {
-	return strings.TrimSuffix(videoPath, filepath.Ext(videoPath)) + FileSuffix
+	return videoPath + FileSuffix
 }
 
 // Timeline is the content of a timeline file.
@@ -308,24 +315,27 @@ func Read(path string) (*Timeline, error) {
 	return Parse(body)
 }
 
-// Write saves a timeline atomically: it is written to a hidden file in the same
-// directory and renamed over path, so readers see the old file or the whole new
-// one, never part of it. It replaces an existing timeline of the same name.
-func Write(path string, t *Timeline) error {
+// Write saves a timeline atomically and without replacing anything: it is
+// written to a hidden file in the same directory and renamed to path, so readers
+// see the whole file or none of it. When path is already taken, by an earlier
+// timeline or a file of the user's, the name is numbered instead
+// (`demo.webm.timeline.json`, `demo.webm.1.timeline.json`, ...), the way videos
+// are. It returns the path the timeline was saved at.
+func Write(path string, t *Timeline) (string, error) {
 	body, err := t.Marshal()
 	if err != nil {
-		return err
+		return "", err
 	}
 	dir := filepath.Dir(path)
 	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
 	if err != nil {
-		return fmt.Errorf("create timeline file: %w", err)
+		return "", fmt.Errorf("create timeline file: %w", err)
 	}
 	tempPath := temp.Name()
-	fail := func(err error) error {
+	fail := func(err error) (string, error) {
 		_ = temp.Close()
 		_ = os.Remove(tempPath)
-		return err
+		return "", err
 	}
 	if _, err := temp.Write(body); err != nil {
 		return fail(fmt.Errorf("write timeline: %w", err))
@@ -339,8 +349,19 @@ func Write(path string, t *Timeline) error {
 	if err := temp.Close(); err != nil {
 		return fail(fmt.Errorf("write timeline: %w", err))
 	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return fail(fmt.Errorf("publish timeline: %w", err))
+	stem := strings.TrimSuffix(path, FileSuffix)
+	for sequence := 0; ; sequence++ {
+		candidate := path
+		if sequence > 0 {
+			candidate = fmt.Sprintf("%s.%d%s", stem, sequence, FileSuffix)
+		}
+		err := sessionfiles.RenameNoReplace(tempPath, candidate)
+		if errors.Is(err, unix.EEXIST) {
+			continue
+		}
+		if err != nil {
+			return fail(fmt.Errorf("publish timeline: %w", err))
+		}
+		return candidate, nil
 	}
-	return nil
 }

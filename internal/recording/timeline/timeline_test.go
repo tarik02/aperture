@@ -20,10 +20,11 @@ func fixedClock(first time.Time, pts, duration time.Duration) func() (Clock, boo
 
 func TestPathFor(t *testing.T) {
 	for video, want := range map[string]string{
-		"recordings/recording-1.webm":     "recordings/recording-1.timeline.json",
-		"recordings/demo/clip.final.mkv":  "recordings/demo/clip.final.timeline.json",
-		"/session/files/recordings/a.mkv": "/session/files/recordings/a.timeline.json",
+		"recordings/recording-1.webm":     "recordings/recording-1.webm.timeline.json",
+		"recordings/demo/clip.final.mkv":  "recordings/demo/clip.final.mkv.timeline.json",
+		"/session/files/recordings/a.mkv": "/session/files/recordings/a.mkv.timeline.json",
 		"recordings/noext":                "recordings/noext.timeline.json",
+		"recordings/demo-1.webm":          "recordings/demo-1.webm.timeline.json",
 	} {
 		if got := PathFor(video); got != want {
 			t.Errorf("PathFor(%q) = %q, want %q", video, got, want)
@@ -319,14 +320,21 @@ func TestRoundTripAndAtomicWrite(t *testing.T) {
 	if err := os.WriteFile(path, []byte("stale"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Write(path, built); err != nil {
+	written, err := Write(path, built)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if want := filepath.Join(dir, "recording-abc.1.timeline.json"); written != want {
+		t.Fatalf("written to %q, want %q beside the stale file", written, want)
+	}
+	if stale, _ := os.ReadFile(path); string(stale) != "stale" {
+		t.Fatalf("an existing file was replaced: %q", stale)
+	}
 	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
+	if len(entries) != 2 {
 		t.Fatalf("temporary files left behind: %v", entries)
 	}
-	loaded, err := Read(path)
+	loaded, err := Read(written)
 	if err != nil {
 		t.Fatal(err)
 	}

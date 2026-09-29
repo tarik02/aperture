@@ -307,7 +307,7 @@ func TestSalvagedSegmentsGetTimelinesOfTheirOwn(t *testing.T) {
 		t.Fatalf("salvaged %+v", salvaged)
 	}
 	first := recording.salvageTimelines(salvaged)
-	if want := filepath.Join(recordings, "recording-x-failed.timeline.json"); first != want {
+	if want := filepath.Join(recordings, "recording-x-failed.webm.timeline.json"); first != want {
 		t.Fatalf("first timeline %q, want %q", first, want)
 	}
 	loaded, err := timeline.Read(first)
@@ -317,8 +317,73 @@ func TestSalvagedSegmentsGetTimelinesOfTheirOwn(t *testing.T) {
 	if !loaded.Recording.Salvaged || loaded.Recording.Video != "recordings/recording-x-failed.webm" || len(loaded.Segments) != 1 || loaded.Recording.ContainerStartMs != 30 {
 		t.Fatalf("timeline %+v", loaded)
 	}
-	second, err := timeline.Read(filepath.Join(recordings, "recording-x-failed-1.timeline.json"))
+	second, err := timeline.Read(filepath.Join(recordings, "recording-x-failed-1.webm.timeline.json"))
 	if err != nil || second.Recording.Video != "recordings/recording-x-failed-1.webm" || second.Segments[0].TargetID != "t" {
 		t.Fatalf("second timeline %+v err %v", second, err)
+	}
+}
+
+func TestSampleRecordedScreenSamplesBothCapturesWhileSegmentsOverlap(t *testing.T) {
+	builder := timeline.NewBuilder(timeline.Limits{})
+	started := time.Now()
+	clock := func() (timeline.Clock, bool) { return timeline.Clock{FirstFrame: started, Duration: time.Hour}, true }
+	builder.BeginSegment(timeline.SegmentInput{TargetID: "a", CaptureID: "capA", Width: 100, Height: 100, ScaleX: 1, ScaleY: 1, Started: started, Clock: clock})
+	builder.BeginSegment(timeline.SegmentInput{TargetID: "b", CaptureID: "capB", Width: 100, Height: 100, ScaleX: 1, ScaleY: 1, Started: started, Clock: clock})
+	var mu sync.Mutex
+	seen := map[string]int{}
+	read := func(_ context.Context, capture string) (captureDamage, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen[capture]++
+		return captureDamage{LastChange: time.Now()}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sampleRecordedScreen(ctx, builder, read, 5*time.Millisecond)
+	}()
+	time.Sleep(40 * time.Millisecond)
+	builder.EndSegment(0, time.Now())
+	mu.Lock()
+	oldSeen := seen["capA"]
+	mu.Unlock()
+	time.Sleep(40 * time.Millisecond)
+	cancel()
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	if oldSeen == 0 || seen["capB"] == 0 {
+		t.Fatalf("both captures must be sampled during the overlap: %v", seen)
+	}
+	if seen["capA"] != oldSeen {
+		t.Fatalf("the old capture was sampled after its segment ended: %v", seen)
+	}
+}
+
+func TestCompositorQueryEndsWhenCancelledWhileTheCompositorIsSilent(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "control")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = listener.Close() }()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer func() { _ = conn.Close() }()
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	begin := time.Now()
+	if _, err := readCaptureDamage(ctx, socket, "cap"); err == nil {
+		t.Fatal("a silent compositor produced an answer")
+	}
+	if elapsed := time.Since(begin); elapsed > time.Second {
+		t.Fatalf("query held for %v after cancel", elapsed)
 	}
 }

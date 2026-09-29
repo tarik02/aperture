@@ -197,17 +197,19 @@ func (b *Builder) SegmentCount() int {
 	return len(b.segments)
 }
 
-// CurrentCapture is the capture of the segment being recorded, or empty when
-// none is.
-func (b *Builder) CurrentCapture() string {
+// ActiveCaptures are the captures of the segments still being recorded, oldest
+// first and without repeats. It is more than one while a segment is being
+// replaced: the old pipeline records until the new one has its first frame.
+func (b *Builder) ActiveCaptures() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for index := len(b.segments) - 1; index >= 0; index-- {
-		if b.segments[index].ended.IsZero() {
-			return b.segments[index].input.CaptureID
+	var captures []string
+	for _, segment := range b.segments {
+		if segment.ended.IsZero() && !slices.Contains(captures, segment.input.CaptureID) {
+			captures = append(captures, segment.input.CaptureID)
 		}
 	}
-	return ""
+	return captures
 }
 
 // NoteSample records that the compositor was sampled successfully, whether or
