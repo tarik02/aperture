@@ -72,6 +72,10 @@
           || lib.hasPrefix "apps/restore-worker/node_modules/" rel
           || rel == "apps/restore-worker/dist"
           || lib.hasPrefix "apps/restore-worker/dist/" rel
+          || rel == "apps/browser-mcp/node_modules"
+          || lib.hasPrefix "apps/browser-mcp/node_modules/" rel
+          || rel == "apps/browser-mcp/dist"
+          || lib.hasPrefix "apps/browser-mcp/dist/" rel
           || rel == "extensions/tab-window-enforcer/node_modules"
           || lib.hasPrefix "extensions/tab-window-enforcer/node_modules/" rel
           || rel == "extensions/tab-window-enforcer/dist"
@@ -511,6 +515,7 @@
 
             pnpmWorkspaces = [
               "@aperture-browser/restore-worker"
+              "@aperture-browser/browser-mcp"
               "@aperture-browser/tab-window-enforcer"
               "@aperture-browser/api-schema"
               "@aperture-browser/browser-state"
@@ -530,7 +535,7 @@
                 ;
               pnpm = pnpmLatest;
               fetcherVersion = 4;
-              hash = "sha256-AYbTAAflMmov6+IMNXzIwFEGiVFMIWJIMvLO/o3Ardk=";
+              hash = "sha256-MACpw/PDNX7KZmG6x0cECE+bCrMZP5k9vWDf8pyWzfk=";
             };
 
             nativeBuildInputs = [
@@ -564,6 +569,7 @@
               # pnpm 11.27.1 shims use `command -p`, which finds nothing in the sandbox.
               find . -path '*/node_modules/.bin/*' -type f -exec sed -i 's/command -p //g' {} +
               pnpm --filter @aperture-browser/restore-worker build
+              pnpm --filter @aperture-browser/browser-mcp build
               pnpm --filter @aperture-browser/tab-window-enforcer build
               pnpm --filter @aperture-browser/web build
               test -f apps/web/dist/client/index.html
@@ -581,17 +587,18 @@
             doCheck = true;
 
             postInstall = ''
-              # Node runtime: the restore worker bundle plus the Playwright packages it
-              # depends on, copied flat out of the pnpm-installed node_modules.
-              mkdir -p $out/share/aperture/restore-worker/node_modules/@playwright
+              # Node runtime: the restore worker and browser MCP host bundles plus the
+              # Playwright packages they depend on, copied flat out of the pnpm-installed node_modules.
+              mkdir -p $out/share/aperture/restore-worker/node_modules $out/share/aperture/browser-mcp/node_modules
               cp -r apps/restore-worker/dist $out/share/aperture/restore-worker/
               cp -rL apps/restore-worker/node_modules/playwright apps/restore-worker/node_modules/playwright-core \
                 $out/share/aperture/restore-worker/node_modules/
-              cp -rL apps/restore-worker/node_modules/@playwright/mcp $out/share/aperture/restore-worker/node_modules/@playwright/
+              cp -r apps/browser-mcp/dist $out/share/aperture/browser-mcp/
+              cp -rL apps/browser-mcp/node_modules/playwright-core $out/share/aperture/browser-mcp/node_modules/
               makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-restore \
                 --add-flags $out/share/aperture/restore-worker/dist/restore.mjs
-              makeWrapper ${nodeRuntime}/bin/node $out/bin/playwright-mcp \
-                --add-flags $out/share/aperture/restore-worker/node_modules/@playwright/mcp/cli.js
+              makeWrapper ${nodeRuntime}/bin/node $out/bin/aperture-browser-mcp \
+                --add-flags $out/share/aperture/browser-mcp/dist/main.mjs
               mkdir -p $out/lib/weston
               mkdir -p $TMPDIR/aperture-wayland-protocols
               ${pkgs.wayland-scanner.bin}/bin/wayland-scanner private-code \

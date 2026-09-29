@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -32,7 +33,7 @@ type toolMetadata struct {
 }
 
 type metadata struct {
-	Version  string                     `json:"playwright_mcp_version"`
+	Version  string                     `json:"playwright_version"`
 	Profiles map[string]profileMetadata `json:"profiles"`
 	Tools    map[string]toolMetadata    `json:"tools"`
 }
@@ -45,14 +46,14 @@ var blockedTools = map[string]struct{}{
 }
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: generate-playwright-mcp-profiles <playwright-mcp> <output>")
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: generate-playwright-mcp-profiles <output> <browser-mcp-command> [args...]")
 		os.Exit(2)
 	}
 
-	playwrightMCP := os.Args[1]
-	outputPath := os.Args[2]
-	version, err := bundledVersion(playwrightMCP)
+	outputPath := os.Args[1]
+	host := os.Args[2:]
+	version, err := bundledVersion(host)
 	if err != nil {
 		fail(err)
 	}
@@ -62,7 +63,7 @@ func main() {
 	toolDefinitions := make(map[string]toolMetadata)
 	coreTools := make(map[string]struct{})
 	for _, profile := range profileSpecs {
-		tools, err := listTools(playwrightMCP, profile.Capability)
+		tools, err := listTools(host, profile.Capability)
 		if err != nil {
 			fail(fmt.Errorf("list %s tools: %w", profile.Name, err))
 		}
@@ -102,28 +103,28 @@ func main() {
 	}
 }
 
-func bundledVersion(playwrightMCP string) (string, error) {
-	output, err := exec.Command(playwrightMCP, "--version").Output()
+func bundledVersion(host []string) (string, error) {
+	output, err := exec.Command(host[0], slices.Concat(host[1:], []string{"--version"})...).Output()
 	if err != nil {
-		return "", fmt.Errorf("run %s --version: %w", playwrightMCP, err)
+		return "", fmt.Errorf("run %s --version: %w", host[0], err)
 	}
 	version := strings.TrimSpace(string(output))
 	version = strings.TrimPrefix(version, "Version ")
 	if version == "" {
-		return "", fmt.Errorf("%s returned an empty version", playwrightMCP)
+		return "", fmt.Errorf("%s returned an empty version", host[0])
 	}
 	return version, nil
 }
 
-func listTools(playwrightMCP, capability string) ([]*mcp.Tool, error) {
+func listTools(host []string, capability string) ([]*mcp.Tool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	args := []string{"--cdp-endpoint", "http://127.0.0.1:1", "--no-webmcp"}
+	args := slices.Concat(host[1:], []string{"--cdp-endpoint", "http://127.0.0.1:1"})
 	if capability != "" {
 		args = append(args, "--caps", capability)
 	}
-	command := exec.CommandContext(ctx, playwrightMCP, args...)
+	command := exec.CommandContext(ctx, host[0], args...)
 	command.Stderr = os.Stderr
 	client := mcp.NewClient(&mcp.Implementation{Name: "aperture-profile-generator", Version: "1.0.0"}, nil)
 	session, err := client.Connect(ctx, &mcp.CommandTransport{Command: command}, nil)

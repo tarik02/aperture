@@ -20,9 +20,10 @@ import (
 const playwrightCallRequestMaxBytes = 16 << 20
 
 type playwrightMCPBackend struct {
-	values  RuntimeEnvValues
-	mu      sync.Mutex
-	session *mcp.ClientSession
+	values        RuntimeEnvValues
+	controlSocket string
+	mu            sync.Mutex
+	session       *mcp.ClientSession
 }
 
 type playwrightCallRequest struct {
@@ -30,8 +31,8 @@ type playwrightCallRequest struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
-	return &playwrightMCPBackend{values: values}
+func newPlaywrightMCPBackend(values RuntimeEnvValues, controlSocket string) *playwrightMCPBackend {
+	return &playwrightMCPBackend{values: values, controlSocket: controlSocket}
 }
 
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
@@ -60,17 +61,15 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 	files := paths.SessionFiles(b.values.FilesDir)
 	args := []string{
 		"--cdp-endpoint", "http://127.0.0.1:" + strconv.Itoa(b.values.CDPPort),
-		"--cdp-timeout", "30000",
-		"--codegen", "none",
-		"--file-paths", "relative",
-		"--idle-timeout", "0",
-		"--no-webmcp",
 		"--output-dir", files.Outputs,
+		// Where the host finds the compositor and the surface of each browser target.
+		"--compositor-socket", b.controlSocket,
+		"--targets-url", "http://127.0.0.1:" + strconv.Itoa(b.values.WrapperPort) + "/targets",
 	}
 	if capabilities := playwrightmcp.RuntimeCapabilities(); len(capabilities) > 0 {
 		args = append(args, "--caps", strings.Join(capabilities, ","))
 	}
-	command := exec.Command("playwright-mcp", args...)
+	command := exec.Command("aperture-browser-mcp", args...)
 	// The workspace root bounds which files browser tools may read, so every session
 	// file is usable by browser_file_upload under its relative path.
 	command.Dir = files.Root
@@ -86,7 +85,7 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 	client := mcp.NewClient(&mcp.Implementation{Name: "aperture-browser-session", Version: "1.0.0"}, nil)
 	session, err := client.Connect(startupCtx, &mcp.CommandTransport{Command: command}, nil)
 	if err != nil {
-		return fmt.Errorf("start Playwright MCP: %w", err)
+		return fmt.Errorf("start browser MCP host: %w", err)
 	}
 	b.session = session
 	return nil
