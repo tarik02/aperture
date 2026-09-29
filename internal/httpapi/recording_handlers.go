@@ -38,7 +38,7 @@ type wrapperRecordingStatus struct {
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
 
-	recordingEditFields
+	browser.RecordingEdit
 }
 
 type recordingResponse struct {
@@ -59,7 +59,7 @@ type recordingResponse struct {
 	// TimelineRelativePath names the timeline file of a stopped recording, when it has one.
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
 
-	recordingEditFields
+	browser.RecordingEdit
 }
 
 type createSessionRecordingRequest struct {
@@ -199,7 +199,7 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 
 func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string) (stoppedRecording, error) {
 	endpoint := "/recordings/" + url.PathEscape(recordingID)
-	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, endpoint+"/stop", nil, true, nil); err != nil {
+	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, endpoint+"/stop?render=1", nil, true, nil); err != nil {
 		return stoppedRecording{}, err
 	}
 	status, err := s.getRecording(ctx, tenantID, sessionID, recordingID)
@@ -241,7 +241,7 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 		MIMEType:     mimeType,
 		SandboxPath:  sessionfiles.SandboxPath(relativePath),
 	})
-	return stoppedRecording{File: file, recordingEditFields: edit}, nil
+	return stoppedRecording{File: file, RecordingEdit: edit}, nil
 }
 
 func (s *Server) getRecording(ctx context.Context, tenantID, sessionID, recordingID string) (wrapperRecordingStatus, error) {
@@ -316,6 +316,8 @@ func mapWrapperRecordingRequestError(err error) error {
 		return fmt.Errorf("%w: %s", errRecordingInvalidState, responseErr.Message)
 	case http.StatusUnprocessableEntity:
 		return fmt.Errorf("%w: %s", errRecordingCodecUnavailable, responseErr.Message)
+	case http.StatusNotImplemented:
+		return fmt.Errorf("%w: %s", errRecordingEffectsUnavailable, responseErr.Message)
 	default:
 		return fmt.Errorf("%w: %w", errBrowserControlFailed, err)
 	}
@@ -345,8 +347,8 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 		return recordingResponse{}, err
 	}
 	return recordingResponse{
-		recordingEditFields: edit,
-		RecordingID:         status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingEdit: edit,
+		RecordingID:   status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 		TimelineRelativePath: timelinePath,

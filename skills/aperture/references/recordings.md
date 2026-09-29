@@ -43,7 +43,7 @@ Supported codecs are `vp8` and `h264-va`; `h264-va` is rejected up front where t
 
 Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, and `codec`; host paths are never returned. `path` repeats `relativePath` for older clients and is deprecated. Completed jobs may also include `stopReason`, `stoppedAt`, `sizeBytes`, `timelineRelativePath`, and, after a stop that rendered [effects](#effects), `editedRelativePath`, `editError`, and `editWarnings`. When a recording fails, what it captured is kept as `…-failed` files next to its target and `relativePath` points at the first one. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
 
-The live-session HTTP stop request finalizes the recording and serves the completed media attachment. Interactive clients start and stop through `aperture-session.v1`; after `recording.stop.result`, fetch `/content` to download without issuing a second stop.
+The live-session HTTP stop request finalizes the recording and serves the completed media attachment; it does not render effects. Interactive clients start and stop through `aperture-session.v1`; after `recording.stop.result`, fetch `/content` to download without issuing a second stop.
 
 ## Formal API
 
@@ -72,11 +72,11 @@ All times are milliseconds of video time, counted across target changes; coordin
 - `gestures[]` — pointer tools only: `tool`, `targetId`, `start`, `end`, `hold`, the pointer `path` as `[ms, x, y]`, `clicks[]` (`t`, `x`, `y`, `button`, `count`), and for scrolls `scroll` (`t`, `deltaX`, `deltaY`, and the point scrolled at). Path, clicks and scroll exist only for pointer moves made in the compositor; a gesture made without a compositor surface (the page's own mouse was used) keeps only its timing. A gesture on a target the recording was not showing at that moment is left out.
 - `activity` — `spans[]` (`start`, `end`) in which the recorded page's content changed, sampled 20 times a second. A static page stays idle however the pointer moves; the spans cover new buffer content, not repaints. When `complete` is `false`, some sample failed, so do not read gaps between spans as idle.
 
-Each list is truncated at a fixed size (2000 actions, 1000 gestures, 5000 activity spans, 600 path points per gesture, 100000 in all).
+Each list is truncated at a fixed size (2000 actions, 1000 gestures, 5000 activity spans, 600 path points and 20 clicks per gesture, 100000 path points in all).
 
 ## Effects
 
-A recording made while an agent works can be rendered with effects when it is stopped through the API or MCP (`recording.stop`). The stop request blocks while ffmpeg renders, which takes roughly a fraction of the recording's length to a few times it, and then returns `editedRelativePath`, the session file `<video>.edited.mp4` (H.264, numbered like the video when the name is taken). The raw video and its timeline are always kept and unchanged. A render that fails never fails the stop: the recording is returned with `editError` (for example frames that changed size, which effects cannot follow) and no edited video. `editWarnings` lists what was left out. A stop by the live session protocol, or by the recording ending (target closed, session closed, client disconnected), does not render.
+A recording made while an agent works can be rendered with effects when it is stopped, but only by the API or MCP stop (`recording.stop`); the live-session HTTP stop, the live session protocol, and the recording ending (target closed, session closed, client disconnected) never render. The stop request blocks while ffmpeg renders, which takes roughly a fraction of the recording's length to a few times it, and then returns `editedRelativePath`, the session file `<video>.edited.mp4` (H.264, numbered like the video when the name is taken). The raw video and its timeline are always kept and unchanged. A render that fails never fails the stop: the recording is returned with `editError` (for example frames that changed size, which effects cannot follow) and no edited video. `editWarnings` lists what was left out. `editWarnings` also reports effects dropped because a very long recording had too many of them, ripples first, then zoom scenes, then idle, and never captions. A render that is still running when the session closes is cancelled. An MCP client that gives up waiting for `recording.stop` can read `editedRelativePath` or `editError` from `recording.status` once the render ends.
 
 Effects apply only when something asks for them:
 
@@ -85,7 +85,7 @@ Effects apply only when something asks for them:
 - **Ripple** — `ripple` on `browser_click` draws a ring spreading from the click point.
 - **Idle** — `idle` on `recording.start` cuts (`cut`) or plays 8x faster (`speed`) stretches of 1.5 seconds or more in which the screen does not change and nothing is done or captioned. Idle is left as it is when the timeline could not watch the screen the whole time or ran into its size limits, and this is reported in `editWarnings`.
 
-`zoom` and `ripple` on `recording.start` are the defaults for gestures that do not say otherwise; a gesture's own `false` overrides them. Each gesture's setting is kept as given in the timeline's `gestures[]` (`zoom`, `ripple`). Effects that need ffmpeg are rejected when a recording starts on a host without it (`422`, or `recording_codec_unavailable` through the API); a host with the packaged ffmpeg needs no setup, and other hosts set `recording_ffmpeg_executable`.
+`zoom` and `ripple` on `recording.start` are the defaults for gestures that do not say otherwise; a gesture's own `false` overrides them. Each gesture's setting is kept as given in the timeline's `gestures[]` (`zoom`, `ripple`). Effects set on `recording.start` are rejected on a host without ffmpeg (`422 recording_effects_unavailable` through the API); a per-action effect or caption there is only found out at the stop and is reported as `editError`. A host with the packaged ffmpeg needs no setup, and other hosts set `recording_ffmpeg_executable`.
 
 ## Bursts
 

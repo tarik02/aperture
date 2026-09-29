@@ -61,7 +61,7 @@ func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, i
 		return nil, mcpRecordingOutput{}, err
 	}
 	path := "/recordings/" + url.PathEscape(in.RecordingID)
-	if _, _, err := s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path+"/stop", nil, true); err != nil {
+	if _, _, err := s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path+"/stop?render=1", nil, true); err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, path, nil, false)
@@ -180,8 +180,8 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 		return mcpRecordingOutput{}, err
 	}
 	output := mcpRecordingOutput{
-		recordingEditFields: edit,
-		RecordingID:         status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingEdit: edit,
+		RecordingID:   status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 		TimelineRelativePath: timelinePath,

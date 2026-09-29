@@ -394,7 +394,7 @@ type mcpRecordingOutput struct {
 	// TimelineRelativePath names the timeline file of a stopped recording, when it has one.
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
 
-	recordingEditFields
+	browser.RecordingEdit
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`
