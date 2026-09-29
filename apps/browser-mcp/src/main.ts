@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import coreBundle from "playwright-core/lib/coreBundle";
+import { withAction } from "./actions.ts";
 import { pointerTools } from "./pointer-tools.ts";
 
 const { tools: playwright } = coreBundle;
@@ -41,7 +42,7 @@ if (values.version) {
   const tools = [
     ...playwright.filteredTools(config).filter((tool) => !replaced.test(tool.schema.name)),
     ...pointerTools(compositor),
-  ];
+  ].map(withAction);
 
   await playwright.start(
     {

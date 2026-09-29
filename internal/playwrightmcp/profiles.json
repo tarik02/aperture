@@ -79,6 +79,11 @@
             ],
             "type": "string"
           },
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "clickCount": {
             "description": "Number of clicks (2 is a double click), defaults to 1",
             "maximum": 3,
@@ -206,7 +211,13 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -224,6 +235,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "name": {
             "description": "Cookie name to delete",
             "type": "string"
@@ -302,6 +318,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "domain": {
             "description": "Cookie domain",
             "type": "string"
@@ -361,6 +382,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "endElement": {
             "description": "End: human-readable element description",
             "type": "string"
@@ -444,6 +470,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "data": {
             "additionalProperties": {
               "type": "string"
@@ -490,6 +521,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "colorScheme": {
             "anyOf": [
               {
@@ -583,6 +619,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "element": {
             "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
@@ -620,6 +661,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "paths": {
             "description": "The absolute paths to the files to upload. Can be single file or multiple files. If omitted, file chooser is cancelled.",
             "items": {
@@ -645,6 +691,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "fields": {
             "description": "Fields to fill in",
             "items": {
@@ -740,6 +791,11 @@
             "description": "Whether to accept the dialog.",
             "type": "boolean"
           },
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "promptText": {
             "description": "The text of the prompt in case of a prompt dialog.",
             "type": "string"
@@ -764,7 +820,13 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -782,6 +844,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to delete",
             "type": "string"
@@ -851,6 +918,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to set",
             "type": "string"
@@ -881,6 +953,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "element": {
             "description": "Human-readable element description",
             "type": "string"
@@ -942,6 +1019,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "url": {
             "description": "The URL to navigate to",
             "type": "string"
@@ -966,7 +1048,13 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -1061,6 +1149,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "state": {
             "description": "Set to \"offline\" to simulate offline mode, \"online\" to restore network connectivity",
             "enum": [
@@ -1090,6 +1183,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Name of the key to press or a character to generate, such as `ArrowLeft` or `a`",
             "type": "string"
@@ -1115,6 +1213,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "height": {
             "description": "Height of the browser window",
             "type": "number"
@@ -1147,6 +1250,11 @@
         "properties": {
           "body": {
             "description": "Response body (text or JSON string)",
+            "type": "string"
+          },
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
             "type": "string"
           },
           "contentType": {
@@ -1211,6 +1319,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "deltaX": {
             "description": "Horizontal pixels to scroll, positive is right, defaults to 0",
             "type": "number"
@@ -1280,6 +1393,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "element": {
             "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
@@ -1316,7 +1434,13 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -1334,6 +1458,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to delete",
             "type": "string"
@@ -1403,6 +1532,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to set",
             "type": "string"
@@ -1433,6 +1567,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "filename": {
             "description": "Path to the storage state file to restore from. Relative file names are resolved against the workspace root.",
             "type": "string"
@@ -1526,6 +1665,11 @@
             ],
             "type": "string"
           },
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "index": {
             "description": "Tab index, used for close/select. If omitted for close, current tab is closed.",
             "type": "number"
@@ -1611,6 +1755,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "element": {
             "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
@@ -1653,6 +1802,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "pattern": {
             "description": "URL pattern to unroute (omit to remove all routes)",
             "type": "string"
@@ -1675,6 +1829,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
           "text": {
             "description": "The text to wait for",
             "type": "string"

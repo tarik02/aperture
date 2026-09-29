@@ -4,6 +4,7 @@ import type { Context, Response, Tab, ToolDefinition } from "playwright-core/lib
 import { z } from "playwright-core/lib/utilsBundle";
 import type { ZodObject, ZodRawShape, infer as Infer } from "zod";
 import type { Point } from "./motion.ts";
+import { targetIdOf } from "./actions.ts";
 import { CompositorPointer, PagePointer, type Pointer, type Surface } from "./pointer.ts";
 
 /** Where the compositor is, when there is one. */
@@ -58,8 +59,9 @@ interface GestureRecord {
   start: number;
   end: number;
   hold: number;
-  path: CompositorPointer["record"]["path"];
-  clicks: CompositorPointer["record"]["clicks"];
+  /** Surface pixels at wall-clock epoch milliseconds: [t, x, y]. */
+  path: [t: number, x: number, y: number][];
+  clicks: (Omit<CompositorPointer["record"]["clicks"][number], "ms"> & { t: number })[];
   scroll?: { deltaX: number; deltaY: number; x: number; y: number };
 }
 
@@ -90,18 +92,6 @@ function getJson(url: string): Promise<unknown> {
 }
 
 export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
-  async function targetIdOf(page: Page): Promise<string> {
-    const session = await page.context().newCDPSession(page);
-    try {
-      const { targetInfo } = (await session.send("Target.getTargetInfo")) as {
-        targetInfo: { targetId: string };
-      };
-      return targetInfo.targetId;
-    } finally {
-      await session.detach().catch(() => {});
-    }
-  }
-
   async function surfaceOf(targetId: string): Promise<Surface | undefined> {
     if (!compositor) return undefined;
     try {
@@ -179,6 +169,8 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
       const start = Date.now();
       response.setIncludeSnapshot();
       const extra = await act({ tab, page, pointer, size }, params);
+      // The pointer times its records from when it was made, which is `start`.
+      const record = pointer instanceof CompositorPointer ? pointer.record : undefined;
       const gesture: GestureRecord = {
         kind,
         tool: name,
@@ -186,9 +178,8 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
         start,
         end: Date.now(),
         hold: 0,
-        path: [],
-        clicks: [],
-        ...(pointer instanceof CompositorPointer && pointer.record),
+        path: (record?.path ?? []).map(([ms, x, y]) => [start + ms, x, y]),
+        clicks: (record?.clicks ?? []).map(({ ms, ...click }) => ({ t: start + ms, ...click })),
         ...extra,
       };
       const serialize = response.serialize.bind(response);
