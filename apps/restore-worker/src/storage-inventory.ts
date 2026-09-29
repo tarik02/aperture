@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
 import { Playwright } from "effect-playwright";
+import type { Frame } from "playwright-core";
 import { cdpForFrame, evaluate, makeCdp, type Cdp } from "./cdp.js";
 import { matchesOrigin, type StorageExportInput, type StoragePartition } from "./export-schema.js";
 import { canonicalOrigin, urlOrigin } from "./schema.js";
@@ -98,6 +99,58 @@ export const partitionForKey = Effect.fn("storageInventory.partitionForKey")(fun
   return { origin, ancestors, storageKey, quota } satisfies StoragePartition;
 });
 
+// Open tabs keep adding and removing frames while the inventory walks them. Chromium
+// and Playwright report a frame or frame target that went away with these messages.
+const vanishedFrameMessages = [
+  "Frame tree node for given frame not found",
+  "No frame for given id found",
+  "No target with given id found",
+  "Target page, context or browser has been closed",
+  "Frame has been detached",
+  "Session closed",
+];
+
+const causeMessage = (error: Playwright.PlaywrightError): string =>
+  error.cause instanceof Error ? error.cause.message : "";
+
+const isVanishedFrame = (error: Playwright.PlaywrightError): boolean =>
+  vanishedFrameMessages.some((message) => causeMessage(error).includes(message));
+
+// Sandboxed frames and initial about:blank tabs have opaque origins, whose storage
+// no storageState can address.
+const isOpaqueFrame = (error: Playwright.PlaywrightError): boolean =>
+  causeMessage(error).includes("Frame corresponds to an opaque origin");
+
+const frameStorageKeys = Effect.fnUntraced(function* (
+  frame: Frame,
+  keys: Set<string>,
+  visitedTargets: Set<string>,
+) {
+  // Page.getFrameTree omits out-of-process child frames. Attach to every
+  // Playwright frame so their local trees and storage keys are included too.
+  const cdp = yield* cdpForFrame(frame);
+  yield* Effect.addFinalizer(() => Effect.ignore(cdp.detach));
+  const { targetInfo } = yield* cdp
+    .send("Target.getTargetInfo")
+    .pipe(Effect.flatMap(Schema.decodeUnknownEffect(TargetInfoResult)));
+  if (visitedTargets.has(targetInfo.targetId)) return;
+  visitedTargets.add(targetInfo.targetId);
+
+  const pending = [yield* frameTree(cdp)];
+  while (pending.length > 0) {
+    const tree = pending.pop()!;
+    pending.push(...(tree.childFrames ?? []));
+    const storageKey = yield* storageKeyForFrame(cdp, tree.frame.id).pipe(
+      Effect.catchIf(
+        (error) =>
+          error._tag === "PlaywrightError" && (isOpaqueFrame(error) || isVanishedFrame(error)),
+        () => Effect.succeed(null),
+      ),
+    );
+    if (storageKey !== null && storageKeyOrigin(storageKey) !== null) keys.add(storageKey);
+  }
+});
+
 export const openStorageKeys = Effect.fn("storageInventory.openStorageKeys")(function* (
   context: Playwright.BrowserContext,
 ) {
@@ -106,23 +159,13 @@ export const openStorageKeys = Effect.fn("storageInventory.openStorageKeys")(fun
   for (const page of context.pages()) {
     const frames = yield* page.use((raw) => Promise.resolve(raw.frames()));
     for (const frame of frames) {
-      // Page.getFrameTree omits out-of-process child frames. Attach to every
-      // Playwright frame so their local trees and storage keys are included too.
-      const cdp = yield* cdpForFrame(frame);
-      yield* Effect.addFinalizer(() => Effect.ignore(cdp.detach));
-      const { targetInfo } = yield* cdp
-        .send("Target.getTargetInfo")
-        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(TargetInfoResult)));
-      if (visitedTargets.has(targetInfo.targetId)) continue;
-      visitedTargets.add(targetInfo.targetId);
-
-      const pending = [yield* frameTree(cdp)];
-      while (pending.length > 0) {
-        const tree = pending.pop()!;
-        const storageKey = yield* storageKeyForFrame(cdp, tree.frame.id);
-        if (storageKeyOrigin(storageKey) !== null) keys.add(storageKey);
-        pending.push(...(tree.childFrames ?? []));
-      }
+      // A frame that is gone no longer belongs to an open tab.
+      yield* frameStorageKeys(frame, keys, visitedTargets).pipe(
+        Effect.catchIf(
+          (error) => error._tag === "PlaywrightError" && isVanishedFrame(error),
+          () => Effect.void,
+        ),
+      );
     }
   }
   return keys;

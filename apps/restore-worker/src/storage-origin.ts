@@ -51,20 +51,27 @@ export const navigateIsolatedOrigin = Effect.fnUntraced(function* (
   };
 
   yield* page.use((raw) => raw.route("**/*", onRoute));
-  yield* Effect.all(
-    [
-      page.goto(chain[0], { waitUntil: "commit", timeout: minute }),
-      Deferred.await(finished).pipe(
-        Effect.timeoutOrElse({
-          duration: minute,
-          orElse: () =>
-            Effect.fail(
-              restoreError("browser did not request the isolated origin document within 1 minute"),
-            ),
-        }),
-      ),
-    ],
-    { concurrency: "unbounded", discard: true },
+  // Chromium upgrades top-level GET navigations from http to https, and when the
+  // upgrade fails it loads the real http site, bypassing request interception.
+  // It never upgrades POST navigations, so the helper submits a form instead of
+  // navigating. The timer lets the evaluation return before the page unloads.
+  yield* page.use((raw) =>
+    raw.evaluate((url) => {
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = url;
+      document.documentElement.append(form);
+      setTimeout(() => form.submit());
+    }, chain[0]),
+  );
+  yield* Deferred.await(finished).pipe(
+    Effect.timeoutOrElse({
+      duration: minute,
+      orElse: () =>
+        Effect.fail(
+          restoreError("browser did not request the isolated origin document within 1 minute"),
+        ),
+    }),
   );
 });
 
