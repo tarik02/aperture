@@ -9,6 +9,29 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 const chromium = process.env.CHROMIUM ?? "chromium";
 const available = !spawnSync(chromium, ["--version"]).error;
 
+const groupAlive = (pid: number) => {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Ends a process group: asks it to exit, then kills what is left, and waits until it is gone. */
+const stopGroup = async (pid: number) => {
+  const started = Date.now();
+  for (let signal: NodeJS.Signals = "SIGTERM"; groupAlive(pid); ) {
+    if (Date.now() - started > 5_000) signal = "SIGKILL";
+    try {
+      process.kill(-pid, signal);
+    } catch {
+      /* already gone */
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+};
+
 describe.skipIf(!available)("browser MCP host", () => {
   let profile: string;
   let browser: ChildProcess;
@@ -37,9 +60,7 @@ describe.skipIf(!available)("browser MCP host", () => {
         `--user-data-dir=${profile}`,
         "about:blank",
       ],
-      {
-        stdio: "ignore",
-      },
+      { stdio: "ignore", detached: true }, // its own process group, to end all of Chromium's processes
     );
     const portFile = join(profile, "DevToolsActivePort");
     for (let attempt = 0; !existsSync(portFile) && attempt < 200; attempt++)
@@ -77,10 +98,11 @@ describe.skipIf(!available)("browser MCP host", () => {
     );
   }, 60_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     host?.kill();
-    browser?.kill();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Chromium keeps writing its profile until every one of its processes has exited.
+    if (browser?.pid) await stopGroup(browser.pid);
+    rmSync(profile, { recursive: true, force: true });
   });
 
   it("lists the pointer tools in place of Playwright's", async () => {
