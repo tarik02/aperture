@@ -171,10 +171,10 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 		return mcpRecordingOutput{}, err
 	}
 	output := mcpRecordingOutput{
-		TimelineRelativePath: timelinePath,
-		RecordingID:          status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		TimelineRelativePath: timelinePath,
 	}
 	return output, nil
 }

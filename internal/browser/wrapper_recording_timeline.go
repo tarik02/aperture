@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -19,6 +20,7 @@ const (
 	timelineMaxActions  = 2000
 	timelineMaxGestures = 1000
 	timelineMaxPath     = 600
+	timelineMaxPoints   = 100000 // path points over all gestures
 	timelineMaxSpans    = 5000
 	// Damage is sampled at 20 Hz; changes at most this far apart form one activity span.
 	timelineSampleEvery = 50 * time.Millisecond
@@ -26,10 +28,9 @@ const (
 )
 
 // frameClock reads the frame reports of a recording pipeline's identity element to
-// learn when its first frame happened, which places the video on the wall clock. A
-// pipeline takes an unpredictable 0.1 to 0.3 seconds to start, so nothing else can.
-// gst-launch prints each report as it is made (g_print flushes per line), so the
-// time a line is read is the frame's time within a few milliseconds.
+// learn when its first frame happened, which places the video on the wall clock (a
+// pipeline takes an unpredictable 0.1 to 0.3 seconds to start). gst-launch flushes
+// each report per line, so the time a line is read is the frame's time.
 type frameClock struct {
 	frame time.Duration
 	mu    sync.Mutex
@@ -44,7 +45,6 @@ const frameElement = "aperture_frames"
 // A report line: "...aperture_frames: last-message = chain ... pts: 0:00:00.033233797, ..."
 var frameReport = regexp.MustCompile(`last-message = chain .*pts: (\d+):(\d\d):(\d\d)\.(\d+)`)
 
-// Write implements io.Writer for the pipeline's stdout.
 func (c *frameClock) Write(p []byte) (int, error) {
 	read := time.Now()
 	c.mu.Lock()
@@ -95,19 +95,15 @@ type timelineSegment struct {
 	scaleX, scaleY float64
 	clock          *frameClock
 	ended          bool
-	// spans are when content changed; unknown are stretches where it could not be sampled.
-	spans, unknown []timelineSpan
+	spans          []timelineSpan // when content changed
 }
 
 // timelineGesture and timelineAction are what the browser MCP host reports in a tool
 // result's `_meta.aperture` (wall-clock epoch milliseconds, compositor surface pixels)
 // and what the timeline file holds (video milliseconds, video pixels).
 type timelineGesture struct {
-	Tool     string `json:"tool"`
-	TargetID string `json:"targetId"`
-	// Fallback: the page's own mouse was used, so coordinates are viewport CSS pixels
-	// rather than surface pixels and are not kept.
-	Fallback bool            `json:"fallback,omitempty"`
+	Tool     string          `json:"tool"`
+	TargetID string          `json:"targetId"`
 	Start    int64           `json:"start"`
 	End      int64           `json:"end"`
 	Hold     int64           `json:"hold"`
@@ -147,17 +143,16 @@ type recordingTimeline struct {
 	segments []*timelineSegment
 	actions  []timelineAction
 	gestures []timelineGesture
+	points   int
+	// incomplete is set once a damage sample failed, so quiet spans may not be idle.
+	incomplete bool
 }
 
 // begin adds the segment a new capture pipeline records.
 func (t *recordingTimeline) begin(target wrapperTargetSnapshot, clock *frameClock) {
 	viewport := target.Viewport
-	segment := &timelineSegment{
-		targetID: target.TargetID, captureID: target.CaptureID, clock: clock, scaleX: 1, scaleY: 1,
-		// The frame is the content area cropped to even sizes.
-		width:  min(viewport.CanvasWidth, (viewport.ContentWidth+1)/2*2),
-		height: min(viewport.CanvasHeight, (viewport.ContentHeight+1)/2*2),
-	}
+	segment := &timelineSegment{targetID: target.TargetID, captureID: target.CaptureID, clock: clock, scaleX: 1, scaleY: 1}
+	segment.width, segment.height = recordedSize(viewport)
 	if viewport.Width > 0 && viewport.Height > 0 {
 		segment.scaleX = float64(viewport.ContentWidth) / float64(viewport.Width)
 		segment.scaleY = float64(viewport.ContentHeight) / float64(viewport.Height)
@@ -169,11 +164,9 @@ func (t *recordingTimeline) begin(target wrapperTargetSnapshot, clock *frameCloc
 
 // discard removes the newest segment, whose pipeline was abandoned.
 func (t *recordingTimeline) discard() {
-	if t != nil {
-		t.mu.Lock()
-		t.segments = t.segments[:len(t.segments)-1]
-		t.mu.Unlock()
-	}
+	t.mu.Lock()
+	t.segments = t.segments[:len(t.segments)-1]
+	t.mu.Unlock()
 }
 
 // end marks the oldest running segment as stopped; a replacement may already run.
@@ -202,7 +195,8 @@ func (t *recordingTimeline) add(action *timelineAction, gesture *timelineGesture
 		t.actions = append(t.actions, *action)
 	}
 	if gesture != nil && len(t.gestures) < timelineMaxGestures {
-		gesture.Path = gesture.Path[:min(len(gesture.Path), timelineMaxPath)]
+		gesture.Path = gesture.Path[:min(len(gesture.Path), timelineMaxPath, timelineMaxPoints-t.points)]
+		t.points += len(gesture.Path)
 		t.gestures = append(t.gestures, *gesture)
 	}
 }
@@ -237,7 +231,12 @@ func (t *recordingTimeline) sample(ctx context.Context, socket string) {
 			cancel()
 			var sinceMS, count uint64
 			if _, scanErr := fmt.Sscanf(response, "ok %d %d", &sinceMS, &count); err != nil || scanErr != nil {
-				segment.unknown = addSpan(segment.unknown, requested, time.Now())
+				if ctx.Err() != nil {
+					return
+				}
+				t.mu.Lock()
+				t.incomplete = true
+				t.mu.Unlock()
 				continue
 			}
 			previous, seen := counts[segment]
@@ -245,7 +244,9 @@ func (t *recordingTimeline) sample(ctx context.Context, socket string) {
 			if seen && count != previous {
 				answered := time.Now()
 				at := requested.Add(answered.Sub(requested) / 2).Add(-time.Duration(sinceMS) * time.Millisecond)
+				t.mu.Lock()
 				segment.spans = addSpan(segment.spans, at, at)
+				t.mu.Unlock()
 			}
 		}
 	}
@@ -270,9 +271,14 @@ type timelineDoc struct {
 	Segments    []timelineSegmentOut `json:"segments"`
 	Actions     []timelineAction     `json:"actions"`
 	Gestures    []timelineGesture    `json:"gestures"`
-	Activity    []timelineSpanOut    `json:"activity"`
-	// Unknown is where damage could not be sampled, so quiet there does not mean idle.
-	Unknown []timelineSpanOut `json:"unknown"`
+	Activity    timelineActivity     `json:"activity"`
+}
+
+// timelineActivity is when the recorded content changed. Unless Complete, sampling
+// failed at times, so gaps between spans do not mean idle.
+type timelineActivity struct {
+	Complete bool              `json:"complete"`
+	Spans    []timelineSpanOut `json:"spans"`
 }
 
 type timelineSegmentOut struct {
@@ -306,36 +312,36 @@ func (p placement) point(x, y float64) (float64, float64) {
 
 // build converts what was collected into the timeline of the finished video: a
 // segment's video time is the durations of the segments before it plus the time since
-// its first frame.
-func (t *recordingTimeline) build(recordingID, video string) timelineDoc {
+// its first frame. Without a first frame for every segment the offsets cannot be known.
+func (t *recordingTimeline) build(recordingID, video string) (timelineDoc, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	doc := timelineDoc{Version: 1, RecordingID: recordingID, Video: video, Segments: []timelineSegmentOut{},
-		Actions: []timelineAction{}, Gestures: []timelineGesture{}, Activity: []timelineSpanOut{}, Unknown: []timelineSpanOut{}}
+		Actions: []timelineAction{}, Gestures: []timelineGesture{}, Activity: timelineActivity{Complete: !t.incomplete, Spans: []timelineSpanOut{}}}
 	var placed []placement
-	for _, segment := range t.segments {
+	for i, segment := range t.segments {
 		anchor, length := segment.clock.span()
 		if anchor.IsZero() {
-			continue
+			return doc, fmt.Errorf("segment %d of %d has no frames", i+1, len(t.segments))
 		}
 		p := placement{segment, anchor, doc.DurationMS, length.Milliseconds()}
 		placed = append(placed, p)
 		doc.DurationMS += p.length
 		doc.Segments = append(doc.Segments, timelineSegmentOut{segment.targetID, p.offset, p.offset + p.length, segment.width, segment.height})
 		for _, span := range segment.spans {
-			doc.Activity = append(doc.Activity, timelineSpanOut{p.ms(span.start), p.ms(span.end)})
-		}
-		for _, span := range segment.unknown {
-			doc.Unknown = append(doc.Unknown, timelineSpanOut{p.ms(span.start), p.ms(span.end)})
+			doc.Activity.Spans = append(doc.Activity.Spans, timelineSpanOut{p.ms(span.start), p.ms(span.end)})
 		}
 	}
 	if len(placed) == 0 {
-		return doc
+		return doc, errors.New("no segments")
 	}
-	// The segment showing a moment is the last one whose first frame has happened.
+	// A segment shows the wall time from its first frame until the next segment's.
 	at := func(wall time.Time, targetID string) *placement {
 		for i := len(placed) - 1; i >= 0; i-- {
-			if !placed[i].anchor.After(wall) && (targetID == "" || placed[i].targetID == targetID) {
+			if !placed[i].anchor.After(wall) {
+				if targetID != "" && placed[i].targetID != targetID {
+					return nil // the target was not being recorded then
+				}
 				return &placed[i]
 			}
 		}
@@ -356,13 +362,10 @@ func (t *recordingTimeline) build(recordingID, video string) timelineDoc {
 	for _, gesture := range t.gestures {
 		p := at(epoch(gesture.Start), gesture.TargetID)
 		if p == nil {
-			continue // the gesture was on a target this recording was not showing
+			continue
 		}
 		path, clicks, scroll := gesture.Path, gesture.Clicks, gesture.Scroll
 		gesture.Start, gesture.End = p.ms(epoch(gesture.Start)), p.ms(epoch(gesture.End))
-		if gesture.Fallback { // viewport CSS pixels, not surface pixels
-			path, clicks, scroll = nil, nil, nil
-		}
 		gesture.Path, gesture.Clicks = make([][3]float64, len(path)), make([]timelineClick, len(clicks))
 		for i, point := range path {
 			x, y := p.point(point[1], point[2])
@@ -382,16 +385,14 @@ func (t *recordingTimeline) build(recordingID, video string) timelineDoc {
 		}
 		doc.Gestures = append(doc.Gestures, gesture)
 	}
-	return doc
+	return doc, nil
 }
 
 // publishTimeline writes the timeline of a finished video next to it, named after it
-// (`demo.webm.timeline.json`) and without replacing a file, and returns its path. A
-// timeline only adds to the video, so failing to write one never fails the recording.
+// (`demo.webm.timeline.json`) and without replacing a file, and returns its path
+// below the files root. A timeline only adds to the video, so failing to write one
+// never fails the recording.
 func (recording *wrapperRecording) publishTimeline(video string) string {
-	if recording.timeline == nil {
-		return ""
-	}
 	path, err := recording.writeTimeline(video)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
@@ -400,11 +401,19 @@ func (recording *wrapperRecording) publishTimeline(video string) string {
 }
 
 func (recording *wrapperRecording) writeTimeline(video string) (string, error) {
-	relative, err := filepath.Rel(recording.filesRoot, video)
+	relative := func(path string) (string, error) {
+		rel, err := filepath.Rel(recording.filesRoot, path)
+		return filepath.ToSlash(rel), err
+	}
+	videoRelative, err := relative(video)
 	if err != nil {
 		return "", err
 	}
-	contents, err := json.Marshal(recording.timeline.build(recording.ID, filepath.ToSlash(relative)))
+	doc, err := recording.timeline.build(recording.ID, videoRelative)
+	if err != nil {
+		return "", err
+	}
+	contents, err := json.Marshal(doc)
 	if err != nil {
 		return "", err
 	}
@@ -420,7 +429,11 @@ func (recording *wrapperRecording) writeTimeline(video string) (string, error) {
 	if err := temp.Close(); err != nil {
 		return "", err
 	}
-	return publishRecording(temp.Name(), video+".timeline.json")
+	published, err := publishRecording(temp.Name(), video+".timeline.json")
+	if err != nil {
+		return "", err
+	}
+	return relative(published)
 }
 
 // recordTimeline hands what a Playwright tool result reported in `_meta.aperture` to
@@ -438,7 +451,7 @@ func (session *liveSession) recordTimeline(meta map[string]any) {
 	r.mu.Lock()
 	var timelines []*recordingTimeline
 	for _, recording := range session.recordings {
-		if recording.Status == wrapperRecordingRunning && recording.timeline != nil {
+		if recording.Status == wrapperRecordingRunning {
 			timelines = append(timelines, recording.timeline)
 		}
 	}

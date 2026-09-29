@@ -2,13 +2,18 @@ import type { Page } from "playwright-core";
 import type { Context, ToolDefinition } from "playwright-core/lib/coreBundle";
 import { z } from "playwright-core/lib/utilsBundle";
 
+const targetIds = new WeakMap<Page, string>();
+
 /** The CDP target id of a page, which names the browser target Aperture records. */
 export async function targetIdOf(page: Page): Promise<string> {
+  const known = targetIds.get(page);
+  if (known) return known;
   const session = await page.context().newCDPSession(page);
   try {
     const { targetInfo } = (await session.send("Target.getTargetInfo")) as {
       targetInfo: { targetId: string };
     };
+    targetIds.set(page, targetInfo.targetId);
     return targetInfo.targetId;
   } finally {
     await session.detach().catch(() => {});
@@ -39,12 +44,16 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
     schema: { ...tool.schema, inputSchema },
     async handle(context, params, response, signal) {
       const { caption, ...rest } = params as { caption?: string };
-      const start = Date.now();
       let targetId = await tabTargetId(context);
+      const start = Date.now();
+      let ok = true;
       try {
         await tool.handle(context, rest as never, response, signal);
       } catch (error) {
-        response.addError(error instanceof Error ? error.message : String(error));
+        // Reported through the result, which a rethrown error would replace; the text
+        // is what Playwright formats for a thrown error.
+        ok = false;
+        response.addError(String(error));
       }
       const end = Date.now();
       targetId ||= await tabTargetId(context);
@@ -57,7 +66,7 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
           start,
           end,
           caption,
-          ok: !result.isError,
+          ok: ok && !result.isError,
         };
         return {
           ...result,

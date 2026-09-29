@@ -640,10 +640,14 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	mediaProducer.Handler(metadata).ServeHTTP(w, req.WithContext(ctx))
 }
 
+// recordedSize is the frame of a recording: the content area cropped to even sizes.
+func recordedSize(viewport compositorViewport) (int, int) {
+	return min(viewport.CanvasWidth, (viewport.ContentWidth+1)/2*2), min(viewport.CanvasHeight, (viewport.ContentHeight+1)/2*2)
+}
+
 func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, *frameClock, error) {
 	keepaliveMS := 1000 / fps
-	recordingWidth := min(viewport.CanvasWidth, (viewport.ContentWidth+1)/2*2)
-	recordingHeight := min(viewport.CanvasHeight, (viewport.ContentHeight+1)/2*2)
+	recordingWidth, recordingHeight := recordedSize(viewport)
 	args := []string{
 		"-e",
 		// Verbose, so the identity element in front of the encoder reports each frame.
@@ -683,6 +687,7 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 	cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
 	clock := &frameClock{frame: time.Second / time.Duration(fps)}
 	cmd.Stdout = clock
+	cmd.WaitDelay = 2 * time.Second // a child that outlives the pipeline must not hold Wait on the pipe
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return nil, nil, nil, fmt.Errorf("start screencast pipeline: %w", err)
