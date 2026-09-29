@@ -124,8 +124,10 @@ type piece struct {
 }
 
 // buildEditPlan plans the effects a recording's timeline asks for, given its
-// defaults. It returns nil when nothing applies, and a plan without a filter when
-// what applies could not be planned. It is pure.
+// defaults. It returns nil when nothing applies, and an error when the recording
+// cannot be planned at all. When the filters would outgrow a command line it drops
+// effects, lowest priority first (captions, idle, zoom, ripples), and says so in the
+// warnings. It is pure.
 func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, error) {
 	total := doc.DurationMS
 	cues := captionCues(doc.Actions, total)
@@ -162,57 +164,67 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 	for _, scene := range scenes {
 		busy = append(busy, span{scene.keys[0].t, scene.keys[len(scene.keys)-1].t})
 	}
-	activity, complete := activitySpans(doc)
-	for _, a := range activity {
-		busy = append(busy, span{a.start - timelineSpanGap.Milliseconds()/2, a.end + timelineSpanGap.Milliseconds()/2})
+	for _, a := range doc.Activity.Spans {
+		busy = append(busy, span{a.Start - timelineSpanGap.Milliseconds()/2, a.End + timelineSpanGap.Milliseconds()/2})
 	}
+	// The captions and the fixed filters always fit; the rest is added while there is room.
+	head := []string{"setpts=PTS-STARTPTS", fmt.Sprintf("fps=fps=%d:start_time=0", p.fps), "format=yuv420p"}
+	tail := []string{"crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"} // libx264 needs even sizes
+	if len(cues) > 0 {
+		tail = append(tail, "ass=captions.ass")
+	}
+	room := editMaxFilterBytes - len(strings.Join(slices.Concat(head, tail), ","))
+	take := func(filter string) bool {
+		if room < len(filter)+1 {
+			return false
+		}
+		room -= len(filter) + 1
+		return true
+	}
+
 	pieces := []piece{{0, total, 1}}
 	var remap []string
 	switch {
 	case fx.Idle == "":
-	case !complete || len(activity) >= timelineMaxSpans || len(doc.Gestures) >= timelineMaxGestures:
-		p.warnings = append(p.warnings, "idle was left as it is: the screen could not be watched all the time, or the timeline had room for only some of the screen changes or gestures, so no stretch is known to be idle")
+	case !doc.Activity.Complete || len(doc.Activity.Spans) >= timelineMaxSpans || len(doc.Gestures) >= timelineMaxGestures || len(doc.Actions) >= timelineMaxActions:
+		p.warnings = append(p.warnings, "idle was left as it is: the screen could not be watched all the time, or the timeline had room for only some of the screen changes, gestures or actions, so no stretch is known to be idle")
 	default:
 		var regions []span
 		if pieces, regions = idlePieces(fx.Idle, busy, total); len(regions) == 0 {
 			p.warnings = append(p.warnings, "idle was left as it is: no stretch of 1.5 s or more without changes or gestures")
-		} else {
-			remap = remapFilters(pieces, p.fps)
+		} else if remap = remapFilters(pieces, p.fps); !take(strings.Join(remap, ",")) {
+			pieces, remap = []piece{{0, total, 1}}, nil
+			p.warnings = append(p.warnings, "idle was left out: too many stretches to render")
 		}
 	}
-
-	chain := []string{"setpts=PTS-STARTPTS", fmt.Sprintf("fps=fps=%d:start_time=0", p.fps), "format=yuv420p"}
-	for _, m := range marks {
-		chain = append(chain, m.filter(width, p.fps))
-	}
+	var zoomFilters, rippleFilters []string
 	for _, scene := range scenes {
-		chain = append(chain, scene.filter(float64(width), float64(height), p.fps))
+		if filter := scene.filter(float64(width), float64(height), p.fps); take(filter) {
+			zoomFilters = append(zoomFilters, filter)
+		}
 	}
-	chain = append(chain, remap...)
-	chain = append(chain, "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0") // libx264 needs even sizes
+	for _, m := range marks {
+		if filter := m.filter(width, p.fps); take(filter) {
+			rippleFilters = append(rippleFilters, filter)
+		}
+	}
+	if n := len(scenes) - len(zoomFilters); n > 0 {
+		p.warnings = append(p.warnings, fmt.Sprintf("%d of %d zoom scenes were left out: too many effects to render", n, len(scenes)))
+	}
+	if n := len(marks) - len(rippleFilters); n > 0 {
+		p.warnings = append(p.warnings, fmt.Sprintf("%d of %d ripples were left out: too many effects to render", n, len(marks)))
+	}
+
 	if len(cues) > 0 {
 		for i := range cues {
 			cues[i].start, cues[i].end = mapTime(pieces, cues[i].start), mapTime(pieces, cues[i].end)
 		}
 		p.ass = marshalASS(cues, width, height)
-		chain = append(chain, "ass=captions.ass")
 	}
-	if len(cues)+len(scenes)+len(marks)+len(remap) == 0 {
-		return p, nil
-	}
-	if p.filter = strings.Join(chain, ","); len(p.filter) > editMaxFilterBytes {
-		return nil, fmt.Errorf("the recording has too many effects to render (%d bytes of filters)", len(p.filter))
+	if len(cues)+len(zoomFilters)+len(rippleFilters)+len(remap) > 0 {
+		p.filter = strings.Join(slices.Concat(head, rippleFilters, zoomFilters, remap, tail), ",")
 	}
 	return p, nil
-}
-
-// activitySpans are the spans in which the page's content changed, and whether they
-// are all of them: where the screen could not be sampled, quiet does not mean idle.
-func activitySpans(doc timelineDoc) (spans []span, complete bool) {
-	for _, a := range doc.Activity.Spans {
-		spans = append(spans, span{a.Start, a.End})
-	}
-	return spans, doc.Activity.Complete
 }
 
 // captionCues turns captioned actions into cues that stay long enough to read and

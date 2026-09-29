@@ -25,6 +25,7 @@ var (
 	errRecordingInvalidState       = errors.New("recording invalid state")
 	errRecordingNotFound           = errors.New("recording not found")
 	errRecordingCodecUnavailable   = errors.New("recording codec unavailable")
+	errRecordingEffectsUnavailable = errors.New("recording effects unavailable")
 	errStorageExportUnsupported    = errors.New("storage export unsupported")
 	errSessionFileNotFound         = errors.New("session file not found")
 )
@@ -172,6 +173,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusBadGateway, "browser_control_failed", "thumbnail capture failed"
 	case errors.Is(err, errRecordingCodecUnavailable):
 		return http.StatusUnprocessableEntity, "recording_codec_unavailable", err.Error()
+	case errors.Is(err, errRecordingEffectsUnavailable):
+		return http.StatusUnprocessableEntity, "recording_effects_unavailable", err.Error()
 	case errors.Is(err, errStorageExportUnsupported):
 		return http.StatusUnprocessableEntity, "storage_export_unsupported", err.Error()
 	case errors.Is(err, errRecordingNotFound):

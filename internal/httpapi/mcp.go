@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/playwrightmcp"
@@ -390,7 +391,7 @@ type mcpRecordingOutput struct {
 	// TimelineRelativePath names the timeline file of a stopped recording, when it has one.
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
 
-	recordingEditFields
+	browser.RecordingEdit
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`

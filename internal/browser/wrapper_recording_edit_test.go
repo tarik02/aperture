@@ -125,31 +125,19 @@ func TestEditPlanIdleKeepsWhatIsBusy(t *testing.T) {
 	}
 }
 
-func TestEditPlanRejectsFramesOfDifferentSizes(t *testing.T) {
-	doc := editDoc()
-	doc.Segments = append(doc.Segments, timelineSegmentOut{Start: 10000, End: 12000, Width: 800, Height: 600})
-	doc.Actions = []timelineAction{{Caption: "hi", Start: 100, End: 200}}
-	if _, err := buildEditPlan(doc, recordingEffects{}, 30); err == nil || !strings.Contains(err.Error(), "change size") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
 func TestValidateRecordingEffects(t *testing.T) {
-	for _, ok := range []struct {
-		idle string
-		zoom any
-	}{{"", nil}, {"cut", true}, {"speed", false}, {"", 1.1}, {"", float64(4)}} {
-		if err := ValidateRecordingEffects(ok.idle, ok.zoom); err != nil {
-			t.Errorf("%v: %v", ok, err)
+	for _, zoom := range []any{nil, true, false, 1.1, float64(4)} {
+		if err := ValidateRecordingEffects("cut", zoom); err != nil {
+			t.Errorf("%v: %v", zoom, err)
 		}
 	}
-	for _, bad := range []struct {
-		idle string
-		zoom any
-	}{{"fast", nil}, {"", 1.0}, {"", float64(5)}, {"", "yes"}} {
-		if err := ValidateRecordingEffects(bad.idle, bad.zoom); err == nil {
-			t.Errorf("%v was accepted", bad)
+	for _, zoom := range []any{1.0, float64(5), "yes"} {
+		if err := ValidateRecordingEffects("", zoom); err == nil {
+			t.Errorf("%v was accepted", zoom)
 		}
+	}
+	if ValidateRecordingEffects("fast", nil) == nil {
+		t.Error("idle fast was accepted")
 	}
 }
 

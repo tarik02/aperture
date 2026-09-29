@@ -70,8 +70,7 @@ type wrapperRecording struct {
 	timeline          *recordingTimeline
 	timelinePath      string
 	effects           recordingEffects
-	edit              recordingEdit
-	renderOnStop      bool
+	edit              RecordingEdit
 }
 
 type wrapperRecordingRequest struct {
@@ -106,8 +105,13 @@ func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Re
 			body.Path = ""
 		}
 		recording, err := session.startRecording(body)
-		if errors.Is(err, errWrapperRecordingCodecUnavailable) || errors.Is(err, errWrapperRecordingEffectsUnavailable) {
+		if errors.Is(err, errWrapperRecordingCodecUnavailable) {
 			writeWrapperError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		// Not 422, which means the codec: the API names this one apart.
+		if errors.Is(err, errWrapperRecordingEffectsUnavailable) {
+			writeWrapperError(w, http.StatusNotImplemented, err.Error())
 			return
 		}
 		if err != nil {
@@ -133,8 +137,8 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 		return
 	}
 	if len(parts) == 2 && parts[1] == "stop" && req.Method == http.MethodPost {
-		session.renderOnStop(parts[0])
-		recording, err := session.stopRecording(parts[0], "requested")
+		// Only the API and MCP stop asks for the render; the live session's own stop does not wait for one.
+		recording, err := session.stopRecordingForTarget(parts[0], "", "requested", req.URL.Query().Get("render") == "1")
 		if err != nil {
 			if errors.Is(err, errWrapperRecordingNotFound) {
 				writeWrapperError(w, http.StatusNotFound, err.Error())
@@ -345,7 +349,7 @@ func (session *liveSession) moveViewerRecordings(ctx context.Context, clientID, 
 	for _, recording := range session.recordings {
 		if recording.Mode == wrapperRecordingModeViewer &&
 			recording.clientID == clientID &&
-			recording.Status == wrapperRecordingRunning {
+			recording.Status == wrapperRecordingRunning && !recording.finalizing {
 			recordings = append(recordings, candidate{recording: recording, targetID: recording.TargetID})
 		}
 	}
@@ -381,13 +385,18 @@ func (session *liveSession) moveViewerRecordings(ctx context.Context, clientID, 
 	return nil
 }
 
+// stoppable is whether a stop would still have something to do, and not wait for one
+// already under way.
+func (recording *wrapperRecording) stoppable() bool {
+	return (recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning) && !recording.finalizing
+}
+
 func (session *liveSession) stopClientRecordings(clientID string) {
 	r := session.runtime
 	r.mu.Lock()
 	recordingIDs := make([]string, 0)
 	for _, recording := range session.recordings {
-		if recording.clientID == clientID &&
-			(recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning) {
+		if recording.clientID == clientID && recording.stoppable() {
 			recordingIDs = append(recordingIDs, recording.ID)
 		}
 	}
@@ -403,8 +412,7 @@ func (session *liveSession) stopViewerRecordings(clientID, reason string) {
 	recordingIDs := make([]string, 0)
 	for _, recording := range session.recordings {
 		if recording.Mode == wrapperRecordingModeViewer &&
-			recording.clientID == clientID &&
-			(recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning) {
+			recording.clientID == clientID && recording.stoppable() {
 			recordingIDs = append(recordingIDs, recording.ID)
 		}
 	}
@@ -415,10 +423,13 @@ func (session *liveSession) stopViewerRecordings(clientID, reason string) {
 }
 
 func (session *liveSession) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
-	return session.stopRecordingForTarget(recordingID, "", reason)
+	return session.stopRecordingForTarget(recordingID, "", reason, false)
 }
 
-func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
+// stopRecordingForTarget stops a recording, when it records targetID if that is given,
+// and renders its effects when render is set. It holds the recording's operation lock
+// throughout, so every collector that would wait for it skips a finalizing recording.
+func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string, render bool) (wrapperRecording, error) {
 	r := session.runtime
 	r.mu.Lock()
 	recording := session.recordings[recordingID]
@@ -462,7 +473,10 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 		return session.failRecording(recording, "finalize_failed", err)
 	}
 	timelinePath := recording.publishTimeline(finalPath)
-	edit := session.editRecording(recording, finalPath)
+	var edit RecordingEdit
+	if render {
+		edit = session.editRecording(recording, finalPath)
+	}
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()
 	recording.Path = finalPath
@@ -534,7 +548,7 @@ func (session *liveSession) replaceRecordingTargets(ctx context.Context, target 
 	recordings := make([]*wrapperRecording, 0)
 	for _, recording := range session.recordings {
 		session.refreshRecordingLocked(recording)
-		if recording.TargetID == target.TargetID && recording.Status == wrapperRecordingRunning {
+		if recording.TargetID == target.TargetID && recording.Status == wrapperRecordingRunning && !recording.finalizing {
 			recordings = append(recordings, recording)
 		}
 	}
@@ -710,7 +724,7 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 	r.mu.Lock()
 	recordings := make([]*wrapperRecording, 0)
 	for _, recording := range session.recordings {
-		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning {
+		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning || recording.finalizing {
 			continue
 		}
 		recordings = append(recordings, recording)
@@ -723,7 +737,7 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 		recording.operationMu.Lock()
 		r.mu.Lock()
 		session.refreshRecordingLocked(recording)
-		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning {
+		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning || recording.finalizing {
 			r.mu.Unlock()
 			recording.operationMu.Unlock()
 			continue
@@ -749,23 +763,24 @@ func (session *liveSession) stopTabRecordings(targetID string) {
 	r.mu.Lock()
 	ids := make([]string, 0)
 	for _, recording := range session.recordings {
-		if recording.Mode == wrapperRecordingModeTab && recording.TargetID == targetID && recording.Status == wrapperRecordingRunning {
+		if recording.Mode == wrapperRecordingModeTab && recording.TargetID == targetID && recording.Status == wrapperRecordingRunning && !recording.finalizing {
 			ids = append(ids, recording.ID)
 		}
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		_, _ = session.stopRecordingForTarget(id, targetID, "target_closed")
+		_, _ = session.stopRecordingForTarget(id, targetID, "target_closed", false)
 	}
 }
 
 func (session *liveSession) stopAllRecordings(reason string) {
+	session.cancelRenders() // a session that is closing does not wait for a render
 	r := session.runtime
 	r.mu.Lock()
 	ids := make([]string, 0)
 	for _, recording := range session.recordings {
 		session.refreshRecordingLocked(recording)
-		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
+		if recording.stoppable() {
 			ids = append(ids, recording.ID)
 		}
 	}
@@ -928,8 +943,8 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 		Path string `json:"path"`
 		// TimelineRelativePath names the recording's timeline file, once it is stopped.
 		TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
-		recordingEdit
-	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, Path: relative, TimelineRelativePath: recording.timelinePath, recordingEdit: recording.edit})
+		RecordingEdit
+	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, Path: relative, TimelineRelativePath: recording.timelinePath, RecordingEdit: recording.edit})
 }
 
 // publishRecording moves a finished recording into place without replacing an

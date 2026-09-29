@@ -189,13 +189,13 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
           await act({ tab, page, pointer, size }, params);
           // Without a compositor surface the page's own mouse was used, and its viewport
           // coordinates mean nothing on the video, so only the timing is reported.
-          const { path, clicks, scroll, ...timing } = pointer.record;
+          const { start, end, hold } = pointer.record;
           const gesture = {
             tool: name,
             targetId,
             zoom: params.zoom,
             ripple: params.ripple,
-            ...(surface ? pointer.record : timing),
+            ...(surface ? pointer.record : { start, end, hold }),
           };
           const serialize = response.serialize.bind(response);
           response.serialize = async () => ({
