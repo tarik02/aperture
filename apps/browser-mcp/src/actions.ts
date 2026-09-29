@@ -59,7 +59,19 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
       targetId ||= await tabTargetId(context);
       const serialize = response.serialize.bind(response);
       response.serialize = async () => {
-        const result = await serialize();
+        let result: Awaited<ReturnType<typeof serialize>>;
+        try {
+          result = await serialize();
+        } catch (error) {
+          // Playwright answers a failure here with an error result that has no `_meta`
+          // (a tab that closed while its snapshot was taken does it), which would lose
+          // the report of a call that did run.
+          ok = false;
+          result = {
+            content: [{ type: "text", text: `### Error\n${String(error)}` }],
+            isError: true,
+          };
+        }
         const action = {
           tool: tool.schema.name,
           targetId,
