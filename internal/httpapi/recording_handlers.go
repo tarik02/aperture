@@ -212,7 +212,10 @@ func (r createSessionRecordingRequest) Validate() error {
 	if err := r.captureRequest().validate(); err != nil {
 		return err
 	}
-	return r.validate()
+	if err := r.validate(); err != nil {
+		return err
+	}
+	return r.validateFor(r.Capture)
 }
 
 type retargetSessionRecordingRequest struct {

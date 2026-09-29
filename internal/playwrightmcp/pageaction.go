@@ -132,9 +132,10 @@ func ClassifyTool(tool string, arguments map[string]any) PageAction {
 // AcceptsCaption says whether a tool takes a caption for a recording's edited
 // video: exactly the tools that can open a burst, which are the pointer tools,
 // those that change the page, and browser_wait_for, which opens one when it
-// waits for text. A call that turns out not to change the page (browser_tabs
-// listing tabs, browser_wait_for waiting for time) has its caption dropped by
-// whoever reads it, see ClassifyTool. Tools that are unknown to the table take
+// waits for text. A caption on browser_tabs listing tabs is dropped by the
+// daemon, since that call changes nothing. One on browser_wait_for waiting for
+// time only is kept: the wrapper records it when the call succeeds, and it shows
+// in a continuous recording, and in a bursts recording only if a burst is open. Tools that are unknown to the table take
 // none, unlike ClassifyTool, which treats them as changing the page.
 func AcceptsCaption(tool string) bool {
 	kind, known := toolActions[tool]

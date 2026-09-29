@@ -296,7 +296,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	default:
 		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
 	}
-	effects, err := session.resolveRecordingEffects(request.recordingEffectsRequest)
+	effects, err := session.resolveRecordingEffects(request.recordingEffectsRequest, capture)
 	if err != nil {
 		return wrapperRecording{}, err
 	}

@@ -885,7 +885,7 @@ paths:
       description: >-
         Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
         With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
-        `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
+        `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` is rejected with `capture` `bursts`: idle applies to continuous recordings; bursts recordings already skip idle time.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -3011,7 +3011,7 @@ components:
         idle:
           type: string
           enum: [speed, cut]
-          description: Shorten the stretches of the recording where nothing changes on the screen and no gesture is made, in the edited video. `speed` plays them faster and `cut` removes them. Off when omitted.
+          description: Shorten the stretches of the recording where nothing changes on the screen and no gesture is made, in the edited video. `speed` plays them faster and `cut` removes them. Off when omitted. Idle applies to continuous recordings, and `idle` with `capture` `bursts` is rejected because bursts recordings already skip idle time.
         ripple:
           type: boolean
           description: Mark clicks with a ripple in the edited video, unless a click says otherwise. Off when omitted.

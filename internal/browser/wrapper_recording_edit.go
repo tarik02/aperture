@@ -83,8 +83,8 @@ func (e *recordingEdit) setSalvagedEdit(wanted bool) {
 
 // resolveRecordingEffects validates the effects a recording is started with, and
 // that this host can apply them.
-func (session *liveSession) resolveRecordingEffects(request recordingEffectsRequest) (recordingEffects, error) {
-	effects, err := request.resolve()
+func (session *liveSession) resolveRecordingEffects(request recordingEffectsRequest, capture wrapperRecordingCapture) (recordingEffects, error) {
+	effects, err := request.resolve(capture)
 	if err != nil {
 		return effects, fmt.Errorf("%w: %w", errWrapperRecordingInvalid, err)
 	}

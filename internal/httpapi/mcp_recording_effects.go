@@ -56,7 +56,7 @@ func mcpRecordingEffectsProperties() map[string]any {
 	return map[string]any{
 		"idle": map[string]any{
 			"type": "string", "enum": []any{timeline.IdleSpeed, timeline.IdleCut},
-			"description": `Shorten the stretches of the recording where nothing changes on the screen and no gesture is made: "speed" plays them faster, "cut" removes them. Default off.`,
+			"description": `Shorten the stretches of the recording where nothing changes on the screen and no gesture is made: "speed" plays them faster, "cut" removes them. Default off. Continuous recordings only: rejected with capture "bursts", which already skips idle time.`,
 		},
 		"ripple": map[string]any{"type": "boolean", "description": "Mark clicks with a ripple in the edited video, unless the click says otherwise. Default off."},
 		"zoom":   mcpZoomSchema(mcpZoomStartDescription),
@@ -74,8 +74,10 @@ func playwrightToolCaption(name string, arguments map[string]any) (string, error
 		return "", nil
 	}
 	delete(arguments, "caption")
-	// A call that changes nothing on the page (listing tabs, waiting for time)
-	// has nothing to caption.
+	// Only browser_tabs with action "list" is dropped here: it changes nothing on
+	// the page. A browser_wait_for for time only is forwarded like any other call;
+	// the wrapper records its caption when the call succeeds, so it shows in a
+	// continuous recording, and in a bursts recording only if a burst is open.
 	if playwrightmcp.ClassifyTool(name, arguments) == playwrightmcp.ActionNone {
 		return "", nil
 	}
@@ -96,6 +98,9 @@ func addCaptionProperty(name string, properties map[string]any) {
 		description := mcpCaptionDescription
 		if name == "browser_tabs" {
 			description += ` Ignored for action "list".`
+		}
+		if name == "browser_wait_for" {
+			description += ` For a wait for time only it is shown in a continuous recording, and in a bursts recording only while a burst is open.`
 		}
 		properties["caption"] = mcpCaptionProperty(description)
 	}
@@ -126,6 +131,17 @@ func (r recordingEffectsRequest) validate() error {
 		return validationError(`idle must be "speed" or "cut"`)
 	}
 }
+
+// validateFor checks the effects against how the recording captures.
+func (r recordingEffectsRequest) validateFor(capture string) error {
+	if r.Idle != "" && capture == recordingCaptureBursts {
+		return validationError(idleBurstsMessage)
+	}
+	return nil
+}
+
+// idleBurstsMessage says why idle is refused for a bursts recording.
+const idleBurstsMessage = "idle applies to continuous recordings; bursts recordings already skip idle time"
 
 // wrapperFields adds the effects to the wrapper's recording request.
 func (r recordingEffectsRequest) wrapperFields(request map[string]any) {

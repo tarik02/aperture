@@ -25,18 +25,18 @@ func boolArg(value bool) *bool { return &value }
 
 func TestRecordingEffectsRequestValidates(t *testing.T) {
 	for _, idle := range []string{"", "speed", "cut"} {
-		if _, err := (recordingEffectsRequest{Idle: idle}).resolve(); err != nil {
+		if _, err := (recordingEffectsRequest{Idle: idle}).resolve(wrapperRecordingCaptureContinuous); err != nil {
 			t.Errorf("idle %q: %v", idle, err)
 		}
 	}
-	if _, err := (recordingEffectsRequest{Idle: "fast"}).resolve(); err == nil {
+	if _, err := (recordingEffectsRequest{Idle: "fast"}).resolve(wrapperRecordingCaptureContinuous); err == nil {
 		t.Error("an unknown idle mode is refused")
 	}
-	effects, err := recordingEffectsRequest{Idle: "cut", Ripple: boolArg(true), Zoom: zoomArg(2.5)}.resolve()
+	effects, err := recordingEffectsRequest{Idle: "cut", Ripple: boolArg(true), Zoom: zoomArg(2.5)}.resolve(wrapperRecordingCaptureContinuous)
 	if err != nil || effects.idle != "cut" || !effects.ripple || effects.zoom != 2.5 {
 		t.Errorf("effects %+v err %v", effects, err)
 	}
-	if effects, _ := (recordingEffectsRequest{Zoom: zoomArg(0)}).resolve(); effects.any() {
+	if effects, _ := (recordingEffectsRequest{Zoom: zoomArg(0)}).resolve(wrapperRecordingCaptureContinuous); effects.any() {
 		t.Errorf("zoom false is off: %+v", effects)
 	}
 	if (recordingEffects{}).timelineOptions() != nil {
@@ -53,7 +53,7 @@ func TestRecordingEffectsRequestDecodesFromTheStartBody(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &request); err != nil {
 		t.Fatal(err)
 	}
-	effects, err := request.resolve()
+	effects, err := request.resolve(wrapperRecordingCaptureContinuous)
 	if err != nil || effects.idle != "speed" || !effects.ripple || effects.zoom != edit.DefaultZoomLevel {
 		t.Errorf("effects %+v err %v", effects, err)
 	}
@@ -238,5 +238,14 @@ func TestRecordingTimelineCollectsEffectsAndToolCaptions(t *testing.T) {
 	}
 	if got := built.Captions[1].StartMs; got < 5900 || got > 6100 {
 		t.Errorf("the tool caption starts when the call did: %d ms", got)
+	}
+}
+
+func TestRecordingEffectsRefuseIdleForBursts(t *testing.T) {
+	if _, err := (recordingEffectsRequest{Idle: "speed"}).resolve(wrapperRecordingCaptureBursts); err == nil || !strings.Contains(err.Error(), "already skip idle time") {
+		t.Errorf("idle with bursts: %v", err)
+	}
+	if _, err := (recordingEffectsRequest{Ripple: boolArg(true), Zoom: zoomArg(2)}).resolve(wrapperRecordingCaptureBursts); err != nil {
+		t.Errorf("other effects with bursts: %v", err)
 	}
 }

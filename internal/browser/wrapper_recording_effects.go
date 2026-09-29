@@ -35,18 +35,25 @@ type recordingEffects struct {
 }
 
 // resolve validates the request.
-func (request recordingEffectsRequest) resolve() (recordingEffects, error) {
+func (request recordingEffectsRequest) resolve(capture wrapperRecordingCapture) (recordingEffects, error) {
 	effects := recordingEffects{idle: request.Idle}
 	switch request.Idle {
 	case "", timeline.IdleSpeed, timeline.IdleCut:
 	default:
 		return effects, errors.New(`idle must be "speed" or "cut"`)
 	}
+	if request.Idle != "" && capture == wrapperRecordingCaptureBursts {
+		return effects, errors.New("idle applies to continuous recordings; bursts recordings already skip idle time")
+	}
 	if request.Ripple != nil {
 		effects.ripple = *request.Ripple
 	}
 	if request.Zoom != nil {
-		effects.zoom = float64(*request.Zoom)
+		level := float64(*request.Zoom)
+		if level != 0 && (level < edit.MinZoomLevel || level > edit.MaxZoomLevel) {
+			return effects, fmt.Errorf("zoom must be true, false, or a magnification between %g and %g", edit.MinZoomLevel, float64(edit.MaxZoomLevel))
+		}
+		effects.zoom = level
 	}
 	return effects, nil
 }

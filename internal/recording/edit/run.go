@@ -113,16 +113,18 @@ func Run(ctx context.Context, options RunOptions, tl *timeline.Timeline) (*Resul
 			return nil, newError(CodeInternal, "write captions: %v", err)
 		}
 	}
-	timeout := renderTimeout(plan.InDurationMs, options.MaxTime)
+	// One deadline covers the whole edit, the fit pass and the render together.
+	deadline := time.Now().Add(renderTimeout(plan.InDurationMs, options.MaxTime))
+	renderSource, renderFormat := source, format
 	if plan.FitFilter != "" {
-		fitted, err := fitFrames(ctx, options, format, source, plan, timeout)
+		fitted, err := fitFrames(ctx, options, format, source, plan, deadline)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = fitted.Close() }()
-		source, format = fitted, fittedFormat
+		renderSource, renderFormat = fitted, fittedFormat
 	}
-	if err := render(ctx, options, format, source, plan, timeout); err != nil {
+	if err := render(ctx, options, renderFormat, renderSource, plan, deadline); err != nil {
 		return nil, err
 	}
 	output := filepath.Join(options.WorkDir, OutputName)
@@ -142,21 +144,21 @@ const (
 // fitFrames makes a copy of the source whose frames are all one size, as
 // plan.FitFilter says, and returns it opened for reading. It keeps the frames'
 // timestamps, and encodes with little loss at a low cost, since the edit encodes
-// it again.
-func fitFrames(parent context.Context, options RunOptions, format string, source *os.File, plan *Plan, timeout time.Duration) (*os.File, error) {
+// it again. The copy stays in the work directory, which the caller removes.
+func fitFrames(parent context.Context, options RunOptions, format string, source *os.File, plan *Plan, deadline time.Time) (*os.File, error) {
 	arguments := []string{"-hide_banner", "-nostdin", "-loglevel", "error", "-y"}
 	arguments = append(arguments, inputArguments(format)...)
 	arguments = append(arguments,
 		"-map", "0:v:0", "-an", "-sn", "-dn",
 		"-vf", plan.FitFilter,
 		"-fps_mode", "passthrough",
-		"-c:v", "libx264", "-preset", "ultrafast", "-crf", "10", "-pix_fmt", "yuv420p",
+		"-c:v", "libx264", "-preset", "ultrafast", "-crf", "14", "-pix_fmt", "yuv420p",
 	)
 	if options.Threads > 0 {
 		arguments = append(arguments, "-threads", strconv.Itoa(options.Threads))
 	}
 	arguments = append(arguments, "-f", "matroska", fittedName)
-	if err := runFFmpeg(parent, options, source, timeout, arguments); err != nil {
+	if err := runFFmpeg(parent, options, source, deadline, arguments); err != nil {
 		return nil, err
 	}
 	return openSource(filepath.Join(options.WorkDir, fittedName))
@@ -290,7 +292,7 @@ func runProbe(parent context.Context, options RunOptions, source *os.File, timeo
 }
 
 // render runs ffmpeg on the plan.
-func render(parent context.Context, options RunOptions, format string, source *os.File, plan *Plan, timeout time.Duration) error {
+func render(parent context.Context, options RunOptions, format string, source *os.File, plan *Plan, deadline time.Time) error {
 	arguments := []string{"-hide_banner", "-nostdin", "-loglevel", "error", "-y"}
 	arguments = append(arguments, inputArguments(format)...)
 	arguments = append(arguments,
@@ -307,13 +309,13 @@ func render(parent context.Context, options RunOptions, format string, source *o
 	// The name has no .mp4 extension to go by while it is being written.
 	arguments = append(arguments, "-movflags", "+faststart", "-f", "mp4", OutputName)
 
-	return runFFmpeg(parent, options, source, timeout, arguments)
+	return runFFmpeg(parent, options, source, deadline, arguments)
 }
 
 // runFFmpeg runs ffmpeg with the arguments in the work directory, reading the
-// source as file descriptor 3.
-func runFFmpeg(parent context.Context, options RunOptions, source *os.File, timeout time.Duration, arguments []string) error {
-	ctx, cancel := context.WithTimeout(parent, timeout)
+// source as file descriptor 3, and stops it at the deadline.
+func runFFmpeg(parent context.Context, options RunOptions, source *os.File, deadline time.Time, arguments []string) error {
+	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, options.FFmpeg, arguments...)
 	cmd.Dir = options.WorkDir

@@ -258,3 +258,29 @@ func TestWrapperStatusesMapToErrors(t *testing.T) {
 		t.Errorf("%d %s", status, code)
 	}
 }
+
+func TestIdleIsRejectedForBurstsRecordings(t *testing.T) {
+	bursts := recordingCaptureBursts
+	bad := createSessionRecordingRequest{TargetID: "t", Capture: bursts, recordingEffectsRequest: recordingEffectsRequest{Idle: "cut"}}
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "bursts recordings already skip idle time") {
+		t.Errorf("idle with bursts: %v", err)
+	}
+	if err := (recordingEffectsRequest{Idle: "cut"}).validateFor(recordingCaptureContinuous); err != nil {
+		t.Errorf("idle with continuous: %v", err)
+	}
+	ok := createSessionRecordingRequest{TargetID: "t", Capture: bursts}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("bursts without idle: %v", err)
+	}
+}
+
+func TestCaptionOnTimeOnlyWaitIsForwarded(t *testing.T) {
+	arguments := map[string]any{"time": 2, "caption": "Give it a moment"}
+	caption, err := playwrightToolCaption("browser_wait_for", arguments)
+	if err != nil || caption != "Give it a moment" {
+		t.Fatalf("caption %q err %v", caption, err)
+	}
+	if _, left := arguments["caption"]; left || arguments["time"] != 2 {
+		t.Errorf("arguments %v", arguments)
+	}
+}

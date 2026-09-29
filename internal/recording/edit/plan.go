@@ -91,9 +91,6 @@ func Build(tl *timeline.Timeline, src Source) (*Plan, error) {
 	width, height, total, fps := geometry.width, geometry.height, geometry.total, geometry.fps
 	plan := &Plan{FPS: fps, Width: width, Height: height, InDurationMs: total, FitFilter: geometry.fitFilter()}
 	plan.noteTruncation(tl)
-	if plan.FitFilter != "" {
-		plan.warn("the recording's frames change size (the viewport was resized), so all of them were fitted into the first frame's %dx%d with black bars where the shape differs", width, height)
-	}
 
 	list, skippedRipples := ripples(tl, geometry.scales)
 	if skippedRipples > 0 {
@@ -123,6 +120,9 @@ func Build(tl *timeline.Timeline, src Source) (*Plan, error) {
 	if plan.Trivial() {
 		plan.OutDurationMs = total
 		return plan, nil
+	}
+	if plan.FitFilter != "" {
+		plan.warn("the recording's frames change size (the viewport was resized), so all of them were fitted into the first frame's %dx%d with black bars where the shape differs", width, height)
 	}
 	if err := plan.assembleChain(ripplesFilters, zooms, remap); err != nil {
 		return nil, err
@@ -238,9 +238,6 @@ func (p *Plan) planIdleStretches(tl *timeline.Timeline, cues []Cue, list []rippl
 	identity := idlePlan{Map: IdentityMap(p.InDurationMs)}
 	mode := idleMode(tl)
 	if mode == "" {
-		if tl.Recording.Edit != nil && tl.Recording.Edit.Idle != "" {
-			p.warn("idle has no effect on a bursts recording, which captures nothing between its actions")
-		}
 		return identity
 	}
 	busy, unknown := busyIntervals(tl, cues, list, scenes)
