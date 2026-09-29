@@ -156,22 +156,6 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 	}
 
 	scenes := zoomScenes(gestures, float64(width), float64(height))
-	var busy []span
-	for _, gesture := range doc.Gestures {
-		busy = append(busy, span{gesture.Start - gesturePadMs, gesture.End + gesture.Hold + gesturePadMs})
-	}
-	for _, c := range cues {
-		busy = append(busy, span{c.start, c.end})
-	}
-	for _, m := range marks {
-		busy = append(busy, span{m.t, m.t + rippleMs})
-	}
-	for _, scene := range scenes {
-		busy = append(busy, span{scene.keys[0].t, scene.keys[len(scene.keys)-1].t})
-	}
-	for _, a := range doc.Activity.Spans {
-		busy = append(busy, span{a.Start - timelineSpanGap.Milliseconds()/2, a.End + timelineSpanGap.Milliseconds()/2})
-	}
 	// The captions and the fixed filters always fit; the rest is added while there is room.
 	head := []string{"setpts=PTS-STARTPTS", fmt.Sprintf("fps=fps=%d:start_time=0", p.fps), "format=yuv420p"}
 	tail := []string{"crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"} // libx264 needs even sizes
@@ -187,22 +171,45 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 		return true
 	}
 
-	var activity []span
-	for _, a := range doc.Activity.Spans {
-		activity = append(activity, span{a.Start, a.End})
-	}
 	pieces := []piece{{0, total, 1}}
 	var remap []string
 	switch {
 	case fx.Burst != nil:
-		if pieces = burstPieces(doc, *fx.Burst, activity, doc.Activity.Complete); len(pieces) == 0 {
-			return nil, errors.New("a bursts recording keeps the time around browser tool calls that change something, and this recording has none")
+		// The cut is mandatory: if its pieces do not fit, pieces separated by small gaps merge, ever larger ones.
+		for gap := int64(0); ; gap = max(2*gap, 250) {
+			if pieces = burstPieces(doc, *fx.Burst, gap); len(pieces) == 0 {
+				return nil, errors.New("a bursts recording keeps the time around browser tool calls that change something, and this recording has none")
+			}
+			if remap = remapFilters(pieces, p.fps); take(strings.Join(remap, ",")) {
+				if gap > 0 {
+					p.warnings = append(p.warnings, "some bursts were joined: too many to render")
+				}
+				break
+			}
 		}
-		remap = remapFilters(pieces, p.fps)
+		if len(doc.Actions) >= timelineMaxActions {
+			p.warnings = append(p.warnings, "the timeline had room for only some of the actions, so the video keeps only the time around those")
+		}
 	case fx.Idle == "":
 	case !doc.Activity.Complete || len(doc.Activity.Spans) >= timelineMaxSpans || len(doc.Gestures) >= timelineMaxGestures || len(doc.Actions) >= timelineMaxActions:
 		p.warnings = append(p.warnings, "idle was left as it is: the screen could not be watched all the time, or the timeline had room for only some of the screen changes, gestures or actions, so no stretch is known to be idle")
 	default:
+		var busy []span
+		for _, gesture := range doc.Gestures {
+			busy = append(busy, span{gesture.Start - gesturePadMs, gesture.End + gesture.Hold + gesturePadMs})
+		}
+		for _, c := range cues {
+			busy = append(busy, span{c.start, c.end})
+		}
+		for _, m := range marks {
+			busy = append(busy, span{m.t, m.t + rippleMs})
+		}
+		for _, scene := range scenes {
+			busy = append(busy, span{scene.keys[0].t, scene.keys[len(scene.keys)-1].t})
+		}
+		for _, a := range doc.Activity.Spans {
+			busy = append(busy, span{a.Start - timelineSpanGap.Milliseconds()/2, a.End + timelineSpanGap.Milliseconds()/2})
+		}
 		var regions []span
 		if pieces, regions = idlePieces(fx.Idle, busy, total); len(regions) == 0 {
 			p.warnings = append(p.warnings, "idle was left as it is: no stretch of 1.5 s or more without changes or gestures")

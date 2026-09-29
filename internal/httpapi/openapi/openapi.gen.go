@@ -1300,22 +1300,22 @@ type CreateSessionRecordingInput struct {
 	// BitrateKbps Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.
 	BitrateKbps *int `json:"bitrateKbps,omitempty"`
 
-	// Burst Only with `capture` `bursts`. Times are milliseconds; 0 or absent is the default.
+	// Burst Only with `capture` `bursts`. Times are milliseconds; one that is absent has its default, and 0 is a value like any other.
 	Burst *struct {
 		// LeadMs Kept before a call starts (default 400).
 		LeadMs *int `json:"leadMs,omitempty"`
 
-		// MaxTailMs The tail extends no further than this after the call ends, and not less than `tailMs` (default 4000).
+		// MaxTailMs The tail extends no further than this after the call ends, and not less than `tailMs` (default 4000, or `tailMs` if more).
 		MaxTailMs *int `json:"maxTailMs,omitempty"`
 
 		// SettleMs The tail extends until the screen has been still this long (default 500).
 		SettleMs *int `json:"settleMs,omitempty"`
 
-		// TailMs Kept after a call ends, or after its gesture's hold if longer (default 600).
+		// TailMs Kept after a call ends (default 600).
 		TailMs *int `json:"tailMs,omitempty"`
 	} `json:"burst,omitempty"`
 
-	// Capture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something, as the edited video. Cannot be combined with `idle`.
+	// Capture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something (failed ones too), as the edited video. Cannot be combined with `idle`.
 	Capture *CreateSessionRecordingInputCapture `json:"capture,omitempty"`
 
 	// Codec Video codec. Omit for the instance default.
@@ -1337,7 +1337,7 @@ type CreateSessionRecordingInput struct {
 	Zoom *CreateSessionRecordingInput_Zoom `json:"zoom,omitempty"`
 }
 
-// CreateSessionRecordingInputCapture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something, as the edited video. Cannot be combined with `idle`.
+// CreateSessionRecordingInputCapture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something (failed ones too), as the edited video. Cannot be combined with `idle`.
 type CreateSessionRecordingInputCapture string
 
 // CreateSessionRecordingInputCodec Video codec. Omit for the instance default.

@@ -151,10 +151,12 @@ type recordingTimeline struct {
 	points   int
 	// incomplete is set once a damage sample failed, so quiet spans may not be idle.
 	incomplete bool
+	sampling   bool // whether sample runs
 }
 
-// begin adds the segment a new capture pipeline records.
-func (t *recordingTimeline) begin(target wrapperTargetSnapshot, clock *frameClock) {
+// begin adds the segment a new capture pipeline records, and reports whether the
+// caller must start sample, which stops when no segment is left to watch.
+func (t *recordingTimeline) begin(target wrapperTargetSnapshot, clock *frameClock) bool {
 	viewport := target.Viewport
 	segment := &timelineSegment{targetID: target.TargetID, captureID: target.CaptureID, clock: clock, scaleX: 1, scaleY: 1}
 	segment.width, segment.height = recordedSize(viewport)
@@ -164,7 +166,10 @@ func (t *recordingTimeline) begin(target wrapperTargetSnapshot, clock *frameCloc
 	}
 	t.mu.Lock()
 	t.segments = append(t.segments, segment)
+	start := !t.sampling
+	t.sampling = true
 	t.mu.Unlock()
+	return start
 }
 
 // discard removes the newest segment, whose pipeline was abandoned.
@@ -189,11 +194,11 @@ func (t *recordingTimeline) end() {
 	}
 }
 
-// add takes what a tool result reported, unless the recording has stopped capturing.
+// add takes what a tool result reported.
 func (t *recordingTimeline) add(action *timelineAction, gesture *timelineGesture) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(t.segments) == 0 || t.segments[len(t.segments)-1].ended {
+	if len(t.segments) == 0 {
 		return
 	}
 	if action != nil && len(t.actions) < timelineMaxActions {
@@ -226,10 +231,12 @@ func (t *recordingTimeline) sample(ctx context.Context, socket string) {
 				live = append(live, segment)
 			}
 		}
-		t.mu.Unlock()
 		if len(live) == 0 {
+			t.sampling = false
+			t.mu.Unlock()
 			return
 		}
+		t.mu.Unlock()
 		for _, segment := range live {
 			requested := time.Now()
 			sampleCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -460,9 +467,12 @@ func (session *liveSession) recordTimeline(meta map[string]any) {
 		if recording.Status == wrapperRecordingRunning {
 			timelines = append(timelines, recording.timeline)
 			// A bursts recording follows the page the automation works on.
-			if recording.effects.Burst != nil && recording.Mode == wrapperRecordingModeTab && reported.Action != nil &&
-				reported.Action.TargetID != "" && reported.Action.TargetID != recording.TargetID {
-				go session.followAction(recording.ID, reported.Action.TargetID)
+			if recording.effects.Burst != nil && !recording.finalizing && reported.Action != nil && reported.Action.TargetID != "" {
+				recording.followWant = reported.Action.TargetID
+				if !recording.following && recording.TargetID != recording.followWant {
+					recording.following = true
+					go session.followTarget(recording)
+				}
 			}
 		}
 	}

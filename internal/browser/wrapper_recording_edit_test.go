@@ -209,10 +209,9 @@ func TestRenderEditWithFFmpeg(t *testing.T) {
 }
 
 func TestBurstPiecesKeepTheTimeAroundActions(t *testing.T) {
-	burst := RecordingBurst{LeadMs: 400, TailMs: 600, SettleMs: 500, MaxTailMs: 4000}
-	spans := func(times ...int64) (out []span) {
+	spans := func(times ...int64) (out []timelineSpanOut) {
 		for i := 0; i < len(times); i += 2 {
-			out = append(out, span{times[i], times[i+1]})
+			out = append(out, timelineSpanOut{times[i], times[i+1]})
 		}
 		return out
 	}
@@ -220,34 +219,42 @@ func TestBurstPiecesKeepTheTimeAroundActions(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		actions  []timelineAction
-		hold     int64 // hold of a gesture that starts with the first action
-		activity []span
+		activity []timelineSpanOut
 		complete bool
+		gap      int64
 		want     []piece
 	}{
-		{"lead and tail", []timelineAction{action(5000, 5200)}, 0, nil, true, []piece{{4600, 5800, 1}}},
-		{"hold outlasts the tail", []timelineAction{action(5000, 5200)}, 1500, nil, true, []piece{{4600, 6700, 1}}},
-		{"the tail waits for the screen to settle", []timelineAction{action(5000, 5200)}, 0, spans(5300, 6400, 6600, 6900), true, []piece{{4600, 7400, 1}}},
-		{"a screen that never settles is cut at maxTail", []timelineAction{action(5000, 5200)}, 0, spans(5300, 20000), true, []piece{{4600, 9200, 1}}},
-		{"unknown activity means the plain tail", []timelineAction{action(5000, 5200)}, 0, spans(5300, 20000), false, []piece{{4600, 5800, 1}}},
-		{"clamped to the video", []timelineAction{action(100, 200), action(9800, 9900)}, 0, nil, true, []piece{{0, 800, 1}, {9400, 10000, 1}}},
-		{"overlapping and touching pieces merge", []timelineAction{action(2000, 2100), action(2900, 3000), action(3800, 3900), action(6000, 6100)}, 0, nil, true,
+		{"lead and tail", []timelineAction{action(5000, 5200)}, nil, true, 0, []piece{{4600, 5800, 1}}},
+		{"the tail waits for the screen to settle", []timelineAction{action(5000, 5200)}, spans(5300, 6400, 6600, 6900), true, 0, []piece{{4600, 7400, 1}}},
+		{"a screen that never settles is cut at maxTail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), true, 0, []piece{{4600, 9200, 1}}},
+		{"unknown activity means the plain tail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), false, 0, []piece{{4600, 5800, 1}}},
+		{"clamped to the video", []timelineAction{action(100, 200), action(9800, 9900)}, nil, true, 0, []piece{{0, 800, 1}, {9400, 10000, 1}}},
+		{"overlapping and touching pieces merge", []timelineAction{action(2000, 2100), action(2900, 3000), action(3800, 3900), action(6000, 6100)}, nil, true, 0,
 			[]piece{{1600, 4500, 1}, {5600, 6700, 1}}},
+		{"a gap joins pieces that are near", []timelineAction{action(2000, 2100), action(3300, 3400), action(6000, 6100)}, nil, true, 500,
+			[]piece{{1600, 4000, 1}, {5600, 6700, 1}}},
 	} {
-		doc := timelineDoc{DurationMS: 10000, Actions: c.actions}
-		if c.hold > 0 {
-			doc.Gestures = []timelineGesture{{Start: c.actions[0].Start + 100, End: c.actions[0].End, Hold: c.hold}}
-		}
-		if got := burstPieces(doc, burst, c.activity, c.complete); !slices.Equal(got, c.want) {
+		doc := timelineDoc{DurationMS: 10000, Actions: c.actions, Activity: timelineActivity{Complete: c.complete, Spans: c.activity}}
+		if got := burstPieces(doc, RecordingBurst{}, c.gap); !slices.Equal(got, c.want) {
 			t.Errorf("%s: pieces = %v, want %v", c.name, got, c.want)
 		}
+	}
+	// A tail longer than the default cap raises it, and 0 is a setting of its own.
+	one, five := 1000, 5000
+	doc := timelineDoc{DurationMS: 10000, Actions: []timelineAction{action(2000, 2100)}}
+	if got := burstPieces(doc, RecordingBurst{TailMs: &five}, 0); !slices.Equal(got, []piece{{1600, 7100, 1}}) {
+		t.Errorf("tail 5000: pieces = %v", got)
+	}
+	zero := 0
+	if got := burstPieces(doc, RecordingBurst{LeadMs: &zero, TailMs: &one}, 0); !slices.Equal(got, []piece{{2000, 3100, 1}}) {
+		t.Errorf("lead 0: pieces = %v", got)
 	}
 }
 
 func TestEditPlanBurstsCutEverythingElse(t *testing.T) {
 	doc := editDoc()
 	doc.Actions = []timelineAction{{Tool: "browser_click", Start: 1800, End: 2200, Caption: "Click"}}
-	burst := RecordingBurst{}.withDefaults()
+	burst := RecordingBurst{}
 	plan, err := buildEditPlan(doc, recordingEffects{Burst: &burst, Zoom: 2}, 30)
 	if err != nil {
 		t.Fatal(err)
@@ -261,6 +268,16 @@ func TestEditPlanBurstsCutEverythingElse(t *testing.T) {
 	}
 	if i, j := strings.Index(plan.filter, "perspective="), strings.Index(plan.filter, "select="); i > j || !strings.Contains(string(plan.ass), "0:00:00.40,0:00:01.50") {
 		t.Errorf("effects and captions are not around the cut: %s\n%s", plan.filter, plan.ass)
+	}
+	// Far more pieces than a command line holds are joined, never dropped.
+	doc.Actions = nil
+	for i := range 1900 {
+		doc.Actions = append(doc.Actions, timelineAction{Start: int64(i) * 2000, End: int64(i)*2000 + 10})
+	}
+	doc.DurationMS = 4_000_000
+	doc.Activity.Spans = nil
+	if plan, err = buildEditPlan(doc, recordingEffects{Burst: &burst}, 30); err != nil || len(plan.filter) > editMaxFilterBytes || len(plan.warnings) != 1 {
+		t.Errorf("many bursts: err = %v, %d warnings", err, len(plan.warnings))
 	}
 	doc.Actions = nil
 	if _, err := buildEditPlan(doc, recordingEffects{Burst: &burst}, 30); err == nil || !strings.Contains(err.Error(), "has none") {
@@ -276,10 +293,11 @@ func TestValidateBursts(t *testing.T) {
 	}{
 		{"", "", nil, ""},
 		{"cut", "continuous", nil, ""},
-		{"", "bursts", &RecordingBurst{LeadMs: 0, TailMs: 1000, MaxTailMs: 1000}, ""},
+		{"", "bursts", &RecordingBurst{LeadMs: ptr(0), TailMs: ptr(1000), MaxTailMs: ptr(1000)}, ""},
+		{"", "bursts", &RecordingBurst{TailMs: ptr(5000)}, ""},
 		{"cut", "bursts", nil, "idle cannot be combined"},
-		{"", "bursts", &RecordingBurst{TailMs: 5000}, "maxTailMs must not be less"},
-		{"", "bursts", &RecordingBurst{LeadMs: -1}, "0 to"},
+		{"", "bursts", &RecordingBurst{TailMs: ptr(5000), MaxTailMs: ptr(4000)}, "maxTailMs must not be less"},
+		{"", "bursts", &RecordingBurst{LeadMs: ptr(-1)}, "0 to"},
 		{"", "continuous", &RecordingBurst{}, "needs capture"},
 		{"", "clips", nil, "capture must be"},
 	} {
@@ -289,3 +307,5 @@ func TestValidateBursts(t *testing.T) {
 		}
 	}
 }
+
+func ptr(v int) *int { return &v }

@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ const wrapperRecordingCapacity = 4
 
 var (
 	errWrapperRecordingNotFound         = errors.New("recording not found")
+	errTargetNotReady                   = errors.New("target is not ready")
 	errWrapperRecordingEmpty            = errors.New("recording is empty")
 	errWrapperRecordingCodecUnavailable = errors.New("recording codec is unavailable on this host")
 )
@@ -71,6 +73,8 @@ type wrapperRecording struct {
 	timelinePath      string
 	effects           recordingEffects
 	edit              RecordingEdit
+	followWant        string // the tab a bursts recording was last asked to follow
+	following         bool   // whether a goroutine is moving it there
 }
 
 type wrapperRecordingRequest struct {
@@ -221,15 +225,13 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	if err := ValidateRecordingEffects(request.Idle, request.Zoom, request.Capture, request.Burst); err != nil {
 		return wrapperRecording{}, err
 	}
+	if request.Capture == "bursts" && request.Mode != wrapperRecordingModeTab {
+		return wrapperRecording{}, errors.New(`capture "bursts" is for tab recordings`)
+	}
 	zoom, _ := ParseRecordingZoom(request.Zoom, 0)
 	effects := recordingEffects{Idle: request.Idle, Zoom: zoom, Ripple: request.Ripple}
 	if request.Capture == "bursts" {
-		var burst RecordingBurst
-		if request.Burst != nil {
-			burst = *request.Burst
-		}
-		burst = burst.withDefaults()
-		effects.Burst = &burst
+		effects.Burst = cmp.Or(request.Burst, &RecordingBurst{})
 	}
 	if effects.any() && session.runtime.values.RecordingFFmpegExecutable == "" {
 		return wrapperRecording{}, errWrapperRecordingEffectsUnavailable
@@ -293,7 +295,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	target, exists := registry.readyTarget(targetID)
 	if !exists {
 		_ = os.RemoveAll(segmentDir)
-		return wrapperRecording{}, errors.New("target is not ready")
+		return wrapperRecording{}, errTargetNotReady
 	}
 
 	r.mu.Lock()
@@ -340,8 +342,9 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	recording.cmd = cmd
 	recording.done = done
 	recording.timeline = &recordingTimeline{}
-	recording.timeline.begin(target, clock)
-	go recording.timeline.sample(r.ctx, r.controlSocket)
+	if recording.timeline.begin(target, clock) {
+		go recording.timeline.sample(r.ctx, r.controlSocket)
+	}
 	recording.Status = wrapperRecordingRunning
 	status := *recording
 	r.mu.Unlock()
@@ -596,7 +599,7 @@ func (session *liveSession) retargetRecording(ctx context.Context, recordingID, 
 		r.mu.Unlock()
 		return status, errors.New("only tab recordings can be retargeted")
 	}
-	if recording.Status != wrapperRecordingRunning {
+	if recording.Status != wrapperRecordingRunning || recording.finalizing {
 		status := *recording
 		r.mu.Unlock()
 		return status, errors.New("only running recordings can be retargeted")
@@ -614,7 +617,7 @@ func (session *liveSession) retargetRecording(ctx context.Context, recordingID, 
 	}
 	target, exists := registry.readyTarget(targetID)
 	if !exists {
-		return wrapperRecording{}, errors.New("target is not ready")
+		return wrapperRecording{}, errTargetNotReady
 	}
 	if err := session.rotateRecordingTargetLocked(ctx, recording, target, expectedTargetID, true); err != nil {
 		return wrapperRecording{}, err
@@ -636,7 +639,7 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 
 	r.mu.Lock()
 	session.refreshRecordingLocked(recording)
-	if recording.Status != wrapperRecordingRunning {
+	if recording.Status != wrapperRecordingRunning || recording.finalizing {
 		r.mu.Unlock()
 		return nil
 	}
@@ -667,7 +670,9 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err == nil {
 		// The old capture keeps recording until the new one has data, so both are sampled.
-		recording.timeline.begin(target, clock)
+		if recording.timeline.begin(target, clock) {
+			go recording.timeline.sample(r.ctx, r.controlSocket)
+		}
 		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		for waitCtx.Err() == nil {
 			if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
@@ -772,15 +777,31 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 func (session *liveSession) stopTabRecordings(targetID string) {
 	r := session.runtime
 	r.mu.Lock()
-	ids := make([]string, 0)
+	var recordings []*wrapperRecording
 	for _, recording := range session.recordings {
 		if recording.Mode == wrapperRecordingModeTab && recording.TargetID == targetID && recording.Status == wrapperRecordingRunning && !recording.finalizing {
-			ids = append(ids, recording.ID)
+			recordings = append(recordings, recording)
 		}
 	}
 	r.mu.Unlock()
-	for _, id := range ids {
-		_, _ = session.stopRecordingForTarget(id, targetID, "target_closed", false)
+	for _, recording := range recordings {
+		if recording.effects.Burst == nil {
+			_, _ = session.stopRecordingForTarget(recording.ID, targetID, "target_closed", false)
+			continue
+		}
+		// A bursts recording outlives its tab: the capture of the tab ends, and the
+		// recording waits for the action that ends on another tab to move it there.
+		recording.operationMu.Lock()
+		r.mu.Lock()
+		if recording.TargetID == targetID && recording.Status == wrapperRecordingRunning && !recording.finalizing {
+			recording.replacing = true
+			r.mu.Unlock()
+			_ = stopRecordingSegment(recording)
+			r.mu.Lock()
+			recording.replacing = false
+		}
+		r.mu.Unlock()
+		recording.operationMu.Unlock()
 	}
 }
 
