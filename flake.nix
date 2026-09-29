@@ -429,17 +429,18 @@
             ''
               export HOME=$TMPDIR XDG_CACHE_HOME=$TMPDIR/cache
               encoders=$(ffmpeg -hide_banner -encoders)
-              echo "$encoders" | grep -qw libx264 || { echo "ffmpeg lacks libx264" >&2; exit 1; }
+              grep -qw libx264 <<<"$encoders" || { echo "ffmpeg lacks libx264" >&2; exit 1; }
               filters=$(ffmpeg -hide_banner -filters)
               for filter in ass perspective geq select setpts fps format crop; do
-                echo "$filters" | grep -Eq "^ [A-Z.]+ +$filter +" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
+                grep -Eq "^ [A-Z.]+ +$filter +" <<<"$filters" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
               done
               # One end to end render: a caption, a zoom, a ripple's geq and a select.
               printf '[Script Info]\nPlayResX: 320\nPlayResY: 240\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, Alignment\nStyle: Default,Noto Sans,20,&H00FFFFFF,2\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,Hello\n' > c.ass
               ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=s=320x240:r=10:d=1 \
                 -vf "format=yuv420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)',perspective=x0=0:y0=0:x1=W:y1=0:x2=0:y2=H:x3=W:y3=H:eval=frame,select='gte(t,0)',setpts=PTS-STARTPTS,ass=c.ass" \
                 -c:v libx264 -pix_fmt yuv420p out.mp4
-              ffprobe -hide_banner -loglevel error -show_entries stream=codec_name -of csv=p=0 out.mp4 | grep -qx h264
+              codec=$(ffprobe -hide_banner -loglevel error -show_entries stream=codec_name -of csv=p=0 out.mp4)
+              [ "$codec" = h264 ] || { echo "ffmpeg did not encode h264: $codec" >&2; exit 1; }
               touch $out
             '';
 
