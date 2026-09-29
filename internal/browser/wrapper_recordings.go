@@ -69,6 +69,9 @@ type wrapperRecording struct {
 	operationMu       *sync.Mutex
 	timeline          *recordingTimeline
 	timelinePath      string
+	effects           recordingEffects
+	edit              recordingEdit
+	renderOnStop      bool
 }
 
 type wrapperRecordingRequest struct {
@@ -79,6 +82,10 @@ type wrapperRecordingRequest struct {
 	BitrateKbps int                  `json:"bitrateKbps"`
 	Codec       string               `json:"codec"`
 	Path        string               `json:"path"`
+	// Idle, Zoom and Ripple are the defaults of the effects rendered when the recording is stopped.
+	Idle   string `json:"idle"`
+	Zoom   any    `json:"zoom"`
+	Ripple bool   `json:"ripple"`
 }
 
 type wrapperRecordingRetargetRequest struct {
@@ -99,7 +106,7 @@ func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Re
 			body.Path = ""
 		}
 		recording, err := session.startRecording(body)
-		if errors.Is(err, errWrapperRecordingCodecUnavailable) {
+		if errors.Is(err, errWrapperRecordingCodecUnavailable) || errors.Is(err, errWrapperRecordingEffectsUnavailable) {
 			writeWrapperError(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
@@ -126,6 +133,7 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 		return
 	}
 	if len(parts) == 2 && parts[1] == "stop" && req.Method == http.MethodPost {
+		session.renderOnStop(parts[0])
 		recording, err := session.stopRecording(parts[0], "requested")
 		if err != nil {
 			if errors.Is(err, errWrapperRecordingNotFound) {
@@ -202,6 +210,14 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		}
 	default:
 		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
+	}
+	if err := ValidateRecordingEffects(request.Idle, request.Zoom); err != nil {
+		return wrapperRecording{}, err
+	}
+	zoom, _ := ParseRecordingZoom(request.Zoom, 0)
+	effects := recordingEffects{Idle: request.Idle, Zoom: zoom, Ripple: request.Ripple}
+	if effects.any() && session.runtime.values.RecordingFFmpegExecutable == "" {
+		return wrapperRecording{}, errWrapperRecordingEffectsUnavailable
 	}
 	r.mu.Lock()
 	registry := r.targets
@@ -294,6 +310,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		viewport:          target.Viewport,
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
+		effects:           effects,
 	}
 	session.recordings[id] = recording
 	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
@@ -445,10 +462,12 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 		return session.failRecording(recording, "finalize_failed", err)
 	}
 	timelinePath := recording.publishTimeline(finalPath)
+	edit := session.editRecording(recording, finalPath)
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()
 	recording.Path = finalPath
 	recording.timelinePath = timelinePath
+	recording.edit = edit
 	recording.SizeBytes = size
 	recording.StoppedAt = &stoppedAt
 	recording.Status = wrapperRecordingStopped
@@ -894,12 +913,15 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 	type fields wrapperRecording
 	relative := ""
 	sandboxPath := ""
-	timelineRelative := ""
+	timelineRelative, editedRelative := "", ""
 	if rel, err := filepath.Rel(recording.filesRoot, recording.Path); err == nil {
 		relative = filepath.ToSlash(rel)
 	}
 	if rel, err := filepath.Rel(recording.filesRoot, recording.timelinePath); err == nil && recording.timelinePath != "" {
 		timelineRelative = filepath.ToSlash(rel)
+	}
+	if rel, err := filepath.Rel(recording.filesRoot, recording.edit.path); err == nil && recording.edit.path != "" {
+		editedRelative = filepath.ToSlash(rel)
 	}
 	if relative != "" {
 		sandboxPath = sessionfiles.SandboxPath(relative)
@@ -909,11 +931,16 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 		RelativePath string `json:"relativePath"`
 		// TimelineRelativePath names the recording's timeline file, once it is stopped.
 		TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
-		SandboxPath          string `json:"sandboxPath,omitempty"`
+		// EditedRelativePath is the video with the recording's effects rendered, EditError
+		// why there is none although effects applied, and EditWarnings what was left out.
+		EditedRelativePath string   `json:"editedRelativePath,omitempty"`
+		EditError          string   `json:"editError,omitempty"`
+		EditWarnings       []string `json:"editWarnings,omitempty"`
+		SandboxPath        string   `json:"sandboxPath,omitempty"`
 		// Path repeats RelativePath for clients that still read the field it replaced.
 		// It used to carry a host path, which it never does now.
 		Path string `json:"path"`
-	}{fields: fields(recording), RelativePath: relative, TimelineRelativePath: timelineRelative, SandboxPath: sandboxPath, Path: relative})
+	}{fields: fields(recording), RelativePath: relative, TimelineRelativePath: timelineRelative, EditedRelativePath: editedRelative, EditError: recording.edit.err, EditWarnings: recording.edit.warnings, SandboxPath: sandboxPath, Path: relative})
 }
 
 // publishRecording moves a finished recording into place without replacing an

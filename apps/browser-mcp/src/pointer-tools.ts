@@ -54,6 +54,16 @@ const motion = z
     'How the pointer travels: "natural" (default; eased, slightly curved), "fast", "instant", or {durationMs}. Only sessions with a compositor show it; others ignore it.',
   );
 const holdMs = z.number().min(0).max(10_000).optional();
+const zoom = z
+  .union([z.boolean(), z.number().min(1.1).max(4)])
+  .optional()
+  .describe(
+    "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom.",
+  );
+const ripple = z
+  .boolean()
+  .optional()
+  .describe("Mark this click with a ripple in the recording. Defaults to the recording's ripple.");
 
 type Params = Record<string, any>;
 
@@ -178,7 +188,14 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
           response.setIncludeSnapshot();
           await act({ tab, page, pointer, size }, params);
           // `fallback`: the page's own mouse was used, for want of a compositor surface.
-          const gesture = { tool: name, targetId, fallback: !surface, ...pointer.record };
+          const gesture = {
+            tool: name,
+            targetId,
+            fallback: !surface,
+            zoom: params.zoom,
+            ripple: params.ripple,
+            ...pointer.record,
+          };
           const serialize = response.serialize.bind(response);
           response.serialize = async () => ({
             ...(await serialize()),
@@ -214,6 +231,8 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
           .optional()
           .describe("Modifier keys to hold during the click"),
         motion,
+        zoom,
+        ripple,
         holdMs: holdMs.describe(
           "Milliseconds the button stays down for each click, defaults to 45",
         ),
@@ -234,7 +253,7 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
     define(
       "browser_move",
       "Move the pointer over an element or point without clicking, for hover effects.",
-      { ...spot(), motion },
+      { ...spot(), motion, zoom },
       async (run, params) => {
         const point = await locate(run, params);
         await run.tab.waitForCompletion(() => run.pointer.glide(point, params.motion ?? "natural"));
@@ -247,6 +266,7 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
         ...spot("start"),
         ...spot("end"),
         motion,
+        zoom,
         holdMs: holdMs.describe(
           "Milliseconds to hold the button at the destination before releasing",
         ),
@@ -283,6 +303,7 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
           .optional()
           .describe("Vertical pixels to scroll, positive is down, defaults to 0"),
         motion,
+        zoom,
       },
       async (run, params) => {
         const { width, height } = run.size;

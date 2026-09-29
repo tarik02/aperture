@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/paths"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,8 @@ type wrapperRecordingStatus struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+
+	recordingEditFields
 }
 
 type recordingResponse struct {
@@ -55,6 +58,8 @@ type recordingResponse struct {
 
 	// TimelineRelativePath names the timeline file of a stopped recording, when it has one.
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
+
+	recordingEditFields
 }
 
 type createSessionRecordingRequest struct {
@@ -62,6 +67,9 @@ type createSessionRecordingRequest struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+	Idle        string `json:"idle"`
+	Zoom        any    `json:"zoom"`
+	Ripple      bool   `json:"ripple"`
 }
 
 func (r createSessionRecordingRequest) Validate() error {
@@ -70,6 +78,9 @@ func (r createSessionRecordingRequest) Validate() error {
 	}
 	if r.Codec != "" && r.Codec != "vp8" && r.Codec != "h264-va" {
 		return validationError("codec must be vp8 or h264-va")
+	}
+	if err := browser.ValidateRecordingEffects(r.Idle, r.Zoom); err != nil {
+		return validationError(err.Error())
 	}
 	return nil
 }
@@ -104,6 +115,7 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 	var status wrapperRecordingStatus
 	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
+		"idle": input.Idle, "zoom": input.Zoom, "ripple": input.Ripple,
 	}, false, &status)
 	if err != nil {
 		WriteError(c, err)
@@ -182,30 +194,34 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 	c.JSON(http.StatusOK, file)
 }
 
-func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string) (sessionfiles.File, error) {
+func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string) (stoppedRecording, error) {
 	endpoint := "/recordings/" + url.PathEscape(recordingID)
 	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, endpoint+"/stop", nil, true, nil); err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecording{}, err
 	}
 	status, err := s.getRecording(ctx, tenantID, sessionID, recordingID)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecording{}, err
+	}
+	edit, err := recordingEdit(status)
+	if err != nil {
+		return stoppedRecording{}, err
 	}
 	relativePath, err := s.recordingRelativePath(sessionID, status)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecording{}, err
 	}
 	view, err := s.Sessions.Get(ctx, tenantID, sessionID)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecording{}, err
 	}
 	scope, err := s.sessionFilesScope(view.Session)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecording{}, err
 	}
 	stoppedAt, err := time.Parse(time.RFC3339Nano, status.StoppedAt)
 	if err != nil {
-		return sessionfiles.File{}, fmt.Errorf("%w: invalid recording stop time: %w", errBrowserControlFailed, err)
+		return stoppedRecording{}, fmt.Errorf("%w: invalid recording stop time: %w", errBrowserControlFailed, err)
 	}
 	// Built from what the wrapper measured when it published the file rather than
 	// looked up again, because the file may be moved as soon as it is visible.
@@ -213,7 +229,7 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 	if status.Codec == "h264-va" {
 		mimeType = "video/x-matroska"
 	}
-	return scope.presentFile(sessionfiles.File{
+	file := scope.presentFile(sessionfiles.File{
 		Type:         sessionfiles.EntryFile,
 		Name:         path.Base(relativePath),
 		RelativePath: relativePath,
@@ -221,7 +237,8 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 		ModifiedAt:   stoppedAt.UTC(),
 		MIMEType:     mimeType,
 		SandboxPath:  sessionfiles.SandboxPath(relativePath),
-	}), nil
+	})
+	return stoppedRecording{File: file, recordingEditFields: edit}, nil
 }
 
 func (s *Server) getRecording(ctx context.Context, tenantID, sessionID, recordingID string) (wrapperRecordingStatus, error) {
@@ -320,9 +337,13 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 	if err != nil {
 		return recordingResponse{}, err
 	}
+	edit, err := recordingEdit(status)
+	if err != nil {
+		return recordingResponse{}, err
+	}
 	return recordingResponse{
-		TimelineRelativePath: timelinePath,
-		RecordingID:          status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		TimelineRelativePath: timelinePath, recordingEditFields: edit,
+		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}, nil

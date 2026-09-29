@@ -18,9 +18,14 @@ Tab recording body:
   "targetId": "TARGET_ID",
   "fps": 60,
   "bitrateKbps": 6000,
-  "codec": "vp8"
+  "codec": "vp8",
+  "idle": "speed",
+  "zoom": true,
+  "ripple": true
 }
 ```
+
+`idle`, `zoom`, and `ripple` are optional defaults for the [effects](#effects) rendered when the recording is stopped.
 
 Viewer recording body:
 
@@ -36,7 +41,7 @@ Viewer recording body:
 
 Supported codecs are `vp8` and `h264-va`; `h264-va` is rejected up front where the host's GStreamer lacks its VA-API elements (`422`, or `recording_codec_unavailable` through the API). Omitted or non-positive FPS and bitrate values use instance defaults. Omit `path` to generate a file in the session's `recordings` directory. A supplied `path` is a session file path below `recordings/`, such as `recordings/demo/intro.webm`; missing directories are created. Session tokens cannot override the generated path.
 
-Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, and `codec`; host paths are never returned. `path` repeats `relativePath` for older clients and is deprecated. Completed jobs may also include `stopReason`, `stoppedAt`, `sizeBytes`, and `timelineRelativePath`. When a recording fails, what it captured is kept as `…-failed` files next to its target and `relativePath` points at the first one. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
+Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, and `codec`; host paths are never returned. `path` repeats `relativePath` for older clients and is deprecated. Completed jobs may also include `stopReason`, `stoppedAt`, `sizeBytes`, `timelineRelativePath`, and, after a stop that rendered [effects](#effects), `editedRelativePath`, `editError`, and `editWarnings`. When a recording fails, what it captured is kept as `…-failed` files next to its target and `relativePath` points at the first one. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
 
 The live-session HTTP stop request finalizes the recording and serves the completed media attachment. Interactive clients start and stop through `aperture-session.v1`; after `recording.stop.result`, fetch `/content` to download without issuing a second stop.
 
@@ -50,11 +55,11 @@ These routes require `sessions:write`:
 - `POST /api/sessions/:sessionId/recordings/:recordingId/retarget` — move a running tab recording to another ready target
 - `POST /api/sessions/:sessionId/recordings/:recordingId/stop` — stop and return the completed `SessionFile`
 
-Public recording results use `relativePath`; absolute host paths are never returned. The formal stop route finalizes without media transfer and returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`, plus `sandboxPath`.
+Public recording results use `relativePath`; absolute host paths are never returned. The formal stop route finalizes without media transfer and returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`, plus `sandboxPath` and, when effects were rendered, `editedRelativePath`, `editError`, and `editWarnings`.
 
 ## MCP
 
-MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Call `browser.targets` and select a target whose `state` is `ready` before starting or retargeting a recording. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, and `codec`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
+MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Call `browser.targets` and select a target whose `state` is `ready` before starting or retargeting a recording. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, `codec`, `idle`, `zoom`, and `ripple`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
 
 ## Timeline
 
@@ -69,6 +74,19 @@ All times are milliseconds of video time, counted across target changes; coordin
 - `unknown[]` — spans (`start`, `end`) where the compositor could not be sampled; the page may have changed there, so do not read them as idle.
 
 Each list is truncated at a fixed size (2000 actions, 1000 gestures, 5000 activity spans, 600 path points per gesture).
+
+## Effects
+
+A recording made while an agent works can be rendered with effects when it is stopped through the API or MCP (`recording.stop`). The stop request blocks while ffmpeg renders, which takes roughly a fraction of the recording's length to a few times it, and then returns `editedRelativePath`, the session file `<video>.edited.mp4` (H.264, numbered like the video when the name is taken). The raw video and its timeline are always kept and unchanged. A render that fails never fails the stop: the recording is returned with `editError` (for example frames that changed size, which effects cannot follow) and no edited video. `editWarnings` lists what was left out. A stop by the live session protocol, or by the recording ending (target closed, session closed, client disconnected), does not render.
+
+Effects apply only when something asks for them:
+
+- **Captions** — the `caption` given to any tool that changes something is burned in as text near the bottom edge while the step runs, for at least a second and long enough to read.
+- **Zoom** — `zoom` on `browser_click`, `browser_drag`, `browser_scroll`, and `browser_move` (`true`, a level from 1.1 to 4, or `false`) eases the view toward where the pointer works, follows it as it moves, and eases back out. `true` is 1.6. Gestures close in time share one zoom. Gestures made without a compositor have no position and are not followed.
+- **Ripple** — `ripple` on `browser_click` draws a ring spreading from the click point.
+- **Idle** — `idle` on `recording.start` cuts (`cut`) or plays 8x faster (`speed`) stretches of 1.5 seconds or more in which the screen does not change and nothing is done or captioned. Idle is left as it is when the timeline could not watch the screen the whole time or ran into its size limits, and this is reported in `editWarnings`.
+
+`zoom` and `ripple` on `recording.start` are the defaults for gestures that do not say otherwise; a gesture's own `false` overrides them. Each gesture's setting is kept as given in the timeline's `gestures[]` (`zoom`, `ripple`). Effects that need ffmpeg are rejected when a recording starts on a host without it (`422`, or `recording_codec_unavailable` through the API); a host with the packaged ffmpeg needs no setup, and other hosts set `recording_ffmpeg_executable`.
 
 ## Lifecycle
 

@@ -106,6 +106,7 @@ type Config struct {
 	WebRTCMediaProducerUDPPortMin    int                      `mapstructure:"webrtc_media_producer_udp_port_min"`
 	WebRTCMediaProducerUDPPortMax    int                      `mapstructure:"webrtc_media_producer_udp_port_max"`
 	WebRTCICEServers                 []WebRTCICEServer        `mapstructure:"webrtc_ice_servers"`
+	RecordingFFmpegExecutable        string                   `mapstructure:"recording_ffmpeg_executable"`
 	MCPEnabled                       bool                     `mapstructure:"mcp_enabled"`
 	BrowserToolsDefault              string                   `mapstructure:"browser_tools_default"`
 	ToolOutputMaxBytes               int64                    `mapstructure:"tool_output_max_bytes"`
@@ -318,6 +319,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_media_producer_udp_port_min",
 		"webrtc_media_producer_udp_port_max",
 		"webrtc_ice_servers",
+		"recording_ffmpeg_executable",
 		"mcp_enabled",
 		"browser_tools_default",
 		"tool_output_max_bytes",

@@ -114,6 +114,10 @@ type timelineGesture struct {
 	Path     [][3]float64    `json:"path"` // t, x, y
 	Clicks   []timelineClick `json:"clicks"`
 	Scroll   *timelineScroll `json:"scroll,omitempty"`
+	// Zoom (true, a level or false) and Ripple are what the call asked for, as given;
+	// unset means the recording's default applies.
+	Zoom   any   `json:"zoom,omitempty"`
+	Ripple *bool `json:"ripple,omitempty"`
 }
 
 type timelineClick struct {

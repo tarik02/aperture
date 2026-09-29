@@ -334,6 +334,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: sweep upload staging: %v\n", err)
 	}
 	sweepRecordingSegments(paths.SessionFiles(r.values.FilesDir).Recordings)
+	sweepEditDirs(paths.SessionFiles(r.values.FilesDir).Recordings)
 	liveSession, err := newLiveSession(r)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create live session: %w", err)

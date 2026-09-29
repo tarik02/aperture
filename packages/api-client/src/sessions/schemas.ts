@@ -42,6 +42,10 @@ const recordingFields = {
   sandboxPath: Schema.optionalKey(Schema.String),
   /** The timeline JSON written next to a stopped recording, when it has one. */
   timelineRelativePath: Schema.optionalKey(Schema.String),
+  /** The video with the recording's effects rendered, or why there is none, and what was left out. */
+  editedRelativePath: Schema.optionalKey(Schema.String),
+  editError: Schema.optionalKey(Schema.String),
+  editWarnings: Schema.optionalKey(Schema.Array(Schema.String)),
   /** @deprecated Read `relativePath`. Sessions started before it existed send only this. */
   path: Schema.optionalKey(Schema.String),
   startedAt: Schema.String,
