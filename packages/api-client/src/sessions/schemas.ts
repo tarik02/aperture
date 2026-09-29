@@ -42,10 +42,30 @@ const recordingFields = {
   sandboxPath: Schema.optionalKey(Schema.String),
   /** The recording's timeline file, below the session files root, once it has stopped. */
   timelineRelativePath: Schema.optionalKey(Schema.String),
-  /** The video edited from the recording's effects, below the session files root, once it has stopped and the edit is done. */
+  /**
+   * Where the edit of the recording's effects stands once it has stopped: `pending` waits for the
+   * next REST or MCP stop request, `rendering` is being made, `failed` has an `editError`.
+   */
+  editState: Schema.optionalKey(
+    Schema.Literals(["none", "pending", "rendering", "done", "failed"]),
+  ),
+  /** The video edited from the recording's effects, below the session files root, once `editState` is `done`. */
   editedRelativePath: Schema.optionalKey(Schema.String),
-  /** Why the recording has effects to apply but no edited video; the raw video is kept. */
-  editError: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
+  /** Why the edit failed (`editState` is `failed`); the raw video is kept. */
+  editError: Schema.optionalKey(
+    Schema.Struct({
+      code: Schema.Literals([
+        "unavailable",
+        "unsupported_mixed_sizes",
+        "source_unreadable",
+        "ffmpeg_failed",
+        "timeout",
+        "recording_failed",
+        "internal",
+      ]),
+      message: Schema.String,
+    }),
+  ),
   /** What of the effects could not be applied or was left as it was. */
   editWarnings: Schema.optionalKey(Schema.Array(Schema.String)),
   /** @deprecated Read `relativePath`. Sessions started before it existed send only this. */

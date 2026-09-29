@@ -83,6 +83,10 @@ func playwrightToolCaption(name string, arguments map[string]any) (string, error
 		return "", nil
 	}
 	delete(arguments, "caption")
+	// Listing tabs changes nothing on the page, so it has nothing to caption.
+	if action, _ := arguments["action"].(string); name == "browser_tabs" && action == "list" {
+		return "", nil
+	}
 	caption, ok := value.(string)
 	if !ok {
 		return "", mcpToolError("invalid_arguments", errors.New("caption must be a string"))
@@ -97,7 +101,11 @@ func playwrightToolCaption(name string, arguments map[string]any) (string, error
 // changes the page.
 func addCaptionProperty(name string, properties map[string]any) {
 	if playwrightCaptionTools[name] && properties != nil {
-		properties["caption"] = mcpCaptionProperty(mcpCaptionDescription)
+		description := mcpCaptionDescription
+		if name == "browser_tabs" {
+			description += ` Ignored for action "list".`
+		}
+		properties["caption"] = mcpCaptionProperty(description)
 	}
 }
 
@@ -138,11 +146,4 @@ func (r recordingEffectsRequest) wrapperFields(request map[string]any) {
 	if r.Zoom != nil {
 		request["zoom"] = *r.Zoom
 	}
-}
-
-// recordingEditError says why a recording has no edited video although it has
-// effects to apply.
-type recordingEditError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
 }

@@ -10,7 +10,7 @@ import (
 
 const mcpRecordingStartDescription = `Start a tab recording of one ready top-level target. The recording keeps the raw video and a timeline of what happened in it, and can also produce an edited video when it stops from effects declared while it runs: idle, ripple and zoom here set the recording's defaults; browser_click, browser_move, browser_drag and browser_scroll take their own zoom (and browser_click ripple), and page-changing tools such as browser_navigate and browser_type, like the pointer tools, take a caption that is burned into the edited video. A recording with none of these produces no edited video.`
 
-const mcpRecordingStopDescription = `Stop and finalize one recording by ID. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or idle), the call waits while the edited video is rendered, which takes from seconds to a minute or two, longer for long recordings; the result then has editedRelativePath next to the raw video's relativePath. If the edit fails the raw video and its timeline are returned all the same, with editError saying why (for example unsupported_mixed_sizes after the viewport was resized while recording). editWarnings say what of the effects could not be applied.`
+const mcpRecordingStopDescription = `Stop and finalize one recording by ID. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or idle), the call waits while the edited video is rendered, which takes from seconds to a minute or two, longer for long recordings; the result then has editState done and editedRelativePath next to the raw video's relativePath. If the edit fails the raw video and its timeline are returned all the same, with editState failed and editError saying why (for example unsupported_mixed_sizes after the viewport was resized while recording). editState is none when there was nothing to apply, and pending when a recording that stopped by itself or from the live session still has effects to render: stop it again to render them. A second stop while the edit renders returns at once with editState rendering; poll recordings.list. editWarnings say what of the effects could not be applied.`
 
 func mcpRecordingStartInputSchema(pathBound bool) map[string]any {
 	properties := map[string]any{
@@ -205,7 +205,7 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, TimelineRelativePath: timelinePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
-		EditError: status.EditError, EditWarnings: status.EditWarnings,
+		EditState: status.EditState, EditError: status.EditError, EditWarnings: status.EditWarnings,
 	}
 	if output.EditedRelativePath, err = recordingEditedRelativePath(status); err != nil {
 		return mcpRecordingOutput{}, err

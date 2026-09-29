@@ -101,6 +101,7 @@ func newEditFixture(t *testing.T, captioned bool) *editFixture {
 		ID: "x", Mode: wrapperRecordingModeTab, Status: wrapperRecordingStopped, StopReason: "requested", Path: raw, filesRoot: root,
 		operationMu: &sync.Mutex{}, timeline: collector, Codec: "vp8", FPS: 30,
 	}
+	recording.setStoppedEdit(edit.Wanted(built))
 	session.recordings["x"] = recording
 	return &editFixture{session: session, runtime: runtime, recording: recording, root: root, raw: raw, closeSession: cancel}
 }

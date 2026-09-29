@@ -934,7 +934,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editError`.
+      description: Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editState` `failed` and `editError`. A stop request that comes while another renders the same recording's edit returns at once with `editState` `rendering`.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -2971,9 +2971,9 @@ components:
       properties:
         code:
           type: string
-          enum: [unavailable, unsupported_mixed_sizes, source_unreadable, ffmpeg_failed, timeout, internal]
+          enum: [unavailable, unsupported_mixed_sizes, source_unreadable, ffmpeg_failed, timeout, recording_failed, internal]
           description: >-
-            `unavailable`: the host has no ffmpeg. `unsupported_mixed_sizes`: the frames of the recording change size, for example after the viewport was resized while recording. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `internal`: the edited video could not be published.
+            `unavailable`: the host has no ffmpeg. `unsupported_mixed_sizes`: the frames of the recording change size, for example after the viewport was resized while recording. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `recording_failed`: the recording's pipeline failed and its captured video was kept as it was, without its effects. `internal`: the edited video could not be published.
         message:
           type: string
     CreateSessionRecordingInput:
@@ -3053,14 +3053,19 @@ components:
           description: >-
             Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.webm.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm.timeline.json
+        editState:
+          type: string
+          enum: [none, pending, rendering, done, failed]
+          description: >-
+            Where the edit of the recording's effects stands once the recording has stopped; absent while it runs. `none`: there was nothing to apply, or the effects found nothing to change. `pending`: effects were requested and are not rendered yet; the next stop request for the recording renders them, which a recording that stopped by itself or from the live session's websocket needs. `rendering`: another stop request is rendering the edit right now; a stop request made meanwhile returns at once with this state, and the status shows the result when it is done. `done`: see `editedRelativePath`. `failed`: see `editError`.
         editedRelativePath:
           type: string
           description: >-
-            Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Absent when there was nothing to apply or the edit failed, and until the recording stops. A recording that stopped by itself is edited by the request that stops it after that.
+            Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Present when `editState` is `done`. A recording that stopped by itself is edited by the request that stops it after that.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.edited.mp4
         editError:
           allOf: [{$ref: '#/components/schemas/RecordingEditError'}]
-          description: Why the recording has effects to apply but no edited video.
+          description: Why the edit failed (`editState` is `failed`).
         editWarnings:
           type: array
           items: {type: string}
@@ -3159,14 +3164,19 @@ components:
           type: string
           description: Session file path of the recording's `timeline.json`, saved next to the video. Absent when no timeline could be written.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm.timeline.json
+        editState:
+          type: string
+          enum: [none, pending, rendering, done, failed]
+          description: >-
+            Where the edit of the recording's effects stands once the recording has stopped; absent while it runs. `none`: there was nothing to apply, or the effects found nothing to change. `pending`: effects were requested and are not rendered yet; the next stop request for the recording renders them, which a recording that stopped by itself or from the live session's websocket needs. `rendering`: another stop request is rendering the edit right now; a stop request made meanwhile returns at once with this state, and the status shows the result when it is done. `done`: see `editedRelativePath`. `failed`: see `editError`.
         editedRelativePath:
           type: string
           description: >-
-            Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Absent when there was nothing to apply or the edit failed, and until the recording stops. A recording that stopped by itself is edited by the request that stops it after that.
+            Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Present when `editState` is `done`. A recording that stopped by itself is edited by the request that stops it after that.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.edited.mp4
         editError:
           allOf: [{$ref: '#/components/schemas/RecordingEditError'}]
-          description: Why the recording has effects to apply but no edited video.
+          description: Why the edit failed (`editState` is `failed`).
         editWarnings:
           type: array
           items: {type: string}

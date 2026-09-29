@@ -17,16 +17,21 @@ const (
 	// CodeTimeout means ffmpeg ran out of time.
 	CodeTimeout = "timeout"
 	// CodeCanceled means the edit was cancelled, by the caller giving up or the
-	// session closing.
+	// session closing. It is not a failure of the recording and is never reported
+	// as editError.code: the edit stays pending.
 	CodeCanceled = "canceled"
+	// CodeRecordingFailed means the recording's pipeline failed and what it
+	// captured was salvaged as it was, so its effects were not applied.
+	CodeRecordingFailed = "recording_failed"
 	// CodeInternal is an unexpected failure to prepare or publish the edit.
 	CodeInternal = "internal"
 )
 
-// Error is a failed edit, with a code a client can act on.
+// Error is a failed edit, with a code a client can act on. It is also what a
+// recording reports as editError.
 type Error struct {
-	Code    string
-	Message string
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }

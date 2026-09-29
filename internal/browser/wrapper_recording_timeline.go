@@ -278,15 +278,19 @@ func sampleRecordedScreen(ctx context.Context, builder *timeline.Builder, read d
 // and returns the timeline's path, or an empty path when there is none. A
 // timeline is an addition to the video, so failing to write one is reported
 // but never fails the recording.
-func (recording *wrapperRecording) finishRecordingTimeline(videoPath string, segments []int) string {
+//
+// wanted says whether the timeline asks for effects to be applied. The timeline of
+// a recording that stopped whole (segments is nil) is then kept for the edit made
+// when it is stopped on request, and dropped when that edit is over.
+func (recording *wrapperRecording) finishRecordingTimeline(videoPath string, segments []int) (path string, wanted bool) {
 	collector := recording.timeline
 	if collector == nil {
-		return ""
+		return "", false
 	}
 	relative, err := filepath.Rel(recording.filesRoot, videoPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
-		return ""
+		return "", false
 	}
 	built, err := collector.builder.Build(timeline.BuildOptions{
 		Recording: timeline.Recording{
@@ -303,19 +307,18 @@ func (recording *wrapperRecording) finishRecordingTimeline(videoPath string, seg
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
-		return ""
+		return "", false
 	}
-	if segments == nil && edit.Wanted(built) {
-		// Only a timeline with effects to apply is kept for the edit made when the
-		// recording stops.
+	wanted = edit.Wanted(built)
+	if segments == nil && wanted {
 		collector.setBuilt(built)
 	}
-	path, err := timeline.Write(timeline.PathFor(videoPath), built)
+	path, err = timeline.Write(timeline.PathFor(videoPath), built)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
-		return ""
+		return "", wanted
 	}
-	return path
+	return path, wanted
 }
 
 // finishTimelineCollection ends a recording's timeline collection after its
@@ -330,17 +333,17 @@ func (recording *wrapperRecording) finishTimelineCollection(lastSegment int) {
 }
 
 // salvageTimelines writes a timeline next to each segment kept from a failed
-// recording, each covering just that segment, and returns the first one's path.
-func (recording *wrapperRecording) salvageTimelines(salvaged []salvagedSegment) string {
-	first := ""
+// recording, each covering just that segment, and returns the first one's path
+// and whether it has effects to apply.
+func (recording *wrapperRecording) salvageTimelines(salvaged []salvagedSegment) (first string, wanted bool) {
 	for position, segment := range salvaged {
 		if segment.index < 0 {
 			continue
 		}
-		path := recording.finishRecordingTimeline(segment.path, []int{segment.index})
+		path, segmentWanted := recording.finishRecordingTimeline(segment.path, []int{segment.index})
 		if position == 0 {
-			first = path
+			first, wanted = path, segmentWanted
 		}
 	}
-	return first
+	return first, wanted
 }

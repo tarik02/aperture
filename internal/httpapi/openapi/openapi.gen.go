@@ -612,6 +612,33 @@ func (e RecordingCodec) Valid() bool {
 	}
 }
 
+// Defines values for RecordingEditState.
+const (
+	RecordingEditStateDone      RecordingEditState = "done"
+	RecordingEditStateFailed    RecordingEditState = "failed"
+	RecordingEditStateNone      RecordingEditState = "none"
+	RecordingEditStatePending   RecordingEditState = "pending"
+	RecordingEditStateRendering RecordingEditState = "rendering"
+)
+
+// Valid indicates whether the value is a known member of the RecordingEditState enum.
+func (e RecordingEditState) Valid() bool {
+	switch e {
+	case RecordingEditStateDone:
+		return true
+	case RecordingEditStateFailed:
+		return true
+	case RecordingEditStateNone:
+		return true
+	case RecordingEditStatePending:
+		return true
+	case RecordingEditStateRendering:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RecordingMode.
 const (
 	RecordingModeTab    RecordingMode = "tab"
@@ -658,6 +685,7 @@ func (e RecordingStatus) Valid() bool {
 const (
 	FfmpegFailed          RecordingEditErrorCode = "ffmpeg_failed"
 	Internal              RecordingEditErrorCode = "internal"
+	RecordingFailed       RecordingEditErrorCode = "recording_failed"
 	SourceUnreadable      RecordingEditErrorCode = "source_unreadable"
 	Timeout               RecordingEditErrorCode = "timeout"
 	Unavailable           RecordingEditErrorCode = "unavailable"
@@ -671,6 +699,8 @@ func (e RecordingEditErrorCode) Valid() bool {
 		return true
 	case Internal:
 		return true
+	case RecordingFailed:
+		return true
 	case SourceUnreadable:
 		return true
 	case Timeout:
@@ -678,6 +708,33 @@ func (e RecordingEditErrorCode) Valid() bool {
 	case Unavailable:
 		return true
 	case UnsupportedMixedSizes:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordingFileEditState.
+const (
+	RecordingFileEditStateDone      RecordingFileEditState = "done"
+	RecordingFileEditStateFailed    RecordingFileEditState = "failed"
+	RecordingFileEditStateNone      RecordingFileEditState = "none"
+	RecordingFileEditStatePending   RecordingFileEditState = "pending"
+	RecordingFileEditStateRendering RecordingFileEditState = "rendering"
+)
+
+// Valid indicates whether the value is a known member of the RecordingFileEditState enum.
+func (e RecordingFileEditState) Valid() bool {
+	switch e {
+	case RecordingFileEditStateDone:
+		return true
+	case RecordingFileEditStateFailed:
+		return true
+	case RecordingFileEditStateNone:
+		return true
+	case RecordingFileEditStatePending:
+		return true
+	case RecordingFileEditStateRendering:
 		return true
 	default:
 		return false
@@ -1937,13 +1994,16 @@ type Recording struct {
 	CaptureGeneration int64          `json:"captureGeneration"`
 	Codec             RecordingCodec `json:"codec"`
 
-	// EditError Why the recording has effects to apply but no edited video.
+	// EditError Why the edit failed (`editState` is `failed`).
 	EditError *RecordingEditError `json:"editError,omitempty"`
+
+	// EditState Where the edit of the recording's effects stands once the recording has stopped; absent while it runs. `none`: there was nothing to apply, or the effects found nothing to change. `pending`: effects were requested and are not rendered yet; the next stop request for the recording renders them, which a recording that stopped by itself or from the live session's websocket needs. `rendering`: another stop request is rendering the edit right now; a stop request made meanwhile returns at once with this state, and the status shows the result when it is done. `done`: see `editedRelativePath`. `failed`: see `editError`.
+	EditState *RecordingEditState `json:"editState,omitempty"`
 
 	// EditWarnings What of the effects could not be applied or was left as it was, for example clicks made through Playwright input, which have no position in the video.
 	EditWarnings *[]string `json:"editWarnings,omitempty"`
 
-	// EditedRelativePath Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Absent when there was nothing to apply or the edit failed, and until the recording stops. A recording that stopped by itself is edited by the request that stops it after that.
+	// EditedRelativePath Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Present when `editState` is `done`. A recording that stopped by itself is edited by the request that stops it after that.
 	EditedRelativePath *string `json:"editedRelativePath,omitempty"`
 	Fps                int     `json:"fps"`
 
@@ -1973,6 +2033,9 @@ type Recording struct {
 // RecordingCodec defines model for Recording.Codec.
 type RecordingCodec string
 
+// RecordingEditState Where the edit of the recording's effects stands once the recording has stopped; absent while it runs. `none`: there was nothing to apply, or the effects found nothing to change. `pending`: effects were requested and are not rendered yet; the next stop request for the recording renders them, which a recording that stopped by itself or from the live session's websocket needs. `rendering`: another stop request is rendering the edit right now; a stop request made meanwhile returns at once with this state, and the status shows the result when it is done. `done`: see `editedRelativePath`. `failed`: see `editError`.
+type RecordingEditState string
+
 // RecordingMode Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
 type RecordingMode string
 
@@ -1981,23 +2044,26 @@ type RecordingStatus string
 
 // RecordingEditError Why the edited video of a recording could not be made. The raw video and its timeline are kept.
 type RecordingEditError struct {
-	// Code `unavailable`: the host has no ffmpeg. `unsupported_mixed_sizes`: the frames of the recording change size, for example after the viewport was resized while recording. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `internal`: the edited video could not be published.
+	// Code `unavailable`: the host has no ffmpeg. `unsupported_mixed_sizes`: the frames of the recording change size, for example after the viewport was resized while recording. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `recording_failed`: the recording's pipeline failed and its captured video was kept as it was, without its effects. `internal`: the edited video could not be published.
 	Code    RecordingEditErrorCode `json:"code"`
 	Message string                 `json:"message"`
 }
 
-// RecordingEditErrorCode `unavailable`: the host has no ffmpeg. `unsupported_mixed_sizes`: the frames of the recording change size, for example after the viewport was resized while recording. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `internal`: the edited video could not be published.
+// RecordingEditErrorCode `unavailable`: the host has no ffmpeg. `unsupported_mixed_sizes`: the frames of the recording change size, for example after the viewport was resized while recording. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `recording_failed`: the recording's pipeline failed and its captured video was kept as it was, without its effects. `internal`: the edited video could not be published.
 type RecordingEditErrorCode string
 
 // RecordingFile The video a stopped recording was saved to, as a session file, and where its timeline was saved.
 type RecordingFile struct {
-	// EditError Why the recording has effects to apply but no edited video.
+	// EditError Why the edit failed (`editState` is `failed`).
 	EditError *RecordingEditError `json:"editError,omitempty"`
+
+	// EditState Where the edit of the recording's effects stands once the recording has stopped; absent while it runs. `none`: there was nothing to apply, or the effects found nothing to change. `pending`: effects were requested and are not rendered yet; the next stop request for the recording renders them, which a recording that stopped by itself or from the live session's websocket needs. `rendering`: another stop request is rendering the edit right now; a stop request made meanwhile returns at once with this state, and the status shows the result when it is done. `done`: see `editedRelativePath`. `failed`: see `editError`.
+	EditState *RecordingFileEditState `json:"editState,omitempty"`
 
 	// EditWarnings What of the effects could not be applied or was left as it was, for example clicks made through Playwright input, which have no position in the video.
 	EditWarnings *[]string `json:"editWarnings,omitempty"`
 
-	// EditedRelativePath Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Absent when there was nothing to apply or the edit failed, and until the recording stops. A recording that stopped by itself is edited by the request that stops it after that.
+	// EditedRelativePath Session file path of the edited video, saved next to the raw video (`recording-<id>.webm` has `recording-<id>.edited.mp4`; a name already taken is numbered, `recording-<id>.edited-1.mp4`). It is rendered when the recording is stopped on request from the effects declared while it ran: captions burned in, zoom, click ripples, and idle time sped up or cut. Present when `editState` is `done`. A recording that stopped by itself is edited by the request that stops it after that.
 	EditedRelativePath *string `json:"editedRelativePath,omitempty"`
 
 	// MimeType Media type of the video.
@@ -2022,6 +2088,9 @@ type RecordingFile struct {
 	TimelineRelativePath *string           `json:"timelineRelativePath,omitempty"`
 	Type                 RecordingFileType `json:"type"`
 }
+
+// RecordingFileEditState Where the edit of the recording's effects stands once the recording has stopped; absent while it runs. `none`: there was nothing to apply, or the effects found nothing to change. `pending`: effects were requested and are not rendered yet; the next stop request for the recording renders them, which a recording that stopped by itself or from the live session's websocket needs. `rendering`: another stop request is rendering the edit right now; a stop request made meanwhile returns at once with this state, and the status shows the result when it is done. `done`: see `editedRelativePath`. `failed`: see `editError`.
+type RecordingFileEditState string
 
 // RecordingFileType defines model for RecordingFile.Type.
 type RecordingFileType string
@@ -4153,7 +4222,7 @@ type ClientInterface interface {
 
 	// StopSessionRecording Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editError`.
+	// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editState` `failed` and `editError`. A stop request that comes while another renders the same recording's edit returns at once with `editState` `rendering`.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5440,7 +5509,7 @@ func (c *Client) RetargetSessionRecording(ctx context.Context, sessionId Session
 
 // StopSessionRecording Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editError`.
+// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editState` `failed` and `editError`. A stop request that comes while another renders the same recording's edit returns at once with `editState` `rendering`.
 //
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -10074,7 +10143,7 @@ type ClientWithResponsesInterface interface {
 
 	// StopSessionRecordingWithResponse Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editError`.
+	// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editState` `failed` and `editError`. A stop request that comes while another renders the same recording's edit returns at once with `editState` `rendering`.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -14147,7 +14216,7 @@ func (c *ClientWithResponses) RetargetSessionRecordingWithResponse(ctx context.C
 
 // StopSessionRecordingWithResponse Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editError`.
+// Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editState` `failed` and `editError`. A stop request that comes while another renders the same recording's edit returns at once with `editState` `rendering`.
 //
 // Returns a wrapper object for the known response body format(s).
 //

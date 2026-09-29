@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/recording/edit"
 	"github.com/aperture/aperture/internal/recording/timeline"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/gin-gonic/gin"
@@ -38,11 +39,12 @@ type wrapperRecordingStatus struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
-	// EditedRelativePath, EditError and EditWarnings are the outcome of the edit
+	// EditState, EditedRelativePath, EditError and EditWarnings are the outcome of the edit
 	// made when the recording stopped, reported by wrappers that make one.
-	EditedRelativePath string              `json:"editedRelativePath,omitempty"`
-	EditError          *recordingEditError `json:"editError,omitempty"`
-	EditWarnings       []string            `json:"editWarnings,omitempty"`
+	EditState          string      `json:"editState,omitempty"`
+	EditedRelativePath string      `json:"editedRelativePath,omitempty"`
+	EditError          *edit.Error `json:"editError,omitempty"`
+	EditWarnings       []string    `json:"editWarnings,omitempty"`
 }
 
 type recordingResponse struct {
@@ -62,11 +64,14 @@ type recordingResponse struct {
 	FPS                  int    `json:"fps"`
 	BitrateKbps          int    `json:"bitrateKbps"`
 	Codec                string `json:"codec"`
-	// EditedRelativePath is the video edited from the recording's effects, absent
-	// until the recording has stopped, and when it had none or the edit failed.
+	// EditState is none, pending, rendering, done or failed once the recording has
+	// stopped, see the API description. Absent while it runs.
+	EditState string `json:"editState,omitempty"`
+	// EditedRelativePath is the video edited from the recording's effects, present
+	// when EditState is done.
 	EditedRelativePath string `json:"editedRelativePath,omitempty"`
 	// EditError says why the edit failed. The raw video and timeline are kept.
-	EditError *recordingEditError `json:"editError,omitempty"`
+	EditError *edit.Error `json:"editError,omitempty"`
 	// EditWarnings say what of the effects could not be applied or was left as it was.
 	EditWarnings []string `json:"editWarnings,omitempty"`
 }
@@ -76,11 +81,12 @@ type recordingResponse struct {
 type stoppedRecordingFile struct {
 	sessionfiles.File
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
-	// EditedRelativePath, EditError and EditWarnings report the edit made while the
-	// recording stopped, as recordingResponse does.
-	EditedRelativePath string              `json:"editedRelativePath,omitempty"`
-	EditError          *recordingEditError `json:"editError,omitempty"`
-	EditWarnings       []string            `json:"editWarnings,omitempty"`
+	// EditState, EditedRelativePath, EditError and EditWarnings report the edit made
+	// while the recording stopped, as recordingResponse does.
+	EditState          string      `json:"editState,omitempty"`
+	EditedRelativePath string      `json:"editedRelativePath,omitempty"`
+	EditError          *edit.Error `json:"editError,omitempty"`
+	EditWarnings       []string    `json:"editWarnings,omitempty"`
 }
 
 type createSessionRecordingRequest struct {
@@ -261,6 +267,7 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 			SandboxPath:  sessionfiles.SandboxPath(relativePath),
 		}),
 		TimelineRelativePath: timelinePath,
+		EditState:            status.EditState,
 		EditedRelativePath:   editedPath,
 		EditError:            status.EditError,
 		EditWarnings:         status.EditWarnings,
@@ -375,7 +382,7 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, TimelineRelativePath: timelinePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
-		EditedRelativePath: editedPath, EditError: status.EditError, EditWarnings: status.EditWarnings,
+		EditState: status.EditState, EditedRelativePath: editedPath, EditError: status.EditError, EditWarnings: status.EditWarnings,
 	}, nil
 }
 

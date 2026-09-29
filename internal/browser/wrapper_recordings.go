@@ -466,8 +466,9 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	if err != nil {
 		return session.failRecording(recording, "finalize_failed", err)
 	}
-	timelinePath := recording.finishRecordingTimeline(finalPath, nil)
+	timelinePath, wanted := recording.finishRecordingTimeline(finalPath, nil)
 	r.mu.Lock()
+	recording.setStoppedEdit(wanted)
 	stoppedAt := time.Now().UTC()
 	recording.Path = finalPath
 	recording.TimelinePath = timelinePath
@@ -483,7 +484,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 
 // failRecording marks a recording failed after keeping what it captured.
 func (session *liveSession) failRecording(recording *wrapperRecording, reason string, cause error) (wrapperRecording, error) {
-	salvagedPath, timelinePath := recording.salvageCaptured()
+	salvage := recording.salvageCaptured()
 	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -492,10 +493,7 @@ func (session *liveSession) failRecording(recording *wrapperRecording, reason st
 	recording.Status = wrapperRecordingFailed
 	recording.StopReason = reason
 	recording.StoppedAt = &stoppedAt
-	if salvagedPath != "" {
-		recording.Path = salvagedPath
-		recording.TimelinePath = timelinePath
-	}
+	recording.applySalvage(salvage)
 	return *recording, cause
 }
 
@@ -702,16 +700,13 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		// The recording is over; keep what it captured, with its timelines, like any
 		// failed recording. The slow work happens outside the runtime lock, and the
 		// recording still reads as replacing (so nobody else salvages it) until done.
-		salvagedPath, timelinePath := recording.salvageCaptured()
+		salvage := recording.salvageCaptured()
 		r.mu.Lock()
 		stoppedAt := time.Now().UTC()
 		recording.Status = wrapperRecordingFailed
 		recording.StopReason = "replacement_failed"
 		recording.StoppedAt = &stoppedAt
-		if salvagedPath != "" {
-			recording.Path = salvagedPath
-			recording.TimelinePath = timelinePath
-		}
+		recording.applySalvage(salvage)
 		r.mu.Unlock()
 		return err
 	}
@@ -1069,25 +1064,40 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 // the runtime lock only to publish the result.
 func (session *liveSession) salvageFailedRecording(recording *wrapperRecording) {
 	r := session.runtime
-	path, timelinePath := recording.salvageCaptured()
+	salvage := recording.salvageCaptured()
 	r.mu.Lock()
-	if path != "" {
-		recording.Path = path
-		recording.TimelinePath = timelinePath
-	}
+	recording.applySalvage(salvage)
 	r.mu.Unlock()
 	session.broadcastRecordings()
 }
 
+// salvaged is what salvageCaptured kept: the first kept video's path and its
+// timeline's, both empty when nothing was kept, and whether that timeline asks
+// for effects.
+type salvaged struct {
+	path, timelinePath string
+	wanted             bool
+}
+
 // salvageCaptured ends the timeline collection, keeps the recording's segments
-// as files next to its target, and writes a timeline beside each. It returns the
-// first kept video's path and its timeline's, both empty when nothing was kept.
-// It does slow file work, so it must not run under the runtime lock.
-func (recording *wrapperRecording) salvageCaptured() (path, timelinePath string) {
+// as files next to its target, and writes a timeline beside each. It does slow
+// file work, so it must not run under the runtime lock.
+func (recording *wrapperRecording) salvageCaptured() salvaged {
 	recording.finishTimelineCollection(len(recording.segments) - 1)
-	salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path)
-	if len(salvaged) == 0 {
-		return "", ""
+	segments := abandonRecordingSegments(recording.segmentDir, recording.Path)
+	if len(segments) == 0 {
+		return salvaged{}
 	}
-	return salvaged[0].path, recording.salvageTimelines(salvaged)
+	timelinePath, wanted := recording.salvageTimelines(segments)
+	return salvaged{path: segments[0].path, timelinePath: timelinePath, wanted: wanted}
+}
+
+// applySalvage reports what was kept. The runtime lock must be held.
+func (recording *wrapperRecording) applySalvage(kept salvaged) {
+	if kept.path == "" {
+		return
+	}
+	recording.Path = kept.path
+	recording.TimelinePath = kept.timelinePath
+	recording.setSalvagedEdit(kept.wanted)
 }

@@ -130,7 +130,7 @@ func TestBuildWarnsAboutGesturesWithoutAPosition(t *testing.T) {
 	if !plan.Trivial() {
 		t.Errorf("nothing can be applied: %+v", plan.Report)
 	}
-	if len(plan.Warnings) != 2 || !strings.Contains(plan.Warnings[0], "2 clicks") || !strings.Contains(plan.Warnings[1], "2 zoomed gestures") {
+	if len(plan.Warnings) != 2 || !strings.Contains(plan.Warnings[0], "clicks made through Playwright input") || !strings.Contains(plan.Warnings[1], "zoomed gestures made through Playwright input") {
 		t.Errorf("warnings %v", plan.Warnings)
 	}
 }

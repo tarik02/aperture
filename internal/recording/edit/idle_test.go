@@ -172,8 +172,8 @@ func TestBusyIntervalsAreTheUnionOfWhatKeepsTheVideoBusy(t *testing.T) {
 	cues := []Cue{{StartMs: 10000, EndMs: 11500, Text: "x"}}
 	ripples := []ripple{{tMs: 13000}}
 	scenes := []zoomScene{{StartMs: 15000, EndMs: 17000}}
-	busy, known := busyIntervals(tl, cues, ripples, scenes)
-	if !known {
+	busy, unknown := busyIntervals(tl, cues, ripples, scenes)
+	if unknown != "" {
 		t.Fatal("activity is available")
 	}
 	merged := mergeIntervals(busy, 20000)
@@ -199,7 +199,7 @@ func TestBusyIntervalsAreTheUnionOfWhatKeepsTheVideoBusy(t *testing.T) {
 func TestBusyIntervalsAreUnknownWithoutActivity(t *testing.T) {
 	tl := idleTimeline()
 	tl.Activity.Available = false
-	if _, known := busyIntervals(tl, nil, nil, nil); known {
+	if _, unknown := busyIntervals(tl, nil, nil, nil); unknown == "" {
 		t.Error("nothing is known about the screen when it could not be watched")
 	}
 }

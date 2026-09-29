@@ -306,7 +306,7 @@ func TestSalvagedSegmentsGetTimelinesOfTheirOwn(t *testing.T) {
 	if len(salvaged) != 2 || salvaged[0].index != 0 || salvaged[1].index != 2 {
 		t.Fatalf("salvaged %+v", salvaged)
 	}
-	first := recording.salvageTimelines(salvaged)
+	first, _ := recording.salvageTimelines(salvaged)
 	if want := filepath.Join(recordings, "recording-x-failed.webm.timeline.json"); first != want {
 		t.Fatalf("first timeline %q, want %q", first, want)
 	}

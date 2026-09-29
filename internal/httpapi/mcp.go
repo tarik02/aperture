@@ -15,6 +15,7 @@ import (
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/playwrightmcp"
+	"github.com/aperture/aperture/internal/recording/edit"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
@@ -385,10 +386,12 @@ type mcpRecordingOutput struct {
 	FPS                  int    `json:"fps,omitempty"`
 	BitrateKbps          int    `json:"bitrateKbps,omitempty"`
 	Codec                string `json:"codec,omitempty"`
-	// EditedRelativePath is the edited video, rendered when the recording stopped from what was declared while it ran (captions, zoom, ripples, idle time). Absent when there was nothing to apply or the edit failed.
+	// EditState says where the edit of the recording's effects (captions, zoom, ripples, idle time) stands once it has stopped: none (nothing to apply), pending (effects were requested and are rendered by the next recording.stop over REST or MCP, which a stop from the live session's websocket does not make), rendering (another stop is rendering it now; poll recordings.list), done (see editedRelativePath) or failed (see editError). Absent while the recording runs.
+	EditState string `json:"editState,omitempty"`
+	// EditedRelativePath is the edited video, present when editState is done.
 	EditedRelativePath string `json:"editedRelativePath,omitempty"`
-	// EditError says why the edit failed; the raw video and timeline are kept all the same.
-	EditError *recordingEditError `json:"editError,omitempty"`
+	// EditError says why the edit failed (editState failed); the raw video and timeline are kept all the same.
+	EditError *edit.Error `json:"editError,omitempty"`
 	// EditWarnings say what of the effects could not be applied or was left as it was.
 	EditWarnings []string `json:"editWarnings,omitempty"`
 }

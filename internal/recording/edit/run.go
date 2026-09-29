@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,13 +22,17 @@ import (
 )
 
 const (
-	// probeTimeout bounds each ffprobe run.
-	probeTimeout = 30 * time.Second
+	// minProbeTimeout and maxProbeTimeout bound each ffprobe run, which is 30
+	// seconds and twice the video's length in between: the key frame scan reads the
+	// whole file.
+	minProbeTimeout = 30 * time.Second
+	maxProbeTimeout = 5 * time.Minute
 	// minRenderTimeout and defaultMaxRenderTimeout bound the time an edit may take,
 	// which is 30 seconds and ten times the video's length in between.
 	minRenderTimeout        = 2 * time.Minute
 	defaultMaxRenderTimeout = 30 * time.Minute
-	// niceness is the priority ffmpeg runs at, so it yields to the live session.
+	// niceness is the priority ffmpeg and ffprobe run at, so they yield to the live
+	// session.
 	niceness = 10
 	// stderrTail is how much of ffmpeg's error output an error message keeps.
 	stderrTail = 2048
@@ -43,13 +48,17 @@ type RunOptions struct {
 	// beside ffmpeg.
 	FFmpeg  string
 	FFprobe string
-	// Source is the video to edit, a .webm, .mkv or .mp4 file. It is opened once,
+	// Source is the video to edit, a .webm or .mkv file, which is what recordings are. It is opened once,
 	// without following a symbolic link, and ffmpeg reads that file even if the
 	// name is moved or replaced meanwhile.
 	Source string
 	// WorkDir is an existing directory for the output and scratch files, which
 	// belong to the caller to remove.
 	WorkDir string
+	// CacheDir is where the tools keep their caches, the font cache above all,
+	// which takes seconds to build. It outlives an edit, so the next one starts
+	// with it; empty puts it in WorkDir, where it is built again every time.
+	CacheDir string
 	// Threads limits ffmpeg's threads; zero leaves it to ffmpeg.
 	Threads int
 	// MaxTime is the longest ffmpeg may take; zero means 30 minutes. A video is
@@ -75,6 +84,9 @@ func Run(ctx context.Context, options RunOptions, tl *timeline.Timeline) (*Resul
 	if options.FFprobe == "" {
 		options.FFprobe = filepath.Join(filepath.Dir(options.FFmpeg), "ffprobe")
 	}
+	if options.CacheDir == "" {
+		options.CacheDir = filepath.Join(options.WorkDir, "cache")
+	}
 	format, err := demuxerFor(options.Source)
 	if err != nil {
 		return nil, err
@@ -85,7 +97,7 @@ func Run(ctx context.Context, options RunOptions, tl *timeline.Timeline) (*Resul
 	}
 	defer func() { _ = source.Close() }()
 
-	probed, err := probeSource(ctx, options, format, source)
+	probed, err := probeSource(ctx, options, format, source, probeTimeout(tl.Recording.DurationMs))
 	if err != nil {
 		return nil, err
 	}
@@ -124,16 +136,19 @@ func renderTimeout(durationMs int64, maxTime time.Duration) time.Duration {
 	return min(max(timeout, minRenderTimeout), max(maxTime, time.Second))
 }
 
+// probeTimeout is the time a probe of a video of the given length may take.
+func probeTimeout(durationMs int64) time.Duration {
+	return min(max(minProbeTimeout+2*time.Duration(durationMs)*time.Millisecond, minProbeTimeout), maxProbeTimeout)
+}
+
 // demuxerFor names the one container format ffmpeg may read the source as, so the
 // contents cannot make it pick another (a playlist, say, that names other files).
 func demuxerFor(path string) (string, error) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".webm", ".mkv":
 		return "matroska,webm", nil
-	case ".mp4":
-		return "mov,mp4,m4a,3gp,3g2,mj2", nil
 	default:
-		return "", newError(CodeSourceUnreadable, "only .webm, .mkv and .mp4 videos can be edited")
+		return "", newError(CodeSourceUnreadable, "only .webm and .mkv videos can be edited")
 	}
 }
 
@@ -161,11 +176,11 @@ func inputArguments(format string) []string {
 
 // toolEnvironment is the environment ffmpeg and ffprobe run in: the work
 // directory for whatever they write, and the fonts the captions need.
-func toolEnvironment(workDir string) []string {
+func toolEnvironment(workDir, cacheDir string) []string {
 	env := []string{
 		"HOME=" + workDir,
 		"TMPDIR=" + workDir,
-		"XDG_CACHE_HOME=" + filepath.Join(workDir, "cache"),
+		"XDG_CACHE_HOME=" + cacheDir,
 	}
 	for _, name := range []string{"PATH", "FONTCONFIG_FILE", "FONTCONFIG_PATH", "LANG"} {
 		if value := os.Getenv(name); value != "" {
@@ -183,9 +198,9 @@ type probed struct {
 
 // probeSource reads the video's frame size and length, and looks at the size of
 // its key frames, which is where a change of size shows.
-func probeSource(ctx context.Context, options RunOptions, format string, source *os.File) (probed, error) {
+func probeSource(ctx context.Context, options RunOptions, format string, source *os.File, timeout time.Duration) (probed, error) {
 	var result probed
-	streams, err := runProbe(ctx, options, source, append([]string{"-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height:format=duration", "-of", "json"}, inputArguments(format)...))
+	streams, err := runProbe(ctx, options, source, timeout, append([]string{"-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height:format=duration", "-of", "json"}, inputArguments(format)...))
 	if err != nil {
 		return result, err
 	}
@@ -206,7 +221,7 @@ func probeSource(ctx context.Context, options RunOptions, format string, source 
 	if seconds, err := strconv.ParseFloat(parsed.Format.Duration, 64); err == nil && seconds > 0 && !math.IsInf(seconds, 0) {
 		result.durationMs = int64(math.Round(seconds * 1000))
 	}
-	frames, err := runProbe(ctx, options, source, append([]string{"-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=width,height", "-of", "csv=p=0"}, inputArguments(format)...))
+	frames, err := runProbe(ctx, options, source, timeout, append([]string{"-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=width,height", "-of", "csv=p=0"}, inputArguments(format)...))
 	if err != nil {
 		return result, err
 	}
@@ -218,19 +233,19 @@ func probeSource(ctx context.Context, options RunOptions, format string, source 
 	return result, nil
 }
 
-func runProbe(parent context.Context, options RunOptions, source *os.File, arguments []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(parent, probeTimeout)
+func runProbe(parent context.Context, options RunOptions, source *os.File, timeout time.Duration, arguments []string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, options.FFprobe, append([]string{"-v", "error"}, arguments...)...)
 	cmd.Dir = options.WorkDir
-	cmd.Env = toolEnvironment(options.WorkDir)
+	cmd.Env = toolEnvironment(options.WorkDir, options.CacheDir)
 	cmd.ExtraFiles = []*os.File{source}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	cmd.WaitDelay = 5 * time.Second
 	var stdout bytes.Buffer
 	stderr := &tailBuffer{limit: stderrTail}
 	cmd.Stdout, cmd.Stderr = &stdout, stderr
-	if err := cmd.Run(); err != nil {
+	if err := runNiced(cmd); err != nil {
 		if code := contextError(parent, ctx); code != nil {
 			return nil, code
 		}
@@ -261,25 +276,38 @@ func render(parent context.Context, options RunOptions, format string, source *o
 
 	cmd := exec.CommandContext(ctx, options.FFmpeg, arguments...)
 	cmd.Dir = options.WorkDir
-	cmd.Env = toolEnvironment(options.WorkDir)
+	cmd.Env = toolEnvironment(options.WorkDir, options.CacheDir)
 	cmd.ExtraFiles = []*os.File{source}
 	// ffmpeg does not outlive the wrapper that started it.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	cmd.WaitDelay = 5 * time.Second
 	stderr := &tailBuffer{limit: stderrTail}
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		return newError(CodeFFmpegFailed, "start ffmpeg: %v", err)
-	}
-	// ffmpeg starts its threads afterwards and they inherit the priority.
-	_ = unix.Setpriority(unix.PRIO_PROCESS, cmd.Process.Pid, niceness)
-	if err := cmd.Wait(); err != nil {
+	if err := runNiced(cmd); err != nil {
 		if code := contextError(parent, ctx); code != nil {
 			return code
 		}
 		return newError(CodeFFmpegFailed, "ffmpeg failed: %v: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// runNiced runs a command at a low priority. On Linux the priority is per thread
+// and a child inherits it from the thread that starts it, so the command starts
+// from a goroutine whose thread has been made nice first: every thread the command
+// makes later has it from the beginning, with no window in which it does not. The
+// goroutine also has to keep its thread until the command ends, since Pdeathsig
+// fires when the thread that started the command exits. The goroutine ends
+// without unlocking its thread, and Go discards a thread whose goroutine ended
+// locked, so the priority never spreads to other goroutines.
+func runNiced(cmd *exec.Cmd) error {
+	result := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		_ = unix.Setpriority(unix.PRIO_PROCESS, unix.Gettid(), niceness)
+		result <- cmd.Run()
+	}()
+	return <-result
 }
 
 // contextError says why a command was stopped: the caller gave up (parent is

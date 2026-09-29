@@ -26,32 +26,59 @@ const editedVideoSuffix = ".edited.mp4"
 // runRecordingEdit renders an edit. It is a variable so tests can replace ffmpeg.
 var runRecordingEdit = edit.Run
 
-// recordingEditError says why a recording's edit failed; the raw recording is
-// kept and returned all the same.
-type recordingEditError struct {
-	// Code is one of unavailable, unsupported_mixed_sizes, source_unreadable,
-	// ffmpeg_failed, timeout or internal.
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+// The states of a recording's edit, as EditState reports them. A recording that
+// is still running has none.
+const (
+	// editStateNone: the recording has nothing to apply, or its edit found nothing
+	// to change.
+	editStateNone = "none"
+	// editStatePending: effects were requested and have not been rendered yet. The
+	// next stop request made over REST or MCP renders them; a recording stopped
+	// from the live session's websocket, or whose edit was cancelled, waits for it.
+	editStatePending = "pending"
+	// editStateRendering: an edit is being rendered right now.
+	editStateRendering = "rendering"
+	// editStateDone: the edited video is published, see EditedRelativePath.
+	editStateDone = "done"
+	// editStateFailed: the edit failed, see EditError. The raw video is kept.
+	editStateFailed = "failed"
+)
 
 // recordingEdit is what a recording knows about its edit: the effect defaults it
 // was started with, and what came of the edit made when it stopped.
 type recordingEdit struct {
 	effects recordingEffects
-	// editAttempted is set once the edit has been made or found to have nothing to
-	// do. An edit that was cancelled has not been attempted, and the next stop
-	// makes it.
-	editAttempted bool
 
+	// EditState is where the edit stands, once the recording has stopped.
+	EditState string `json:"editState,omitempty"`
 	// EditedRelativePath is the edited video, below the session files root, once
 	// it is published.
 	EditedRelativePath string `json:"editedRelativePath,omitempty"`
 	// EditError is why the recording has no edited video although it has effects to
 	// apply.
-	EditError *recordingEditError `json:"editError,omitempty"`
+	EditError *edit.Error `json:"editError,omitempty"`
 	// EditWarnings say what of the effects could not be applied or left as they were.
 	EditWarnings []string `json:"editWarnings,omitempty"`
+}
+
+// setStoppedEdit sets the state of the edit of a recording that has just stopped
+// on request, whose timeline says whether it has effects to apply.
+func (e *recordingEdit) setStoppedEdit(wanted bool) {
+	e.EditState = editStateNone
+	if wanted {
+		e.EditState = editStatePending
+	}
+}
+
+// setSalvagedEdit records that a recording that failed was kept as it was. Its
+// segments are separate videos, each with a timeline of its own, and nobody waits
+// on a failed recording to render anything, so effects it had are not applied.
+func (e *recordingEdit) setSalvagedEdit(wanted bool) {
+	e.EditState = editStateNone
+	if wanted {
+		e.EditState = editStateFailed
+		e.EditError = &edit.Error{Code: edit.CodeRecordingFailed, Message: "the recording failed before it was stopped, so the video it captured was kept as it was, without its effects"}
+	}
 }
 
 // resolveRecordingEffects validates the effects a recording is started with, and
@@ -73,37 +100,50 @@ func (session *liveSession) resolveRecordingEffects(request recordingEffectsRequ
 // takes no time. However the edit ends, the raw recording and its timeline stay
 // as they were; a failed edit is reported in the status.
 //
+// The edit is not made under the recording's operation lock, which is for the
+// recording's pipeline: a stop request that comes while the edit renders returns
+// the status at once, with the edit's state "rendering", and the caller polls
+// the status for the result.
+//
 // A recording that stopped by itself (its tab closed, its client left) is edited
 // by the request that stops it after that, since nobody is waiting for the edit
-// when it stops.
+// when it stops; until then its edit's state is "pending".
 func (session *liveSession) editStoppedRecording(ctx context.Context, status wrapperRecording) wrapperRecording {
 	r := session.runtime
 	r.mu.Lock()
 	recording := session.recordings[status.ID]
-	r.mu.Unlock()
 	if recording == nil {
+		r.mu.Unlock()
 		return status
 	}
-	recording.operationMu.Lock()
-	defer recording.operationMu.Unlock()
-
 	var tl *timeline.Timeline
 	if recording.timeline != nil {
 		tl = recording.timeline.builtTimeline()
 	}
-	r.mu.Lock()
-	if recording.Status != wrapperRecordingStopped || recording.editAttempted || tl == nil {
+	if recording.Status != wrapperRecordingStopped || recording.EditState != editStatePending || tl == nil {
 		current := *recording
 		r.mu.Unlock()
 		return current
 	}
+	recording.EditState = editStateRendering
 	rawPath, filesRoot := recording.Path, recording.filesRoot
 	r.mu.Unlock()
+	session.broadcastRecordings()
 
 	outcome := session.renderRecordingEdit(ctx, recording.ID, tl, rawPath, filesRoot)
 	r.mu.Lock()
+	switch {
+	case outcome.canceled:
+		// A cancelled edit says nothing about the recording; the next stop makes it.
+		recording.EditState = editStatePending
+	case outcome.err != nil:
+		recording.EditState = editStateFailed
+	case outcome.relativePath != "":
+		recording.EditState = editStateDone
+	default:
+		recording.EditState = editStateNone
+	}
 	if !outcome.canceled {
-		recording.editAttempted = true
 		recording.EditedRelativePath = outcome.relativePath
 		recording.EditError = outcome.err
 		recording.EditWarnings = outcome.warnings
@@ -111,9 +151,10 @@ func (session *liveSession) editStoppedRecording(ctx context.Context, status wra
 	current := *recording
 	r.mu.Unlock()
 	if !outcome.canceled {
+		// The timeline is not needed any more: the edit is over, however it ended.
 		recording.timeline.releaseBuilt()
-		session.broadcastRecordings()
 	}
+	session.broadcastRecordings()
 	return current
 }
 
@@ -121,7 +162,7 @@ func (session *liveSession) editStoppedRecording(ctx context.Context, status wra
 type editOutcome struct {
 	// relativePath is the edited video's path below the files root, empty when there is none.
 	relativePath string
-	err          *recordingEditError
+	err          *edit.Error
 	warnings     []string
 	// canceled is set when the edit was given up because the request ended or the
 	// session closed; it says nothing about the recording.
@@ -145,14 +186,21 @@ func (session *liveSession) renderRecordingEdit(ctx context.Context, id string, 
 		return editFailure(edit.CodeInternal, fmt.Sprintf("create the edit's work directory: %v", err))
 	}
 	defer func() { _ = os.RemoveAll(work) }()
+	// The font cache outlives the edit: building it takes seconds, and every
+	// edit of the session needs it.
+	cacheDir := filepath.Join(r.values.CacheDir, "recording-edit")
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		cacheDir = ""
+	}
 
 	started := time.Now()
 	result, err := runRecordingEdit(ctx, edit.RunOptions{
-		FFmpeg:  strings.TrimSpace(r.values.RecordingFFmpegExecutable),
-		Source:  rawPath,
-		WorkDir: work,
-		Threads: r.values.RecordingEditThreads,
-		MaxTime: r.values.RecordingEditTimeout,
+		FFmpeg:   strings.TrimSpace(r.values.RecordingFFmpegExecutable),
+		Source:   rawPath,
+		WorkDir:  work,
+		CacheDir: cacheDir,
+		Threads:  r.values.RecordingEditThreads,
+		MaxTime:  r.values.RecordingEditTimeout,
 	}, tl)
 	if err != nil {
 		var failure *edit.Error
@@ -185,7 +233,7 @@ func (session *liveSession) renderRecordingEdit(ctx context.Context, id string, 
 }
 
 func editFailure(code, message string) editOutcome {
-	return editOutcome{err: &recordingEditError{Code: code, Message: message}}
+	return editOutcome{err: &edit.Error{Code: code, Message: message}}
 }
 
 // sweepRecordingEdits removes the work directories of edits that a previous

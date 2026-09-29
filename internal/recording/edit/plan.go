@@ -69,16 +69,70 @@ func (p *Plan) Trivial() bool {
 // Build plans the edit of a video from its timeline. It is pure. It fails with an
 // *Error when the timeline cannot be edited as it is: CodeMixedSizes when the
 // recording's frames differ in size. Effects that do not fit in the limit of the
-// filter ffmpeg takes (a filter argument of 128 KiB) are left out, and the plan
-// says so.
+// filter ffmpeg takes (a filter argument of 128 KiB), or that the timeline had
+// no room for, are left out, and the plan says so.
 func Build(tl *timeline.Timeline, src Source) (*Plan, error) {
+	geometry, err := sourceGeometry(tl, src)
+	if err != nil {
+		return nil, err
+	}
+	width, height, total, fps := geometry.width, geometry.height, geometry.total, geometry.fps
+	plan := &Plan{FPS: fps, Width: width, Height: height, InDurationMs: total}
+	plan.noteTruncation(tl)
+
+	list, skippedRipples := ripples(tl, geometry.scales)
+	if skippedRipples > 0 {
+		plan.warn("clicks made through Playwright input have no position in the video and were not marked with a ripple (%d)", skippedRipples)
+	}
+	gestures, skippedZooms := zoomGestures(tl, geometry.scales)
+	if skippedZooms > 0 {
+		plan.warn("zoomed gestures made through Playwright input have no position in the video and were not followed (%d)", skippedZooms)
+	}
+	scenes := planZoomScenes(gestures, float64(width), float64(height), fps)
+	cues := buildCues(tl.Captions, total)
+	if len(tl.Captions) > 0 && len(cues) == 0 && captionsWithText(tl.Captions) > 0 {
+		plan.warn("no caption was burned in: they all fall after the end of the video")
+	}
+
+	shortened := plan.planIdleStretches(tl, cues, list, scenes)
+	plan.TimeMap = shortened.Map
+	plan.OutDurationMs = shortened.Map.OutDuration()
+	plan.Cues = mapCues(cues, shortened.Map)
+
+	remap := remapFilters(shortened, fps)
+	zooms, ripplesFilters := plan.budgetFilters(scenes, list, remap, width, height, fps)
+	plan.Report = Report{
+		Zooms: len(zooms), Ripples: len(ripplesFilters), Captions: len(plan.Cues),
+		IdleCutMs: shortened.CutMs, IdleSpedMs: shortened.SavedMs, IdleRegions: shortened.Regions,
+	}
+	if plan.Trivial() {
+		plan.OutDurationMs = total
+		return plan, nil
+	}
+	if err := plan.assembleChain(ripplesFilters, zooms, remap); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+// geometry is the frame and clock the plan is made for.
+type geometry struct {
+	width, height int
+	total         int64
+	fps           int
+	scales        []segmentScale
+}
+
+// sourceGeometry checks the timeline's segments and settles the source's size,
+// length and frame rate.
+func sourceGeometry(tl *timeline.Timeline, src Source) (geometry, error) {
 	if len(tl.Segments) == 0 {
-		return nil, newError(CodeInternal, "the timeline has no segments")
+		return geometry{}, newError(CodeInternal, "the timeline has no segments")
 	}
 	first := tl.Segments[0]
 	for _, segment := range tl.Segments[1:] {
 		if segment.Width != first.Width || segment.Height != first.Height {
-			return nil, newError(CodeMixedSizes, "the recording's frames change size (%dx%d and %dx%d), for example after the viewport was resized, which editing does not support", first.Width, first.Height, segment.Width, segment.Height)
+			return geometry{}, newError(CodeMixedSizes, "the recording's frames change size (%dx%d and %dx%d), for example after the viewport was resized, which editing does not support", first.Width, first.Height, segment.Width, segment.Height)
 		}
 	}
 	width, height := src.Width, src.Height
@@ -86,72 +140,86 @@ func Build(tl *timeline.Timeline, src Source) (*Plan, error) {
 		width, height = first.Width, first.Height
 	}
 	if width <= 0 || height <= 0 {
-		return nil, newError(CodeSourceUnreadable, "the video's size is unknown")
+		return geometry{}, newError(CodeSourceUnreadable, "the video's size is unknown")
 	}
 	total := src.DurationMs
 	if total <= 0 {
 		total = tl.Recording.DurationMs
 	}
 	if total <= 0 {
-		return nil, newError(CodeSourceUnreadable, "the video's length is unknown")
+		return geometry{}, newError(CodeSourceUnreadable, "the video's length is unknown")
 	}
 	fps := tl.Recording.FPS
 	if fps <= 0 {
 		fps = 30
 	}
-	fps = min(fps, maxFPS)
-
 	scales := make([]segmentScale, len(tl.Segments))
 	for index, segment := range tl.Segments {
 		scales[index] = segmentScale{x: float64(width) / float64(segment.Width), y: float64(height) / float64(segment.Height)}
 	}
-	plan := &Plan{FPS: fps, Width: width, Height: height, InDurationMs: total}
+	return geometry{width: width, height: height, total: total, fps: min(fps, maxFPS), scales: scales}, nil
+}
 
-	list, skippedRipples := ripples(tl, scales)
-	if skippedRipples > 0 {
-		plan.warn("%d click%s made through Playwright input %s no position in the video and %s not marked", skippedRipples, plural(skippedRipples), have(skippedRipples), be(skippedRipples))
-	}
-	gestures, skippedZooms := zoomGestures(tl, scales)
-	if skippedZooms > 0 {
-		plan.warn("%d zoomed gesture%s made through Playwright input %s no position in the video and %s not followed", skippedZooms, plural(skippedZooms), have(skippedZooms), be(skippedZooms))
-	}
-	scenes := planZoomScenes(gestures, float64(width), float64(height), fps)
-	cues := buildCues(tl.Captions, total)
-
-	idleMode := ""
-	if tl.Recording.Edit != nil {
-		idleMode = tl.Recording.Edit.Idle
-	}
-	shortened := idlePlan{Map: IdentityMap(total)}
-	if idleMode != "" {
-		busy, known := busyIntervals(tl, cues, list, scenes)
-		if known {
-			var warnings []string
-			shortened, warnings = planIdle(idleMode, mergeIntervals(busy, total), total, fps)
-			plan.Warnings = append(plan.Warnings, warnings...)
-			if shortened.Regions == 0 && len(warnings) == 0 {
-				plan.warn("idle was left as it is: no stretch of %.1f s or more without changes on the screen or gestures", float64(idleMinMs)/1000)
-			}
-		} else {
-			plan.warn("idle was left as it is: the screen could not be watched while recording")
+func captionsWithText(captions []timeline.Caption) int {
+	count := 0
+	for _, caption := range captions {
+		if normalizeCueText(caption.Text) != "" {
+			count++
 		}
 	}
-	plan.TimeMap = shortened.Map
-	plan.OutDurationMs = shortened.Map.OutDuration()
-	plan.Cues = mapCues(cues, shortened.Map)
+	return count
+}
 
-	var remap []string
-	if shortened.Regions > 0 {
-		selectExpr, ptsExpr := shortened.Map.remapExpressions(fps)
-		remap = []string{"select='" + selectExpr + "'", "setpts='" + ptsExpr + "'", fmt.Sprintf("fps=fps=%d", fps)}
+// noteTruncation says what the timeline had no room for: gestures and captions
+// beyond its limits are not in it, so their effects cannot be applied.
+func (p *Plan) noteTruncation(tl *timeline.Timeline) {
+	if tl.Truncated.Gestures {
+		p.warn("the timeline had room for only some of the gestures; the zooms and ripples of the ones past its limit were not applied")
 	}
-	// The zooms are filters of their own and so are the ripples; what does not fit
-	// in the filter limit is left out, the ripples first.
+	if tl.Truncated.Captions {
+		p.warn("the timeline had room for only some of the captions; the ones past its limit were not burned in")
+	}
+}
+
+// planIdleStretches shortens the recording's idle stretches when its idle mode
+// asks for it, and otherwise returns the identity plan. Nothing is said about
+// idle time when the timeline cannot vouch for what is idle.
+func (p *Plan) planIdleStretches(tl *timeline.Timeline, cues []Cue, list []ripple, scenes []zoomScene) idlePlan {
+	identity := idlePlan{Map: IdentityMap(p.InDurationMs)}
+	if tl.Recording.Edit == nil || tl.Recording.Edit.Idle == "" {
+		return identity
+	}
+	busy, unknown := busyIntervals(tl, cues, list, scenes)
+	if unknown != "" {
+		p.warn("idle was left as it is: %s", unknown)
+		return identity
+	}
+	shortened, warnings := planIdle(tl.Recording.Edit.Idle, mergeIntervals(busy, p.InDurationMs), p.InDurationMs, p.FPS)
+	p.Warnings = append(p.Warnings, warnings...)
+	if shortened.Regions == 0 && len(warnings) == 0 {
+		p.warn("idle was left as it is: no stretch of %.1f s or more without changes on the screen or gestures", float64(idleMinMs)/1000)
+	}
+	return shortened
+}
+
+// remapFilters are the filters that cut or speed up the idle stretches, none when
+// there are none.
+func remapFilters(shortened idlePlan, fps int) []string {
+	if shortened.Regions == 0 {
+		return nil
+	}
+	selectExpr, ptsExpr := shortened.Map.remapExpressions(fps)
+	return []string{"select='" + selectExpr + "'", "setpts='" + ptsExpr + "'", fmt.Sprintf("fps=fps=%d", fps)}
+}
+
+// budgetFilters returns the zoom and ripple filters that fit in the filter limit
+// next to the remap; what does not fit is left out, the ripples first, and the
+// plan says so.
+func (p *Plan) budgetFilters(scenes []zoomScene, list []ripple, remap []string, width, height, fps int) (zooms, marks []string) {
 	budget := maxFilterBytes - filterOverheadBytes
 	for _, part := range remap {
 		budget -= len(part) + 1
 	}
-	var zooms, ripplesFilters []string
 	for _, scene := range scenes {
 		filter := scene.filter(float64(width), float64(height), fps)
 		if len(zooms) >= maxZoomScenes || len(filter)+1 > budget {
@@ -161,74 +229,51 @@ func Build(tl *timeline.Timeline, src Source) (*Plan, error) {
 		budget -= len(filter) + 1
 	}
 	if len(zooms) < len(scenes) {
-		plan.warn("only the first %d of %d zooms are applied, the limit of the filter ffmpeg takes", len(zooms), len(scenes))
+		p.warn("only the first %d of %d zooms are applied, the limit of the filter ffmpeg takes", len(zooms), len(scenes))
 	}
 	for _, item := range list {
 		filter := item.filter(width, height, fps)
-		if len(ripplesFilters) >= maxRipples || len(filter)+1 > budget {
+		if len(marks) >= maxRipples || len(filter)+1 > budget {
 			break
 		}
-		ripplesFilters = append(ripplesFilters, filter)
+		marks = append(marks, filter)
 		budget -= len(filter) + 1
 	}
-	if len(ripplesFilters) < len(list) {
-		plan.warn("only the first %d of %d clicks are marked with a ripple, the limit of the filter ffmpeg takes", len(ripplesFilters), len(list))
+	if len(marks) < len(list) {
+		p.warn("only the first %d of %d clicks are marked with a ripple, the limit of the filter ffmpeg takes", len(marks), len(list))
 	}
-	plan.Report = Report{
-		Zooms: len(zooms), Ripples: len(ripplesFilters), Captions: len(plan.Cues),
-		IdleCutMs: shortened.CutMs, IdleSpedMs: shortened.SavedMs, IdleRegions: shortened.Regions,
-	}
-	if plan.Trivial() {
-		plan.OutDurationMs = total
-		return plan, nil
-	}
+	return zooms, marks
+}
 
+// assembleChain joins the filters in their order: ripples and zooms while frames
+// still have their raw times, then the idle remap, then the crop to even sizes and
+// the captions.
+func (p *Plan) assembleChain(marks, zooms, remap []string) error {
 	chain := []string{
 		"setpts=PTS-STARTPTS",
-		fmt.Sprintf("fps=fps=%d:start_time=0", fps),
+		fmt.Sprintf("fps=fps=%d:start_time=0", p.FPS),
 		"format=yuv420p",
 	}
-	chain = append(chain, ripplesFilters...)
+	chain = append(chain, marks...)
 	chain = append(chain, zooms...)
 	chain = append(chain, remap...)
-	if width%2 != 0 || height%2 != 0 {
+	if p.Width%2 != 0 || p.Height%2 != 0 {
 		chain = append(chain, "crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0")
 	}
-	if len(plan.Cues) > 0 {
-		plan.ASS = marshalASS(plan.Cues, width&^1, height&^1)
+	if len(p.Cues) > 0 {
+		p.ASS = marshalASS(p.Cues, p.Width&^1, p.Height&^1)
 		chain = append(chain, "ass=captions.ass")
 	}
-	plan.Filter = strings.Join(chain, ",")
-	if len(plan.Filter) > maxFilterBytes {
-		// The budget above keeps it within the limit; this only guards its arithmetic.
-		return nil, newError(CodeInternal, "the filter of %d bytes is longer than the %d ffmpeg takes", len(plan.Filter), maxFilterBytes)
+	p.Filter = strings.Join(chain, ",")
+	if len(p.Filter) > maxFilterBytes {
+		// The budget keeps it within the limit; this only guards its arithmetic.
+		return newError(CodeInternal, "the filter of %d bytes is longer than the %d ffmpeg takes", len(p.Filter), maxFilterBytes)
 	}
-	return plan, nil
+	return nil
 }
 
 func (p *Plan) warn(format string, args ...any) {
 	p.Warnings = append(p.Warnings, fmt.Sprintf(format, args...))
-}
-
-func plural(count int) string {
-	if count == 1 {
-		return ""
-	}
-	return "s"
-}
-
-func have(count int) string {
-	if count == 1 {
-		return "has"
-	}
-	return "have"
-}
-
-func be(count int) string {
-	if count == 1 {
-		return "was"
-	}
-	return "were"
 }
 
 // rippleWindowMs is how long past its click a ripple keeps the video busy.
@@ -236,11 +281,18 @@ const rippleWindowMs = rippleDurationMs
 
 // busyIntervals lists what keeps the video from being idle, on the raw video's
 // clock: changes on the screen, gestures, captions, and the ripples and zooms
-// themselves, so an effect is never sped through. known is false when the screen
-// could not be watched, so nothing can be said about idle time.
-func busyIntervals(tl *timeline.Timeline, cues []Cue, list []ripple, scenes []zoomScene) (busy []interval, known bool) {
-	if !tl.Activity.Available {
-		return nil, false
+// themselves, so an effect is never sped through. unknown says why nothing can
+// be said about idle time, and is empty when something can: the screen could not
+// be watched, or the timeline is missing activity or gestures beyond its limits,
+// so the stretches between the ones it has are not known to be idle.
+func busyIntervals(tl *timeline.Timeline, cues []Cue, list []ripple, scenes []zoomScene) (busy []interval, unknown string) {
+	switch {
+	case !tl.Activity.Available:
+		return nil, "the screen could not be watched while recording"
+	case tl.Truncated.Activity:
+		return nil, "the timeline had room for only some of the screen changes, so no stretch is known to be idle"
+	case tl.Truncated.Gestures:
+		return nil, "the timeline had room for only some of the gestures, so no stretch is known to be idle"
 	}
 	busy = append(busy, spanIntervals(tl.Activity.Spans, tl.Activity.MergeGapMs/2)...)
 	// Where the screen could not be sampled, missing activity means nothing.
@@ -257,5 +309,5 @@ func busyIntervals(tl *timeline.Timeline, cues []Cue, list []ripple, scenes []zo
 	for _, scene := range scenes {
 		busy = append(busy, interval{scene.StartMs, scene.EndMs})
 	}
-	return busy, true
+	return busy, ""
 }
