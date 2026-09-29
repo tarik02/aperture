@@ -44,7 +44,7 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
     schema: { ...tool.schema, inputSchema },
     async handle(context, params, response, signal) {
       const { caption, ...rest } = params as { caption?: string };
-      let targetId = await tabTargetId(context);
+      const before = await tabTargetId(context);
       const start = Date.now();
       let ok = true;
       try {
@@ -56,7 +56,8 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
         response.addError(String(error));
       }
       const end = Date.now();
-      targetId ||= await tabTargetId(context);
+      // The tab the call ended on, which a recording that follows the automation moves to.
+      const targetId = (await tabTargetId(context)) || before;
       const serialize = response.serialize.bind(response);
       response.serialize = async () => {
         const result = await serialize();

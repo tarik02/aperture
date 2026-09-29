@@ -11,7 +11,7 @@ import (
 
 // The effects a recording can render when it stops. Every time in the plan is
 // milliseconds of the raw video, which the filters see as `t`; they run before the
-// idle time map, and the captions run after it.
+// time map (idle, or the bursts kept), and the captions run after it.
 const (
 	zoomDefault    = 1.6
 	zoomMin        = 1.1
@@ -43,9 +43,12 @@ type recordingEffects struct {
 	Idle   string // "cut", "speed" or "" for none
 	Zoom   float64
 	Ripple bool
+	Burst  *RecordingBurst // set for a bursts recording, with its defaults filled in
 }
 
-func (fx recordingEffects) any() bool { return fx.Idle != "" || fx.Zoom > 0 || fx.Ripple }
+func (fx recordingEffects) any() bool {
+	return fx.Idle != "" || fx.Zoom > 0 || fx.Ripple || fx.Burst != nil
+}
 
 // ParseRecordingZoom resolves a zoom argument as it is given: absent is def, true is
 // the default level, false is 0 (off), and a number is a level.
@@ -66,13 +69,15 @@ func ParseRecordingZoom(zoom any, def float64) (float64, error) {
 	return 0, fmt.Errorf("zoom must be true, false, or a level from %g to %d", zoomMin, zoomMax)
 }
 
-// ValidateRecordingEffects checks the effect defaults a recording starts with.
-func ValidateRecordingEffects(idle string, zoom any) error {
+// ValidateRecordingEffects checks the effect defaults and capture mode a recording starts with.
+func ValidateRecordingEffects(idle string, zoom any, capture string, burst *RecordingBurst) error {
 	if idle != "" && idle != "cut" && idle != "speed" {
 		return errors.New(`idle must be "cut" or "speed"`)
 	}
-	_, err := ParseRecordingZoom(zoom, 0)
-	return err
+	if _, err := ParseRecordingZoom(zoom, 0); err != nil {
+		return err
+	}
+	return validateBursts(capture, burst, idle)
 }
 
 // editPlan is what to render: the ffmpeg filter chain and the captions script it burns in.
@@ -131,7 +136,7 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 	cues := captionCues(doc.Actions, total)
 	gestures, skipped := zoomedGestures(doc.Gestures, fx)
 	marks := ripples(doc.Gestures, fx)
-	if len(cues) == 0 && len(gestures) == 0 && len(marks) == 0 && fx.Idle == "" {
+	if len(cues) == 0 && len(gestures) == 0 && len(marks) == 0 && fx.Idle == "" && fx.Burst == nil {
 		return nil, nil
 	}
 	if len(doc.Segments) == 0 || total <= 0 {
@@ -169,6 +174,11 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 	pieces := []piece{{0, total, 1}}
 	var remap []string
 	switch {
+	case fx.Burst != nil:
+		if pieces = burstPieces(doc, *fx.Burst, activity, complete); len(pieces) == 0 {
+			return nil, errors.New("a bursts recording keeps the time around browser tool calls that change something, and this recording has none")
+		}
+		remap = remapFilters(pieces, p.fps)
 	case fx.Idle == "":
 	case !complete || len(activity) >= timelineMaxSpans || len(doc.Gestures) >= timelineMaxGestures:
 		p.warnings = append(p.warnings, "idle was left as it is: the screen could not be watched all the time, or the timeline had room for only some of the screen changes or gestures, so no stretch is known to be idle")

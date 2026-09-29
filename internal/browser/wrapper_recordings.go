@@ -86,6 +86,9 @@ type wrapperRecordingRequest struct {
 	Idle   string `json:"idle"`
 	Zoom   any    `json:"zoom"`
 	Ripple bool   `json:"ripple"`
+	// Capture is "continuous" (or unset) or "bursts", which keeps only the time around actions when stopped.
+	Capture string          `json:"capture"`
+	Burst   *RecordingBurst `json:"burst"`
 }
 
 type wrapperRecordingRetargetRequest struct {
@@ -211,11 +214,19 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	default:
 		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
 	}
-	if err := ValidateRecordingEffects(request.Idle, request.Zoom); err != nil {
+	if err := ValidateRecordingEffects(request.Idle, request.Zoom, request.Capture, request.Burst); err != nil {
 		return wrapperRecording{}, err
 	}
 	zoom, _ := ParseRecordingZoom(request.Zoom, 0)
 	effects := recordingEffects{Idle: request.Idle, Zoom: zoom, Ripple: request.Ripple}
+	if request.Capture == "bursts" {
+		var burst RecordingBurst
+		if request.Burst != nil {
+			burst = *request.Burst
+		}
+		burst = burst.withDefaults()
+		effects.Burst = &burst
+	}
 	if effects.any() && session.runtime.values.RecordingFFmpegExecutable == "" {
 		return wrapperRecording{}, errWrapperRecordingEffectsUnavailable
 	}

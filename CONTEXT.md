@@ -69,6 +69,10 @@ _Avoid_: Recording metadata, event log
 A video rendered next to a stopped recording when its recording timeline asks for effects: captions burned in, a zoom toward where the pointer works, a ripple at clicks, and idle stretches cut or sped up. The recording and its timeline are never changed, and a failed render leaves only the recording.
 _Avoid_: Processed recording, export
 
+**Bursts recording**:
+A recording started with `capture: "bursts"`. It records continuously and follows the tab the browser tool calls work on, and its edited recording keeps only the time around those calls: a lead before each, and a tail until the screen settles.
+_Avoid_: Clip recording, per-action recording
+
 **Editor capability**:
 A rotatable session secret that permits collaborative browser control without session management, recording, file, or unrestricted CDP authority.
 _Avoid_: Share token, session token

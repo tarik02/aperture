@@ -70,6 +70,9 @@ type createSessionRecordingRequest struct {
 	Idle        string `json:"idle"`
 	Zoom        any    `json:"zoom"`
 	Ripple      bool   `json:"ripple"`
+	Capture     string `json:"capture"`
+
+	Burst *browser.RecordingBurst `json:"burst"`
 }
 
 func (r createSessionRecordingRequest) Validate() error {
@@ -79,7 +82,7 @@ func (r createSessionRecordingRequest) Validate() error {
 	if r.Codec != "" && r.Codec != "vp8" && r.Codec != "h264-va" {
 		return validationError("codec must be vp8 or h264-va")
 	}
-	if err := browser.ValidateRecordingEffects(r.Idle, r.Zoom); err != nil {
+	if err := browser.ValidateRecordingEffects(r.Idle, r.Zoom, r.Capture, r.Burst); err != nil {
 		return validationError(err.Error())
 	}
 	return nil
@@ -115,7 +118,7 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 	var status wrapperRecordingStatus
 	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
-		"idle": input.Idle, "zoom": input.Zoom, "ripple": input.Ripple,
+		"idle": input.Idle, "zoom": input.Zoom, "ripple": input.Ripple, "capture": input.Capture, "burst": input.Burst,
 	}, false, &status)
 	if err != nil {
 		WriteError(c, err)

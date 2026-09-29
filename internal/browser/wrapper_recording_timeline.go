@@ -457,6 +457,11 @@ func (session *liveSession) recordTimeline(meta map[string]any) {
 	for _, recording := range session.recordings {
 		if recording.Status == wrapperRecordingRunning {
 			timelines = append(timelines, recording.timeline)
+			// A bursts recording follows the page the automation works on.
+			if recording.effects.Burst != nil && recording.Mode == wrapperRecordingModeTab && reported.Action != nil &&
+				reported.Action.TargetID != "" && reported.Action.TargetID != recording.TargetID {
+				go session.followAction(recording.ID, reported.Action.TargetID)
+			}
 		}
 	}
 	r.mu.Unlock()

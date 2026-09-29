@@ -18,12 +18,12 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	if err := browser.ValidateRecordingEffects(in.Idle, in.Zoom); err != nil {
+	if err := browser.ValidateRecordingEffects(in.Idle, in.Zoom, in.Capture, in.Burst); err != nil {
 		return nil, mcpRecordingOutput{}, mcpToolError("invalid_arguments", err)
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
-		"idle": in.Idle, "zoom": in.Zoom, "ripple": in.Ripple,
+		"idle": in.Idle, "zoom": in.Zoom, "ripple": in.Ripple, "capture": in.Capture, "burst": in.Burst,
 	}, false)
 }
 
