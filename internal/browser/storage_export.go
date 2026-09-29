@@ -72,6 +72,10 @@ func runStorageExport(ctx context.Context, cdpPort int, selection []byte) ([]byt
 		}
 	}
 	if err := restoreWorkerError(ctx, &stderr, waitErr); err != nil {
+		// The API server logs this reason; the worker already redacted URLs and paths.
+		if message := strings.TrimSpace(stderr.String()); ctx.Err() == nil && message != "" {
+			return nil, fmt.Errorf("%w: %s", err, message)
+		}
 		return nil, err
 	}
 	if !json.Valid(body) {

@@ -3,12 +3,14 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/aperture/aperture/internal/browser"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func (s *Server) exportSessionStorageState(c *gin.Context) {
@@ -30,7 +32,16 @@ func (s *Server) exportSessionStorageState(c *gin.Context) {
 		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
-	port, token, release, err := s.Sessions.AcquireRunningWrapperControl(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"))
+	sessionID := c.Param("sessionId")
+	// The API error stays generic; the reason, which the worker has stripped of URLs
+	// and paths, is only logged.
+	controlFailed := func(reason error) {
+		if s.Logger != nil {
+			s.Logger.Warn("storage export failed", zap.String("session_id", sessionID), zap.Error(reason))
+		}
+		WriteError(c, fmt.Errorf("%w: %w", errBrowserControlFailed, reason))
+	}
+	port, token, release, err := s.Sessions.AcquireRunningWrapperControl(c.Request.Context(), tenantIDFromContext(c), sessionID)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -38,14 +49,14 @@ func (s *Server) exportSessionStorageState(c *gin.Context) {
 	defer release()
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/storage-state", port), bytes.NewReader(body))
 	if err != nil {
-		WriteError(c, errBrowserControlFailed)
+		controlFailed(err)
 		return
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		WriteError(c, fmt.Errorf("%w: %w", errBrowserControlFailed, err))
+		controlFailed(err)
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
@@ -57,14 +68,19 @@ func (s *Server) exportSessionStorageState(c *gin.Context) {
 		case http.StatusUnprocessableEntity:
 			WriteError(c, fmt.Errorf("%w: %s", errStorageExportUnsupported, wrapperErrorMessage(message)))
 		default:
-			WriteError(c, fmt.Errorf("%w: wrapper returned %s", errBrowserControlFailed, response.Status))
+			controlFailed(fmt.Errorf("wrapper returned %s: %s", response.Status, wrapperErrorMessage(message)))
 		}
 		return
 	}
 	result, err := io.ReadAll(io.LimitReader(response.Body, browser.MaxSessionInitializationBytes+1))
-	if err != nil || len(result) > browser.MaxSessionInitializationBytes || !json.Valid(result) {
-		WriteError(c, errBrowserControlFailed)
-		return
+	switch {
+	case err != nil:
+		controlFailed(fmt.Errorf("read wrapper response: %w", err))
+	case len(result) > browser.MaxSessionInitializationBytes:
+		controlFailed(errors.New("wrapper response exceeds 64 MiB"))
+	case !json.Valid(result):
+		controlFailed(errors.New("wrapper returned invalid JSON"))
+	default:
+		c.Data(http.StatusOK, "application/json", result)
 	}
-	c.Data(http.StatusOK, "application/json", result)
 }
