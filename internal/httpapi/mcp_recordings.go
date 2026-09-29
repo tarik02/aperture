@@ -8,6 +8,42 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const mcpRecordingStartDescription = `Start a tab recording of one ready top-level target. By default it records continuously. With capture "bursts" it records only around browser actions: an action (a pointer tool, navigation, typing, waiting for text and other page-changing tools) opens a burst, which stays open while actions keep coming and closes once the screen has settled; the bursts are joined into one video, and the recording's timeline lists them. A pointer tool's burst starts burst.leadMs before the gesture. Bursts record the page the automation is acting on. The tool call that runs an action returns when the action is done; recording.stop waits for a burst that is still settling, at most burst.maxTailMs. Stopping a bursts recording in which no action ran fails it with stopReason no_bursts and no video. motion sets how the pointer travels in this recording, below a tool's own motion and above the session's (cursor.set).`
+
+func mcpRecordingStartInputSchema(pathBound bool) map[string]any {
+	burstField := func(description string, maximum int) map[string]any {
+		return map[string]any{"type": "integer", "minimum": 0, "maximum": maximum, "description": description}
+	}
+	properties := map[string]any{
+		"targetId":    map[string]any{"type": "string", "description": "Identifier of the ready top-level target to record."},
+		"fps":         map[string]any{"type": "integer"},
+		"bitrateKbps": map[string]any{"type": "integer"},
+		"codec":       map[string]any{"type": "string", "enum": []any{"vp8", "h264-va"}},
+		"capture": map[string]any{
+			"type": "string", "enum": []any{recordingCaptureContinuous, recordingCaptureBursts},
+			"description": `"continuous" (the default) records the whole time; "bursts" records only around browser actions.`,
+		},
+		"motion": mcpPointerMotionSchema(`Pointer motion for gestures made while this recording runs: "natural", "fast", "instant", {"speed": px/s} or {"durationMs": ms}. A tool's own motion overrides it, and it overrides the session's (cursor.set).`),
+		"burst": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"description": `Timing of a bursts recording (capture "bursts" only). Omitted fields take the defaults.`,
+			"properties": map[string]any{
+				"leadMs":    burstField("Video recorded before a pointer action starts, so the page is seen before the pointer moves. Default 400, up to 10000.", recordingBurstMaxLeadMs),
+				"tailMs":    burstField("The least video recorded after an action ends. Default 600, up to 30000. Also holdMs of a pointer tool counts.", recordingBurstMaxTailMs),
+				"settleMs":  burstField("How long the screen must stay unchanged, after the tail, for the burst to close. Default 500, up to 30000.", recordingBurstMaxSettleMs),
+				"maxTailMs": burstField("The most video recorded after an action ends, however long the screen keeps changing (an animation or a video never settles). Default 4000, up to 60000, and not less than tailMs.", recordingBurstMaxMaxTailMs),
+			},
+		},
+	}
+	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": []any{"targetId"}}
+	if !pathBound {
+		properties["tenantId"] = map[string]any{"type": "string"}
+		properties["sessionId"] = map[string]any{"type": "string"}
+		schema["required"] = []any{"sessionId", "targetId"}
+	}
+	return schema
+}
+
 func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
@@ -17,8 +53,16 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
+	request := createSessionRecordingRequest{
+		TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec,
+		Capture: in.Capture, Motion: in.Motion, Burst: in.Burst,
+	}
+	if err := request.Validate(); err != nil {
+		return nil, mcpRecordingOutput{}, mcpToolError("invalid_arguments", err)
+	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+		"capture": in.Capture, "motion": in.Motion, "burst": in.Burst,
 	}, false)
 }
 
@@ -80,7 +124,10 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{
+		TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec,
+		Capture: in.Capture, Motion: in.Motion, Burst: in.Burst,
+	})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -174,6 +221,14 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, TimelineRelativePath: timelinePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		Capture: status.Capture,
+	}
+	if status.Motion != nil {
+		output.Motion = status.Motion
+	}
+	if status.Burst != nil {
+		burst := mcpBurstStatus(*status.Burst)
+		output.Burst = &burst
 	}
 	return output, nil
 }

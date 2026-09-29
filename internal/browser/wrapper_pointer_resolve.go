@@ -360,6 +360,10 @@ func (r *wrapperRuntime) identifyPointerTarget(ctx context.Context, conn *pointe
 // browser has several; without it only the single-page case is answered and
 // anything else falls back.
 func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context, conn *pointerCDPConn, allowProbe bool) (string, error) {
+	// A bursts recording that is recording the call already asked.
+	if targetID := burstTicketFromContext(ctx).resolvedTarget(); targetID != "" {
+		return targetID, nil
+	}
 	pages, err := conn.targetWindows(ctx)
 	if err != nil {
 		return "", err

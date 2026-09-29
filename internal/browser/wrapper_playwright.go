@@ -132,7 +132,9 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 		call.Arguments = map[string]any{}
 	}
 
-	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments)
+	ctx, ticket := r.beginBurstAction(req.Context(), call.Name, call.Arguments, 0)
+	result, err := r.playwright.Call(ctx, call.Name, call.Arguments)
+	ticket.end(burstFailure(result, err))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: Playwright MCP tool %s failed: %v\n", call.Name, err)
 		writeWrapperError(w, http.StatusBadGateway, "Playwright MCP call failed")

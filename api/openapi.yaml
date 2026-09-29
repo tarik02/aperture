@@ -882,7 +882,9 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+      description: >-
+        Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+        With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -915,7 +917,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+      description: Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -2978,6 +2980,76 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
+        capture:
+          $ref: '#/components/schemas/RecordingCapture'
+        motion:
+          allOf: [{$ref: '#/components/schemas/PointerMotion'}]
+          description: How the pointer travels in Aperture pointer gestures made while this recording runs. A gesture's own motion takes precedence, and this takes precedence over the session's setting.
+        burst:
+          $ref: '#/components/schemas/RecordingBurstInput'
+    RecordingCapture:
+      type: string
+      enum: [continuous, bursts]
+      default: continuous
+      description: >-
+        When a recording captures frames. `continuous` records the whole time it runs. `bursts` records only around browser actions (pointer tools, navigation, typing, waiting for text and other page-changing tools) and joins the bursts into one video; it needs a tab recording.
+    RecordingBurstInput:
+      type: object
+      description: Timing of a `bursts` recording, in milliseconds. It is only valid with `capture` `bursts`. Omitted fields take the defaults.
+      additionalProperties: false
+      properties:
+        leadMs:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 400
+          description: Video recorded before a pointer tool's gesture starts, so the page is seen before the pointer moves. Other actions have no lead.
+        tailMs:
+          type: integer
+          minimum: 0
+          maximum: 30000
+          default: 600
+          description: The least video recorded after an action ends. A pointer tool's `holdMs` counts toward it.
+        settleMs:
+          type: integer
+          minimum: 0
+          maximum: 30000
+          default: 500
+          description: How long the screen must stay unchanged, after the tail, for the burst to close.
+        maxTailMs:
+          type: integer
+          minimum: 0
+          maximum: 60000
+          default: 4000
+          description: The most video recorded after an action ends, however long the screen keeps changing. It must not be less than `tailMs`. A longer `holdMs` still wins.
+    RecordingBurstStatus:
+      type: object
+      description: The timing and progress of a `bursts` recording.
+      required: [leadMs, tailMs, settleMs, maxTailMs, state, count, capped, skipped]
+      properties:
+        leadMs: {type: integer, minimum: 0}
+        tailMs: {type: integer, minimum: 0}
+        settleMs: {type: integer, minimum: 0}
+        maxTailMs: {type: integer, minimum: 0}
+        state:
+          type: string
+          enum: [idle, burst]
+          description: '`burst` while a burst is opening, running, settling or closing, and `idle` between bursts.'
+        count:
+          type: integer
+          minimum: 0
+          description: Bursts recorded so far, including a running one.
+        capped:
+          type: integer
+          minimum: 0
+          description: Bursts cut off by `maxTailMs` while the screen was still changing.
+        skipped:
+          type: integer
+          minimum: 0
+          description: Actions that ran without being recorded because no burst could be opened for them.
+        lastError:
+          type: string
+          description: Why the last burst could not be recorded.
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.
@@ -3000,9 +3072,16 @@ components:
           type: string
           enum: [tab, viewer]
           description: Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
+        capture:
+          $ref: '#/components/schemas/RecordingCapture'
+        motion:
+          allOf: [{$ref: '#/components/schemas/PointerMotion'}]
+          description: The pointer motion the recording sets, when it does.
+        burst:
+          $ref: '#/components/schemas/RecordingBurstStatus'
         targetId:
           type: string
-          description: Identifier of the top-level target currently recorded.
+          description: Identifier of the top-level target currently recorded. A bursts recording reports the page of its latest burst.
         captureGeneration:
           type: integer
           format: int64
@@ -3013,7 +3092,7 @@ components:
           enum: [starting, running, stopped, failed]
         stopReason:
           type: string
-          description: Lifecycle reason recorded after the recording stops or fails.
+          description: Lifecycle reason recorded after the recording stops or fails. A bursts recording that is stopped without any action having run fails with `no_bursts`.
         relativePath:
           type: string
           description: Session file path below the session files root; host paths are never exposed.
@@ -3021,7 +3100,7 @@ components:
         timelineRelativePath:
           type: string
           description: >-
-            Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.webm.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
+            Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.webm.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. A bursts recording's timeline also lists its bursts and the browser actions in them. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
           example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm.timeline.json
         startedAt:
           type: string

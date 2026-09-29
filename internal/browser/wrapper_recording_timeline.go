@@ -39,11 +39,30 @@ type recordingTimeline struct {
 // newRecordingTimeline starts collecting for a recording whose first segment,
 // captured from target by the pipeline the probe watches, starts now.
 func (r *wrapperRuntime) newRecordingTimeline(target wrapperTargetSnapshot, probe *screencastProbe, started time.Time) *recordingTimeline {
-	collector := &recordingTimeline{
+	collector := newTimelineCollector()
+	collector.beginSegment(target, probe, started, 0)
+	r.startTimelineCollection(collector)
+	return collector
+}
+
+// newBurstsTimeline starts collecting for a bursts recording, which has no
+// segment until its first burst opens one.
+func (r *wrapperRuntime) newBurstsTimeline() *recordingTimeline {
+	collector := newTimelineCollector()
+	r.startTimelineCollection(collector)
+	return collector
+}
+
+func newTimelineCollector() *recordingTimeline {
+	return &recordingTimeline{
 		builder:     timeline.NewBuilder(timeline.Limits{SampleInterval: recordingSampleInterval}),
 		samplerDone: make(chan struct{}),
 	}
-	collector.beginSegment(target, probe, started)
+}
+
+// startTimelineCollection has the collector take the pointer gestures and sample
+// the recorded screen.
+func (r *wrapperRuntime) startTimelineCollection(collector *recordingTimeline) {
 	collector.stopGestures = r.pointer.observe(func(record pointerGestureRecord) {
 		collector.builder.AddGesture(timelineGesture(record))
 	})
@@ -55,15 +74,17 @@ func (r *wrapperRuntime) newRecordingTimeline(target wrapperTargetSnapshot, prob
 			return readCaptureDamage(ctx, r.controlSocket, captureID)
 		}, recordingSampleInterval)
 	}()
-	return collector
 }
 
-// beginSegment starts the next segment, whose pipeline is watched by probe.
-func (t *recordingTimeline) beginSegment(target wrapperTargetSnapshot, probe *screencastProbe, started time.Time) int {
+// beginSegment starts the next segment, whose pipeline is watched by probe. burst
+// is the number of the burst it belongs to in a bursts recording, or zero.
+func (t *recordingTimeline) beginSegment(target wrapperTargetSnapshot, probe *screencastProbe, started time.Time, burst uint64) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.probes = append(t.probes, probe)
-	return t.builder.BeginSegment(timelineSegment(target, probe, started))
+	input := timelineSegment(target, probe, started)
+	input.Burst = burst
+	return t.builder.BeginSegment(input)
 }
 
 // endSegment records that a segment's pipeline has stopped, after which its
@@ -257,6 +278,7 @@ func (recording *wrapperRecording) finishRecordingTimeline(videoPath string, seg
 			ID:        recording.ID,
 			Video:     filepath.ToSlash(relative),
 			Mode:      string(recording.Mode),
+			Capture:   string(recording.Capture),
 			Codec:     recording.Codec,
 			FPS:       recording.FPS,
 			StartedAt: recording.StartedAt,

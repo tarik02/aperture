@@ -139,8 +139,9 @@ func (p *pointerRuntime) position(surfaceID uint64) (pointer.Point, bool) {
 	return p.last.point, true
 }
 
-// record stores a finished gesture and passes it to the observers.
-func (p *pointerRuntime) record(record pointerGestureRecord) {
+// record stores a finished gesture and passes it to the observers. It returns
+// the gesture's ID.
+func (p *pointerRuntime) record(record pointerGestureRecord) uint64 {
 	p.mu.Lock()
 	p.nextID++
 	record.ID = p.nextID
@@ -156,6 +157,7 @@ func (p *pointerRuntime) record(record pointerGestureRecord) {
 	for _, observer := range observers {
 		observer(record)
 	}
+	return record.ID
 }
 
 // observe registers a callback for every finished gesture and returns a
@@ -184,11 +186,30 @@ func (p *pointerRuntime) recentGestures() []pointerGestureRecord {
 	return append([]pointerGestureRecord(nil), p.recent...)
 }
 
-// recordingPointerMotion returns the motion configured on the recording that
-// captures a target, if any. Recordings do not carry a motion setting yet, so
-// this is the hook where it plugs into the resolution order.
-func (r *wrapperRuntime) recordingPointerMotion(string) *pointer.Motion {
-	return nil
+// recordingPointerMotion returns the motion configured on the newest running
+// recording of a target, if any. A bursts recording records the page the
+// automation acts on, so its target is that page once a burst has opened.
+func (r *wrapperRuntime) recordingPointerMotion(targetID string) *pointer.Motion {
+	session := r.liveSession
+	if session == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var newest *wrapperRecording
+	for _, recording := range session.recordings {
+		if recording.Status != wrapperRecordingRunning || recording.TargetID != targetID || recording.Motion == nil {
+			continue
+		}
+		if newest == nil || recording.StartedAt.After(newest.StartedAt) {
+			newest = recording
+		}
+	}
+	if newest == nil {
+		return nil
+	}
+	motion := *newest.Motion
+	return &motion
 }
 
 // resolvePointerMotion applies the precedence: tool parameter, recording

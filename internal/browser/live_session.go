@@ -73,7 +73,10 @@ type liveSession struct {
 	paintTokens    float64
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
-	cursorVisible  bool
+	// burstRecordings counts the bursts recordings whose controllers have not
+	// stopped, so that browser actions cost nothing extra when there are none.
+	burstRecordings atomic.Int32
+	cursorVisible   bool
 	// viewportOwner is the only session client whose auto-size requests resize targets.
 	viewportOwner    *liveSessionClient
 	autoSizeSequence uint64

@@ -15,6 +15,7 @@ import (
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/playwrightmcp"
+	"github.com/aperture/aperture/internal/pointer"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
@@ -331,19 +332,29 @@ type mcpSessionIDInput struct {
 	TenantID  string `json:"tenantId,omitempty"`
 	SessionID string `json:"sessionId"`
 }
+
+// mcpRecordingStartInput carries capture, motion and burst, which the SDK cannot
+// describe (motion is a string or an object), so recording.start spells out its
+// input schema; see mcpRecordingStartInputSchema.
 type mcpRecordingStartInput struct {
-	TenantID    string `json:"tenantId,omitempty"`
-	SessionID   string `json:"sessionId"`
-	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
-	FPS         int    `json:"fps,omitempty"`
-	BitrateKbps int    `json:"bitrateKbps,omitempty"`
-	Codec       string `json:"codec,omitempty"`
+	TenantID    string                 `json:"tenantId,omitempty"`
+	SessionID   string                 `json:"sessionId"`
+	TargetID    string                 `json:"targetId"`
+	FPS         int                    `json:"fps,omitempty"`
+	BitrateKbps int                    `json:"bitrateKbps,omitempty"`
+	Codec       string                 `json:"codec,omitempty"`
+	Capture     string                 `json:"capture,omitempty"`
+	Motion      *pointer.Motion        `json:"motion,omitempty"`
+	Burst       *recordingBurstRequest `json:"burst,omitempty"`
 }
 type mcpBoundRecordingStartInput struct {
-	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
-	FPS         int    `json:"fps,omitempty"`
-	BitrateKbps int    `json:"bitrateKbps,omitempty"`
-	Codec       string `json:"codec,omitempty"`
+	TargetID    string                 `json:"targetId"`
+	FPS         int                    `json:"fps,omitempty"`
+	BitrateKbps int                    `json:"bitrateKbps,omitempty"`
+	Codec       string                 `json:"codec,omitempty"`
+	Capture     string                 `json:"capture,omitempty"`
+	Motion      *pointer.Motion        `json:"motion,omitempty"`
+	Burst       *recordingBurstRequest `json:"burst,omitempty"`
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -379,6 +390,23 @@ type mcpRecordingOutput struct {
 	FPS                  int    `json:"fps,omitempty"`
 	BitrateKbps          int    `json:"bitrateKbps,omitempty"`
 	Codec                string `json:"codec,omitempty"`
+	// Capture is "continuous", or "bursts" for a recording that captures only around browser actions.
+	Capture string `json:"capture,omitempty"`
+	// Motion is the pointer motion the recording sets, in the form the tools take it: a preset name, or {"speed": px/s} or {"durationMs": ms}.
+	Motion any `json:"motion,omitempty"`
+	// Burst is the timing and progress of a bursts recording.
+	Burst *mcpBurstStatus `json:"burst,omitempty"`
+}
+type mcpBurstStatus struct {
+	LeadMs    int    `json:"leadMs" jsonschema:"Video recorded before a pointer action starts."`
+	TailMs    int    `json:"tailMs" jsonschema:"The least video recorded after an action ends."`
+	SettleMs  int    `json:"settleMs" jsonschema:"How long the screen must stay unchanged after the tail for a burst to close."`
+	MaxTailMs int    `json:"maxTailMs" jsonschema:"The most video recorded after an action ends, however long the screen keeps changing."`
+	State     string `json:"state" jsonschema:"idle between bursts, burst while one is running."`
+	Count     int    `json:"count" jsonschema:"Bursts recorded so far, including a running one."`
+	Capped    int    `json:"capped" jsonschema:"Bursts cut off by maxTailMs while the screen was still changing."`
+	Skipped   int    `json:"skipped" jsonschema:"Actions that ran without being recorded because no burst could be opened."`
+	LastError string `json:"lastError,omitempty" jsonschema:"Why the last burst could not be recorded."`
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`
@@ -554,7 +582,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking this session if it is suspended."}, s.mcpBoundBrowserTargets)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility and the default pointer motion for this session.", OutputSchema: mcpCursorOutputSchema()}, s.mcpBoundCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings, and the default motion of its pointer gestures.", InputSchema: mcpCursorSetInputSchema(true), OutputSchema: mcpCursorOutputSchema()}, s.mcpBoundCursorSet)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpBoundRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: mcpRecordingStartDescription, InputSchema: mcpRecordingStartInputSchema(true)}, s.mcpBoundRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for this session."}, s.mcpBoundRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpBoundRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpBoundRecordingRetarget)
@@ -587,7 +615,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings, and the default motion of its pointer gestures.", InputSchema: mcpCursorSetInputSchema(false), OutputSchema: mcpCursorOutputSchema()}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: mcpRecordingStartDescription, InputSchema: mcpRecordingStartInputSchema(false)}, s.mcpRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for a session."}, s.mcpRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpRecordingRetarget)

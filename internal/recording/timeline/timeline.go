@@ -3,9 +3,11 @@
 //
 // The timeline records what happened while the video was being captured:
 // where the segments of the video came from, which pointer gestures were made
-// and where, the captions attached to them, and when the recorded screen
-// changed. Later stages, such as ffmpeg based editing, load it with Read and
-// cut, zoom and annotate the video from it without having to look at pixels.
+// and where, the captions attached to them, when the recorded screen changed,
+// and, in a recording that captures only around browser actions, which bursts of
+// video it holds and the actions in them. Later stages, such as ffmpeg based
+// editing, load it with Read and cut, zoom and annotate the video from it
+// without having to look at pixels.
 //
 // # Time
 //
@@ -64,9 +66,12 @@ func PathFor(videoPath string) string {
 
 // Timeline is the content of a timeline file.
 type Timeline struct {
-	Version   int        `json:"version"`
-	Recording Recording  `json:"recording"`
-	Segments  []Segment  `json:"segments"`
+	Version   int       `json:"version"`
+	Recording Recording `json:"recording"`
+	Segments  []Segment `json:"segments"`
+	// Bursts is present in a recording made with capture "bursts": the stretches
+	// of the video that were recorded around browser actions, in order.
+	Bursts    []Burst    `json:"bursts,omitempty"`
 	Gestures  []Gesture  `json:"gestures"`
 	Captions  []Caption  `json:"captions"`
 	Activity  Activity   `json:"activity"`
@@ -79,7 +84,10 @@ type Recording struct {
 	// Video is the video's path below the session files root, with forward slashes.
 	Video string `json:"video"`
 	Mode  string `json:"mode"`
-	Codec string `json:"codec"`
+	// Capture says when frames were captured: "continuous" for the whole
+	// recording, or "bursts" for only the stretches around browser actions.
+	Capture string `json:"capture,omitempty"`
+	Codec   string `json:"codec"`
 	// FPS is the frame rate the recording was asked for. The video has variable
 	// frame timing and never more frames per second than this.
 	FPS int `json:"fps"`
@@ -118,7 +126,8 @@ const (
 // Segment is one piece of the video: a capture of one target at one size. A
 // recording has a new segment whenever it follows another target, the target's
 // output is replaced, or the viewport size changes. Segments follow each other
-// without a gap.
+// without a gap in video time; in a bursts recording the wall time between two
+// bursts is not in the video at all.
 type Segment struct {
 	Index    int    `json:"index"`
 	TargetID string `json:"targetId"`
@@ -135,7 +144,8 @@ type Segment struct {
 	ScaleY float64 `json:"scaleY"`
 	// FirstFrameAt is the wall time of the segment's first frame. Segments overlap
 	// in wall time by the time the next one needed to produce its first frame; the
-	// video contains no such overlap.
+	// video contains no such overlap. In a bursts recording, segments are apart in
+	// wall time by however long nothing was captured.
 	FirstFrameAt time.Time `json:"firstFrameAt"`
 	Clock        string    `json:"clock"`
 }
@@ -235,6 +245,48 @@ type Span struct {
 	EndMs   int64 `json:"endMs"`
 }
 
+// Burst is one stretch of video recorded around browser actions, in a recording
+// made with capture "bursts". It covers one or more consecutive segments (it
+// spans several when the recorded page was replaced or resized while the burst
+// ran). Nothing is recorded between bursts, so the video jumps from one burst's
+// end to the next one's start.
+type Burst struct {
+	// FirstSegment and LastSegment are the indexes of the segments the burst is
+	// made of.
+	FirstSegment int `json:"firstSegment"`
+	LastSegment  int `json:"lastSegment"`
+	// StartMs and EndMs are the video times of the burst's first frame and of the
+	// end of its last frame.
+	StartMs int64 `json:"startMs"`
+	EndMs   int64 `json:"endMs"`
+	// LeadMs is the video before the first action started, and TailMs the video
+	// after the last one ended (the page settling).
+	LeadMs int64 `json:"leadMs"`
+	TailMs int64 `json:"tailMs"`
+	// ClosedBy says why the burst ended: "settled" (the screen stopped changing),
+	// "max_tail" (it was still changing when the longest tail passed), "stopped"
+	// (the recording was stopped), "target_closed", "target_changed" (the
+	// automation moved to another page or the page's capture was replaced) or
+	// "pipeline_failed".
+	ClosedBy string `json:"closedBy,omitempty"`
+	// Actions are the browser actions that ran during the burst, in order.
+	Actions []BurstAction `json:"actions"`
+}
+
+// BurstAction is one browser action that ran during a burst.
+type BurstAction struct {
+	Tool string `json:"tool"`
+	// Kind is "pointer" for the pointer tools, "change" for actions that change
+	// the page, and "observe" for waiting.
+	Kind     string `json:"kind"`
+	TargetID string `json:"targetId,omitempty"`
+	// StartMs and EndMs are the video times the action ran between.
+	StartMs int64 `json:"startMs"`
+	EndMs   int64 `json:"endMs"`
+	// Gesture is the ID of the pointer gesture the action made, when it made one.
+	Gesture uint64 `json:"gesture,omitempty"`
+}
+
 // Truncation says which parts were cut to keep the file's size bounded.
 type Truncation struct {
 	// Gestures is set when gestures beyond the limit were left out.
@@ -244,6 +296,8 @@ type Truncation struct {
 	PathPoints bool `json:"pathPoints"`
 	// Activity is set when activity spans beyond the limit were left out.
 	Activity bool `json:"activity"`
+	// Bursts is set when burst actions beyond the limit were left out.
+	Bursts bool `json:"bursts,omitempty"`
 }
 
 // Validate checks what a reader relies on: the version, and that segments,
@@ -262,6 +316,17 @@ func (t *Timeline) Validate() error {
 		}
 		if index > 0 && segment.StartMs < t.Segments[index-1].EndMs-1 {
 			return fmt.Errorf("segment %d starts before segment %d ends", index, index-1)
+		}
+	}
+	for index, burst := range t.Bursts {
+		if burst.FirstSegment < 0 || burst.LastSegment < burst.FirstSegment || burst.LastSegment >= len(t.Segments) {
+			return fmt.Errorf("burst %d refers to a missing segment", index)
+		}
+		if burst.EndMs < burst.StartMs || burst.StartMs < 0 || burst.EndMs > end {
+			return fmt.Errorf("burst %d is outside the video", index)
+		}
+		if index > 0 && burst.StartMs < t.Bursts[index-1].EndMs-1 {
+			return fmt.Errorf("burst %d starts before burst %d ends", index, index-1)
 		}
 	}
 	for _, gesture := range t.Gestures {
