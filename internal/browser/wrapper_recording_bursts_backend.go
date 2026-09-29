@@ -80,6 +80,16 @@ func (b *recordingBurstBackend) target(id string) (wrapperTargetSnapshot, bool) 
 	return registry.readyTarget(id)
 }
 
+func (b *recordingBurstBackend) refreshTargets(ctx context.Context) {
+	r := b.session.runtime
+	r.mu.Lock()
+	registry := r.targets
+	r.mu.Unlock()
+	if registry != nil {
+		_ = registry.reconcileSettledWindows(ctx)
+	}
+}
+
 func (b *recordingBurstBackend) open(ctx context.Context, target wrapperTargetSnapshot, burst uint64) (burstSegment, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -92,7 +102,7 @@ func (b *recordingBurstBackend) open(ctx context.Context, target wrapperTargetSn
 	index := len(recording.segments)
 	r.mu.Unlock()
 	if index >= burstMaxSegments {
-		return nil, fmt.Errorf("the recording has reached its limit of %d bursts", burstMaxSegments)
+		return nil, errBurstLimit
 	}
 	path := filepath.Join(recording.segmentDir, fmt.Sprintf("segment-%04d%s", index, filepath.Ext(recording.Path)))
 	started := time.Now()
@@ -194,8 +204,7 @@ func (s *recordingBurstSegment) Close(reason string) error {
 		return err
 	}
 	// The timeline learns the segment's end once its frame reports are complete.
-	recording.timeline.endSegment(s.index, time.Now())
-	recording.timeline.builder.SetSegmentClosedBy(s.index, reason)
+	recording.timeline.endBurstSegment(s.index, time.Now(), reason)
 	r := s.backend.session.runtime
 	r.mu.Lock()
 	recording.segments = append(recording.segments, s.path)

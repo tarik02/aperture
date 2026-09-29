@@ -884,7 +884,7 @@ paths:
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
       description: >-
         Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
-        With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+        With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -3019,7 +3019,7 @@ components:
         maxTailMs:
           type: integer
           minimum: 0
-          maximum: 60000
+          maximum: 30000
           default: 4000
           description: The most video recorded after an action ends, however long the screen keeps changing. It must not be less than `tailMs`. A longer `holdMs` still wins.
     RecordingBurstStatus:
@@ -3046,7 +3046,7 @@ components:
         skipped:
           type: integer
           minimum: 0
-          description: Actions that ran without being recorded because no burst could be opened for them.
+          description: Actions that ran without being recorded because no burst could be opened for them, and bursts whose video was lost.
         lastError:
           type: string
           description: Why the last burst could not be recorded.
@@ -3092,7 +3092,7 @@ components:
           enum: [starting, running, stopped, failed]
         stopReason:
           type: string
-          description: Lifecycle reason recorded after the recording stops or fails. A bursts recording that is stopped without any action having run fails with `no_bursts`.
+          description: Lifecycle reason recorded after the recording stops or fails. A bursts recording that is stopped without any burst having been recorded fails with `no_bursts`.
         relativePath:
           type: string
           description: Session file path below the session files root; host paths are never exposed.

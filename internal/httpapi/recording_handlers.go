@@ -87,7 +87,7 @@ const (
 	recordingBurstMaxLeadMs    = 10000
 	recordingBurstMaxTailMs    = 30000
 	recordingBurstMaxSettleMs  = 30000
-	recordingBurstMaxMaxTailMs = 60000
+	recordingBurstMaxMaxTailMs = 30000
 )
 
 // recordingBurstRequest is the timing of a bursts recording; omitted fields take

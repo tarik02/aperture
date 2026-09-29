@@ -8,7 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const mcpRecordingStartDescription = `Start a tab recording of one ready top-level target. By default it records continuously. With capture "bursts" it records only around browser actions: an action (a pointer tool, navigation, typing, waiting for text and other page-changing tools) opens a burst, which stays open while actions keep coming and closes once the screen has settled; the bursts are joined into one video, and the recording's timeline lists them. A pointer tool's burst starts burst.leadMs before the gesture. Bursts record the page the automation is acting on. The tool call that runs an action returns when the action is done; recording.stop waits for a burst that is still settling, at most burst.maxTailMs. Stopping a bursts recording in which no action ran fails it with stopReason no_bursts and no video. motion sets how the pointer travels in this recording, below a tool's own motion and above the session's (cursor.set).`
+const mcpRecordingStartDescription = `Start a tab recording of one ready top-level target. By default it records continuously. With capture "bursts" it records only around browser actions: an action (a pointer tool, navigation, typing, waiting for text and other page-changing tools) opens a burst, which stays open while actions keep coming and closes once the screen has settled; the bursts are joined into one video, and the recording's timeline lists them. A pointer tool's burst starts burst.leadMs before the gesture. Bursts record the page the automation is acting on. The tool call that runs an action returns when the action is done; recording.stop waits for the actions that are running and for a burst that is still settling, which can take up to burst.maxTailMs (or a pointer tool's holdMs) after the last action. Stopping a bursts recording in which no burst was recorded fails it with stopReason no_bursts and no video. motion sets how the pointer travels in this recording, below a tool's own motion and above the session's (cursor.set).`
 
 func mcpRecordingStartInputSchema(pathBound bool) map[string]any {
 	burstField := func(description string, maximum int) map[string]any {
@@ -31,7 +31,7 @@ func mcpRecordingStartInputSchema(pathBound bool) map[string]any {
 				"leadMs":    burstField("Video recorded before a pointer action starts, so the page is seen before the pointer moves. Default 400, up to 10000.", recordingBurstMaxLeadMs),
 				"tailMs":    burstField("The least video recorded after an action ends. Default 600, up to 30000. Also holdMs of a pointer tool counts.", recordingBurstMaxTailMs),
 				"settleMs":  burstField("How long the screen must stay unchanged, after the tail, for the burst to close. Default 500, up to 30000.", recordingBurstMaxSettleMs),
-				"maxTailMs": burstField("The most video recorded after an action ends, however long the screen keeps changing (an animation or a video never settles). Default 4000, up to 60000, and not less than tailMs.", recordingBurstMaxMaxTailMs),
+				"maxTailMs": burstField("The most video recorded after an action ends, however long the screen keeps changing (an animation or a video never settles). Default 4000, up to 30000, and not less than tailMs.", recordingBurstMaxMaxTailMs),
 			},
 		},
 	}

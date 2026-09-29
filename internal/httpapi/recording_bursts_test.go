@@ -23,7 +23,7 @@ func TestCreateSessionRecordingBurstValidation(t *testing.T) {
 		"lead":                {request: createSessionRecordingRequest{TargetID: "t", Capture: bursts, Burst: &recordingBurstRequest{LeadMs: ptr(10001)}}, wantErr: "burst.leadMs"},
 		"tail":                {request: createSessionRecordingRequest{TargetID: "t", Capture: bursts, Burst: &recordingBurstRequest{TailMs: ptr(30001)}}, wantErr: "burst.tailMs"},
 		"settle":              {request: createSessionRecordingRequest{TargetID: "t", Capture: bursts, Burst: &recordingBurstRequest{SettleMs: ptr(-5)}}, wantErr: "burst.settleMs"},
-		"max tail":            {request: createSessionRecordingRequest{TargetID: "t", Capture: bursts, Burst: &recordingBurstRequest{MaxTailMs: ptr(60001)}}, wantErr: "burst.maxTailMs"},
+		"max tail":            {request: createSessionRecordingRequest{TargetID: "t", Capture: bursts, Burst: &recordingBurstRequest{MaxTailMs: ptr(30001)}}, wantErr: "burst.maxTailMs"},
 		"max tail < tail":     {request: createSessionRecordingRequest{TargetID: "t", Capture: bursts, Burst: &recordingBurstRequest{TailMs: ptr(700), MaxTailMs: ptr(600)}}, wantErr: "must not be less"},
 		"motion":              {request: createSessionRecordingRequest{TargetID: "t", Motion: &pointer.Motion{Kind: pointer.KindSpeed, Speed: 1}}, wantErr: "motion speed"},
 	} {

@@ -109,6 +109,22 @@ func TestStoppingABurstsRecordingWithoutBurstsFailsIt(t *testing.T) {
 	}
 }
 
+func TestStoppingABurstsRecordingSaysWhyNothingWasRecorded(t *testing.T) {
+	session, _, _ := newBurstsTestSession(t)
+	if _, err := session.stopRecording("x", "requested"); err == nil || !strings.Contains(err.Error(), "no browser action ran") {
+		t.Fatalf("error %v", err)
+	}
+	session, recording, backend := newBurstsTestSession(t)
+	backend.notReady = true
+	if _, err := recording.bursts.begin(context.Background(), burstAction{Tool: "browser_type", Kind: burstActionChange}); !errors.Is(err, errBurstUnavailable) {
+		t.Fatal(err)
+	}
+	_, err := session.stopRecording("x", "requested")
+	if !errors.Is(err, errWrapperRecordingNoBursts) || !strings.Contains(err.Error(), "1 actions or bursts were skipped") || !strings.Contains(err.Error(), "not ready") {
+		t.Fatalf("error %v", err)
+	}
+}
+
 func TestStoppingABurstsRecordingPublishesItsBursts(t *testing.T) {
 	session, recording, _ := newBurstsTestSession(t)
 	segment := filepath.Join(recording.segmentDir, "segment-0000.webm")

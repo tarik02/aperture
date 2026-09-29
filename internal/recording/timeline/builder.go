@@ -201,12 +201,22 @@ func (b *Builder) BeginSegment(input SegmentInput) int {
 // EndSegment records when a segment's pipeline was stopped. Only the first call
 // for a segment counts.
 func (b *Builder) EndSegment(index int, at time.Time) {
+	b.EndSegmentClosedBy(index, at, "")
+}
+
+// EndSegmentClosedBy records when a segment's pipeline was stopped and, for a
+// burst segment, why (closedBy is left alone when empty). Only the first call for
+// a segment counts.
+func (b *Builder) EndSegmentClosedBy(index int, at time.Time, closedBy string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if index < 0 || index >= len(b.segments) || !b.segments[index].ended.IsZero() {
 		return
 	}
 	b.segments[index].ended = at
+	if closedBy != "" {
+		b.segments[index].closedBy = closedBy
+	}
 }
 
 // SetSegmentClosedBy records why a burst segment was ended.

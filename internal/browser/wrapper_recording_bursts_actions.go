@@ -18,9 +18,10 @@ type burstTicket struct {
 	targetID string
 	entries  []burstTicketEntry
 	once     sync.Once
-	// follow moves the bursts to the page the action left the automation on. Only
-	// the tab tool sets it: it is the one action after which the page Playwright
-	// controls is another.
+	// follow finds the page the action left the automation on, so that the bursts
+	// move to it. Only the tab tool sets it: it is the one action after which the
+	// page Playwright controls is another. It is called in the background, at most
+	// once, and does not depend on the action's context.
 	follow func() string
 }
 
@@ -28,6 +29,10 @@ type burstTicketEntry struct {
 	bursts *recordingBursts
 	handle *burstHandle
 }
+
+// burstFollowProbeTimeout bounds finding the page a tab action left the
+// automation on.
+const burstFollowProbeTimeout = 3 * time.Second
 
 type burstTicketKey struct{}
 
@@ -65,7 +70,8 @@ func (t *burstTicket) actionEnded(at time.Time, gesture uint64) {
 }
 
 // end runs after the action, with its error if it failed. It does not wait: the
-// tail of the burst runs on in the background.
+// tail of the burst, and the move of a tab action's burst to the page it left the
+// automation on, run on in the background.
 func (t *burstTicket) end(err error) {
 	if t == nil {
 		return
@@ -73,11 +79,10 @@ func (t *burstTicket) end(err error) {
 	t.once.Do(func() {
 		if t.follow != nil && err == nil {
 			// The burst goes on with the page the automation is on now, so that its
-			// tail shows what the tool switched to.
-			if targetID := t.follow(); targetID != "" {
-				for _, entry := range t.entries {
-					entry.bursts.follow(targetID)
-				}
+			// tail shows what the tool switched to. It is registered before the
+			// action ends, so the burst does not start tailing off on the old page.
+			for _, entry := range t.entries {
+				entry.bursts.startFollow(entry.handle, t.follow)
 			}
 		}
 		callEnd := time.Now()
@@ -150,7 +155,11 @@ func (r *wrapperRuntime) beginBurstAction(ctx context.Context, tool string, argu
 		}
 	}
 	if tool == "browser_tabs" && len(ticket.entries) > 0 {
-		ticket.follow = func() string { return r.identifyBurstTarget(ctx) }
+		ticket.follow = sync.OnceValue(func() string {
+			followCtx, cancel := context.WithTimeout(r.ctx, burstFollowProbeTimeout)
+			defer cancel()
+			return r.identifyBurstTarget(followCtx)
+		})
 	}
 	if len(ticket.entries) == 0 && ticket.targetID == "" {
 		return ctx, nil

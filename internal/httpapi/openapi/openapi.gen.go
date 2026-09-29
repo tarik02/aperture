@@ -1941,7 +1941,7 @@ type Recording struct {
 	StartedAt    time.Time       `json:"startedAt"`
 	Status       RecordingStatus `json:"status"`
 
-	// StopReason Lifecycle reason recorded after the recording stops or fails. A bursts recording that is stopped without any action having run fails with `no_bursts`.
+	// StopReason Lifecycle reason recorded after the recording stops or fails. A bursts recording that is stopped without any burst having been recorded fails with `no_bursts`.
 	StopReason *string    `json:"stopReason,omitempty"`
 	StoppedAt  *time.Time `json:"stoppedAt,omitempty"`
 
@@ -1990,7 +1990,7 @@ type RecordingBurstStatus struct {
 	MaxTailMs int     `json:"maxTailMs"`
 	SettleMs  int     `json:"settleMs"`
 
-	// Skipped Actions that ran without being recorded because no burst could be opened for them.
+	// Skipped Actions that ran without being recorded because no burst could be opened for them, and bursts whose video was lost.
 	Skipped int `json:"skipped"`
 
 	// State `burst` while a burst is opening, running, settling or closing, and `idle` between bursts.
@@ -4041,7 +4041,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecordingWithBody Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4050,7 +4050,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecording Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -5278,7 +5278,7 @@ func (c *Client) ListSessionRecordings(ctx context.Context, sessionId SessionId,
 
 // CreateSessionRecordingWithBody Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5297,7 +5297,7 @@ func (c *Client) CreateSessionRecordingWithBody(ctx context.Context, sessionId S
 
 // CreateSessionRecording Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -9960,7 +9960,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithBodyWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9969,7 +9969,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -14003,7 +14003,7 @@ func (c *ClientWithResponses) ListSessionRecordingsWithResponse(ctx context.Cont
 
 // CreateSessionRecordingWithBodyWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14018,7 +14018,7 @@ func (c *ClientWithResponses) CreateSessionRecordingWithBodyWithResponse(ctx con
 
 // CreateSessionRecordingWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no action ran fails it with `stopReason` `no_bursts` and produces no video.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

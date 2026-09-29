@@ -28,7 +28,9 @@ import (
 //	active/tail --stop, target closed, pipeline exit--> closing --> idle
 //
 // A begin that finds the burst closing waits for it and opens a new one, so an
-// action never runs against a segment that is being closed.
+// action never runs against a segment that is being closed. The same goes for a
+// burst that is moving to another page in the background after a tab action
+// (following): actions wait for it, and its tail starts when it is done.
 
 const (
 	burstDefaultLead    = 400 * time.Millisecond
@@ -36,10 +38,12 @@ const (
 	burstDefaultSettle  = 500 * time.Millisecond
 	burstDefaultMaxTail = 4 * time.Second
 
-	burstMaxLeadMs    = 10000
-	burstMaxTailMs    = 30000
-	burstMaxSettleMs  = 30000
-	burstMaxMaxTailMs = 60000
+	burstMaxLeadMs   = 10000
+	burstMaxTailMs   = 30000
+	burstMaxSettleMs = 30000
+	// burstMaxMaxTailMs keeps a graceful stop, which may wait a burst's whole tail,
+	// under the timeouts MCP clients commonly put on a tool call.
+	burstMaxMaxTailMs = 30000
 
 	// burstFirstFrameTimeout is how long a burst waits for its pipeline's first
 	// frame, as long as a replacement segment waits for data.
@@ -50,11 +54,27 @@ const (
 	// screen settled at the time it would have, instead of waiting for an answer.
 	burstBlindAfter = 3
 	// burstMaxFailures is how many capture pipelines in a row may fail before the
-	// recording fails.
+	// recording fails, counting failures to open and pipelines that exit during a
+	// burst separately.
 	burstMaxFailures = 3
 	// burstMaxSegments bounds the segments of one recording, which is also the
-	// number of files its stop joins.
-	burstMaxSegments = 1000
+	// number of files its stop joins with one concat.
+	burstMaxSegments = 200
+	// burstTargetReadyTimeout is how long a burst waits for the page an action
+	// runs on to become ready: a page that was just opened is not in the target
+	// registry until its next sync.
+	burstTargetReadyTimeout = 1500 * time.Millisecond
+	burstTargetPoll         = 25 * time.Millisecond
+	// burstExitGrace is how long a pipeline that exited is given for its page to be
+	// reported closed, before the exit counts as a capture failure.
+	burstExitGrace = time.Second
+	burstExitPoll  = 50 * time.Millisecond
+	// burstStopActionWait bounds how long a graceful stop waits for the actions
+	// that are running to end.
+	burstStopActionWait = 30 * time.Second
+	// burstStopTailSlack is how long past a tail's hard end a graceful stop waits
+	// for the tail to close the burst before it closes it itself.
+	burstStopTailSlack = 5 * time.Second
 )
 
 var (
@@ -64,6 +84,9 @@ var (
 	errBurstInProgress  = errors.New("a burst is in progress")
 	// errBurstStopped means the recording is stopping and takes no more actions.
 	errBurstStopped = errors.New("the recording is stopping")
+	// errBurstLimit means the recording holds as many segments as it may. It is
+	// not a capture failure.
+	errBurstLimit = errors.New("the recording has reached its limit of segments")
 )
 
 // burstConfig is a bursts recording's timing.
@@ -145,7 +168,7 @@ type wrapperBurstStatus struct {
 	// still changing.
 	Capped int `json:"capped"`
 	// Skipped is the actions that ran without being recorded because no burst
-	// could be opened for them.
+	// could be opened for them, and the bursts whose video was lost.
 	Skipped   int    `json:"skipped"`
 	LastError string `json:"lastError,omitempty"`
 }
@@ -194,6 +217,9 @@ type burstBackend interface {
 	// target returns the ready page with the ID; the recording's own page when the
 	// ID is empty.
 	target(id string) (wrapperTargetSnapshot, bool)
+	// refreshTargets asks for the page registry to sync now, for a caller that
+	// waits for a page it knows exists. It may be slow, and ends with ctx.
+	refreshTargets(ctx context.Context)
 	// open starts a segment for a burst.
 	open(ctx context.Context, target wrapperTargetSnapshot, burst uint64) (burstSegment, error)
 	// idleFor is how long the page's screen has been unchanged.
@@ -269,16 +295,30 @@ type recordingBursts struct {
 	// curPlan is the plan of the tail that is running.
 	curPlan    tailPlan
 	cancelOpen context.CancelFunc
-	tailCancel context.CancelFunc
-	tailID     uint64
+	// openCancelReason is why the opening that cancelOpen would cancel is being
+	// cancelled, when it is not because the recording stops.
+	openCancelReason string
+	tailCancel       context.CancelFunc
+	tailID           uint64
+	// following counts the moves to another page that are running in the
+	// background: the burst does not tail off, and no action joins it, until they
+	// are done.
+	following int
 	// changed is closed and replaced at every state change, so a waiter can wait
 	// for the next one.
-	changed     chan struct{}
-	count       int
-	capped      int
-	skipped     int
-	failedInRow int
-	lastError   string
+	changed chan struct{}
+	count   int
+	capped  int
+	skipped int
+	// burstKept is the segments of the current burst that were kept, and keptTotal
+	// those of the whole recording.
+	burstKept int
+	keptTotal int
+	// openFailures counts the openings that failed in a row, and exitFailures the
+	// pipelines in a row that exited during a burst.
+	openFailures int
+	exitFailures int
+	lastError    string
 }
 
 func newRecordingBursts(parent context.Context, cfg burstConfig, backend burstBackend, onStopped func()) *recordingBursts {
@@ -351,8 +391,11 @@ func (b *recordingBursts) waitLocked(ctx context.Context) error {
 // in which case the action should run anyway).
 //
 // For an action that opens a burst, begin returns once the burst's first frame
-// exists and, for a pointer action, its lead has been recorded.
+// exists and, for a pointer action, its lead has been recorded. An action that
+// runs on a page that is not ready yet (one that was just opened) waits a short
+// while for it.
 func (b *recordingBursts) begin(ctx context.Context, action burstAction) (*burstHandle, error) {
+	awaited := false
 	b.mu.Lock()
 	for {
 		if b.stopping || b.state == burstStopped {
@@ -366,33 +409,14 @@ func (b *recordingBursts) begin(ctx context.Context, action burstAction) (*burst
 				return nil, nil
 			}
 			target, ready := b.backend.target(action.TargetID)
-			if !ready {
-				b.skipLocked("the page to record is not ready")
-				b.mu.Unlock()
-				b.backend.changed()
-				return nil, errBurstUnavailable
-			}
-			handle := b.registerLocked(action)
-			openCtx := b.startOpeningLocked(ctx, target, true)
-			lead := time.Duration(0)
-			if action.Kind == burstActionPointer {
-				lead = b.cfg.Lead
-			}
-			burst := b.burstNo
-			b.mu.Unlock()
-			b.backend.changed()
-			if err := b.runOpening(openCtx, target, burst, lead, true); err != nil {
-				switch {
-				case errors.Is(err, errBurstStopped):
-					return nil, nil
-				case ctx.Err() != nil:
-					return nil, ctx.Err()
-				default:
+			if !ready && !awaited && action.TargetID != "" {
+				awaited = true
+				if err := b.awaitTargetUnlocked(ctx, action.TargetID); err != nil {
 					return nil, err
 				}
+				continue
 			}
-			handle.started = time.Now()
-			return handle, nil
+			return b.openForAction(ctx, action, target, ready)
 		case burstOpening, burstClosing:
 			if action.Kind == burstActionObserve {
 				b.mu.Unlock()
@@ -403,7 +427,23 @@ func (b *recordingBursts) begin(ctx context.Context, action burstAction) (*burst
 				return nil, err
 			}
 		case burstActive, burstTail:
+			if action.Kind != burstActionObserve && b.following > 0 {
+				// The burst is moving to another page: the action belongs to whatever
+				// it finds there.
+				if err := b.waitLocked(ctx); err != nil {
+					b.mu.Unlock()
+					return nil, err
+				}
+				continue
+			}
 			if action.Kind != burstActionObserve && action.TargetID != "" && action.TargetID != b.segTarget.TargetID {
+				if _, ready := b.backend.target(action.TargetID); !ready && !awaited {
+					awaited = true
+					if err := b.awaitTargetUnlocked(ctx, action.TargetID); err != nil {
+						return nil, err
+					}
+					continue
+				}
 				// The automation moved to another page: record it in a burst of its own.
 				seg := b.startClosingLocked(false)
 				b.mu.Unlock()
@@ -412,18 +452,93 @@ func (b *recordingBursts) begin(ctx context.Context, action burstAction) (*burst
 				b.mu.Lock()
 				continue
 			}
-			handle := b.registerLocked(action)
-			handle.started = time.Now()
-			if b.state == burstTail {
-				b.tailCancel()
-				b.tailCancel = nil
-				b.state = burstActive
-				b.publishLocked()
-			}
-			b.mu.Unlock()
-			return handle, nil
+			return b.joinLocked(action), nil
 		}
 	}
+}
+
+// awaitTargetUnlocked waits for a page to become ready with the lock released,
+// and takes the lock again. It fails only when ctx ended.
+func (b *recordingBursts) awaitTargetUnlocked(ctx context.Context, id string) error {
+	b.mu.Unlock()
+	b.awaitTarget(ctx, id)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	return nil
+}
+
+// awaitTarget waits, for at most burstTargetReadyTimeout, for a page to become
+// ready. It asks the registry to sync instead of waiting for its next round.
+func (b *recordingBursts) awaitTarget(ctx context.Context, id string) (wrapperTargetSnapshot, bool) {
+	ctx, cancel := context.WithTimeout(ctx, burstTargetReadyTimeout)
+	defer cancel()
+	defer context.AfterFunc(b.root, cancel)()
+	for attempt := 0; ; attempt++ {
+		if target, ready := b.backend.target(id); ready {
+			return target, true
+		}
+		if attempt%10 == 0 {
+			b.backend.refreshTargets(ctx)
+		}
+		if sleepContext(ctx, burstTargetPoll) != nil {
+			return b.backend.target(id)
+		}
+	}
+}
+
+// joinLocked adds an action to the burst that is open. It unlocks.
+func (b *recordingBursts) joinLocked(action burstAction) *burstHandle {
+	handle := b.registerLocked(action)
+	handle.started = time.Now()
+	if b.state == burstTail {
+		b.tailCancel()
+		b.tailCancel = nil
+		b.state = burstActive
+		b.publishLocked()
+	}
+	b.mu.Unlock()
+	return handle
+}
+
+// openForAction opens a burst for an action that finds none, and waits for its
+// first frame and lead. It runs with the lock held and unlocks.
+func (b *recordingBursts) openForAction(ctx context.Context, action burstAction, target wrapperTargetSnapshot, ready bool) (*burstHandle, error) {
+	reason := ""
+	switch {
+	case !ready:
+		reason = "the page to record is not ready"
+	case b.keptTotal >= burstMaxSegments:
+		reason = fmt.Sprintf("the recording has reached its limit of %d segments", burstMaxSegments)
+	}
+	if reason != "" {
+		b.skipLocked(reason)
+		b.mu.Unlock()
+		b.backend.changed()
+		return nil, errBurstUnavailable
+	}
+	handle := b.registerLocked(action)
+	openCtx := b.startOpeningLocked(ctx, target, true)
+	lead := time.Duration(0)
+	if action.Kind == burstActionPointer {
+		lead = b.cfg.Lead
+	}
+	burst := b.burstNo
+	b.mu.Unlock()
+	b.backend.changed()
+	if err := b.runOpening(openCtx, target, burst, lead, true); err != nil {
+		switch {
+		case errors.Is(err, errBurstStopped):
+			return nil, nil
+		case ctx.Err() != nil:
+			return nil, ctx.Err()
+		default:
+			return nil, err
+		}
+	}
+	handle.started = time.Now()
+	return handle, nil
 }
 
 func (b *recordingBursts) registerLocked(action burstAction) *burstHandle {
@@ -447,6 +562,7 @@ func (b *recordingBursts) startOpeningLocked(parent context.Context, target wrap
 	b.segTarget = target
 	if newBurst {
 		b.burstNo++
+		b.burstKept = 0
 	}
 	b.publishLocked()
 	return ctx
@@ -456,6 +572,28 @@ func (b *recordingBursts) startOpeningLocked(parent context.Context, target wrap
 // lead. It runs without the lock held, in the state startOpeningLocked set, and
 // leaves the controller active, or idle when it fails.
 func (b *recordingBursts) runOpening(ctx context.Context, target wrapperTargetSnapshot, burst uint64, lead time.Duration, newBurst bool) error {
+	seg, err := b.openSegment(ctx, target, burst, lead)
+	b.mu.Lock()
+	if err == nil && b.stopping {
+		err = errBurstStopped
+	}
+	if err != nil {
+		return b.abortOpening(ctx, seg, err, newBurst)
+	}
+	b.activateLocked(seg, newBurst)
+	b.mu.Unlock()
+	b.backend.changed()
+	// The page's capture may have been replaced, or its size changed, while the
+	// segment opened, when nothing could follow it yet.
+	if current, ready := b.backend.target(target.TargetID); ready {
+		b.replaceTarget(current)
+	}
+	return nil
+}
+
+// openSegment starts the pipeline of a segment, and waits for its first frame
+// and, after it, the lead.
+func (b *recordingBursts) openSegment(ctx context.Context, target wrapperTargetSnapshot, burst uint64, lead time.Duration) (burstSegment, error) {
 	seg, err := b.backend.open(ctx, target, burst)
 	if err == nil {
 		err = awaitFirstFrame(ctx, seg)
@@ -463,51 +601,16 @@ func (b *recordingBursts) runOpening(ctx context.Context, target wrapperTargetSn
 	if err == nil && lead > 0 {
 		err = sleepUntil(ctx, seg.Anchor().Add(lead))
 	}
-	b.mu.Lock()
-	if err == nil && b.stopping {
-		err = errBurstStopped
-	}
-	if err != nil {
-		// Cancelled openings are not failures: the caller went away, or the
-		// recording is stopping.
-		stopping := b.stopping
-		cancelled := ctx.Err() != nil || errors.Is(err, errBurstStopped)
-		b.cancelOpen()
-		b.cancelOpen = nil
-		b.mu.Unlock()
-		if seg != nil {
-			seg.Discard()
-		}
-		b.mu.Lock()
-		clear(b.handles)
-		b.plan = tailPlan{}
-		b.state = burstIdle
-		failed := false
-		if !cancelled {
-			b.failedInRow++
-			b.skipped++
-			b.lastError = err.Error()
-			failed = b.failedInRow >= burstMaxFailures
-		}
-		b.publishLocked()
-		b.mu.Unlock()
-		b.backend.changed()
-		if failed {
-			b.backend.failed("pipeline_failed", err)
-		}
-		switch {
-		case stopping:
-			return errBurstStopped
-		case cancelled:
-			return context.Canceled
-		default:
-			return errBurstUnavailable
-		}
-	}
+	return seg, err
+}
+
+// activateLocked makes an opened segment the burst's.
+func (b *recordingBursts) activateLocked(seg burstSegment, newBurst bool) {
 	b.cancelOpen()
 	b.cancelOpen = nil
 	b.seg = seg
 	b.state = burstActive
+	b.openFailures = 0
 	if newBurst {
 		b.count++
 	}
@@ -517,12 +620,63 @@ func (b *recordingBursts) runOpening(ctx context.Context, target wrapperTargetSn
 		// on tailing off, for at least a tail of the new segment.
 		b.plan.minEnd = laterOf(b.plan.minEnd, time.Now().Add(b.cfg.Tail))
 		b.plan.hardEnd = laterOf(b.plan.hardEnd, b.plan.minEnd)
-		b.enterTailLocked()
+		b.resumeTailLocked()
+	}
+	b.publishLocked()
+}
+
+// abortOpening ends an opening that failed or was cancelled. It runs with the
+// lock held and unlocks. Cancelled openings are not failures: the caller went
+// away, the page closed, or the recording is stopping.
+func (b *recordingBursts) abortOpening(ctx context.Context, seg burstSegment, err error, newBurst bool) error {
+	stopping := b.stopping
+	reason := b.openCancelReason
+	b.openCancelReason = ""
+	cancelled := ctx.Err() != nil || errors.Is(err, errBurstStopped)
+	b.cancelOpen()
+	b.cancelOpen = nil
+	b.mu.Unlock()
+	if seg != nil {
+		seg.Discard()
+	}
+	b.mu.Lock()
+	clear(b.handles)
+	b.plan = tailPlan{}
+	b.state = burstIdle
+	if !newBurst && b.burstKept == 0 {
+		// The reopening of a burst none of whose segments was kept.
+		b.count = max(0, b.count-1)
+	}
+	failed := false
+	switch {
+	case stopping:
+	case cancelled && reason != "":
+		b.skipped++
+		b.lastError = reason
+	case cancelled:
+	case errors.Is(err, errBurstLimit):
+		b.skipped++
+		b.lastError = err.Error()
+	default:
+		b.openFailures++
+		b.skipped++
+		b.lastError = err.Error()
+		failed = b.openFailures >= burstMaxFailures
 	}
 	b.publishLocked()
 	b.mu.Unlock()
 	b.backend.changed()
-	return nil
+	if failed {
+		b.backend.failed("pipeline_failed", err)
+	}
+	switch {
+	case stopping:
+		return errBurstStopped
+	case cancelled && reason == "":
+		return context.Canceled
+	default:
+		return errBurstUnavailable
+	}
 }
 
 func awaitFirstFrame(ctx context.Context, seg burstSegment) error {
@@ -587,9 +741,17 @@ func (b *recordingBursts) end(handle *burstHandle, callEnd time.Time, err error)
 	minEnd := laterOf(gestureEnd.Add(minTail), callEnd)
 	hardEnd := laterOf(minEnd, gestureEnd.Add(max(b.cfg.MaxTail, b.cfg.Tail, handle.action.Hold)))
 	b.plan = b.plan.merge(tailPlan{valid: true, gestureEnd: gestureEnd, minEnd: minEnd, hardEnd: hardEnd})
-	if len(b.handles) == 0 && b.state == burstActive {
-		b.enterTailLocked()
+	if len(b.handles) == 0 && b.state == burstActive && b.following == 0 {
+		b.resumeTailLocked()
 		b.publishLocked()
+	}
+}
+
+// resumeTailLocked starts the tail of a burst whose actions have all ended and
+// which is not moving to another page, if it has a tail to run.
+func (b *recordingBursts) resumeTailLocked() {
+	if b.state == burstActive && len(b.handles) == 0 && b.following == 0 && b.plan.valid {
+		b.enterTailLocked()
 	}
 }
 
@@ -715,15 +877,22 @@ func (b *recordingBursts) finishClose(seg burstSegment, reason string, reopen *w
 		seg.Discard()
 	}
 	b.mu.Lock()
+	reopening := reopen != nil && !b.stopping && (len(b.handles) > 0 || b.plan.valid)
 	if err != nil {
 		b.lastError = fmt.Sprintf("closing a burst: %v", err)
-		if reopen == nil {
+		if b.burstKept == 0 && !reopening {
+			// Nothing of the burst survives.
 			b.count = max(0, b.count-1)
+			b.skipped++
 		}
-	} else if reason != "pipeline_failed" {
-		b.failedInRow = 0
+	} else {
+		b.burstKept++
+		b.keptTotal++
+		if reason != "pipeline_failed" {
+			b.exitFailures = 0
+		}
 	}
-	if reopen != nil && !b.stopping && (len(b.handles) > 0 || b.plan.valid) {
+	if reopening {
 		target := *reopen
 		openCtx := b.startOpeningLocked(b.root, target, false)
 		burst := b.burstNo
@@ -743,20 +912,38 @@ func (b *recordingBursts) finishClose(seg burstSegment, reason string, reopen *w
 // watch reacts to a segment's pipeline exiting on its own.
 func (b *recordingBursts) watch(seg burstSegment) {
 	<-seg.Exited()
-	b.mu.Lock()
-	if b.seg != seg || (b.state != burstActive && b.state != burstTail) {
+	// A pipeline whose page closed exits too, usually before the registry reports
+	// the page closed: that is not a capture failure, so the page gets a moment
+	// to be reported.
+	deadline := time.Now().Add(burstExitGrace)
+	for {
+		b.mu.Lock()
+		if b.seg != seg || (b.state != burstActive && b.state != burstTail) {
+			b.mu.Unlock()
+			return
+		}
+		_, ready := b.backend.target(b.segTarget.TargetID)
+		if !ready || !time.Now().Before(deadline) {
+			reason, failed := "target_closed", false
+			if ready {
+				reason = "pipeline_failed"
+				b.exitFailures++
+				b.lastError = "the capture pipeline exited during a burst"
+				failed = b.exitFailures >= burstMaxFailures
+			}
+			seg = b.startClosingLocked(false)
+			b.mu.Unlock()
+			b.backend.changed()
+			b.finishClose(seg, reason, nil)
+			if failed {
+				b.backend.failed("pipeline_failed", errors.New("the capture pipeline failed repeatedly"))
+			}
+			return
+		}
 		b.mu.Unlock()
-		return
-	}
-	b.failedInRow++
-	b.lastError = "the capture pipeline exited during a burst"
-	failed := b.failedInRow >= burstMaxFailures
-	seg = b.startClosingLocked(false)
-	b.mu.Unlock()
-	b.backend.changed()
-	b.finishClose(seg, "pipeline_failed", nil)
-	if failed {
-		b.backend.failed("pipeline_failed", errors.New("the capture pipeline failed repeatedly"))
+		if sleepContext(b.root, burstExitPoll) != nil {
+			return
+		}
 	}
 }
 
@@ -772,6 +959,7 @@ func (b *recordingBursts) targetClosed(targetID string) {
 	switch b.state {
 	case burstOpening:
 		if b.cancelOpen != nil {
+			b.openCancelReason = "the page closed while its burst was opening"
 			b.cancelOpen()
 		}
 		b.mu.Unlock()
@@ -802,45 +990,84 @@ func (b *recordingBursts) replaceTarget(target wrapperTargetSnapshot) {
 	b.finishClose(seg, "target_changed", &target)
 }
 
-// follow moves a burst that is running to another page: the segment on the old
-// page closes and a new one opens on the new page, without a lead, for the
-// action that is still running.
-func (b *recordingBursts) follow(targetID string) {
-	target, ready := b.backend.target(targetID)
-	if !ready {
-		return
-	}
+// startFollow moves a burst that an action is running in to the page the action
+// left the automation on, when that is another page: the segment on the old page
+// closes and a new one opens on the new page, without a lead, for the action
+// that is still running. Finding the page, waiting for it to be ready and the
+// close and reopening all run in the background, owned by the controller; until
+// they are done the burst does not tail off and later actions wait for it. The
+// action's ticket calls it before end.
+func (b *recordingBursts) startFollow(handle *burstHandle, identify func() string) {
 	b.mu.Lock()
-	if b.stopping || b.state != burstActive || b.segTarget.TargetID == target.TargetID {
+	if _, taking := b.handles[handle]; !taking || b.stopping || b.state != burstActive {
 		b.mu.Unlock()
 		return
 	}
-	seg := b.startClosingLocked(true)
+	b.following++
+	b.mu.Unlock()
+	go b.follow(identify)
+}
+
+func (b *recordingBursts) follow(identify func() string) {
+	var target wrapperTargetSnapshot
+	found := false
+	if targetID := identify(); targetID != "" {
+		target, found = b.awaitTarget(b.root, targetID)
+	}
+	b.mu.Lock()
+	b.following--
+	if found && !b.stopping && b.state == burstActive && b.segTarget.TargetID != target.TargetID {
+		seg := b.startClosingLocked(true)
+		b.mu.Unlock()
+		b.backend.changed()
+		b.finishClose(seg, "target_changed", &target)
+		return
+	}
+	// Nowhere to move to: the tail the actions asked for starts now.
+	b.resumeTailLocked()
+	b.publishLocked()
 	b.mu.Unlock()
 	b.backend.changed()
-	b.finishClose(seg, "target_changed", &target)
 }
 
 // whileIdle runs f if no burst is running, holding the controller so none can
-// start meanwhile, and reports whether it ran.
-func (b *recordingBursts) whileIdle(f func()) bool {
+// start meanwhile. It returns errBurstInProgress when a burst is running, and
+// errBurstStopped when the controller has stopped or is stopping.
+func (b *recordingBursts) whileIdle(f func()) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.state != burstIdle {
-		return false
+	switch {
+	case b.stopping || b.state == burstStopped:
+		return errBurstStopped
+	case b.state != burstIdle:
+		return errBurstInProgress
 	}
 	f()
-	return true
+	return nil
 }
 
-// shutdown ends the controller. A graceful shutdown lets a burst that is tailing
-// off finish first (bounded by its longest tail), so the last action's result is
-// in the video; otherwise, and for a burst still running, it closes at once. It
-// returns when no segment is being written any more.
+// waitUntilLocked waits for the next state change, at most until deadline or
+// until the controller's root ends.
+func (b *recordingBursts) waitUntilLocked(deadline time.Time) error {
+	ctx, cancel := context.WithDeadline(b.root, deadline)
+	defer cancel()
+	return b.waitLocked(ctx)
+}
+
+// shutdown ends the controller. A graceful shutdown lets the actions that are
+// running end and a burst that is tailing off finish first, so the last action's
+// result is in the video; otherwise, and for a burst that is running, it closes
+// at once. A graceful shutdown waits for actions at most burstStopActionWait and
+// for a tail until its hard end, and gives up when the controller's root ends.
+// It returns when no segment is being written any more.
 func (b *recordingBursts) shutdown(graceful bool) {
 	b.mu.Lock()
 	b.stopping = true
+	var actionsDeadline time.Time
 	for {
+		if graceful && b.root.Err() != nil {
+			graceful = false
+		}
 		switch b.state {
 		case burstStopped:
 			b.mu.Unlock()
@@ -856,6 +1083,7 @@ func (b *recordingBursts) shutdown(graceful bool) {
 			b.backend.changed()
 			return
 		case burstOpening:
+			// Openings and closings are bounded by their own timeouts.
 			if b.cancelOpen != nil {
 				b.cancelOpen()
 			}
@@ -864,20 +1092,37 @@ func (b *recordingBursts) shutdown(graceful bool) {
 			_ = b.waitLocked(context.Background())
 		case burstTail:
 			if graceful {
-				_ = b.waitLocked(context.Background())
+				if b.waitUntilLocked(b.curPlan.hardEnd.Add(burstStopTailSlack)) != nil {
+					graceful = false
+				}
 				continue
 			}
-			fallthrough
+			b.closeForShutdown()
 		case burstActive:
-			seg := b.startClosingLocked(false)
-			b.mu.Unlock()
-			b.finishClose(seg, "stopped", nil)
-			b.mu.Lock()
+			if graceful && (len(b.handles) > 0 || b.following > 0) {
+				if actionsDeadline.IsZero() {
+					actionsDeadline = time.Now().Add(burstStopActionWait)
+				}
+				if b.waitUntilLocked(actionsDeadline) != nil {
+					graceful = false
+				}
+				continue
+			}
+			b.closeForShutdown()
 		}
 	}
 }
 
-// warn reports something a bursts recording did not expect.
+// closeForShutdown closes the burst that is running, with the lock held on entry
+// and on return.
+func (b *recordingBursts) closeForShutdown() {
+	seg := b.startClosingLocked(false)
+	b.mu.Unlock()
+	b.finishClose(seg, "stopped", nil)
+	b.mu.Lock()
+}
+
+// burstWarn reports something a bursts recording did not expect.
 func burstWarn(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "browser-session-wrapper: "+format+"\n", args...)
 }

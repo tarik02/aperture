@@ -120,9 +120,7 @@ func (p *screencastProbe) observe(read time.Time, pts, duration time.Duration) {
 	if p.frames == 0 {
 		p.firstPTS = pts
 		p.anchor = read
-		if p.ready != nil {
-			close(p.ready)
-		}
+		close(p.ready)
 	} else if candidate := read.Add(-(pts - p.firstPTS)); candidate.Before(p.anchor) {
 		p.anchor = candidate
 	}

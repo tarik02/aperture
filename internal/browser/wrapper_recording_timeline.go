@@ -90,6 +90,12 @@ func (t *recordingTimeline) beginSegment(target wrapperTargetSnapshot, probe *sc
 // endSegment records that a segment's pipeline has stopped, after which its
 // frame reports are complete.
 func (t *recordingTimeline) endSegment(index int, at time.Time) {
+	t.endBurstSegment(index, at, "")
+}
+
+// endBurstSegment ends a segment like endSegment and records why a burst ended
+// it, with one lock of the builder.
+func (t *recordingTimeline) endBurstSegment(index int, at time.Time, closedBy string) {
 	t.mu.Lock()
 	var probe *screencastProbe
 	if index >= 0 && index < len(t.probes) {
@@ -100,7 +106,7 @@ func (t *recordingTimeline) endSegment(index int, at time.Time) {
 		return
 	}
 	probe.wait(recordingTimelineFlushWait)
-	t.builder.EndSegment(index, at)
+	t.builder.EndSegmentClosedBy(index, at, closedBy)
 }
 
 // discardSegment removes the newest segment, whose pipeline was abandoned.

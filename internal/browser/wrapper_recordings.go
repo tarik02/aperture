@@ -31,9 +31,18 @@ var (
 	// errWrapperRecordingInvalid marks a start request that can never succeed.
 	errWrapperRecordingInvalid = errors.New("invalid recording request")
 	// errWrapperRecordingNoBursts is why a bursts recording that captured nothing
-	// fails when it is stopped.
-	errWrapperRecordingNoBursts = fmt.Errorf("%w: no browser action ran while the recording was in bursts mode", errWrapperRecordingEmpty)
+	// fails when it is stopped; noBurstsError says what happened to the actions.
+	errWrapperRecordingNoBursts = fmt.Errorf("%w: no burst was recorded", errWrapperRecordingEmpty)
 )
+
+// noBurstsError explains a bursts recording that captured nothing: either no
+// action ran, or the actions that ran could not be recorded.
+func noBurstsError(status wrapperBurstStatus) error {
+	if status.Skipped == 0 {
+		return fmt.Errorf("%w: no browser action ran while the recording was in bursts mode", errWrapperRecordingNoBursts)
+	}
+	return fmt.Errorf("%w: %d actions or bursts were skipped or discarded (last error: %s)", errWrapperRecordingNoBursts, status.Skipped, status.LastError)
+}
 
 type wrapperRecordingStatus string
 
@@ -542,7 +551,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	}
 	if recording.bursts != nil && len(recording.segments) == 0 {
 		// Nothing was captured, so there is no video to publish.
-		return session.failRecording(recording, "no_bursts", errWrapperRecordingNoBursts)
+		return session.failRecording(recording, "no_bursts", noBurstsError(recording.bursts.status()))
 	}
 	finalPath, size, err := session.joinRecordingSegments(recording)
 	if errors.Is(err, errWrapperRecordingEmpty) {
@@ -718,15 +727,15 @@ func (session *liveSession) retargetRecording(ctx context.Context, recordingID, 
 	if recording.bursts != nil {
 		// Between bursts there is nothing to move: the page the recording falls back
 		// to changes. While a burst runs, it stays on its page.
-		applied := recording.bursts.whileIdle(func() {
+		err := recording.bursts.whileIdle(func() {
 			r.mu.Lock()
 			recording.TargetID = target.TargetID
 			recording.CaptureGeneration = target.Generation
 			recording.viewport = target.Viewport
 			r.mu.Unlock()
 		})
-		if !applied {
-			return wrapperRecording{}, errBurstInProgress
+		if err != nil {
+			return wrapperRecording{}, err
 		}
 		r.mu.Lock()
 		status := *recording
