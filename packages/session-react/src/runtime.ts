@@ -1,7 +1,7 @@
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
 import { apiClientLayer, baseUrlLayer, type ApiServices } from "@aperture-browser/api-client";
 
 export type ApertureRuntime = ManagedRuntime.ManagedRuntime<

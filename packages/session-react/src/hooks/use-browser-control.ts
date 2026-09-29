@@ -8,7 +8,7 @@ import {
   type LiveSessionMediaSelection,
   type LiveSessionViewportOwnership,
 } from "./use-live-session.ts";
-import type * as HttpClient from "effect/unstable/http/HttpClient";
+import type * as HttpClient from "effect/http/HttpClient";
 import type { ApiRequestError, IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
 import {

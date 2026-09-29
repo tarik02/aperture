@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Random from "effect/Random";
 import * as Stream from "effect/Stream";
-import * as HttpBody from "effect/unstable/http/HttpBody";
+import * as HttpBody from "effect/http/HttpBody";
 import type { SessionUploadFile } from "./service.ts";
 
 const encoder = new TextEncoder();

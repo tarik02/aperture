@@ -7,8 +7,8 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import type * as JsonSchema from "effect/JsonSchema";
-import * as Yaml from "effect/unstable/encoding/Yaml";
-import type * as OpenApi from "effect/unstable/httpapi/OpenApi";
+import * as Yaml from "effect/encoding/Yaml";
+import type * as OpenApi from "effect/http-api/OpenApi";
 
 const spec = new URL("../../../api/openapi.yaml", import.meta.url);
 const output = new URL("../src/api.gen.ts", import.meta.url);
