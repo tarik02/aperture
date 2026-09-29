@@ -89,6 +89,9 @@ type fakeBurstBackend struct {
 	refreshed int
 	// width is the width of every page's viewport.
 	width int
+	// firstFrames is how long the first pipelines take to produce a frame,
+	// instead of firstFrame.
+	firstFrames []time.Duration
 
 	segments []*fakeBurstSegment
 	actions  []timeline.ActionInput
@@ -132,11 +135,15 @@ func (f *fakeBurstBackend) open(ctx context.Context, target wrapperTargetSnapsho
 	if f.openErr != nil {
 		return nil, f.openErr
 	}
+	firstFrame := f.firstFrame
+	if len(f.segments) < len(f.firstFrames) {
+		firstFrame = f.firstFrames[len(f.segments)]
+	}
 	segment := &fakeBurstSegment{
 		backend: f, index: len(f.segments), target: target, opened: time.Now(),
-		anchor: time.Now().Add(f.firstFrame), first: make(chan struct{}), exited: make(chan struct{}),
+		anchor: time.Now().Add(firstFrame), first: make(chan struct{}), exited: make(chan struct{}),
 	}
-	time.AfterFunc(f.firstFrame, func() { segment.firstOnce.Do(func() { close(segment.first) }) })
+	time.AfterFunc(firstFrame, func() { segment.firstOnce.Do(func() { close(segment.first) }) })
 	f.segments = append(f.segments, segment)
 	return segment, nil
 }
@@ -637,6 +644,7 @@ func TestBurstEndsWhenItsPageCloses(t *testing.T) {
 			t.Fatal("another page's closing ended the burst")
 		}
 		b.targetClosed("t1")
+		synctest.Wait()
 		if backend.segment(0).closeReason() != "target_closed" || b.status().State != "idle" {
 			t.Fatalf("closed %q, status %+v", backend.segment(0).closeReason(), b.status())
 		}
@@ -709,6 +717,7 @@ func TestBurstCaptureReplacedDuringAnActionContinuesInANewSegment(t *testing.T) 
 		backend.setWidth(800)
 		changed, _ := backend.target("t1")
 		b.replaceTarget(changed)
+		synctest.Wait()
 		if backend.segmentCount() != 2 || backend.segment(0).closeReason() != "target_changed" {
 			t.Fatalf("segments %d, first closed %q", backend.segmentCount(), backend.segment(0).closeReason())
 		}
@@ -871,30 +880,68 @@ func TestBurstFollowWithoutAnotherPageStartsTheTail(t *testing.T) {
 }
 
 func TestBurstOpeningThatMissesAResizeReopens(t *testing.T) {
+	// A resize before the first frame drops the pipeline that started on the old
+	// capture and starts another; one during the lead, when nothing follows the
+	// page yet, closes the segment as target_changed and carries on in a new one.
+	for name, test := range map[string]struct {
+		action       burstAction
+		resizeAfter  time.Duration
+		wantDiscards int
+		wantClosedBy string
+	}{
+		"before the first frame": {action: typeAction, resizeAfter: 50 * time.Millisecond, wantDiscards: 1},
+		"during the lead":        {action: clickAction, resizeAfter: 500 * time.Millisecond, wantClosedBy: "target_changed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				backend := newFakeBurstBackend()
+				backend.firstFrame = 350 * time.Millisecond
+				b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
+				action := test.action
+				action.TargetID = "t1"
+				done := make(chan *burstHandle)
+				go func() {
+					handle, err := b.begin(context.Background(), action)
+					if err != nil {
+						t.Error(err)
+					}
+					done <- handle
+				}()
+				time.Sleep(test.resizeAfter)
+				backend.setWidth(800)
+				changed, _ := backend.target("t1")
+				b.replaceTarget(changed)
+				synctest.Wait()
+				handle := <-done
+				synctest.Wait()
+				if handle == nil || backend.segmentCount() != 2 || backend.segment(0).closeReason() != test.wantClosedBy || backend.segment(0).wasDiscarded() != (test.wantDiscards == 1) || backend.segment(1).target.Viewport.Width != 800 {
+					t.Fatalf("handle %v, %d segments, first closed %q discarded %v", handle, backend.segmentCount(), backend.segment(0).closeReason(), backend.segment(0).wasDiscarded())
+				}
+				if status := b.status(); status.Count != 1 || status.State != "burst" {
+					t.Fatalf("status %+v", status)
+				}
+				b.end(handle, time.Now(), nil)
+				b.shutdown(false)
+			})
+		})
+	}
+}
+
+func TestBurstPipelineThatNeverGetsAFrameIsStartedAgain(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		backend := newFakeBurstBackend()
+		backend.firstFrames = []time.Duration{time.Hour, 100 * time.Millisecond}
 		b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
-		action := typeAction
-		action.TargetID = "t1"
-		done := make(chan *burstHandle)
-		go func() {
-			handle, err := b.begin(context.Background(), action)
-			if err != nil {
-				t.Error(err)
-			}
-			done <- handle
-		}()
-		// The page is resized while the segment is opening, when nothing can follow.
-		time.Sleep(backend.firstFrame / 2)
-		backend.setWidth(800)
-		changed, _ := backend.target("t1")
-		b.replaceTarget(changed)
-		handle := <-done
-		if handle == nil || backend.segmentCount() != 2 || backend.segment(0).closeReason() != "target_changed" || backend.segment(1).target.Viewport.Width != 800 {
-			t.Fatalf("handle %v, %d segments", handle, backend.segmentCount())
+		started := time.Now()
+		handle, err := b.begin(context.Background(), typeAction)
+		if err != nil || handle == nil {
+			t.Fatalf("begin: %v %v", handle, err)
 		}
-		if status := b.status(); status.Count != 1 || status.State != "burst" {
-			t.Fatalf("status %+v", status)
+		if waited := time.Since(started); waited != burstFirstFrameTimeout/burstOpenAttempts+100*time.Millisecond {
+			t.Fatalf("begin took %v", waited)
+		}
+		if backend.segmentCount() != 2 || !backend.segment(0).wasDiscarded() || b.status().Skipped != 0 {
+			t.Fatalf("%d segments, status %+v", backend.segmentCount(), b.status())
 		}
 		b.end(handle, time.Now(), nil)
 		b.shutdown(false)
@@ -1091,6 +1138,7 @@ func TestBurstLostVideoKeepsTheCountOfBurstsThatHaveSegments(t *testing.T) {
 		backend.setWidth(800)
 		changed, _ := backend.target("t1")
 		b.replaceTarget(changed)
+		synctest.Wait()
 		backend.mu.Lock()
 		backend.closeErr = errors.New("no video")
 		backend.mu.Unlock()
@@ -1122,6 +1170,7 @@ func TestBurstPageClosedWhileOpeningIsSkippedQuietly(t *testing.T) {
 		}()
 		time.Sleep(backend.firstFrame / 2)
 		b.targetClosed("t1")
+		synctest.Wait()
 		if err := <-done; !errors.Is(err, errBurstUnavailable) {
 			t.Fatalf("begin: %v", err)
 		}
@@ -1161,5 +1210,54 @@ func TestBurstWhileIdleReportsAStoppedController(t *testing.T) {
 		if err := b.whileIdle(func() { t.Fatal("ran on a stopped controller") }); !errors.Is(err, errBurstStopped) {
 			t.Fatalf("error %v", err)
 		}
+	})
+}
+
+func TestBurstActionThatIsStillFindingItsPageHoldsTheTailOpen(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		backend := newFakeBurstBackend()
+		b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
+		action := clickAction
+		action.TargetID = "t1"
+		runAction(t, b, action, 10*time.Millisecond, nil)
+		// The next action arrives while the tail runs, and finding its page takes
+		// far longer than the tail and the settle time.
+		time.Sleep(100 * time.Millisecond)
+		release := b.arrive()
+		time.Sleep(3 * time.Second)
+		if backend.segment(0).closeReason() != "" || b.status().State != "burst" {
+			t.Fatalf("the burst closed (%q) while the action was finding its page", backend.segment(0).closeReason())
+		}
+		handle, err := b.begin(context.Background(), action)
+		release()
+		if err != nil || handle == nil {
+			t.Fatalf("begin: %v %v", handle, err)
+		}
+		if backend.segmentCount() != 1 {
+			t.Fatalf("the action opened a second burst: %d segments", backend.segmentCount())
+		}
+		b.end(handle, time.Now(), nil)
+		time.Sleep(3 * time.Second)
+		if status := b.status(); status.Count != 1 || status.State != "idle" || backend.segment(0).closeReason() != "settled" {
+			t.Fatalf("status %+v, closed %q", status, backend.segment(0).closeReason())
+		}
+		b.shutdown(false)
+	})
+}
+
+func TestBurstArrivalThatNeverBeginsDoesNotHoldTheTailOnceReleased(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		backend := newFakeBurstBackend()
+		b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
+		runAction(t, b, typeAction, 10*time.Millisecond, nil)
+		release := b.arrive()
+		time.Sleep(2 * time.Second)
+		release()
+		release()
+		time.Sleep(2 * time.Second)
+		if backend.segment(0).closeReason() != "settled" {
+			t.Fatalf("closed %q", backend.segment(0).closeReason())
+		}
+		b.shutdown(false)
 	})
 }

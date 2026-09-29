@@ -47,6 +47,8 @@ type wrapperRuntime struct {
 	mu                       sync.Mutex
 	storageExportMu          sync.Mutex
 	uploadMu                 sync.Mutex
+	pointerIDMu              sync.Mutex
+	pointerID                pointerIdentification
 	compositorPID            int
 	mediaProducer            *producer
 	targets                  *wrapperTargetRegistry

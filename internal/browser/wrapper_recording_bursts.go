@@ -48,6 +48,12 @@ const (
 	// burstFirstFrameTimeout is how long a burst waits for its pipeline's first
 	// frame, as long as a replacement segment waits for data.
 	burstFirstFrameTimeout = 5 * time.Second
+	// burstOpenAttempts is how many pipelines a burst tries for its first frame.
+	// Each gets burstFirstFrameTimeout divided among the attempts; a pipeline that
+	// started against a capture that was replaced meanwhile never produces one,
+	// so the wait also ends when the page's capture changes.
+	burstOpenAttempts   = 2
+	burstCapturePollGap = 100 * time.Millisecond
 	// burstIdleProbeTimeout bounds one ask of the compositor while a tail settles.
 	burstIdleProbeTimeout = 500 * time.Millisecond
 	// burstBlindAfter is how many failed asks in a row make a tail assume that the
@@ -87,6 +93,9 @@ var (
 	// errBurstLimit means the recording holds as many segments as it may. It is
 	// not a capture failure.
 	errBurstLimit = errors.New("the recording has reached its limit of segments")
+	// errBurstNoFrame and errBurstCaptureChanged end an attempt to open a segment.
+	errBurstNoFrame        = errors.New("the capture pipeline produced no frame")
+	errBurstCaptureChanged = errors.New("the page's capture changed while the pipeline started")
 )
 
 // burstConfig is a bursts recording's timing.
@@ -304,6 +313,9 @@ type recordingBursts struct {
 	// background: the burst does not tail off, and no action joins it, until they
 	// are done.
 	following int
+	// pending counts the actions that have arrived and are still finding out which
+	// page they run on: the burst does not close its tail meanwhile.
+	pending int
 	// changed is closed and replaced at every state change, so a waiter can wait
 	// for the next one.
 	changed chan struct{}
@@ -382,6 +394,25 @@ func (b *recordingBursts) waitLocked(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// arrive tells the controller that an action has arrived and is finding out
+// which page it runs on, which can take a while. Until the returned function is
+// called, which the caller does once begin returned, a tail does not close, so
+// the action can join the burst it would have joined had it arrived at once.
+// It is safe to call the function more than once.
+func (b *recordingBursts) arrive() (release func()) {
+	b.mu.Lock()
+	b.pending++
+	b.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.mu.Lock()
+			b.pending--
+			b.mu.Unlock()
+		})
 	}
 }
 
@@ -592,16 +623,64 @@ func (b *recordingBursts) runOpening(ctx context.Context, target wrapperTargetSn
 }
 
 // openSegment starts the pipeline of a segment, and waits for its first frame
-// and, after it, the lead.
+// and, after it, the lead. A pipeline that started while the page's capture was
+// being replaced never gets a frame: it is dropped, as soon as the capture is seen
+// to change or the attempt's share of the wait is over, and started again on the
+// page as it is then.
 func (b *recordingBursts) openSegment(ctx context.Context, target wrapperTargetSnapshot, burst uint64, lead time.Duration) (burstSegment, error) {
-	seg, err := b.backend.open(ctx, target, burst)
-	if err == nil {
-		err = awaitFirstFrame(ctx, seg)
+	var seg burstSegment
+	var err error
+	for attempt := 1; ; attempt++ {
+		seg, err = b.backend.open(ctx, target, burst)
+		if err != nil {
+			return nil, err
+		}
+		err = b.awaitFirstFrame(ctx, seg, target, burstFirstFrameTimeout/burstOpenAttempts)
+		if !errors.Is(err, errBurstNoFrame) && !errors.Is(err, errBurstCaptureChanged) || attempt >= burstOpenAttempts {
+			break
+		}
+		burstWarn("burst pipeline for page %s got no first frame (%v); starting it again", target.TargetID, err)
+		seg.Discard()
+		seg = nil
+		next, ready := b.awaitTarget(ctx, target.TargetID)
+		if !ready {
+			return nil, errors.New("the page to record stopped being ready")
+		}
+		target = next
+		b.mu.Lock()
+		b.segTarget = target
+		b.mu.Unlock()
 	}
 	if err == nil && lead > 0 {
 		err = sleepUntil(ctx, seg.Anchor().Add(lead))
 	}
 	return seg, err
+}
+
+// awaitFirstFrame waits for the segment's first frame, at most timeout, and gives
+// up early when the page's capture is not the one the pipeline was started on.
+func (b *recordingBursts) awaitFirstFrame(ctx context.Context, seg burstSegment, target wrapperTargetSnapshot, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	poll := time.NewTicker(burstCapturePollGap)
+	defer poll.Stop()
+	for {
+		select {
+		case <-seg.FirstFrame():
+			return nil
+		case <-seg.Exited():
+			return errors.New("the capture pipeline exited before its first frame")
+		case <-timer.C:
+			return errBurstNoFrame
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-poll.C:
+			current, ready := b.backend.target(target.TargetID)
+			if !ready || current.CaptureID != target.CaptureID || current.Generation != target.Generation || current.Viewport != target.Viewport {
+				return errBurstCaptureChanged
+			}
+		}
+	}
 }
 
 // activateLocked makes an opened segment the burst's.
@@ -676,21 +755,6 @@ func (b *recordingBursts) abortOpening(ctx context.Context, seg burstSegment, er
 		return context.Canceled
 	default:
 		return errBurstUnavailable
-	}
-}
-
-func awaitFirstFrame(ctx context.Context, seg burstSegment) error {
-	timer := time.NewTimer(burstFirstFrameTimeout)
-	defer timer.Stop()
-	select {
-	case <-seg.FirstFrame():
-		return nil
-	case <-seg.Exited():
-		return errors.New("the capture pipeline exited before its first frame")
-	case <-timer.C:
-		return errors.New("the capture pipeline produced no frame")
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }
 
@@ -816,8 +880,7 @@ func (b *recordingBursts) tailLoop(ctx context.Context, id uint64, plan tailPlan
 		if reason == "" && !time.Now().Before(plan.hardEnd) {
 			reason = "max_tail"
 		}
-		if reason != "" {
-			b.closeFromTail(id, reason)
+		if reason != "" && b.closeFromTail(id, reason) {
 			return
 		}
 		select {
@@ -828,11 +891,18 @@ func (b *recordingBursts) tailLoop(ctx context.Context, id uint64, plan tailPlan
 	}
 }
 
-func (b *recordingBursts) closeFromTail(id uint64, reason string) {
+// closeFromTail closes the burst when the tail that id names is over. It reports
+// false when an action that has arrived holds the burst open, and the tail
+// should keep waiting.
+func (b *recordingBursts) closeFromTail(id uint64, reason string) bool {
 	b.mu.Lock()
 	if b.state != burstTail || b.tailID != id {
 		b.mu.Unlock()
-		return
+		return true
+	}
+	if b.pending > 0 {
+		b.mu.Unlock()
+		return false
 	}
 	seg := b.startClosingLocked(false)
 	if reason == "max_tail" {
@@ -841,6 +911,7 @@ func (b *recordingBursts) closeFromTail(id uint64, reason string) {
 	b.mu.Unlock()
 	b.backend.changed()
 	b.finishClose(seg, reason, nil)
+	return true
 }
 
 // startClosingLocked moves an active or tailing burst to closing and returns its
@@ -966,8 +1037,9 @@ func (b *recordingBursts) targetClosed(targetID string) {
 	case burstActive, burstTail:
 		seg := b.startClosingLocked(false)
 		b.mu.Unlock()
-		b.backend.changed()
-		b.finishClose(seg, "target_closed", nil)
+		// The registry calls this from inside its own sync, which must not wait for
+		// a pipeline to finish: the close runs on, and actions wait for it.
+		go b.finishCloseAndNotify(seg, "target_closed", nil)
 	default:
 		b.mu.Unlock()
 	}
@@ -986,8 +1058,16 @@ func (b *recordingBursts) replaceTarget(target wrapperTargetSnapshot) {
 	// A burst that is running, or tailing off, carries on in a new segment.
 	seg := b.startClosingLocked(true)
 	b.mu.Unlock()
+	// Like targetClosed, this runs inside the registry's sync, and the reopening
+	// waits for a first frame and for the registry itself: it runs in the
+	// background.
+	go b.finishCloseAndNotify(seg, "target_changed", &target)
+}
+
+// finishCloseAndNotify tells clients the burst is closing, then finishes the close.
+func (b *recordingBursts) finishCloseAndNotify(seg burstSegment, reason string, reopen *wrapperTargetSnapshot) {
 	b.backend.changed()
-	b.finishClose(seg, "target_changed", &target)
+	b.finishClose(seg, reason, reopen)
 }
 
 // startFollow moves a burst that an action is running in to the page the action

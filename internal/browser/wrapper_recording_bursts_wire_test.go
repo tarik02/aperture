@@ -148,6 +148,10 @@ func TestClosingAPageDoesNotStopABurstsRecording(t *testing.T) {
 		t.Fatal(err)
 	}
 	session.stopTabRecordings("t1")
+	// The burst closes in the background, so as not to hold up the registry.
+	for deadline := time.Now().Add(2 * time.Second); backend.segment(0).closeReason() == "" && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if backend.segmentCount() != 1 || backend.segment(0).closeReason() != "target_closed" {
 		t.Fatalf("segments %d", backend.segmentCount())
 	}

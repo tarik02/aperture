@@ -130,6 +130,12 @@ func (r *wrapperRuntime) beginBurstAction(ctx context.Context, tool string, argu
 	}
 	action := burstAction{Tool: tool, Kind: kind, Hold: hold}
 	if kind != burstActionObserve {
+		// Finding the page can take long enough for a burst's tail to run out: the
+		// bursts are told the action has arrived, and hold their tails until it has
+		// joined or opened one.
+		for _, controller := range controllers {
+			defer controller.arrive()()
+		}
 		action.TargetID = r.identifyBurstTarget(ctx)
 	}
 	ticket := &burstTicket{targetID: action.TargetID}
