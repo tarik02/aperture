@@ -108,8 +108,8 @@ describe.skipIf(!available)("browser MCP host", () => {
     const clicked = await call("browser_click", { target: ref });
     expect(clicked.content[0].text).toContain("Page Title: clicked true");
     expect(clicked._meta.aperture.gesture).toMatchObject({
-      kind: "click",
       tool: "browser_click",
+      fallback: true,
       hold: 45,
     });
 

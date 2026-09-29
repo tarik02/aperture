@@ -62,10 +62,11 @@ A recording that stops normally gets a **recording timeline** next to its video:
 
 All times are milliseconds of video time, counted across target changes; coordinates are pixels of the video frame.
 
-- ``durationMs`, `segments[]` — the video's length and one entry per capture (`targetId`, `start`, `end`, `width`, `height`); retargeting starts a new segment.
+- `durationMs`, `segments[]` — the video's length and one entry per capture (`targetId`, `start`, `end`, `width`, `height`); retargeting starts a new segment.
 - `actions[]` — every tool call that changes something: `tool`, `targetId`, `start`, `end`, `ok`, and the `caption` given to the tool. A target other than the recorded one can appear here.
-- `gestures[]` — pointer tools only: `kind` (`click`, `move`, `drag`, `scroll`), `start`, `end`, `hold`, the pointer `path` as `[ms, x, y]`, `clicks[]` (`t`, `x`, `y`, `button`, `count`), and for scrolls `scroll` (`deltaX`, `deltaY`, and the point scrolled at). Path and clicks exist only in sessions with a compositor, and only for the recorded target.
+- `gestures[]` — pointer tools only: `tool`, `targetId`, `start`, `end`, `hold`, the pointer `path` as `[ms, x, y]`, `clicks[]` (`t`, `x`, `y`, `button`, `count`), and for scrolls `scroll` (`t`, `deltaX`, `deltaY`, and the point scrolled at). Path, clicks and scroll exist only for pointer moves made in the compositor; a gesture with `fallback: true` (no compositor surface, so the page's own mouse was used) keeps only its timing.
 - `activity[]` — spans (`start`, `end`) in which the recorded page's content changed, sampled 20 times a second. A static page stays idle however the pointer moves; the spans cover new buffer content, not repaints.
+- `unknown[]` — spans (`start`, `end`) where the compositor could not be sampled; the page may have changed there, so do not read them as idle.
 
 Each list is truncated at a fixed size (2000 actions, 1000 gestures, 5000 activity spans, 600 path points per gesture).
 

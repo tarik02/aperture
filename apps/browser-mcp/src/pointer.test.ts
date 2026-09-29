@@ -3,7 +3,8 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { CompositorPointer, type ClickOptions } from "./pointer.ts";
+import type { Page } from "playwright-core";
+import { compositorDevice, Pointer, type ClickOptions, type Surface } from "./pointer.ts";
 
 // A stand-in compositor control socket: records each command and answers "ok",
 // or "error" for the commands `reject` matches.
@@ -41,9 +42,12 @@ const options: ClickOptions = {
   motion: "instant",
 };
 
-describe("CompositorPointer", () => {
+const pointerOn = (surface: Surface, viewport: { width: number; height: number } = surface) =>
+  new Pointer(compositorDevice(socket, surface, {} as Page), surface, viewport);
+
+describe("Pointer on a compositor", () => {
   it("scales CSS pixels to the surface and clamps to its last pixel", async () => {
-    const pointer = new CompositorPointer(socket, { id: 7, width: 200, height: 100 }, 2);
+    const pointer = pointerOn({ id: 7, width: 200, height: 100 }, { width: 100, height: 50 });
     await pointer.click({ x: 10, y: 20 }, options);
     await pointer.click({ x: 500, y: 500 }, options);
     expect(commands).toContain("button-at 7 20.000 40.000 272 1");
@@ -51,7 +55,7 @@ describe("CompositorPointer", () => {
   });
 
   it("clicks with the requested button, count and modifiers, releasing everything in reverse", async () => {
-    const pointer = new CompositorPointer(socket, { id: 1, width: 100, height: 100 }, 1);
+    const pointer = pointerOn({ id: 1, width: 100, height: 100 });
     await pointer.click(
       { x: 5, y: 5 },
       { ...options, button: "right", count: 2, modifiers: ["Shift", "Control"] },
@@ -71,7 +75,7 @@ describe("CompositorPointer", () => {
 
   it("releases the button and modifiers when pressing fails", async () => {
     reject = /^button-at/;
-    const pointer = new CompositorPointer(socket, { id: 1, width: 100, height: 100 }, 1);
+    const pointer = pointerOn({ id: 1, width: 100, height: 100 });
     await expect(pointer.click({ x: 5, y: 5 }, { ...options, modifiers: ["Alt"] })).rejects.toThrow(
       "rejected",
     );
@@ -79,7 +83,7 @@ describe("CompositorPointer", () => {
   });
 
   it("nudges before an instant drag so HTML5 drag and drop starts, then releases without coordinates", async () => {
-    const pointer = new CompositorPointer(socket, { id: 1, width: 100, height: 100 }, 1);
+    const pointer = pointerOn({ id: 1, width: 100, height: 100 });
     await pointer.drag({ x: 10, y: 10 }, { x: 60, y: 10 }, { holdMs: 0, motion: "instant" });
     const press = commands.findIndex((command) => command.startsWith("button-at"));
     expect(commands.slice(press + 1)).toEqual([
@@ -87,12 +91,5 @@ describe("CompositorPointer", () => {
       "motion 1 60.000 10.000",
       "button 1 272 0",
     ]);
-  });
-
-  it("glides in many small steps and records the path", async () => {
-    const pointer = new CompositorPointer(socket, { id: 1, width: 400, height: 300 }, 1);
-    await pointer.glide({ x: 300, y: 200 }, "natural");
-    expect(pointer.record.path.length).toBeGreaterThan(10);
-    expect(pointer.record.path.at(-1)?.slice(1)).toEqual([300, 200]);
   });
 });

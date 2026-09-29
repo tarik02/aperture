@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
@@ -22,7 +21,7 @@ const playwrightCallRequestMaxBytes = 16 << 20
 type playwrightMCPBackend struct {
 	values        RuntimeEnvValues
 	controlSocket string
-	mu            sync.Mutex
+	slot          chan struct{} // one call at a time; holding it guards session
 	session       *mcp.ClientSession
 }
 
@@ -32,7 +31,7 @@ type playwrightCallRequest struct {
 }
 
 func newPlaywrightMCPBackend(values RuntimeEnvValues, controlSocket string) *playwrightMCPBackend {
-	return &playwrightMCPBackend{values: values, controlSocket: controlSocket}
+	return &playwrightMCPBackend{values: values, controlSocket: controlSocket, slot: make(chan struct{}, 1)}
 }
 
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
@@ -40,8 +39,12 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 		return nil, fmt.Errorf("playwright tool %q is not exposed", name)
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	select {
+	case b.slot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-b.slot }()
 	if b.session == nil {
 		if err := b.start(ctx); err != nil {
 			return nil, err
@@ -50,8 +53,11 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 
 	result, err := b.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
-		_ = b.session.Close()
-		b.session = nil
+		// A caller that gave up says nothing about the host; only transport and protocol errors do.
+		if ctx.Err() == nil {
+			_ = b.session.Close()
+			b.session = nil
+		}
 		return nil, err
 	}
 	return result, nil
@@ -92,8 +98,8 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 }
 
 func (b *playwrightMCPBackend) Close() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.slot <- struct{}{}
+	defer func() { <-b.slot }()
 	if b.session == nil {
 		return
 	}

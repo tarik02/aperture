@@ -95,16 +95,19 @@ type timelineSegment struct {
 	scaleX, scaleY float64
 	clock          *frameClock
 	ended          bool
-	spans          []timelineSpan
+	// spans are when content changed; unknown are stretches where it could not be sampled.
+	spans, unknown []timelineSpan
 }
 
 // timelineGesture and timelineAction are what the browser MCP host reports in a tool
 // result's `_meta.aperture` (wall-clock epoch milliseconds, compositor surface pixels)
 // and what the timeline file holds (video milliseconds, video pixels).
 type timelineGesture struct {
-	Kind     string          `json:"kind"`
-	Tool     string          `json:"tool"`
-	TargetID string          `json:"targetId"`
+	Tool     string `json:"tool"`
+	TargetID string `json:"targetId"`
+	// Fallback: the page's own mouse was used, so coordinates are viewport CSS pixels
+	// rather than surface pixels and are not kept.
+	Fallback bool            `json:"fallback,omitempty"`
 	Start    int64           `json:"start"`
 	End      int64           `json:"end"`
 	Hold     int64           `json:"hold"`
@@ -122,6 +125,7 @@ type timelineClick struct {
 }
 
 type timelineScroll struct {
+	T      int64   `json:"t"`
 	DeltaX float64 `json:"deltaX"`
 	DeltaY float64 `json:"deltaY"`
 	X      float64 `json:"x"`
@@ -233,25 +237,28 @@ func (t *recordingTimeline) sample(ctx context.Context, socket string) {
 			cancel()
 			var sinceMS, count uint64
 			if _, scanErr := fmt.Sscanf(response, "ok %d %d", &sinceMS, &count); err != nil || scanErr != nil {
+				segment.unknown = addSpan(segment.unknown, requested, time.Now())
 				continue
 			}
 			previous, seen := counts[segment]
 			counts[segment] = count
 			if seen && count != previous {
 				answered := time.Now()
-				segment.note(requested.Add(answered.Sub(requested) / 2).Add(-time.Duration(sinceMS) * time.Millisecond))
+				at := requested.Add(answered.Sub(requested) / 2).Add(-time.Duration(sinceMS) * time.Millisecond)
+				segment.spans = addSpan(segment.spans, at, at)
 			}
 		}
 	}
 }
 
-// note records a content change, extending the last activity span when it is close.
-func (s *timelineSegment) note(at time.Time) {
-	if n := len(s.spans); n > 0 && at.Sub(s.spans[n-1].end) <= timelineSpanGap {
-		s.spans[n-1].end = at
+// addSpan extends the last span when the new one is close to it, else starts another.
+func addSpan(spans []timelineSpan, start, end time.Time) []timelineSpan {
+	if n := len(spans); n > 0 && start.Sub(spans[n-1].end) <= timelineSpanGap {
+		spans[n-1].end = end
 	} else if n < timelineMaxSpans {
-		s.spans = append(s.spans, timelineSpan{at, at})
+		spans = append(spans, timelineSpan{start, end})
 	}
+	return spans
 }
 
 // The timeline file. Times are milliseconds of video time; coordinates are video pixels.
@@ -264,6 +271,8 @@ type timelineDoc struct {
 	Actions     []timelineAction     `json:"actions"`
 	Gestures    []timelineGesture    `json:"gestures"`
 	Activity    []timelineSpanOut    `json:"activity"`
+	// Unknown is where damage could not be sampled, so quiet there does not mean idle.
+	Unknown []timelineSpanOut `json:"unknown"`
 }
 
 type timelineSegmentOut struct {
@@ -302,7 +311,7 @@ func (t *recordingTimeline) build(recordingID, video string) timelineDoc {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	doc := timelineDoc{Version: 1, RecordingID: recordingID, Video: video, Segments: []timelineSegmentOut{},
-		Actions: []timelineAction{}, Gestures: []timelineGesture{}, Activity: []timelineSpanOut{}}
+		Actions: []timelineAction{}, Gestures: []timelineGesture{}, Activity: []timelineSpanOut{}, Unknown: []timelineSpanOut{}}
 	var placed []placement
 	for _, segment := range t.segments {
 		anchor, length := segment.clock.span()
@@ -315,6 +324,9 @@ func (t *recordingTimeline) build(recordingID, video string) timelineDoc {
 		doc.Segments = append(doc.Segments, timelineSegmentOut{segment.targetID, p.offset, p.offset + p.length, segment.width, segment.height})
 		for _, span := range segment.spans {
 			doc.Activity = append(doc.Activity, timelineSpanOut{p.ms(span.start), p.ms(span.end)})
+		}
+		for _, span := range segment.unknown {
+			doc.Unknown = append(doc.Unknown, timelineSpanOut{p.ms(span.start), p.ms(span.end)})
 		}
 	}
 	if len(placed) == 0 {
@@ -346,8 +358,11 @@ func (t *recordingTimeline) build(recordingID, video string) timelineDoc {
 		if p == nil {
 			continue // the gesture was on a target this recording was not showing
 		}
-		path, clicks := gesture.Path, gesture.Clicks
+		path, clicks, scroll := gesture.Path, gesture.Clicks, gesture.Scroll
 		gesture.Start, gesture.End = p.ms(epoch(gesture.Start)), p.ms(epoch(gesture.End))
+		if gesture.Fallback { // viewport CSS pixels, not surface pixels
+			path, clicks, scroll = nil, nil, nil
+		}
 		gesture.Path, gesture.Clicks = make([][3]float64, len(path)), make([]timelineClick, len(clicks))
 		for i, point := range path {
 			x, y := p.point(point[1], point[2])
@@ -358,10 +373,12 @@ func (t *recordingTimeline) build(recordingID, video string) timelineDoc {
 			click.T = p.ms(epoch(click.T))
 			gesture.Clicks[i] = click
 		}
-		if gesture.Scroll != nil {
-			scroll := *gesture.Scroll
-			scroll.X, scroll.Y = p.point(scroll.X, scroll.Y)
-			gesture.Scroll = &scroll
+		gesture.Scroll = nil
+		if scroll != nil {
+			moved := *scroll
+			moved.T = p.ms(epoch(moved.T))
+			moved.X, moved.Y = p.point(moved.X, moved.Y)
+			gesture.Scroll = &moved
 		}
 		doc.Gestures = append(doc.Gestures, gesture)
 	}
