@@ -18,6 +18,8 @@ type Limits struct {
 	MaxPathPointsTotal      int
 	MaxActivitySpans        int
 	MaxUnknownSpans         int
+	// MaxBurstActions bounds the actions kept for bursts recordings.
+	MaxBurstActions int
 	// SampleInterval is reported in Activity; it is how often the caller samples.
 	SampleInterval time.Duration
 	// MergeGap is the longest pause between two changes that is still one span.
@@ -33,6 +35,7 @@ func DefaultLimits() Limits {
 		MaxPathPointsTotal:      100_000,
 		MaxActivitySpans:        20_000,
 		MaxUnknownSpans:         1000,
+		MaxBurstActions:         5000,
 		SampleInterval:          50 * time.Millisecond,
 		MergeGap:                250 * time.Millisecond,
 	}
@@ -70,6 +73,21 @@ type SegmentInput struct {
 	// Clock returns the pipeline's account of the segment's frames, and false
 	// while there is none. It is called when the timeline is built.
 	Clock func() (Clock, bool)
+	// Burst is the number of the burst the segment belongs to, starting at 1, or
+	// zero for a segment of a continuous recording. Consecutive segments with the
+	// same number are one burst.
+	Burst uint64
+}
+
+// ActionInput is a browser action that ran during a burst, at wall times.
+type ActionInput struct {
+	Tool     string
+	Kind     string
+	TargetID string
+	Start    time.Time
+	End      time.Time
+	// Gesture is the ID of the pointer gesture the action made, or zero.
+	Gesture uint64
 }
 
 // PathInput is a cursor position, Offset after the gesture's Start, in page pixels.
@@ -144,8 +162,9 @@ type wallSpan struct{ start, end time.Time }
 type wallSpans struct{ list []wallSpan }
 
 type segmentState struct {
-	input SegmentInput
-	ended time.Time
+	input    SegmentInput
+	ended    time.Time
+	closedBy string
 }
 
 // Builder collects what happens during a recording, from any goroutine, and
@@ -156,6 +175,7 @@ type Builder struct {
 	segments  []*segmentState
 	gestures  []GestureInput
 	captions  []CaptionInput
+	actions   []ActionInput
 	pathTotal int
 	truncated Truncation
 	changes   map[string]*wallSpans
@@ -171,6 +191,7 @@ func NewBuilder(limits Limits) *Builder {
 	limits.MaxPathPointsTotal = cmp.Or(limits.MaxPathPointsTotal, defaults.MaxPathPointsTotal)
 	limits.MaxActivitySpans = cmp.Or(limits.MaxActivitySpans, defaults.MaxActivitySpans)
 	limits.MaxUnknownSpans = cmp.Or(limits.MaxUnknownSpans, defaults.MaxUnknownSpans)
+	limits.MaxBurstActions = cmp.Or(limits.MaxBurstActions, defaults.MaxBurstActions)
 	limits.SampleInterval = cmp.Or(limits.SampleInterval, defaults.SampleInterval)
 	limits.MergeGap = cmp.Or(limits.MergeGap, defaults.MergeGap)
 	return &Builder{
@@ -193,12 +214,43 @@ func (b *Builder) BeginSegment(input SegmentInput) int {
 // EndSegment records when a segment's pipeline was stopped. Only the first call
 // for a segment counts.
 func (b *Builder) EndSegment(index int, at time.Time) {
+	b.EndSegmentClosedBy(index, at, "")
+}
+
+// EndSegmentClosedBy records when a segment's pipeline was stopped and, for a
+// burst segment, why (closedBy is left alone when empty). Only the first call for
+// a segment counts.
+func (b *Builder) EndSegmentClosedBy(index int, at time.Time, closedBy string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if index < 0 || index >= len(b.segments) || !b.segments[index].ended.IsZero() {
 		return
 	}
 	b.segments[index].ended = at
+	if closedBy != "" {
+		b.segments[index].closedBy = closedBy
+	}
+}
+
+// SetSegmentClosedBy records why a burst segment was ended.
+func (b *Builder) SetSegmentClosedBy(index int, reason string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if index >= 0 && index < len(b.segments) {
+		b.segments[index].closedBy = reason
+	}
+}
+
+// AddAction records a browser action that ran during a burst. Actions that ran
+// outside every segment are dropped when the timeline is built.
+func (b *Builder) AddAction(action ActionInput) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.actions) >= b.limits.MaxBurstActions {
+		b.truncated.Bursts = true
+		return
+	}
+	b.actions = append(b.actions, action)
 }
 
 // DiscardSegment removes the newest segment, which must have the given index,
@@ -383,6 +435,7 @@ type placed struct {
 	// videoStart is the video time of the first frame.
 	videoStart time.Duration
 	clock      string
+	closedBy   string
 	// ownStart and ownEnd are the wall times of the segment that events belong
 	// to. Segments overlap in wall time while the next one starts up; the newer
 	// segment owns the overlap.
@@ -426,6 +479,7 @@ func (b *Builder) Build(options BuildOptions) (*Timeline, error) {
 			return nil, errors.New("timeline refers to a missing segment")
 		}
 		segments = append(segments, place(index, b.segments[index], end))
+		segments[len(segments)-1].closedBy = b.segments[index].closedBy
 	}
 	joined := len(segments) > 1
 	var elapsed time.Duration
@@ -466,6 +520,7 @@ func (b *Builder) Build(options BuildOptions) (*Timeline, error) {
 			Clock:        segment.clock,
 		})
 	}
+	out.Bursts = b.mapBursts(segments)
 	out.Gestures, out.Captions = b.mapGestures(segments)
 	out.Activity = b.mapActivity(segments)
 	return out, nil

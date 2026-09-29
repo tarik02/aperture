@@ -681,6 +681,42 @@ func (e RecordingStatus) Valid() bool {
 	}
 }
 
+// Defines values for RecordingBurstStatusState.
+const (
+	Burst RecordingBurstStatusState = "burst"
+	Idle  RecordingBurstStatusState = "idle"
+)
+
+// Valid indicates whether the value is a known member of the RecordingBurstStatusState enum.
+func (e RecordingBurstStatusState) Valid() bool {
+	switch e {
+	case Burst:
+		return true
+	case Idle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordingCapture.
+const (
+	Bursts     RecordingCapture = "bursts"
+	Continuous RecordingCapture = "continuous"
+)
+
+// Valid indicates whether the value is a known member of the RecordingCapture enum.
+func (e RecordingCapture) Valid() bool {
+	switch e {
+	case Bursts:
+		return true
+	case Continuous:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RecordingEditErrorCode.
 const (
 	FfmpegFailed          RecordingEditErrorCode = "ffmpeg_failed"
@@ -1393,6 +1429,12 @@ type CreateSessionRecordingInput struct {
 	// BitrateKbps Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.
 	BitrateKbps *int `json:"bitrateKbps,omitempty"`
 
+	// Burst Timing of a `bursts` recording, in milliseconds. It is only valid with `capture` `bursts`. Omitted fields take the defaults.
+	Burst *RecordingBurstInput `json:"burst,omitempty"`
+
+	// Capture When a recording captures frames. `continuous` records the whole time it runs. `bursts` records only around browser actions (pointer tools, navigation, typing, waiting for text and other page-changing tools) and joins the bursts into one video; it needs a tab recording.
+	Capture *RecordingCapture `json:"capture,omitempty"`
+
 	// Codec Video codec. Omit for the instance default.
 	Codec *CreateSessionRecordingInputCodec `json:"codec,omitempty"`
 
@@ -1401,6 +1443,9 @@ type CreateSessionRecordingInput struct {
 
 	// Idle Shorten the stretches of the recording where nothing changes on the screen and no gesture is made, in the edited video. `speed` plays them faster and `cut` removes them. Off when omitted.
 	Idle *CreateSessionRecordingInputIdle `json:"idle,omitempty"`
+
+	// Motion How the pointer travels in Aperture pointer gestures made while this recording runs. A gesture's own motion takes precedence, and this takes precedence over the session's setting.
+	Motion *PointerMotion `json:"motion,omitempty"`
 
 	// Ripple Mark clicks with a ripple in the edited video, unless a click says otherwise. Off when omitted.
 	Ripple *bool `json:"ripple,omitempty"`
@@ -1990,6 +2035,12 @@ type ProxyUpstream struct {
 type Recording struct {
 	BitrateKbps int `json:"bitrateKbps"`
 
+	// Burst The timing and progress of a `bursts` recording.
+	Burst *RecordingBurstStatus `json:"burst,omitempty"`
+
+	// Capture When a recording captures frames. `continuous` records the whole time it runs. `bursts` records only around browser actions (pointer tools, navigation, typing, waiting for text and other page-changing tools) and joins the bursts into one video; it needs a tab recording.
+	Capture *RecordingCapture `json:"capture,omitempty"`
+
 	// CaptureGeneration Assignment generation for the current top-level target.
 	CaptureGeneration int64          `json:"captureGeneration"`
 	Codec             RecordingCodec `json:"codec"`
@@ -2010,6 +2061,9 @@ type Recording struct {
 	// Mode Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
 	Mode RecordingMode `json:"mode"`
 
+	// Motion The pointer motion the recording sets, when it does.
+	Motion *PointerMotion `json:"motion,omitempty"`
+
 	// RecordingId Stable recording identifier retained across target changes.
 	RecordingId openapi_types.UUID `json:"recordingId"`
 
@@ -2019,14 +2073,14 @@ type Recording struct {
 	StartedAt    time.Time       `json:"startedAt"`
 	Status       RecordingStatus `json:"status"`
 
-	// StopReason Lifecycle reason recorded after the recording stops or fails.
+	// StopReason Lifecycle reason recorded after the recording stops or fails. A bursts recording that is stopped without any burst having been recorded fails with `no_bursts`.
 	StopReason *string    `json:"stopReason,omitempty"`
 	StoppedAt  *time.Time `json:"stoppedAt,omitempty"`
 
-	// TargetId Identifier of the top-level target currently recorded.
+	// TargetId Identifier of the top-level target currently recorded. A bursts recording reports the page of its latest burst.
 	TargetId string `json:"targetId"`
 
-	// TimelineRelativePath Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.webm.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
+	// TimelineRelativePath Session file path of the recording's `timeline.json`, saved next to the video (`recording-<id>.webm` has `recording-<id>.webm.timeline.json`). It describes, in the video's own time, the segments the video is made of, the pointer gestures made on the recorded target with their cursor paths, click points and captions, and when the recorded screen changed. A bursts recording's timeline also lists its bursts and the browser actions in them. Present once the recording has stopped, and only when a timeline could be written. See the recordings guide for the schema.
 	TimelineRelativePath *string `json:"timelineRelativePath,omitempty"`
 }
 
@@ -2041,6 +2095,49 @@ type RecordingMode string
 
 // RecordingStatus defines model for Recording.Status.
 type RecordingStatus string
+
+// RecordingBurstInput Timing of a `bursts` recording, in milliseconds. It is only valid with `capture` `bursts`. Omitted fields take the defaults.
+type RecordingBurstInput struct {
+	// LeadMs Video recorded before a pointer tool's gesture starts, so the page is seen before the pointer moves. Other actions have no lead.
+	LeadMs *int `json:"leadMs,omitempty"`
+
+	// MaxTailMs The most video recorded after an action ends, however long the screen keeps changing. It must not be less than `tailMs`. A longer `holdMs` still wins.
+	MaxTailMs *int `json:"maxTailMs,omitempty"`
+
+	// SettleMs How long the screen must stay unchanged, after the tail, for the burst to close.
+	SettleMs *int `json:"settleMs,omitempty"`
+
+	// TailMs The least video recorded after an action ends. A pointer tool's `holdMs` counts toward it.
+	TailMs *int `json:"tailMs,omitempty"`
+}
+
+// RecordingBurstStatus The timing and progress of a `bursts` recording.
+type RecordingBurstStatus struct {
+	// Capped Bursts cut off by `maxTailMs` while the screen was still changing.
+	Capped int `json:"capped"`
+
+	// Count Bursts recorded so far, including a running one.
+	Count int `json:"count"`
+
+	// LastError Why the last burst could not be recorded.
+	LastError *string `json:"lastError,omitempty"`
+	LeadMs    int     `json:"leadMs"`
+	MaxTailMs int     `json:"maxTailMs"`
+	SettleMs  int     `json:"settleMs"`
+
+	// Skipped Actions that ran without being recorded because no burst could be opened for them, and bursts whose video was lost.
+	Skipped int `json:"skipped"`
+
+	// State `burst` while a burst is opening, running, settling or closing, and `idle` between bursts.
+	State  RecordingBurstStatusState `json:"state"`
+	TailMs int                       `json:"tailMs"`
+}
+
+// RecordingBurstStatusState `burst` while a burst is opening, running, settling or closing, and `idle` between bursts.
+type RecordingBurstStatusState string
+
+// RecordingCapture When a recording captures frames. `continuous` records the whole time it runs. `bursts` records only around browser actions (pointer tools, navigation, typing, waiting for text and other page-changing tools) and joins the bursts into one video; it needs a tab recording.
+type RecordingCapture string
 
 // RecordingEditError Why the edited video of a recording could not be made. The raw video and its timeline are kept.
 type RecordingEditError struct {
@@ -4179,7 +4276,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecordingWithBody Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4188,7 +4285,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecording Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -4204,7 +4301,7 @@ type ClientInterface interface {
 
 	// RetargetSessionRecordingWithBody Retarget a session recording
 	//
-	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4213,7 +4310,7 @@ type ClientInterface interface {
 
 	// RetargetSessionRecording Retarget a session recording
 	//
-	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -5416,7 +5513,7 @@ func (c *Client) ListSessionRecordings(ctx context.Context, sessionId SessionId,
 
 // CreateSessionRecordingWithBody Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5435,7 +5532,7 @@ func (c *Client) CreateSessionRecordingWithBody(ctx context.Context, sessionId S
 
 // CreateSessionRecording Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5471,7 +5568,7 @@ func (c *Client) GetSessionRecording(ctx context.Context, sessionId SessionId, r
 
 // RetargetSessionRecordingWithBody Retarget a session recording
 //
-// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 //
 // Takes any type of body and a specified content type.
 //
@@ -5490,7 +5587,7 @@ func (c *Client) RetargetSessionRecordingWithBody(ctx context.Context, sessionId
 
 // RetargetSessionRecording Retarget a session recording
 //
-// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 //
 // Takes a body of the `application/json` content type.
 //
@@ -10098,7 +10195,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithBodyWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10107,7 +10204,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10125,7 +10222,7 @@ type ClientWithResponsesInterface interface {
 
 	// RetargetSessionRecordingWithBodyWithResponse Retarget a session recording
 	//
-	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10134,7 +10231,7 @@ type ClientWithResponsesInterface interface {
 
 	// RetargetSessionRecordingWithResponse Retarget a session recording
 	//
-	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+	// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -14141,7 +14238,7 @@ func (c *ClientWithResponses) ListSessionRecordingsWithResponse(ctx context.Cont
 
 // CreateSessionRecordingWithBodyWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14156,7 +14253,7 @@ func (c *ClientWithResponses) CreateSessionRecordingWithBodyWithResponse(ctx con
 
 // CreateSessionRecordingWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. With `capture` `bursts` the recording captures video only around browser actions instead of continuously: a pointer tool, navigation, typing, waiting for text or another page-changing tool opens a burst, which stays open while actions keep coming and closes once the screen has settled. The bursts are joined into one video and the recording's timeline lists them. A bursts recording follows the page the automation acts on. Stopping one in which no burst was recorded fails it with `stopReason` `no_bursts` and produces no video. Stopping waits for the actions that are running and for a burst that is still settling, which can take up to `burst.maxTailMs` (or a pointer tool's `holdMs`) after the last action. `idle`, `ripple` and `zoom` set the defaults of the effects applied to the recording's video when it stops; a host without ffmpeg rejects them with `recording_edit_unavailable`. `idle` has no effect on a bursts recording, which records no idle time.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14186,7 +14283,7 @@ func (c *ClientWithResponses) GetSessionRecordingWithResponse(ctx context.Contex
 
 // RetargetSessionRecordingWithBodyWithResponse Retarget a session recording
 //
-// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14201,7 +14298,7 @@ func (c *ClientWithResponses) RetargetSessionRecordingWithBodyWithResponse(ctx c
 
 // RetargetSessionRecordingWithResponse Retarget a session recording
 //
-// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict.
+// Moves a running tab recording to another ready top-level target while preserving its recording ID, timeline, and settings. Sending its current target is idempotent. Viewer, stopped, and failed recordings conflict, and so does a bursts recording while a burst is in progress (between bursts it only changes the page the recording falls back to).
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

@@ -37,6 +37,8 @@ type screencastProbe struct {
 	now func() time.Time
 	// finished is closed when the pipeline's output has ended.
 	finished chan struct{}
+	// ready is closed when the first frame has been observed.
+	ready chan struct{}
 
 	mu       sync.Mutex
 	frames   int
@@ -48,7 +50,7 @@ type screencastProbe struct {
 }
 
 func newScreencastProbe(fps int) *screencastProbe {
-	return &screencastProbe{fps: fps, now: time.Now, finished: make(chan struct{})}
+	return &screencastProbe{fps: fps, now: time.Now, finished: make(chan struct{}), ready: make(chan struct{})}
 }
 
 // chainLine matches the frame report of an identity element:
@@ -118,6 +120,7 @@ func (p *screencastProbe) observe(read time.Time, pts, duration time.Duration) {
 	if p.frames == 0 {
 		p.firstPTS = pts
 		p.anchor = read
+		close(p.ready)
 	} else if candidate := read.Add(-(pts - p.firstPTS)); candidate.Before(p.anchor) {
 		p.anchor = candidate
 	}

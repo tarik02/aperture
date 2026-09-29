@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/pointer"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
@@ -27,13 +28,29 @@ var (
 	errWrapperRecordingNotFound         = errors.New("recording not found")
 	errWrapperRecordingEmpty            = errors.New("recording is empty")
 	errWrapperRecordingCodecUnavailable = errors.New("recording codec is unavailable on this host")
-	errWrapperRecordingInvalid          = errors.New("invalid recording request")
-	errWrapperRecordingEditUnavailable  = errors.New("recording edits are unavailable on this host: no ffmpeg is configured")
+	// errWrapperRecordingInvalid marks a start request that can never succeed.
+	errWrapperRecordingInvalid = errors.New("invalid recording request")
+	// errWrapperRecordingNoBursts is why a bursts recording that captured nothing
+	// fails when it is stopped; noBurstsError says what happened to the actions.
+	errWrapperRecordingNoBursts        = fmt.Errorf("%w: no burst was recorded", errWrapperRecordingEmpty)
+	errWrapperRecordingEditUnavailable = errors.New("recording edits are unavailable on this host: no ffmpeg is configured")
 )
+
+// noBurstsError explains a bursts recording that captured nothing: either no
+// action ran, or the actions that ran could not be recorded.
+func noBurstsError(status wrapperBurstStatus) error {
+	if status.Skipped == 0 {
+		return fmt.Errorf("%w: no browser action ran while the recording was in bursts mode", errWrapperRecordingNoBursts)
+	}
+	return fmt.Errorf("%w: %d actions or bursts were skipped or discarded (last error: %s)", errWrapperRecordingNoBursts, status.Skipped, status.LastError)
+}
 
 type wrapperRecordingStatus string
 
 type wrapperRecordingMode string
+
+// wrapperRecordingCapture says when a recording captures frames.
+type wrapperRecordingCapture string
 
 const (
 	wrapperRecordingStarting wrapperRecordingStatus = "starting"
@@ -43,37 +60,52 @@ const (
 
 	wrapperRecordingModeTab    wrapperRecordingMode = "tab"
 	wrapperRecordingModeViewer wrapperRecordingMode = "viewer"
+
+	// wrapperRecordingCaptureContinuous records the whole time it runs.
+	wrapperRecordingCaptureContinuous wrapperRecordingCapture = "continuous"
+	// wrapperRecordingCaptureBursts records only around browser actions.
+	wrapperRecordingCaptureBursts wrapperRecordingCapture = "bursts"
 )
 
 // wrapperRecording is one recording. TimelinePath is the timeline file saved
 // next to the video once it is published; timeline collects that file's content
 // while the recording runs and is set when it starts.
 type wrapperRecording struct {
-	ID                string                 `json:"recordingId"`
-	Mode              wrapperRecordingMode   `json:"mode"`
-	TargetID          string                 `json:"targetId"`
-	CaptureGeneration uint64                 `json:"captureGeneration"`
-	Status            wrapperRecordingStatus `json:"status"`
-	StopReason        string                 `json:"stopReason,omitempty"`
-	Path              string                 `json:"-"`
-	TimelinePath      string                 `json:"-"`
-	StartedAt         time.Time              `json:"startedAt"`
-	StoppedAt         *time.Time             `json:"stoppedAt,omitempty"`
-	SizeBytes         int64                  `json:"sizeBytes,omitempty"`
-	FPS               int                    `json:"fps"`
-	BitrateKbps       int                    `json:"bitrateKbps"`
-	Codec             string                 `json:"codec"`
-	filesRoot         string
-	segmentDir        string
-	segments          []string
-	cmd               *exec.Cmd
-	done              <-chan error
-	viewport          compositorViewport
-	finalizing        bool
-	replacing         bool
-	clientID          string
-	operationMu       *sync.Mutex
-	timeline          *recordingTimeline
+	ID                string                  `json:"recordingId"`
+	Mode              wrapperRecordingMode    `json:"mode"`
+	Capture           wrapperRecordingCapture `json:"capture"`
+	TargetID          string                  `json:"targetId"`
+	CaptureGeneration uint64                  `json:"captureGeneration"`
+	Status            wrapperRecordingStatus  `json:"status"`
+	StopReason        string                  `json:"stopReason,omitempty"`
+	Path              string                  `json:"-"`
+	TimelinePath      string                  `json:"-"`
+	StartedAt         time.Time               `json:"startedAt"`
+	StoppedAt         *time.Time              `json:"stoppedAt,omitempty"`
+	SizeBytes         int64                   `json:"sizeBytes,omitempty"`
+	FPS               int                     `json:"fps"`
+	BitrateKbps       int                     `json:"bitrateKbps"`
+	Codec             string                  `json:"codec"`
+	// Motion is how the pointer travels in this recording's gestures, when the
+	// recording sets it.
+	Motion *pointer.Motion `json:"motion,omitempty"`
+	// Burst is the timing and progress of a bursts recording. The controller
+	// replaces it rather than changing it, so copies of the recording stay valid.
+	Burst       *wrapperBurstStatus `json:"burst,omitempty"`
+	filesRoot   string
+	segmentDir  string
+	segments    []string
+	cmd         *exec.Cmd
+	done        <-chan error
+	viewport    compositorViewport
+	finalizing  bool
+	replacing   bool
+	clientID    string
+	operationMu *sync.Mutex
+	timeline    *recordingTimeline
+	// bursts controls a bursts recording, which has no pipeline of its own between
+	// bursts; nil for a continuous one.
+	bursts *recordingBursts
 	recordingEdit
 }
 
@@ -85,6 +117,13 @@ type wrapperRecordingRequest struct {
 	BitrateKbps int                  `json:"bitrateKbps"`
 	Codec       string               `json:"codec"`
 	Path        string               `json:"path"`
+	// Capture is "continuous" (the default) or "bursts".
+	Capture wrapperRecordingCapture `json:"capture"`
+	// Motion is the pointer motion of gestures made while recording, below a
+	// tool's own motion and above the session's.
+	Motion *pointer.Motion `json:"motion"`
+	// Burst is the timing of a bursts recording.
+	Burst *wrapperBurstRequest `json:"burst"`
 	recordingEffectsRequest
 }
 
@@ -202,8 +241,46 @@ func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording w
 	http.ServeFile(w, req, recording.Path)
 }
 
+// validateRecordingRequest checks what a start request says about how to record,
+// and returns the burst timing of a bursts recording.
+func validateRecordingRequest(request wrapperRecordingRequest) (wrapperRecordingCapture, burstConfig, error) {
+	invalid := func(format string, args ...any) (wrapperRecordingCapture, burstConfig, error) {
+		return "", burstConfig{}, fmt.Errorf("%w: %s", errWrapperRecordingInvalid, fmt.Sprintf(format, args...))
+	}
+	capture := request.Capture
+	if capture == "" {
+		capture = wrapperRecordingCaptureContinuous
+	}
+	if capture != wrapperRecordingCaptureContinuous && capture != wrapperRecordingCaptureBursts {
+		return invalid("capture must be continuous or bursts")
+	}
+	if request.Motion != nil {
+		if err := request.Motion.Validate(); err != nil {
+			return invalid("%s", err)
+		}
+	}
+	if capture != wrapperRecordingCaptureBursts {
+		if request.Burst != nil {
+			return invalid("burst needs capture bursts")
+		}
+		return capture, burstConfig{}, nil
+	}
+	if request.Mode == wrapperRecordingModeViewer {
+		return invalid("bursts recordings are tab recordings")
+	}
+	config, err := newBurstConfig(request.Burst)
+	if err != nil {
+		return invalid("%s", err)
+	}
+	return capture, config, nil
+}
+
 func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
 	r := session.runtime
+	capture, burstCfg, err := validateRecordingRequest(request)
+	if err != nil {
+		return wrapperRecording{}, err
+	}
 	if request.ClientID != "" {
 		parsedClientID, err := uuid.Parse(request.ClientID)
 		if err != nil || parsedClientID.String() != request.ClientID {
@@ -265,6 +342,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		return wrapperRecording{}, fmt.Errorf("mkdir recording segment dir: %w", err)
 	}
 	segment := filepath.Join(segmentDir, "segment-0000"+filepath.Ext(path))
+	bursts := capture == wrapperRecordingCaptureBursts
 
 	targetID := request.TargetID
 	if request.ClientID != "" {
@@ -300,6 +378,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	recording := &wrapperRecording{
 		ID:                id,
 		Mode:              request.Mode,
+		Capture:           capture,
 		TargetID:          target.TargetID,
 		CaptureGeneration: target.Generation,
 		Status:            wrapperRecordingStarting,
@@ -309,6 +388,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		FPS:               fps,
 		BitrateKbps:       bitrateKbps,
 		Codec:             codec,
+		Motion:            request.Motion,
 		segmentDir:        segmentDir,
 		segments:          []string{segment},
 		viewport:          target.Viewport,
@@ -317,6 +397,23 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		recordingEdit:     recordingEdit{effects: effects},
 	}
 	session.recordings[id] = recording
+	if bursts {
+		// A bursts recording has no pipeline until an action opens a burst: it is
+		// running, waiting for one.
+		recording.segments = nil
+		recording.timeline = r.newBurstsTimeline(effects)
+		backend := &recordingBurstBackend{session: session, recording: recording}
+		session.burstRecordings.Add(1)
+		recording.bursts = newRecordingBursts(r.ctx, burstCfg, backend, func() { session.burstRecordings.Add(-1) })
+		// Nothing else can reach the controller yet, so its lock is not needed.
+		status := recording.bursts.statusLocked()
+		recording.Burst = &status
+		recording.Status = wrapperRecordingRunning
+		statusCopy := *recording
+		r.mu.Unlock()
+		session.broadcastRecordings()
+		return statusCopy, nil
+	}
 	pipelineStarted := time.Now()
 	cmd, done, probe, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err != nil {
@@ -431,6 +528,12 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	}
 	r.mu.Unlock()
 	defer session.broadcastRecordings()
+	if recording.bursts != nil {
+		// A burst in flight is closed, or a tail finished, before the recording is
+		// finalized, so that its video is part of it. A requested stop waits for the
+		// tail (at most maxTailMs); anything else closes at once.
+		recording.bursts.shutdown(reason == "requested")
+	}
 	recording.operationMu.Lock()
 	defer recording.operationMu.Unlock()
 
@@ -459,6 +562,10 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	if stopErr != nil {
 		return session.failRecording(recording, "pipeline_failed", stopErr)
 	}
+	if recording.bursts != nil && len(recording.segments) == 0 {
+		// Nothing was captured, so there is no video to publish.
+		return session.failRecording(recording, "no_bursts", noBurstsError(recording.bursts.status()))
+	}
 	finalPath, size, err := session.joinRecordingSegments(recording)
 	if errors.Is(err, errWrapperRecordingEmpty) {
 		return session.failRecording(recording, reason, err)
@@ -480,6 +587,25 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	status := *recording
 	r.mu.Unlock()
 	return status, nil
+}
+
+// failBurstsRecording fails a bursts recording whose capture keeps failing,
+// keeping the bursts it captured.
+func (session *liveSession) failBurstsRecording(recording *wrapperRecording, reason string, cause error) {
+	recording.bursts.shutdown(false)
+	defer session.broadcastRecordings()
+	recording.operationMu.Lock()
+	defer recording.operationMu.Unlock()
+	r := session.runtime
+	r.mu.Lock()
+	if recording.Status != wrapperRecordingRunning || recording.finalizing {
+		r.mu.Unlock()
+		return
+	}
+	recording.finalizing = true
+	r.mu.Unlock()
+	recording.finishTimelineCollection(len(recording.segments) - 1)
+	_, _ = session.failRecording(recording, reason, cause)
 }
 
 // failRecording marks a recording failed after keeping what it captured.
@@ -533,13 +659,30 @@ func (session *liveSession) replaceRecordingTargets(ctx context.Context, target 
 	r := session.runtime
 	r.mu.Lock()
 	recordings := make([]*wrapperRecording, 0)
+	var bursts []*recordingBursts
 	for _, recording := range session.recordings {
 		session.refreshRecordingLocked(recording)
-		if recording.TargetID == target.TargetID && recording.Status == wrapperRecordingRunning {
+		if recording.Status != wrapperRecordingRunning {
+			continue
+		}
+		if recording.bursts != nil {
+			// A bursts recording has no pipeline to rotate: it follows the change in
+			// the burst that is recording the page, if there is one.
+			if recording.TargetID == target.TargetID {
+				recording.CaptureGeneration = target.Generation
+				recording.viewport = target.Viewport
+			}
+			bursts = append(bursts, recording.bursts)
+			continue
+		}
+		if recording.TargetID == target.TargetID {
 			recordings = append(recordings, recording)
 		}
 	}
 	r.mu.Unlock()
+	for _, controller := range bursts {
+		controller.replaceTarget(target)
+	}
 	if len(recordings) > 0 {
 		defer session.broadcastRecordings()
 	}
@@ -591,6 +734,24 @@ func (session *liveSession) retargetRecording(ctx context.Context, recordingID, 
 	target, exists := registry.readyTarget(targetID)
 	if !exists {
 		return wrapperRecording{}, errors.New("target is not ready")
+	}
+	if recording.bursts != nil {
+		// Between bursts there is nothing to move: the page the recording falls back
+		// to changes. While a burst runs, it stays on its page.
+		err := recording.bursts.whileIdle(func() {
+			r.mu.Lock()
+			recording.TargetID = target.TargetID
+			recording.CaptureGeneration = target.Generation
+			recording.viewport = target.Viewport
+			r.mu.Unlock()
+		})
+		if err != nil {
+			return wrapperRecording{}, err
+		}
+		r.mu.Lock()
+		status := *recording
+		r.mu.Unlock()
+		return status, nil
 	}
 	if err := session.rotateRecordingTargetLocked(ctx, recording, target, expectedTargetID, true); err != nil {
 		return wrapperRecording{}, err
@@ -646,7 +807,7 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 	// its first frames show are not missed while the old segment is still recording.
 	replacementIndex := -1
 	if err == nil && recording.timeline != nil {
-		replacementIndex = recording.timeline.beginSegment(target, probe, pipelineStarted)
+		replacementIndex = recording.timeline.beginSegment(target, probe, pipelineStarted, 0)
 	}
 	discardReplacement := func() {
 		if replacementIndex >= 0 {
@@ -728,13 +889,23 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 	r := session.runtime
 	r.mu.Lock()
 	recordings := make([]*wrapperRecording, 0)
+	var bursts []*recordingBursts
 	for _, recording := range session.recordings {
+		if recording.Status == wrapperRecordingRunning && recording.bursts != nil {
+			bursts = append(bursts, recording.bursts)
+			continue
+		}
 		if recording.TargetID != targetID || recording.CaptureGeneration == generation || recording.Status != wrapperRecordingRunning {
 			continue
 		}
 		recordings = append(recordings, recording)
 	}
 	r.mu.Unlock()
+	for _, controller := range bursts {
+		// A bursts recording survives the loss of a page's capture: the burst that
+		// was recording it ends, and later actions open bursts elsewhere.
+		controller.targetClosed(targetID)
+	}
 	if len(recordings) > 0 {
 		defer session.broadcastRecordings()
 	}
@@ -768,12 +939,24 @@ func (session *liveSession) stopTabRecordings(targetID string) {
 	r := session.runtime
 	r.mu.Lock()
 	ids := make([]string, 0)
+	var bursts []*recordingBursts
 	for _, recording := range session.recordings {
-		if recording.Mode == wrapperRecordingModeTab && recording.TargetID == targetID && recording.Status == wrapperRecordingRunning {
+		if recording.Status != wrapperRecordingRunning {
+			continue
+		}
+		if recording.bursts != nil {
+			// Closing a page ends the burst that records it; the recording goes on.
+			bursts = append(bursts, recording.bursts)
+			continue
+		}
+		if recording.Mode == wrapperRecordingModeTab && recording.TargetID == targetID {
 			ids = append(ids, recording.ID)
 		}
 	}
 	r.mu.Unlock()
+	for _, controller := range bursts {
+		controller.targetClosed(targetID)
+	}
 	for _, id := range ids {
 		_, _ = session.stopRecordingForTarget(id, targetID, "target_closed")
 	}
@@ -800,6 +983,9 @@ func (session *liveSession) stopAllRecordings(reason string) {
 // and its size, measured before it becomes visible and movable.
 func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) (string, int64, error) {
 	r := session.runtime
+	if len(recording.segments) == 0 {
+		return "", 0, errWrapperRecordingEmpty
+	}
 	if len(recording.segments) == 1 {
 		return publishFinishedRecording(recording.segments[0], recording.Path, recording.segmentDir)
 	}
@@ -1038,7 +1224,8 @@ func (session *liveSession) activeRecordingCountLocked() int {
 }
 
 func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) {
-	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing || recording.cmd == nil {
+	// The controller of a bursts recording watches its own pipelines.
+	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing || recording.cmd == nil || recording.bursts != nil {
 		return
 	}
 	select {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/pointer"
 	"github.com/aperture/aperture/internal/recording/edit"
 	"github.com/aperture/aperture/internal/recording/timeline"
 	"github.com/aperture/aperture/internal/sessionfiles"
@@ -21,13 +22,18 @@ import (
 )
 
 type wrapperRecordingStatus struct {
-	RecordingID       string `json:"recordingId"`
-	Mode              string `json:"mode"`
-	TargetID          string `json:"targetId"`
-	CaptureGeneration uint64 `json:"captureGeneration"`
-	Status            string `json:"status"`
-	StopReason        string `json:"stopReason,omitempty"`
-	RelativePath      string `json:"relativePath"`
+	RecordingID string `json:"recordingId"`
+	Mode        string `json:"mode"`
+	// Capture, Motion and Burst are reported by wrappers that support them; an
+	// older wrapper omits all three, and the recording is continuous.
+	Capture           string                `json:"capture,omitempty"`
+	Motion            *pointer.Motion       `json:"motion,omitempty"`
+	Burst             *recordingBurstStatus `json:"burst,omitempty"`
+	TargetID          string                `json:"targetId"`
+	CaptureGeneration uint64                `json:"captureGeneration"`
+	Status            string                `json:"status"`
+	StopReason        string                `json:"stopReason,omitempty"`
+	RelativePath      string                `json:"relativePath"`
 	// TimelineRelativePath is the recording's timeline file, reported once the
 	// recording is published and only by wrappers that write one.
 	TimelineRelativePath string `json:"timelineRelativePath"`
@@ -48,13 +54,16 @@ type wrapperRecordingStatus struct {
 }
 
 type recordingResponse struct {
-	RecordingID       string `json:"recordingId"`
-	Mode              string `json:"mode"`
-	TargetID          string `json:"targetId"`
-	CaptureGeneration uint64 `json:"captureGeneration"`
-	Status            string `json:"status"`
-	StopReason        string `json:"stopReason,omitempty"`
-	RelativePath      string `json:"relativePath"`
+	RecordingID       string                `json:"recordingId"`
+	Mode              string                `json:"mode"`
+	Capture           string                `json:"capture,omitempty"`
+	Motion            *pointer.Motion       `json:"motion,omitempty"`
+	Burst             *recordingBurstStatus `json:"burst,omitempty"`
+	TargetID          string                `json:"targetId"`
+	CaptureGeneration uint64                `json:"captureGeneration"`
+	Status            string                `json:"status"`
+	StopReason        string                `json:"stopReason,omitempty"`
+	RelativePath      string                `json:"relativePath"`
 	// TimelineRelativePath is the timeline file saved next to the video, absent
 	// until the recording has stopped or when none could be written.
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
@@ -89,12 +98,108 @@ type stoppedRecordingFile struct {
 	EditWarnings       []string    `json:"editWarnings,omitempty"`
 }
 
+// Recording capture modes: when a recording captures frames.
+const (
+	recordingCaptureContinuous = "continuous"
+	recordingCaptureBursts     = "bursts"
+)
+
+// The ranges of a bursts recording's timing, in milliseconds. The wrapper applies
+// the defaults and checks the same ranges.
+const (
+	recordingBurstMaxLeadMs    = 10000
+	recordingBurstMaxTailMs    = 30000
+	recordingBurstMaxSettleMs  = 30000
+	recordingBurstMaxMaxTailMs = 30000
+)
+
+// recordingBurstRequest is the timing of a bursts recording; omitted fields take
+// the wrapper's defaults.
+type recordingBurstRequest struct {
+	LeadMs    *int `json:"leadMs,omitempty"`
+	TailMs    *int `json:"tailMs,omitempty"`
+	SettleMs  *int `json:"settleMs,omitempty"`
+	MaxTailMs *int `json:"maxTailMs,omitempty"`
+}
+
+// recordingBurstStatus is what a bursts recording reports about its bursts.
+type recordingBurstStatus struct {
+	LeadMs    int    `json:"leadMs"`
+	TailMs    int    `json:"tailMs"`
+	SettleMs  int    `json:"settleMs"`
+	MaxTailMs int    `json:"maxTailMs"`
+	State     string `json:"state"`
+	Count     int    `json:"count"`
+	Capped    int    `json:"capped"`
+	Skipped   int    `json:"skipped"`
+	LastError string `json:"lastError,omitempty"`
+}
+
 type createSessionRecordingRequest struct {
 	TargetID    string `json:"targetId"`
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+	// Capture, Motion and Burst are the recordingCaptureRequest fields.
+	Capture string                 `json:"capture"`
+	Motion  *pointer.Motion        `json:"motion"`
+	Burst   *recordingBurstRequest `json:"burst"`
 	recordingEffectsRequest
+}
+
+func (r createSessionRecordingRequest) captureRequest() recordingCaptureRequest {
+	return recordingCaptureRequest{Capture: r.Capture, Motion: r.Motion, Burst: r.Burst}
+}
+
+// recordingCaptureRequest is what recording.start and the REST API take to say
+// when a recording captures and how the pointer travels in it.
+type recordingCaptureRequest struct {
+	Capture string                 `json:"capture,omitempty"`
+	Motion  *pointer.Motion        `json:"motion,omitempty"`
+	Burst   *recordingBurstRequest `json:"burst,omitempty"`
+}
+
+func (r recordingCaptureRequest) validate() error {
+	if r.Capture != "" && r.Capture != recordingCaptureContinuous && r.Capture != recordingCaptureBursts {
+		return validationError("capture must be continuous or bursts")
+	}
+	if r.Motion != nil {
+		if err := r.Motion.Validate(); err != nil {
+			return validationError(err.Error())
+		}
+	}
+	if r.Burst == nil {
+		return nil
+	}
+	if r.Capture != recordingCaptureBursts {
+		return validationError("burst needs capture bursts")
+	}
+	for _, field := range []struct {
+		name    string
+		value   *int
+		maximum int
+	}{
+		{"leadMs", r.Burst.LeadMs, recordingBurstMaxLeadMs},
+		{"tailMs", r.Burst.TailMs, recordingBurstMaxTailMs},
+		{"settleMs", r.Burst.SettleMs, recordingBurstMaxSettleMs},
+		{"maxTailMs", r.Burst.MaxTailMs, recordingBurstMaxMaxTailMs},
+	} {
+		if field.value != nil && (*field.value < 0 || *field.value > field.maximum) {
+			return validationError(fmt.Sprintf("burst.%s must be between 0 and %d", field.name, field.maximum))
+		}
+	}
+	// With one of the two omitted, the wrapper compares with its default.
+	if r.Burst.TailMs != nil && r.Burst.MaxTailMs != nil && *r.Burst.MaxTailMs < *r.Burst.TailMs {
+		return validationError("burst.maxTailMs must not be less than burst.tailMs")
+	}
+	return nil
+}
+
+// wrapperFields adds the capture options to the wrapper's recording request.
+func (r recordingCaptureRequest) wrapperFields(request map[string]any) {
+	request["capture"] = r.Capture
+	request["motion"] = r.Motion
+	request["burst"] = r.Burst
 }
 
 func (r createSessionRecordingRequest) Validate() error {
@@ -104,7 +209,10 @@ func (r createSessionRecordingRequest) Validate() error {
 	if r.Codec != "" && r.Codec != "vp8" && r.Codec != "h264-va" {
 		return validationError("codec must be vp8 or h264-va")
 	}
-	return r.validate()
+	if err := r.captureRequest().validate(); err != nil {
+		return err
+	}
+	return r.recordingEffectsRequest.validate()
 }
 
 type retargetSessionRecordingRequest struct {
@@ -138,7 +246,8 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 	request := map[string]any{
 		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
 	}
-	input.wrapperFields(request)
+	input.captureRequest().wrapperFields(request)
+	input.recordingEffectsRequest.wrapperFields(request)
 	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", request, false, &status)
 	if err != nil {
 		WriteError(c, err)
@@ -340,6 +449,8 @@ func mapWrapperRecordingRequestError(err error) error {
 		return fmt.Errorf("%w: %w", errBrowserControlFailed, err)
 	}
 	switch responseErr.StatusCode {
+	case http.StatusBadRequest:
+		return validationError(responseErr.Message)
 	case http.StatusNotFound:
 		return errRecordingNotFound
 	case http.StatusConflict:
@@ -348,8 +459,6 @@ func mapWrapperRecordingRequestError(err error) error {
 		return fmt.Errorf("%w: %s", errRecordingCodecUnavailable, responseErr.Message)
 	case http.StatusNotImplemented:
 		return fmt.Errorf("%w: %s", errRecordingEditUnavailable, responseErr.Message)
-	case http.StatusBadRequest:
-		return validationError(responseErr.Message)
 	default:
 		return fmt.Errorf("%w: %w", errBrowserControlFailed, err)
 	}
@@ -379,7 +488,7 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 		return recordingResponse{}, err
 	}
 	return recordingResponse{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingID: status.RecordingID, Mode: status.Mode, Capture: status.Capture, Motion: status.Motion, Burst: status.Burst, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, TimelineRelativePath: timelinePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 		EditState: status.EditState, EditedRelativePath: editedPath, EditError: status.EditError, EditWarnings: status.EditWarnings,

@@ -57,7 +57,9 @@ func (r *wrapperRuntime) handlePointerCall(w http.ResponseWriter, req *http.Requ
 		return
 	}
 
-	result, err := r.runPointerGesture(req.Context(), spec)
+	ctx, ticket := r.beginBurstAction(req.Context(), spec.Tool, nil, spec.Hold)
+	result, err := r.runPointerGesture(ctx, spec)
+	ticket.end(burstFailure(result, err))
 	var userErr *pointerUserError
 	if errors.As(err, &userErr) {
 		failure := &mcp.CallToolResult{}
@@ -151,7 +153,7 @@ func (r *wrapperRuntime) runPointerGestureCompositor(ctx context.Context, conn *
 	record.End = time.Now()
 	record.Path = compositor.path
 	record.Clicks = compositor.clicks
-	r.pointer.record(record)
+	burstTicketFromContext(ctx).actionEnded(record.End, r.pointer.record(record))
 
 	if err := sleepContext(ctx, max(spec.Hold, pointerSettleDelay)); err != nil {
 		return nil, err

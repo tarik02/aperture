@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/aperture/aperture/internal/pointer"
 	"io"
 	"net/http"
 	"strings"
@@ -333,9 +334,10 @@ type mcpSessionIDInput struct {
 	SessionID string `json:"sessionId"`
 }
 
-// mcpRecordingStartInput carries the recording's effect defaults, whose zoom is a
-// boolean or a number, which the SDK cannot describe, so recording.start spells
-// out its input schema; see mcpRecordingStartInputSchema.
+// mcpRecordingStartInput carries capture, motion and burst (motion is a string or
+// an object) and the effect defaults (zoom is a boolean or a number), which the
+// SDK cannot describe, so recording.start spells out its input schema; see
+// mcpRecordingStartInputSchema.
 type mcpRecordingStartInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
@@ -343,13 +345,26 @@ type mcpRecordingStartInput struct {
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	// Capture, Motion and Burst are the recordingCaptureRequest fields.
+	Capture string                 `json:"capture,omitempty"`
+	Motion  *pointer.Motion        `json:"motion,omitempty"`
+	Burst   *recordingBurstRequest `json:"burst,omitempty"`
 	recordingEffectsRequest
 }
+
+func (in mcpRecordingStartInput) captureRequest() recordingCaptureRequest {
+	return recordingCaptureRequest{Capture: in.Capture, Motion: in.Motion, Burst: in.Burst}
+}
+
 type mcpBoundRecordingStartInput struct {
 	TargetID    string `json:"targetId"`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	// Capture, Motion and Burst are the recordingCaptureRequest fields.
+	Capture string                 `json:"capture,omitempty"`
+	Motion  *pointer.Motion        `json:"motion,omitempty"`
+	Burst   *recordingBurstRequest `json:"burst,omitempty"`
 	recordingEffectsRequest
 }
 type mcpRecordingInput struct {
@@ -394,6 +409,23 @@ type mcpRecordingOutput struct {
 	EditError *edit.Error `json:"editError,omitempty"`
 	// EditWarnings say what of the effects could not be applied or was left as it was.
 	EditWarnings []string `json:"editWarnings,omitempty"`
+	// Capture is "continuous", or "bursts" for a recording that captures only around browser actions.
+	Capture string `json:"capture,omitempty"`
+	// Motion is the pointer motion the recording sets, in the form the tools take it: a preset name, or {"speed": px/s} or {"durationMs": ms}.
+	Motion any `json:"motion,omitempty"`
+	// Burst is the timing and progress of a bursts recording.
+	Burst *mcpBurstStatus `json:"burst,omitempty"`
+}
+type mcpBurstStatus struct {
+	LeadMs    int    `json:"leadMs" jsonschema:"Video recorded before a pointer action starts."`
+	TailMs    int    `json:"tailMs" jsonschema:"The least video recorded after an action ends."`
+	SettleMs  int    `json:"settleMs" jsonschema:"How long the screen must stay unchanged after the tail for a burst to close."`
+	MaxTailMs int    `json:"maxTailMs" jsonschema:"The most video recorded after an action ends, however long the screen keeps changing."`
+	State     string `json:"state" jsonschema:"idle between bursts, burst while one is running."`
+	Count     int    `json:"count" jsonschema:"Bursts recorded so far, including a running one."`
+	Capped    int    `json:"capped" jsonschema:"Bursts cut off by maxTailMs while the screen was still changing."`
+	Skipped   int    `json:"skipped" jsonschema:"Actions that ran without being recorded because no burst could be opened."`
+	LastError string `json:"lastError,omitempty" jsonschema:"Why the last burst could not be recorded."`
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`

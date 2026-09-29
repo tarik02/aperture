@@ -355,11 +355,53 @@ func (r *wrapperRuntime) identifyPointerTarget(ctx context.Context, conn *pointe
 	return target, nil
 }
 
+// pointerIdentification is the last page a probe identified: the nonce it left
+// on that page's window and the target that carries it.
+type pointerIdentification struct {
+	targetID string
+	nonce    string
+}
+
+// pointerCheckScript tells whether the page Playwright controls still carries
+// a probe's nonce, which means it is the page that probe identified.
+func pointerCheckScript(nonce string) string {
+	encoded, _ := json.Marshal(nonce)
+	return fmt.Sprintf(`() => window[Symbol.for(%q)] === %s`, pointerMarkerKey, encoded)
+}
+
+// cachedPointerTarget answers from the last probe when Playwright's current page
+// still carries its nonce and that page is still live: one Playwright call, no
+// attaching to every page. A reload or navigation clears the nonce and sends the
+// caller to a full probe.
+func (r *wrapperRuntime) cachedPointerTarget(ctx context.Context) (string, bool) {
+	r.pointerIDMu.Lock()
+	cached := r.pointerID
+	r.pointerIDMu.Unlock()
+	if cached.targetID == "" {
+		return "", false
+	}
+	r.mu.Lock()
+	registry := r.targets
+	r.mu.Unlock()
+	if registry == nil || !registry.hasLiveTarget(cached.targetID) {
+		return "", false
+	}
+	var same bool
+	if err := r.evaluatePlaywright(ctx, pointerCheckScript(cached.nonce), "", &same); err != nil || !same {
+		return "", false
+	}
+	return cached.targetID, true
+}
+
 // identifyPointerTargetID names the CDP target of the page Playwright controls.
 // allowProbe permits the browser_evaluate probe that tells pages apart when the
 // browser has several; without it only the single-page case is answered and
 // anything else falls back.
 func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context, conn *pointerCDPConn, allowProbe bool) (string, error) {
+	// A bursts recording that is recording the call already asked.
+	if targetID := burstTicketFromContext(ctx).resolvedTarget(); targetID != "" {
+		return targetID, nil
+	}
 	pages, err := conn.targetWindows(ctx)
 	if err != nil {
 		return "", err
@@ -378,6 +420,9 @@ func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context, conn *poin
 		if !allowProbe {
 			return "", pointerFallback("the current page cannot be identified among %d pages without a probe", len(targetIDs))
 		}
+		if cached, ok := r.cachedPointerTarget(ctx); ok {
+			return cached, nil
+		}
 		nonce, err := randomPointerNonce()
 		if err != nil {
 			return "", err
@@ -394,6 +439,9 @@ func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context, conn *poin
 		if err != nil {
 			return "", err
 		}
+		r.pointerIDMu.Lock()
+		r.pointerID = pointerIdentification{targetID: targetID, nonce: nonce}
+		r.pointerIDMu.Unlock()
 	}
 	return targetID, nil
 }

@@ -128,6 +128,81 @@ func maxTime(a, b time.Time) time.Time {
 	return a
 }
 
+// mapBursts groups the burst segments of a video into bursts and places the
+// actions that ran during them. Consecutive segments with the same burst number
+// are one burst. An action lands in the burst whose segments were being recorded
+// while it ran; one that ran while nothing was recorded is left out.
+func (b *Builder) mapBursts(segments []*placed) []Burst {
+	var bursts []Burst
+	for from := 0; from < len(segments); {
+		number := segments[from].input.Burst
+		to := from + 1
+		if number != 0 {
+			for to < len(segments) && segments[to].input.Burst == number {
+				to++
+			}
+		}
+		if number != 0 {
+			bursts = append(bursts, b.mapBurst(segments[from:to], from))
+		}
+		from = to
+	}
+	return bursts
+}
+
+func (b *Builder) mapBurst(group []*placed, offset int) Burst {
+	first, last := group[0], group[len(group)-1]
+	burst := Burst{
+		FirstSegment: offset,
+		LastSegment:  offset + len(group) - 1,
+		StartMs:      toMs(first.videoStart),
+		EndMs:        toMs(last.videoStart + last.length),
+		ClosedBy:     last.closedBy,
+		Actions:      []BurstAction{},
+	}
+	var firstStart, lastEnd time.Time
+	for _, action := range b.actions {
+		end := action.End
+		if end.Before(action.Start) {
+			end = action.Start
+		}
+		// The segments an action overlapped, by the time they own.
+		var from, to *placed
+		for _, segment := range group {
+			if end.Before(segment.ownStart) || action.Start.After(segment.ownEnd) {
+				continue
+			}
+			if from == nil {
+				from = segment
+			}
+			to = segment
+		}
+		if from == nil {
+			continue
+		}
+		burst.Actions = append(burst.Actions, BurstAction{
+			Tool:     action.Tool,
+			Kind:     action.Kind,
+			TargetID: action.TargetID,
+			StartMs:  toMs(from.video(maxTime(action.Start, from.ownStart))),
+			EndMs:    toMs(to.video(minTime(end, to.ownEnd))),
+			Gesture:  action.Gesture,
+		})
+		if firstStart.IsZero() || action.Start.Before(firstStart) {
+			firstStart = action.Start
+		}
+		if end.After(lastEnd) {
+			lastEnd = end
+		}
+	}
+	slices.SortStableFunc(burst.Actions, func(a, b BurstAction) int { return int(a.StartMs - b.StartMs) })
+	if len(burst.Actions) > 0 {
+		burst.LeadMs = max(0, toMs(firstStart.Sub(first.ownStart)))
+		burst.TailMs = max(0, toMs(last.ownEnd.Sub(lastEnd)))
+	}
+	return burst
+}
+
 // mapActivity turns the sampled changes of each segment's capture into spans of
 // video time. Spans that touch across a segment boundary, or are closer than the
 // merge gap, become one.

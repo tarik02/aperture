@@ -13,8 +13,12 @@ A regular file below the session's single files root, identified by its path rel
 _Avoid_: Retained file, recording file
 
 **Recording timeline**:
-The `timeline.json` session file saved beside a recording. It states, on the video's own clock, which segments the video is made of, which pointer gestures were made on the recorded browser target with their cursor paths, click points, captions and requested effects, the captions of other page-changing tools, and when the recorded screen changed, so that editing can act on what happened instead of inspecting pixels.
+The `timeline.json` session file saved beside a recording. It states, on the video's own clock, which segments the video is made of, which pointer gestures were made on the recorded browser target with their cursor paths, click points, captions and requested effects, the captions of other page-changing tools, when the recorded screen changed, and, for a bursts recording, which recording bursts the video holds and the browser actions in them, so that editing can act on what happened instead of inspecting pixels.
 _Avoid_: Recording metadata, event log, recording sidecar
+
+**Recording burst**:
+A stretch of a bursts recording's video captured around browser actions, opened by an action that can change the page, kept open while actions keep coming and the screen keeps changing, and closed once the screen has settled. A pointer action's burst starts before the gesture, so the page is seen before the pointer moves. Nothing is captured between bursts; stopping the recording joins them into one video.
+_Avoid_: Clip, scene, chunk
 
 **Edited recording**:
 The video rendered from a recording and its timeline when the recording is stopped, applying the effects declared on the actions made while it ran: captions burned in, zoom toward where the pointer works, click ripples, and idle stretches sped up or cut. It is a session file beside the raw recording, which is always kept, and a recording with no effects to apply has none.

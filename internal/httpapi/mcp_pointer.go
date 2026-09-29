@@ -27,7 +27,7 @@ func isPointerTool(name string) bool {
 	}
 }
 
-const mcpPointerMotionDescription = `How the pointer travels. "natural" (the default) is an eased, slightly curved glide at about 1200 px/s, "fast" is a quicker glide, and "instant" jumps in one step. An object sets an average speed, {"speed": px/s}, or a fixed travel time, {"durationMs": ms}. A value here overrides the recording and session defaults (see cursor.set). It has no effect when Playwright input is used.`
+const mcpPointerMotionDescription = `How the pointer travels. "natural" (the default) is an eased, slightly curved glide at about 1200 px/s, "fast" is a quicker glide, and "instant" jumps in one step. An object sets an average speed, {"speed": px/s}, or a fixed travel time, {"durationMs": ms}. A value here overrides the recording's motion (recording.start) and the session default (cursor.set). It has no effect when Playwright input is used.`
 
 func mcpPointerMotionSchema(description string) map[string]any {
 	return map[string]any{
@@ -72,7 +72,7 @@ func mcpPointerPosition(prefix string, what string) map[string]any {
 // includeMotion adds motion, which the tools that travel a pointer path take.
 func mcpPointerCommonProperties(includeMotion bool) map[string]any {
 	properties := map[string]any{
-		"holdMs":    map[string]any{"type": "number", "minimum": 0, "maximum": 30000, "description": "Milliseconds to wait after the gesture, before the page state is returned. Use it to let a recording show the result. Defaults to 0."},
+		"holdMs":    map[string]any{"type": "number", "minimum": 0, "maximum": 30000, "description": "Milliseconds to wait after the gesture, before the page state is returned. Use it to let a recording show the result; in a bursts recording the burst stays open at least this long after the gesture. Defaults to 0."},
 		"caption":   mcpCaptionProperty("Short text describing the gesture, kept with the gesture's record for recordings and burned into their edited video while the gesture runs."),
 		"zoom":      mcpZoomSchema(mcpZoomGestureDescription),
 		"timeoutMs": map[string]any{"type": "number", "minimum": 1, "maximum": 20000, "description": "How long to wait for a ref target to be visible, stable, enabled and not covered by another element. Defaults to 5000."},

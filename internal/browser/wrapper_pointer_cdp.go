@@ -231,7 +231,8 @@ func (r *wrapperRuntime) runPointerGestureCDP(ctx context.Context, conn *pointer
 	if result.IsError {
 		return result, nil
 	}
-	r.pointer.record(pointerCDPRecord(spec, page, points.wheel, start, time.Now()))
+	end := time.Now()
+	burstTicketFromContext(ctx).actionEnded(end, r.pointer.record(pointerCDPRecord(spec, page, points.wheel, start, end)))
 
 	if spec.Kind == pointerGestureScroll {
 		// The wheel call returns while the scroll is still animating.

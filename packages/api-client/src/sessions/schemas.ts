@@ -35,6 +35,12 @@ export const BrowserStatus = Schema.Struct({
 const recordingFields = {
   recordingId: Schema.String,
   mode: Schema.Literals(["tab", "viewer"]),
+  /** When frames are captured. Sessions whose wrapper predates bursts recordings omit it. */
+  capture: Schema.optionalKey(Api.RecordingCapture),
+  /** The pointer motion the recording sets, when it does. */
+  motion: Schema.optionalKey(Api.PointerMotion),
+  /** The timing and progress of a bursts recording. */
+  burst: Schema.optionalKey(Api.RecordingBurstStatus),
   targetId: Schema.String,
   captureGeneration: positiveInt,
   status: Schema.Literals(["starting", "running", "stopped", "failed"]),
