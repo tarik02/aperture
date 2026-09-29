@@ -23,7 +23,7 @@ func editDoc() timelineDoc {
 			Path:   [][3]float64{{1800, 100, 100}, {2000, 640, 360}},
 			Clicks: []timelineClick{{T: 2000, X: 640, Y: 360, Button: "left", Count: 1}},
 		}},
-		Activity: []timelineSpanOut{{1800, 2400}},
+		Activity: timelineActivity{Complete: true, Spans: []timelineSpanOut{{1800, 2400}}},
 	}
 }
 
@@ -74,7 +74,7 @@ func TestEditPlanZoomFollowsGestures(t *testing.T) {
 func TestEditPlanCaptionsBurnAfterIdleIsCut(t *testing.T) {
 	doc := editDoc()
 	doc.Gestures = nil
-	doc.Activity = nil
+	doc.Activity = timelineActivity{Complete: true}
 	// Nothing happens for 6 s before the caption, so idle cut removes 5.4 s of them.
 	doc.Actions = []timelineAction{{Tool: "browser_type", Start: 7000, End: 7100, Caption: "Type {a\\b}\n now"}}
 
@@ -110,7 +110,7 @@ func TestEditPlanIdleKeepsWhatIsBusy(t *testing.T) {
 
 	doc := editDoc()
 	doc.Gestures = nil
-	doc.Activity = []timelineSpanOut{{100, 900}, {5000, 5200}}
+	doc.Activity = timelineActivity{Complete: true, Spans: []timelineSpanOut{{100, 900}, {5000, 5200}}}
 	plan, err := buildEditPlan(doc, recordingEffects{Idle: "speed"}, 30)
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestEditPlanIdleKeepsWhatIsBusy(t *testing.T) {
 		t.Fatalf("sped up stretches = %d: %s", n, plan.filter)
 	}
 	// Screen changes that could not all be seen make no stretch known to be idle.
-	doc.Unknown = []timelineSpanOut{{2000, 2100}}
+	doc.Activity.Complete = false
 	if plan, err = buildEditPlan(doc, recordingEffects{Idle: "cut"}, 30); err != nil || plan.filter != "" || len(plan.warnings) != 1 {
 		t.Fatalf("plan = %+v, err = %v", plan, err)
 	}
@@ -175,7 +175,7 @@ func TestRenderEditWithFFmpeg(t *testing.T) {
 			Path:   [][3]float64{{1000, 50, 50}, {1300, 320, 180}},
 			Clicks: []timelineClick{{T: 1300, X: 320, Y: 180}},
 		}},
-		Activity: []timelineSpanOut{{1000, 1500}},
+		Activity: timelineActivity{Complete: true, Spans: []timelineSpanOut{{1000, 1500}}},
 	}
 	plan, err := buildEditPlan(doc, recordingEffects{Idle: "cut"}, 30)
 	if err != nil || plan == nil || plan.filter == "" {

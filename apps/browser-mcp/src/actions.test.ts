@@ -31,11 +31,6 @@ const response = () => {
 };
 
 describe("withAction", () => {
-  it("leaves read-only tools alone", () => {
-    const readOnly = tool("readOnly", []);
-    expect(withAction(readOnly)).toBe(readOnly);
-  });
-
   it("accepts a caption, keeps it from the tool, and reports the action", async () => {
     const seen: object[] = [];
     const wrapped = withAction(tool("input", seen));
@@ -58,7 +53,7 @@ describe("withAction", () => {
     await wrapped.handle(context, { value: "x" } as never, fake);
     const result = await fake.serialize();
 
-    expect(errors).toEqual(["boom"]);
+    expect(errors).toEqual(["Error: boom"]);
     expect(result._meta?.aperture).toMatchObject({ action: { ok: false } });
   });
 });

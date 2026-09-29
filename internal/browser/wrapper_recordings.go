@@ -913,15 +913,8 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 	type fields wrapperRecording
 	relative := ""
 	sandboxPath := ""
-	timelineRelative, editedRelative := "", ""
 	if rel, err := filepath.Rel(recording.filesRoot, recording.Path); err == nil {
 		relative = filepath.ToSlash(rel)
-	}
-	if rel, err := filepath.Rel(recording.filesRoot, recording.timelinePath); err == nil && recording.timelinePath != "" {
-		timelineRelative = filepath.ToSlash(rel)
-	}
-	if rel, err := filepath.Rel(recording.filesRoot, recording.edit.path); err == nil && recording.edit.path != "" {
-		editedRelative = filepath.ToSlash(rel)
 	}
 	if relative != "" {
 		sandboxPath = sessionfiles.SandboxPath(relative)
@@ -929,18 +922,14 @@ func (recording wrapperRecording) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		fields
 		RelativePath string `json:"relativePath"`
-		// TimelineRelativePath names the recording's timeline file, once it is stopped.
-		TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
-		// EditedRelativePath is the video with the recording's effects rendered, EditError
-		// why there is none although effects applied, and EditWarnings what was left out.
-		EditedRelativePath string   `json:"editedRelativePath,omitempty"`
-		EditError          string   `json:"editError,omitempty"`
-		EditWarnings       []string `json:"editWarnings,omitempty"`
-		SandboxPath        string   `json:"sandboxPath,omitempty"`
+		SandboxPath  string `json:"sandboxPath,omitempty"`
 		// Path repeats RelativePath for clients that still read the field it replaced.
 		// It used to carry a host path, which it never does now.
 		Path string `json:"path"`
-	}{fields: fields(recording), RelativePath: relative, TimelineRelativePath: timelineRelative, EditedRelativePath: editedRelative, EditError: recording.edit.err, EditWarnings: recording.edit.warnings, SandboxPath: sandboxPath, Path: relative})
+		// TimelineRelativePath names the recording's timeline file, once it is stopped.
+		TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
+		recordingEdit
+	}{fields: fields(recording), RelativePath: relative, SandboxPath: sandboxPath, Path: relative, TimelineRelativePath: recording.timelinePath, recordingEdit: recording.edit})
 }
 
 // publishRecording moves a finished recording into place without replacing an

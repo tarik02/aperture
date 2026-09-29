@@ -1,33 +1,22 @@
 package browser
 
 import (
+	"bufio"
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 )
 
-func TestAddSpanMergesCloseChanges(t *testing.T) {
-	base := time.Unix(100, 0)
-	var spans []timelineSpan
-	for _, ms := range []int{0, 100, 350, 1000, 1100} {
-		at := base.Add(time.Duration(ms) * time.Millisecond)
-		spans = addSpan(spans, at, at)
-	}
-	want := []timelineSpan{
-		{base, base.Add(350 * time.Millisecond)},
-		{base.Add(1000 * time.Millisecond), base.Add(1100 * time.Millisecond)},
-	}
-	if !reflect.DeepEqual(spans, want) {
-		t.Fatalf("spans = %v, want %v", spans, want)
-	}
-}
-
 func TestTimelineBuildMapsWallTimeOntoVideo(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 	ms := func(n int64) int64 { return t0.Add(time.Duration(n) * time.Millisecond).UnixMilli() }
 	timeline := &recordingTimeline{segments: []*timelineSegment{
-		{targetID: "a", width: 200, height: 200, scaleX: 2, scaleY: 2, clock: &frameClock{first: t0, last: time.Second},
-			unknown: []timelineSpan{{t0.Add(200 * time.Millisecond), t0.Add(300 * time.Millisecond)}}},
+		{targetID: "a", width: 200, height: 200, scaleX: 2, scaleY: 2, clock: &frameClock{first: t0, last: time.Second}},
 		{targetID: "b", width: 100, height: 100, scaleX: 1, scaleY: 1, clock: &frameClock{first: t0.Add(2 * time.Second), last: 500 * time.Millisecond},
 			spans: []timelineSpan{{t0.Add(2100 * time.Millisecond), t0.Add(2200 * time.Millisecond)}}},
 	}}
@@ -40,12 +29,16 @@ func TestTimelineBuildMapsWallTimeOntoVideo(t *testing.T) {
 			Path:   [][3]float64{{float64(ms(100)), 10, 20}, {float64(ms(5000)), 500, 20}},
 			Clicks: []timelineClick{{T: ms(100), X: 10, Y: 20}},
 			Scroll: &timelineScroll{T: ms(100), X: 10, Y: 20}},
-		{Tool: "fallback", TargetID: "b", Fallback: true, Start: ms(2100), End: ms(2200),
-			Path: [][3]float64{{float64(ms(2100)), 5, 5}}, Clicks: []timelineClick{{T: ms(2100)}}, Scroll: &timelineScroll{}},
+		{Tool: "on_b", TargetID: "b", Start: ms(2100), End: ms(2200)},
 		{Tool: "elsewhere", TargetID: "c", Start: ms(2100)},
+		{Tool: "old_tab", TargetID: "a", Start: ms(2100)}, // a stopped being recorded when b took over
 	}
+	timeline.incomplete = true
 
-	doc := timeline.build("rec", "v.webm")
+	doc, err := timeline.build("rec", "v.webm")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if doc.DurationMS != 1500 {
 		t.Fatalf("duration = %d, want 1500", doc.DurationMS)
@@ -56,11 +49,8 @@ func TestTimelineBuildMapsWallTimeOntoVideo(t *testing.T) {
 	if len(doc.Actions) != 1 || doc.Actions[0].Start != 1100 || doc.Actions[0].End != 1300 {
 		t.Fatalf("actions = %v", doc.Actions)
 	}
-	if want := []timelineSpanOut{{1100, 1200}}; !reflect.DeepEqual(doc.Activity, want) {
+	if want := (timelineActivity{Spans: []timelineSpanOut{{1100, 1200}}}); !reflect.DeepEqual(doc.Activity, want) {
 		t.Fatalf("activity = %v", doc.Activity)
-	}
-	if want := []timelineSpanOut{{200, 300}}; !reflect.DeepEqual(doc.Unknown, want) {
-		t.Fatalf("unknown = %v", doc.Unknown)
 	}
 	if len(doc.Gestures) != 2 {
 		t.Fatalf("gestures = %v", doc.Gestures)
@@ -71,10 +61,71 @@ func TestTimelineBuildMapsWallTimeOntoVideo(t *testing.T) {
 		on.Clicks[0].X != 20 || on.Scroll == nil || on.Scroll.T != 100 || on.Scroll.Y != 40 {
 		t.Fatalf("gesture = %+v", on)
 	}
-	// Viewport CSS pixels are not surface pixels, so a fallback gesture keeps only timing.
-	fb := doc.Gestures[1]
-	if fb.Start != 1100 || len(fb.Path) != 0 || len(fb.Clicks) != 0 || fb.Scroll != nil {
-		t.Fatalf("fallback gesture = %+v", fb)
+	if doc.Gestures[1].Tool != "on_b" || doc.Gestures[1].Start != 1100 {
+		t.Fatalf("gesture = %+v", doc.Gestures[1])
+	}
+}
+
+func TestTimelineBuildNeedsEverySegmentAnchored(t *testing.T) {
+	timeline := &recordingTimeline{segments: []*timelineSegment{
+		{clock: &frameClock{first: time.Unix(1000, 0)}}, {clock: &frameClock{}},
+	}}
+	if _, err := timeline.build("rec", "v.webm"); err == nil {
+		t.Fatal("built a timeline with an unanchored segment")
+	}
+}
+
+func TestTimelineSamplingRacesBuild(t *testing.T) {
+	dir, err := os.MkdirTemp("", "tl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	socket := filepath.Join(dir, "s")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = listener.Close() }()
+	go func() {
+		for count := 0; ; count++ {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = bufio.NewReader(conn).ReadString('\n')
+			_, _ = fmt.Fprintf(conn, "ok 0 %d\n", count)
+			_ = conn.Close()
+		}
+	}()
+	timeline := &recordingTimeline{segments: []*timelineSegment{{clock: &frameClock{first: time.Now(), last: time.Second}}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(400*time.Millisecond, cancel)
+	done := make(chan struct{})
+	go func() { timeline.sample(ctx, socket); close(done) }()
+	for ctx.Err() == nil {
+		if _, err := timeline.build("rec", "v.webm"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	<-done
+	if doc, _ := timeline.build("rec", "v.webm"); len(doc.Activity.Spans) == 0 || !doc.Activity.Complete {
+		t.Fatalf("activity = %+v", doc.Activity)
+	}
+}
+
+func TestFrameClockReadsReportsSplitAcrossWrites(t *testing.T) {
+	clock := &frameClock{frame: 40 * time.Millisecond}
+	report := func(pts string) string {
+		return "/GstPipeline:pipeline0/GstIdentity:aperture_frames: last-message = chain ******* (aperture_frames:sink) (100 bytes, dts: none, pts: " + pts + ", duration: none)\n"
+	}
+	first, second := report("0:00:00.100000000"), report("0:00:01.000000000")
+	for _, chunk := range []string{"other output\n" + first[:30], first[30:] + second[:70], second[70:], "partial", " line"} {
+		_, _ = clock.Write([]byte(chunk))
+	}
+	if start, length := clock.span(); start.IsZero() || length != 940*time.Millisecond {
+		t.Fatalf("span = %v, %v", start, length)
 	}
 }
 

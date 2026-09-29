@@ -342,10 +342,11 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 		return recordingResponse{}, err
 	}
 	return recordingResponse{
-		TimelineRelativePath: timelinePath, recordingEditFields: edit,
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		recordingEditFields: edit,
+		RecordingID:         status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
+		TimelineRelativePath: timelinePath,
 	}, nil
 }
 
@@ -355,20 +356,20 @@ func recordingTimelinePath(status wrapperRecordingStatus) (string, error) {
 	if status.TimelineRelativePath == "" {
 		return "", nil
 	}
-	relativePath, err := sessionfiles.Normalize(status.TimelineRelativePath)
+	return recordingFilePath(status.TimelineRelativePath)
+}
+
+func recordingFilePath(reported string) (string, error) {
+	relativePath, err := sessionfiles.Normalize(reported)
 	if err != nil || !strings.HasPrefix(relativePath, "recordings/") {
-		return "", fmt.Errorf("%w: invalid wrapper recording timeline path %q", errBrowserControlFailed, status.TimelineRelativePath)
+		return "", fmt.Errorf("%w: invalid wrapper recording path %q", errBrowserControlFailed, reported)
 	}
 	return relativePath, nil
 }
 
 func (s *Server) recordingRelativePath(sessionID string, status wrapperRecordingStatus) (string, error) {
 	if status.RelativePath != "" {
-		relativePath, err := sessionfiles.Normalize(status.RelativePath)
-		if err != nil || !strings.HasPrefix(relativePath, "recordings/") {
-			return "", fmt.Errorf("%w: invalid wrapper recording path %q", errBrowserControlFailed, status.RelativePath)
-		}
-		return relativePath, nil
+		return recordingFilePath(status.RelativePath)
 	}
 	layout, err := paths.Session(s.Config, sessionID)
 	if err != nil {

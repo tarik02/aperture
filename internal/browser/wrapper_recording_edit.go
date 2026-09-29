@@ -18,11 +18,13 @@ import (
 
 var errWrapperRecordingEffectsUnavailable = errors.New("recording effects need ffmpeg, which this host does not have")
 
-// recordingEdit is what stopping a recording made of its effects.
+// recordingEdit is what stopping a recording made of its effects: the edited video
+// (its path below the files root), why there is none although effects applied, and
+// what was left out.
 type recordingEdit struct {
-	path     string
-	err      string
-	warnings []string
+	Path     string   `json:"editedRelativePath,omitempty"`
+	Error    string   `json:"editError,omitempty"`
+	Warnings []string `json:"editWarnings,omitempty"`
 }
 
 // sweepEditDirs removes the work directories a previous wrapper process left behind.
@@ -52,19 +54,25 @@ func (session *liveSession) editRecording(recording *wrapperRecording, video str
 		return recordingEdit{}
 	}
 	r := session.runtime
-	plan, err := buildEditPlan(recording.timeline.build(recording.ID, ""), recording.effects, recording.FPS)
+	doc, err := recording.timeline.build(recording.ID, "")
+	var plan *editPlan
+	if err == nil {
+		plan, err = buildEditPlan(doc, recording.effects, recording.FPS)
+	}
 	if plan == nil && err == nil {
 		return recordingEdit{}
 	}
 	output := ""
 	if err == nil && plan.filter != "" {
-		output, err = renderEdit(r.ctx, r.values, filepath.Dir(video), recording.ID, video, plan)
+		if output, err = renderEdit(r.ctx, r.values, filepath.Dir(video), recording.ID, video, plan); err == nil {
+			output, err = filepath.Rel(recording.filesRoot, output)
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s edit: %v\n", recording.ID, err)
-		return recordingEdit{err: err.Error()}
+		return recordingEdit{Error: err.Error()}
 	}
-	return recordingEdit{path: output, warnings: plan.warnings}
+	return recordingEdit{Path: filepath.ToSlash(output), Warnings: plan.warnings}
 }
 
 // renderEdit runs ffmpeg on the plan and publishes its output next to the video.

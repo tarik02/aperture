@@ -209,10 +209,10 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 // activitySpans are the spans in which the page's content changed, and whether they
 // are all of them: where the screen could not be sampled, quiet does not mean idle.
 func activitySpans(doc timelineDoc) (spans []span, complete bool) {
-	for _, a := range doc.Activity {
+	for _, a := range doc.Activity.Spans {
 		spans = append(spans, span{a.Start, a.End})
 	}
-	return spans, len(doc.Unknown) == 0
+	return spans, doc.Activity.Complete
 }
 
 // captionCues turns captioned actions into cues that stay long enough to read and
