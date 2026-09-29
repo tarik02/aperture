@@ -21,11 +21,14 @@ const tool = (type: ToolDefinition["schema"]["type"], seen: object[], fail = fal
   }) as unknown as ToolDefinition;
 
 const context = { currentTab: () => undefined } as unknown as Context;
-const response = () => {
+const response = (serializeError?: Error) => {
   const errors: string[] = [];
   const response = {
     addError: (message: string) => errors.push(message),
-    serialize: async () => ({ content: [], isError: errors.length > 0 }),
+    serialize: async () => {
+      if (serializeError) throw serializeError;
+      return { content: [], isError: errors.length > 0 };
+    },
   };
   return { response: response as unknown as Response, errors };
 };
@@ -55,5 +58,21 @@ describe("withAction", () => {
 
     expect(errors).toEqual(["Error: boom"]);
     expect(result._meta?.aperture).toMatchObject({ action: { ok: false } });
+  });
+
+  it("still reports a call whose result Playwright fails to build", async () => {
+    const wrapped = withAction(tool("action", []));
+    const { response: fake } = response(
+      new Error("Target page, context or browser has been closed"),
+    );
+
+    await wrapped.handle(context, { value: "x", caption: "New tab" } as never, fake);
+    const result = await fake.serialize();
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining("has been closed") });
+    expect(result._meta?.aperture).toMatchObject({
+      action: { tool: "browser_thing", caption: "New tab", ok: false },
+    });
   });
 });
