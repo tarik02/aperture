@@ -107,7 +107,7 @@ func TestMCPServerExposesApertureNativePointerTools(t *testing.T) {
 			t.Errorf("pathBound=%t: browser_click lost the doubleClick alias", pathBound)
 		}
 
-		// Playwright's hidden pointer tools are gone; the rest are still proxied.
+		// Playwright's pointer tools are replaced and hidden; the other tools are proxied.
 		for _, name := range []string{"browser_hover", "browser_mouse_click_xy", "browser_mouse_move_xy", "browser_mouse_drag_xy", "browser_mouse_down", "browser_mouse_up", "browser_mouse_wheel"} {
 			if tools[name] != nil {
 				t.Errorf("pathBound=%t: hidden Playwright tool %s is exposed", pathBound, name)

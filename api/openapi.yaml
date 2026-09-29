@@ -741,8 +741,8 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, session_service_unavailable, browser_control_failed]
-      description: Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+      x-aperture-errors: [invalid_request_body, validation_failed, resource_access_denied, session_not_found, session_expired, session_not_running, cursor_requires_compositor, session_service_unavailable, browser_control_failed]
+      description: Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
@@ -1685,6 +1685,7 @@ components:
         - session_overlay_missing
         - session_invalid_state
         - session_not_running
+        - cursor_requires_compositor
         - recording_not_found
         - recording_invalid_state
         - recording_codec_unavailable
@@ -1749,6 +1750,7 @@ components:
         session_overlay_missing: 409
         session_invalid_state: 409
         session_not_running: 409
+        cursor_requires_compositor: 409
         recording_not_found: 404
         recording_invalid_state: 409
         recording_codec_unavailable: 422

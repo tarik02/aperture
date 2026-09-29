@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/pointer"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestParsePointerGesture(t *testing.T) {
@@ -68,6 +67,8 @@ func TestParsePointerGesture(t *testing.T) {
 		{name: "too many clicks", tool: pointerToolClick, args: `{"target": "e1", "clickCount": 4}`, wantErr: "clickCount must be between"},
 		{name: "unknown modifier", tool: pointerToolClick, args: `{"target": "e1", "modifiers": ["Hyper"]}`, wantErr: "modifier"},
 		{name: "unknown motion", tool: pointerToolClick, args: `{"target": "e1", "motion": "slow"}`, wantErr: "motion"},
+		{name: "scroll takes no motion", tool: pointerToolScroll, args: `{"deltaY": 5, "motion": "fast"}`, wantErr: `unknown field "motion"`},
+		{name: "scroll rejects an invalid motion the same way", tool: pointerToolScroll, args: `{"deltaY": 5, "motion": "slow"}`, wantErr: `unknown field "motion"`},
 		{
 			name: "playwright doubleClick is an alias for clickCount 2",
 			tool: pointerToolClick,
@@ -287,6 +288,44 @@ func TestPointerCDPNeedsPoints(t *testing.T) {
 	}
 }
 
+func TestPointerCDPUnresolvedRef(t *testing.T) {
+	cause := pointerFallback("the page's Content Security Policy blocks element resolution")
+	tests := []struct {
+		description string
+		tool        string
+		args        string
+		isTo        bool
+		wantErr     string // empty: Playwright can take the ref itself
+	}{
+		{"click on a ref", pointerToolClick, `{"target": "e1"}`, false, ""},
+		{"double click on a ref", pointerToolClick, `{"target": "e1", "clickCount": 2}`, false, ""},
+		{"triple click on a ref", pointerToolClick, `{"target": "e1", "clickCount": 3}`, false, "click count of 3 on e1 needs the element's position"},
+		{"move to a ref", pointerToolMove, `{"target": "e1"}`, false, ""},
+		{"scroll over a ref", pointerToolScroll, `{"target": "e1", "deltaY": 5}`, false, ""},
+		{"ref to ref start", pointerToolDrag, `{"startTarget": "a", "endTarget": "b"}`, false, ""},
+		{"ref to ref end", pointerToolDrag, `{"startTarget": "a", "endTarget": "b"}`, true, ""},
+		{"ref to point, ref end", pointerToolDrag, `{"startTarget": "a", "endX": 1, "endY": 2}`, false, "needs the position of a"},
+		{"point to ref, ref end", pointerToolDrag, `{"startX": 1, "startY": 2, "endTarget": "b"}`, true, "needs the position of b"},
+	}
+	for _, test := range tests {
+		spec, err := parsePointerGesture(test.tool, json.RawMessage(test.args))
+		if err != nil {
+			t.Fatalf("%s: %v", test.description, err)
+		}
+		err = pointerCDPUnresolvedRef(spec, test.isTo, cause)
+		if test.wantErr == "" {
+			if err != nil {
+				t.Errorf("%s: err = %v, want nil", test.description, err)
+			}
+			continue
+		}
+		var userErr *pointerUserError
+		if !errors.As(err, &userErr) || !strings.Contains(err.Error(), test.wantErr) || !strings.Contains(err.Error(), "Content Security Policy") || strings.Contains(err.Error(), "cannot combine") {
+			t.Errorf("%s: err = %v, want a user error containing %q and the cause", test.description, err, test.wantErr)
+		}
+	}
+}
+
 func TestPointerSurfacePoint(t *testing.T) {
 	target := wrapperTargetSnapshot{Viewport: compositorViewport{Width: 1280, Height: 720, ScaleNumerator: 180, DeviceScaleFactor: 1.5}}
 
@@ -341,42 +380,13 @@ func TestPointerSurfacePointScalesForBrowserZoom(t *testing.T) {
 	}
 }
 
-func TestPlaywrightResultParsing(t *testing.T) {
-	text := "### Result\n{\n  \"status\": \"ok\",\n  \"x\": 12.5\n}\n### Page\n- Page URL: https://example.com\n"
-	body, ok := playwrightResultSection(text, "Result")
-	if !ok || body != "{\n  \"status\": \"ok\",\n  \"x\": 12.5\n}" {
-		t.Fatalf("Result section = %q, %t", body, ok)
-	}
-	if _, ok := playwrightResultSection(text, "Snapshot"); ok {
-		t.Fatal("missing section was found")
-	}
-
-	result := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "one"}, &mcp.ImageContent{Data: []byte("x"), MIMEType: "image/png"}, &mcp.TextContent{Text: "two"}}}
-	if got := playwrightResultText(result); got != "one\ntwo" {
-		t.Fatalf("playwrightResultText = %q", got)
-	}
-
+func TestPlaywrightToolErrorRecognizesPageCSP(t *testing.T) {
 	cspErr := &playwrightToolError{tool: "browser_evaluate", text: "EvalError: Refused to evaluate a string as JavaScript because 'unsafe-eval' is not an allowed source"}
 	if !cspErr.blockedByPageCSP() {
 		t.Fatal("CSP failure was not recognized")
 	}
 	if (&playwrightToolError{tool: "browser_evaluate", text: "Ref e9 not found"}).blockedByPageCSP() {
 		t.Fatal("a missing ref was taken for a CSP failure")
-	}
-}
-
-func TestPointerResolveFunctionEmbedsOptions(t *testing.T) {
-	function := pointerResolveFunction(pointerResolveOptions{TimeoutMs: 1234, RequireEnable: true})
-	if strings.Contains(function, "__OPTIONS__") || !strings.Contains(function, `{"timeoutMs":1234,"requireEnabled":true,"noScroll":false}`) {
-		t.Fatalf("options were not embedded: %.200s", function)
-	}
-}
-
-func TestPointerModifierKeyCodes(t *testing.T) {
-	got := pointerModifierKeyCodes([]string{"Shift", "ControlOrMeta", "Control", "Alt", "Meta"})
-	want := []uint32{evdevKeyLeftShift, evdevKeyLeftCtrl, evdevKeyLeftAlt, evdevKeyLeftMeta}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("codes = %v, want %v", got, want)
 	}
 }
 
@@ -868,7 +878,10 @@ func TestPointerScrollDefaultPoint(t *testing.T) {
 	if got := runtime.pointerScrollDefault(pointerScrollContext{}); got != nil {
 		t.Fatalf("without viewport metrics = %v, want nil", got)
 	}
-	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics}); got == nil || *got != (pointer.Point{X: 400, Y: 200}) {
+	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics}); got != nil {
+		t.Fatalf("without a compositor surface = %v, want nil", got)
+	}
+	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics, target: target}); got == nil || *got != (pointer.Point{X: 400, Y: 200}) {
 		t.Fatalf("center = %v, want (400, 200)", got)
 	}
 	// The pointer's last position on the surface, at 150% zoom, in CSS pixels.
@@ -876,7 +889,7 @@ func TestPointerScrollDefaultPoint(t *testing.T) {
 	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics, target: target}); got == nil || *got != (pointer.Point{X: 200, Y: 100}) {
 		t.Fatalf("remembered position = %v, want (200, 100)", got)
 	}
-	// The pointer is on another surface now, so this page's center stands.
+	// The pointer was last on another surface, so this page's center stands.
 	runtime.pointer.setPosition(8, pointer.Point{X: 300, Y: 150})
 	if got := runtime.pointerScrollDefault(pointerScrollContext{metrics: metrics, target: target}); got == nil || *got != (pointer.Point{X: 400, Y: 200}) {
 		t.Fatalf("position on another surface = %v, want the center (400, 200)", got)

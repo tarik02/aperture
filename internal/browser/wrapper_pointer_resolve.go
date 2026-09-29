@@ -343,8 +343,8 @@ func (r *wrapperRuntime) resolvePointerElement(ctx context.Context, endpoint poi
 //   - If the page cannot be identified (its CSP blocks evaluation, or the marker
 //     is found nowhere or on a target that is not ready), the gesture falls back
 //     to Playwright input instead of guessing a surface.
-func (r *wrapperRuntime) identifyPointerTarget(ctx context.Context, registry *wrapperTargetRegistry) (wrapperTargetSnapshot, error) {
-	targetID, err := r.identifyPointerTargetID(ctx)
+func (r *wrapperRuntime) identifyPointerTarget(ctx context.Context, conn *pointerCDPConn, registry *wrapperTargetRegistry) (wrapperTargetSnapshot, error) {
+	targetID, err := r.identifyPointerTargetID(ctx, conn, true)
 	if err != nil {
 		return wrapperTargetSnapshot{}, err
 	}
@@ -356,8 +356,11 @@ func (r *wrapperRuntime) identifyPointerTarget(ctx context.Context, registry *wr
 }
 
 // identifyPointerTargetID names the CDP target of the page Playwright controls.
-func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context) (string, error) {
-	pages, err := discoverCDPTargetWindows(ctx, r.values.CDPPort)
+// allowProbe permits the browser_evaluate probe that tells pages apart when the
+// browser has several; without it only the single-page case is answered and
+// anything else falls back.
+func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context, conn *pointerCDPConn, allowProbe bool) (string, error) {
+	pages, err := conn.targetWindows(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -372,6 +375,9 @@ func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context) (string, e
 	case 1:
 		targetID = targetIDs[0]
 	default:
+		if !allowProbe {
+			return "", pointerFallback("the current page cannot be identified among %d pages without a probe", len(targetIDs))
+		}
 		nonce, err := randomPointerNonce()
 		if err != nil {
 			return "", err
@@ -384,7 +390,7 @@ func (r *wrapperRuntime) identifyPointerTargetID(ctx context.Context) (string, e
 			}
 			return "", pointerFallback("the current page cannot be identified among %d pages", len(targetIDs))
 		}
-		targetID, err = r.findPointerMarker(ctx, targetIDs, nonce)
+		targetID, err = r.findPointerMarker(ctx, conn, targetIDs, nonce)
 		if err != nil {
 			return "", err
 		}
@@ -401,24 +407,21 @@ func randomPointerNonce() (string, error) {
 }
 
 // findPointerMarker returns the one target whose window carries the nonce.
-func (r *wrapperRuntime) findPointerMarker(ctx context.Context, targetIDs []string, nonce string) (string, error) {
+func (r *wrapperRuntime) findPointerMarker(ctx context.Context, conn *pointerCDPConn, targetIDs []string, nonce string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	client, err := connectLiveSessionCDP(ctx, r.values.CDPPort)
-	if err != nil {
-		return "", err
-	}
-	defer client.close()
 	expression := fmt.Sprintf("window[Symbol.for(%q)]", pointerMarkerKey)
 	var matches []string
 	for _, targetID := range targetIDs {
-		sessionID, err := cdptarget.AttachToTarget(cdptarget.ID(targetID)).WithFlatten(true).Do(client.executorContext(ctx, ""))
+		client, sessionID, err := conn.attach(ctx, targetID)
 		if err != nil {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 			// The page may have closed since discovery; it cannot be the current one.
 			continue
 		}
 		value, _, evaluateErr := runtime.Evaluate(expression).WithReturnByValue(true).Do(client.executorContext(ctx, sessionID))
-		_ = cdptarget.DetachFromTarget().WithSessionID(sessionID).Do(client.executorContext(ctx, ""))
 		if evaluateErr != nil || value == nil {
 			continue
 		}
@@ -433,6 +436,70 @@ func (r *wrapperRuntime) findPointerMarker(ctx context.Context, targetIDs []stri
 	return matches[0], nil
 }
 
+// pointerCDPConn is one gesture's connection to the browser's CDP endpoint. It
+// is opened by the first read that needs it, shared by everything the gesture
+// reads over CDP (target listing, page identification, viewport metrics, scroll
+// settling), and closed when the gesture ends; closing it also detaches every
+// target session it attached. It is used by one goroutine at a time.
+type pointerCDPConn struct {
+	port     int
+	client   *liveSessionCDP
+	sessions map[string]cdptarget.SessionID
+}
+
+func (c *pointerCDPConn) browser(ctx context.Context) (*liveSessionCDP, error) {
+	if c.client != nil {
+		return c.client, nil
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	client, err := connectLiveSessionCDP(dialCtx, c.port)
+	if err != nil {
+		return nil, err
+	}
+	c.client = client
+	return client, nil
+}
+
+// targetWindows lists the user pages of the browser.
+func (c *pointerCDPConn) targetWindows(ctx context.Context) ([]cdpTargetWindow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	client, err := c.browser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return listCDPTargetWindows(ctx, client)
+}
+
+// attach returns the connection's CDP session on a target, attaching on first use.
+func (c *pointerCDPConn) attach(ctx context.Context, targetID string) (*liveSessionCDP, cdptarget.SessionID, error) {
+	client, err := c.browser(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if sessionID, ok := c.sessions[targetID]; ok {
+		return client, sessionID, nil
+	}
+	sessionID, err := cdptarget.AttachToTarget(cdptarget.ID(targetID)).WithFlatten(true).Do(client.executorContext(ctx, ""))
+	if err != nil {
+		return nil, "", err
+	}
+	if c.sessions == nil {
+		c.sessions = make(map[string]cdptarget.SessionID)
+	}
+	c.sessions[targetID] = sessionID
+	return client, sessionID, nil
+}
+
+func (c *pointerCDPConn) close() {
+	if c.client != nil {
+		c.client.close()
+		c.client = nil
+	}
+	clear(c.sessions)
+}
+
 // pointerViewportExpression reports the page's viewport the way the resolver does.
 const pointerViewportExpression = `({
   width: window.innerWidth,
@@ -443,24 +510,16 @@ const pointerViewportExpression = `({
 // pointerTargetViewportMetrics reads a page's viewport, for placing coordinates
 // the caller gave. It asks the already identified target over CDP directly:
 // going through Playwright's browser_evaluate costs about half a second per
-// gesture, and Runtime.evaluate is not subject to the page's Content Security
-// Policy. A page that cannot be read makes the gesture fall back, before any
-// input is sent.
-func (r *wrapperRuntime) pointerTargetViewportMetrics(ctx context.Context, targetID string) (*pointerViewportMetrics, error) {
+// gesture, and Runtime.evaluate, unlike browser_evaluate, works on pages whose
+// Content Security Policy forbids evaluating strings. The gesture's connection
+// detaches from the target when it closes.
+func (r *wrapperRuntime) pointerTargetViewportMetrics(ctx context.Context, conn *pointerCDPConn, targetID string) (*pointerViewportMetrics, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	client, err := connectLiveSessionCDP(ctx, r.values.CDPPort)
+	client, sessionID, err := conn.attach(ctx, targetID)
 	if err != nil {
 		return nil, pointerFallback("cannot read the page viewport: %v", err)
 	}
-	defer client.close()
-	sessionID, err := cdptarget.AttachToTarget(cdptarget.ID(targetID)).WithFlatten(true).Do(client.executorContext(ctx, ""))
-	if err != nil {
-		return nil, pointerFallback("cannot read the page viewport: %v", err)
-	}
-	defer func() {
-		_ = cdptarget.DetachFromTarget().WithSessionID(sessionID).Do(client.executorContext(context.WithoutCancel(ctx), ""))
-	}()
 	value, exception, err := runtime.Evaluate(pointerViewportExpression).WithReturnByValue(true).Do(client.executorContext(ctx, sessionID))
 	if err != nil || exception != nil || value == nil {
 		return nil, pointerFallback("cannot read the page viewport")
@@ -492,9 +551,10 @@ const pointerScaleTolerance = 0.02
 // input. (An emulation with the surface's own aspect ratio is indistinguishable
 // from a zoom and is treated as one.) Pinch-zoomed pages are refused too.
 //
-// metrics may be nil when the page reported none; CSS pixels are then taken as
-// surface pixels. The converted point must lie inside the surface (the last
-// pixel column is width-1, so width itself is outside).
+// metrics is nil only for a scroll that could not read the page's viewport (the
+// pointer tools that need the conversion fall back instead); the point is then
+// taken as surface pixels. The converted point must lie inside the surface (the
+// last pixel column is width-1, so width itself is outside).
 func pointerSurfacePoint(target wrapperTargetSnapshot, metrics *pointerViewportMetrics, point pointer.Point) (pointer.Point, error) {
 	width := float64(target.Viewport.Width)
 	height := float64(target.Viewport.Height)

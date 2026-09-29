@@ -1451,7 +1451,7 @@ readonly "rotateCollaborationCapability": <Config extends OperationConfig>(sessi
 */
 readonly "getSessionCursor": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof GetSessionCursorParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof GetSessionCursor200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored.
+* Enables or disables compositing the remote browser cursor into the live stream and recordings, and sets the session's default motion for Aperture pointer gestures. Send `visible`, `motion`, or both. The motion lasts until the session stops and is never stored. The cursor is drawn by the compositor, so a session without one refuses `visible` with 409 `cursor_requires_compositor`, and applies nothing from that request, including `motion`; `motion` alone is accepted in every session.
 */
 readonly "setSessionCursor": <Config extends OperationConfig>(sessionId: string, options: { readonly params?: typeof SetSessionCursorParams.Encoded | undefined; readonly payload: typeof SetSessionCursorRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof SetSessionCursor200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**

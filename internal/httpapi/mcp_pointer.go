@@ -9,7 +9,7 @@ import (
 )
 
 // Aperture provides these pointer tools itself. They take the names of the
-// Playwright MCP tools they replace, which the browser tool profiles no longer
+// Playwright MCP tools they replace, which the browser tool profiles do not
 // expose.
 const (
 	mcpToolBrowserClick  = "browser_click"
@@ -27,7 +27,7 @@ func isPointerTool(name string) bool {
 	}
 }
 
-const mcpPointerMotionDescription = `How the pointer travels. "natural" (the default) is an eased, slightly curved glide at about 1200 px/s, "fast" is a quicker glide, and "instant" jumps in one step. An object sets an average speed, {"speed": px/s}, or a fixed travel time, {"durationMs": ms}. A value here overrides the recording and session defaults (see cursor.set). Sessions without a compositor ignore it.`
+const mcpPointerMotionDescription = `How the pointer travels. "natural" (the default) is an eased, slightly curved glide at about 1200 px/s, "fast" is a quicker glide, and "instant" jumps in one step. An object sets an average speed, {"speed": px/s}, or a fixed travel time, {"durationMs": ms}. A value here overrides the recording and session defaults (see cursor.set). It has no effect when Playwright input is used.`
 
 func mcpPointerMotionSchema(description string) map[string]any {
 	return map[string]any{
@@ -68,9 +68,10 @@ func mcpPointerPosition(prefix string, what string) map[string]any {
 	}
 }
 
-func mcpPointerCommonProperties() map[string]any {
-	return map[string]any{
-		"motion": mcpPointerMotionSchema(mcpPointerMotionDescription),
+// mcpPointerCommonProperties are the parameters shared by the pointer tools;
+// includeMotion adds motion, which the tools that travel a pointer path take.
+func mcpPointerCommonProperties(includeMotion bool) map[string]any {
+	properties := map[string]any{
 		"holdMs": map[string]any{"type": "number", "minimum": 0, "maximum": 30000, "description": "Milliseconds to wait after the gesture, before the page state is returned. Use it to let a recording show the result. Defaults to 0."},
 		"caption": map[string]any{
 			"type": "string", "maxLength": 500,
@@ -78,12 +79,16 @@ func mcpPointerCommonProperties() map[string]any {
 		},
 		"timeoutMs": map[string]any{"type": "number", "minimum": 1, "maximum": 20000, "description": "How long to wait for a ref target to be visible, stable, enabled and not covered by another element. Defaults to 5000."},
 	}
+	if includeMotion {
+		properties["motion"] = mcpPointerMotionSchema(mcpPointerMotionDescription)
+	}
+	return properties
 }
 
 // pointerToolDefinition builds one pointer tool. Path-bound connections take the
 // session from the URL; the others add a required sessionId, as Playwright tools do.
 func pointerToolDefinition(name, title, description string, properties map[string]any, pathBound bool) *mcp.Tool {
-	all := mcpPointerCommonProperties()
+	all := mcpPointerCommonProperties(name != mcpToolBrowserScroll)
 	maps.Copy(all, properties)
 	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": all}
 	if !pathBound {
@@ -91,11 +96,6 @@ func pointerToolDefinition(name, title, description string, properties map[strin
 		schema["required"] = []any{"sessionId"}
 	}
 	destructive, openWorld := true, true
-	if name == mcpToolBrowserScroll {
-		// Scrolling has no pointer travel to shape; the wheel is turned with
-		// Playwright's own input and Chromium animates the scroll.
-		delete(all, "motion")
-	}
 	return &mcp.Tool{
 		Name:        name,
 		Title:       title,

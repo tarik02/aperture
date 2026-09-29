@@ -26,7 +26,7 @@ const (
 	// rendered cursor and page follow the same path a person would produce.
 	pointerModeCompositor pointerGestureMode = "compositor"
 	// pointerModeCDP gestures go through Playwright, which dispatches input over
-	// CDP. They carry no cursor path.
+	// CDP. They carry no cursor path or motion.
 	pointerModeCDP pointerGestureMode = "cdp"
 )
 
@@ -48,28 +48,42 @@ type pointerClickPoint struct {
 	Count int
 }
 
-// pointerGestureRecord describes one finished gesture. Later phases consume it,
-// for example to write captions and cursor effects into a recording timeline.
+// pointerGestureRecord describes one finished gesture. The recording timeline
+// consumes it to time captions, cursor effects and bursts.
+//
+// Every record carries Kind, Tool, Mode, Start, End, Hold and Caption. Only
+// pointerModeCompositor records carry Motion, Path and Clicks: Playwright input
+// has no cursor path to report, so a pointerModeCDP click, move or drag record
+// holds just its timing and caption, and a scroll adds its distance, target and
+// wheel position.
 type pointerGestureRecord struct {
-	ID       uint64
-	Kind     pointerGestureKind
-	Tool     string
-	Mode     pointerGestureMode
+	ID   uint64
+	Kind pointerGestureKind
+	// Tool is the pointer tool that ran the gesture.
+	Tool string
+	Mode pointerGestureMode
+	// TargetID is the CDP target of the page the gesture ran on. It is empty for
+	// a pointerModeCDP gesture other than a scroll, and for a scroll whose page
+	// could not be identified.
 	TargetID string
 	// Start and End are wall times around the physical gesture. Hold is the
 	// extra wait the caller asked for after End.
 	Start time.Time
 	End   time.Time
 	Hold  time.Duration
-	// Motion is the resolved motion. It is ignored in pointerModeCDP.
-	Motion  pointer.Motion
-	Path    []pointerPathPoint
-	Clicks  []pointerClickPoint
+	// Motion is the resolved motion; unset in pointerModeCDP.
+	Motion pointer.Motion
+	// Path is the cursor's route and Clicks its button presses; empty in
+	// pointerModeCDP.
+	Path   []pointerPathPoint
+	Clicks []pointerClickPoint
+	// ScrollX and ScrollY are a scroll's wheel deltas in CSS pixels.
 	ScrollX float64
 	ScrollY float64
 	// Point is where a scroll's wheel turned, in surface pixels, when the page
 	// has a compositor surface. Scrolls carry no Path.
-	Point   *pointer.Point
+	Point *pointer.Point
+	// Caption is the caller's text describing the gesture.
 	Caption string
 }
 

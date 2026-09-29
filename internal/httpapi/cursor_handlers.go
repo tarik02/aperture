@@ -106,6 +106,10 @@ func cursorSettingsRequest(ctx context.Context, port int, method string, update 
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 64*1024))
+		if response.StatusCode == http.StatusConflict {
+			// The wrapper refuses only visibility, and only in a session without a compositor.
+			return cursorSettings{}, errCursorNeedsCompositor
+		}
 		return cursorSettings{}, fmt.Errorf("%w: wrapper returned %s: %s", errBrowserControlFailed, response.Status, message)
 	}
 	var settings cursorSettings

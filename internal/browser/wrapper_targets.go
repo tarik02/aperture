@@ -795,7 +795,12 @@ func discoverCDPTargetWindows(ctx context.Context, port int) ([]cdpTargetWindow,
 		return nil, err
 	}
 	defer client.close()
-	executorCtx := client.executorContext(discoveryCtx, "")
+	return listCDPTargetWindows(discoveryCtx, client)
+}
+
+// listCDPTargetWindows lists the user pages of the browser with their windows.
+func listCDPTargetWindows(ctx context.Context, client *liveSessionCDP) ([]cdpTargetWindow, error) {
+	executorCtx := client.executorContext(ctx, "")
 	targetInfos, err := cdptarget.GetTargets().Do(executorCtx)
 	if err != nil {
 		return nil, fmt.Errorf("list CDP targets: %w", err)

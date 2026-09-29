@@ -16,7 +16,8 @@ import (
 
 const (
 	pointerCallRequestMaxBytes = 1 << 20
-	// The page needs a moment to react to a gesture before its state is read.
+	// pointerSettleDelay is how long the page gets to react to a compositor
+	// gesture, or a scroll whose offsets cannot be read, before its state is read.
 	pointerSettleDelay = 150 * time.Millisecond
 )
 
@@ -79,24 +80,26 @@ func (r *wrapperRuntime) runPointerGesture(ctx context.Context, spec pointerGest
 	r.mu.Lock()
 	registry := r.targets
 	r.mu.Unlock()
+	conn := &pointerCDPConn{port: r.values.CDPPort}
+	defer conn.close()
 	if spec.Kind == pointerGestureScroll {
-		return r.runPointerScroll(ctx, registry, spec)
+		return r.runPointerScroll(ctx, conn, registry, spec)
 	}
 	if registry == nil {
-		return r.runPointerGestureCDP(ctx, spec, nil)
+		return r.runPointerGestureCDP(ctx, conn, spec, pointerScrollContext{})
 	}
-	result, err := r.runPointerGestureCompositor(ctx, registry, spec)
+	result, err := r.runPointerGestureCompositor(ctx, conn, registry, spec)
 	if errors.Is(err, errPointerFallback) {
 		// Fallback errors are only raised while locating the page and the elements,
 		// before any input is sent, so the Playwright path never repeats a gesture.
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: pointer tool %s uses Playwright input: %v\n", spec.Tool, err)
-		return r.runPointerGestureCDP(ctx, spec, nil)
+		return r.runPointerGestureCDP(ctx, conn, spec, pointerScrollContext{})
 	}
 	return result, err
 }
 
-func (r *wrapperRuntime) runPointerGestureCompositor(ctx context.Context, registry *wrapperTargetRegistry, spec pointerGestureSpec) (*mcp.CallToolResult, error) {
-	target, err := r.identifyPointerTarget(ctx, registry)
+func (r *wrapperRuntime) runPointerGestureCompositor(ctx context.Context, conn *pointerCDPConn, registry *wrapperTargetRegistry, spec pointerGestureSpec) (*mcp.CallToolResult, error) {
+	target, err := r.identifyPointerTarget(ctx, conn, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -104,10 +107,10 @@ func (r *wrapperRuntime) runPointerGestureCompositor(ctx context.Context, regist
 	switch spec.Kind {
 	case pointerGestureDrag:
 		from, to, err = resolvePointerDragEndpoints(spec, func(endpoint pointerEndpoint, requireEnabled, verify bool) (pointer.Point, error) {
-			return r.resolvePointerEndpoint(ctx, target, endpoint, requireEnabled, verify, spec.Timeout)
+			return r.resolvePointerEndpoint(ctx, conn, target, endpoint, requireEnabled, verify, spec.Timeout)
 		})
 	default:
-		from, err = r.resolvePointerEndpoint(ctx, target, spec.From, spec.Kind == pointerGestureClick, false, spec.Timeout)
+		from, err = r.resolvePointerEndpoint(ctx, conn, target, spec.From, spec.Kind == pointerGestureClick, false, spec.Timeout)
 	}
 	if err != nil {
 		return nil, err
@@ -198,9 +201,9 @@ func resolvePointerDragEndpoints(spec pointerGestureSpec, resolve pointerEndpoin
 // resolvePointerEndpoint returns the surface coordinates of an endpoint. With
 // verify it only looks the element up where it is now, briefly and without
 // scrolling.
-func (r *wrapperRuntime) resolvePointerEndpoint(ctx context.Context, target wrapperTargetSnapshot, endpoint pointerEndpoint, requireEnabled, verify bool, timeout time.Duration) (pointer.Point, error) {
+func (r *wrapperRuntime) resolvePointerEndpoint(ctx context.Context, conn *pointerCDPConn, target wrapperTargetSnapshot, endpoint pointerEndpoint, requireEnabled, verify bool, timeout time.Duration) (pointer.Point, error) {
 	if endpoint.Point != nil {
-		metrics, err := r.pointerTargetViewportMetrics(ctx, target.TargetID)
+		metrics, err := r.pointerTargetViewportMetrics(ctx, conn, target.TargetID)
 		if err != nil {
 			return pointer.Point{}, err
 		}
