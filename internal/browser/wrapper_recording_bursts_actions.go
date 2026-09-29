@@ -30,9 +30,17 @@ type burstTicketEntry struct {
 	handle *burstHandle
 }
 
-// burstFollowProbeTimeout bounds finding the page a tab action left the
-// automation on.
-const burstFollowProbeTimeout = 3 * time.Second
+// burstIdentifyTimeout bounds finding the page an action runs on, or the one a
+// tab action left the automation on. It costs Playwright calls and CDP round
+// trips, any of which can hang or queue behind other calls, and an action holds
+// its burst's tail open while it waits. When it runs out the action is recorded
+// on the page the recording falls back to, which is what an action whose page
+// cannot be identified gets anyway.
+const burstIdentifyTimeout = 2500 * time.Millisecond
+
+// errBurstActionAbandoned is what a burst is told about an action whose handler
+// ended without reporting a result.
+var errBurstActionAbandoned = errors.New("the action ended without a result")
 
 type burstTicketKey struct{}
 
@@ -82,7 +90,7 @@ func (t *burstTicket) end(err error) {
 			// tail shows what the tool switched to. It is registered before the
 			// action ends, so the burst does not start tailing off on the old page.
 			for _, entry := range t.entries {
-				entry.bursts.startFollow(entry.handle, t.follow)
+				entry.bursts.startFollow(t.follow)
 			}
 		}
 		callEnd := time.Now()
@@ -162,9 +170,7 @@ func (r *wrapperRuntime) beginBurstAction(ctx context.Context, tool string, argu
 	}
 	if tool == "browser_tabs" && len(ticket.entries) > 0 {
 		ticket.follow = sync.OnceValue(func() string {
-			followCtx, cancel := context.WithTimeout(r.ctx, burstFollowProbeTimeout)
-			defer cancel()
-			return r.identifyBurstTarget(followCtx)
+			return r.identifyBurstTarget(r.ctx)
 		})
 	}
 	if len(ticket.entries) == 0 && ticket.targetID == "" {
@@ -178,7 +184,15 @@ func (r *wrapperRuntime) beginBurstAction(ctx context.Context, tool string, argu
 // be told, and the bursts then record the page they fall back to. With several
 // pages it costs a probe, which is why it runs only when a bursts recording
 // exists; the pointer tools reuse the answer instead of asking again.
+//
+// It has a deadline of its own, burstIdentifyTimeout, and ends with ctx: an
+// action whose request went away does not go on holding the bursts.
 func (r *wrapperRuntime) identifyBurstTarget(ctx context.Context) string {
+	ctx, cancel := context.WithTimeout(ctx, burstIdentifyTimeout)
+	defer cancel()
+	if r.burstIdentify != nil {
+		return r.burstIdentify(ctx)
+	}
 	conn := &pointerCDPConn{port: r.values.CDPPort}
 	defer conn.close()
 	targetID, err := r.identifyPointerTargetID(ctx, conn, true)

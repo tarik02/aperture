@@ -62,6 +62,9 @@ type wrapperRuntime struct {
 	pointer                  pointerRuntime
 	startedAt                time.Time
 	uploads                  wrapperUploadCounters
+	// burstIdentify replaces the probe that finds the page an action runs on, for
+	// tests.
+	burstIdentify func(ctx context.Context) string
 }
 
 func (r *wrapperRuntime) setTargetRegistry(registry *wrapperTargetRegistry) {

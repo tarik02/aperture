@@ -830,7 +830,7 @@ func TestBurstFollowMovesInTheBackgroundAndActionsWaitForIt(t *testing.T) {
 		}
 		// The tool call returns at once: the move runs on, and holds the tail back.
 		before := time.Now()
-		b.startFollow(handle, func() string { time.Sleep(200 * time.Millisecond); return "t2" })
+		b.startFollow(func() string { time.Sleep(200 * time.Millisecond); return "t2" })
 		b.end(handle, time.Now(), nil)
 		if time.Since(before) != 0 {
 			t.Fatal("the tool call waited for the move")
@@ -868,7 +868,7 @@ func TestBurstFollowWithoutAnotherPageStartsTheTail(t *testing.T) {
 		if err != nil || handle == nil {
 			t.Fatal(err)
 		}
-		b.startFollow(handle, func() string { return "" })
+		b.startFollow(func() string { return "" })
 		end := time.Now()
 		b.end(handle, end, nil)
 		time.Sleep(5 * time.Second)
@@ -1259,5 +1259,176 @@ func TestBurstArrivalThatNeverBeginsDoesNotHoldTheTailOnceReleased(t *testing.T)
 			t.Fatalf("closed %q", backend.segment(0).closeReason())
 		}
 		b.shutdown(false)
+	})
+}
+
+// tabsAction is a tab action that runs on the page t1.
+var tabsAction = burstAction{Tool: "browser_tabs", Kind: burstActionChange, TargetID: "t1"}
+
+func TestBurstFollowIsKeptWhileACaptureReplacementIsInFlight(t *testing.T) {
+	// The move to the page the tab action left the automation on is found while
+	// the burst is closing its segment, or opening the replacement: it is made
+	// when the burst settles instead of being dropped.
+	for name, test := range map[string]struct {
+		closeDelay, identify time.Duration
+	}{
+		"closing": {closeDelay: 200 * time.Millisecond, identify: 100 * time.Millisecond},
+		"opening": {closeDelay: 0, identify: 50 * time.Millisecond},
+	} {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				backend := newFakeBurstBackend()
+				backend.closeDelay = test.closeDelay
+				b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
+				handle, err := b.begin(context.Background(), tabsAction)
+				if err != nil || handle == nil {
+					t.Fatal(err)
+				}
+				b.startFollow(func() string { time.Sleep(test.identify); return "t2" })
+				b.end(handle, time.Now(), nil)
+				time.Sleep(10 * time.Millisecond)
+				backend.setWidth(7)
+				current, _ := backend.target("t1")
+				b.replaceTarget(current)
+				time.Sleep(5 * time.Second)
+				if backend.segmentCount() != 3 {
+					t.Fatalf("%d segments", backend.segmentCount())
+				}
+				last := backend.segment(2)
+				if backend.segment(0).target.TargetID != "t1" || backend.segment(1).target.TargetID != "t1" || last.target.TargetID != "t2" {
+					t.Fatalf("segments on %s, %s, %s", backend.segment(0).target.TargetID, backend.segment(1).target.TargetID, last.target.TargetID)
+				}
+				if backend.segment(1).closeReason() != "target_changed" || last.closeReason() != "settled" {
+					t.Fatalf("closed %q and %q", backend.segment(1).closeReason(), last.closeReason())
+				}
+				if status := b.status(); status.Count != 1 || status.State != "idle" || status.Skipped != 0 {
+					t.Fatalf("status %+v", status)
+				}
+				b.shutdown(false)
+			})
+		})
+	}
+}
+
+func TestBurstPageClosedDuringAFollowOpensANewBurstOnTheNewPage(t *testing.T) {
+	// A tab action closes the page that is recorded: the automation lands on
+	// another page, and the burst that ended with the old one is opened again there.
+	for name, closeBeforeFollow := range map[string]bool{"closed while the move runs": false, "closed before the move starts": true} {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				backend := newFakeBurstBackend()
+				b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
+				handle, err := b.begin(context.Background(), tabsAction)
+				if err != nil || handle == nil {
+					t.Fatal(err)
+				}
+				closePage := func() {
+					backend.mu.Lock()
+					backend.gone = map[string]bool{"t1": true}
+					backend.mu.Unlock()
+					b.targetClosed("t1")
+				}
+				if closeBeforeFollow {
+					closePage()
+					time.Sleep(50 * time.Millisecond)
+				}
+				b.startFollow(func() string { time.Sleep(100 * time.Millisecond); return "t2" })
+				if !closeBeforeFollow {
+					time.Sleep(10 * time.Millisecond)
+					closePage()
+				}
+				b.end(handle, time.Now(), nil)
+				time.Sleep(5 * time.Second)
+				if backend.segmentCount() != 2 || backend.segment(0).closeReason() != "target_closed" {
+					t.Fatalf("%d segments, first closed %q", backend.segmentCount(), backend.segment(0).closeReason())
+				}
+				if second := backend.segment(1); second.target.TargetID != "t2" || second.closeReason() != "settled" {
+					t.Fatalf("second segment on %s, closed %q", second.target.TargetID, second.closeReason())
+				}
+				if status := b.status(); status.Count != 2 || status.State != "idle" {
+					t.Fatalf("status %+v", status)
+				}
+				b.shutdown(false)
+			})
+		})
+	}
+}
+
+func TestBurstFollowAfterTheRecordingStoppedDoesNothing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		backend := newFakeBurstBackend()
+		b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
+		handle, err := b.begin(context.Background(), tabsAction)
+		if err != nil || handle == nil {
+			t.Fatal(err)
+		}
+		b.startFollow(func() string { time.Sleep(time.Second); return "t2" })
+		b.end(handle, time.Now(), nil)
+		b.shutdown(false)
+		time.Sleep(5 * time.Second)
+		synctest.Wait()
+		if backend.segmentCount() != 1 || b.status().State != "idle" {
+			t.Fatalf("%d segments, status %+v", backend.segmentCount(), b.status())
+		}
+	})
+}
+
+func TestBurstDoesNotReopenOnAPageThatClosedWhileItsSegmentWasClosing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		backend := newFakeBurstBackend()
+		backend.closeDelay = 200 * time.Millisecond
+		b := newRecordingBursts(context.Background(), defaultBurstConfig(), backend, nil)
+		handle, err := b.begin(context.Background(), typeAction)
+		if err != nil || handle == nil {
+			t.Fatal(err)
+		}
+		backend.setWidth(7)
+		current, _ := backend.target("t1")
+		b.replaceTarget(current)
+		time.Sleep(50 * time.Millisecond)
+		backend.mu.Lock()
+		backend.gone = map[string]bool{"t1": true}
+		backend.mu.Unlock()
+		time.Sleep(time.Second)
+		if status := b.status(); backend.segmentCount() != 1 || status.State != "idle" || len(backend.failedBy) != 0 {
+			t.Fatalf("%d segments, status %+v", backend.segmentCount(), status)
+		}
+		if b.openFailures != 0 {
+			t.Fatalf("%d open failures", b.openFailures)
+		}
+		b.end(handle, time.Now(), nil)
+		b.shutdown(false)
+	})
+}
+
+func TestBurstGracefulStopWaitsForActionsAndTailWithinOneBound(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		backend := newFakeBurstBackend()
+		// The screen never settles, so a tail runs to its hard end.
+		backend.changingUntil = time.Now().Add(time.Hour)
+		config := defaultBurstConfig()
+		config.MaxTail = burstMaxMaxTailMs * time.Millisecond
+		b := newRecordingBursts(context.Background(), config, backend, nil)
+		handle, err := b.begin(context.Background(), typeAction)
+		if err != nil || handle == nil {
+			t.Fatal(err)
+		}
+		started := time.Now()
+		stopped := make(chan struct{})
+		go func() {
+			b.shutdown(true)
+			close(stopped)
+		}()
+		// The action ends just before the wait for actions runs out, and its tail
+		// would last as long as MaxTail allows.
+		time.Sleep(burstStopActionWait - time.Second)
+		b.end(handle, time.Now(), nil)
+		<-stopped
+		if waited := time.Since(started); waited != burstStopActionWait+burstStopTailSlack {
+			t.Fatalf("the stop took %v", waited)
+		}
+		if backend.segment(0).closeReason() != "stopped" {
+			t.Fatalf("closed %q", backend.segment(0).closeReason())
+		}
 	})
 }

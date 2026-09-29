@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
@@ -20,8 +19,11 @@ import (
 const playwrightCallRequestMaxBytes = 16 << 20
 
 type playwrightMCPBackend struct {
-	values  RuntimeEnvValues
-	mu      sync.Mutex
+	values RuntimeEnvValues
+	// slot serializes calls: whoever holds its one token owns session. It is a
+	// channel, not a mutex, so that a caller waits for its turn only as long as its
+	// context lives.
+	slot    chan struct{}
 	session *mcp.ClientSession
 }
 
@@ -31,16 +33,45 @@ type playwrightCallRequest struct {
 }
 
 func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
-	return &playwrightMCPBackend{values: values}
+	return &playwrightMCPBackend{values: values, slot: make(chan struct{}, 1)}
 }
+
+// acquire waits for the session's turn, or for ctx to end.
+func (b *playwrightMCPBackend) acquire(ctx context.Context) error {
+	select {
+	case b.slot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *playwrightMCPBackend) release() { <-b.slot }
 
 // Call invokes any tool of the bundled Playwright MCP. It does not apply the
 // client-facing tool gate: wrapper code uses it for tools Aperture hides from
 // clients, such as the pointer tools behind the CDP fallback. Client calls must
 // go through handlePlaywrightCall.
+//
+// Calls run one at a time. A caller that is waiting for its turn gives up with
+// ctx, without disturbing the call that is running.
+//
+// An error ends the session (the next call starts a new Playwright MCP) unless
+// it came from the caller's own context. The go-sdk client answers a cancelled or
+// timed-out call by sending the server a cancellation notification and retiring
+// the request, so the connection stays sound and a response that arrives later is
+// dropped: the session is fine, and tearing it down would only throw away the
+// Playwright process (its page state and the seconds it takes to start again) for
+// a caller that stopped waiting, such as a pointer tool's timeoutMs or a burst's
+// probe. The one thing that may go on is the abandoned request itself, which the
+// server stops or finishes by its own timeout; the tools that reach here bound
+// themselves (Playwright's action timeout), and a wedged server shows up as a
+// transport error on a later call, which does reset the session.
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	if err := b.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer b.release()
 	if b.session == nil {
 		if err := b.start(ctx); err != nil {
 			return nil, err
@@ -49,8 +80,10 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 
 	result, err := b.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
-		_ = b.session.Close()
-		b.session = nil
+		if ctx.Err() == nil {
+			_ = b.session.Close()
+			b.session = nil
+		}
 		return nil, err
 	}
 	return result, nil
@@ -93,8 +126,9 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 }
 
 func (b *playwrightMCPBackend) Close() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	// Close waits for the call that is running, which ends with its own context.
+	_ = b.acquire(context.Background())
+	defer b.release()
 	if b.session == nil {
 		return
 	}
@@ -133,6 +167,9 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 	}
 
 	ctx, ticket := r.beginBurstAction(req.Context(), call.Name, call.Arguments, 0)
+	// Whatever ends the handler, the bursts hear that the action is over: the
+	// deferred end only counts when the normal one did not run (a panic).
+	defer ticket.end(errBurstActionAbandoned)
 	result, err := r.playwright.Call(ctx, call.Name, call.Arguments)
 	ticket.end(burstFailure(result, err))
 	if err != nil {
