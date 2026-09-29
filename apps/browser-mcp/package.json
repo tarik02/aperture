@@ -1,0 +1,20 @@
+{
+  "name": "@aperture-browser/browser-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "test": "vp test run",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "playwright-core": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "zod": "catalog:"
+  }
+}

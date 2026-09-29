@@ -36,7 +36,7 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ["**/vite.config.ts"],
+        files: ["**/vite.config.ts", "apps/browser-mcp/**"],
         rules: { "import/no-nodejs-modules": "off", "no-restricted-globals": "off" },
       },
     ],

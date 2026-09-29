@@ -28,7 +28,6 @@ catalog:
   next-themes: "^0.4.6"
   playwright: 1.64.0-alpha-1789764292000
   playwright-core: 1.64.0-alpha-1789764292000
-  "@playwright/mcp": 0.0.82
   publint: 0.3.24
   react: "^19.2.7"
   react-dom: "^19.2.7"
@@ -59,6 +58,7 @@ catalog:
   vite-plus: 0.2.4
   "@vitejs/plugin-react": "^6.0.3"
   vitest: 4.1.10
+  zod: 4.6.5
   zustand: "^5.0.14"
 
 catalogs:
