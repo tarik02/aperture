@@ -80,7 +80,7 @@ describe.skipIf(!available)("browser MCP host", () => {
   afterAll(() => {
     host?.kill();
     browser?.kill();
-    rmSync(profile, { recursive: true, force: true });
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("lists the pointer tools in place of Playwright's", async () => {
@@ -112,6 +112,8 @@ describe.skipIf(!available)("browser MCP host", () => {
       fallback: true,
       hold: 45,
     });
+
+    expect(clicked._meta.aperture.action).toMatchObject({ tool: "browser_click", ok: true });
 
     const missing = await call("browser_click", { target: "e999" });
     expect(missing.isError).toBe(true);

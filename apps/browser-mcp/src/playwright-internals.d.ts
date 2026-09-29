@@ -7,7 +7,7 @@ declare module "playwright-core/lib/utilsBundle" {
 
 declare module "playwright-core/lib/coreBundle" {
   import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
-  import type { ZodType } from "zod";
+  import type { ZodObject, ZodRawShape } from "zod";
 
   export interface ToolResult {
     content: unknown[];
@@ -30,6 +30,7 @@ declare module "playwright-core/lib/coreBundle" {
   }
 
   export interface Context {
+    currentTab(): Tab | undefined;
     ensureTab(): Promise<Tab>;
   }
 
@@ -39,7 +40,7 @@ declare module "playwright-core/lib/coreBundle" {
       name: string;
       title: string;
       description: string;
-      inputSchema: ZodType;
+      inputSchema: ZodObject<ZodRawShape>;
       type: "input" | "readOnly" | "action";
     };
     handle(
