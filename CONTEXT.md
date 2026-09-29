@@ -21,7 +21,7 @@ A stretch of a bursts recording's video captured around browser actions, opened 
 _Avoid_: Clip, scene, chunk
 
 **Edited recording**:
-The video rendered from a recording and its timeline when the recording is stopped, applying the effects declared on the actions made while it ran: captions burned in, zoom toward where the pointer works, click ripples, and idle stretches sped up or cut. It is a session file beside the raw recording, which is always kept, and a recording with no effects to apply has none.
+The video rendered from a recording and its timeline when the recording is stopped, applying the effects declared on the actions made while it ran: captions burned in, zoom toward where the pointer works, click ripples, and idle stretches sped up or cut. It is a session file beside the raw recording, which is always kept, and a recording with no effects to apply has none. It is rendered from the joined video of a bursts recording as it is from a continuous one.
 _Avoid_: Processed recording, export, render job
 
 **Hot storage**:

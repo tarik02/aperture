@@ -30,7 +30,8 @@ func ripples(tl *timeline.Timeline, scales []segmentScale) (list []ripple, skipp
 		}
 		scale := scaleFor(scales, gesture.Segment)
 		for _, click := range gesture.Clicks {
-			list = append(list, ripple{tMs: click.TMs, x: click.X * scale.x, y: click.Y * scale.y})
+			x, y := scale.apply(click.X, click.Y)
+			list = append(list, ripple{tMs: click.TMs, x: x, y: y})
 		}
 	}
 	slices.SortStableFunc(list, func(a, b ripple) int { return int(a.tMs - b.tMs) })

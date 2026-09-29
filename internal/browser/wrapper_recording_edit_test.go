@@ -212,12 +212,12 @@ func TestAFailedEditKeepsTheRawRecordingAndSaysWhy(t *testing.T) {
 	fake := &fakeEdits{run: func(_ context.Context, options edit.RunOptions, _ *timeline.Timeline) (*edit.Result, error) {
 		// A half written output must not be published.
 		_ = os.WriteFile(filepath.Join(options.WorkDir, edit.OutputName), []byte("partial"), 0o600)
-		return nil, &edit.Error{Code: edit.CodeMixedSizes, Message: "the frames change size"}
+		return nil, &edit.Error{Code: edit.CodeFFmpegFailed, Message: "ffmpeg failed: bad frames"}
 	}}
 	fake.install(t)
 	fixture := newEditFixture(t, true)
 	status := fixture.session.editStoppedRecording(context.Background(), *fixture.recording)
-	if status.EditedRelativePath != "" || status.EditError == nil || status.EditError.Code != "unsupported_mixed_sizes" || !strings.Contains(status.EditError.Message, "change size") {
+	if status.EditedRelativePath != "" || status.EditError == nil || status.EditError.Code != "ffmpeg_failed" || !strings.Contains(status.EditError.Message, "bad frames") {
 		t.Fatalf("status %+v", status)
 	}
 	if names := fixture.files(); len(names) != 1 || names[0] != "recording-x.webm" {
@@ -230,7 +230,7 @@ func TestAFailedEditKeepsTheRawRecordingAndSaysWhy(t *testing.T) {
 	}
 	// And is what a client reads.
 	body, _ := json.Marshal(status)
-	if !strings.Contains(string(body), `"editError":{"code":"unsupported_mixed_sizes"`) {
+	if !strings.Contains(string(body), `"editError":{"code":"ffmpeg_failed"`) {
 		t.Errorf("status JSON %s", body)
 	}
 }

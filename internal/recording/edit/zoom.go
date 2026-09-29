@@ -50,14 +50,20 @@ type zoomScene struct {
 	Gestures       int
 }
 
-// segmentScale maps the coordinates of a timeline segment to the source frame.
-type segmentScale struct{ x, y float64 }
+// segmentScale maps the coordinates of a timeline segment to the source frame: a
+// point (px, py) of the segment is at (px*x + ox, py*y + oy) of the frame. A
+// segment of another size than the frame is fitted into it, see fitSegment.
+type segmentScale struct{ x, y, ox, oy float64 }
+
+func (s segmentScale) apply(x, y float64) (float64, float64) {
+	return x*s.x + s.ox, y*s.y + s.oy
+}
 
 func scaleFor(scales []segmentScale, segment int) segmentScale {
 	if segment >= 0 && segment < len(scales) {
 		return scales[segment]
 	}
-	return segmentScale{1, 1}
+	return segmentScale{x: 1, y: 1}
 }
 
 // zoomGestures picks the zoomed gestures, with the places the camera looks at in
@@ -75,7 +81,8 @@ func zoomGestures(tl *timeline.Timeline, scales []segmentScale) ([]zoomGesture, 
 		scale := scaleFor(scales, gesture.Segment)
 		level := gesture.Zoom
 		at := func(t int64, x, y float64) zoomEvent {
-			return zoomEvent{tMs: t, x: x * scale.x, y: y * scale.y, level: level}
+			x, y = scale.apply(x, y)
+			return zoomEvent{tMs: t, x: x, y: y, level: level}
 		}
 		var events []zoomEvent
 		switch gesture.Kind {

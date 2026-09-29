@@ -42,7 +42,7 @@ func TestZoomGesturesPickZoomedGesturesWithAPlace(t *testing.T) {
 			Path: []timeline.PathPoint{{TMs: 12000, X: 0, Y: 0}, {TMs: 12240, X: 640, Y: 360}},
 		},
 	)
-	gestures, skipped := zoomGestures(tl, []segmentScale{{1, 1}})
+	gestures, skipped := zoomGestures(tl, []segmentScale{{x: 1, y: 1}})
 	// The unzoomed click is not followed; the Playwright click and the scroll
 	// without a position have no place to look at.
 	if skipped != 2 {
@@ -71,7 +71,7 @@ func TestZoomGesturesPickZoomedGesturesWithAPlace(t *testing.T) {
 
 func TestZoomGesturesScaleToTheSourceFrame(t *testing.T) {
 	tl := zoomTimeline(clickGesture(1, 2000, 400, 300, 2))
-	gestures, _ := zoomGestures(tl, []segmentScale{{2, 2}})
+	gestures, _ := zoomGestures(tl, []segmentScale{{x: 2, y: 2}})
 	if got := gestures[0].events[0]; got.x != 800 || got.y != 600 {
 		t.Errorf("event %+v", got)
 	}

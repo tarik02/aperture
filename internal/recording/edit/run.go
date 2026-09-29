@@ -101,10 +101,7 @@ func Run(ctx context.Context, options RunOptions, tl *timeline.Timeline) (*Resul
 	if err != nil {
 		return nil, err
 	}
-	if probed.mixedSizes {
-		return nil, newError(CodeMixedSizes, "the video's frames change size, for example after the viewport was resized, which editing does not support")
-	}
-	plan, err := Build(tl, Source{Width: probed.width, Height: probed.height, DurationMs: probed.durationMs})
+	plan, err := Build(tl, Source{Width: probed.width, Height: probed.height, DurationMs: probed.durationMs, MixedSizes: probed.mixedSizes})
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +114,14 @@ func Run(ctx context.Context, options RunOptions, tl *timeline.Timeline) (*Resul
 		}
 	}
 	timeout := renderTimeout(plan.InDurationMs, options.MaxTime)
+	if plan.FitFilter != "" {
+		fitted, err := fitFrames(ctx, options, format, source, plan, timeout)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = fitted.Close() }()
+		source, format = fitted, fittedFormat
+	}
 	if err := render(ctx, options, format, source, plan, timeout); err != nil {
 		return nil, err
 	}
@@ -125,6 +130,36 @@ func Run(ctx context.Context, options RunOptions, tl *timeline.Timeline) (*Resul
 		return nil, newError(CodeFFmpegFailed, "ffmpeg wrote no video")
 	}
 	return &Result{Output: output, Plan: plan}, nil
+}
+
+// fittedName is the video that fitFrames writes in the work directory, in the
+// container fittedFormat names.
+const (
+	fittedName   = "fitted.mkv"
+	fittedFormat = "matroska,webm"
+)
+
+// fitFrames makes a copy of the source whose frames are all one size, as
+// plan.FitFilter says, and returns it opened for reading. It keeps the frames'
+// timestamps, and encodes with little loss at a low cost, since the edit encodes
+// it again.
+func fitFrames(parent context.Context, options RunOptions, format string, source *os.File, plan *Plan, timeout time.Duration) (*os.File, error) {
+	arguments := []string{"-hide_banner", "-nostdin", "-loglevel", "error", "-y"}
+	arguments = append(arguments, inputArguments(format)...)
+	arguments = append(arguments,
+		"-map", "0:v:0", "-an", "-sn", "-dn",
+		"-vf", plan.FitFilter,
+		"-fps_mode", "passthrough",
+		"-c:v", "libx264", "-preset", "ultrafast", "-crf", "10", "-pix_fmt", "yuv420p",
+	)
+	if options.Threads > 0 {
+		arguments = append(arguments, "-threads", strconv.Itoa(options.Threads))
+	}
+	arguments = append(arguments, "-f", "matroska", fittedName)
+	if err := runFFmpeg(parent, options, source, timeout, arguments); err != nil {
+		return nil, err
+	}
+	return openSource(filepath.Join(options.WorkDir, fittedName))
 }
 
 // renderTimeout is the time an edit of a video of the given length may take.
@@ -256,8 +291,6 @@ func runProbe(parent context.Context, options RunOptions, source *os.File, timeo
 
 // render runs ffmpeg on the plan.
 func render(parent context.Context, options RunOptions, format string, source *os.File, plan *Plan, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
 	arguments := []string{"-hide_banner", "-nostdin", "-loglevel", "error", "-y"}
 	arguments = append(arguments, inputArguments(format)...)
 	arguments = append(arguments,
@@ -274,6 +307,14 @@ func render(parent context.Context, options RunOptions, format string, source *o
 	// The name has no .mp4 extension to go by while it is being written.
 	arguments = append(arguments, "-movflags", "+faststart", "-f", "mp4", OutputName)
 
+	return runFFmpeg(parent, options, source, timeout, arguments)
+}
+
+// runFFmpeg runs ffmpeg with the arguments in the work directory, reading the
+// source as file descriptor 3.
+func runFFmpeg(parent context.Context, options RunOptions, source *os.File, timeout time.Duration, arguments []string) error {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, options.FFmpeg, arguments...)
 	cmd.Dir = options.WorkDir
 	cmd.Env = toolEnvironment(options.WorkDir, options.CacheDir)

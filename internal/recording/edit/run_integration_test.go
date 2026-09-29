@@ -320,11 +320,11 @@ func TestRunWithNothingToApplyRendersNothing(t *testing.T) {
 	}
 }
 
-func TestRunRefusesAVideoWhoseFramesChangeSize(t *testing.T) {
-	ffmpeg, _ := ffmpegTools(t)
+func TestRunFitsAVideoWhoseFramesChangeSize(t *testing.T) {
+	ffmpeg, ffprobe := ffmpegTools(t)
 	dir := t.TempDir()
 	var parts []string
-	for index, size := range []string{"640x360", "480x270"} {
+	for index, size := range []string{"640x360", "300x400"} {
 		path := filepath.Join(dir, "part"+strconv.Itoa(index)+".webm")
 		args := []string{"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=" + size + ":r=30:d=1", "-c:v", "libvpx", "-g", "15", "-pix_fmt", "yuv420p", path}
 		if out, err := exec.Command(ffmpeg, args...).CombinedOutput(); err != nil {
@@ -340,14 +340,25 @@ func TestRunRefusesAVideoWhoseFramesChangeSize(t *testing.T) {
 	if out, err := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined).CombinedOutput(); err != nil {
 		t.Skipf("cannot join test videos: %v: %s", err, out)
 	}
-	// The timeline of a recording that never noticed: one size all through.
 	tl := syntheticTimeline(&timeline.EditOptions{Idle: timeline.IdleCut})
 	tl.Recording.Width, tl.Recording.Height, tl.Recording.DurationMs = 640, 360, 2000
-	tl.Segments[0].Width, tl.Segments[0].Height = 640, 360
-	_, err := Run(context.Background(), RunOptions{FFmpeg: ffmpeg, Source: joined, WorkDir: dir}, tl)
-	var failure *Error
-	if !errors.As(err, &failure) || failure.Code != CodeMixedSizes {
-		t.Fatalf("error %v, want %s", err, CodeMixedSizes)
+	tl.Segments = []timeline.Segment{
+		{Index: 0, StartMs: 0, EndMs: 1000, Width: 640, Height: 360, ScaleX: 1, ScaleY: 1, Clock: timeline.ClockPipeline},
+		{Index: 1, StartMs: 1000, EndMs: 2000, Width: 300, Height: 400, ScaleX: 1, ScaleY: 1, Clock: timeline.ClockPipeline},
+	}
+	tl.Gestures = []timeline.Gesture{{ID: 1, Kind: "click", Tool: "browser_click", Mode: "compositor", StartMs: 1200, EndMs: 1400, Ripple: true, Segment: 1,
+		Clicks: []timeline.Click{{TMs: 1300, X: 150, Y: 200, Button: "left", Count: 1}}}}
+	tl.Captions = nil
+	result, err := Run(context.Background(), RunOptions{FFmpeg: ffmpeg, Source: joined, WorkDir: dir}, tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Plan.FitFilter == "" || result.Output == "" {
+		t.Fatalf("result %+v", result)
+	}
+	_, width, height, frames, seconds := probeVideo(t, ffprobe, result.Output)
+	if width != 640 || height != 360 || frames < 55 || seconds < 1.9 || seconds > 2.2 {
+		t.Errorf("edited video is %dx%d with %d frames", width, height, frames)
 	}
 }
 

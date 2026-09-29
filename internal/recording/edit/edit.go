@@ -100,6 +100,19 @@ func (z Zoom) MarshalJSON() ([]byte, error) {
 	return json.Marshal(float64(z))
 }
 
+// captureBursts is the capture of a bursts recording, as the timeline names it.
+const captureBursts = "bursts"
+
+// idleMode is the idle mode the timeline asks for, empty for none. A bursts
+// recording asks for none: it captures nothing between its actions, so it has no
+// idle stretches to shorten.
+func idleMode(tl *timeline.Timeline) string {
+	if tl.Recording.Edit == nil || tl.Recording.Capture == captureBursts {
+		return ""
+	}
+	return tl.Recording.Edit.Idle
+}
+
 // Wanted reports whether a timeline asks for anything to be applied: a caption, a
 // zoomed gesture, a rippled click, or an idle mode. It says nothing about whether
 // the effects have something to act on, which only Build finds out.
@@ -107,7 +120,7 @@ func Wanted(tl *timeline.Timeline) bool {
 	if tl == nil {
 		return false
 	}
-	if tl.Recording.Edit != nil && tl.Recording.Edit.Idle != "" {
+	if idleMode(tl) != "" {
 		return true
 	}
 	for _, caption := range tl.Captions {

@@ -676,7 +676,7 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 	_ = json.Unmarshal(encoded, &schema)
 	properties, _ := schema["properties"].(map[string]any)
 	delete(properties, "sessionId")
-	if properties == nil && playwrightCaptionTools[definition.Name] {
+	if properties == nil && takesProxiedCaption(definition.Name) {
 		properties = map[string]any{}
 		schema["properties"] = properties
 	}

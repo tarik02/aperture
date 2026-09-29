@@ -6,10 +6,6 @@ import "fmt"
 const (
 	// CodeUnavailable means no ffmpeg is configured for editing recordings.
 	CodeUnavailable = "unavailable"
-	// CodeMixedSizes means the recording's frames are not all one size, as
-	// happens when the viewport is resized while recording, which the edit does not
-	// support.
-	CodeMixedSizes = "unsupported_mixed_sizes"
 	// CodeSourceUnreadable means the video is missing or is not what it should be.
 	CodeSourceUnreadable = "source_unreadable"
 	// CodeFFmpegFailed means ffmpeg exited with an error.

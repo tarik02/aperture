@@ -937,7 +937,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editState` `failed` and `editError`. A stop request that comes while another renders the same recording's edit returns at once with `editState` `rendering`.
+      description: Stops the selected recording without transferring its media data and returns the resulting session file, with the path of the recording's timeline file. A bursts recording first waits for the actions that are running and for a burst that is still settling; one in which no burst was recorded fails with `stopReason` `no_bursts`, with no video and no edit. When the recording has effects to apply (a caption, a zoomed gesture, a rippled click, or an idle mode), the call also waits while the edited video is rendered, which takes from seconds to a minute or two, and returns its path as `editedRelativePath`. A failed edit does not fail the stop; the raw video and timeline are returned with `editState` `failed` and `editError`. A stop request that comes while another renders the same recording's edit returns at once with `editState` `rendering`.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -2974,9 +2974,9 @@ components:
       properties:
         code:
           type: string
-          enum: [unavailable, unsupported_mixed_sizes, source_unreadable, ffmpeg_failed, timeout, recording_failed, internal]
+          enum: [unavailable, source_unreadable, ffmpeg_failed, timeout, recording_failed, internal]
           description: >-
-            `unavailable`: the host has no ffmpeg. `unsupported_mixed_sizes`: the frames of the recording change size, for example after the viewport was resized while recording. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `recording_failed`: the recording's pipeline failed and its captured video was kept as it was, without its effects. `internal`: the edited video could not be published.
+            `unavailable`: the host has no ffmpeg. `source_unreadable`: the video is missing or unreadable. `ffmpeg_failed`: ffmpeg failed, see the message. `timeout`: rendering took too long. `recording_failed`: the recording's pipeline failed and its captured video was kept as it was, without its effects. `internal`: the edited video could not be published.
         message:
           type: string
     CreateSessionRecordingInput:
@@ -3150,7 +3150,7 @@ components:
           type: array
           items: {type: string}
           description: >-
-            What of the effects could not be applied or was left as it was, for example clicks made through Playwright input, which have no position in the video.
+            What of the effects could not be applied or was left as it was, for example clicks made through Playwright input, which have no position in the video, or frames of different sizes (the viewport was resized) that were fitted into the first one's.
         startedAt:
           type: string
           format: date-time
@@ -3261,7 +3261,7 @@ components:
           type: array
           items: {type: string}
           description: >-
-            What of the effects could not be applied or was left as it was, for example clicks made through Playwright input, which have no position in the video.
+            What of the effects could not be applied or was left as it was, for example clicks made through Playwright input, which have no position in the video, or frames of different sizes (the viewport was resized) that were fitted into the first one's.
     SessionDirectory:
       type: object
       description: Directory below the session files root.

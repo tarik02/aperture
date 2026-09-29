@@ -212,7 +212,7 @@ func (r createSessionRecordingRequest) Validate() error {
 	if err := r.captureRequest().validate(); err != nil {
 		return err
 	}
-	return r.recordingEffectsRequest.validate()
+	return r.validate()
 }
 
 type retargetSessionRecordingRequest struct {
@@ -247,7 +247,7 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
 	}
 	input.captureRequest().wrapperFields(request)
-	input.recordingEffectsRequest.wrapperFields(request)
+	input.wrapperFields(request)
 	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", request, false, &status)
 	if err != nil {
 		WriteError(c, err)

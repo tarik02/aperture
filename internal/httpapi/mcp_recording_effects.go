@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"github.com/aperture/aperture/internal/playwrightmcp"
 	"github.com/aperture/aperture/internal/recording/edit"
 	"github.com/aperture/aperture/internal/recording/timeline"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,25 +17,15 @@ import (
 // gesture zooms toward where it happens, a rippled click is marked, and idle
 // stretches are sped up or cut out.
 
-// playwrightCaptionTools are the Playwright tools that change the page, and so
-// take a caption. The browser tool profiles of read-only tools do not: there is
-// nothing to caption in a snapshot. This list is kept here for now and is to
-// be unified with the recording bursts' classification of page-changing tools.
-var playwrightCaptionTools = map[string]bool{
-	"browser_navigate":      true,
-	"browser_navigate_back": true,
-	"browser_type":          true,
-	"browser_press_key":     true,
-	"browser_select_option": true,
-	"browser_fill_form":     true,
-	"browser_file_upload":   true,
-	"browser_handle_dialog": true,
-	"browser_drop":          true,
-	"browser_tabs":          true,
-	"browser_evaluate":      true,
-	"browser_resize":        true,
-	"browser_emulate_media": true,
-	"browser_wait_for":      true,
+// A proxied Playwright tool takes a caption exactly when it can open a burst in a
+// bursts recording, which playwrightmcp.AcceptsCaption decides from the one
+// classification of the tools that change the page. Tools that only read the
+// page have nothing to caption.
+
+// takesProxiedCaption says whether a Playwright tool proxied by the daemon takes
+// a caption. The pointer tools have a caption of their own.
+func takesProxiedCaption(name string) bool {
+	return playwrightmcp.AcceptsCaption(name) && !playwrightmcp.IsPointerTool(name)
 }
 
 const mcpCaptionDescription = "Short text for the recording to show while this runs, burned into the edited video. Ignored when nothing is recording."
@@ -75,7 +66,7 @@ func mcpRecordingEffectsProperties() map[string]any {
 // playwrightToolCaption takes the caption out of a proxied tool's arguments,
 // which Playwright would reject, and returns it.
 func playwrightToolCaption(name string, arguments map[string]any) (string, error) {
-	if !playwrightCaptionTools[name] {
+	if !takesProxiedCaption(name) {
 		return "", nil
 	}
 	value, present := arguments["caption"]
@@ -83,8 +74,9 @@ func playwrightToolCaption(name string, arguments map[string]any) (string, error
 		return "", nil
 	}
 	delete(arguments, "caption")
-	// Listing tabs changes nothing on the page, so it has nothing to caption.
-	if action, _ := arguments["action"].(string); name == "browser_tabs" && action == "list" {
+	// A call that changes nothing on the page (listing tabs, waiting for time)
+	// has nothing to caption.
+	if playwrightmcp.ClassifyTool(name, arguments) == playwrightmcp.ActionNone {
 		return "", nil
 	}
 	caption, ok := value.(string)
@@ -100,7 +92,7 @@ func playwrightToolCaption(name string, arguments map[string]any) (string, error
 // addCaptionProperty adds the caption parameter to the schema of a tool that
 // changes the page.
 func addCaptionProperty(name string, properties map[string]any) {
-	if playwrightCaptionTools[name] && properties != nil {
+	if takesProxiedCaption(name) && properties != nil {
 		description := mcpCaptionDescription
 		if name == "browser_tabs" {
 			description += ` Ignored for action "list".`

@@ -25,6 +25,9 @@ type Source struct {
 	Width, Height int
 	// DurationMs is the video's length. Zero takes the timeline's.
 	DurationMs int64
+	// MixedSizes says the video's frames were found to change size, which the
+	// timeline may not have noticed.
+	MixedSizes bool
 }
 
 // Report says what a plan applies.
@@ -46,6 +49,14 @@ type Plan struct {
 	// FPS is the constant frame rate of the edited video; Width and Height its
 	// frame, the source's.
 	FPS, Width, Height int
+	// FitFilter is the -vf chain of the pass that comes before the edit when the
+	// video's frames change size (the viewport was resized between segments, or
+	// between the bursts of a bursts recording): every frame is fitted into the
+	// first one's size, keeping its aspect ratio. It is empty when the frames
+	// keep their size. It is a pass of its own since ffmpeg rebuilds a filter
+	// graph when the frame size changes, which restarts the timestamps the edit's
+	// filters rely on.
+	FitFilter string
 	// InDurationMs is the source's length and OutDurationMs the edited video's.
 	InDurationMs, OutDurationMs int64
 	// Filter is the -vf chain. It is empty when the plan is trivial.
@@ -67,8 +78,9 @@ func (p *Plan) Trivial() bool {
 }
 
 // Build plans the edit of a video from its timeline. It is pure. It fails with an
-// *Error when the timeline cannot be edited as it is: CodeMixedSizes when the
-// recording's frames differ in size. Effects that do not fit in the limit of the
+// *Error when the timeline cannot be edited as it is. Frames of different sizes
+// are fitted into the first one's, with black bars where the aspect ratio
+// differs. Effects that do not fit in the limit of the
 // filter ffmpeg takes (a filter argument of 128 KiB), or that the timeline had
 // no room for, are left out, and the plan says so.
 func Build(tl *timeline.Timeline, src Source) (*Plan, error) {
@@ -77,8 +89,11 @@ func Build(tl *timeline.Timeline, src Source) (*Plan, error) {
 		return nil, err
 	}
 	width, height, total, fps := geometry.width, geometry.height, geometry.total, geometry.fps
-	plan := &Plan{FPS: fps, Width: width, Height: height, InDurationMs: total}
+	plan := &Plan{FPS: fps, Width: width, Height: height, InDurationMs: total, FitFilter: geometry.fitFilter()}
 	plan.noteTruncation(tl)
+	if plan.FitFilter != "" {
+		plan.warn("the recording's frames change size (the viewport was resized), so all of them were fitted into the first frame's %dx%d with black bars where the shape differs", width, height)
+	}
 
 	list, skippedRipples := ripples(tl, geometry.scales)
 	if skippedRipples > 0 {
@@ -121,6 +136,15 @@ type geometry struct {
 	total         int64
 	fps           int
 	scales        []segmentScale
+	// fitted is set when frames of different sizes are fitted into one.
+	fitted bool
+}
+
+func (g geometry) fitFilter() string {
+	if !g.fitted {
+		return ""
+	}
+	return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease:flags=bicubic,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black,setsar=1", g.width, g.height, g.width, g.height)
 }
 
 // sourceGeometry checks the timeline's segments and settles the source's size,
@@ -130,9 +154,10 @@ func sourceGeometry(tl *timeline.Timeline, src Source) (geometry, error) {
 		return geometry{}, newError(CodeInternal, "the timeline has no segments")
 	}
 	first := tl.Segments[0]
+	fitted := src.MixedSizes
 	for _, segment := range tl.Segments[1:] {
 		if segment.Width != first.Width || segment.Height != first.Height {
-			return geometry{}, newError(CodeMixedSizes, "the recording's frames change size (%dx%d and %dx%d), for example after the viewport was resized, which editing does not support", first.Width, first.Height, segment.Width, segment.Height)
+			fitted = true
 		}
 	}
 	width, height := src.Width, src.Height
@@ -141,6 +166,10 @@ func sourceGeometry(tl *timeline.Timeline, src Source) (geometry, error) {
 	}
 	if width <= 0 || height <= 0 {
 		return geometry{}, newError(CodeSourceUnreadable, "the video's size is unknown")
+	}
+	if fitted {
+		// The pass that fits the frames encodes them, which needs even sizes.
+		width, height = max(width&^1, 2), max(height&^1, 2)
 	}
 	total := src.DurationMs
 	if total <= 0 {
@@ -155,9 +184,30 @@ func sourceGeometry(tl *timeline.Timeline, src Source) (geometry, error) {
 	}
 	scales := make([]segmentScale, len(tl.Segments))
 	for index, segment := range tl.Segments {
-		scales[index] = segmentScale{x: float64(width) / float64(segment.Width), y: float64(height) / float64(segment.Height)}
+		scales[index] = fitSegment(segment.Width, segment.Height, width, height, fitted)
 	}
-	return geometry{width: width, height: height, total: total, fps: min(fps, maxFPS), scales: scales}, nil
+	return geometry{width: width, height: height, total: total, fps: min(fps, maxFPS), scales: scales, fitted: fitted}, nil
+}
+
+// fitSegment maps a segment of the given size into a frame. Frames of one size all
+// through are stretched to the source, which only matters when the timeline
+// and the video disagree on the size. Frames of different sizes are fitted, as
+// the fitting filter does: scaled by the largest factor that keeps them inside
+// the frame and centered.
+func fitSegment(segmentWidth, segmentHeight, width, height int, fitted bool) segmentScale {
+	if segmentWidth <= 0 || segmentHeight <= 0 {
+		return segmentScale{x: 1, y: 1}
+	}
+	x, y := float64(width)/float64(segmentWidth), float64(height)/float64(segmentHeight)
+	if !fitted {
+		return segmentScale{x: x, y: y}
+	}
+	factor := min(x, y)
+	return segmentScale{
+		x: factor, y: factor,
+		ox: (float64(width) - factor*float64(segmentWidth)) / 2,
+		oy: (float64(height) - factor*float64(segmentHeight)) / 2,
+	}
 }
 
 func captionsWithText(captions []timeline.Caption) int {
@@ -186,7 +236,11 @@ func (p *Plan) noteTruncation(tl *timeline.Timeline) {
 // idle time when the timeline cannot vouch for what is idle.
 func (p *Plan) planIdleStretches(tl *timeline.Timeline, cues []Cue, list []ripple, scenes []zoomScene) idlePlan {
 	identity := idlePlan{Map: IdentityMap(p.InDurationMs)}
-	if tl.Recording.Edit == nil || tl.Recording.Edit.Idle == "" {
+	mode := idleMode(tl)
+	if mode == "" {
+		if tl.Recording.Edit != nil && tl.Recording.Edit.Idle != "" {
+			p.warn("idle has no effect on a bursts recording, which captures nothing between its actions")
+		}
 		return identity
 	}
 	busy, unknown := busyIntervals(tl, cues, list, scenes)
@@ -194,7 +248,7 @@ func (p *Plan) planIdleStretches(tl *timeline.Timeline, cues []Cue, list []rippl
 		p.warn("idle was left as it is: %s", unknown)
 		return identity
 	}
-	shortened, warnings := planIdle(tl.Recording.Edit.Idle, mergeIntervals(busy, p.InDurationMs), p.InDurationMs, p.FPS)
+	shortened, warnings := planIdle(mode, mergeIntervals(busy, p.InDurationMs), p.InDurationMs, p.FPS)
 	p.Warnings = append(p.Warnings, warnings...)
 	if shortened.Regions == 0 && len(warnings) == 0 {
 		p.warn("idle was left as it is: no stretch of %.1f s or more without changes on the screen or gestures", float64(idleMinMs)/1000)

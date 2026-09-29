@@ -20,10 +20,8 @@ func TestPlaywrightCaptionToolsAreRealTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name := range playwrightCaptionTools {
-		tool, ok := metadata.Tools[name]
-		if !ok {
-			t.Errorf("%s is not a Playwright tool", name)
+	for name, tool := range metadata.Tools {
+		if !takesProxiedCaption(name) {
 			continue
 		}
 		if _, taken := tool.InputSchema["properties"].(map[string]any)["caption"]; taken {
@@ -32,7 +30,7 @@ func TestPlaywrightCaptionToolsAreRealTools(t *testing.T) {
 	}
 	// A tool that only reads the page has nothing to caption.
 	for _, name := range []string{"browser_snapshot", "browser_take_screenshot", "browser_console_messages", "browser_network_requests", "browser_cookie_list", "browser_find"} {
-		if playwrightCaptionTools[name] {
+		if takesProxiedCaption(name) {
 			t.Errorf("%s reads and does not change the page", name)
 		}
 	}
@@ -41,10 +39,9 @@ func TestPlaywrightCaptionToolsAreRealTools(t *testing.T) {
 func TestMCPCaptionIsAddedToPageChangingToolsOnly(t *testing.T) {
 	for _, pathBound := range []bool{true, false} {
 		tools := listMCPTools(t, mcpAuth{profiles: []string{"core", "vision", "network", "storage"}, sessionID: "session-1", sessionOnly: true, pathBound: pathBound})
-		for name := range playwrightCaptionTools {
-			tool := tools[name]
-			if tool == nil {
-				continue // not in these profiles
+		for name, tool := range tools {
+			if !takesProxiedCaption(name) {
+				continue
 			}
 			caption, ok := schemaProperties(t, tool)["caption"].(map[string]any)
 			if !ok || caption["type"] != "string" || caption["maxLength"] != float64(edit.MaxCaptionLength) {
@@ -57,7 +54,7 @@ func TestMCPCaptionIsAddedToPageChangingToolsOnly(t *testing.T) {
 			}
 		}
 		for name, tool := range tools {
-			if playwrightCaptionTools[name] || isPointerTool(name) {
+			if takesProxiedCaption(name) || isPointerTool(name) {
 				continue
 			}
 			if _, ok := schemaProperties(t, tool)["caption"]; ok && strings.HasPrefix(name, "browser_") {

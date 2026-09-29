@@ -62,7 +62,6 @@ const recordingFields = {
     Schema.Struct({
       code: Schema.Literals([
         "unavailable",
-        "unsupported_mixed_sizes",
         "source_unreadable",
         "ffmpeg_failed",
         "timeout",

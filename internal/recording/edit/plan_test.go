@@ -1,7 +1,6 @@
 package edit
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -97,14 +96,27 @@ func TestBuildWithoutIdleHasNoRemap(t *testing.T) {
 	}
 }
 
-func TestBuildRefusesFramesOfDifferentSizes(t *testing.T) {
+func TestBuildFitsFramesOfDifferentSizesIntoTheFirst(t *testing.T) {
 	tl := planTimeline()
 	tl.Segments = append(tl.Segments, timeline.Segment{Index: 1, Width: 1024, Height: 600})
-	tl.Gestures = []timeline.Gesture{clickGesture(1, 2000, 400, 300, 2)}
-	_, err := Build(tl, Source{Width: 1280, Height: 720})
-	var failure *Error
-	if !errors.As(err, &failure) || failure.Code != CodeMixedSizes {
-		t.Fatalf("error %v", err)
+	tl.Gestures = []timeline.Gesture{clickGesture(1, 2000, 400, 300, 1)}
+	tl.Gestures[0].Ripple = true
+	tl.Gestures[0].Segment = 1
+	plan := build(t, tl)
+	if !strings.HasPrefix(plan.FitFilter, "scale=1280:720:force_original_aspect_ratio=decrease") || !strings.Contains(plan.FitFilter, "pad=1280:720") || strings.Contains(plan.Filter, "scale=") {
+		t.Errorf("fit filter %s, filter %s", plan.FitFilter, plan.Filter)
+	}
+	// The 1024x600 frame is scaled by 1.2 to 1228.8x720 and centered: (400,300) is
+	// (505.6,360) of the source.
+	if !strings.Contains(plan.Filter, "X-505.6") || !strings.Contains(plan.Filter, "Y-360.0") {
+		t.Errorf("filter %s", plan.Filter)
+	}
+	found := false
+	for _, warning := range plan.Warnings {
+		found = found || strings.Contains(warning, "change size")
+	}
+	if !found {
+		t.Errorf("warnings %v", plan.Warnings)
 	}
 }
 
