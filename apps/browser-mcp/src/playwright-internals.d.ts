@@ -16,7 +16,6 @@ declare module "playwright-core/lib/coreBundle" {
   }
 
   export interface Response {
-    addCode(code: string): void;
     setIncludeSnapshot(): void;
     serialize(): Promise<ToolResult>;
   }

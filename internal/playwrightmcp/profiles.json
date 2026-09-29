@@ -1,5 +1,4 @@
 {
-  "playwright_version": "1.64.0-alpha-1789764292000",
   "profiles": {
     "core": {
       "tools": [
@@ -85,6 +84,10 @@
             "minimum": 1,
             "type": "integer"
           },
+          "doubleClick": {
+            "description": "Same as clickCount 2",
+            "type": "boolean"
+          },
           "element": {
             "description": "Human-readable element description",
             "type": "string"
@@ -137,7 +140,7 @@
             "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
           },
           "target": {
-            "description": "Snapshot element ref, or a unique locator such as a CSS selector.",
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
           },
           "x": {
@@ -154,7 +157,7 @@
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Click"
+        "title": "browser_click"
       },
       "_meta": null,
       "icons": null
@@ -362,11 +365,11 @@
         "additionalProperties": false,
         "properties": {
           "endElement": {
-            "description": "End: human-readable element description",
+            "description": "End human-readable element description",
             "type": "string"
           },
           "endTarget": {
-            "description": "End: Snapshot element ref, or a unique locator such as a CSS selector.",
+            "description": "End snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
           },
           "endX": {
@@ -411,11 +414,11 @@
             "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
           },
           "startElement": {
-            "description": "Start: human-readable element description",
+            "description": "Start human-readable element description",
             "type": "string"
           },
           "startTarget": {
-            "description": "Start: Snapshot element ref, or a unique locator such as a CSS selector.",
+            "description": "Start snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
           },
           "startX": {
@@ -432,7 +435,7 @@
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Drag"
+        "title": "browser_drag"
       },
       "_meta": null,
       "icons": null
@@ -913,7 +916,7 @@
             "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
           },
           "target": {
-            "description": "Snapshot element ref, or a unique locator such as a CSS selector.",
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
           },
           "x": {
@@ -930,7 +933,7 @@
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Move"
+        "title": "browser_move"
       },
       "_meta": null,
       "icons": null
@@ -1251,7 +1254,7 @@
             "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
           },
           "target": {
-            "description": "Snapshot element ref, or a unique locator such as a CSS selector.",
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
           },
           "x": {
@@ -1268,7 +1271,7 @@
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Scroll"
+        "title": "browser_scroll"
       },
       "_meta": null,
       "icons": null

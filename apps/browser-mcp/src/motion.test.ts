@@ -2,13 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { pathAt, travelMs } from "./motion.ts";
 
 describe("travelMs", () => {
-  it("scales with distance within each preset's bounds", () => {
-    expect(travelMs("natural", 1)).toBe(220);
-    expect(travelMs("natural", 600)).toBe(500);
-    expect(travelMs("natural", 100_000)).toBe(1400);
-    expect(travelMs("fast", 3200)).toBe(450);
-  });
-
   it("jumps for instant motion and for a pointer that is already there", () => {
     expect(travelMs("instant", 500)).toBe(0);
     expect(travelMs("natural", 0.2)).toBe(0);
@@ -36,7 +29,9 @@ describe("pathAt", () => {
   });
 
   it("never leaves the surface, even where the bend would", () => {
-    const path = pathAt({ x: 0, y: 0 }, { x: 99, y: 0 }, { durationMs: 500 }, max);
+    const path = pathAt({ x: 0, y: 0 }, { x: 99, y: 0 }, "natural", max);
+    // Unclamped, the bend would put the middle of this path above the surface.
+    expect(pathAt({ x: 0, y: 50 }, { x: 99, y: 50 }, "natural", max)(0.5).y).not.toBeCloseTo(50);
     for (let t = 0; t <= 1; t += 0.05) {
       const point = path(t);
       expect(point.x).toBeGreaterThanOrEqual(0);

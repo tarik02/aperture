@@ -13,11 +13,14 @@ export interface ClickOptions {
   motion: Motion;
 }
 
-/** Produces the pointer side of a gesture; points are viewport CSS pixels. */
-export interface Pointer {
-  glide(to: Point, motion: Motion): Promise<void>;
-  click(at: Point, options: ClickOptions): Promise<void>;
-  drag(from: Point, to: Point, options: { holdMs: number; motion: Motion }): Promise<void>;
+/** What a pointer needs from the thing that moves it; points are in its own pixels. */
+export interface Device {
+  move(to: Point): Promise<void>;
+  /** `count` is which click of a multi-click this is. */
+  down(button: Button, count: number): Promise<void>;
+  up(button: Button, count: number): Promise<void>;
+  key(modifier: Modifier, pressed: boolean): Promise<void>;
+  wheel(deltaX: number, deltaY: number): Promise<void>;
 }
 
 /** Sends one command to the compositor's control socket and returns its "ok" reply. */
@@ -51,151 +54,215 @@ export interface Surface {
 
 const buttonCodes = { left: 0x110, right: 0x111, middle: 0x112 };
 const keyCodes = { Alt: 56, Control: 29, ControlOrMeta: 29, Meta: 125, Shift: 42 };
+
+/** The compositor's real pointer and keyboard over one surface. */
+export function compositorDevice(socket: string, surface: Surface, page: Page): Device {
+  const send = (line: string) => sendCommand(socket, line);
+  let at = { x: 0, y: 0 };
+  return {
+    async move(to) {
+      await send(`motion ${surface.id} ${to.x.toFixed(3)} ${to.y.toFixed(3)}`);
+      at = to;
+    },
+    // Pressing names the position and releasing does not, so a release cannot be refused for it.
+    async down(button) {
+      await send(
+        `button-at ${surface.id} ${at.x.toFixed(3)} ${at.y.toFixed(3)} ${buttonCodes[button]} 1`,
+      );
+    },
+    async up(button) {
+      await send(`button ${surface.id} ${buttonCodes[button]} 0`);
+    },
+    async key(modifier, pressed) {
+      await send(`key ${surface.id} ${keyCodes[modifier]} ${pressed ? 1 : 0}`);
+    },
+    // The compositor's wheel overshoots, so the page's own does the scrolling.
+    wheel: (deltaX, deltaY) => page.mouse.wheel(deltaX, deltaY),
+  };
+}
+
+/** Playwright's own mouse and keyboard, for sessions without a compositor. */
+export function pageDevice(page: Page): Device {
+  return {
+    move: (to) => page.mouse.move(to.x, to.y),
+    down: (button, count) => page.mouse.down({ button, clickCount: count }),
+    up: (button, count) => page.mouse.up({ button, clickCount: count }),
+    key: (modifier, pressed) =>
+      pressed ? page.keyboard.down(modifier) : page.keyboard.up(modifier),
+    wheel: (deltaX, deltaY) => page.mouse.wheel(deltaX, deltaY),
+  };
+}
+
 const frameMs = 1000 / 60;
 // Time the pointer rests on a destination before pressing, so the page sees the hover.
 const dwellMs = 60;
-const instantDwellMs = 20;
 // A drag needs motion after the press for HTML5 drag and drop to start.
 const dragNudge = 6;
 // Pause between clicks of a multi-click; it keeps three clicks inside the double-click interval.
 const clickGapMs = 60;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const round = (value: number) => Math.round(value * 10) / 10;
 const twice = async (action: () => Promise<unknown>) => {
   await action().catch(action);
 };
 
 // Where the pointer last was on each surface, so the next glide starts there.
 const positions = new Map<number, Point>();
+// Releases for every button and modifier held right now, so the host can let go on exit.
+const held = new Set<() => Promise<unknown>>();
 
+/** Lets go of everything held; for a host that is going away mid-gesture. */
+export async function releaseAll() {
+  await Promise.all([...held].map((release) => release().catch(() => {})));
+}
+
+/** What a gesture did, with absolute wall-clock ms (`t`) and positions in device pixels. */
 export interface Gesture {
-  path: [ms: number, x: number, y: number][];
-  clicks: { ms: number; x: number; y: number; button: Button; count: number }[];
+  start: number;
+  end: number;
+  hold: number;
+  path: [t: number, x: number, y: number][];
+  clicks: { t: number; x: number; y: number; button: Button; count: number }[];
+  scroll?: { t: number; deltaX: number; deltaY: number; x: number; y: number };
 }
 
 /**
- * Glides the compositor's real pointer over one surface and presses real buttons and
- * keys. Whatever fails, buttons and modifiers it pressed are released.
+ * Moves a device like a hand would: an eased glide, a rest, then press and release.
+ * Whatever fails, buttons and modifiers it pressed are released.
  */
-export class CompositorPointer implements Pointer {
-  readonly record: Gesture = { path: [], clicks: [] };
-  private readonly started = Date.now();
+export class Pointer {
+  readonly record: Gesture = { start: 0, end: 0, hold: 0, path: [], clicks: [] };
+  private readonly device: Device;
+  private readonly surface?: Surface;
+  private readonly scale: Point;
   private readonly max: Point;
-  private readonly socket: string;
-  private readonly surface: Surface;
-  private readonly scale: number;
+  private at: Point = { x: 0, y: 0 };
 
-  constructor(socket: string, surface: Surface, scale: number) {
-    this.socket = socket;
+  /** Without a surface the device is a plain mouse: no scaling, and every move is a jump. */
+  constructor(device: Device, surface?: Surface, viewport?: { width: number; height: number }) {
+    this.device = device;
     this.surface = surface;
-    this.scale = scale;
+    this.scale =
+      surface && viewport
+        ? { x: surface.width / viewport.width, y: surface.height / viewport.height }
+        : { x: 1, y: 1 };
     // The last pixel column is width - 1; a pointer at width would be on the neighbouring surface.
-    this.max = { x: Math.max(surface.width - 1, 0), y: Math.max(surface.height - 1, 0) };
+    this.max = surface
+      ? { x: Math.max(surface.width - 1, 0), y: Math.max(surface.height - 1, 0) }
+      : { x: Infinity, y: Infinity };
   }
 
-  private send(line: string) {
-    return sendCommand(this.socket, line);
-  }
-
-  private toSurface(point: Point): Point {
+  private toDevice(point: Point): Point {
     return {
-      x: clamp(point.x * this.scale, this.max.x),
-      y: clamp(point.y * this.scale, this.max.y),
+      x: clamp(point.x * this.scale.x, this.max.x),
+      y: clamp(point.y * this.scale.y, this.max.y),
     };
   }
 
   private async place(point: Point) {
-    await this.send(`motion ${this.surface.id} ${point.x.toFixed(3)} ${point.y.toFixed(3)}`);
-    positions.set(this.surface.id, point);
-    this.record.path.push([Date.now() - this.started, round(point.x), round(point.y)]);
+    await this.device.move(point);
+    this.at = point;
+    if (this.surface) positions.set(this.surface.id, point);
+    this.record.path.push([Date.now(), round(point.x), round(point.y)]);
   }
 
   private async travel(to: Point, motion: Motion) {
-    const known = positions.get(this.surface.id);
-    const from = known
-      ? { x: clamp(known.x, this.max.x), y: clamp(known.y, this.max.y) }
-      : { x: this.surface.width / 2, y: this.surface.height / 2 };
-    if (from.x !== known?.x || from.y !== known?.y) await this.place(from);
-    const duration = travelMs(motion, Math.hypot(to.x - from.x, to.y - from.y));
-    if (duration > 0) {
-      const path = pathAt(from, to, motion, this.max);
-      const began = performance.now();
-      for (;;) {
-        await sleep(frameMs);
-        const progress = (performance.now() - began) / duration;
-        if (progress >= 1) break;
-        await this.place(path(progress));
+    const { surface } = this;
+    if (surface) {
+      const known = positions.get(surface.id);
+      const from = known ?? { x: surface.width / 2, y: surface.height / 2 };
+      const duration = travelMs(motion, Math.hypot(to.x - from.x, to.y - from.y));
+      if (duration > 0) {
+        if (!known) await this.place(from);
+        const path = pathAt(from, to, motion, this.max);
+        const began = performance.now();
+        for (;;) {
+          await sleep(frameMs);
+          const progress = (performance.now() - began) / duration;
+          if (progress >= 1) break;
+          await this.place(path(progress));
+        }
       }
     }
     await this.place(to);
   }
 
   async glide(to: Point, motion: Motion) {
-    await this.travel(this.toSurface(to), motion);
+    this.record.start ||= Date.now();
+    await this.travel(this.toDevice(to), motion);
+    this.record.end = Date.now();
   }
 
-  private key(code: number, pressed: boolean) {
-    return this.send(`key ${this.surface.id} ${code} ${pressed ? 1 : 0}`);
+  /**
+   * Runs the action between a press and its release. The release is registered before the
+   * press is sent, so a press that fails after the device took it is still let go.
+   */
+  private async pressed(
+    press: () => Promise<void>,
+    release: () => Promise<void>,
+    act: () => Promise<void>,
+  ) {
+    const undo = () => twice(release);
+    held.add(undo);
+    try {
+      await press();
+      await act();
+    } finally {
+      await undo().catch(() => {});
+      held.delete(undo);
+    }
   }
 
   private async holding(modifiers: Modifier[], action: () => Promise<void>) {
-    const held: number[] = [];
-    try {
-      for (const code of new Set(modifiers.map((modifier) => keyCodes[modifier]))) {
-        await this.key(code, true);
-        held.push(code);
-      }
-      await action();
-    } finally {
-      for (const code of held.reverse()) await twice(() => this.key(code, false)).catch(() => {});
-    }
+    const [modifier, ...rest] = new Set(modifiers);
+    if (!modifier) return action();
+    await this.pressed(
+      () => this.device.key(modifier, true),
+      () => this.device.key(modifier, false),
+      () => this.holding(rest, action),
+    );
   }
 
-  /** Holds a button while the action runs. The release names no coordinates, so it cannot be refused for them. */
-  private async pressed(button: Button, at: Point, action: () => Promise<void>) {
-    const code = buttonCodes[button];
-    await this.send(`button-at ${this.surface.id} ${at.x.toFixed(3)} ${at.y.toFixed(3)} ${code} 1`);
-    try {
-      await action();
-    } finally {
-      await twice(() => this.send(`button ${this.surface.id} ${code} 0`));
-    }
+  private press(button: Button, count: number, action: () => Promise<void>) {
+    return this.pressed(
+      async () => {
+        await this.device.down(button, count);
+        this.record.clicks.push({
+          t: Date.now(),
+          x: round(this.at.x),
+          y: round(this.at.y),
+          button,
+          count,
+        });
+      },
+      () => this.device.up(button, count),
+      action,
+    );
   }
 
   async click(at: Point, { button, count, modifiers, holdMs, motion }: ClickOptions) {
-    const to = this.toSurface(at);
-    await this.travel(to, motion);
-    await sleep(motion === "instant" ? instantDwellMs : dwellMs);
+    this.record.start ||= Date.now();
+    this.record.hold = holdMs;
+    await this.travel(this.toDevice(at), motion);
+    await sleep(dwellMs);
     await this.holding(modifiers, async () => {
       for (let index = 1; index <= count; index++) {
-        await this.pressed(button, to, async () => {
-          this.record.clicks.push({
-            ms: Date.now() - this.started,
-            x: round(to.x),
-            y: round(to.y),
-            button,
-            count: index,
-          });
-          await sleep(holdMs);
-        });
+        await this.press(button, index, () => sleep(holdMs));
         if (index < count) await sleep(clickGapMs);
       }
     });
+    this.record.end = Date.now();
   }
 
   async drag(from: Point, to: Point, { holdMs, motion }: { holdMs: number; motion: Motion }) {
-    const start = this.toSurface(from);
-    const end = this.toSurface(to);
+    this.record.start ||= Date.now();
+    this.record.hold = holdMs;
+    const start = this.toDevice(from);
+    const end = this.toDevice(to);
     await this.travel(start, motion);
     await sleep(dwellMs);
-    await this.pressed("left", start, async () => {
-      this.record.clicks.push({
-        ms: Date.now() - this.started,
-        x: round(start.x),
-        y: round(start.y),
-        button: "left",
-        count: 1,
-      });
+    await this.press("left", 1, async () => {
       const distance = Math.hypot(end.x - start.x, end.y - start.y);
       if (travelMs(motion, distance) <= 0 && distance > dragNudge) {
         await this.place({
@@ -207,51 +274,20 @@ export class CompositorPointer implements Pointer {
       await this.travel(end, motion);
       await sleep(Math.max(holdMs, dwellMs));
     });
+    this.record.end = Date.now();
+  }
+
+  /** Wheels where the pointer already is. */
+  async scroll(deltaX: number, deltaY: number) {
+    this.record.start ||= Date.now();
+    this.record.scroll = {
+      t: Date.now(),
+      deltaX,
+      deltaY,
+      x: round(this.at.x),
+      y: round(this.at.y),
+    };
+    await this.device.wheel(deltaX, deltaY);
+    this.record.end = Date.now();
   }
 }
-
-/** Playwright's own mouse, for sessions without a compositor. Motion does not apply. */
-export class PagePointer implements Pointer {
-  private readonly page: Page;
-
-  constructor(page: Page) {
-    this.page = page;
-  }
-
-  async glide(to: Point) {
-    await this.page.mouse.move(to.x, to.y);
-  }
-
-  private async holding(modifiers: Modifier[], action: () => Promise<void>) {
-    const held: Modifier[] = [];
-    try {
-      for (const modifier of new Set(modifiers)) {
-        await this.page.keyboard.down(modifier);
-        held.push(modifier);
-      }
-      await action();
-    } finally {
-      for (const modifier of held.reverse()) await this.page.keyboard.up(modifier).catch(() => {});
-    }
-  }
-
-  async click(at: Point, { button, count, modifiers, holdMs }: ClickOptions) {
-    await this.glide(at);
-    await this.holding(modifiers, () =>
-      this.page.mouse.click(at.x, at.y, { button, clickCount: count, delay: holdMs }),
-    );
-  }
-
-  async drag(from: Point, to: Point, { holdMs }: { holdMs: number }) {
-    await this.glide(from);
-    await this.page.mouse.down();
-    try {
-      await this.page.mouse.move(to.x, to.y, { steps: 5 });
-      await sleep(holdMs);
-    } finally {
-      await this.page.mouse.up();
-    }
-  }
-}
-
-const round = (value: number) => Math.round(value * 10) / 10;

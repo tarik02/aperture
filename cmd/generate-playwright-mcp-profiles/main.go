@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/aperture/aperture/internal/playwrightmcp"
@@ -33,7 +32,6 @@ type toolMetadata struct {
 }
 
 type metadata struct {
-	Version  string                     `json:"playwright_version"`
 	Profiles map[string]profileMetadata `json:"profiles"`
 	Tools    map[string]toolMetadata    `json:"tools"`
 }
@@ -53,10 +51,6 @@ func main() {
 
 	outputPath := os.Args[1]
 	host := os.Args[2:]
-	version, err := bundledVersion(host)
-	if err != nil {
-		fail(err)
-	}
 
 	profileSpecs := playwrightmcp.ProfileSpecs()
 	profiles := make(map[string]profileMetadata, len(profileSpecs))
@@ -93,7 +87,7 @@ func main() {
 		}
 		profiles[profile.Name] = profileMetadata{Tools: names}
 	}
-	contents, err := json.MarshalIndent(metadata{Version: version, Profiles: profiles, Tools: toolDefinitions}, "", "  ")
+	contents, err := json.MarshalIndent(metadata{Profiles: profiles, Tools: toolDefinitions}, "", "  ")
 	if err != nil {
 		fail(fmt.Errorf("encode metadata: %w", err))
 	}
@@ -101,19 +95,6 @@ func main() {
 	if err := os.WriteFile(outputPath, contents, 0o644); err != nil {
 		fail(fmt.Errorf("write metadata: %w", err))
 	}
-}
-
-func bundledVersion(host []string) (string, error) {
-	output, err := exec.Command(host[0], slices.Concat(host[1:], []string{"--version"})...).Output()
-	if err != nil {
-		return "", fmt.Errorf("run %s --version: %w", host[0], err)
-	}
-	version := strings.TrimSpace(string(output))
-	version = strings.TrimPrefix(version, "Version ")
-	if version == "" {
-		return "", fmt.Errorf("%s returned an empty version", host[0])
-	}
-	return version, nil
 }
 
 func listTools(host []string, capability string) ([]*mcp.Tool, error) {
