@@ -530,7 +530,7 @@
                 ;
               pnpm = pnpmLatest;
               fetcherVersion = 4;
-              hash = "sha256-AYbTAAflMmov6+IMNXzIwFEGiVFMIWJIMvLO/o3Ardk=";
+              hash = "sha256-OdJZ2rOsOO7XbyDawIE4MbaOwhjj5rOdLJzT36GGQp0=";
             };
 
             nativeBuildInputs = [
