@@ -154,6 +154,9 @@ func runRecordingFinalizer(parent context.Context, values RuntimeEnvValues, work
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
 		diagnostic := strings.TrimSpace(stderr.String())
+		if diagnostic == "" {
+			diagnostic = strings.TrimSpace(stdout.String())
+		}
 		return recordingFinalizeResult{}, fmt.Errorf("finalizer: %w: %s", err, diagnostic[max(0, len(diagnostic)-2048):])
 	}
 	if stdout.Len() > 65536 {

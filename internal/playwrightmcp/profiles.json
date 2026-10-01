@@ -396,7 +396,7 @@
     },
     "browser_cursor_attention": {
       "name": "browser_cursor_attention",
-      "description": "Draw attention with cursor loops, independently of camera focus.",
+      "description": "Draw attention with cursor loops for one active recording, independently of camera focus.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -450,6 +450,10 @@
             "minimum": 8,
             "type": "number"
           },
+          "recordingId": {
+            "minLength": 1,
+            "type": "string"
+          },
           "smoothScroll": {
             "description": "Smoothly reveal action targets; defaults on for watchable automation",
             "type": "boolean"
@@ -464,6 +468,9 @@
             "type": "number"
           }
         },
+        "required": [
+          "recordingId"
+        ],
         "type": "object"
       },
       "annotations": {
@@ -900,7 +907,7 @@
     },
     "browser_focus_viewport": {
       "name": "browser_focus_viewport",
-      "description": "Focus the camera for one active recording. Blocks for its duration; never moves the cursor.",
+      "description": "Focus the camera for one active recording while following tools continue; never moves the cursor.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,

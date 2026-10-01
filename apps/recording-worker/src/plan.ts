@@ -165,6 +165,7 @@ function burstPieces(
   const keep: Span[] = [];
 
   for (const action of timeline.actions) {
+    if (!action.ok) continue;
     let end = action.end + tail;
     if (watched) {
       let still = end;

@@ -126,7 +126,10 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
         } finally {
           if (pointer.record.start !== 0)
             scope.events.push({
-              recordingIds: scope.context.recordingIds,
+              recordingIds:
+                params.recordingId === undefined
+                  ? scope.context.recordingIds
+                  : [params.recordingId],
               event: {
                 _tag: "Gesture",
                 tool: name,
@@ -248,15 +251,23 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
     ),
     define(
       "browser_cursor_attention",
-      "Draw attention with cursor loops, independently of camera focus.",
+      "Draw attention with cursor loops for one active recording, independently of camera focus.",
       {
         ...spot,
+        recordingId: z.string().min(1),
         motion,
         radius: PointerArguments.shape.radius,
         loops: PointerArguments.shape.loops,
         durationMs: PointerArguments.shape.durationMs,
       },
       async (run, params) => {
+        const scope = state.current;
+        if (
+          scope === null ||
+          params.recordingId === undefined ||
+          !scope.context.recordingIds.includes(params.recordingId)
+        )
+          throw new Error("cursor attention requires an active recordingId");
         const point = await locate(run, params);
         const start = Date.now();
         await run.tab.waitForCompletion(() =>
@@ -267,24 +278,22 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
             motion: params.motion ?? defaults().motion,
           }),
         );
-        const scope = state.current;
-        if (scope !== null)
-          scope.events.push({
-            recordingIds: scope.context.recordingIds,
-            event: {
-              _tag: "Attention",
-              targetId: run.targetId,
-              start,
-              end: Date.now(),
-              ...point,
-              radius: params.radius ?? 32,
-            },
-          });
+        scope.events.push({
+          recordingIds: [params.recordingId],
+          event: {
+            _tag: "Attention",
+            targetId: run.targetId,
+            start,
+            end: Date.now(),
+            ...point,
+            radius: params.radius ?? 32,
+          },
+        });
       },
     ),
     define(
       "browser_focus_viewport",
-      "Focus the camera for one active recording. Blocks for its duration; never moves the cursor.",
+      "Focus the camera for one active recording while following tools continue; never moves the cursor.",
       {
         ...spot,
         recordingId: z.string().min(1),
@@ -330,15 +339,13 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
           throw new Error("focus rectangle must be inside the viewport");
         if (params.zoom === undefined) throw new Error("zoom is required");
         const start = Date.now();
-        await run.page.waitForTimeout(params.durationMs ?? 2200);
-        run.signal?.throwIfAborted();
         scope.events.push({
           recordingIds: [params.recordingId],
           event: {
             _tag: "Focus",
             targetId: run.targetId,
             start,
-            end: Date.now(),
+            end: start + (params.durationMs ?? 2200),
             ...rect,
             zoom: params.zoom,
           },

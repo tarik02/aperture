@@ -221,7 +221,7 @@ export class Pointer {
     this.record.end = Date.now();
   }
 
-  /** Approaches an area, traces a smooth orbit around it, then settles at its centre. */
+  /** Approaches an area and traces a smooth orbit that leaves the pointer where it stops. */
   async attention(center: Point, { radius, loops, durationMs, motion }: AttentionOptions) {
     this.record.start ||= Date.now();
     const at = this.toDevice(center);
@@ -233,7 +233,7 @@ export class Pointer {
 
     const orbitRadius = {
       x: Math.min(radius * this.scale.x, at.x, this.max.x - at.x),
-      y: Math.min(radius * this.scale.y * 0.82, at.y, this.max.y - at.y),
+      y: Math.min(radius * this.scale.y * 0.58, at.y, this.max.y - at.y),
     };
     if (orbitRadius.x < 1 || orbitRadius.y < 1) {
       await this.travel(at, motion);
@@ -250,7 +250,6 @@ export class Pointer {
       await this.place(orbit(progress));
       if (progress >= 1) break;
     }
-    await this.travel(at, motion);
     this.record.end = Date.now();
   }
 

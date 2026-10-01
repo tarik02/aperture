@@ -56,20 +56,28 @@ export function pathAt(from: Point, to: Point, motion: Motion, max: Point): (t: 
   };
 }
 
-/** A smooth, slightly irregular orbit used to draw attention without looking mechanical. */
+/** A loose, shrinking hand-drawn loop that points at an area without tracing a circle. */
 export function attentionPathAt(
   center: Point,
   radius: Point,
   loops: number,
   max: Point,
 ): (t: number) => Point {
+  const rotation = -Math.PI / 6;
+  const cosRotation = Math.cos(rotation);
+  const sinRotation = Math.sin(rotation);
   return (t) => {
     const progress = easeInOut(t);
-    const angle = -Math.PI / 2 + progress * loops * Math.PI * 2;
-    const wobble = 1 + Math.sin(progress * (loops + 0.5) * Math.PI * 2) * 0.05;
+    const angle = -Math.PI * 0.72 + progress * loops * Math.PI * 2;
+    const taper = 1 - progress * 0.42;
+    const pulse = 1 + Math.sin(progress * Math.PI * 3) * 0.09;
+    const x = Math.cos(angle) * radius.x * taper * pulse + radius.x * progress * 0.1;
+    const y =
+      Math.sin(angle) * radius.y * taper * (1 + Math.cos(angle * 1.7) * 0.08) -
+      radius.y * progress * 0.08;
     return {
-      x: clamp(center.x + Math.cos(angle) * radius.x * wobble, max.x),
-      y: clamp(center.y + Math.sin(angle) * radius.y * wobble, max.y),
+      x: clamp(center.x + x * cosRotation - y * sinRotation, max.x),
+      y: clamp(center.y + x * sinRotation + y * cosRotation, max.y),
     };
   };
 }

@@ -72,7 +72,9 @@ export async function smoothElementIntoView(handle: ElementHandle, signal?: Abor
       const toY = Math.max(0, Math.min(parent.scrollHeight - parent.clientHeight, fromY + dy));
       const distance = Math.hypot(toX - fromX, toY - fromY);
       if (distance < 1) continue;
-      const duration = Math.min(600, Math.max(120, (distance / 1200) * 1000));
+      // A reveal is part of the presentation: keep even short container scrolls
+      // legible instead of letting them look like a layout jump in the edit.
+      const duration = Math.min(900, Math.max(320, (distance / 700) * 1000));
       const began = performance.now();
       const previousBehavior = parent instanceof HTMLElement ? parent.style.scrollBehavior : "";
       if (parent instanceof HTMLElement) parent.style.scrollBehavior = "auto";
@@ -125,6 +127,7 @@ export async function revealTarget(
 const ActionArguments = z.object({
   caption: z.string().optional(),
   smoothScroll: z.boolean().optional(),
+  recordingId: z.string().min(1).optional(),
   target: z.string().optional(),
   element: z.string().optional(),
   startTarget: z.string().optional(),
@@ -199,8 +202,14 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
           }
         }
         if (targetId !== "") scope.endTargetId = targetId;
+        const recordingIds =
+          parsed.recordingId === undefined
+            ? scope.context.recordingIds
+            : scope.context.recordingIds.includes(parsed.recordingId)
+              ? [parsed.recordingId]
+              : [];
         scope.events.push({
-          recordingIds: scope.context.recordingIds,
+          recordingIds,
           event: {
             _tag: "Action",
             tool: tool.schema.name,
