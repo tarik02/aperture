@@ -833,7 +833,7 @@ export function useLiveSession({
 }
 
 const StoredIdentity = Schema.Struct({
-  name: Schema.String.check(Schema.isLengthBetween(1, 48)),
+  name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(48)),
   avatarHash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{32}$/)),
 });
 

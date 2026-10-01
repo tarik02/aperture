@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClient from "effect/http/HttpClient";
 import * as Api from "@aperture-browser/api-schema";
 import { ApiAuthorization, Authorization } from "../authorization/service.ts";
 import { HealthApi } from "./service.ts";

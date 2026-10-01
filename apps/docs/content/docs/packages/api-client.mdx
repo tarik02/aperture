@@ -13,7 +13,7 @@ Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsAp
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { apiClientLayer, baseUrlLayer, SessionsApi } from "@aperture-browser/api-client";
 
 const credentials = {

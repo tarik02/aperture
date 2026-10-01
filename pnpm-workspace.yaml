@@ -12,11 +12,12 @@ catalog:
   class-variance-authority: "^0.7.1"
   clsx: "^2.1.1"
   devalue: 6.0.2
-  effect: 4.0.0-rc.117
+  effect: 4.0.0-rc.118
   effect-playwright: 0.8.0-2
+  "@effect/vitest": 4.0.0-rc.118
   "@effect/language-service": 0.87.2
-  "@effect/openapi-generator": 4.0.0-rc.117
-  "@effect/platform-node": 4.0.0-rc.117
+  "@effect/openapi-generator": 4.0.0-rc.118
+  "@effect/platform-node": 4.0.0-rc.118
   "@floating-ui/dom": "^1.8.0"
   fumadocs-core: "^16.15.14"
   fumadocs-mdx: "^15.4.4"
@@ -63,9 +64,9 @@ catalog:
 
 catalogs:
   peers:
-    "@effect/platform-node": ^4.0.0-rc.117
+    "@effect/platform-node": ^4.0.0-rc.118
     "@simplewebauthn/browser": "^13.3.0"
-    effect: "^4.0.0-rc.117"
+    effect: "^4.0.0-rc.118"
     react: "^19.2.7"
     react-dom: "^19.2.7"
 
