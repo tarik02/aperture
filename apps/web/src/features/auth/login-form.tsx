@@ -135,7 +135,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
   if (activeMethod?.type === "password") {
     activeLoginControl = (
       <form onSubmit={(event) => void handlePasswordLogin(event)}>
-        <FieldGroup className="gap-4">
+        <FieldGroup className="aperture:gap-4">
           {passwordStep === "credentials" ? (
             <>
               <Field>
@@ -183,11 +183,11 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
             </Field>
           )}
           {passwordStep === "mfa" ? (
-            <Field orientation="horizontal" className="justify-between">
+            <Field orientation="horizontal" className="aperture:justify-between">
               <Button
                 type="button"
                 variant="link"
-                className="px-0"
+                className="aperture:px-0"
                 disabled={busy}
                 onClick={() => {
                   setMFAMethod(mfaMethod === "totp" ? "recovery" : "totp");
@@ -196,7 +196,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
               >
                 Use {mfaMethod === "totp" ? "a recovery code" : "an authenticator code"}
               </Button>
-              <div className="flex gap-2">
+              <div className="aperture:flex aperture:gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -216,7 +216,11 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
             </Field>
           ) : (
             <Field>
-              <Button type="submit" className="w-full" disabled={busy || !email || !password}>
+              <Button
+                type="submit"
+                className="aperture:w-full"
+                disabled={busy || !email || !password}
+              >
                 Login
               </Button>
             </Field>
@@ -227,7 +231,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
   } else if (activeMethod?.type === "api_token") {
     activeLoginControl = (
       <form onSubmit={(event) => void handleTokenLogin(event)}>
-        <FieldGroup className="gap-4">
+        <FieldGroup className="aperture:gap-4">
           <Field data-invalid={tokenError ? true : undefined}>
             <FieldLabel htmlFor="login-token">API token</FieldLabel>
             <Input
@@ -243,7 +247,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
             <FieldError>{tokenError}</FieldError>
           </Field>
           <Field>
-            <Button type="submit" className="w-full" disabled={busy}>
+            <Button type="submit" className="aperture:w-full" disabled={busy}>
               Login
             </Button>
           </Field>
@@ -254,7 +258,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
     activeLoginControl = (
       <Button
         type="button"
-        className="w-full"
+        className="aperture:w-full"
         disabled={busy}
         onClick={() => void handlePasskeyLogin()}
       >
@@ -266,7 +270,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
     activeLoginControl = (
       <Button
         type="button"
-        className="w-full"
+        className="aperture:w-full"
         disabled={busy}
         onClick={() => startOIDCLogin(activeMethod.loginUrl)}
       >
@@ -278,15 +282,15 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
 
   return (
     <div>
-      <DialogHeader className="text-center">
+      <DialogHeader className="aperture:text-center">
         <DialogTitle>Login to Aperture</DialogTitle>
       </DialogHeader>
-      <FieldGroup className="pt-2">
+      <FieldGroup className="aperture:pt-2">
         {activeLoginControl}
         {activeMethod && alternativeMethods.length > 0 ? (
           <>
             <FieldSeparator>or</FieldSeparator>
-            <div className="flex flex-col gap-2">
+            <div className="aperture:flex aperture:flex-col aperture:gap-2">
               {alternativeMethods.map((method) => {
                 switch (method.type) {
                   case "password":
@@ -295,7 +299,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
                         key={method.type}
                         type="button"
                         variant="outline"
-                        className="w-full"
+                        className="aperture:w-full"
                         disabled={busy}
                         onClick={() => setSelectedLoginMethod(method.type)}
                       >
@@ -309,7 +313,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
                         key={method.type}
                         type="button"
                         variant="outline"
-                        className="w-full"
+                        className="aperture:w-full"
                         disabled={busy}
                         onClick={() => setSelectedLoginMethod(method.type)}
                       >
@@ -323,7 +327,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
                         key={method.type}
                         type="button"
                         variant="outline"
-                        className="w-full"
+                        className="aperture:w-full"
                         disabled={busy}
                         onClick={() => void handlePasskeyLogin()}
                       >
@@ -337,7 +341,7 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
                         key={`${method.type}:${method.id}`}
                         type="button"
                         variant="outline"
-                        className="w-full"
+                        className="aperture:w-full"
                         disabled={busy}
                         onClick={() => startOIDCLogin(method.loginUrl)}
                       >
@@ -355,7 +359,9 @@ export function LoginForm({ loginMethods, onDone }: LoginFormProps) {
           </>
         ) : null}
         {loginMethods && !activeMethod ? (
-          <p className="text-sm text-muted-foreground">No login methods are available.</p>
+          <p className="aperture:text-sm aperture:text-muted-foreground">
+            No login methods are available.
+          </p>
         ) : null}
       </FieldGroup>
     </div>

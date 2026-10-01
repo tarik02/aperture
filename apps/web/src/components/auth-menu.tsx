@@ -65,7 +65,7 @@ export function AuthMenu({ className }: AuthMenuProps) {
               variant="outline"
               size="default"
               className={cn(
-                "w-full min-w-0 justify-start group-data-[collapsible=icon]:gap-0",
+                "aperture:w-full aperture:min-w-0 aperture:justify-start aperture:group-data-[collapsible=icon]:gap-0",
                 className,
               )}
               disabled={!principal}
@@ -77,17 +77,22 @@ export function AuthMenu({ className }: AuthMenuProps) {
           ) : (
             <KeyRound data-icon="inline-start" />
           )}
-          <span data-sidebar-collapse-label className="min-w-0 flex-1 truncate text-left">
+          <span
+            data-sidebar-collapse-label
+            className="aperture:min-w-0 aperture:flex-1 aperture:truncate aperture:text-left"
+          >
             {principal?.name ?? "Account"}
           </span>
           <ChevronsUpDown
             data-icon="inline-end"
             data-sidebar-collapse-label
-            className="opacity-60"
+            className="aperture:opacity-60"
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="top" className="w-64">
-          <DropdownMenuLabel className="truncate">{principal?.name ?? "Account"}</DropdownMenuLabel>
+        <DropdownMenuContent align="start" side="top" className="aperture:w-64">
+          <DropdownMenuLabel className="aperture:truncate">
+            {principal?.name ?? "Account"}
+          </DropdownMenuLabel>
           {accountBacked ? (
             <>
               <DropdownMenuSeparator />

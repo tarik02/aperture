@@ -49,9 +49,9 @@ export function BrowserArgsEditor({ args, onChange, disabled }: BrowserArgsEdito
         <FieldLabel>Browser args</FieldLabel>
         <Table>
           <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="h-7 px-1">Argument</TableHead>
-              <TableHead className="h-7 w-8 px-1 text-right">
+            <TableRow className="aperture:hover:bg-transparent">
+              <TableHead className="aperture:h-7 aperture:px-1">Argument</TableHead>
+              <TableHead className="aperture:h-7 aperture:w-8 aperture:px-1 aperture:text-right">
                 <Button
                   type="button"
                   variant="ghost"
@@ -67,15 +67,18 @@ export function BrowserArgsEditor({ args, onChange, disabled }: BrowserArgsEdito
           </TableHeader>
           <TableBody>
             {args.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={2} className="px-1 py-1.5 text-muted-foreground">
+              <TableRow className="aperture:hover:bg-transparent">
+                <TableCell
+                  colSpan={2}
+                  className="aperture:px-1 aperture:py-1.5 aperture:text-muted-foreground"
+                >
                   No extra args
                 </TableCell>
               </TableRow>
             ) : (
               args.map((arg, index) => (
-                <TableRow key={index} className="hover:bg-transparent">
-                  <TableCell className="px-1 py-1">
+                <TableRow key={index} className="aperture:hover:bg-transparent">
+                  <TableCell className="aperture:px-1 aperture:py-1">
                     <Input
                       ref={(element) => {
                         inputRefs.current[index] = element;
@@ -84,10 +87,10 @@ export function BrowserArgsEditor({ args, onChange, disabled }: BrowserArgsEdito
                       onChange={(event) => updateArg(index, event.target.value)}
                       placeholder="--disable-gpu"
                       disabled={disabled}
-                      className="h-7"
+                      className="aperture:h-7"
                     />
                   </TableCell>
-                  <TableCell className="px-1 py-1">
+                  <TableCell className="aperture:px-1 aperture:py-1">
                     <Button
                       type="button"
                       variant="ghost"

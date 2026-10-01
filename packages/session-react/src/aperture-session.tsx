@@ -54,7 +54,12 @@ export function Session({ access, features, leading }: SessionProps) {
         />
       );
     case "loading":
-      return <SessionState icon={<Loader2 className="animate-spin" />} title="Opening session" />;
+      return (
+        <SessionState
+          icon={<Loader2 className="aperture:animate-spin" />}
+          title="Opening session"
+        />
+      );
     case "denied":
       return (
         <SessionState
@@ -81,7 +86,7 @@ export function Session({ access, features, leading }: SessionProps) {
       );
     case "ready":
       return (
-        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+        <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden aperture:bg-background">
           <BrowserControlPane
             control={control}
             collaborationRole={control.collaboration.role}
@@ -112,7 +117,7 @@ function SessionState({
   description?: string;
 }) {
   return (
-    <Empty className="h-full border-none">
+    <Empty className="aperture:h-full aperture:border-none">
       <EmptyHeader>
         <EmptyMedia variant="icon">{icon}</EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>

@@ -80,7 +80,7 @@ export function BrowserTabStrip({
 
   if (targets.length === 0) {
     return (
-      <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2 text-xs text-muted-foreground">
+      <div className="aperture:flex aperture:h-8 aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-2 aperture:px-2 aperture:text-xs aperture:text-muted-foreground">
         <span>No tabs</span>
         <NewTabButton disabled={disabled || mutationDisabled} onCreate={onCreate} />
       </div>
@@ -89,8 +89,8 @@ export function BrowserTabStrip({
 
   return (
     <>
-      <ScrollArea scrollbars="horizontal" className="h-8 min-w-0 flex-1">
-        <div className="flex min-w-max items-end gap-0.5 px-1 pt-1">
+      <ScrollArea scrollbars="horizontal" className="aperture:h-8 aperture:min-w-0 aperture:flex-1">
+        <div className="aperture:flex aperture:min-w-max aperture:items-end aperture:gap-0.5 aperture:px-1 aperture:pt-1">
           {targets.map((target, index) => {
             const active = target.id === activeTargetId;
             return (
@@ -219,11 +219,11 @@ function BrowserTab({
       ref={tabRef}
       data-browser-tab
       className={cn(
-        "group relative flex h-7 w-52 max-w-[38vw] min-w-28 cursor-grab select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2 text-left text-xs transition-[background-color,border-color,color,opacity] active:cursor-grabbing",
+        "aperture:group aperture:relative aperture:flex aperture:h-7 aperture:w-52 aperture:max-w-[38vw] aperture:min-w-28 aperture:cursor-grab aperture:select-none aperture:items-center aperture:gap-1.5 aperture:rounded-t-lg aperture:border aperture:border-b-0 aperture:px-2 aperture:text-left aperture:text-xs aperture:transition-[background-color,border-color,color,opacity] aperture:active:cursor-grabbing",
         active
-          ? "border-border bg-background text-foreground"
-          : "border-transparent bg-muted/55 text-muted-foreground hover:bg-muted",
-        dragging && "opacity-60",
+          ? "aperture:border-border aperture:bg-background aperture:text-foreground"
+          : "aperture:border-transparent aperture:bg-muted/55 aperture:text-muted-foreground aperture:hover:bg-muted",
+        dragging && "aperture:opacity-60",
       )}
       onMouseDown={(event) => {
         if (event.button === 1) {
@@ -258,37 +258,43 @@ function BrowserTab({
       >
         <span
           className={cn(
-            "pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary opacity-0",
-            dropPlacement === "before" && "opacity-100",
+            "aperture:pointer-events-none aperture:absolute aperture:inset-y-1 aperture:left-0 aperture:w-0.5 aperture:rounded-full aperture:bg-primary aperture:opacity-0",
+            dropPlacement === "before" && "aperture:opacity-100",
           )}
         />
         <span
           className={cn(
-            "pointer-events-none absolute inset-y-1 right-0 w-0.5 rounded-full bg-primary opacity-0",
-            dropPlacement === "after" && "opacity-100",
+            "aperture:pointer-events-none aperture:absolute aperture:inset-y-1 aperture:right-0 aperture:w-0.5 aperture:rounded-full aperture:bg-primary aperture:opacity-0",
+            dropPlacement === "after" && "aperture:opacity-100",
           )}
         />
         <button
           type="button"
           aria-current={active ? "page" : undefined}
           disabled={disabled}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-1.5 aperture:text-left"
           onClick={() => onActivate(target.id)}
         >
           <TabFavicon url={target.url} />
           {devToolsOpen ? (
             <>
-              <Wrench aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="sr-only">DevTools open</span>
+              <Wrench
+                aria-hidden
+                className="aperture:size-3.5 aperture:shrink-0 aperture:text-muted-foreground"
+              />
+              <span className="aperture:sr-only">DevTools open</span>
             </>
           ) : null}
           {recording ? (
             <>
-              <span aria-hidden className="size-2 shrink-0 rounded-full bg-destructive" />
-              <span className="sr-only">Recording</span>
+              <span
+                aria-hidden
+                className="aperture:size-2 aperture:shrink-0 aperture:rounded-full aperture:bg-destructive"
+              />
+              <span className="aperture:sr-only">Recording</span>
             </>
           ) : null}
-          <span className="min-w-0 truncate font-mono">{label}</span>
+          <span className="aperture:min-w-0 aperture:truncate aperture:font-mono">{label}</span>
         </button>
         <Tooltip>
           <TooltipTrigger
@@ -297,7 +303,7 @@ function BrowserTab({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                className="shrink-0 opacity-55 hover:opacity-100 group-hover:opacity-100"
+                className="aperture:shrink-0 aperture:opacity-55 aperture:hover:opacity-100 aperture:group-hover:opacity-100"
                 aria-label="Close tab"
                 disabled={disabled || mutationDisabled}
                 onClick={() => onClose(target.id)}
@@ -309,7 +315,7 @@ function BrowserTab({
           <TooltipContent side="bottom">Close tab</TooltipContent>
         </Tooltip>
       </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-48">
+      <ContextMenuContent className="aperture:min-w-48">
         <ContextMenuGroup>
           <ContextMenuItem
             disabled={disabled || mutationDisabled}
@@ -370,7 +376,7 @@ function NewTabButton({ disabled, onCreate }: { disabled?: boolean; onCreate: ()
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="mb-px shrink-0"
+            className="aperture:mb-px aperture:shrink-0"
             aria-label="New tab"
             disabled={disabled}
             onClick={onCreate}
@@ -393,11 +399,16 @@ function TabFavicon({ url }: { url: string }) {
   }, [faviconUrl]);
 
   if (!faviconUrl || failed) {
-    return <Globe2 className="size-4 shrink-0 text-muted-foreground" />;
+    return <Globe2 className="aperture:size-4 aperture:shrink-0 aperture:text-muted-foreground" />;
   }
 
   return (
-    <img src={faviconUrl} alt="" className="size-4 shrink-0" onError={() => setFailed(true)} />
+    <img
+      src={faviconUrl}
+      alt=""
+      className="aperture:size-4 aperture:shrink-0"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -447,13 +458,13 @@ function TabPreview({
       align="start"
       sideOffset={8}
       collisionPadding={16}
-      className="pointer-events-none flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 p-2"
+      className="aperture:pointer-events-none aperture:flex aperture:w-80 aperture:max-w-[calc(100vw-2rem)] aperture:flex-col aperture:gap-2 aperture:p-2"
     >
       <TabThumbnail targetId={target.id} loadThumbnail={loadThumbnail} />
-      <span className="truncate text-xs font-medium">
+      <span className="aperture:truncate aperture:text-xs aperture:font-medium">
         {target.title || simplifyUrl(target.url)}
       </span>
-      <span className="truncate font-mono text-xs text-muted-foreground">
+      <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
         {target.url || "about:blank"}
       </span>
     </HoverCardContent>
@@ -486,8 +497,14 @@ function TabThumbnail({
   );
 
   return (
-    <div className="aspect-video w-full overflow-hidden rounded-md bg-muted">
-      {src ? <img src={src} alt="" className="size-full object-cover object-top" /> : null}
+    <div className="aperture:aspect-video aperture:w-full aperture:overflow-hidden aperture:rounded-md aperture:bg-muted">
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          className="aperture:size-full aperture:object-cover aperture:object-top"
+        />
+      ) : null}
     </div>
   );
 }

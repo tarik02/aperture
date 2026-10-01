@@ -80,7 +80,7 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
   }
 
   const fields = (
-    <div className="flex flex-col gap-3">
+    <div className="aperture:flex aperture:flex-col aperture:gap-3">
       {cdpUrl ? <CopyField value={cdpUrl} label="CDP URL" /> : null}
       {currentSession.sessionToken ? (
         <CopyField value={Redacted.value(currentSession.sessionToken)} label="Token" />
@@ -96,7 +96,7 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
         type="button"
         variant="outline"
         size="sm"
-        className="whitespace-nowrap"
+        className="aperture:whitespace-nowrap"
         onClick={() => setRotateConfirmOpen(true)}
         disabled={
           rotateMutation.isPending ||
@@ -111,19 +111,30 @@ export function ConnectionPanel({ session, onRotate, modalFooter }: ConnectionPa
   );
 
   return (
-    <div className={modalFooter ? "flex h-full min-h-0 flex-col" : "flex flex-col gap-3"}>
+    <div
+      className={
+        modalFooter
+          ? "aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col"
+          : "aperture:flex aperture:flex-col aperture:gap-3"
+      }
+    >
       {modalFooter ? (
         <>
-          <ScrollArea className="min-h-0 flex-1" viewportClassName="pr-3">
+          <ScrollArea
+            className="aperture:min-h-0 aperture:flex-1"
+            viewportClassName="aperture:pr-3"
+          >
             {fields}
           </ScrollArea>
-          <DialogFooter className="mt-4 shrink-0">{actions}</DialogFooter>
+          <DialogFooter className="aperture:mt-4 aperture:shrink-0">{actions}</DialogFooter>
         </>
       ) : (
         <>
           {fields}
           <Separator />
-          <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
+          <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:justify-end aperture:gap-2">
+            {actions}
+          </div>
         </>
       )}
       <ConfirmDialog
@@ -146,11 +157,11 @@ type OpenSessionButtonProps = {
 
 function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
   return (
-    <div className="flex w-fit">
+    <div className="aperture:flex aperture:w-fit">
       <Button
         type="button"
         size="sm"
-        className="rounded-r-none"
+        className="aperture:rounded-r-none"
         disabled={disabled}
         render={disabled ? undefined : <Link to="/-/sessions/$sessionId" params={{ sessionId }} />}
         nativeButton={disabled}
@@ -164,7 +175,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
             <Button
               type="button"
               size="icon-sm"
-              className="-ml-px rounded-l-none border-l-primary-foreground/30"
+              className="aperture:-ml-px aperture:rounded-l-none aperture:border-l-primary-foreground/30"
               aria-label="Open session options"
               disabled={disabled}
             />
@@ -172,7 +183,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
         >
           <ChevronDown />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuContent align="end" className="aperture:min-w-40">
           <DropdownMenuGroup>
             <DropdownMenuItem
               render={

@@ -70,14 +70,14 @@ export function TagEditor({ entries, onChange, error, disabled, hideLabel }: Tag
   return (
     <FieldGroup>
       <Field>
-        <FieldLabel className={hideLabel ? "sr-only" : undefined}>Tags</FieldLabel>
-        <ScrollArea scrollbars="horizontal" className="w-full pb-2">
-          <Table className="min-w-[28rem] [&_tr]:hover:bg-transparent">
+        <FieldLabel className={hideLabel ? "aperture:sr-only" : undefined}>Tags</FieldLabel>
+        <ScrollArea scrollbars="horizontal" className="aperture:w-full aperture:pb-2">
+          <Table className="aperture:min-w-[28rem] aperture:[&_tr]:hover:bg-transparent">
             <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="h-7 px-1">Key</TableHead>
-                <TableHead className="h-7 px-1">Value</TableHead>
-                <TableHead className="h-7 w-8 px-1 text-right">
+              <TableRow className="aperture:hover:bg-transparent">
+                <TableHead className="aperture:h-7 aperture:px-1">Key</TableHead>
+                <TableHead className="aperture:h-7 aperture:px-1">Value</TableHead>
+                <TableHead className="aperture:h-7 aperture:w-8 aperture:px-1 aperture:text-right">
                   <Button
                     type="button"
                     variant="ghost"
@@ -93,15 +93,18 @@ export function TagEditor({ entries, onChange, error, disabled, hideLabel }: Tag
             </TableHeader>
             <TableBody>
               {entries.length === 0 ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={3} className="px-1 py-1.5 text-muted-foreground">
+                <TableRow className="aperture:hover:bg-transparent">
+                  <TableCell
+                    colSpan={3}
+                    className="aperture:px-1 aperture:py-1.5 aperture:text-muted-foreground"
+                  >
                     No tags
                   </TableCell>
                 </TableRow>
               ) : (
                 entries.map((entry, index) => (
-                  <TableRow key={index} className="hover:bg-transparent">
-                    <TableCell className="px-1 py-1">
+                  <TableRow key={index} className="aperture:hover:bg-transparent">
+                    <TableCell className="aperture:px-1 aperture:py-1">
                       <Input
                         ref={(element) => {
                           keyInputRefs.current[index] = element;
@@ -110,19 +113,19 @@ export function TagEditor({ entries, onChange, error, disabled, hideLabel }: Tag
                         value={entry.key}
                         onChange={(event) => updateEntry(index, "key", event.target.value)}
                         disabled={disabled}
-                        className="h-7"
+                        className="aperture:h-7"
                       />
                     </TableCell>
-                    <TableCell className="px-1 py-1">
+                    <TableCell className="aperture:px-1 aperture:py-1">
                       <Input
                         placeholder="value"
                         value={entry.value}
                         onChange={(event) => updateEntry(index, "value", event.target.value)}
                         disabled={disabled}
-                        className="h-7"
+                        className="aperture:h-7"
                       />
                     </TableCell>
-                    <TableCell className="px-1 py-1">
+                    <TableCell className="aperture:px-1 aperture:py-1">
                       <Button
                         type="button"
                         variant="ghost"

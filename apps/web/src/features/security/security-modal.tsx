@@ -160,13 +160,13 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="aperture:sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Security</DialogTitle>
           </DialogHeader>
 
           <Tabs defaultValue="password">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="aperture:grid aperture:w-full aperture:grid-cols-2">
               <TabsTrigger value="password">
                 <KeyRound data-icon="inline-start" />
                 Password
@@ -177,14 +177,16 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="password" className="pt-3">
+            <TabsContent value="password" className="aperture:pt-3">
               {status.isPending ? (
-                <div className="flex flex-col gap-3">
-                  <Skeleton className="h-12 w-full" />
-                  <Skeleton className="h-12 w-full" />
+                <div className="aperture:flex aperture:flex-col aperture:gap-3">
+                  <Skeleton className="aperture:h-12 aperture:w-full" />
+                  <Skeleton className="aperture:h-12 aperture:w-full" />
                 </div>
               ) : status.isError ? (
-                <p className="text-sm text-destructive">Could not load security settings.</p>
+                <p className="aperture:text-sm aperture:text-destructive">
+                  Could not load security settings.
+                </p>
               ) : (
                 <form onSubmit={(event) => void handlePasswordSubmit(event)}>
                   <FieldGroup>
@@ -234,7 +236,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
                     </Field>
                     <Button
                       type="submit"
-                      className="self-end"
+                      className="aperture:self-end"
                       disabled={pendingAction !== null || !newPassword || !confirmPassword}
                     >
                       <KeyRound data-icon="inline-start" />
@@ -245,24 +247,26 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
               )}
             </TabsContent>
 
-            <TabsContent value="two-factor" className="pt-3">
+            <TabsContent value="two-factor" className="aperture:pt-3">
               {status.isPending ? (
-                <div className="flex flex-col gap-3">
-                  <Skeleton className="h-48 w-full" />
-                  <Skeleton className="h-10 w-full" />
+                <div className="aperture:flex aperture:flex-col aperture:gap-3">
+                  <Skeleton className="aperture:h-48 aperture:w-full" />
+                  <Skeleton className="aperture:h-10 aperture:w-full" />
                 </div>
               ) : status.isError ? (
-                <p className="text-sm text-destructive">Could not load security settings.</p>
+                <p className="aperture:text-sm aperture:text-destructive">
+                  Could not load security settings.
+                </p>
               ) : totpFlow.kind === "enrollment" ? (
                 <form onSubmit={(event) => void handleFinishTOTP(event)}>
                   <FieldGroup>
-                    <div className="flex justify-center">
+                    <div className="aperture:flex aperture:justify-center">
                       <img
                         src={totpFlow.enrollment.qrCodeDataUrl}
                         alt="Authenticator QR code"
                         width={192}
                         height={192}
-                        className="size-48 rounded-md bg-white p-2"
+                        className="aperture:size-48 aperture:rounded-md aperture:bg-white aperture:p-2"
                       />
                     </div>
                     <CopyField value={totpFlow.enrollment.secret} label="Secret" />
@@ -278,7 +282,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
                         required
                       />
                     </Field>
-                    <div className="flex justify-end gap-2">
+                    <div className="aperture:flex aperture:justify-end aperture:gap-2">
                       <Button
                         type="button"
                         variant="outline"
@@ -299,19 +303,19 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
                   </FieldGroup>
                 </form>
               ) : totpFlow.kind === "recovery-codes" ? (
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">Recovery codes</span>
+                <div className="aperture:flex aperture:flex-col aperture:gap-3">
+                  <div className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2">
+                    <span className="aperture:font-medium">Recovery codes</span>
                     <CopyButton value={totpFlow.codes.join("\n")} label="Copy recovery codes" />
                   </div>
-                  <div className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-md border p-3 font-mono text-sm sm:grid-cols-2">
+                  <div className="aperture:grid aperture:grid-cols-1 aperture:gap-x-4 aperture:gap-y-1 aperture:rounded-md aperture:border aperture:p-3 aperture:font-mono aperture:text-sm aperture:sm:grid-cols-2">
                     {totpFlow.codes.map((code) => (
                       <span key={code}>{code}</span>
                     ))}
                   </div>
                   <Button
                     type="button"
-                    className="self-end"
+                    className="aperture:self-end"
                     onClick={() => setTOTPFlow({ kind: "idle" })}
                   >
                     Done
@@ -319,13 +323,13 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
                 </div>
               ) : status.data.totpEnabled ? (
                 <FieldGroup>
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-md border">
-                      <Smartphone className="size-4" />
+                  <div className="aperture:flex aperture:items-center aperture:gap-3">
+                    <div className="aperture:flex aperture:size-9 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-md aperture:border">
+                      <Smartphone className="aperture:size-4" />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium">Authenticator enabled</div>
-                      <div className="text-xs text-muted-foreground">
+                    <div className="aperture:min-w-0 aperture:flex-1">
+                      <div className="aperture:font-medium">Authenticator enabled</div>
+                      <div className="aperture:text-xs aperture:text-muted-foreground">
                         {status.data.recoveryCodesRemaining} recovery codes remaining
                       </div>
                     </div>
@@ -342,7 +346,7 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
                       disabled={pendingAction !== null}
                     />
                   </Field>
-                  <div className="flex flex-wrap justify-end gap-2">
+                  <div className="aperture:flex aperture:flex-wrap aperture:justify-end aperture:gap-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -364,11 +368,11 @@ export function SecurityModal({ open, onOpenChange }: SecurityModalProps) {
                   </div>
                 </FieldGroup>
               ) : (
-                <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center">
-                  <div className="flex size-10 items-center justify-center rounded-md border">
-                    <Smartphone className="size-5" />
+                <div className="aperture:flex aperture:min-h-40 aperture:flex-col aperture:items-center aperture:justify-center aperture:gap-3 aperture:text-center">
+                  <div className="aperture:flex aperture:size-10 aperture:items-center aperture:justify-center aperture:rounded-md aperture:border">
+                    <Smartphone className="aperture:size-5" />
                   </div>
-                  <div className="font-medium">No authenticator</div>
+                  <div className="aperture:font-medium">No authenticator</div>
                   <Button
                     type="button"
                     disabled={pendingAction !== null}

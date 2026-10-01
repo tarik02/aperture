@@ -68,18 +68,27 @@ export function TenantCombobox({
             type="button"
             variant="outline"
             size="sm"
-            className={cn("w-56 min-w-0 justify-start", triggerClassName)}
+            className={cn(
+              "aperture:w-56 aperture:min-w-0 aperture:justify-start",
+              triggerClassName,
+            )}
             disabled={disabled}
           />
         }
       >
         <Building2 data-icon="inline-start" />
-        <span data-sidebar-collapse-label className="min-w-0 flex-1 truncate text-left">
+        <span
+          data-sidebar-collapse-label
+          className="aperture:min-w-0 aperture:flex-1 aperture:truncate aperture:text-left"
+        >
           {label}
         </span>
         <ChevronsUpDown data-icon="inline-end" data-sidebar-collapse-label />
       </PopoverTrigger>
-      <PopoverContent align={align} className="w-80 max-w-[calc(100vw-1rem)] gap-2 p-2">
+      <PopoverContent
+        align={align}
+        className="aperture:w-80 aperture:max-w-[calc(100vw-1rem)] aperture:gap-2 aperture:p-2"
+      >
         <InputGroup>
           <InputGroupInput
             value={search}
@@ -91,23 +100,25 @@ export function TenantCombobox({
             <Search />
           </InputGroupAddon>
         </InputGroup>
-        <ScrollArea className="max-h-64">
-          <div className="flex flex-col gap-1 pr-2">
+        <ScrollArea className="aperture:max-h-64">
+          <div className="aperture:flex aperture:flex-col aperture:gap-1 aperture:pr-2">
             {!options && query.isLoading ? (
-              <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground [&_svg:not([class*='size-'])]:size-4">
-                <Loader2 className="animate-spin" />
+              <div className="aperture:flex aperture:items-center aperture:gap-2 aperture:px-2 aperture:py-3 aperture:text-sm aperture:text-muted-foreground aperture:[&_svg:not([class*='size-'])]:size-4">
+                <Loader2 className="aperture:animate-spin" />
                 Loading tenants
               </div>
             ) : filteredTenants.length === 0 ? (
-              <div className="px-2 py-3 text-sm text-muted-foreground">No tenants found</div>
+              <div className="aperture:px-2 aperture:py-3 aperture:text-sm aperture:text-muted-foreground">
+                No tenants found
+              </div>
             ) : (
               filteredTenants.map((tenant) => (
                 <button
                   key={tenant.id}
                   type="button"
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='size-'])]:size-4",
-                    value === tenant.id && "bg-accent text-accent-foreground",
+                    "aperture:flex aperture:w-full aperture:items-center aperture:gap-2 aperture:rounded-md aperture:px-2 aperture:py-1.5 aperture:text-left aperture:text-sm aperture:outline-none aperture:hover:bg-accent aperture:hover:text-accent-foreground aperture:focus:bg-accent aperture:focus:text-accent-foreground aperture:[&_svg:not([class*='size-'])]:size-4",
+                    value === tenant.id && "aperture:bg-accent aperture:text-accent-foreground",
                   )}
                   onClick={() => {
                     onSelect(tenant);
@@ -115,13 +126,15 @@ export function TenantCombobox({
                     setOpen(false);
                   }}
                 >
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate font-medium">{tenant.displayName}</span>
-                    <span className="truncate font-mono text-xs text-muted-foreground">
+                  <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-0.5">
+                    <span className="aperture:truncate aperture:font-medium">
+                      {tenant.displayName}
+                    </span>
+                    <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
                       {tenant.id}
                     </span>
                   </span>
-                  {value === tenant.id ? <Check className="shrink-0" /> : null}
+                  {value === tenant.id ? <Check className="aperture:shrink-0" /> : null}
                 </button>
               ))
             )}
@@ -132,7 +145,7 @@ export function TenantCombobox({
             type="button"
             variant="outline"
             size="sm"
-            className="w-full"
+            className="aperture:w-full"
             onClick={() => void query.fetchNextPage()}
             disabled={query.isFetchingNextPage}
           >

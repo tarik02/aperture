@@ -21,7 +21,7 @@ export function TenantRequiredNotice() {
 
   return (
     <Alert>
-      <AlertDescription className="flex items-center justify-between gap-3">
+      <AlertDescription className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-3">
         <span>Select a tenant to view resources.</span>
         <SelectedTenantControl />
       </AlertDescription>

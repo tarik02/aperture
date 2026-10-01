@@ -24,16 +24,20 @@ export function AppShell({ children }: AppShellProps) {
       defaultOpen
       className={
         isWorkbenchRoute
-          ? "fixed inset-0 h-svh min-h-0 overflow-hidden bg-background"
-          : "h-svh min-h-0 overflow-hidden"
+          ? "aperture:fixed aperture:inset-0 aperture:h-svh aperture:min-h-0 aperture:overflow-hidden aperture:bg-background"
+          : "aperture:h-svh aperture:min-h-0 aperture:overflow-hidden"
       }
     >
       {!mounted ? (
-        <div className="fixed inset-0 bg-background" />
+        <div className="aperture:fixed aperture:inset-0 aperture:bg-background" />
       ) : isWorkbenchRoute ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">{children}</div>
+        <div className="aperture:flex aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden aperture:bg-background">
+          {children}
+        </div>
       ) : (
-        <Suspense fallback={<div className="fixed inset-0 bg-background" />}>
+        <Suspense
+          fallback={<div className="aperture:fixed aperture:inset-0 aperture:bg-background" />}
+        >
           <StandardAppShell>{children}</StandardAppShell>
         </Suspense>
       )}

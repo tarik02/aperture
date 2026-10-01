@@ -9,7 +9,7 @@ export function SessionPromoteModal() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-2xl" showCloseButton={!pending}>
+      <DialogContent className="aperture:sm:max-w-2xl" showCloseButton={!pending}>
         <SessionPromoteForm />
       </DialogContent>
     </Dialog>

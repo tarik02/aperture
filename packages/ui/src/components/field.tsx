@@ -12,7 +12,7 @@ function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
     <fieldset
       data-slot="field-set"
       className={cn(
-        "flex flex-col gap-4 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3",
+        "aperture:flex aperture:flex-col aperture:gap-4 aperture:has-[>[data-slot=checkbox-group]]:gap-3 aperture:has-[>[data-slot=radio-group]]:gap-3",
         className,
       )}
       {...props}
@@ -30,7 +30,7 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        "mb-1.5 font-medium data-[variant=label]:text-sm data-[variant=legend]:text-base",
+        "aperture:mb-1.5 aperture:font-medium aperture:data-[variant=label]:text-sm aperture:data-[variant=legend]:text-base",
         className,
       )}
       {...props}
@@ -43,7 +43,7 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="field-group"
       className={cn(
-        "group/field-group @container/field-group flex w-full flex-col gap-5 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4",
+        "aperture:group/field-group aperture:@container/field-group aperture:flex aperture:w-full aperture:flex-col aperture:gap-5 aperture:data-[slot=checkbox-group]:gap-3 aperture:*:data-[slot=field-group]:gap-4",
         className,
       )}
       {...props}
@@ -51,20 +51,23 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:text-destructive", {
-  variants: {
-    orientation: {
-      vertical: "flex-col *:w-full [&>.sr-only]:w-auto",
-      horizontal:
-        "flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
-      responsive:
-        "flex-col *:w-full @md/field-group:flex-row @md/field-group:items-center @md/field-group:*:w-auto @md/field-group:has-[>[data-slot=field-content]]:items-start @md/field-group:*:data-[slot=field-label]:flex-auto [&>.sr-only]:w-auto @md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+const fieldVariants = cva(
+  "aperture:group/field aperture:flex aperture:w-full aperture:gap-2 aperture:data-[invalid=true]:text-destructive",
+  {
+    variants: {
+      orientation: {
+        vertical: "aperture:flex-col aperture:*:w-full aperture:[&>.sr-only]:w-auto",
+        horizontal:
+          "aperture:flex-row aperture:items-center aperture:has-[>[data-slot=field-content]]:items-start aperture:*:data-[slot=field-label]:flex-auto aperture:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+        responsive:
+          "aperture:flex-col aperture:*:w-full aperture:@md/field-group:flex-row aperture:@md/field-group:items-center aperture:@md/field-group:*:w-auto aperture:@md/field-group:has-[>[data-slot=field-content]]:items-start aperture:@md/field-group:*:data-[slot=field-label]:flex-auto aperture:[&>.sr-only]:w-auto aperture:@md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+      },
+    },
+    defaultVariants: {
+      orientation: "vertical",
     },
   },
-  defaultVariants: {
-    orientation: "vertical",
-  },
-});
+);
 
 function Field({
   className,
@@ -86,7 +89,10 @@ function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="field-content"
-      className={cn("group/field-content flex flex-1 flex-col gap-0.5 leading-snug", className)}
+      className={cn(
+        "aperture:group/field-content aperture:flex aperture:flex-1 aperture:flex-col aperture:gap-0.5 aperture:leading-snug",
+        className,
+      )}
       {...props}
     />
   );
@@ -97,8 +103,8 @@ function FieldLabel({ className, ...props }: React.ComponentProps<typeof Label>)
     <Label
       data-slot="field-label"
       className={cn(
-        "group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:opacity-50 has-data-checked:border-primary/30 has-data-checked:bg-primary/5 has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border *:data-[slot=field]:p-2.5 dark:has-data-checked:border-primary/20 dark:has-data-checked:bg-primary/10",
-        "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col",
+        "aperture:group/field-label aperture:peer/field-label aperture:flex aperture:w-fit aperture:gap-2 aperture:leading-snug aperture:group-data-[disabled=true]/field:opacity-50 aperture:has-data-checked:border-primary/30 aperture:has-data-checked:bg-primary/5 aperture:has-[>[data-slot=field]]:rounded-lg aperture:has-[>[data-slot=field]]:border aperture:*:data-[slot=field]:p-2.5 aperture:dark:has-data-checked:border-primary/20 aperture:dark:has-data-checked:bg-primary/10",
+        "aperture:has-[>[data-slot=field]]:w-full aperture:has-[>[data-slot=field]]:flex-col",
         className,
       )}
       {...props}
@@ -111,7 +117,7 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="field-label"
       className={cn(
-        "flex w-fit items-center gap-2 text-sm font-medium group-data-[disabled=true]/field:opacity-50",
+        "aperture:flex aperture:w-fit aperture:items-center aperture:gap-2 aperture:text-sm aperture:font-medium aperture:group-data-[disabled=true]/field:opacity-50",
         className,
       )}
       {...props}
@@ -124,9 +130,9 @@ function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
     <p
       data-slot="field-description"
       className={cn(
-        "text-left text-sm leading-normal font-normal text-muted-foreground group-has-data-horizontal/field:text-balance [[data-variant=legend]+&]:-mt-1.5",
-        "last:mt-0 nth-last-2:-mt-1",
-        "[&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+        "aperture:text-left aperture:text-sm aperture:leading-normal aperture:font-normal aperture:text-muted-foreground aperture:group-has-data-horizontal/field:text-balance aperture:[[data-variant=legend]+&]:-mt-1.5",
+        "aperture:last:mt-0 aperture:nth-last-2:-mt-1",
+        "aperture:[&>a]:underline aperture:[&>a]:underline-offset-4 aperture:[&>a:hover]:text-primary",
         className,
       )}
       {...props}
@@ -146,18 +152,21 @@ function FieldSeparator({
       data-slot="field-separator"
       data-content={!!children}
       className={cn(
-        "-my-2 flex items-center gap-2 text-sm group-data-[variant=outline]/field-group:-mb-2",
+        "aperture:-my-2 aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm aperture:group-data-[variant=outline]/field-group:-mb-2",
         className,
       )}
       {...props}
     >
-      <Separator className="flex-1" />
+      <Separator className="aperture:flex-1" />
       {children && (
         <>
-          <span className="shrink-0 text-muted-foreground" data-slot="field-separator-content">
+          <span
+            className="aperture:shrink-0 aperture:text-muted-foreground"
+            data-slot="field-separator-content"
+          >
             {children}
           </span>
-          <Separator className="flex-1" aria-hidden />
+          <Separator className="aperture:flex-1" aria-hidden />
         </>
       )}
     </div>
@@ -188,7 +197,7 @@ function FieldError({
     }
 
     return (
-      <ul className="ml-4 flex list-disc flex-col gap-1">
+      <ul className="aperture:ml-4 aperture:flex aperture:list-disc aperture:flex-col aperture:gap-1">
         {uniqueErrors.map((error, index) => error?.message && <li key={index}>{error.message}</li>)}
       </ul>
     );
@@ -202,7 +211,7 @@ function FieldError({
     <div
       role="alert"
       data-slot="field-error"
-      className={cn("text-sm font-normal text-destructive", className)}
+      className={cn("aperture:text-sm aperture:font-normal aperture:text-destructive", className)}
       {...props}
     >
       {content}

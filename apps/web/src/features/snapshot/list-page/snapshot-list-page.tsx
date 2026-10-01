@@ -82,17 +82,17 @@ import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
 const SNAPSHOT_SKELETON_COLUMNS = [
   {
     cellClassName: stickyTableStartCellClassName,
-    skeletonClassName: "size-4 rounded-sm",
+    skeletonClassName: "aperture:size-4 aperture:rounded-sm",
     sticky: "start",
   },
-  { skeletonClassName: "h-4 w-44" },
-  { skeletonClassName: "h-4 w-64" },
-  { skeletonClassName: "h-5 w-40 rounded-full" },
-  { skeletonClassName: "h-4 w-36" },
-  { skeletonClassName: "h-4 w-36" },
+  { skeletonClassName: "aperture:h-4 aperture:w-44" },
+  { skeletonClassName: "aperture:h-4 aperture:w-64" },
+  { skeletonClassName: "aperture:h-5 aperture:w-40 aperture:rounded-full" },
+  { skeletonClassName: "aperture:h-4 aperture:w-36" },
+  { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
     cellClassName: stickyTableEndCellClassName,
-    skeletonClassName: "ml-auto size-7",
+    skeletonClassName: "aperture:ml-auto aperture:size-7",
     sticky: "end",
   },
 ] as const;
@@ -267,11 +267,11 @@ export function SnapshotListPage() {
         : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-col gap-3 p-3">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
+      <div className="aperture:flex aperture:shrink-0 aperture:flex-col aperture:gap-3 aperture:p-3">
         <TenantRequiredNotice />
         {tenantReady ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-2">
             <DeletedStatusSelect value={deleted} onChange={setDeleted} />
             <TagFilter
               value={tags}
@@ -484,12 +484,12 @@ function SnapshotRow({
   return (
     <TableRow
       data-state={selected ? "selected" : undefined}
-      className="cursor-pointer"
+      className="aperture:cursor-pointer"
       onClick={onDetails}
     >
       <TableCell
         data-table-sticky="start"
-        className={`${stickyTableStartCellClassName} ${canWrite ? "cursor-pointer" : ""}`}
+        className={`${stickyTableStartCellClassName} ${canWrite ? "aperture:cursor-pointer" : ""}`}
         onClick={(event) => {
           event.stopPropagation();
           if (canWrite) {
@@ -506,19 +506,23 @@ function SnapshotRow({
         />
       </TableCell>
       <TableCell>
-        <span className="flex items-center gap-2">
+        <span className="aperture:flex aperture:items-center aperture:gap-2">
           {snapshot.name}
           <DeletedBadge deletedAt={snapshot.deletedAt} />
         </span>
       </TableCell>
-      <TableCell className="max-w-80 truncate text-muted-foreground">
+      <TableCell className="aperture:max-w-80 aperture:truncate aperture:text-muted-foreground">
         {snapshot.description ?? "—"}
       </TableCell>
       <TableCell>
         <TagBadges tags={snapshot.tags} />
       </TableCell>
-      <TableCell className="text-muted-foreground">{formatTimestamp(snapshot.createdAt)}</TableCell>
-      <TableCell className="text-muted-foreground">{formatTimestamp(snapshot.expiresAt)}</TableCell>
+      <TableCell className="aperture:text-muted-foreground">
+        {formatTimestamp(snapshot.createdAt)}
+      </TableCell>
+      <TableCell className="aperture:text-muted-foreground">
+        {formatTimestamp(snapshot.expiresAt)}
+      </TableCell>
       <TableCell
         data-table-sticky="end"
         className={stickyTableEndCellClassName}
@@ -570,7 +574,7 @@ function SnapshotActionsMenu({
       >
         <MoreHorizontal />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
+      <DropdownMenuContent align="end" className="aperture:min-w-40">
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onDetails}>
             <Info />
@@ -629,11 +633,11 @@ function SnapshotEditModal({
 }: SnapshotEditModalProps) {
   return (
     <Dialog open={draft !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(80vh,720px)] flex-col overflow-hidden sm:max-w-2xl">
+      <DialogContent className="aperture:flex aperture:max-h-[min(80vh,720px)] aperture:flex-col aperture:overflow-hidden aperture:sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{draft ? `Edit ${draft.snapshot.name}` : "Edit snapshot"}</DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto py-2">
+        <div className="aperture:min-h-0 aperture:overflow-y-auto aperture:py-2">
           <FieldGroup>
             <Field data-disabled={pending ? true : undefined}>
               <FieldLabel htmlFor="snapshot-description">Description</FieldLabel>

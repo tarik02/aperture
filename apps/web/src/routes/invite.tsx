@@ -86,14 +86,14 @@ function InviteRoute() {
 
   if (invitation.kind === "loading") {
     return (
-      <div className="flex h-full items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
+      <div className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:p-4">
+        <Card className="aperture:w-full aperture:max-w-sm">
           <CardHeader>
-            <Skeleton className="mx-auto h-5 w-40" />
-            <Skeleton className="mx-auto h-4 w-64" />
+            <Skeleton className="aperture:mx-auto aperture:h-5 aperture:w-40" />
+            <Skeleton className="aperture:mx-auto aperture:h-4 aperture:w-64" />
           </CardHeader>
           <CardContent>
-            <Skeleton className="h-28 w-full" />
+            <Skeleton className="aperture:h-28 aperture:w-full" />
           </CardContent>
         </Card>
       </div>
@@ -102,9 +102,9 @@ function InviteRoute() {
 
   if (invitation.kind === "missing") {
     return (
-      <div className="flex h-full items-center justify-center p-4">
-        <Card className="w-full max-w-sm">
-          <CardHeader className="text-center">
+      <div className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:p-4">
+        <Card className="aperture:w-full aperture:max-w-sm">
+          <CardHeader className="aperture:text-center">
             <CardTitle>Invalid password link</CardTitle>
             <CardDescription>Ask an administrator to create a new link.</CardDescription>
           </CardHeader>
@@ -114,10 +114,13 @@ function InviteRoute() {
   }
 
   return (
-    <div className="flex h-full items-center justify-center p-4">
-      <form className="w-full max-w-sm" onSubmit={(event) => void handleSubmit(event)}>
+    <div className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:p-4">
+      <form
+        className="aperture:w-full aperture:max-w-sm"
+        onSubmit={(event) => void handleSubmit(event)}
+      >
         <Card>
-          <CardHeader className="text-center">
+          <CardHeader className="aperture:text-center">
             <CardTitle>Choose your Aperture password</CardTitle>
             <CardDescription>Set a new password to continue.</CardDescription>
           </CardHeader>
@@ -168,7 +171,7 @@ function InviteRoute() {
             </FieldGroup>
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full" disabled={pending}>
+            <Button type="submit" className="aperture:w-full" disabled={pending}>
               <KeyRound data-icon="inline-start" />
               {pending ? "Saving..." : "Set password"}
             </Button>

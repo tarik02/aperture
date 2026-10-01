@@ -11,7 +11,7 @@ function NativeSelect({ className, size = "default", ...props }: NativeSelectPro
   return (
     <div
       className={cn(
-        "group/native-select relative w-fit has-[select:disabled]:opacity-50",
+        "aperture:group/native-select aperture:relative aperture:w-fit aperture:has-[select:disabled]:opacity-50",
         className,
       )}
       data-slot="native-select-wrapper"
@@ -20,11 +20,11 @@ function NativeSelect({ className, size = "default", ...props }: NativeSelectPro
       <select
         data-slot="native-select"
         data-size={size}
-        className="h-8 w-full min-w-0 appearance-none rounded-lg border border-input bg-transparent py-1 pr-8 pl-2.5 text-sm transition-colors outline-none select-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-[size=sm]:py-0.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40"
+        className="aperture:h-8 aperture:w-full aperture:min-w-0 aperture:appearance-none aperture:rounded-lg aperture:border aperture:border-input aperture:bg-transparent aperture:py-1 aperture:pr-8 aperture:pl-2.5 aperture:text-sm aperture:transition-colors aperture:outline-none aperture:select-none aperture:selection:bg-primary aperture:selection:text-primary-foreground aperture:placeholder:text-muted-foreground aperture:focus-visible:border-ring aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:disabled:pointer-events-none aperture:disabled:cursor-not-allowed aperture:aria-invalid:border-destructive aperture:aria-invalid:ring-3 aperture:aria-invalid:ring-destructive/20 aperture:data-[size=sm]:h-7 aperture:data-[size=sm]:rounded-[min(--theme(--radius-md),10px)] aperture:data-[size=sm]:py-0.5 aperture:dark:bg-input/30 aperture:dark:hover:bg-input/50 aperture:dark:aria-invalid:border-destructive/50 aperture:dark:aria-invalid:ring-destructive/40"
         {...props}
       />
       <ChevronDownIcon
-        className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-muted-foreground select-none"
+        className="aperture:pointer-events-none aperture:absolute aperture:top-1/2 aperture:right-2.5 aperture:size-4 aperture:-translate-y-1/2 aperture:text-muted-foreground aperture:select-none"
         aria-hidden="true"
         data-slot="native-select-icon"
       />
@@ -36,7 +36,7 @@ function NativeSelectOption({ className, ...props }: React.ComponentProps<"optio
   return (
     <option
       data-slot="native-select-option"
-      className={cn("bg-[Canvas] text-[CanvasText]", className)}
+      className={cn("aperture:bg-[Canvas] aperture:text-[CanvasText]", className)}
       {...props}
     />
   );
@@ -46,7 +46,7 @@ function NativeSelectOptGroup({ className, ...props }: React.ComponentProps<"opt
   return (
     <optgroup
       data-slot="native-select-optgroup"
-      className={cn("bg-[Canvas] text-[CanvasText]", className)}
+      className={cn("aperture:bg-[Canvas] aperture:text-[CanvasText]", className)}
       {...props}
     />
   );

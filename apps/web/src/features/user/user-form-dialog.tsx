@@ -84,7 +84,7 @@ export function UserFormDialog({ open, user = null, onOpenChange, onSaved }: Use
                 : "Update account details and deployment access."}
             </DialogDescription>
           </DialogHeader>
-          <FieldGroup className="py-2">
+          <FieldGroup className="aperture:py-2">
             <Field data-invalid={displayNameError ? true : undefined}>
               <FieldLabel htmlFor="user-display-name">Display name</FieldLabel>
               <Input

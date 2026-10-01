@@ -150,7 +150,7 @@ export function TokenCreateForm() {
       <DialogHeader>
         <DialogTitle>Token created</DialogTitle>
       </DialogHeader>
-      <div className="flex flex-col gap-3 py-2">
+      <div className="aperture:flex aperture:flex-col aperture:gap-3 aperture:py-2">
         <CopyField value={Redacted.value(createdToken.rawToken)} />
       </div>
       <DialogFooter>
@@ -164,7 +164,7 @@ export function TokenCreateForm() {
       <DialogHeader>
         <DialogTitle>Create token</DialogTitle>
       </DialogHeader>
-      <FieldGroup className="py-2">
+      <FieldGroup className="aperture:py-2">
         <Field data-invalid={nameError ? true : undefined}>
           <FieldLabel htmlFor="token-name">Name</FieldLabel>
           <Input
@@ -194,7 +194,7 @@ export function TokenCreateForm() {
                 }}
                 disabled={mutation.isPending}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="aperture:w-full">
                   <SelectValue placeholder="Authority">
                     {(selectedValue: unknown) =>
                       AUTHORITY_OPTIONS.find((option) => option.value === selectedValue)?.label ??
@@ -218,7 +218,7 @@ export function TokenCreateForm() {
                   onSelect={(tenant) => setFormData({ tenantId: tenant.id, resourceGrants: [] })}
                   disabled={mutation.isPending}
                   align="start"
-                  triggerClassName="w-full"
+                  triggerClassName="aperture:w-full"
                 />
               </Field>
             ) : null}
@@ -256,7 +256,7 @@ export function TokenCreateForm() {
               (isAdmin && authorityType === "system_admin")
             }
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="aperture:w-full">
               <SelectValue>
                 {(selectedValue: unknown) =>
                   RESOURCE_MODE_OPTIONS.find((option) => option.value === selectedValue)?.label ??
@@ -434,7 +434,7 @@ function ResourceGrantEditor({
               <>
                 {values.map((option: ResourceOption) => (
                   <ComboboxChip key={option.value}>
-                    <span className="max-w-48 truncate">
+                    <span className="aperture:max-w-48 aperture:truncate">
                       {option.resourceType === "session" ? "Session" : "Snapshot"}: {option.label}
                     </span>
                   </ComboboxChip>
@@ -465,9 +465,9 @@ function ResourceGrantEditor({
                 <ComboboxCollection>
                   {(option: ResourceOption) => (
                     <ComboboxItem key={option.value} value={option}>
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate">{option.label}</span>
-                        <span className="truncate font-mono text-xs text-muted-foreground">
+                      <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col">
+                        <span className="aperture:truncate">{option.label}</span>
+                        <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
                           {option.detail}
                         </span>
                       </span>
@@ -482,7 +482,7 @@ function ResourceGrantEditor({
               type="button"
               variant="ghost"
               size="sm"
-              className="m-1 w-[calc(100%-0.5rem)]"
+              className="aperture:m-1 aperture:w-[calc(100%-0.5rem)]"
               onClick={() => {
                 if (sessionsQuery.hasNextPage) {
                   void sessionsQuery.fetchNextPage();
@@ -524,31 +524,39 @@ function ScopeMultiSelect({ options, value, invalid, disabled, onToggle }: Scope
             type="button"
             variant="outline"
             size="sm"
-            className="w-full justify-between"
+            className="aperture:w-full aperture:justify-between"
             aria-invalid={invalid}
             disabled={disabled}
           />
         }
       >
-        <span className="flex min-w-0 flex-1 items-center gap-1">
+        <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:gap-1">
           {firstSelected ? (
-            <Badge variant="secondary" className="max-w-48 truncate font-normal">
+            <Badge
+              variant="secondary"
+              className="aperture:max-w-48 aperture:truncate aperture:font-normal"
+            >
               {firstSelected.label}
             </Badge>
           ) : (
-            <span className="min-w-0 truncate text-muted-foreground">Select scopes</span>
+            <span className="aperture:min-w-0 aperture:truncate aperture:text-muted-foreground">
+              Select scopes
+            </span>
           )}
           {hiddenCount > 0 ? (
-            <Badge variant="outline" className="font-normal">
+            <Badge variant="outline" className="aperture:font-normal">
               +{hiddenCount}
             </Badge>
           ) : null}
         </span>
         <ChevronsUpDown data-icon="inline-end" />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 max-w-[calc(100vw-1rem)] p-2">
-        <ScrollArea className="h-64">
-          <div className="flex flex-col gap-1">
+      <PopoverContent
+        align="start"
+        className="aperture:w-80 aperture:max-w-[calc(100vw-1rem)] aperture:p-2"
+      >
+        <ScrollArea className="aperture:h-64">
+          <div className="aperture:flex aperture:flex-col aperture:gap-1">
             {options.map((option) => {
               const selected = value.includes(option.value);
 
@@ -557,11 +565,13 @@ function ScopeMultiSelect({ options, value, invalid, disabled, onToggle }: Scope
                   key={option.value}
                   type="button"
                   aria-pressed={selected}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='size-'])]:size-4"
+                  className="aperture:flex aperture:w-full aperture:items-center aperture:gap-2 aperture:rounded-md aperture:px-2 aperture:py-1.5 aperture:text-left aperture:text-sm aperture:outline-none aperture:hover:bg-accent aperture:hover:text-accent-foreground aperture:focus:bg-accent aperture:focus:text-accent-foreground aperture:[&_svg:not([class*='size-'])]:size-4"
                   onClick={() => onToggle(option.value)}
                 >
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {selected ? <Check className="shrink-0" /> : null}
+                  <span className="aperture:min-w-0 aperture:flex-1 aperture:truncate">
+                    {option.label}
+                  </span>
+                  {selected ? <Check className="aperture:shrink-0" /> : null}
                 </button>
               );
             })}
@@ -633,9 +643,9 @@ function ExpiresAtControl({ id, value, disabled, onChange }: ExpiresAtControlPro
   }
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row">
+    <div className="aperture:flex aperture:flex-col aperture:gap-2 aperture:sm:flex-row">
       <Select items={expiresAtOptions} value={preset} onValueChange={handlePresetChange}>
-        <SelectTrigger size="sm" className="w-full sm:w-32">
+        <SelectTrigger size="sm" className="aperture:w-full aperture:sm:w-32">
           <SelectValue>
             {(selectedValue: unknown) =>
               expiresAtOptions.find((option) => option.value === selectedValue)?.label ?? "Never"
@@ -653,7 +663,7 @@ function ExpiresAtControl({ id, value, disabled, onChange }: ExpiresAtControlPro
         </SelectContent>
       </Select>
       {preset === "custom" ? (
-        <InputGroup className="flex-1">
+        <InputGroup className="aperture:flex-1">
           <InputGroupInput
             id={id}
             type="datetime-local"

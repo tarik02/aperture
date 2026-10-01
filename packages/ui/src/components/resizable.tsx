@@ -6,7 +6,10 @@ function ResizablePanelGroup({ className, ...props }: ResizablePrimitive.GroupPr
   return (
     <ResizablePrimitive.Group
       data-slot="resizable-panel-group"
-      className={cn("flex h-full w-full aria-[orientation=vertical]:flex-col", className)}
+      className={cn(
+        "aperture:flex aperture:h-full aperture:w-full aperture:aria-[orientation=vertical]:flex-col",
+        className,
+      )}
       {...props}
     />
   );
@@ -27,12 +30,14 @@ function ResizableHandle({
     <ResizablePrimitive.Separator
       data-slot="resizable-handle"
       className={cn(
-        "relative flex w-px items-center justify-center bg-border ring-offset-background after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden aria-[orientation=horizontal]:h-px aria-[orientation=horizontal]:w-full aria-[orientation=horizontal]:after:left-0 aria-[orientation=horizontal]:after:h-1 aria-[orientation=horizontal]:after:w-full aria-[orientation=horizontal]:after:translate-x-0 aria-[orientation=horizontal]:after:-translate-y-1/2 [&[aria-orientation=horizontal]>div]:rotate-90",
+        "aperture:relative aperture:flex aperture:w-px aperture:items-center aperture:justify-center aperture:bg-border aperture:ring-offset-background aperture:after:absolute aperture:after:inset-y-0 aperture:after:left-1/2 aperture:after:w-1 aperture:after:-translate-x-1/2 aperture:focus-visible:ring-1 aperture:focus-visible:ring-ring aperture:focus-visible:outline-hidden aperture:aria-[orientation=horizontal]:h-px aperture:aria-[orientation=horizontal]:w-full aperture:aria-[orientation=horizontal]:after:left-0 aperture:aria-[orientation=horizontal]:after:h-1 aperture:aria-[orientation=horizontal]:after:w-full aperture:aria-[orientation=horizontal]:after:translate-x-0 aperture:aria-[orientation=horizontal]:after:-translate-y-1/2 aperture:[&[aria-orientation=horizontal]>div]:rotate-90",
         className,
       )}
       {...props}
     >
-      {withHandle && <div className="z-10 flex h-6 w-1 shrink-0 rounded-lg bg-border" />}
+      {withHandle && (
+        <div className="aperture:z-10 aperture:flex aperture:h-6 aperture:w-1 aperture:shrink-0 aperture:rounded-lg aperture:bg-border" />
+      )}
     </ResizablePrimitive.Separator>
   );
 }

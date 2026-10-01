@@ -18,7 +18,7 @@ export function IncludeDeletedToggle({ checked, onCheckedChange }: IncludeDelete
             variant="default"
             size="sm"
             aria-label="Include deleted"
-            className="text-muted-foreground hover:text-foreground aria-pressed:bg-muted/60 aria-pressed:text-foreground"
+            className="aperture:text-muted-foreground aperture:hover:text-foreground aperture:aria-pressed:bg-muted/60 aperture:aria-pressed:text-foreground"
           />
         }
       >

@@ -6,18 +6,19 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../utils.ts";
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-all outline-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-muted data-[state=on]:bg-muted dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "aperture:group/toggle aperture:inline-flex aperture:items-center aperture:justify-center aperture:gap-1 aperture:rounded-lg aperture:text-sm aperture:font-medium aperture:whitespace-nowrap aperture:transition-all aperture:outline-none aperture:hover:bg-muted aperture:hover:text-foreground aperture:focus-visible:border-ring aperture:focus-visible:ring-[3px] aperture:focus-visible:ring-ring/50 aperture:disabled:pointer-events-none aperture:disabled:opacity-50 aperture:aria-invalid:border-destructive aperture:aria-invalid:ring-destructive/20 aperture:aria-pressed:bg-muted aperture:data-[state=on]:bg-muted aperture:dark:aria-invalid:ring-destructive/40 aperture:[&_svg]:pointer-events-none aperture:[&_svg]:shrink-0 aperture:[&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-transparent",
-        outline: "border border-input bg-transparent hover:bg-muted",
+        default: "aperture:bg-transparent",
+        outline:
+          "aperture:border aperture:border-input aperture:bg-transparent aperture:hover:bg-muted",
       },
       size: {
         default:
-          "h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        sm: "h-7 min-w-7 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 min-w-9 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+          "aperture:h-8 aperture:min-w-8 aperture:px-2.5 aperture:has-data-[icon=inline-end]:pr-2 aperture:has-data-[icon=inline-start]:pl-2",
+        sm: "aperture:h-7 aperture:min-w-7 aperture:rounded-[min(--theme(--radius-md),12px)] aperture:px-2.5 aperture:text-[0.8rem] aperture:has-data-[icon=inline-end]:pr-1.5 aperture:has-data-[icon=inline-start]:pl-1.5 aperture:[&_svg:not([class*='size-'])]:size-3.5",
+        lg: "aperture:h-9 aperture:min-w-9 aperture:px-2.5 aperture:has-data-[icon=inline-end]:pr-2 aperture:has-data-[icon=inline-start]:pl-2",
       },
     },
     defaultVariants: {

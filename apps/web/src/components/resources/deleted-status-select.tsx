@@ -30,7 +30,7 @@ export function DeletedStatusSelect({ value, onChange }: DeletedStatusSelectProp
         }
       }}
     >
-      <SelectTrigger size="sm" className="w-28">
+      <SelectTrigger size="sm" className="aperture:w-28">
         <SelectValue>
           {(selectedValue: unknown) =>
             deletedStatusOptions.find((option) => option.value === selectedValue)?.label ?? "Status"

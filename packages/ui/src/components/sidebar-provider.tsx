@@ -107,7 +107,7 @@ export function SidebarProvider({
         data-slot="sidebar-wrapper"
         style={sidebarStyle}
         className={[
-          "group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar",
+          "aperture:group/sidebar-wrapper aperture:flex aperture:min-h-svh aperture:w-full aperture:has-data-[variant=inset]:bg-sidebar",
           className,
         ]
           .filter(Boolean)

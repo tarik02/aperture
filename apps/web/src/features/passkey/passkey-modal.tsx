@@ -116,7 +116,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="aperture:sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Passkeys</DialogTitle>
           </DialogHeader>
@@ -125,7 +125,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="passkey-name">Name</FieldLabel>
-                <div className="flex gap-2">
+                <div className="aperture:flex aperture:gap-2">
                   <Input
                     id="passkey-name"
                     value={name}
@@ -142,9 +142,9 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
           </form>
 
           {passkeys.isPending ? (
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-14 w-full" />
-              <Skeleton className="h-14 w-full" />
+            <div className="aperture:flex aperture:flex-col aperture:gap-2">
+              <Skeleton className="aperture:h-14 aperture:w-full" />
+              <Skeleton className="aperture:h-14 aperture:w-full" />
             </div>
           ) : passkeys.isError ? (
             <Empty>
@@ -162,24 +162,27 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="flex flex-col divide-y">
+            <div className="aperture:flex aperture:flex-col aperture:divide-y">
               {passkeys.data.passkeys.map((passkey) => {
                 const renaming =
                   pendingAction?.kind === "rename" && pendingAction.passkeyId === passkey.id;
                 return (
-                  <div key={passkey.id} className="flex min-h-14 items-center gap-2 py-2">
+                  <div
+                    key={passkey.id}
+                    className="aperture:flex aperture:min-h-14 aperture:items-center aperture:gap-2 aperture:py-2"
+                  >
                     {editingId === passkey.id ? (
                       <Input
-                        className="min-w-0 flex-1"
+                        className="aperture:min-w-0 aperture:flex-1"
                         aria-label="Passkey name"
                         value={editingName}
                         onChange={(event) => setEditingName(event.target.value)}
                         disabled={renaming}
                       />
                     ) : (
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">{passkey.name}</div>
-                        <div className="text-xs text-muted-foreground">
+                      <div className="aperture:min-w-0 aperture:flex-1">
+                        <div className="aperture:truncate aperture:font-medium">{passkey.name}</div>
+                        <div className="aperture:text-xs aperture:text-muted-foreground">
                           {passkey.lastUsedAt
                             ? `Last used ${formatTimestamp(passkey.lastUsedAt)}`
                             : `Added ${formatTimestamp(passkey.createdAt)}`}
@@ -197,7 +200,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
                           onClick={() => void handleRename(passkey.id)}
                         >
                           <Check />
-                          <span className="sr-only">Save name</span>
+                          <span className="aperture:sr-only">Save name</span>
                         </Button>
                         <Button
                           type="button"
@@ -207,7 +210,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
                           onClick={() => setEditingId(null)}
                         >
                           <X />
-                          <span className="sr-only">Cancel rename</span>
+                          <span className="aperture:sr-only">Cancel rename</span>
                         </Button>
                       </>
                     ) : (
@@ -223,7 +226,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
                           }}
                         >
                           <Pencil />
-                          <span className="sr-only">Rename {passkey.name}</span>
+                          <span className="aperture:sr-only">Rename {passkey.name}</span>
                         </Button>
                         <Button
                           type="button"
@@ -236,7 +239,7 @@ export function PasskeyModal({ open, onOpenChange }: PasskeyModalProps) {
                           }}
                         >
                           <Trash2 />
-                          <span className="sr-only">Delete {passkey.name}</span>
+                          <span className="aperture:sr-only">Delete {passkey.name}</span>
                         </Button>
                       </>
                     )}

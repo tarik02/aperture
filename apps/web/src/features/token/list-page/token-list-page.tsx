@@ -82,19 +82,19 @@ const authorityFilterOptions = [
 const TOKEN_SKELETON_COLUMNS = [
   {
     cellClassName: stickyTableStartCellClassName,
-    skeletonClassName: "size-4 rounded-sm",
+    skeletonClassName: "aperture:size-4 aperture:rounded-sm",
     sticky: "start",
   },
-  { skeletonClassName: "h-4 w-40" },
-  { skeletonClassName: "h-4 w-72" },
-  { skeletonClassName: "h-4 w-24" },
-  { skeletonClassName: "h-5 w-24 rounded-full" },
-  { skeletonClassName: "h-5 w-24 rounded-full" },
-  { skeletonClassName: "h-4 w-36" },
-  { skeletonClassName: "h-4 w-36" },
+  { skeletonClassName: "aperture:h-4 aperture:w-40" },
+  { skeletonClassName: "aperture:h-4 aperture:w-72" },
+  { skeletonClassName: "aperture:h-4 aperture:w-24" },
+  { skeletonClassName: "aperture:h-5 aperture:w-24 aperture:rounded-full" },
+  { skeletonClassName: "aperture:h-5 aperture:w-24 aperture:rounded-full" },
+  { skeletonClassName: "aperture:h-4 aperture:w-36" },
+  { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
     cellClassName: stickyTableEndCellClassName,
-    skeletonClassName: "ml-auto size-7",
+    skeletonClassName: "aperture:ml-auto aperture:size-7",
     sticky: "end",
   },
 ] as const;
@@ -205,7 +205,7 @@ export function TokenListPage() {
         : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       {canCreate ? (
         <PageHeaderActions>
           <Button
@@ -224,7 +224,7 @@ export function TokenListPage() {
         </PageHeaderActions>
       ) : null}
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 p-3">
+      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
         <Select
           items={revokedFilterOptions}
           value={revoked}
@@ -234,7 +234,7 @@ export function TokenListPage() {
             }
           }}
         >
-          <SelectTrigger size="sm" className="w-28">
+          <SelectTrigger size="sm" className="aperture:w-28">
             <SelectValue>
               {(selectedValue: unknown) =>
                 revokedFilterOptions.find((option) => option.value === selectedValue)?.label ??
@@ -256,7 +256,7 @@ export function TokenListPage() {
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Token name"
-          className="h-7 w-44"
+          className="aperture:h-7 aperture:w-44"
         />
         {isAdmin ? (
           <Select
@@ -272,7 +272,7 @@ export function TokenListPage() {
               }
             }}
           >
-            <SelectTrigger size="sm" className="w-40">
+            <SelectTrigger size="sm" className="aperture:w-40">
               <SelectValue>
                 {(selectedValue: unknown) =>
                   authorityFilterOptions.find((option) => option.value === selectedValue)?.label ??
@@ -300,7 +300,7 @@ export function TokenListPage() {
             }
           }}
         >
-          <SelectTrigger size="sm" className="w-40">
+          <SelectTrigger size="sm" className="aperture:w-40">
             <SelectValue>
               {(selectedValue: unknown) =>
                 selectedValue === ALL_SCOPES
@@ -438,12 +438,12 @@ function TokenRow({
   return (
     <TableRow
       data-state={selected ? "selected" : undefined}
-      className="cursor-pointer"
+      className="aperture:cursor-pointer"
       onClick={onView}
     >
       <TableCell
         data-table-sticky="start"
-        className={`${stickyTableStartCellClassName} ${canRevoke && !token.revokedAt ? "cursor-pointer" : ""}`}
+        className={`${stickyTableStartCellClassName} ${canRevoke && !token.revokedAt ? "aperture:cursor-pointer" : ""}`}
         onClick={(event) => {
           event.stopPropagation();
           if (canRevoke && !token.revokedAt) {
@@ -460,12 +460,14 @@ function TokenRow({
         />
       </TableCell>
       <TableCell>
-        <span className="flex items-center gap-2">
+        <span className="aperture:flex aperture:items-center aperture:gap-2">
           {token.name}
           <RevokedBadge revokedAt={token.revokedAt} />
         </span>
       </TableCell>
-      <TableCell className="max-w-80 break-all font-mono text-sm">{token.id}</TableCell>
+      <TableCell className="aperture:max-w-80 aperture:break-all aperture:font-mono aperture:text-sm">
+        {token.id}
+      </TableCell>
       <TableCell>{token.authorityType === "system_admin" ? "System admin" : "Tenant"}</TableCell>
       <TableCell>
         <ScopeSummary scopes={token.scopes} />
@@ -473,8 +475,12 @@ function TokenRow({
       <TableCell>
         <ResourceSummary token={token} />
       </TableCell>
-      <TableCell className="text-muted-foreground">{formatTimestamp(token.createdAt)}</TableCell>
-      <TableCell className="text-muted-foreground">{formatTimestamp(token.expiresAt)}</TableCell>
+      <TableCell className="aperture:text-muted-foreground">
+        {formatTimestamp(token.createdAt)}
+      </TableCell>
+      <TableCell className="aperture:text-muted-foreground">
+        {formatTimestamp(token.expiresAt)}
+      </TableCell>
       <TableCell
         data-table-sticky="end"
         className={stickyTableEndCellClassName}
@@ -517,17 +523,19 @@ function TokenViewModal({
 }: TokenViewModalProps) {
   return (
     <Dialog open={open && token !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(80vh,640px)] flex-col overflow-hidden sm:max-w-2xl">
+      <DialogContent className="aperture:flex aperture:max-h-[min(80vh,640px)] aperture:flex-col aperture:overflow-hidden aperture:sm:max-w-2xl">
         {token ? (
           <>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
+              <DialogTitle className="aperture:flex aperture:items-center aperture:gap-2">
                 {token.name}
                 <RevokedBadge revokedAt={token.revokedAt} />
               </DialogTitle>
-              <DialogDescription className="break-all font-mono">{token.id}</DialogDescription>
+              <DialogDescription className="aperture:break-all aperture:font-mono">
+                {token.id}
+              </DialogDescription>
             </DialogHeader>
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea className="aperture:min-h-0 aperture:flex-1">
               <MetadataGrid
                 items={[
                   { kind: "identifier", label: "ID", value: token.id },
@@ -589,9 +597,9 @@ function ScopeList({ scopes }: { scopes: readonly string[] }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="aperture:flex aperture:flex-wrap aperture:gap-1">
       {[...scopes].sort().map((scope) => (
-        <Badge key={scope} variant="secondary" className="font-normal">
+        <Badge key={scope} variant="secondary" className="aperture:font-normal">
           {scopeLabel(scope)}
         </Badge>
       ))}
@@ -605,12 +613,15 @@ function ScopeSummary({ scopes }: { scopes: readonly string[] }) {
   const hiddenCount = Math.max(scopes.length - 1, 0);
 
   return (
-    <div className="flex min-w-0 items-center gap-1 whitespace-nowrap">
-      <Badge variant="secondary" className="max-w-44 truncate font-normal">
+    <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1 aperture:whitespace-nowrap">
+      <Badge
+        variant="secondary"
+        className="aperture:max-w-44 aperture:truncate aperture:font-normal"
+      >
         {scopeLabel(primaryScope)}
       </Badge>
       {hiddenCount > 0 ? (
-        <Badge variant="outline" className="font-normal">
+        <Badge variant="outline" className="aperture:font-normal">
           +{hiddenCount}
         </Badge>
       ) : null}
@@ -621,14 +632,14 @@ function ScopeSummary({ scopes }: { scopes: readonly string[] }) {
 function ResourceSummary({ token }: { token: ApiToken }) {
   if (token.resourceMode === "all") {
     return (
-      <Badge variant="secondary" className="font-normal">
+      <Badge variant="secondary" className="aperture:font-normal">
         All resources
       </Badge>
     );
   }
 
   return (
-    <Badge variant="outline" className="font-normal">
+    <Badge variant="outline" className="aperture:font-normal">
       {token.resourceGrants.length} grant{token.resourceGrants.length === 1 ? "" : "s"}
     </Badge>
   );
@@ -640,13 +651,21 @@ function ResourceGrantList({ grants }: { grants: readonly ResourceGrant[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="aperture:flex aperture:flex-col aperture:gap-1.5">
       {grants.map((grant) => (
-        <div key={`${grant.resourceType}:${grant.resourceId}`} className="flex min-w-0 gap-2">
-          <Badge variant="secondary" className="shrink-0 font-normal capitalize">
+        <div
+          key={`${grant.resourceType}:${grant.resourceId}`}
+          className="aperture:flex aperture:min-w-0 aperture:gap-2"
+        >
+          <Badge
+            variant="secondary"
+            className="aperture:shrink-0 aperture:font-normal aperture:capitalize"
+          >
             {grant.resourceType}
           </Badge>
-          <span className="min-w-0 break-all font-mono text-xs">{grant.resourceId}</span>
+          <span className="aperture:min-w-0 aperture:break-all aperture:font-mono aperture:text-xs">
+            {grant.resourceId}
+          </span>
         </div>
       ))}
     </div>

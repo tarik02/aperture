@@ -18,7 +18,7 @@ export function CopyField({ value, label, mono = true }: CopyFieldProps) {
       <InputGroupInput
         readOnly
         value={value}
-        className={mono ? "font-mono text-xs" : "text-xs"}
+        className={mono ? "aperture:font-mono aperture:text-xs" : "aperture:text-xs"}
         aria-label={label ?? "Copyable value"}
         onFocus={(event) => event.currentTarget.select()}
       />
@@ -33,8 +33,8 @@ export function CopyField({ value, label, mono = true }: CopyFieldProps) {
   }
 
   return (
-    <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-3">
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="aperture:grid aperture:grid-cols-[8rem_minmax(0,1fr)] aperture:items-center aperture:gap-3">
+      <span className="aperture:text-xs aperture:text-muted-foreground">{label}</span>
       {input}
     </div>
   );

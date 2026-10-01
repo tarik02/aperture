@@ -34,12 +34,12 @@ function HoverCardContent({
         side={side}
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
-        className="isolate z-50"
+        className="aperture:isolate aperture:z-50"
       >
         <PreviewCardPrimitive.Popup
           data-slot="hover-card-content"
           className={cn(
-            "z-50 w-64 rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden",
+            "aperture:z-50 aperture:w-64 aperture:rounded-lg aperture:bg-popover aperture:p-2.5 aperture:text-sm aperture:text-popover-foreground aperture:shadow-md aperture:ring-1 aperture:ring-foreground/10 aperture:outline-hidden",
             className,
           )}
           {...props}

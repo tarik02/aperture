@@ -51,15 +51,15 @@ import { useRunApi } from "@aperture-browser/session-react";
 const TENANT_SKELETON_COLUMNS = [
   {
     cellClassName: stickyTableStartCellClassName,
-    skeletonClassName: "size-4 rounded-sm",
+    skeletonClassName: "aperture:size-4 aperture:rounded-sm",
     sticky: "start",
   },
-  { skeletonClassName: "h-4 w-44" },
-  { skeletonClassName: "h-4 w-72" },
-  { skeletonClassName: "h-4 w-36" },
+  { skeletonClassName: "aperture:h-4 aperture:w-44" },
+  { skeletonClassName: "aperture:h-4 aperture:w-72" },
+  { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
     cellClassName: stickyTableEndCellClassName,
-    skeletonClassName: "ml-auto size-7",
+    skeletonClassName: "aperture:ml-auto aperture:size-7",
     sticky: "end",
   },
 ] as const;
@@ -161,7 +161,7 @@ export function TenantListPage() {
           : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       <PageHeaderActions>
         <Button
           size="sm"
@@ -175,7 +175,7 @@ export function TenantListPage() {
         </Button>
       </PageHeaderActions>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 p-3">
+      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
         <DeletedStatusSelect value={deleted} onChange={setDeleted} />
       </div>
 
@@ -241,7 +241,7 @@ export function TenantListPage() {
                 >
                   <TableCell
                     data-table-sticky="start"
-                    className={`${stickyTableStartCellClassName} cursor-pointer`}
+                    className={`${stickyTableStartCellClassName} aperture:cursor-pointer`}
                     onClick={(event) => {
                       event.stopPropagation();
                       toggleTenantSelection(tenant, !selectedTenants[tenant.id]);
@@ -255,15 +255,15 @@ export function TenantListPage() {
                     />
                   </TableCell>
                   <TableCell>
-                    <span className="flex items-center gap-2">
+                    <span className="aperture:flex aperture:items-center aperture:gap-2">
                       {tenant.displayName}
                       <DeletedBadge deletedAt={tenant.deletedAt} />
                     </span>
                   </TableCell>
-                  <TableCell className="max-w-80 break-all font-mono text-sm">
+                  <TableCell className="aperture:max-w-80 aperture:break-all aperture:font-mono aperture:text-sm">
                     {tenant.id}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="aperture:text-muted-foreground">
                     {formatTimestamp(tenant.createdAt)}
                   </TableCell>
                   <TableCell data-table-sticky="end" className={stickyTableEndCellClassName}>

@@ -21,10 +21,10 @@ type MetadataGridProps = {
 
 export function MetadataGrid({ items }: MetadataGridProps) {
   return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 text-sm">
+    <dl className="aperture:grid aperture:grid-cols-[auto_minmax(0,1fr)] aperture:items-center aperture:gap-x-3 aperture:gap-y-1.5 aperture:text-sm">
       {items.map((item) => (
-        <div key={item.label} className="contents">
-          <dt className="text-muted-foreground">{item.label}</dt>
+        <div key={item.label} className="aperture:contents">
+          <dt className="aperture:text-muted-foreground">{item.label}</dt>
           <MetadataValue item={item} />
         </div>
       ))}
@@ -35,19 +35,23 @@ export function MetadataGrid({ items }: MetadataGridProps) {
 function MetadataValue({ item }: { item: MetadataItem }) {
   switch (item.kind) {
     case "text":
-      return <dd className="min-w-0 break-words text-sm">{item.value}</dd>;
+      return (
+        <dd className="aperture:min-w-0 aperture:break-words aperture:text-sm">{item.value}</dd>
+      );
     case "identifier":
       return (
-        <dd className="flex min-w-0 items-center gap-1">
+        <dd className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1">
           {item.value === null || item.value === undefined ? (
             "—"
           ) : (
             <>
-              <span className="min-w-0 break-all font-mono text-sm">{item.value}</span>
+              <span className="aperture:min-w-0 aperture:break-all aperture:font-mono aperture:text-sm">
+                {item.value}
+              </span>
               <CopyButton
                 value={item.value}
                 label={`Copy ${item.label.toLowerCase()}`}
-                className="shrink-0"
+                className="aperture:shrink-0"
                 render={<Button variant="ghost" size="icon-xs" />}
               />
             </>

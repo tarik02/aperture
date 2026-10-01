@@ -20,7 +20,7 @@ export function BrowserViewport({ statusBadge = true, className, ...props }: Bro
   return (
     <SessionViewport
       {...props}
-      className={className ?? "bg-background"}
+      className={className ?? "aperture:bg-background"}
       onNotice={showNotice}
       renderOverlay={(overlay) => <ViewportOverlay overlay={overlay} statusBadge={statusBadge} />}
     />
@@ -37,36 +37,36 @@ function ViewportOverlay({
   return (
     <>
       {overlay.placeholder ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="aperture:pointer-events-none aperture:absolute aperture:inset-0 aperture:flex aperture:items-center aperture:justify-center">
           <ViewportPlaceholder placeholder={overlay.placeholder} />
         </div>
       ) : null}
       {statusBadge ? (
-        <div className="pointer-events-none absolute right-2 bottom-2 flex items-center gap-1.5">
+        <div className="aperture:pointer-events-none aperture:absolute aperture:right-2 aperture:bottom-2 aperture:flex aperture:items-center aperture:gap-1.5">
           <StatusBadge status={overlay.status} />
         </div>
       ) : null}
       {overlay.followedCursor ? (
         <div
-          className="pointer-events-none absolute z-30 flex translate-x-[-2px] translate-y-[-2px] items-start text-primary drop-shadow-sm"
+          className="aperture:pointer-events-none aperture:absolute aperture:z-30 aperture:flex aperture:translate-x-[-2px] aperture:translate-y-[-2px] aperture:items-start aperture:text-primary aperture:drop-shadow-sm"
           style={{ left: overlay.followedCursor.x, top: overlay.followedCursor.y }}
         >
-          <MousePointer2 className="size-5 fill-primary stroke-background stroke-[1.5]" />
-          <span className="mt-4 -ml-1 rounded bg-primary px-1.5 py-0.5 text-[10px] leading-none font-medium whitespace-nowrap text-primary-foreground">
+          <MousePointer2 className="aperture:size-5 aperture:fill-primary aperture:stroke-background aperture:stroke-[1.5]" />
+          <span className="aperture:mt-4 aperture:-ml-1 aperture:rounded aperture:bg-primary aperture:px-1.5 aperture:py-0.5 aperture:text-[10px] aperture:leading-none aperture:font-medium aperture:whitespace-nowrap aperture:text-primary-foreground">
             {overlay.followedCursor.name}
           </span>
         </div>
       ) : null}
       {overlay.cursorHint ? (
         <div
-          className="pointer-events-none absolute z-20 max-w-64 translate-x-3 translate-y-3 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+          className="aperture:pointer-events-none aperture:absolute aperture:z-20 aperture:max-w-64 aperture:translate-x-3 aperture:translate-y-3 aperture:rounded-md aperture:border aperture:bg-popover aperture:px-2 aperture:py-1 aperture:text-xs aperture:text-popover-foreground aperture:shadow-md"
           style={{ left: overlay.cursorHint.x, top: overlay.cursorHint.y }}
         >
           {overlay.cursorHint.text}
         </div>
       ) : null}
       {overlay.collaborationError ? (
-        <div className="pointer-events-none absolute bottom-10 left-2 max-w-[80%] rounded-md border border-amber-500/40 bg-background/90 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+        <div className="aperture:pointer-events-none aperture:absolute aperture:bottom-10 aperture:left-2 aperture:max-w-[80%] aperture:rounded-md aperture:border aperture:border-amber-500/40 aperture:bg-background/90 aperture:px-2 aperture:py-1 aperture:text-xs aperture:text-amber-800 aperture:dark:text-amber-300">
           {overlay.collaborationError}
         </div>
       ) : null}
@@ -84,11 +84,11 @@ const placeholderLabels: Record<SessionViewportPlaceholder, string> = {
 
 function ViewportPlaceholder({ placeholder }: { placeholder: SessionViewportPlaceholder }) {
   return (
-    <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+    <div className="aperture:flex aperture:flex-col aperture:items-center aperture:gap-2 aperture:text-sm aperture:text-muted-foreground">
       {placeholder === "disconnected" ? (
-        <Unplug className="size-5" />
+        <Unplug className="aperture:size-5" />
       ) : (
-        <Loader2 className="size-5 animate-spin" />
+        <Loader2 className="aperture:size-5 aperture:animate-spin" />
       )}
       {placeholderLabels[placeholder]}
     </div>
@@ -100,7 +100,7 @@ function StatusBadge({ status }: { status: SessionViewportStatus }) {
     return (
       <Badge
         variant="secondary"
-        className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+        className="aperture:bg-emerald-500/15 aperture:text-emerald-700 aperture:dark:text-emerald-300"
       >
         {status}
       </Badge>
