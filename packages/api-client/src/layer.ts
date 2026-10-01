@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { authApiLayer } from "./auth/layer.ts";
 import { apiAuthorizationLayer, authorizedHttpClientLayer } from "./authorization/layer.ts";
 import { eventsApiLayer } from "./events/layer.ts";

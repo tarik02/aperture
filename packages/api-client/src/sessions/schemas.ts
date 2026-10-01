@@ -8,29 +8,57 @@ import * as Api from "@aperture-browser/api-schema";
 const positiveInt = Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0));
 const emptyArray = Effect.succeed([]);
 
-export const BrowserStatus = Schema.Struct({
+export const BrowserPage = Schema.Struct({
+  targetId: Schema.String,
+  state: Schema.Literals(["pending", "ready", "unavailable", "closed"]),
+  title: Schema.String,
+  url: Schema.String,
+  viewport: Schema.optionalKey(
+    Schema.Struct({
+      width: positiveInt,
+      height: positiveInt,
+      deviceScaleFactor: Schema.Number.check(Schema.isGreaterThan(0)),
+      contentWidth: positiveInt,
+      contentHeight: positiveInt,
+      canvasWidth: positiveInt,
+      canvasHeight: positiveInt,
+    }),
+  ),
+  thumbnailAvailable: Schema.Boolean,
+});
+
+const browserStatusCommon = {
   sessionId: Schema.String,
   cdpUrl: Schema.String,
   media: Api.SessionMedia,
-  targets: Schema.Array(
-    Schema.Struct({
-      targetId: Schema.String,
-      generation: positiveInt,
-      state: Schema.Literals(["pending", "ready", "unavailable", "closed"]),
-      title: Schema.String,
-      url: Schema.String,
-      viewport: Schema.Struct({
-        width: positiveInt,
-        height: positiveInt,
-        deviceScaleFactor: Schema.Number.check(Schema.isGreaterThan(0)),
-        contentWidth: positiveInt,
-        contentHeight: positiveInt,
-        canvasWidth: positiveInt,
-        canvasHeight: positiveInt,
-      }),
-    }),
-  ).pipe(Schema.withDecodingDefaultKey(emptyArray)),
-});
+  thumbnailAvailable: Schema.Boolean,
+  pages: Schema.Array(BrowserPage).pipe(Schema.withDecodingDefaultKey(emptyArray)),
+};
+
+const availableBrowserStatus = {
+  ...browserStatusCommon,
+  capturedAt: Schema.String,
+  representativeTargetId: Schema.optionalKey(Schema.String),
+};
+
+/** Passive page discovery. Reading it never wakes or keeps a browser session alive. */
+export const BrowserStatus = Schema.Union([
+  Schema.Struct({
+    ...availableBrowserStatus,
+    status: Schema.Literal("running"),
+    source: Schema.Literal("live"),
+  }),
+  Schema.Struct({
+    ...availableBrowserStatus,
+    status: Schema.Literal("suspended"),
+    source: Schema.Literal("persisted"),
+  }),
+  Schema.Struct({
+    ...browserStatusCommon,
+    status: Schema.Literal("suspended"),
+    source: Schema.Literal("unavailable"),
+  }),
+]);
 
 const recordingFields = {
   capture: Schema.optionalKey(Schema.Literals(["continuous", "bursts"])),
@@ -92,4 +120,5 @@ export const Recording = Schema.Struct({
 );
 
 export type BrowserStatus = typeof BrowserStatus.Type;
+export type BrowserPage = typeof BrowserPage.Type;
 export type Recording = typeof Recording.Type;

@@ -8,7 +8,7 @@ npm install @aperture-browser/session-relay effect @effect/platform-node
 
 ## Mount the relay
 
-`sessionRelay` registers six GET routes on an Effect `HttpRouter` below `<prefix>/sessions/:sessionId`: `/browser/status`, `/session`, `/webrtc/signal`, `/recordings/:recordingId/content`, `/thumbnail`, and `/targets/:targetId/thumbnail`. `/session` and `/webrtc/signal` upgrade to WebSockets. The Node adapter supplies upstream HTTP and WebSocket clients; it does not start a server.
+`sessionRelay` registers six GET routes on an Effect `HttpRouter` below `<prefix>/sessions/:sessionId`: `/browser/status`, `/session`, `/webrtc/signal`, `/recordings/:recordingId/content`, `/thumbnail`, and `/targets/:targetId/thumbnail`. `/browser/status` is passive; `/session` and `/webrtc/signal` upgrade to WebSockets and may wake a suspended session. The Node adapter supplies upstream HTTP and WebSocket clients; it does not start a server.
 
 ```ts
 import * as Layer from "effect/Layer";
@@ -73,7 +73,8 @@ For custom elements, assign the same object to `element.access`. Headless React 
 
 ## Connection behavior
 
-- Status and both WebSockets use the relay mount. WebRTC video and data channels connect directly to Aperture, subject to its ICE/TURN connectivity. Raster fallback travels through the relay.
+- Status and both WebSockets use the relay mount. Status authorization is forwarded directly without a live-session preflight and does not wake or touch retention. WebSocket connection remains the action that may wake a suspended session. WebRTC video and data channels connect directly to Aperture, subject to its ICE/TURN connectivity. Raster fallback travels through the relay.
+- Status uses `source: "live"` for a running snapshot, `source: "persisted"` for the page and thumbnail generation saved at suspension, and `source: "unavailable"` when no historical page generation exists. Persisted target IDs may change after resume.
 - Editors download stopped recordings through the relay. Aperture rejects viewer grants, and aborting the access signal ends a download in progress. The file is streamed, not buffered.
 - Session and tab thumbnails pass through the relay for both roles. They never wake a suspended session, which serves the thumbnails saved when it suspended. `If-Modified-Since` is forwarded, so unchanged thumbnails answer 304.
 - The relay checks browser Origin against the configured public origin before authentication. It constructs upstream requests afresh, sending only the selected capability and session subprotocol. Browser cookies, Origin, authorization, and tenant headers are not forwarded. `embed_allowed_origins` needs no entry for the app.

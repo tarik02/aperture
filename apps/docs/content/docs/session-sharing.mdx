@@ -132,6 +132,14 @@ The `/api` routes need `sessions:read` and accept API tokens or a signed-in brow
 
 When a session suspends, Aperture saves the thumbnails of the session and its tabs, and serves them until the session runs again. Tab IDs change when the browser restarts. Set `thumbnails_persist_on_suspend = false` (`APERTURE_THUMBNAILS_PERSIST_ON_SUSPEND=false`) to skip saving them; suspended sessions then have no thumbnail. Responses carry `Last-Modified`, so clients can revalidate with `If-Modified-Since`.
 
+## Passive browser status
+
+`GET /sessions/<session-id>/browser/status` accepts account credentials with `sessions:read`, the owner session token, or an editor or viewer capability. Unlike the live-session WebSockets, reading status never wakes the browser, mounts its profile, updates activity or retention timestamps, or prevents idle suspension.
+
+A running session returns `source: "live"`; a suspended session returns `source: "persisted"` with the page metadata and thumbnail availability saved as one suspension generation. `capturedAt` identifies that generation, and `representativeTargetId` identifies the page used for the session thumbnail. Pages remain in the manifest even when their thumbnail capture failed.
+
+Older suspended sessions have no page manifest. Persistence may also be disabled or fail within its best-effort suspension budget. Those cases return `source: "unavailable"`, an empty page list, and no `capturedAt` rather than waking the browser or presenting an older generation as new. Target IDs in persisted data are historical references for that generation; Chromium may assign different IDs after resume.
+
 ## Limits and audit events
 
 The default per-file upload limit is 100 MiB. Before accepting an upload, Aperture measures writable session data under the overlay upper directory, the session files, and the cache. The default admission limit is 1 GiB. The merged overlay and base snapshot are not double-counted. Browser activity can exceed the limit after admission; this is not a filesystem-enforced quota.

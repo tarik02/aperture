@@ -45,10 +45,109 @@ type wrapperThumbnailCache struct {
 	entries   map[string]wrapperThumbnail
 }
 
+// PageViewport is the viewport metadata available for a browser page.
+type PageViewport struct {
+	Width             int     `json:"width"`
+	Height            int     `json:"height"`
+	ContentWidth      int     `json:"contentWidth"`
+	ContentHeight     int     `json:"contentHeight"`
+	CanvasWidth       int     `json:"canvasWidth"`
+	CanvasHeight      int     `json:"canvasHeight"`
+	DeviceScaleFactor float64 `json:"deviceScaleFactor"`
+}
+
+// PageManifestEntry describes one page in a live or persisted browser generation.
+type PageManifestEntry struct {
+	TargetID           string        `json:"targetId"`
+	Title              string        `json:"title"`
+	URL                string        `json:"url"`
+	State              string        `json:"state"`
+	Viewport           *PageViewport `json:"viewport,omitempty"`
+	ThumbnailAvailable bool          `json:"thumbnailAvailable"`
+}
+
+// PageManifest is a point-in-time page listing. Persisted target IDs are historical references
+// and are not expected to survive a browser restart.
+type PageManifest struct {
+	CapturedAt             time.Time           `json:"capturedAt"`
+	SessionStartedAt       string              `json:"sessionStartedAt,omitempty"`
+	RepresentativeTargetID string              `json:"representativeTargetId,omitempty"`
+	Pages                  []PageManifestEntry `json:"pages"`
+}
+
 // WrapperThumbnailTargets lists the targets that have thumbnails and the one that represents the session.
 type WrapperThumbnailTargets struct {
 	SessionTargetID string   `json:"sessionTargetId"`
 	TargetIDs       []string `json:"targetIds"`
+}
+
+func pageViewport(viewport compositorViewport) *PageViewport {
+	if viewport.Width <= 0 || viewport.Height <= 0 || viewport.ContentWidth <= 0 ||
+		viewport.ContentHeight <= 0 || viewport.CanvasWidth <= 0 || viewport.CanvasHeight <= 0 ||
+		viewport.DeviceScaleFactor <= 0 {
+		return nil
+	}
+	return &PageViewport{
+		Width:             viewport.Width,
+		Height:            viewport.Height,
+		ContentWidth:      viewport.ContentWidth,
+		ContentHeight:     viewport.ContentHeight,
+		CanvasWidth:       viewport.CanvasWidth,
+		CanvasHeight:      viewport.CanvasHeight,
+		DeviceScaleFactor: viewport.DeviceScaleFactor,
+	}
+}
+
+// pageManifest reads current page metadata without selecting a page or acquiring presentation,
+// input, or viewport ownership.
+func (session *liveSession) pageManifest() (PageManifest, error) {
+	targets, err := session.browser.targets()
+	if err != nil {
+		return PageManifest{}, err
+	}
+	session.runtime.mu.Lock()
+	registry := session.runtime.targets
+	session.runtime.mu.Unlock()
+	snapshots := make(map[string]wrapperTargetSnapshot)
+	if registry != nil {
+		for _, snapshot := range registry.snapshots() {
+			snapshots[snapshot.TargetID] = snapshot
+		}
+	}
+
+	pages := make([]PageManifestEntry, 0, len(targets))
+	for _, target := range targets {
+		state := string(wrapperTargetPending)
+		viewport := pageViewport(compositorViewport{})
+		if snapshot, ok := snapshots[target.ID]; ok {
+			state = string(snapshot.State)
+			viewport = pageViewport(snapshot.Viewport)
+		} else if target.Viewport != nil {
+			viewport = pageViewport(*target.Viewport)
+		}
+		pages = append(pages, PageManifestEntry{
+			TargetID: target.ID,
+			Title:    target.Title,
+			URL:      target.URL,
+			State:    state,
+			Viewport: viewport,
+		})
+	}
+
+	session.mu.Lock()
+	representativeTargetID := session.lastActiveTargetID
+	session.mu.Unlock()
+	if !slices.ContainsFunc(pages, func(page PageManifestEntry) bool {
+		return page.TargetID == representativeTargetID && page.State == string(wrapperTargetReady)
+	}) {
+		representativeTargetID = session.browser.firstSelectableTargetID(targets)
+	}
+
+	return PageManifest{
+		CapturedAt:             time.Now().UTC(),
+		RepresentativeTargetID: representativeTargetID,
+		Pages:                  pages,
+	}, nil
 }
 
 // thumbnailTargets returns the selectable targets and the one most recently shown to a client.
@@ -240,4 +339,21 @@ func (r *wrapperRuntime) handleThumbnailTargets(w http.ResponseWriter, req *http
 		return
 	}
 	writeWrapperJSON(w, http.StatusOK, targets)
+}
+
+func (r *wrapperRuntime) handlePageManifest(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if !r.wrapperControlAuthorized(req) {
+		writeWrapperError(w, http.StatusUnauthorized, "wrapper control token required")
+		return
+	}
+	manifest, err := r.liveSession.pageManifest()
+	if err != nil {
+		writeWrapperError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeWrapperJSON(w, http.StatusOK, manifest)
 }

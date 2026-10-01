@@ -98,6 +98,8 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 			},
 		}
 	}
+	passiveSessionService := "aperture-passive-session-api"
+	passiveSessionServiceAdded := false
 
 	for _, session := range running {
 		if session.ID == "" {
@@ -106,6 +108,25 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 
 		sessionBase := "/sessions/" + session.ID
 		cdpBase := sessionBase + "/cdp"
+		if !passiveSessionServiceAdded {
+			doc.HTTP.Services[passiveSessionService] = serviceConfig{
+				LoadBalancer: loadBalancerConfig{
+					Servers: []serverConfig{{URL: activeURL}},
+				},
+			}
+			passiveSessionServiceAdded = true
+		}
+		statusMiddlewares := []string(nil)
+		if embedCORS != "" {
+			statusMiddlewares = append(statusMiddlewares, embedCORS)
+		}
+		doc.HTTP.Routers[browserStatusRouterName(session.ID)] = routerConfig{
+			Rule:        pathRouterRule(sessionBase + "/browser/status"),
+			Service:     passiveSessionService,
+			Middlewares: statusMiddlewares,
+			Priority:    sessionRouterPriority,
+			EntryPoints: []string{"web"},
+		}
 		if session.CDPPort > 0 && session.WrapperPort > 0 {
 			cdpService := cdpServiceName(session.ID)
 			doc.HTTP.Routers[cdpWebSocketRouterName(session.ID)] = routerConfig{
@@ -181,7 +202,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		tunnelStrip := stripSessionPrefixMiddlewareName(session.ID, "tunnel")
 		viewportReplace := replacePathMiddlewareName(session.ID, "browser-viewport")
 		cursorReplace := replacePathMiddlewareName(session.ID, "browser-cursor")
-		statusReplace := replacePathMiddlewareName(session.ID, "browser-status")
 
 		doc.HTTP.Middlewares[webrtcStrip] = middlewareConfig{
 			StripPrefix: &stripPrefixConfig{Prefixes: []string{sessionBase}},
@@ -204,10 +224,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 		doc.HTTP.Middlewares[cursorReplace] = middlewareConfig{
 			ReplacePath: &replacePathConfig{Path: "/cursor"},
 		}
-		doc.HTTP.Middlewares[statusReplace] = middlewareConfig{
-			ReplacePath: &replacePathConfig{Path: "/status"},
-		}
-
 		if session.CDPPort > 0 && session.WrapperPort > 0 {
 			doc.HTTP.Routers[cdpDiscoveryRouterName(session.ID)] = routerConfig{
 				Rule:    cdpDiscoveryRouterRule(cdpBase),
@@ -260,13 +276,6 @@ func RenderSessionsConfig(cfg config.Config, state deploystate.State, running []
 				rule:        pathRouterRule(sessionBase + "/browser/cursor"),
 				auth:        writeAuth,
 				middlewares: []string{cursorReplace},
-				embeddable:  true,
-			},
-			{
-				name:        browserStatusRouterName(session.ID),
-				rule:        pathRouterRule(sessionBase + "/browser/status"),
-				auth:        readAuth,
-				middlewares: []string{statusReplace},
 				embeddable:  true,
 			},
 			{
