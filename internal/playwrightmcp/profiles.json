@@ -1,5 +1,4 @@
 {
-  "playwright_mcp_version": "0.0.82",
   "profiles": {
     "core": {
       "tools": [
@@ -13,13 +12,14 @@
         "browser_fill_form",
         "browser_find",
         "browser_handle_dialog",
-        "browser_hover",
+        "browser_move",
         "browser_navigate",
         "browser_navigate_back",
         "browser_network_request",
         "browser_network_requests",
         "browser_press_key",
         "browser_resize",
+        "browser_scroll",
         "browser_select_option",
         "browser_snapshot",
         "browser_tabs",
@@ -58,20 +58,13 @@
       ]
     },
     "vision": {
-      "tools": [
-        "browser_mouse_click_xy",
-        "browser_mouse_down",
-        "browser_mouse_drag_xy",
-        "browser_mouse_move_xy",
-        "browser_mouse_up",
-        "browser_mouse_wheel"
-      ]
+      "tools": []
     }
   },
   "tools": {
     "browser_click": {
       "name": "browser_click",
-      "description": "Perform click on a web page",
+      "description": "Click an element by snapshot ref or selector, or a point by x and y. In a live session the visible pointer glides there and presses real buttons.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -85,16 +78,28 @@
             ],
             "type": "string"
           },
+          "clickCount": {
+            "description": "Number of clicks (2 is a double click), defaults to 1",
+            "maximum": 3,
+            "minimum": 1,
+            "type": "integer"
+          },
           "doubleClick": {
-            "description": "Whether to perform a double click instead of a single click",
+            "description": "Same as clickCount 2",
             "type": "boolean"
           },
           "element": {
-            "description": "Human-readable element description used to obtain permission to interact with the element",
+            "description": "Human-readable element description",
             "type": "string"
           },
+          "holdMs": {
+            "description": "Milliseconds the button stays down for each click, defaults to 45",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
           "modifiers": {
-            "description": "Modifier keys to press",
+            "description": "Modifier keys to hold during the click",
             "items": {
               "enum": [
                 "Alt",
@@ -107,20 +112,52 @@
             },
             "type": "array"
           },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 30000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
+          },
           "target": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
+          },
+          "x": {
+            "description": "X in viewport CSS pixels; give x and y instead of a target",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y in viewport CSS pixels",
+            "type": "number"
           }
         },
-        "required": [
-          "target"
-        ],
         "type": "object"
       },
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Click"
+        "title": "browser_click"
       },
       "_meta": null,
       "icons": null
@@ -322,38 +359,83 @@
     },
     "browser_drag": {
       "name": "browser_drag",
-      "description": "Perform drag and drop between two elements",
+      "description": "Drag with the left button from one element or point to another. Works for HTML5 drag and drop and pointer-event drags.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
           "endElement": {
-            "description": "Human-readable target element description used to obtain the permission to interact with the element",
+            "description": "End human-readable element description",
             "type": "string"
           },
           "endTarget": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
+            "description": "End snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
           },
+          "endX": {
+            "description": "End X in viewport CSS pixels; give x and y instead of a target",
+            "type": "number"
+          },
+          "endY": {
+            "description": "End Y in viewport CSS pixels",
+            "type": "number"
+          },
+          "holdMs": {
+            "description": "Milliseconds to hold the button at the destination before releasing",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 30000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
+          },
           "startElement": {
-            "description": "Human-readable source element description used to obtain the permission to interact with the element",
+            "description": "Start human-readable element description",
             "type": "string"
           },
           "startTarget": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
+            "description": "Start snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
+          },
+          "startX": {
+            "description": "Start X in viewport CSS pixels; give x and y instead of a target",
+            "type": "number"
+          },
+          "startY": {
+            "description": "Start Y in viewport CSS pixels",
+            "type": "number"
           }
         },
-        "required": [
-          "startTarget",
-          "endTarget"
-        ],
         "type": "object"
       },
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Drag mouse"
+        "title": "browser_drag"
       },
       "_meta": null,
       "icons": null
@@ -679,35 +761,6 @@
       "_meta": null,
       "icons": null
     },
-    "browser_hover": {
-      "name": "browser_hover",
-      "description": "Hover over element on page",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "element": {
-            "description": "Human-readable element description used to obtain permission to interact with the element",
-            "type": "string"
-          },
-          "target": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Hover mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
     "browser_localstorage_clear": {
       "name": "browser_localstorage_clear",
       "description": "Clear all localStorage",
@@ -824,68 +877,55 @@
       "_meta": null,
       "icons": null
     },
-    "browser_mouse_click_xy": {
-      "name": "browser_mouse_click_xy",
-      "description": "Click mouse button at a given position",
+    "browser_move": {
+      "name": "browser_move",
+      "description": "Move the pointer over an element or point without clicking, for hover effects.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "button": {
-            "description": "Button to click, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
+          "element": {
+            "description": "Human-readable element description",
             "type": "string"
           },
-          "clickCount": {
-            "description": "Number of clicks, defaults to 1",
-            "type": "number"
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 30000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
           },
-          "delay": {
-            "description": "Time to wait between mouse down and mouse up in milliseconds, defaults to 0",
-            "type": "number"
+          "target": {
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
+            "type": "string"
           },
           "x": {
-            "description": "X coordinate",
+            "description": "X in viewport CSS pixels; give x and y instead of a target",
             "type": "number"
           },
           "y": {
-            "description": "Y coordinate",
+            "description": "Y in viewport CSS pixels",
             "type": "number"
-          }
-        },
-        "required": [
-          "x",
-          "y"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Click"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_down": {
-      "name": "browser_mouse_down",
-      "description": "Press mouse down",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to press, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -893,136 +933,7 @@
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Press mouse down"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_drag_xy": {
-      "name": "browser_mouse_drag_xy",
-      "description": "Drag left mouse button to a given position",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "endX": {
-            "description": "End X coordinate",
-            "type": "number"
-          },
-          "endY": {
-            "description": "End Y coordinate",
-            "type": "number"
-          },
-          "startX": {
-            "description": "Start X coordinate",
-            "type": "number"
-          },
-          "startY": {
-            "description": "Start Y coordinate",
-            "type": "number"
-          }
-        },
-        "required": [
-          "startX",
-          "startY",
-          "endX",
-          "endY"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Drag mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_move_xy": {
-      "name": "browser_mouse_move_xy",
-      "description": "Move mouse to a given position",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "x": {
-            "description": "X coordinate",
-            "type": "number"
-          },
-          "y": {
-            "description": "Y coordinate",
-            "type": "number"
-          }
-        },
-        "required": [
-          "x",
-          "y"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Move mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_up": {
-      "name": "browser_mouse_up",
-      "description": "Press mouse up",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to press, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Press mouse up"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_wheel": {
-      "name": "browser_mouse_wheel",
-      "description": "Scroll mouse wheel",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "deltaX": {
-            "default": 0,
-            "description": "X delta",
-            "type": "number"
-          },
-          "deltaY": {
-            "default": 0,
-            "description": "Y delta",
-            "type": "number"
-          }
-        },
-        "required": [
-          "deltaX",
-          "deltaY"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Scroll mouse wheel"
+        "title": "browser_move"
       },
       "_meta": null,
       "icons": null
@@ -1292,6 +1203,75 @@
         "openWorldHint": true,
         "readOnlyHint": true,
         "title": "List network routes"
+      },
+      "_meta": null,
+      "icons": null
+    },
+    "browser_scroll": {
+      "name": "browser_scroll",
+      "description": "Scroll by exact pixel deltas with the mouse wheel over an element or point (the viewport center by default).",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "deltaX": {
+            "description": "Horizontal pixels to scroll, positive is right, defaults to 0",
+            "type": "number"
+          },
+          "deltaY": {
+            "description": "Vertical pixels to scroll, positive is down, defaults to 0",
+            "type": "number"
+          },
+          "element": {
+            "description": "Human-readable element description",
+            "type": "string"
+          },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 30000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
+          },
+          "target": {
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
+            "type": "string"
+          },
+          "x": {
+            "description": "X in viewport CSS pixels; give x and y instead of a target",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y in viewport CSS pixels",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "title": "browser_scroll"
       },
       "_meta": null,
       "icons": null

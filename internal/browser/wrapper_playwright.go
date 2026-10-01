@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
@@ -20,9 +19,10 @@ import (
 const playwrightCallRequestMaxBytes = 16 << 20
 
 type playwrightMCPBackend struct {
-	values  RuntimeEnvValues
-	mu      sync.Mutex
-	session *mcp.ClientSession
+	values        RuntimeEnvValues
+	controlSocket string
+	slot          chan struct{} // one call at a time; holding it guards session
+	session       *mcp.ClientSession
 }
 
 type playwrightCallRequest struct {
@@ -30,8 +30,8 @@ type playwrightCallRequest struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
-	return &playwrightMCPBackend{values: values}
+func newPlaywrightMCPBackend(values RuntimeEnvValues, controlSocket string) *playwrightMCPBackend {
+	return &playwrightMCPBackend{values: values, controlSocket: controlSocket, slot: make(chan struct{}, 1)}
 }
 
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
@@ -39,8 +39,12 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 		return nil, fmt.Errorf("playwright tool %q is not exposed", name)
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	select {
+	case b.slot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-b.slot }()
 	if b.session == nil {
 		if err := b.start(ctx); err != nil {
 			return nil, err
@@ -49,8 +53,11 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 
 	result, err := b.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
-		_ = b.session.Close()
-		b.session = nil
+		// A caller that gave up says nothing about the host; only transport and protocol errors do.
+		if ctx.Err() == nil {
+			_ = b.session.Close()
+			b.session = nil
+		}
 		return nil, err
 	}
 	return result, nil
@@ -60,17 +67,15 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 	files := paths.SessionFiles(b.values.FilesDir)
 	args := []string{
 		"--cdp-endpoint", "http://127.0.0.1:" + strconv.Itoa(b.values.CDPPort),
-		"--cdp-timeout", "30000",
-		"--codegen", "none",
-		"--file-paths", "relative",
-		"--idle-timeout", "0",
-		"--no-webmcp",
 		"--output-dir", files.Outputs,
+		// Where the host finds the compositor and the surface of each browser target.
+		"--compositor-socket", b.controlSocket,
+		"--targets-url", "http://127.0.0.1:" + strconv.Itoa(b.values.WrapperPort) + "/targets",
 	}
 	if capabilities := playwrightmcp.RuntimeCapabilities(); len(capabilities) > 0 {
 		args = append(args, "--caps", strings.Join(capabilities, ","))
 	}
-	command := exec.Command("playwright-mcp", args...)
+	command := exec.Command("aperture-browser-mcp", args...)
 	// The workspace root bounds which files browser tools may read, so every session
 	// file is usable by browser_file_upload under its relative path.
 	command.Dir = files.Root
@@ -86,15 +91,15 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 	client := mcp.NewClient(&mcp.Implementation{Name: "aperture-browser-session", Version: "1.0.0"}, nil)
 	session, err := client.Connect(startupCtx, &mcp.CommandTransport{Command: command}, nil)
 	if err != nil {
-		return fmt.Errorf("start Playwright MCP: %w", err)
+		return fmt.Errorf("start browser MCP host: %w", err)
 	}
 	b.session = session
 	return nil
 }
 
 func (b *playwrightMCPBackend) Close() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.slot <- struct{}{}
+	defer func() { <-b.slot }()
 	if b.session == nil {
 		return
 	}
