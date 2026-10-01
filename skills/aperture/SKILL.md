@@ -29,4 +29,5 @@ Read every reference whose branch the task touches before acting. For any authen
 - Central or session-bound MCP, browser tool profiles, native tools, or MCP limits: [references/mcp.md](references/mcp.md)
 - Live-session WebSocket protocol, viewport control, CDP proxying, or WebRTC signaling: [references/live-session.md](references/live-session.md)
 - Recording through live-session HTTP, the formal API, live commands, or MCP: [references/recordings.md](references/recordings.md)
+- Presentation recordings for bug reproductions, feature demos, or review evidence: [references/presentation-recordings.md](references/presentation-recordings.md)
 - Session-file metadata, signed download URLs, or file downloads: [references/session-files.md](references/session-files.md)

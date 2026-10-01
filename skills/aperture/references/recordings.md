@@ -19,13 +19,11 @@ Tab recording body:
   "fps": 60,
   "bitrateKbps": 6000,
   "codec": "vp8",
-  "idle": "speed",
-  "zoom": true,
-  "ripple": true
+  "presentation": true
 }
 ```
 
-`idle`, `zoom`, and `ripple` are optional defaults for the [effects](#effects) rendered when the recording is stopped. `capture: "bursts"` (with optional `burst`) keeps only the time around the agent's actions; see [Bursts](#bursts).
+`presentation: true` supplies presentation defaults for omitted settings: bursts capture and click ripples. Camera focus is always an explicit, recording-scoped `browser_focus_viewport` action. Explicit `capture`, `burst`, and `ripple` values override defaults independently. `idle`, focus, and `ripple` affect the [edited recording](#effects). `capture: "bursts"` keeps only the time around successful agent actions; see [Bursts](#bursts).
 
 Viewer recording body:
 
@@ -59,7 +57,13 @@ Public recording results use `relativePath`; absolute host paths are never retur
 
 ## MCP
 
-MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Call `browser.targets` and select a target whose `state` is `ready` before starting or retargeting a recording. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, `codec`, `idle`, `zoom`, `ripple`, `capture`, and `burst`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
+MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Call `browser.targets` and select a target whose `state` is `ready` before starting or retargeting a recording. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, `codec`, `presentation`, `idle`, `ripple`, `capture`, and `burst`. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
+
+## Recorded browser interaction
+
+Browser tools use immediate pointer movement and target scrolling when no recording runs. While any recording runs, omitted pointer timing uses a compact recorded tempo and every locator-driven action smoothly scrolls its target into view before acting; while any `presentation: true` recording runs, it uses the stronger presentation tempo. `browser_scroll` also animates its wheel delta under the active recording tempo. The live session resolves one tempo for its shared physical pointer, so recordings with different capture and effect settings can coexist. Explicit `motion`, `arrivalDwellMs`, and `holdMs` values on a browser tool still win.
+
+`browser_click` is the complete focal gesture: it moves to the destination, briefly rests there under the active tempo, then presses and releases. Use `browser_move` only when hover is the action. Use `browser_cursor_attention` to point out passive evidence; its omitted loop duration is 1200 ms for an ordinary recording and 1800 ms for a presentation recording. A stop admits no new browser actions, waits for actions that began while the recording was active, then finalizes the recording timeline.
 
 ## Timeline
 
@@ -70,28 +74,29 @@ All times are milliseconds of video time, counted across target changes; coordin
 - `durationMs`, `segments[]` — the video's length and one entry per capture (`targetId`, `start`, `end`, `width`, `height`); retargeting starts a new segment.
 - `actions[]` — every tool call that changes something: `tool`, `targetId` (the tab the call ended on), `start`, `end`, `ok`, and the `caption` given to the tool. A target other than the recorded one can appear here.
 - `gestures[]` — pointer tools only: `tool`, `targetId`, `start`, `end`, `hold`, the pointer `path` as `[ms, x, y]`, `clicks[]` (`t`, `x`, `y`, `button`, `count`), and for scrolls `scroll` (`t`, `deltaX`, `deltaY`, and the point scrolled at). Path, clicks and scroll exist only for pointer moves made in the compositor; a gesture made without a compositor surface (the page's own mouse was used) keeps only its timing. A gesture on a target the recording was not showing at that moment is left out.
+- `focuses[]` — explicit focus calls for this recording: `targetId`, `start`, `end`, viewport rectangle (`x`, `y`, `width`, `height`) converted to video pixels, and `zoom`.
 - `activity` — `spans[]` (`start`, `end`) in which the recorded page's content changed, sampled 20 times a second. A static page stays idle however the pointer moves; the spans cover new buffer content, not repaints. When `complete` is `false`, some sample failed, so do not read gaps between spans as idle.
 
 Each list is truncated at a fixed size (2000 actions, 1000 gestures, 5000 activity spans, 600 path points and 20 clicks per gesture, 100000 path points in all).
 
 ## Effects
 
-A recording made while an agent works can be rendered with effects when it is stopped, but only by the API or MCP stop (`recording.stop`); the live-session HTTP stop, the live session protocol, and the recording ending (target closed, session closed, client disconnected) never render. The stop request blocks while ffmpeg renders, which takes roughly a fraction of the recording's length to a few times it, and then returns `editedRelativePath`, the session file `<video>.edited.mp4` (H.264, numbered like the video when the name is taken). The raw video and its timeline are always kept and unchanged. A render that fails never fails the stop: the recording is returned with `editError` (for example frames that changed size, which effects cannot follow) and no edited video. `editWarnings` lists what was left out. `editWarnings` also reports effects dropped because a very long recording had too many of them, ripples first, then zoom scenes, then idle, and never captions. A render that is still running when the session closes is cancelled. An MCP client that gives up waiting for `recording.stop` can read `editedRelativePath` or `editError` from `recording.status` once the render ends.
+A recording made while an agent works can be rendered with effects when it is stopped, but only by the API or MCP stop (`recording.stop`); the live-session HTTP stop, the live session protocol, and the recording ending (target closed, session closed, client disconnected) never render. The stop request blocks while ffmpeg renders, which takes roughly a fraction of the recording's length to a few times it, and then returns `editedRelativePath`, the session file `<video>.edited.mp4` (H.264, numbered like the video when the name is taken). The raw video and its timeline are always kept and unchanged. A render that fails never fails the stop: the recording is returned with `editError` (for example frames that changed size, which effects cannot follow) and no edited video. `editWarnings` lists what was left out. `editWarnings` also reports effects dropped because a very long recording had too many of them, ripples first, then focus scenes, then idle, and never captions. A render that is still running when the session closes is cancelled. An MCP client that gives up waiting for `recording.stop` can read `editedRelativePath` or `editError` from `recording.status` once the render ends.
 
 Effects apply only when something asks for them:
 
 - **Captions** — the `caption` given to any tool that changes something is burned in as text near the bottom edge while the step runs, for at least a second and long enough to read.
-- **Zoom** — `zoom` on `browser_click`, `browser_drag`, `browser_scroll`, and `browser_move` (`true`, a level from 1.1 to 4, or `false`) eases the view toward where the pointer works, follows it as it moves, and eases back out. `true` is 1.6. Gestures close in time share one zoom. Gestures made without a compositor have no position and are not followed.
+- **Focus** — `browser_focus_viewport` targets one active `recordingId` and one element or viewport rectangle, with a `zoom` level from 1.1 to 4. `durationMs` (default 2200) includes easing in, a stable hold, and easing out. It schedules the interval and returns so a following action can happen inside it; recording stop waits for the interval to finish. It is camera-only; `browser_cursor_attention` is the separate physical pointer gesture. Ordinary gestures never move the camera.
 - **Ripple** — `ripple` on `browser_click` draws a ring spreading from the click point.
 - **Idle** — `idle` on `recording.start` cuts (`cut`) or plays 8x faster (`speed`) stretches of 1.5 seconds or more in which the screen does not change and nothing is done or captioned. Idle is left as it is when the timeline could not watch the screen the whole time or ran into its size limits, and this is reported in `editWarnings`.
 
-`zoom` and `ripple` on `recording.start` are the defaults for gestures that do not say otherwise; a gesture's own `false` overrides them. Each gesture's setting is kept as given in the timeline's `gestures[]` (`zoom`, `ripple`). Effects set on `recording.start` are rejected on a host without ffmpeg (`422 recording_effects_unavailable` through the API); a per-action effect or caption there is only found out at the stop and is reported as `editError`. A host with the packaged ffmpeg needs no setup, and other hosts set `recording_ffmpeg_executable`.
+`ripple` on `recording.start` is the default for clicks that do not say otherwise; a click's own `false` overrides it. Its setting is kept in the timeline gesture. Effects set on `recording.start` are rejected on a host without ffmpeg (`422 recording_effects_unavailable` through the API); an explicit focus, per-action ripple, or caption there is only found out at the stop and is reported as `editError`. A host with the packaged ffmpeg needs no setup, and other hosts set `recording_ffmpeg_executable`.
 
 ## Bursts
 
-`capture: "bursts"` on `recording.start` (tab recordings only) records continuously, but the video that matters is the edited one: when the recording is stopped through the API or MCP, everything except the time around each browser tool call that changes something (failed calls too) is cut. Nothing starts or stops per action, so actions run at full speed. The raw video and timeline are kept, and `zoom`, `ripple`, and captions render in the same edited video. `idle` cannot be combined with bursts, and with no such calls there is no edited video and `editError` says why.
+`capture: "bursts"` on `recording.start` (tab recordings only) records continuously, but the video that matters is the edited one: when the recording is stopped through the API or MCP, everything except the time around each successful browser tool call that changes something is cut. Failed calls remain in the raw timeline, are omitted from captions and burst timing, and produce an `editWarnings` entry. Nothing starts or stops per action. The raw video and timeline are kept, and focus, ripples, and captions render in the same edited video. `idle` cannot be combined with bursts, and with no successful calls there is no edited video and `editError` says why.
 
-Around each call the video keeps `leadMs` before it starts (default 400) and a tail after it ends: `tailMs` (600), extended until the screen has been still for `settleMs` (500) but no longer than `maxTailMs` after the call ends (4000, or `tailMs` if more). Any of them may be 0. If the timeline could not watch the screen the whole time, the tail is just `tailMs`. Stretches that overlap merge, and near ones merge too if there are too many to render (a warning says so). The timeline keeps at most 2000 actions; beyond that, later calls are not kept and a warning says so.
+Around each call the video keeps `leadMs` before it starts (default 150) and a tail after it ends: `tailMs` (250), extended until the screen has been still for `settleMs` (200) but no longer than `maxTailMs` after the call ends (1200, or `tailMs` if more). Any of them may be 0. If the timeline could not watch the screen the whole time, the tail is just `tailMs`. Stretches that overlap merge, and near ones merge too if there are too many to render (a warning says so). The timeline keeps at most 2000 actions; beyond that, later calls are not kept and a warning says so.
 
 A bursts recording follows the page the agent works on: when a call ends on another ready tab, the recording moves to that tab, as `retarget` does. Closing the recorded tab does not stop it; it waits for the call that ends on another tab. Tabs of a different size than the first cannot be rendered (see [Effects](#effects)).
 

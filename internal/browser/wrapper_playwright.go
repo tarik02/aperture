@@ -34,7 +34,7 @@ func newPlaywrightMCPBackend(values RuntimeEnvValues, controlSocket string) *pla
 	return &playwrightMCPBackend{values: values, controlSocket: controlSocket, slot: make(chan struct{}, 1)}
 }
 
-func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
+func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any, before func() error) (*mcp.CallToolResult, error) {
 	if !playwrightmcp.HasTool(name) {
 		return nil, fmt.Errorf("playwright tool %q is not exposed", name)
 	}
@@ -47,6 +47,11 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 	defer func() { <-b.slot }()
 	if b.session == nil {
 		if err := b.start(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if before != nil {
+		if err := before(); err != nil {
 			return nil, err
 		}
 	}
@@ -137,8 +142,16 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 		call.Arguments = map[string]any{}
 	}
 
-	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments)
+	var interaction *recordingInteraction
+	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments, func() error {
+		if r.liveSession == nil {
+			return nil
+		}
+		interaction = r.liveSession.beginRecordingInteraction()
+		return interaction.applyDefaults(call.Name, call.Arguments)
+	})
 	if err != nil {
+		interaction.finish(nil)
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: Playwright MCP tool %s failed: %v\n", call.Name, err)
 		writeWrapperError(w, http.StatusBadGateway, "Playwright MCP call failed")
 		return
@@ -146,9 +159,9 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 	// The host's report of the call belongs to the recordings, not to the client.
 	if aperture, ok := result.Meta["aperture"].(map[string]any); ok {
 		delete(result.Meta, "aperture")
-		if r.liveSession != nil {
-			r.liveSession.recordTimeline(aperture)
-		}
+		interaction.finish(aperture)
+	} else {
+		interaction.finish(nil)
 	}
 	writeWrapperJSON(w, http.StatusOK, result)
 }

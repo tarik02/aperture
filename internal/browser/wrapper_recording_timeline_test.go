@@ -22,7 +22,8 @@ func TestTimelineBuildMapsWallTimeOntoVideo(t *testing.T) {
 	}}
 	timeline.actions = []timelineAction{
 		{Tool: "early", Start: ms(-500), End: ms(-100)},
-		{Tool: "on_b", Start: ms(2100), End: ms(2300), Caption: "hi", OK: true},
+		{Tool: "on_b", StartTargetID: "b", TargetID: "b", Start: ms(2100), End: ms(2300), Caption: "hi", OK: true},
+		{Tool: "elsewhere", StartTargetID: "c", TargetID: "c", Start: ms(2100), End: ms(2300), Caption: "wrong", OK: true},
 	}
 	timeline.gestures = []timelineGesture{
 		{Tool: "on_a", TargetID: "a", Start: ms(100), End: ms(5000),

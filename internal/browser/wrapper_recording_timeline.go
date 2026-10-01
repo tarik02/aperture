@@ -111,10 +111,21 @@ type timelineGesture struct {
 	Path     [][3]float64    `json:"path"` // t, x, y
 	Clicks   []timelineClick `json:"clicks"`
 	Scroll   *timelineScroll `json:"scroll,omitempty"`
-	// Zoom (true, a level or false) and Ripple are what the call asked for, as given;
-	// unset means the recording's default applies.
-	Zoom   any   `json:"zoom,omitempty"`
-	Ripple *bool `json:"ripple,omitempty"`
+	Ripple   *bool           `json:"ripple,omitempty"`
+}
+
+// timelineFocus is an explicit recording-scoped camera effect. The rectangle starts
+// in viewport pixels and is converted to video pixels with the rest of the timeline.
+type timelineFocus struct {
+	RecordingID string  `json:"recordingId,omitempty"`
+	TargetID    string  `json:"targetId"`
+	Start       int64   `json:"start"`
+	End         int64   `json:"end"`
+	X           float64 `json:"x"`
+	Y           float64 `json:"y"`
+	Width       float64 `json:"width"`
+	Height      float64 `json:"height"`
+	Zoom        float64 `json:"zoom"`
 }
 
 type timelineClick struct {
@@ -134,12 +145,13 @@ type timelineScroll struct {
 }
 
 type timelineAction struct {
-	Tool     string `json:"tool"`
-	TargetID string `json:"targetId"`
-	Start    int64  `json:"start"`
-	End      int64  `json:"end"`
-	Caption  string `json:"caption,omitempty"`
-	OK       bool   `json:"ok"`
+	Tool          string `json:"tool"`
+	StartTargetID string `json:"startTargetId,omitempty"`
+	TargetID      string `json:"targetId"`
+	Start         int64  `json:"start"`
+	End           int64  `json:"end"`
+	Caption       string `json:"caption,omitempty"`
+	OK            bool   `json:"ok"`
 }
 
 // recordingTimeline collects what a recording's timeline file needs while it runs.
@@ -148,10 +160,12 @@ type recordingTimeline struct {
 	segments []*timelineSegment
 	actions  []timelineAction
 	gestures []timelineGesture
+	focuses  []timelineFocus
 	points   int
 	// incomplete is set once a damage sample failed, so quiet spans may not be idle.
 	incomplete bool
 	sampling   bool // whether sample runs
+	sampleDone chan struct{}
 }
 
 // begin adds the segment a new capture pipeline records, and reports whether the
@@ -167,6 +181,9 @@ func (t *recordingTimeline) begin(target wrapperTargetSnapshot, clock *frameCloc
 	t.mu.Lock()
 	t.segments = append(t.segments, segment)
 	start := !t.sampling
+	if start {
+		t.sampleDone = make(chan struct{})
+	}
 	t.sampling = true
 	t.mu.Unlock()
 	return start
@@ -195,7 +212,7 @@ func (t *recordingTimeline) end() {
 }
 
 // add takes what a tool result reported.
-func (t *recordingTimeline) add(action *timelineAction, gesture *timelineGesture) {
+func (t *recordingTimeline) add(action *timelineAction, gesture *timelineGesture, focus *timelineFocus) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if len(t.segments) == 0 {
@@ -210,11 +227,27 @@ func (t *recordingTimeline) add(action *timelineAction, gesture *timelineGesture
 		t.points += len(gesture.Path)
 		t.gestures = append(t.gestures, *gesture)
 	}
+	if focus != nil && len(t.focuses) < timelineMaxActions {
+		t.focuses = append(t.focuses, *focus)
+	}
 }
 
 // sample polls the compositor for content changes on every capture still recording,
 // including the old one while a replacement takes over, until all have ended.
 func (t *recordingTimeline) sample(ctx context.Context, socket string) {
+	t.mu.Lock()
+	if t.sampleDone == nil {
+		t.sampleDone = make(chan struct{})
+	}
+	done := t.sampleDone
+	t.sampling = true
+	t.mu.Unlock()
+	defer func() {
+		t.mu.Lock()
+		t.sampling = false
+		close(done)
+		t.mu.Unlock()
+	}()
 	counts := map[*timelineSegment]uint64{}
 	ticker := time.NewTicker(timelineSampleEvery)
 	defer ticker.Stop()
@@ -232,7 +265,6 @@ func (t *recordingTimeline) sample(ctx context.Context, socket string) {
 			}
 		}
 		if len(live) == 0 {
-			t.sampling = false
 			t.mu.Unlock()
 			return
 		}
@@ -265,6 +297,16 @@ func (t *recordingTimeline) sample(ctx context.Context, socket string) {
 	}
 }
 
+// waitForSampler waits until no damage observation can change the final timeline.
+func (t *recordingTimeline) waitForSampler() {
+	t.mu.Lock()
+	done := t.sampleDone
+	t.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+}
+
 // addSpan extends the last span when the new one is close to it, else starts another.
 func addSpan(spans []timelineSpan, start, end time.Time) []timelineSpan {
 	if n := len(spans); n > 0 && start.Sub(spans[n-1].end) <= timelineSpanGap {
@@ -284,6 +326,7 @@ type timelineDoc struct {
 	Segments    []timelineSegmentOut `json:"segments"`
 	Actions     []timelineAction     `json:"actions"`
 	Gestures    []timelineGesture    `json:"gestures"`
+	Focuses     []timelineFocus      `json:"focuses"`
 	Activity    timelineActivity     `json:"activity"`
 }
 
@@ -330,7 +373,7 @@ func (t *recordingTimeline) build(recordingID, video string) (timelineDoc, error
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	doc := timelineDoc{Version: 1, RecordingID: recordingID, Video: video, Segments: []timelineSegmentOut{},
-		Actions: []timelineAction{}, Gestures: []timelineGesture{}, Activity: timelineActivity{Complete: !t.incomplete, Spans: []timelineSpanOut{}}}
+		Actions: []timelineAction{}, Gestures: []timelineGesture{}, Focuses: []timelineFocus{}, Activity: timelineActivity{Complete: !t.incomplete, Spans: []timelineSpanOut{}}}
 	var placed []placement
 	for i, segment := range t.segments {
 		anchor, length := segment.clock.span()
@@ -365,11 +408,18 @@ func (t *recordingTimeline) build(recordingID, video string) (timelineDoc, error
 		if epoch(action.End).Before(placed[0].anchor) {
 			continue
 		}
-		start := at(epoch(action.Start), "")
-		if start == nil {
-			start = &placed[0]
+		targetID := action.StartTargetID
+		if targetID == "" {
+			targetID = action.TargetID
 		}
-		action.Start, action.End = start.ms(epoch(action.Start)), at(epoch(action.End), "").ms(epoch(action.End))
+		start := at(epoch(action.Start), targetID)
+		if start == nil {
+			start = at(epoch(action.End), targetID)
+			if start == nil {
+				continue
+			}
+		}
+		action.Start, action.End = start.ms(epoch(action.Start)), start.ms(epoch(action.End))
 		doc.Actions = append(doc.Actions, action)
 	}
 	for _, gesture := range t.gestures {
@@ -398,6 +448,19 @@ func (t *recordingTimeline) build(recordingID, video string) (timelineDoc, error
 		}
 		doc.Gestures = append(doc.Gestures, gesture)
 	}
+	for _, focus := range t.focuses {
+		p := at(epoch(focus.Start), focus.TargetID)
+		if p == nil {
+			continue
+		}
+		focus.Start, focus.End = p.ms(epoch(focus.Start)), p.ms(epoch(focus.End))
+		left, top := p.point(focus.X, focus.Y)
+		right, bottom := p.point(focus.X+focus.Width, focus.Y+focus.Height)
+		focus.X, focus.Y = left, top
+		focus.Width, focus.Height = max(right-left, 1), max(bottom-top, 1)
+		focus.RecordingID = ""
+		doc.Focuses = append(doc.Focuses, focus)
+	}
 	return doc, nil
 }
 
@@ -405,27 +468,27 @@ func (t *recordingTimeline) build(recordingID, video string) (timelineDoc, error
 // (`demo.webm.timeline.json`) and without replacing a file, and returns its path
 // below the files root. A timeline only adds to the video, so failing to write one
 // never fails the recording.
-func (recording *wrapperRecording) publishTimeline(video string) string {
-	path, err := recording.writeTimeline(video)
+func (recording *wrapperRecording) publishTimeline(video string, doc timelineDoc) string {
+	path, err := recording.writeTimeline(video, doc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, err)
 	}
 	return path
 }
 
-func (recording *wrapperRecording) writeTimeline(video string) (string, error) {
+func (recording *wrapperRecording) buildTimeline(video string) (timelineDoc, error) {
 	relative := func(path string) (string, error) {
 		rel, err := filepath.Rel(recording.filesRoot, path)
 		return filepath.ToSlash(rel), err
 	}
 	videoRelative, err := relative(video)
 	if err != nil {
-		return "", err
+		return timelineDoc{}, err
 	}
-	doc, err := recording.timeline.build(recording.ID, videoRelative)
-	if err != nil {
-		return "", err
-	}
+	return recording.timeline.build(recording.ID, videoRelative)
+}
+
+func (recording *wrapperRecording) writeTimeline(video string, doc timelineDoc) (string, error) {
 	contents, err := json.Marshal(doc)
 	if err != nil {
 		return "", err
@@ -446,38 +509,6 @@ func (recording *wrapperRecording) writeTimeline(video string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return relative(published)
-}
-
-// recordTimeline hands what a Playwright tool result reported in `_meta.aperture` to
-// the recordings that are running.
-func (session *liveSession) recordTimeline(meta map[string]any) {
-	encoded, err := json.Marshal(meta)
-	var reported struct {
-		Action  *timelineAction  `json:"action"`
-		Gesture *timelineGesture `json:"gesture"`
-	}
-	if err != nil || json.Unmarshal(encoded, &reported) != nil {
-		return
-	}
-	r := session.runtime
-	r.mu.Lock()
-	var timelines []*recordingTimeline
-	for _, recording := range session.recordings {
-		if recording.Status == wrapperRecordingRunning {
-			timelines = append(timelines, recording.timeline)
-			// A bursts recording follows the page the automation works on.
-			if recording.effects.Burst != nil && !recording.finalizing && reported.Action != nil && reported.Action.TargetID != "" {
-				recording.followWant = reported.Action.TargetID
-				if !recording.following && recording.TargetID != recording.followWant {
-					recording.following = true
-					go session.followTarget(recording)
-				}
-			}
-		}
-	}
-	r.mu.Unlock()
-	for _, timeline := range timelines {
-		timeline.add(reported.Action, reported.Gesture)
-	}
+	rel, err := filepath.Rel(recording.filesRoot, published)
+	return filepath.ToSlash(rel), err
 }
