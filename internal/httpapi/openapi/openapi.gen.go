@@ -1302,20 +1302,20 @@ type CreateSessionRecordingInput struct {
 
 	// Burst Only with `capture` `bursts`. Times are milliseconds; one that is absent has its default, and 0 is a value like any other.
 	Burst *struct {
-		// LeadMs Kept before a call starts (default 400).
+		// LeadMs Kept before a call starts (default 150).
 		LeadMs *int `json:"leadMs,omitempty"`
 
-		// MaxTailMs The tail extends no further than this after the call ends, and not less than `tailMs` (default 4000, or `tailMs` if more).
+		// MaxTailMs The tail extends no further than this after the call ends, and not less than `tailMs` (default 1200, or `tailMs` if more).
 		MaxTailMs *int `json:"maxTailMs,omitempty"`
 
-		// SettleMs The tail extends until the screen has been still this long (default 500).
+		// SettleMs The tail extends until the screen has been still this long (default 200).
 		SettleMs *int `json:"settleMs,omitempty"`
 
-		// TailMs Kept after a call ends (default 600).
+		// TailMs Kept after a call ends (default 250).
 		TailMs *int `json:"tailMs,omitempty"`
 	} `json:"burst,omitempty"`
 
-	// Capture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something (failed ones too), as the edited video. Cannot be combined with `idle`.
+	// Capture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each successful call that changes something, as the edited video. Failed calls remain in the timeline and are reported as an edit warning. Cannot be combined with `idle`.
 	Capture *CreateSessionRecordingInputCapture `json:"capture,omitempty"`
 
 	// Codec Video codec. Omit for the instance default.
@@ -1327,17 +1327,17 @@ type CreateSessionRecordingInput struct {
 	// Idle Cut, or speed up 8x, stretches of 1.5 seconds or more in which nothing changes on the screen or in the timeline's gestures and captions, in the edited video rendered when the recording stops.
 	Idle *CreateSessionRecordingInputIdle `json:"idle,omitempty"`
 
+	// Presentation Apply presentation defaults when their individual settings are omitted: bursts capture and click ripples. While any recording runs, browser tools use a visible recorded pointer tempo; a presentation recording selects the stronger presentation tempo for the shared live-session pointer. Camera focus is always explicit and recording-scoped through `browser_focus_viewport`.
+	Presentation *bool `json:"presentation,omitempty"`
+
 	// Ripple Default for clicks that do not say otherwise, rendered in the edited video as a ripple.
 	Ripple *bool `json:"ripple,omitempty"`
 
 	// TargetId Identifier of the ready top-level target to record.
 	TargetId string `json:"targetId"`
-
-	// Zoom Default for pointer gestures that do not say otherwise, rendered in the edited video. `true` is a level of 1.6.
-	Zoom *CreateSessionRecordingInput_Zoom `json:"zoom,omitempty"`
 }
 
-// CreateSessionRecordingInputCapture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something (failed ones too), as the edited video. Cannot be combined with `idle`.
+// CreateSessionRecordingInputCapture `bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each successful call that changes something, as the edited video. Failed calls remain in the timeline and are reported as an edit warning. Cannot be combined with `idle`.
 type CreateSessionRecordingInputCapture string
 
 // CreateSessionRecordingInputCodec Video codec. Omit for the instance default.
@@ -1345,17 +1345,6 @@ type CreateSessionRecordingInputCodec string
 
 // CreateSessionRecordingInputIdle Cut, or speed up 8x, stretches of 1.5 seconds or more in which nothing changes on the screen or in the timeline's gestures and captions, in the edited video rendered when the recording stops.
 type CreateSessionRecordingInputIdle string
-
-// CreateSessionRecordingInputZoom0 defines model for CreateSessionRecordingInput.Zoom.0.
-type CreateSessionRecordingInputZoom0 = bool
-
-// CreateSessionRecordingInputZoom1 defines model for CreateSessionRecordingInput.Zoom.1.
-type CreateSessionRecordingInputZoom1 = float32
-
-// CreateSessionRecordingInput_Zoom Default for pointer gestures that do not say otherwise, rendered in the edited video. `true` is a level of 1.6.
-type CreateSessionRecordingInput_Zoom struct {
-	union json.RawMessage
-}
 
 // CreateSessionResult Newly created session and its one-time initial access credentials.
 type CreateSessionResult struct {
@@ -3188,68 +3177,6 @@ func (t *CreateAdminTokenInput) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsCreateSessionRecordingInputZoom0 returns the union data inside the CreateSessionRecordingInput_Zoom as a CreateSessionRecordingInputZoom0
-func (t CreateSessionRecordingInput_Zoom) AsCreateSessionRecordingInputZoom0() (CreateSessionRecordingInputZoom0, error) {
-	var body CreateSessionRecordingInputZoom0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCreateSessionRecordingInputZoom0 overwrites any union data inside the CreateSessionRecordingInput_Zoom as the provided CreateSessionRecordingInputZoom0
-func (t *CreateSessionRecordingInput_Zoom) FromCreateSessionRecordingInputZoom0(v CreateSessionRecordingInputZoom0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCreateSessionRecordingInputZoom0 performs a merge with any union data inside the CreateSessionRecordingInput_Zoom, using the provided CreateSessionRecordingInputZoom0
-func (t *CreateSessionRecordingInput_Zoom) MergeCreateSessionRecordingInputZoom0(v CreateSessionRecordingInputZoom0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsCreateSessionRecordingInputZoom1 returns the union data inside the CreateSessionRecordingInput_Zoom as a CreateSessionRecordingInputZoom1
-func (t CreateSessionRecordingInput_Zoom) AsCreateSessionRecordingInputZoom1() (CreateSessionRecordingInputZoom1, error) {
-	var body CreateSessionRecordingInputZoom1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCreateSessionRecordingInputZoom1 overwrites any union data inside the CreateSessionRecordingInput_Zoom as the provided CreateSessionRecordingInputZoom1
-func (t *CreateSessionRecordingInput_Zoom) FromCreateSessionRecordingInputZoom1(v CreateSessionRecordingInputZoom1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCreateSessionRecordingInputZoom1 performs a merge with any union data inside the CreateSessionRecordingInput_Zoom, using the provided CreateSessionRecordingInputZoom1
-func (t *CreateSessionRecordingInput_Zoom) MergeCreateSessionRecordingInputZoom1(v CreateSessionRecordingInputZoom1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t CreateSessionRecordingInput_Zoom) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *CreateSessionRecordingInput_Zoom) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
 // AsExportSessionStorageStateInputOrigins0 returns the union data inside the ExportSessionStorageStateInput_Origins as a ExportSessionStorageStateInputOrigins0
 func (t ExportSessionStorageStateInput_Origins) AsExportSessionStorageStateInputOrigins0() (ExportSessionStorageStateInputOrigins0, error) {
 	var body ExportSessionStorageStateInputOrigins0
@@ -3968,7 +3895,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecordingWithBody Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -3977,7 +3904,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecording Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -4011,7 +3938,7 @@ type ClientInterface interface {
 
 	// StopSessionRecording Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, a zoomed gesture, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
+	// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, an explicit viewport focus, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5205,7 +5132,7 @@ func (c *Client) ListSessionRecordings(ctx context.Context, sessionId SessionId,
 
 // CreateSessionRecordingWithBody Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5224,7 +5151,7 @@ func (c *Client) CreateSessionRecordingWithBody(ctx context.Context, sessionId S
 
 // CreateSessionRecording Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5298,7 +5225,7 @@ func (c *Client) RetargetSessionRecording(ctx context.Context, sessionId Session
 
 // StopSessionRecording Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, a zoomed gesture, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
+// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, an explicit viewport focus, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
 //
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -9887,7 +9814,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithBodyWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9896,7 +9823,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9932,7 +9859,7 @@ type ClientWithResponsesInterface interface {
 
 	// StopSessionRecordingWithResponse Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, a zoomed gesture, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
+	// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, an explicit viewport focus, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -13930,7 +13857,7 @@ func (c *ClientWithResponses) ListSessionRecordingsWithResponse(ctx context.Cont
 
 // CreateSessionRecordingWithBodyWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13945,7 +13872,7 @@ func (c *ClientWithResponses) CreateSessionRecordingWithBodyWithResponse(ctx con
 
 // CreateSessionRecordingWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14005,7 +13932,7 @@ func (c *ClientWithResponses) RetargetSessionRecordingWithResponse(ctx context.C
 
 // StopSessionRecordingWithResponse Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, a zoomed gesture, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
+// Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, an explicit viewport focus, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
 //
 // Returns a wrapper object for the known response body format(s).
 //

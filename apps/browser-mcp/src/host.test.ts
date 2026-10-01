@@ -115,6 +115,8 @@ describe.skipIf(!available)("browser MCP host", () => {
         "browser_move",
         "browser_drag",
         "browser_scroll",
+        "browser_cursor_attention",
+        "browser_focus_viewport",
         "browser_snapshot",
       ]),
     );
@@ -129,7 +131,7 @@ describe.skipIf(!available)("browser MCP host", () => {
 
     const clicked = await call("browser_click", { target: ref });
     expect(clicked.content[0].text).toContain("Page Title: clicked true");
-    expect(clicked._meta.aperture.gesture).toMatchObject({ tool: "browser_click", hold: 45 });
+    expect(clicked._meta.aperture.gesture).toMatchObject({ tool: "browser_click", hold: 0 });
     expect(clicked._meta.aperture.gesture.path).toBeUndefined();
 
     expect(clicked._meta.aperture.action).toMatchObject({ tool: "browser_click", ok: true });

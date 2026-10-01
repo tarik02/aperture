@@ -4,6 +4,7 @@
       "tools": [
         "browser_click",
         "browser_console_messages",
+        "browser_cursor_attention",
         "browser_drag",
         "browser_drop",
         "browser_emulate_media",
@@ -11,6 +12,7 @@
         "browser_file_upload",
         "browser_fill_form",
         "browser_find",
+        "browser_focus_viewport",
         "browser_handle_dialog",
         "browser_move",
         "browser_navigate",
@@ -69,6 +71,12 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "arrivalDwellMs": {
+            "description": "Milliseconds the pointer rests on the destination before pressing",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
           "button": {
             "description": "Button to click, defaults to left",
             "enum": [
@@ -98,7 +106,7 @@
             "type": "string"
           },
           "holdMs": {
-            "description": "Milliseconds the button stays down for each click, defaults to 45",
+            "description": "Milliseconds the button stays down for each click",
             "maximum": 10000,
             "minimum": 0,
             "type": "number"
@@ -142,10 +150,14 @@
                 "type": "object"
               }
             ],
-            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
+            "description": "How the pointer travels: \"natural\" (eased, slightly curved), \"fast\", \"instant\" (default without a recording), or {durationMs}. An active recording supplies a visible default. Only sessions with a compositor show it; others ignore it."
           },
           "ripple": {
             "description": "Mark this click with a ripple in the recording. Defaults to the recording's ripple.",
+            "type": "boolean"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
             "type": "boolean"
           },
           "target": {
@@ -159,19 +171,6 @@
           "y": {
             "description": "Y in viewport CSS pixels",
             "type": "number"
-          },
-          "zoom": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "maximum": 4,
-                "minimum": 1.1,
-                "type": "number"
-              }
-            ],
-            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"
@@ -236,6 +235,10 @@
             "description": "Short on-screen caption for this step when the session is recorded",
             "maxLength": 500,
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -263,6 +266,10 @@
           "name": {
             "description": "Cookie name to delete",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -376,6 +383,10 @@
             "description": "Whether the cookie is secure",
             "type": "boolean"
           },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
           "value": {
             "description": "Cookie value",
             "type": "string"
@@ -395,6 +406,94 @@
       "_meta": null,
       "icons": null
     },
+    "browser_cursor_attention": {
+      "name": "browser_cursor_attention",
+      "description": "Move the visible cursor in a few smooth loops around an element or viewport point, then settle at its centre.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "durationMs": {
+            "description": "Milliseconds spent looping. Defaults to 0 without a recording; an active recording supplies a visible default.",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "element": {
+            "description": "Human-readable element description",
+            "type": "string"
+          },
+          "loops": {
+            "description": "Number of loops; defaults to 2",
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 30000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "How the pointer travels: \"natural\" (eased, slightly curved), \"fast\", \"instant\" (default without a recording), or {durationMs}. An active recording supplies a visible default. Only sessions with a compositor show it; others ignore it."
+          },
+          "radius": {
+            "description": "Loop radius in viewport CSS pixels; defaults to 32",
+            "maximum": 240,
+            "minimum": 8,
+            "type": "number"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
+          "target": {
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
+            "type": "string"
+          },
+          "x": {
+            "description": "X in viewport CSS pixels; give x and y instead of a target",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y in viewport CSS pixels",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "title": "browser_cursor_attention"
+      },
+      "_meta": null,
+      "icons": null
+    },
     "browser_drag": {
       "name": "browser_drag",
       "description": "Drag with the left button from one element or point to another. Works for HTML5 drag and drop and pointer-event drags.",
@@ -402,6 +501,12 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "arrivalDwellMs": {
+            "description": "Milliseconds the pointer rests on the destination before pressing",
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
           "caption": {
             "description": "Short on-screen caption for this step when the session is recorded",
             "maxLength": 500,
@@ -454,7 +559,11 @@
                 "type": "object"
               }
             ],
-            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
+            "description": "How the pointer travels: \"natural\" (eased, slightly curved), \"fast\", \"instant\" (default without a recording), or {durationMs}. An active recording supplies a visible default. Only sessions with a compositor show it; others ignore it."
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "startElement": {
             "description": "Start human-readable element description",
@@ -471,19 +580,6 @@
           "startY": {
             "description": "Start Y in viewport CSS pixels",
             "type": "number"
-          },
-          "zoom": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "maximum": 4,
-                "minimum": 1.1,
-                "type": "number"
-              }
-            ],
-            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"
@@ -528,6 +624,10 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "target": {
             "description": "Exact target element reference from the page snapshot, or a unique element selector",
@@ -633,6 +733,10 @@
               }
             ],
             "description": "Emulates the prefers-reduced-motion media feature"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -668,6 +772,10 @@
           "function": {
             "description": "() =\u003e { /* code */ } or (element) =\u003e { /* code */ } when element is provided",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "target": {
             "description": "Exact target element reference from the page snapshot, or a unique element selector",
@@ -705,6 +813,10 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -771,6 +883,10 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -813,6 +929,80 @@
       "_meta": null,
       "icons": null
     },
+    "browser_focus_viewport": {
+      "name": "browser_focus_viewport",
+      "description": "Schedule a camera-only focus interval for one active recording, without moving the cursor.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "caption": {
+            "description": "Short on-screen caption for this step when the session is recorded",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "durationMs": {
+            "description": "Total focus time, including zoom in and out; defaults to 2200 ms",
+            "maximum": 10000,
+            "minimum": 1000,
+            "type": "number"
+          },
+          "element": {
+            "description": "Human-readable element description",
+            "type": "string"
+          },
+          "height": {
+            "description": "Focus rectangle height in viewport CSS pixels",
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "recordingId": {
+            "description": "Active recording that receives this focus effect",
+            "minLength": 1,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
+          "target": {
+            "description": "Snapshot element ref, or a unique locator such as a CSS selector",
+            "type": "string"
+          },
+          "width": {
+            "description": "Focus rectangle width in viewport CSS pixels",
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "x": {
+            "description": "X in viewport CSS pixels; give x and y instead of a target",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y in viewport CSS pixels",
+            "type": "number"
+          },
+          "zoom": {
+            "description": "Zoom factor from 1.1 to 4",
+            "maximum": 4,
+            "minimum": 1.1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "recordingId",
+          "zoom"
+        ],
+        "type": "object"
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "title": "browser_focus_viewport"
+      },
+      "_meta": null,
+      "icons": null
+    },
     "browser_handle_dialog": {
       "name": "browser_handle_dialog",
       "description": "Handle a dialog",
@@ -832,6 +1022,10 @@
           "promptText": {
             "description": "The text of the prompt in case of a prompt dialog.",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -858,6 +1052,10 @@
             "description": "Short on-screen caption for this step when the session is recorded",
             "maxLength": 500,
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -885,6 +1083,10 @@
           "key": {
             "description": "Key to delete",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -960,6 +1162,10 @@
             "description": "Key to set",
             "type": "string"
           },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
           "value": {
             "description": "Value to set",
             "type": "string"
@@ -1020,7 +1226,11 @@
                 "type": "object"
               }
             ],
-            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
+            "description": "How the pointer travels: \"natural\" (eased, slightly curved), \"fast\", \"instant\" (default without a recording), or {durationMs}. An active recording supplies a visible default. Only sessions with a compositor show it; others ignore it."
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "target": {
             "description": "Snapshot element ref, or a unique locator such as a CSS selector",
@@ -1033,19 +1243,6 @@
           "y": {
             "description": "Y in viewport CSS pixels",
             "type": "number"
-          },
-          "zoom": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "maximum": 4,
-                "minimum": 1.1,
-                "type": "number"
-              }
-            ],
-            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"
@@ -1069,6 +1266,10 @@
             "description": "Short on-screen caption for this step when the session is recorded",
             "maxLength": 500,
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "url": {
             "description": "The URL to navigate to",
@@ -1099,6 +1300,10 @@
             "description": "Short on-screen caption for this step when the session is recorded",
             "maxLength": 500,
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -1200,6 +1405,10 @@
             "maxLength": 500,
             "type": "string"
           },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
           "state": {
             "description": "Set to \"offline\" to simulate offline mode, \"online\" to restore network connectivity",
             "enum": [
@@ -1237,6 +1446,10 @@
           "key": {
             "description": "Name of the key to press or a character to generate, such as `ArrowLeft` or `a`",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1267,6 +1480,10 @@
           "height": {
             "description": "Height of the browser window",
             "type": "number"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "width": {
             "description": "Width of the browser window",
@@ -1321,6 +1538,10 @@
           "removeHeaders": {
             "description": "Comma-separated list of header names to remove from request",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "status": {
             "description": "HTTP status code to return (default: 200)",
@@ -1407,7 +1628,11 @@
                 "type": "object"
               }
             ],
-            "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
+            "description": "How the pointer travels: \"natural\" (eased, slightly curved), \"fast\", \"instant\" (default without a recording), or {durationMs}. An active recording supplies a visible default. Only sessions with a compositor show it; others ignore it."
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "target": {
             "description": "Snapshot element ref, or a unique locator such as a CSS selector",
@@ -1420,19 +1645,6 @@
           "y": {
             "description": "Y in viewport CSS pixels",
             "type": "number"
-          },
-          "zoom": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "maximum": 4,
-                "minimum": 1.1,
-                "type": "number"
-              }
-            ],
-            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"
@@ -1460,6 +1672,10 @@
           "element": {
             "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "target": {
             "description": "Exact target element reference from the page snapshot, or a unique element selector",
@@ -1498,6 +1714,10 @@
             "description": "Short on-screen caption for this step when the session is recorded",
             "maxLength": 500,
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -1525,6 +1745,10 @@
           "key": {
             "description": "Key to delete",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1600,6 +1824,10 @@
             "description": "Key to set",
             "type": "string"
           },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
           "value": {
             "description": "Value to set",
             "type": "string"
@@ -1634,6 +1862,10 @@
           "filename": {
             "description": "Path to the storage state file to restore from. Relative file names are resolved against the workspace root.",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1733,6 +1965,10 @@
             "description": "Tab index, used for close/select. If omitted for close, current tab is closed.",
             "type": "number"
           },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
           "url": {
             "description": "URL to navigate to in the new tab, used for new.",
             "type": "string"
@@ -1827,6 +2063,10 @@
             "description": "Whether to type one character at a time. Useful for triggering key handlers in the page. By default entire text is filled in at once.",
             "type": "boolean"
           },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
+          },
           "submit": {
             "description": "Whether to submit entered text (press Enter after)",
             "type": "boolean"
@@ -1869,6 +2109,10 @@
           "pattern": {
             "description": "URL pattern to unroute (omit to remove all routes)",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -1892,6 +2136,10 @@
             "description": "Short on-screen caption for this step when the session is recorded",
             "maxLength": 500,
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+            "type": "boolean"
           },
           "text": {
             "description": "The text to wait for",

@@ -186,6 +186,7 @@ type liveSessionClientMessage struct {
 	Phase                 string  `json:"phase"`
 	DeviceScaleFactor     float64 `json:"deviceScaleFactor"`
 	RecordingID           string  `json:"recordingId"`
+	Presentation          bool    `json:"presentation"`
 	Profile               string  `json:"profile"`
 	FPS                   int     `json:"fps"`
 	BitrateKbps           int     `json:"bitrateKbps"`

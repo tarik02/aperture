@@ -1,4 +1,4 @@
-import type { Page } from "playwright-core";
+import type { ElementHandle, Page } from "playwright-core";
 import type { Context, ToolDefinition } from "playwright-core/lib/coreBundle";
 import { z } from "playwright-core/lib/utilsBundle";
 
@@ -25,6 +25,85 @@ const tabTargetId = async (context: Context) => {
   return tab ? targetIdOf(tab.page).catch(() => "") : "";
 };
 
+async function smoothElementIntoView(element: ElementHandle) {
+  await element.evaluate(async (element) => {
+    if (!(element instanceof Element)) return;
+    const rect = element.getBoundingClientRect();
+    const visible =
+      rect.top >= 0 &&
+      rect.left >= 0 &&
+      rect.bottom <= window.innerHeight &&
+      rect.right <= window.innerWidth;
+    if (visible) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    await new Promise<void>((resolve) => {
+      let previousX = window.scrollX;
+      let previousY = window.scrollY;
+      let previousTop = rect.top;
+      let previousLeft = rect.left;
+      let stableFrames = 0;
+      const deadline = performance.now() + 2000;
+      const sample = () => {
+        const current = element.getBoundingClientRect();
+        const stable =
+          Math.abs(window.scrollX - previousX) < 0.5 &&
+          Math.abs(window.scrollY - previousY) < 0.5 &&
+          Math.abs(current.top - previousTop) < 0.5 &&
+          Math.abs(current.left - previousLeft) < 0.5 &&
+          current.bottom > 0 &&
+          current.right > 0 &&
+          current.top < window.innerHeight &&
+          current.left < window.innerWidth;
+        stableFrames = stable ? stableFrames + 1 : 0;
+        previousX = window.scrollX;
+        previousY = window.scrollY;
+        previousTop = current.top;
+        previousLeft = current.left;
+        if (stableFrames >= 3 || performance.now() >= deadline) resolve();
+        else requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+  });
+}
+
+async function smoothTargetIntoView(context: Context, params: Record<string, unknown>) {
+  const targets: { target: string; element?: string }[] = [];
+  const add = (target: unknown, element: unknown) => {
+    if (typeof target === "string") {
+      targets.push({ target, ...(typeof element === "string" ? { element } : {}) });
+    }
+  };
+  add(params.target, params.element);
+  add(params.startTarget, params.startElement);
+  add(params.endTarget, params.endElement);
+  if (Array.isArray(params.fields)) {
+    for (const field of params.fields) {
+      if (field && typeof field === "object") {
+        const value = field as Record<string, unknown>;
+        add(value.target, value.element ?? value.name);
+      }
+    }
+  }
+  if (!targets.length) return;
+
+  const tab = await context.ensureTab();
+  for (const target of targets) {
+    const { locator } = await tab.targetLocator(target);
+    const element = await locator.elementHandle();
+    if (!element) continue;
+    const scrollChain: ElementHandle[] = [element];
+    let frame = await element.ownerFrame();
+    while (frame?.parentFrame()) {
+      scrollChain.push(await frame.frameElement());
+      frame = frame.parentFrame();
+    }
+    for (const scrollTarget of scrollChain.reverse()) {
+      await smoothElementIntoView(scrollTarget);
+    }
+  }
+}
+
 /**
  * Makes a tool that changes something accept a `caption` and report the call as
  * `_meta.aperture.action`, which the recording's timeline is built from. Read-only
@@ -38,16 +117,26 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
       .max(500)
       .optional()
       .describe("Short on-screen caption for this step when the session is recorded"),
+    smoothScroll: z
+      .boolean()
+      .optional()
+      .describe(
+        "Smoothly bring target elements into view before acting. Active recordings enable this by default.",
+      ),
   });
   return {
     ...tool,
     schema: { ...tool.schema, inputSchema },
     async handle(context, params, response, signal) {
-      const { caption, ...rest } = params as { caption?: string };
+      const { caption, smoothScroll, ...rest } = params as {
+        caption?: string;
+        smoothScroll?: boolean;
+      };
       const before = await tabTargetId(context);
       const start = Date.now();
       let ok = true;
       try {
+        if (smoothScroll) await smoothTargetIntoView(context, rest);
         await tool.handle(context, rest as never, response, signal);
       } catch (error) {
         // Reported through the result, which a rethrown error would replace; the text

@@ -263,12 +263,13 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			return liveSessionServerMessage{}, errRecordingRole
 		}
 		recording, err := session.startRecording(wrapperRecordingRequest{
-			Mode:        wrapperRecordingMode(message.Mode),
-			TargetID:    message.TargetID,
-			ClientID:    client.id,
-			FPS:         message.FPS,
-			BitrateKbps: message.BitrateKbps,
-			Codec:       message.Codec,
+			Mode:         wrapperRecordingMode(message.Mode),
+			TargetID:     message.TargetID,
+			ClientID:     client.id,
+			FPS:          message.FPS,
+			BitrateKbps:  message.BitrateKbps,
+			Codec:        message.Codec,
+			Presentation: message.Presentation,
 		})
 		if err != nil {
 			return liveSessionServerMessage{}, err

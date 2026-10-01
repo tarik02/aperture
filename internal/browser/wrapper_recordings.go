@@ -75,6 +75,8 @@ type wrapperRecording struct {
 	edit              RecordingEdit
 	followWant        string // the tab a bursts recording was last asked to follow
 	following         bool   // whether a goroutine is moving it there
+	presentation      bool
+	interactions      *sync.WaitGroup
 }
 
 type wrapperRecordingRequest struct {
@@ -85,10 +87,11 @@ type wrapperRecordingRequest struct {
 	BitrateKbps int                  `json:"bitrateKbps"`
 	Codec       string               `json:"codec"`
 	Path        string               `json:"path"`
-	// Idle, Zoom and Ripple are the defaults of the effects rendered when the recording is stopped.
+	// Idle and Ripple are the defaults of the effects rendered when the recording is stopped.
 	Idle   string `json:"idle"`
-	Zoom   any    `json:"zoom"`
-	Ripple bool   `json:"ripple"`
+	Ripple *bool  `json:"ripple"`
+	// Presentation applies burst and ripple defaults and the stronger shared pointer tempo.
+	Presentation bool `json:"presentation"`
 	// Capture is "continuous" (or unset) or "bursts", which keeps only the time around actions when stopped.
 	Capture string          `json:"capture"`
 	Burst   *RecordingBurst `json:"burst"`
@@ -222,15 +225,22 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	default:
 		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
 	}
-	if err := ValidateRecordingEffects(request.Idle, request.Zoom, request.Capture, request.Burst); err != nil {
+	capture := request.Capture
+	if request.Presentation && capture == "" && request.Mode == wrapperRecordingModeTab {
+		capture = "bursts"
+	}
+	if err := ValidateRecordingEffects(request.Idle, capture, request.Burst); err != nil {
 		return wrapperRecording{}, err
 	}
-	if request.Capture == "bursts" && request.Mode != wrapperRecordingModeTab {
+	if capture == "bursts" && request.Mode != wrapperRecordingModeTab {
 		return wrapperRecording{}, errors.New(`capture "bursts" is for tab recordings`)
 	}
-	zoom, _ := ParseRecordingZoom(request.Zoom, 0)
-	effects := recordingEffects{Idle: request.Idle, Zoom: zoom, Ripple: request.Ripple}
-	if request.Capture == "bursts" {
+	ripple := request.Ripple != nil && *request.Ripple
+	if request.Presentation && request.Ripple == nil {
+		ripple = true
+	}
+	effects := recordingEffects{Idle: request.Idle, Ripple: ripple}
+	if capture == "bursts" {
 		effects.Burst = cmp.Or(request.Burst, &RecordingBurst{})
 	}
 	if effects.any() && session.runtime.values.RecordingFFmpegExecutable == "" {
@@ -328,6 +338,8 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
 		effects:           effects,
+		presentation:      request.Presentation,
+		interactions:      &sync.WaitGroup{},
 	}
 	session.recordings[id] = recording
 	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
@@ -475,6 +487,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	}
 	recording.finalizing = true
 	r.mu.Unlock()
+	recording.interactions.Wait()
 
 	if err := stopRecordingSegment(recording); err != nil {
 		return session.failRecording(recording, "pipeline_failed", err)

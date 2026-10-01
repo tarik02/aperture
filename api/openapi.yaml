@@ -882,7 +882,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, recording_effects_unavailable, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
+      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -934,7 +934,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, a zoomed gesture, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
+      description: Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, an explicit viewport focus, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -2950,30 +2950,32 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
+        presentation:
+          type: boolean
+          description: >-
+            Apply presentation defaults when their individual settings are omitted: bursts capture and click ripples.
+            While any recording runs, browser tools use a visible recorded pointer tempo; a presentation recording selects the
+            stronger presentation tempo for the shared live-session pointer. Camera focus is always explicit and recording-scoped
+            through `browser_focus_viewport`.
         idle:
           type: string
           enum: [cut, speed]
           description: Cut, or speed up 8x, stretches of 1.5 seconds or more in which nothing changes on the screen or in the timeline's gestures and captions, in the edited video rendered when the recording stops.
-        zoom:
-          oneOf:
-            - {type: boolean}
-            - {type: number, minimum: 1.1, maximum: 4}
-          description: Default for pointer gestures that do not say otherwise, rendered in the edited video. `true` is a level of 1.6.
         ripple:
           type: boolean
           description: Default for clicks that do not say otherwise, rendered in the edited video as a ripple.
         capture:
           type: string
           enum: [continuous, bursts]
-          description: '`bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something (failed ones too), as the edited video. Cannot be combined with `idle`.'
+          description: '`bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each successful call that changes something, as the edited video. Failed calls remain in the timeline and are reported as an edit warning. Cannot be combined with `idle`.'
         burst:
           type: object
           description: Only with `capture` `bursts`. Times are milliseconds; one that is absent has its default, and 0 is a value like any other.
           properties:
-            leadMs: {type: integer, minimum: 0, maximum: 60000, description: 'Kept before a call starts (default 400).'}
-            tailMs: {type: integer, minimum: 0, maximum: 60000, description: 'Kept after a call ends (default 600).'}
-            settleMs: {type: integer, minimum: 0, maximum: 60000, description: 'The tail extends until the screen has been still this long (default 500).'}
-            maxTailMs: {type: integer, minimum: 0, maximum: 60000, description: 'The tail extends no further than this after the call ends, and not less than `tailMs` (default 4000, or `tailMs` if more).'}
+            leadMs: {type: integer, minimum: 0, maximum: 60000, description: 'Kept before a call starts (default 150).'}
+            tailMs: {type: integer, minimum: 0, maximum: 60000, description: 'Kept after a call ends (default 250).'}
+            settleMs: {type: integer, minimum: 0, maximum: 60000, description: 'The tail extends until the screen has been still this long (default 200).'}
+            maxTailMs: {type: integer, minimum: 0, maximum: 60000, description: 'The tail extends no further than this after the call ends, and not less than `tailMs` (default 1200, or `tailMs` if more).'}
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.

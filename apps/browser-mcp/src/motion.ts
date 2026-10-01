@@ -7,8 +7,8 @@ export interface Point {
 export type Motion = "natural" | "fast" | "instant" | { durationMs: number };
 
 const presets = {
-  natural: { speed: 1200, min: 220, max: 1400, bend: 0.08 },
-  fast: { speed: 3200, min: 60, max: 450, bend: 0.03 },
+  natural: { speed: 1800, min: 120, max: 500, bend: 0.06 },
+  fast: { speed: 3200, min: 60, max: 300, bend: 0.03 },
 };
 
 /** Milliseconds a glide of this length takes; 0 means jump. */
@@ -19,7 +19,7 @@ export function travelMs(motion: Motion, distance: number): number {
   return Math.min(max, Math.max(min, (distance / speed) * 1000));
 }
 
-const easeInOut = (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+export const easeInOut = (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
 
 /**
  * The eased, slightly bent path from one point to another, as a function of
@@ -44,6 +44,24 @@ export function pathAt(from: Point, to: Point, motion: Motion, max: Point): (t: 
     return {
       x: clamp(a * from.x + b * control.x + c * to.x, max.x),
       y: clamp(a * from.y + b * control.y + c * to.y, max.y),
+    };
+  };
+}
+
+/** A smooth, slightly irregular orbit used to draw attention without looking mechanical. */
+export function attentionPathAt(
+  center: Point,
+  radius: Point,
+  loops: number,
+  max: Point,
+): (t: number) => Point {
+  return (t) => {
+    const progress = easeInOut(t);
+    const angle = -Math.PI / 2 + progress * loops * Math.PI * 2;
+    const wobble = 1 + Math.sin(progress * (loops + 0.5) * Math.PI * 2) * 0.05;
+    return {
+      x: clamp(center.x + Math.cos(angle) * radius.x * wobble, max.x),
+      y: clamp(center.y + Math.sin(angle) * radius.y * wobble, max.y),
     };
   };
 }

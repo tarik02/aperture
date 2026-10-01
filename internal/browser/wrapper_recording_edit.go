@@ -35,18 +35,21 @@ func sweepEditDirs(recordingsDir string) {
 	}
 }
 
-// wantsEdit is whether the recording's defaults, or a gesture or action on its
+// wantsEdit is whether the recording's defaults, focus, gesture or action on its
 // timeline, ask for an effect: a stop that asks for none has nothing to report.
 func (t *recordingTimeline) wantsEdit(fx recordingEffects) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for _, action := range t.actions {
-		if strings.TrimSpace(action.Caption) != "" {
+		if action.OK && strings.TrimSpace(action.Caption) != "" {
 			return true
 		}
 	}
+	if len(t.focuses) > 0 {
+		return true
+	}
 	for _, gesture := range t.gestures {
-		if (gesture.Zoom != nil && gesture.Zoom != false) || (gesture.Ripple != nil && *gesture.Ripple) {
+		if gesture.Ripple != nil && *gesture.Ripple {
 			return true
 		}
 	}

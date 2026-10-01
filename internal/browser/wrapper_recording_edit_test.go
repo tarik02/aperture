@@ -34,41 +34,30 @@ func TestEditPlanIsNilWhenNothingApplies(t *testing.T) {
 	if plan != nil || err != nil {
 		t.Fatalf("plan = %+v, err = %v", plan, err)
 	}
-	// A recording default reaches gestures that do not say otherwise, but not ones that opt out.
-	fx := recordingEffects{Zoom: 2, Ripple: true}
-	if plan, _ = buildEditPlan(editDoc(), fx, 30); plan == nil || !strings.Contains(plan.filter, "perspective=") || !strings.Contains(plan.filter, "geq=") {
+	fx := recordingEffects{Ripple: true}
+	if plan, _ = buildEditPlan(editDoc(), fx, 30); plan == nil || !strings.Contains(plan.filter, "geq=") {
 		t.Fatalf("defaults were not applied: %+v", plan)
 	}
 	doc := editDoc()
-	doc.Gestures[0].Zoom, doc.Gestures[0].Ripple = false, yes(false)
+	doc.Gestures[0].Ripple = yes(false)
 	if plan, err = buildEditPlan(doc, fx, 30); plan != nil || err != nil {
 		t.Fatalf("a gesture that opts out still applies: %+v, %v", plan, err)
 	}
 }
 
-func TestEditPlanZoomFollowsGestures(t *testing.T) {
+func TestEditPlanZoomFollowsExplicitFocus(t *testing.T) {
 	doc := editDoc()
-	doc.Gestures[0].Zoom = float64(3)
-	moved := doc.Gestures[0]
-	moved.Start, moved.End = 3000, 3400
-	moved.Clicks = []timelineClick{{T: 3200, X: 1100, Y: 600}}
-	far := doc.Gestures[0]
-	far.Start, far.End = 8000, 8400
-	far.Clicks = []timelineClick{{T: 8200, X: 100, Y: 100}}
-	doc.Gestures = append(doc.Gestures, moved, far)
-	// A gesture without a position (made through Playwright's mouse) cannot be followed.
-	doc.Gestures = append(doc.Gestures, timelineGesture{Tool: "browser_click", Zoom: true, Start: 5000, End: 5100})
+	doc.Focuses = []timelineFocus{
+		{Start: 1000, End: 3000, X: 500, Y: 250, Width: 200, Height: 100, Zoom: 2},
+		{Start: 6000, End: 8500, X: 50, Y: 50, Width: 200, Height: 100, Zoom: 3},
+	}
 
 	plan, err := buildEditPlan(doc, recordingEffects{}, 30)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The close pair shares one zoom; the far one has its own.
 	if n := strings.Count(plan.filter, "perspective="); n != 2 {
 		t.Fatalf("scenes = %d, want 2: %s", n, plan.filter)
-	}
-	if len(plan.warnings) != 1 || !strings.Contains(plan.warnings[0], "not followed") {
-		t.Fatalf("warnings = %v", plan.warnings)
 	}
 }
 
@@ -77,7 +66,7 @@ func TestEditPlanCaptionsBurnAfterIdleIsCut(t *testing.T) {
 	doc.Gestures = nil
 	doc.Activity = timelineActivity{Complete: true}
 	// Nothing happens for 6 s before the caption, so idle cut removes 5.4 s of them.
-	doc.Actions = []timelineAction{{Tool: "browser_type", Start: 7000, End: 7100, Caption: "Type {a\\b}\n now"}}
+	doc.Actions = []timelineAction{{Tool: "browser_type", Start: 7000, End: 7100, Caption: "Type {a\\b}\n now", OK: true}}
 
 	plan, err := buildEditPlan(doc, recordingEffects{Idle: "cut"}, 30)
 	if err != nil {
@@ -127,17 +116,7 @@ func TestEditPlanIdleKeepsWhatIsBusy(t *testing.T) {
 }
 
 func TestValidateRecordingEffects(t *testing.T) {
-	for _, zoom := range []any{nil, true, false, 1.1, float64(4)} {
-		if err := ValidateRecordingEffects("cut", zoom, "", nil); err != nil {
-			t.Errorf("%v: %v", zoom, err)
-		}
-	}
-	for _, zoom := range []any{1.0, float64(5), "yes"} {
-		if err := ValidateRecordingEffects("", zoom, "", nil); err == nil {
-			t.Errorf("%v was accepted", zoom)
-		}
-	}
-	if ValidateRecordingEffects("fast", nil, "", nil) == nil {
+	if ValidateRecordingEffects("fast", "", nil) == nil {
 		t.Error("idle fast was accepted")
 	}
 }
@@ -158,12 +137,13 @@ func TestRenderEditWithFFmpeg(t *testing.T) {
 	doc := timelineDoc{
 		DurationMS: 8000,
 		Segments:   []timelineSegmentOut{{End: 8000, Width: 640, Height: 360}},
-		Actions:    []timelineAction{{Tool: "browser_click", Start: 1000, End: 1500, Caption: "Click here"}},
+		Actions:    []timelineAction{{Tool: "browser_click", Start: 1000, End: 1500, Caption: "Click here", OK: true}},
 		Gestures: []timelineGesture{{
-			Tool: "browser_click", Start: 1000, End: 1500, Zoom: true, Ripple: yes(true),
+			Tool: "browser_click", Start: 1000, End: 1500, Ripple: yes(true),
 			Path:   [][3]float64{{1000, 50, 50}, {1300, 320, 180}},
 			Clicks: []timelineClick{{T: 1300, X: 320, Y: 180}},
 		}},
+		Focuses:  []timelineFocus{{Start: 1000, End: 1500, X: 270, Y: 130, Width: 100, Height: 100, Zoom: 2}},
 		Activity: timelineActivity{Complete: true, Spans: []timelineSpanOut{{1000, 1500}}},
 	}
 	plan, err := buildEditPlan(doc, recordingEffects{Idle: "cut"}, 30)
@@ -203,7 +183,7 @@ func TestRenderEditWithFFmpeg(t *testing.T) {
 		t.Fatalf("stream = %+v", s)
 	}
 	// 8 s minus the idle stretch after the click and its ripple, zoom and caption windows.
-	if seconds < 3 || seconds > 6 {
+	if seconds < 2 || seconds > 4 {
 		t.Fatalf("duration = %.2f s, want the idle tail cut", seconds)
 	}
 }
@@ -215,7 +195,7 @@ func TestBurstPiecesKeepTheTimeAroundActions(t *testing.T) {
 		}
 		return out
 	}
-	action := func(start, end int64) timelineAction { return timelineAction{Start: start, End: end} }
+	action := func(start, end int64) timelineAction { return timelineAction{Start: start, End: end, OK: true} }
 	for _, c := range []struct {
 		name     string
 		actions  []timelineAction
@@ -224,15 +204,17 @@ func TestBurstPiecesKeepTheTimeAroundActions(t *testing.T) {
 		gap      int64
 		want     []piece
 	}{
-		{"lead and tail", []timelineAction{action(5000, 5200)}, nil, true, 0, []piece{{4600, 5800, 1}}},
-		{"the tail waits for the screen to settle", []timelineAction{action(5000, 5200)}, spans(5300, 6400, 6600, 6900), true, 0, []piece{{4600, 7400, 1}}},
-		{"a screen that never settles is cut at maxTail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), true, 0, []piece{{4600, 9200, 1}}},
-		{"unknown activity means the plain tail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), false, 0, []piece{{4600, 5800, 1}}},
-		{"clamped to the video", []timelineAction{action(100, 200), action(9800, 9900)}, nil, true, 0, []piece{{0, 800, 1}, {9400, 10000, 1}}},
-		{"overlapping and touching pieces merge", []timelineAction{action(2000, 2100), action(2900, 3000), action(3800, 3900), action(6000, 6100)}, nil, true, 0,
-			[]piece{{1600, 4500, 1}, {5600, 6700, 1}}},
-		{"a gap joins pieces that are near", []timelineAction{action(2000, 2100), action(3300, 3400), action(6000, 6100)}, nil, true, 500,
-			[]piece{{1600, 4000, 1}, {5600, 6700, 1}}},
+		{"lead and tail", []timelineAction{action(5000, 5200)}, nil, true, 0, []piece{{4850, 5450, 1}}},
+		{"the tail waits for the screen to settle", []timelineAction{action(5000, 5200)}, spans(5300, 6400, 6600, 6900), true, 0, []piece{{4850, 6400, 1}}},
+		{"a screen that never settles is cut at maxTail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), true, 0, []piece{{4850, 6400, 1}}},
+		{"unknown activity means the plain tail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), false, 0, []piece{{4850, 5450, 1}}},
+		{"clamped to the video", []timelineAction{action(100, 200), action(9800, 9900)}, nil, true, 0, []piece{{0, 450, 1}, {9650, 10000, 1}}},
+		{"overlapping and touching pieces merge", []timelineAction{action(2000, 2100), action(2300, 2400), action(2600, 2700), action(6000, 6100)}, nil, true, 0,
+			[]piece{{1850, 2950, 1}, {5850, 6350, 1}}},
+		{"a gap joins pieces that are near", []timelineAction{action(2000, 2100), action(2700, 2800), action(6000, 6100)}, nil, true, 500,
+			[]piece{{1850, 3050, 1}, {5850, 6350, 1}}},
+		{"failed calls are omitted", []timelineAction{{Start: 2000, End: 7000}, action(8000, 8100)}, nil, true, 0,
+			[]piece{{7850, 8350, 1}}},
 	} {
 		doc := timelineDoc{DurationMS: 10000, Actions: c.actions, Activity: timelineActivity{Complete: c.complete, Spans: c.activity}}
 		if got := burstPieces(doc, RecordingBurst{}, c.gap); !slices.Equal(got, c.want) {
@@ -242,7 +224,7 @@ func TestBurstPiecesKeepTheTimeAroundActions(t *testing.T) {
 	// A tail longer than the default cap raises it, and 0 is a setting of its own.
 	one, five := 1000, 5000
 	doc := timelineDoc{DurationMS: 10000, Actions: []timelineAction{action(2000, 2100)}}
-	if got := burstPieces(doc, RecordingBurst{TailMs: &five}, 0); !slices.Equal(got, []piece{{1600, 7100, 1}}) {
+	if got := burstPieces(doc, RecordingBurst{TailMs: &five}, 0); !slices.Equal(got, []piece{{1850, 7100, 1}}) {
 		t.Errorf("tail 5000: pieces = %v", got)
 	}
 	zero := 0
@@ -253,26 +235,32 @@ func TestBurstPiecesKeepTheTimeAroundActions(t *testing.T) {
 
 func TestEditPlanBurstsCutEverythingElse(t *testing.T) {
 	doc := editDoc()
-	doc.Actions = []timelineAction{{Tool: "browser_click", Start: 1800, End: 2200, Caption: "Click"}}
+	doc.Actions = []timelineAction{{Tool: "browser_click", Start: 1800, End: 2200, Caption: "Click", OK: true}}
 	burst := RecordingBurst{}
-	plan, err := buildEditPlan(doc, recordingEffects{Burst: &burst, Zoom: 2}, 30)
+	doc.Focuses = []timelineFocus{{Start: 1800, End: 2200, X: 560, Y: 300, Width: 160, Height: 120, Zoom: 2}}
+	plan, err := buildEditPlan(doc, recordingEffects{Burst: &burst}, 30)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// One kept stretch: 1400 to 2900 (activity ends at 2400, settles 500 ms later), which
-	// the time map moves to the start; zoom is rendered before the cut, captions after.
-	for _, want := range []string{"perspective=", "select='gte(t,1.3833)*lt(t,2.8833)'", "setpts='((min(max(T,1.400),2.900)-1.400))/TB'"} {
+	// One kept stretch: 1650 to 2600 (activity ends at 2400, settles 200 ms later), which
+	// the time map moves to the start; zoom and captions are rendered in edited time.
+	for _, want := range []string{"perspective=", "select='gte(t,1.6333)*lt(t,2.5833)'", "setpts='((min(max(T,1.650),2.600)-1.650))/TB'"} {
 		if !strings.Contains(plan.filter, want) {
 			t.Errorf("filter lacks %q: %s", want, plan.filter)
 		}
 	}
-	if i, j := strings.Index(plan.filter, "perspective="), strings.Index(plan.filter, "select="); i > j || !strings.Contains(string(plan.ass), "0:00:00.40,0:00:01.50") {
+	if i, j := strings.Index(plan.filter, "perspective="), strings.Index(plan.filter, "select="); i < j || !strings.Contains(string(plan.ass), "0:00:00.15,0:00:00.95") {
 		t.Errorf("effects and captions are not around the cut: %s\n%s", plan.filter, plan.ass)
+	}
+	doc.Actions = append(doc.Actions, timelineAction{Tool: "browser_click", Start: 5000, End: 9000, Caption: "Failed"})
+	if plan, err = buildEditPlan(doc, recordingEffects{Burst: &burst}, 30); err != nil || len(plan.warnings) != 1 ||
+		!strings.Contains(plan.warnings[0], "1 failed browser tool call was omitted") || strings.Contains(string(plan.ass), "Failed") {
+		t.Errorf("failed action was presented: plan = %+v, err = %v", plan, err)
 	}
 	// Far more pieces than a command line holds are joined, never dropped.
 	doc.Actions = nil
 	for i := range 1900 {
-		doc.Actions = append(doc.Actions, timelineAction{Start: int64(i) * 2000, End: int64(i)*2000 + 10})
+		doc.Actions = append(doc.Actions, timelineAction{Start: int64(i) * 2000, End: int64(i)*2000 + 10, OK: true})
 	}
 	doc.DurationMS = 4_000_000
 	doc.Activity.Spans = nil
@@ -301,7 +289,7 @@ func TestValidateBursts(t *testing.T) {
 		{"", "continuous", &RecordingBurst{}, "needs capture"},
 		{"", "clips", nil, "capture must be"},
 	} {
-		err := ValidateRecordingEffects(c.idle, nil, c.capture, c.burst)
+		err := ValidateRecordingEffects(c.idle, c.capture, c.burst)
 		if (err == nil) != (c.want == "") || (err != nil && !strings.Contains(err.Error(), c.want)) {
 			t.Errorf("%+v: err = %v, want %q", c, err, c.want)
 		}

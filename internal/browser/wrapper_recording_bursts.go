@@ -11,10 +11,17 @@ import (
 // through the API, keeps only the stretches around the actions in its timeline.
 const burstMaxMs = 60_000
 
+const (
+	burstDefaultLeadMs    = 150
+	burstDefaultTailMs    = 250
+	burstDefaultSettleMs  = 200
+	burstDefaultMaxTailMs = 1200
+)
+
 // RecordingBurst says how much of the recording is kept around each action, in
 // milliseconds: LeadMs before it starts, TailMs after it ends, then until the screen
 // has been still for SettleMs, but no more than MaxTailMs after it ends. A setting
-// that is not given has its default (400, 600, 500, and 4000 or TailMs if more).
+// that is not given has its default (150, 250, 200, and 1200 or TailMs if more).
 type RecordingBurst struct {
 	LeadMs    *int `json:"leadMs,omitempty"`
 	TailMs    *int `json:"tailMs,omitempty"`
@@ -29,8 +36,8 @@ func (b RecordingBurst) times() (lead, tail, settle, maxTail int64) {
 		}
 		return int64(*v)
 	}
-	tail = or(b.TailMs, 600)
-	return or(b.LeadMs, 400), tail, or(b.SettleMs, 500), or(b.MaxTailMs, max(4000, int(tail)))
+	tail = or(b.TailMs, burstDefaultTailMs)
+	return or(b.LeadMs, burstDefaultLeadMs), tail, or(b.SettleMs, burstDefaultSettleMs), or(b.MaxTailMs, max(burstDefaultMaxTailMs, int(tail)))
 }
 
 // validateBursts checks a recording's capture mode, and the burst settings that go with it.
@@ -62,14 +69,19 @@ func validateBursts(capture string, burst *RecordingBurst, idle string) error {
 }
 
 // burstPieces are the stretches of the video that a bursts recording keeps: around
-// each action a lead, the action, and a tail that lasts until the screen settles, all
-// clamped to the video. Stretches that overlap or are no more than gap apart merge.
+// each successful action a lead, the action, and a tail that lasts until the screen
+// settles, all clamped to the video. Failed calls stay in the diagnostic timeline but
+// do not make a presentation freeze around an action that never happened. Stretches
+// that overlap or are no more than gap apart merge.
 func burstPieces(doc timelineDoc, burst RecordingBurst, gap int64) []piece {
 	lead, tail, settle, maxTail := burst.times()
 	// With too many spans to hold them all, quiet does not mean still.
 	watched := doc.Activity.Complete && len(doc.Activity.Spans) < timelineMaxSpans
 	var keep []span
 	for _, action := range doc.Actions {
+		if !action.OK {
+			continue
+		}
 		end := action.End + tail
 		if watched {
 			// The first moment after the tail with no change in the last settle ms.

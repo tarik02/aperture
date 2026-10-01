@@ -38,6 +38,7 @@ const options: ClickOptions = {
   button: "left",
   count: 1,
   modifiers: [],
+  arrivalDwellMs: 0,
   holdMs: 0,
   motion: "instant",
 };
@@ -84,7 +85,11 @@ describe("Pointer on a compositor", () => {
 
   it("nudges before an instant drag so HTML5 drag and drop starts, then releases without coordinates", async () => {
     const pointer = pointerOn({ id: 1, width: 100, height: 100 });
-    await pointer.drag({ x: 10, y: 10 }, { x: 60, y: 10 }, { holdMs: 0, motion: "instant" });
+    await pointer.drag(
+      { x: 10, y: 10 },
+      { x: 60, y: 10 },
+      { arrivalDwellMs: 0, holdMs: 0, motion: "instant" },
+    );
     const press = commands.findIndex((command) => command.startsWith("button-at"));
     expect(commands.slice(press + 1)).toEqual([
       "motion 1 16.000 10.000",

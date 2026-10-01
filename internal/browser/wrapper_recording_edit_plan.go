@@ -10,18 +10,13 @@ import (
 )
 
 // The effects a recording can render when it stops. Every time in the plan is
-// milliseconds of the raw video, which the filters see as `t`; they run before the
-// time map (idle, or the bursts kept), and the captions run after it.
+// milliseconds of the raw video until the time map is chosen. Pointer effects and
+// captions are then planned in edited time, after idle or burst removal.
 const (
-	zoomDefault    = 1.6
-	zoomMin        = 1.1
-	zoomMax        = 4
-	zoomEaseMs     = 600
-	zoomLingerMs   = 800
-	zoomMergeGapMs = 2000 // pauses up to this long between zoomed gestures share one zoom
-	zoomMinEaseMs  = 150
-	// A gesture needs no pan while it stays within this part of the zoomed view.
-	zoomInnerFraction = 0.6
+	zoomMin       = 1.1
+	zoomMax       = 4
+	zoomEaseMs    = 300
+	zoomMinEaseMs = 100
 
 	rippleMs     = 600
 	rippleRadius = 48 // in pixels of a 1280 wide frame
@@ -38,44 +33,21 @@ const (
 	editMaxFPS         = 60
 )
 
-// recordingEffects are a recording's defaults for gestures that do not say otherwise.
+// recordingEffects are the effects a recording renders when it stops.
 type recordingEffects struct {
 	Idle   string // "cut", "speed" or "" for none
-	Zoom   float64
 	Ripple bool
 	Burst  *RecordingBurst // set for a bursts recording, with its defaults filled in
 }
 
 func (fx recordingEffects) any() bool {
-	return fx.Idle != "" || fx.Zoom > 0 || fx.Ripple || fx.Burst != nil
-}
-
-// ParseRecordingZoom resolves a zoom argument as it is given: absent is def, true is
-// the default level, false is 0 (off), and a number is a level.
-func ParseRecordingZoom(zoom any, def float64) (float64, error) {
-	switch zoom := zoom.(type) {
-	case nil:
-		return def, nil
-	case bool:
-		if zoom {
-			return zoomDefault, nil
-		}
-		return 0, nil
-	case float64:
-		if zoom >= zoomMin && zoom <= zoomMax {
-			return zoom, nil
-		}
-	}
-	return 0, fmt.Errorf("zoom must be true, false, or a level from %g to %d", zoomMin, zoomMax)
+	return fx.Idle != "" || fx.Ripple || fx.Burst != nil
 }
 
 // ValidateRecordingEffects checks the effect defaults and capture mode a recording starts with.
-func ValidateRecordingEffects(idle string, zoom any, capture string, burst *RecordingBurst) error {
+func ValidateRecordingEffects(idle string, capture string, burst *RecordingBurst) error {
 	if idle != "" && idle != "cut" && idle != "speed" {
 		return errors.New(`idle must be "cut" or "speed"`)
-	}
-	if _, err := ParseRecordingZoom(zoom, 0); err != nil {
-		return err
 	}
 	return validateBursts(capture, burst, idle)
 }
@@ -97,10 +69,10 @@ type zoomPoint struct {
 	level float64
 }
 
-// zoomedGesture is a pointer gesture the camera follows.
-type zoomedGesture struct {
+// focusedRegion is an explicit focus interval and camera destination.
+type focusedRegion struct {
 	start, finish int64
-	points        []zoomPoint
+	point         zoomPoint
 }
 
 type zoomKey struct {
@@ -136,9 +108,9 @@ type piece struct {
 func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, error) {
 	total := doc.DurationMS
 	cues := captionCues(doc.Actions, total)
-	gestures, skipped := zoomedGestures(doc.Gestures, fx)
+	focuses := focusedRegions(doc.Focuses)
 	marks := ripples(doc.Gestures, fx)
-	if len(cues) == 0 && len(gestures) == 0 && len(marks) == 0 && fx.Idle == "" && fx.Burst == nil {
+	if len(cues) == 0 && len(focuses) == 0 && len(marks) == 0 && fx.Idle == "" && fx.Burst == nil {
 		return nil, nil
 	}
 	if len(doc.Segments) == 0 || total <= 0 {
@@ -151,11 +123,21 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 		}
 	}
 	p := &editPlan{fps: min(fps, editMaxFPS), durationMS: total}
-	if skipped > 0 {
-		p.warnings = append(p.warnings, fmt.Sprintf("%d zoomed gestures went through Playwright's mouse, which has no position in the video, and were not followed", skipped))
+	if fx.Burst != nil {
+		failed := 0
+		for _, action := range doc.Actions {
+			if !action.OK {
+				failed++
+			}
+		}
+		if failed > 0 {
+			message := fmt.Sprintf("%d failed browser tool calls were omitted from the presentation edit", failed)
+			if failed == 1 {
+				message = "1 failed browser tool call was omitted from the presentation edit"
+			}
+			p.warnings = append(p.warnings, message)
+		}
 	}
-
-	scenes := zoomScenes(gestures, float64(width), float64(height))
 	// The captions and the fixed filters always fit; the rest is added while there is room.
 	head := []string{"setpts=PTS-STARTPTS", fmt.Sprintf("fps=fps=%d:start_time=0", p.fps), "format=yuv420p"}
 	tail := []string{"crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0"} // libx264 needs even sizes
@@ -198,14 +180,14 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 		for _, gesture := range doc.Gestures {
 			busy = append(busy, span{gesture.Start - gesturePadMs, gesture.End + gesture.Hold + gesturePadMs})
 		}
+		for _, focus := range doc.Focuses {
+			busy = append(busy, span{focus.Start, focus.End})
+		}
 		for _, c := range cues {
 			busy = append(busy, span{c.start, c.end})
 		}
 		for _, m := range marks {
 			busy = append(busy, span{m.t, m.t + rippleMs})
-		}
-		for _, scene := range scenes {
-			busy = append(busy, span{scene.keys[0].t, scene.keys[len(scene.keys)-1].t})
 		}
 		for _, a := range doc.Activity.Spans {
 			busy = append(busy, span{a.Start - timelineSpanGap.Milliseconds()/2, a.End + timelineSpanGap.Milliseconds()/2})
@@ -218,6 +200,9 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 			p.warnings = append(p.warnings, "idle was left out: too many stretches to render")
 		}
 	}
+	focuses = mapFocusedRegions(pieces, focuses)
+	marks = mapRipples(pieces, marks)
+	scenes := focusScenes(focuses, float64(width), float64(height))
 	var zoomFilters, rippleFilters []string
 	for _, scene := range scenes {
 		if filter := scene.filter(float64(width), float64(height), p.fps); take(filter) {
@@ -243,9 +228,27 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 		p.ass = marshalASS(cues, width, height)
 	}
 	if len(cues)+len(zoomFilters)+len(rippleFilters)+len(remap) > 0 {
-		p.filter = strings.Join(slices.Concat(head, rippleFilters, zoomFilters, remap, tail), ",")
+		p.filter = strings.Join(slices.Concat(head, remap, rippleFilters, zoomFilters, tail), ",")
 	}
 	return p, nil
+}
+
+func mapFocusedRegions(pieces []piece, focuses []focusedRegion) []focusedRegion {
+	mapped := slices.Clone(focuses)
+	for i := range mapped {
+		mapped[i].start = mapTime(pieces, mapped[i].start)
+		mapped[i].finish = mapTime(pieces, mapped[i].finish)
+		mapped[i].point.t = mapTime(pieces, mapped[i].point.t)
+	}
+	return mapped
+}
+
+func mapRipples(pieces []piece, marks []ripple) []ripple {
+	mapped := slices.Clone(marks)
+	for i := range mapped {
+		mapped[i].t = mapTime(pieces, mapped[i].t)
+	}
+	return mapped
 }
 
 // captionCues turns captioned actions into cues that stay long enough to read and
@@ -253,6 +256,9 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 func captionCues(actions []timelineAction, total int64) []cue {
 	var cues []cue
 	for _, action := range actions {
+		if !action.OK {
+			continue
+		}
 		text := strings.Join(strings.Fields(action.Caption), " ")
 		if text == "" || action.Start >= total {
 			continue
@@ -267,45 +273,22 @@ func captionCues(actions []timelineAction, total int64) []cue {
 	return slices.DeleteFunc(cues, func(c cue) bool { return c.end <= c.start })
 }
 
-// zoomedGestures lists the gestures that zoom, with where the camera looks: at the
-// press of a click or drag, the end of a drag or move, and where a scroll wheels.
-// skipped counts zoomed gestures that have no position.
-func zoomedGestures(gestures []timelineGesture, fx recordingEffects) (out []zoomedGesture, skipped int) {
-	for _, gesture := range gestures {
-		level, _ := ParseRecordingZoom(gesture.Zoom, fx.Zoom)
-		if level == 0 {
+func focusedRegions(focuses []timelineFocus) []focusedRegion {
+	out := make([]focusedRegion, 0, len(focuses))
+	for _, focus := range focuses {
+		if focus.End <= focus.Start || focus.Zoom < zoomMin || focus.Zoom > zoomMax {
 			continue
 		}
-		var points []zoomPoint
-		at := func(t int64, x, y float64) { points = append(points, zoomPoint{t, x, y, level}) }
-		last := len(gesture.Path) - 1
-		switch gesture.Tool {
-		case "browser_click":
-			for _, click := range gesture.Clicks {
-				at(click.T, click.X, click.Y)
-			}
-		case "browser_drag":
-			if last >= 0 && len(gesture.Clicks) > 0 {
-				at(gesture.Clicks[0].T, gesture.Clicks[0].X, gesture.Clicks[0].Y)
-				at(int64(gesture.Path[last][0]), gesture.Path[last][1], gesture.Path[last][2])
-			}
-		case "browser_move":
-			if last >= 0 {
-				at(int64(gesture.Path[last][0]), gesture.Path[last][1], gesture.Path[last][2])
-			}
-		case "browser_scroll":
-			if gesture.Scroll != nil {
-				at(gesture.Start, gesture.Scroll.X, gesture.Scroll.Y)
-			}
-		}
-		if len(points) == 0 {
-			skipped++
-			continue
-		}
-		out = append(out, zoomedGesture{gesture.Start, gesture.End + gesture.Hold, points})
+		out = append(out, focusedRegion{
+			start:  focus.Start,
+			finish: focus.End,
+			point: zoomPoint{
+				t: focus.Start, x: focus.X + focus.Width/2, y: focus.Y + focus.Height/2, level: focus.Zoom,
+			},
+		})
 	}
-	slices.SortStableFunc(out, func(a, b zoomedGesture) int { return int(a.start - b.start) })
-	return out, skipped
+	slices.SortStableFunc(out, func(a, b focusedRegion) int { return int(a.start - b.start) })
+	return out
 }
 
 func ripples(gestures []timelineGesture, fx recordingEffects) []ripple {
@@ -322,48 +305,25 @@ func ripples(gestures []timelineGesture, fx recordingEffects) []ripple {
 	return out
 }
 
-// zoomScenes groups gestures separated by short pauses into scenes: zoom in as the
-// pointer arrives, pan when it leaves the middle of the view, linger, zoom out.
-func zoomScenes(gestures []zoomedGesture, width, height float64) []zoomScene {
-	var scenes []zoomScene
-	var previousEnd int64
-	for i := 0; i < len(gestures); {
-		group, finish := []zoomedGesture{gestures[i]}, gestures[i].finish
-		for i++; i < len(gestures) && gestures[i].start-finish <= zoomMergeGapMs; i++ {
-			group, finish = append(group, gestures[i]), max(finish, gestures[i].finish)
-		}
-		var points []zoomPoint
-		for _, gesture := range group {
-			points = append(points, gesture.points...)
-		}
-		slices.SortStableFunc(points, func(a, b zoomPoint) int { return int(a.t - b.t) })
-		centre := func(pt zoomPoint) (float64, float64) {
-			w, h := width/pt.level, height/pt.level
-			return clampView(pt.x, w/2, width-w/2), clampView(pt.y, h/2, height-h/2)
-		}
-		// Zooming in starts an ease before the pointer arrives, as far as the video's
-		// start and the previous scene allow.
-		arrive := points[0].t
-		begin := max(arrive-zoomEaseMs, previousEnd, 0)
-		arrive = max(arrive, begin+zoomMinEaseMs)
-		x, y := centre(points[0])
-		level := points[0].level
-		keys := []zoomKey{{begin, 1, width / 2, height / 2}, {arrive, level, x, y}}
-		for _, pt := range points[1:] {
-			if math.Abs(pt.x-x) <= zoomInnerFraction*width/level/2 && math.Abs(pt.y-y) <= zoomInnerFraction*height/level/2 && math.Abs(pt.level-level) < 0.05 {
-				continue
-			}
-			// Hold until an ease before the pointer gets there, then pan.
-			depart := max(keys[len(keys)-1].t, pt.t-zoomEaseMs)
-			keys = append(keys, zoomKey{depart, level, x, y})
-			x, y = centre(pt)
-			level = pt.level
-			keys = append(keys, zoomKey{max(pt.t, depart+zoomMinEaseMs), level, x, y})
-		}
-		hold := max(finish+zoomLingerMs, keys[len(keys)-1].t)
-		keys = append(keys, zoomKey{hold, level, x, y}, zoomKey{hold + zoomEaseMs, 1, width / 2, height / 2})
-		previousEnd = keys[len(keys)-1].t
-		scenes = append(scenes, zoomScene{keys})
+// focusScenes makes one camera scene per explicit focus call. Both easing windows
+// live inside the call's duration, so burst capture cannot cut them off.
+func focusScenes(focuses []focusedRegion, width, height float64) []zoomScene {
+	scenes := make([]zoomScene, 0, len(focuses))
+	for _, focus := range focuses {
+		pt := focus.point
+		w, h := width/pt.level, height/pt.level
+		x := clampView(pt.x, w/2, width-w/2)
+		y := clampView(pt.y, h/2, height-h/2)
+		duration := focus.finish - focus.start
+		ease := min(int64(zoomEaseMs), max(int64(zoomMinEaseMs), duration/3))
+		arrive := min(focus.start+ease, focus.finish)
+		depart := max(arrive, focus.finish-ease)
+		scenes = append(scenes, zoomScene{[]zoomKey{
+			{focus.start, 1, width / 2, height / 2},
+			{arrive, pt.level, x, y},
+			{depart, pt.level, x, y},
+			{focus.finish, 1, width / 2, height / 2},
+		}})
 	}
 	return scenes
 }
