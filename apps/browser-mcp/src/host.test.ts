@@ -129,11 +129,10 @@ describe.skipIf(!available)("browser MCP host", () => {
 
     const clicked = await call("browser_click", { target: ref });
     expect(clicked.content[0].text).toContain("Page Title: clicked true");
-    expect(clicked._meta.aperture.gesture).toMatchObject({
-      tool: "browser_click",
-      fallback: true,
-      hold: 45,
-    });
+    expect(clicked._meta.aperture.gesture).toMatchObject({ tool: "browser_click", hold: 45 });
+    expect(clicked._meta.aperture.gesture.path).toBeUndefined();
+
+    expect(clicked._meta.aperture.action).toMatchObject({ tool: "browser_click", ok: true });
 
     const missing = await call("browser_click", { target: "e999" });
     expect(missing.isError).toBe(true);

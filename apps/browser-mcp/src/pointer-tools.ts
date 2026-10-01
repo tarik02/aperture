@@ -5,6 +5,7 @@ import type { Context, Response, Tab, ToolDefinition } from "playwright-core/lib
 import type { ZodRawShape } from "zod";
 import { z } from "playwright-core/lib/utilsBundle";
 import type { Point } from "./motion.ts";
+import { targetIdOf } from "./actions.ts";
 import { compositorDevice, pageDevice, Pointer, type Surface } from "./pointer.ts";
 
 /** Where the compositor is, when there is one. */
@@ -85,18 +86,6 @@ async function getJson(url: string): Promise<unknown> {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
-  async function targetIdOf(page: Page): Promise<string> {
-    const session = await page.context().newCDPSession(page);
-    try {
-      const { targetInfo } = (await session.send("Target.getTargetInfo")) as {
-        targetInfo: { targetId: string };
-      };
-      return targetInfo.targetId;
-    } finally {
-      await session.detach().catch(() => {});
-    }
-  }
-
   /** The surface of a browser target; a new tab takes a moment to get one. */
   async function surfaceOf(targetId: string): Promise<Surface | undefined> {
     if (!compositor) return undefined;
@@ -188,8 +177,14 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
               : new Pointer(pageDevice(page));
           response.setIncludeSnapshot();
           await act({ tab, page, pointer, size }, params);
-          // `fallback`: the page's own mouse was used, for want of a compositor surface.
-          const gesture = { tool: name, targetId, fallback: !surface, ...pointer.record };
+          // Without a compositor surface the page's own mouse was used, and its viewport
+          // coordinates mean nothing on the video, so only the timing is reported.
+          const { start, end, hold } = pointer.record;
+          const gesture = {
+            tool: name,
+            targetId,
+            ...(surface ? pointer.record : { start, end, hold }),
+          };
           const serialize = response.serialize.bind(response);
           response.serialize = async () => ({
             ...(await serialize()),

@@ -1829,6 +1829,9 @@ type Recording struct {
 
 	// TargetId Identifier of the top-level target currently recorded.
 	TargetId string `json:"targetId"`
+
+	// TimelineRelativePath Session file path of the timeline JSON written next to a stopped recording (`<video>.timeline.json`); absent while it runs, when it failed, or when nothing could be timed.
+	TimelineRelativePath *string `json:"timelineRelativePath,omitempty"`
 }
 
 // RecordingCodec defines model for Recording.Codec.

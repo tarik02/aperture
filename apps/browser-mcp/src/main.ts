@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import coreBundle from "playwright-core/lib/coreBundle";
+import { withAction } from "./actions.ts";
 import { pointerTools } from "./pointer-tools.ts";
 import { releaseAll } from "./pointer.ts";
 
@@ -36,7 +37,7 @@ const compositor =
 const tools = [
   ...playwright.filteredTools(config).filter((tool) => !replaced.test(tool.schema.name)),
   ...pointerTools(compositor),
-];
+].map(withAction);
 
 // Never leave a button or modifier held in the browser when the host goes away.
 process.stdin.on("close", () => void releaseAll());
