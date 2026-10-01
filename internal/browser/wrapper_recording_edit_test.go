@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -127,16 +128,16 @@ func TestEditPlanIdleKeepsWhatIsBusy(t *testing.T) {
 
 func TestValidateRecordingEffects(t *testing.T) {
 	for _, zoom := range []any{nil, true, false, 1.1, float64(4)} {
-		if err := ValidateRecordingEffects("cut", zoom); err != nil {
+		if err := ValidateRecordingEffects("cut", zoom, "", nil); err != nil {
 			t.Errorf("%v: %v", zoom, err)
 		}
 	}
 	for _, zoom := range []any{1.0, float64(5), "yes"} {
-		if err := ValidateRecordingEffects("", zoom); err == nil {
+		if err := ValidateRecordingEffects("", zoom, "", nil); err == nil {
 			t.Errorf("%v was accepted", zoom)
 		}
 	}
-	if ValidateRecordingEffects("fast", nil) == nil {
+	if ValidateRecordingEffects("fast", nil, "", nil) == nil {
 		t.Error("idle fast was accepted")
 	}
 }
@@ -206,3 +207,105 @@ func TestRenderEditWithFFmpeg(t *testing.T) {
 		t.Fatalf("duration = %.2f s, want the idle tail cut", seconds)
 	}
 }
+
+func TestBurstPiecesKeepTheTimeAroundActions(t *testing.T) {
+	spans := func(times ...int64) (out []timelineSpanOut) {
+		for i := 0; i < len(times); i += 2 {
+			out = append(out, timelineSpanOut{times[i], times[i+1]})
+		}
+		return out
+	}
+	action := func(start, end int64) timelineAction { return timelineAction{Start: start, End: end} }
+	for _, c := range []struct {
+		name     string
+		actions  []timelineAction
+		activity []timelineSpanOut
+		complete bool
+		gap      int64
+		want     []piece
+	}{
+		{"lead and tail", []timelineAction{action(5000, 5200)}, nil, true, 0, []piece{{4600, 5800, 1}}},
+		{"the tail waits for the screen to settle", []timelineAction{action(5000, 5200)}, spans(5300, 6400, 6600, 6900), true, 0, []piece{{4600, 7400, 1}}},
+		{"a screen that never settles is cut at maxTail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), true, 0, []piece{{4600, 9200, 1}}},
+		{"unknown activity means the plain tail", []timelineAction{action(5000, 5200)}, spans(5300, 20000), false, 0, []piece{{4600, 5800, 1}}},
+		{"clamped to the video", []timelineAction{action(100, 200), action(9800, 9900)}, nil, true, 0, []piece{{0, 800, 1}, {9400, 10000, 1}}},
+		{"overlapping and touching pieces merge", []timelineAction{action(2000, 2100), action(2900, 3000), action(3800, 3900), action(6000, 6100)}, nil, true, 0,
+			[]piece{{1600, 4500, 1}, {5600, 6700, 1}}},
+		{"a gap joins pieces that are near", []timelineAction{action(2000, 2100), action(3300, 3400), action(6000, 6100)}, nil, true, 500,
+			[]piece{{1600, 4000, 1}, {5600, 6700, 1}}},
+	} {
+		doc := timelineDoc{DurationMS: 10000, Actions: c.actions, Activity: timelineActivity{Complete: c.complete, Spans: c.activity}}
+		if got := burstPieces(doc, RecordingBurst{}, c.gap); !slices.Equal(got, c.want) {
+			t.Errorf("%s: pieces = %v, want %v", c.name, got, c.want)
+		}
+	}
+	// A tail longer than the default cap raises it, and 0 is a setting of its own.
+	one, five := 1000, 5000
+	doc := timelineDoc{DurationMS: 10000, Actions: []timelineAction{action(2000, 2100)}}
+	if got := burstPieces(doc, RecordingBurst{TailMs: &five}, 0); !slices.Equal(got, []piece{{1600, 7100, 1}}) {
+		t.Errorf("tail 5000: pieces = %v", got)
+	}
+	zero := 0
+	if got := burstPieces(doc, RecordingBurst{LeadMs: &zero, TailMs: &one}, 0); !slices.Equal(got, []piece{{2000, 3100, 1}}) {
+		t.Errorf("lead 0: pieces = %v", got)
+	}
+}
+
+func TestEditPlanBurstsCutEverythingElse(t *testing.T) {
+	doc := editDoc()
+	doc.Actions = []timelineAction{{Tool: "browser_click", Start: 1800, End: 2200, Caption: "Click"}}
+	burst := RecordingBurst{}
+	plan, err := buildEditPlan(doc, recordingEffects{Burst: &burst, Zoom: 2}, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One kept stretch: 1400 to 2900 (activity ends at 2400, settles 500 ms later), which
+	// the time map moves to the start; zoom is rendered before the cut, captions after.
+	for _, want := range []string{"perspective=", "select='gte(t,1.3833)*lt(t,2.8833)'", "setpts='((min(max(T,1.400),2.900)-1.400))/TB'"} {
+		if !strings.Contains(plan.filter, want) {
+			t.Errorf("filter lacks %q: %s", want, plan.filter)
+		}
+	}
+	if i, j := strings.Index(plan.filter, "perspective="), strings.Index(plan.filter, "select="); i > j || !strings.Contains(string(plan.ass), "0:00:00.40,0:00:01.50") {
+		t.Errorf("effects and captions are not around the cut: %s\n%s", plan.filter, plan.ass)
+	}
+	// Far more pieces than a command line holds are joined, never dropped.
+	doc.Actions = nil
+	for i := range 1900 {
+		doc.Actions = append(doc.Actions, timelineAction{Start: int64(i) * 2000, End: int64(i)*2000 + 10})
+	}
+	doc.DurationMS = 4_000_000
+	doc.Activity.Spans = nil
+	if plan, err = buildEditPlan(doc, recordingEffects{Burst: &burst}, 30); err != nil || len(plan.filter) > editMaxFilterBytes || len(plan.warnings) != 1 {
+		t.Errorf("many bursts: err = %v, %d warnings", err, len(plan.warnings))
+	}
+	doc.Actions = nil
+	if _, err := buildEditPlan(doc, recordingEffects{Burst: &burst}, 30); err == nil || !strings.Contains(err.Error(), "has none") {
+		t.Errorf("a recording without actions: err = %v", err)
+	}
+}
+
+func TestValidateBursts(t *testing.T) {
+	for _, c := range []struct {
+		idle, capture string
+		burst         *RecordingBurst
+		want          string // a part of the error, or empty for none
+	}{
+		{"", "", nil, ""},
+		{"cut", "continuous", nil, ""},
+		{"", "bursts", &RecordingBurst{LeadMs: ptr(0), TailMs: ptr(1000), MaxTailMs: ptr(1000)}, ""},
+		{"", "bursts", &RecordingBurst{TailMs: ptr(5000)}, ""},
+		{"cut", "bursts", nil, "idle cannot be combined"},
+		{"", "bursts", &RecordingBurst{TailMs: ptr(5000), MaxTailMs: ptr(4000)}, "maxTailMs must not be less"},
+		{"", "bursts", &RecordingBurst{LeadMs: ptr(-1)}, "0 to"},
+		{"", "continuous", &RecordingBurst{}, "needs capture"},
+		{"", "clips", nil, "capture must be"},
+	} {
+		err := ValidateRecordingEffects(c.idle, nil, c.capture, c.burst)
+		if (err == nil) != (c.want == "") || (err != nil && !strings.Contains(err.Error(), c.want)) {
+			t.Errorf("%+v: err = %v, want %q", c, err, c.want)
+		}
+	}
+}
+
+func ptr(v int) *int { return &v }

@@ -2962,6 +2962,18 @@ components:
         ripple:
           type: boolean
           description: Default for clicks that do not say otherwise, rendered in the edited video as a ripple.
+        capture:
+          type: string
+          enum: [continuous, bursts]
+          description: '`bursts` records continuously, follows the tab the browser tool calls work on, and when the recording is stopped through the API keeps only the time around each call that changes something (failed ones too), as the edited video. Cannot be combined with `idle`.'
+        burst:
+          type: object
+          description: Only with `capture` `bursts`. Times are milliseconds; one that is absent has its default, and 0 is a value like any other.
+          properties:
+            leadMs: {type: integer, minimum: 0, maximum: 60000, description: 'Kept before a call starts (default 400).'}
+            tailMs: {type: integer, minimum: 0, maximum: 60000, description: 'Kept after a call ends (default 600).'}
+            settleMs: {type: integer, minimum: 0, maximum: 60000, description: 'The tail extends until the screen has been still this long (default 500).'}
+            maxTailMs: {type: integer, minimum: 0, maximum: 60000, description: 'The tail extends no further than this after the call ends, and not less than `tailMs` (default 4000, or `tailMs` if more).'}
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.

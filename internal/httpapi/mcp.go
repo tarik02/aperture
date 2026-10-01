@@ -354,6 +354,9 @@ type mcpRecordingEffects struct {
 	Idle   string `json:"idle,omitempty" jsonschema:"Cut or speed up stretches of 1.5 s or more where nothing changes: cut or speed."`
 	Zoom   any    `json:"zoom,omitempty" jsonschema:"Zoom toward pointer gestures that do not say otherwise: true, or a level from 1.1 to 4."`
 	Ripple bool   `json:"ripple,omitempty" jsonschema:"Mark clicks that do not say otherwise with a ripple."`
+	// Capture "bursts" records continuously and, when stopped, keeps only the time around the browser tool calls that change something.
+	Capture string                  `json:"capture,omitempty" jsonschema:"continuous (default) or bursts: when stopped, keep only the time around each browser action, following the tab it works on. Cannot be combined with idle."`
+	Burst   *browser.RecordingBurst `json:"burst,omitempty" jsonschema:"With capture bursts: leadMs kept before an action (400), tailMs after it (600), settleMs of stillness the tail waits for (500), and maxTailMs the tail is capped at (4000, or tailMs if more). 0 is a valid value."`
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
