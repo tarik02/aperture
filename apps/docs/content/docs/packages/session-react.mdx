@@ -147,6 +147,27 @@ Shows the active tab and forwards keyboard, pointer and clipboard input to it. I
 
 ## Lower-level pieces
 
-`Session` is the full view without its own runtime, tooltip provider and toaster, for apps that provide them (`RuntimeProvider` with `makeApertureRuntime`, and `TooltipProvider`). Wrap it in `PortalContainerProvider` with a `container` element to render menus and tooltips inside that element instead of the document body. `useBrowserControl` and `BrowserControlPane` drive and render a session for other credentials. These are what the Aperture web app is built from.
+`Session` is the full view without its own root, runtime and toaster, for apps that compose them. `ApertureUIRoot` renders the `.aperture-root` element with its `theme`, keeps menus and tooltips inside it, and provides tooltips; `ApertureProvider` (or `RuntimeProvider` with `makeApertureRuntime`) supplies the runtime:
+
+```tsx
+import { ApertureProvider, ApertureUIRoot, Session } from "@aperture-browser/session-react";
+import "@aperture-browser/session-react/styles.css";
+
+<ApertureUIRoot theme="dark">
+  <ApertureProvider baseUrl={access.baseUrl}>
+    <Session access={access} />
+  </ApertureProvider>
+</ApertureUIRoot>;
+```
+
+`theme` defaults to `system`; `className` applies to the root element. This is a light-DOM root, not a CSS isolation boundary: the [stylesheet](#styles) still includes global Tailwind utilities.
+
+<auto-type-table
+  cwd
+  path="../../packages/session-react/src/ui-root.tsx"
+  name="ApertureUIRootProps"
+/>
+
+Errors and confirmations appear as toasts only when your app renders a [Sonner](https://sonner.emilkowal.ski) `Toaster`. `useBrowserControl` and `BrowserControlPane` drive and render a session for other credentials, inside the same root. These are what the Aperture web app is built from.
 
 Requires `effect` 4 and React 19.
