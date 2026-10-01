@@ -58,19 +58,22 @@ export function ThemeSwitcher() {
             type="button"
             variant="ghost"
             size="sm"
-            className="w-full justify-start group-data-[collapsible=icon]:gap-0"
+            className="aperture:w-full aperture:justify-start aperture:group-data-[collapsible=icon]:gap-0"
             aria-label="Theme"
             title={`Theme: ${activeOption.label}`}
           />
         }
       >
         <ActiveIcon data-icon="inline-start" />
-        <span data-sidebar-collapse-label className="min-w-0 flex-1 truncate text-left">
+        <span
+          data-sidebar-collapse-label
+          className="aperture:min-w-0 aperture:flex-1 aperture:truncate aperture:text-left"
+        >
           {activeOption.label}
         </span>
         <ChevronsUpDown data-icon="inline-end" data-sidebar-collapse-label />
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="right" align="end" className="w-36">
+      <DropdownMenuContent side="right" align="end" className="aperture:w-36">
         <DropdownMenuLabel>Theme</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={activeTheme} onValueChange={handleThemeChange}>
           {THEME_OPTIONS.map((option) => (
@@ -99,8 +102,7 @@ function resolveThemeClass(theme: ThemeMode) {
 
 function applyThemeClass(theme: ThemeMode) {
   const resolvedTheme = resolveThemeClass(theme);
-  document.documentElement.classList.remove("light", "dark");
-  document.documentElement.classList.add(resolvedTheme);
+  document.documentElement.classList.toggle("aperture-dark", resolvedTheme === "dark");
   document.documentElement.style.colorScheme = resolvedTheme;
 }
 

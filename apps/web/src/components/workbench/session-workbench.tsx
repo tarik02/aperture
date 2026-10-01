@@ -118,7 +118,7 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
 
   if (!tenantReady) {
     return (
-      <div className="flex h-full min-h-0 flex-col p-3">
+      <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col aperture:p-3">
         <TenantRequiredNotice />
       </div>
     );
@@ -126,7 +126,7 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
 
   if (!canControl) {
     return (
-      <Empty className="h-full border-none">
+      <Empty className="aperture:h-full aperture:border-none">
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <AppWindow />
@@ -141,9 +141,9 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden aperture:bg-background">
       {isResolvingRoute ? (
-        <Empty className="h-full border-none">
+        <Empty className="aperture:h-full aperture:border-none">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <Spinner />
@@ -152,7 +152,7 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
           </EmptyHeader>
         </Empty>
       ) : selectedSession?.status === "creating" ? (
-        <Empty className="h-full border-none">
+        <Empty className="aperture:h-full aperture:border-none">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <Spinner />
@@ -162,7 +162,7 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
           </EmptyHeader>
         </Empty>
       ) : selectedSession?.status === "failed" ? (
-        <Empty className="h-full border-none">
+        <Empty className="aperture:h-full aperture:border-none">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <AppWindow />
@@ -187,7 +187,7 @@ export function SessionWorkbench({ sessionId }: SessionWorkbenchProps) {
           onSessionDetails={() => setDetailSection("details")}
         />
       ) : (
-        <Empty className="h-full border-none">
+        <Empty className="aperture:h-full aperture:border-none">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <AppWindow />
@@ -221,7 +221,7 @@ function BackToSessions() {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="h-full aspect-square shrink-0 rounded-none"
+            className="aperture:h-full aperture:aspect-square aperture:shrink-0 aperture:rounded-none"
             aria-label="Back to sessions"
             render={<Link to="/-/sessions" />}
           />

@@ -25,14 +25,19 @@ export function BatchActionBar({ selectedCount, onClear, children }: BatchAction
   };
 
   return (
-    <div className="pointer-events-none fixed bottom-5 z-50 flex justify-center" style={insetStyle}>
-      <div className="pointer-events-auto flex min-h-9 max-w-full flex-wrap items-center gap-2 rounded-lg bg-popover px-2 py-1 text-popover-foreground shadow-md ring-1 ring-foreground/10">
-        <span className="text-sm whitespace-nowrap text-muted-foreground">
+    <div
+      className="aperture:pointer-events-none aperture:fixed aperture:bottom-5 aperture:z-50 aperture:flex aperture:justify-center"
+      style={insetStyle}
+    >
+      <div className="aperture:pointer-events-auto aperture:flex aperture:min-h-9 aperture:max-w-full aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:rounded-lg aperture:bg-popover aperture:px-2 aperture:py-1 aperture:text-popover-foreground aperture:shadow-md aperture:ring-1 aperture:ring-foreground/10">
+        <span className="aperture:text-sm aperture:whitespace-nowrap aperture:text-muted-foreground">
           {selectedCount} selected
         </span>
-        <Separator orientation="vertical" className="h-4" />
-        <div className="flex flex-wrap items-center gap-1">{children}</div>
-        <Separator orientation="vertical" className="h-4" />
+        <Separator orientation="vertical" className="aperture:h-4" />
+        <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1">
+          {children}
+        </div>
+        <Separator orientation="vertical" className="aperture:h-4" />
         <Button type="button" variant="ghost" size="sm" onClick={onClear}>
           <X data-icon="inline-start" />
           Clear

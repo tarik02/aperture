@@ -27,31 +27,35 @@ export function EventsPanel({ resourceType, resourceId, className }: EventsPanel
   const events = flattenInfinitePages(query.data?.pages);
 
   return (
-    <div className={cn("flex min-h-0 flex-col gap-3", className)}>
+    <div
+      className={cn("aperture:flex aperture:min-h-0 aperture:flex-col aperture:gap-3", className)}
+    >
       {query.isLoading ? (
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-8 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
+        <div className="aperture:flex aperture:flex-col aperture:gap-2">
+          <Skeleton className="aperture:h-8 aperture:w-full" />
+          <Skeleton className="aperture:h-10 aperture:w-full" />
+          <Skeleton className="aperture:h-10 aperture:w-full" />
         </div>
       ) : events.length === 0 ? (
-        <Empty className="min-h-32 py-6">
+        <Empty className="aperture:min-h-32 aperture:py-6">
           <EmptyHeader>
             <EmptyTitle>No events</EmptyTitle>
           </EmptyHeader>
         </Empty>
       ) : (
         <ScrollArea
-          className="min-h-0 max-h-[min(52svh,22rem)] flex-1"
-          viewportClassName="pb-2 data-[has-overflow-y]:pr-3"
+          className="aperture:min-h-0 aperture:max-h-[min(52svh,22rem)] aperture:flex-1"
+          viewportClassName="aperture:pb-2 aperture:data-[has-overflow-y]:pr-3"
           scrollbars="both"
         >
-          <Table className="min-w-[36rem]">
+          <Table className="aperture:min-w-[36rem]">
             <TableHeader>
               <TableRow>
-                <TableHead className="h-7 px-1">Event</TableHead>
-                <TableHead className="h-7 px-1">Message</TableHead>
-                <TableHead className="h-7 px-1 text-right">Time</TableHead>
+                <TableHead className="aperture:h-7 aperture:px-1">Event</TableHead>
+                <TableHead className="aperture:h-7 aperture:px-1">Message</TableHead>
+                <TableHead className="aperture:h-7 aperture:px-1 aperture:text-right">
+                  Time
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -63,7 +67,7 @@ export function EventsPanel({ resourceType, resourceId, className }: EventsPanel
         </ScrollArea>
       )}
       {query.hasNextPage ? (
-        <div className="flex justify-center">
+        <div className="aperture:flex aperture:justify-center">
           <Button
             type="button"
             variant="outline"
@@ -82,11 +86,13 @@ export function EventsPanel({ resourceType, resourceId, className }: EventsPanel
 function EventRow({ event }: { event: ResourceEvent }) {
   return (
     <TableRow>
-      <TableCell className="px-1 py-1 font-medium">{event.type}</TableCell>
-      <TableCell className="max-w-md px-1 py-1 whitespace-normal text-muted-foreground">
+      <TableCell className="aperture:px-1 aperture:py-1 aperture:font-medium">
+        {event.type}
+      </TableCell>
+      <TableCell className="aperture:max-w-md aperture:px-1 aperture:py-1 aperture:whitespace-normal aperture:text-muted-foreground">
         {event.message || "—"}
       </TableCell>
-      <TableCell className="px-1 py-1 text-right text-muted-foreground">
+      <TableCell className="aperture:px-1 aperture:py-1 aperture:text-right aperture:text-muted-foreground">
         <time dateTime={event.createdAt}>{formatTimestamp(event.createdAt)}</time>
       </TableCell>
     </TableRow>

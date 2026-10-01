@@ -9,7 +9,7 @@ function Spinner({ className, ...props }: ComponentProps<"svg">) {
       data-slot="spinner"
       role="status"
       aria-label="Loading"
-      className={cn("size-4 animate-spin", className)}
+      className={cn("aperture:size-4 aperture:animate-spin", className)}
       {...props}
     />
   );

@@ -18,7 +18,11 @@ export function ApertureUIRoot({ theme = "system", className, children }: Apertu
   return (
     <div
       ref={setRoot}
-      className={cn("aperture-root relative h-full w-full", dark && "dark", className)}
+      className={cn(
+        "aperture-root aperture:relative aperture:h-full aperture:w-full",
+        dark && "aperture-dark",
+        className,
+      )}
     >
       {root ? (
         <PortalContainerProvider container={root}>

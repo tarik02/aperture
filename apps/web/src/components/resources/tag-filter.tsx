@@ -135,21 +135,24 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
   }
 
   return (
-    <ScrollArea scrollbars="horizontal" className="max-w-full min-w-0">
-      <div className="flex min-w-0 items-center gap-1.5">
+    <ScrollArea scrollbars="horizontal" className="aperture:max-w-full aperture:min-w-0">
+      <div className="aperture:flex aperture:min-w-0 aperture:items-center aperture:gap-1.5">
         {conditions.map((condition, index) => {
           const valuesForKey = Array.from(tagIndex.valuesByKey.get(condition.key) ?? []).sort();
           const many = operatorAllowsMany(condition.operator);
 
           return (
-            <div key={index} className="flex shrink-0 items-center gap-1.5">
+            <div
+              key={index}
+              className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-1.5"
+            >
               <DropdownStringCombobox
                 ariaLabel="Tag key"
                 placeholder="Tag"
                 searchPlaceholder="Search keys"
                 value={condition.key}
                 options={tagIndex.keys}
-                className="w-32"
+                className="aperture:w-32"
                 onChange={(key) => updateKey(index, key)}
               />
               {condition.key ? (
@@ -159,7 +162,7 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
                     value={condition.operator}
                     onValueChange={(operator) => updateOperator(index, operator)}
                   >
-                    <SelectTrigger size="sm" className="w-16">
+                    <SelectTrigger size="sm" className="aperture:w-16">
                       <SelectValue>
                         {(selectedValue: unknown) =>
                           tagFilterOperators.find((item) => item.value === selectedValue)?.label ??
@@ -167,7 +170,7 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
                         }
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent align="start" className="min-w-24">
+                    <SelectContent align="start" className="aperture:min-w-24">
                       <SelectGroup>
                         {tagFilterOperators.map((item) => (
                           <SelectItem key={item.value} value={item.value}>
@@ -183,7 +186,7 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
                     searchPlaceholder="Search values"
                     value={many ? "" : (condition.values[0] ?? "")}
                     options={valuesForKey.filter((item) => !condition.values.includes(item))}
-                    className="w-36"
+                    className="aperture:w-36"
                     open={openValueIndex === index}
                     onOpenChange={(open) =>
                       setOpenValueIndex((current) => {
@@ -199,12 +202,16 @@ export function TagFilter({ value, availableTags, onChange }: TagFilterProps) {
                   />
                   {many
                     ? condition.values.map((tagValue) => (
-                        <Badge key={tagValue} variant="secondary" className="max-w-28 font-normal">
-                          <span className="truncate">{tagValue}</span>
+                        <Badge
+                          key={tagValue}
+                          variant="secondary"
+                          className="aperture:max-w-28 aperture:font-normal"
+                        >
+                          <span className="aperture:truncate">{tagValue}</span>
                           <button
                             type="button"
                             aria-label={`Remove ${tagValue}`}
-                            className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg:not([class*='size-'])]:size-3"
+                            className="aperture:rounded-sm aperture:outline-none aperture:focus-visible:ring-2 aperture:focus-visible:ring-ring aperture:[&_svg:not([class*='size-'])]:size-3"
                             onClick={() => removeMultiValue(index, tagValue)}
                           >
                             <X />
@@ -275,19 +282,24 @@ function DropdownStringCombobox({
             type="button"
             variant="outline"
             size="sm"
-            className={cn("min-w-0 justify-between", className)}
+            className={cn("aperture:min-w-0 aperture:justify-between", className)}
           />
         }
       >
-        <span className={cn("min-w-0 truncate", !value && "text-muted-foreground")}>
+        <span
+          className={cn(
+            "aperture:min-w-0 aperture:truncate",
+            !value && "aperture:text-muted-foreground",
+          )}
+        >
           {value || placeholder}
         </span>
       </ComboboxTrigger>
-      <ComboboxContent align="start" className="w-56">
+      <ComboboxContent align="start" className="aperture:w-56">
         <ComboboxInput
           placeholder={searchPlaceholder}
           showTrigger={false}
-          className="w-auto"
+          className="aperture:w-auto"
           autoFocus={open === true}
         />
         <ComboboxEmpty>No matches</ComboboxEmpty>

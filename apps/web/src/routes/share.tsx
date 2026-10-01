@@ -77,7 +77,10 @@ function ShareRoute() {
 
   if (capability.kind === "loading") {
     return (
-      <ShareState icon={<Loader2 className="animate-spin" />} title="Opening shared session" />
+      <ShareState
+        icon={<Loader2 className="aperture:animate-spin" />}
+        title="Opening shared session"
+      />
     );
   }
 
@@ -104,7 +107,7 @@ function ShareState({
   description?: string;
 }) {
   return (
-    <Empty className="h-full border-none">
+    <Empty className="aperture:h-full aperture:border-none">
       <EmptyHeader>
         <EmptyMedia variant="icon">{icon}</EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>

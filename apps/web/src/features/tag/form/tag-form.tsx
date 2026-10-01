@@ -30,7 +30,7 @@ export function TagForm({ title, onSave }: TagFormProps) {
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
       </DialogHeader>
-      <div className="py-2">
+      <div className="aperture:py-2">
         <TagEditor
           entries={entries}
           onChange={(nextEntries) => setFormData({ entries: nextEntries })}

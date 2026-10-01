@@ -48,7 +48,7 @@ export function TenantForm({ mode, onDone }: TenantFormProps) {
       <DialogHeader>
         <DialogTitle>{mode === "create" ? "Create tenant" : "Rename tenant"}</DialogTitle>
       </DialogHeader>
-      <FieldGroup className="py-2">
+      <FieldGroup className="aperture:py-2">
         <Field data-invalid={error ? true : undefined}>
           <FieldLabel htmlFor="tenant-name">Display name</FieldLabel>
           <Input

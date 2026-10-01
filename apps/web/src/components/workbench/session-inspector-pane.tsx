@@ -14,25 +14,27 @@ type SessionInspectorPaneProps = {
 export function SessionInspectorPane({ session }: SessionInspectorPaneProps) {
   if (!session) {
     return (
-      <div className="flex h-full items-center justify-center border-l p-4 text-sm text-muted-foreground">
+      <div className="aperture:flex aperture:h-full aperture:items-center aperture:justify-center aperture:border-l aperture:p-4 aperture:text-sm aperture:text-muted-foreground">
         Select a session
       </div>
     );
   }
 
   return (
-    <ScrollArea className="h-full border-l">
-      <div className="space-y-4 p-3">
-        <div className="flex items-center gap-2">
-          <div className="min-w-0">
+    <ScrollArea className="aperture:h-full aperture:border-l">
+      <div className="aperture:space-y-4 aperture:p-3">
+        <div className="aperture:flex aperture:items-center aperture:gap-2">
+          <div className="aperture:min-w-0">
             {session.label ? (
-              <h2 className="truncate text-sm font-medium">{session.label}</h2>
+              <h2 className="aperture:truncate aperture:text-sm aperture:font-medium">
+                {session.label}
+              </h2>
             ) : null}
             <div
               className={
                 session.label
-                  ? "break-all font-mono text-xs text-muted-foreground"
-                  : "break-all font-mono text-sm"
+                  ? "aperture:break-all aperture:font-mono aperture:text-xs aperture:text-muted-foreground"
+                  : "aperture:break-all aperture:font-mono aperture:text-sm"
               }
             >
               {session.id}

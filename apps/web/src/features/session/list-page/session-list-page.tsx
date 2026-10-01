@@ -124,18 +124,18 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
 const SESSION_SKELETON_COLUMNS = [
   {
     cellClassName: stickyTableStartCellClassName,
-    skeletonClassName: "size-4 rounded-sm",
+    skeletonClassName: "aperture:size-4 aperture:rounded-sm",
     sticky: "start",
   },
-  { skeletonClassName: "h-8 w-72" },
-  { skeletonClassName: "h-5 w-16 rounded-full" },
-  { skeletonClassName: "h-4 w-16" },
-  { skeletonClassName: "h-4 w-24" },
-  { skeletonClassName: "h-5 w-40 rounded-full" },
-  { skeletonClassName: "h-4 w-36" },
+  { skeletonClassName: "aperture:h-8 aperture:w-72" },
+  { skeletonClassName: "aperture:h-5 aperture:w-16 aperture:rounded-full" },
+  { skeletonClassName: "aperture:h-4 aperture:w-16" },
+  { skeletonClassName: "aperture:h-4 aperture:w-24" },
+  { skeletonClassName: "aperture:h-5 aperture:w-40 aperture:rounded-full" },
+  { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
     cellClassName: stickyTableEndCellClassName,
-    skeletonClassName: "ml-auto size-7",
+    skeletonClassName: "aperture:ml-auto aperture:size-7",
     sticky: "end",
   },
 ] as const;
@@ -368,7 +368,7 @@ export function SessionListPage() {
               : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       {canWrite && tenantReady ? (
         <PageHeaderActions>
           <Button
@@ -384,10 +384,10 @@ export function SessionListPage() {
         </PageHeaderActions>
       ) : null}
 
-      <div className="flex shrink-0 flex-col gap-3 p-3">
+      <div className="aperture:flex aperture:shrink-0 aperture:flex-col aperture:gap-3 aperture:p-3">
         <TenantRequiredNotice />
         {tenantReady ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-2">
             <Select
               items={STATUS_OPTIONS}
               value={status ?? ALL_STATUS}
@@ -395,7 +395,7 @@ export function SessionListPage() {
                 setStatus(value === ALL_STATUS ? undefined : (value ?? undefined))
               }
             >
-              <SelectTrigger size="sm" className="w-32">
+              <SelectTrigger size="sm" className="aperture:w-32">
                 <SelectValue placeholder="Status">
                   {(selectedValue: unknown) =>
                     STATUS_OPTIONS.find((option) => option.value === selectedValue)?.label ??
@@ -529,12 +529,12 @@ export function SessionListPage() {
                     <TableRow
                       key={session.id}
                       data-state={selectedSessions[session.id] ? "selected" : undefined}
-                      className="cursor-pointer"
+                      className="aperture:cursor-pointer"
                       onClick={() => openDetail(session)}
                     >
                       <TableCell
                         data-table-sticky="start"
-                        className={`${stickyTableStartCellClassName} ${canWrite ? "cursor-pointer" : ""}`}
+                        className={`${stickyTableStartCellClassName} ${canWrite ? "aperture:cursor-pointer" : ""}`}
                         onClick={(event) => {
                           event.stopPropagation();
                           if (canWrite) {
@@ -550,14 +550,18 @@ export function SessionListPage() {
                           onCheckedChange={(checked) => toggleSessionSelection(session, checked)}
                         />
                       </TableCell>
-                      <TableCell className="min-w-72">
+                      <TableCell className="aperture:min-w-72">
                         {session.label ? (
-                          <div className="max-w-96 truncate font-medium">{session.label}</div>
+                          <div className="aperture:max-w-96 aperture:truncate aperture:font-medium">
+                            {session.label}
+                          </div>
                         ) : null}
                         <div
                           className={cn(
-                            "break-all font-mono leading-snug",
-                            session.label ? "text-xs text-muted-foreground" : "text-sm",
+                            "aperture:break-all aperture:font-mono aperture:leading-snug",
+                            session.label
+                              ? "aperture:text-xs aperture:text-muted-foreground"
+                              : "aperture:text-sm",
                           )}
                         >
                           {session.id}
@@ -571,7 +575,7 @@ export function SessionListPage() {
                       <TableCell>
                         <TagBadges tags={session.tags} />
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="aperture:text-muted-foreground">
                         {formatTimestamp(session.createdAt)}
                       </TableCell>
                       <TableCell
@@ -616,8 +620,8 @@ export function SessionListPage() {
           </InfiniteTableShell>
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 p-3 pt-0">
-          <Empty className="min-h-full border">
+        <div className="aperture:flex aperture:min-h-0 aperture:flex-1 aperture:p-3 aperture:pt-0">
+          <Empty className="aperture:min-h-full aperture:border">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <AppWindow />
@@ -765,7 +769,7 @@ function SessionActionsMenu({
       >
         <MoreHorizontal />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent align="end" className="aperture:min-w-48">
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={onDetails}>
             <Info />
@@ -820,7 +824,7 @@ function SessionActionsMenu({
                 <TagsIcon />
                 Edit tags
               </DropdownMenuItem>
-              <DropdownMenuItem className="whitespace-nowrap" onClick={onRotate}>
+              <DropdownMenuItem className="aperture:whitespace-nowrap" onClick={onRotate}>
                 <KeyRound />
                 Rotate session token
               </DropdownMenuItem>

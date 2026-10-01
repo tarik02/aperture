@@ -17,7 +17,7 @@ export function TagEditModal({ resourceKey, title, onSave }: TagEditModalProps) 
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="aperture:sm:max-w-2xl">
         <TagForm title={title} onSave={onSave} />
       </DialogContent>
     </Dialog>

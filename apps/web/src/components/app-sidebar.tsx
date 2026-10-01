@@ -32,30 +32,33 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border">
+      <SidebarHeader className="aperture:border-b aperture:border-sidebar-border">
         <div
           data-app-sidebar-titlebar
-          className="flex items-center gap-2 group-data-[collapsible=icon]:gap-0"
+          className="aperture:flex aperture:items-center aperture:gap-2 aperture:group-data-[collapsible=icon]:gap-0"
         >
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-            <span className="text-xs font-semibold">A</span>
+          <div className="aperture:flex aperture:size-7 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-sidebar-primary aperture:text-sidebar-primary-foreground">
+            <span className="aperture:text-xs aperture:font-semibold">A</span>
           </div>
-          <span data-sidebar-collapse-label className="min-w-0 truncate text-sm font-semibold">
+          <span
+            data-sidebar-collapse-label
+            className="aperture:min-w-0 aperture:truncate aperture:text-sm aperture:font-semibold"
+          >
             Aperture
           </span>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="aperture:flex aperture:flex-col aperture:gap-1">
           <SelectedTenantControl
-            triggerClassName="h-8 w-full max-w-none justify-start group-data-[collapsible=icon]:gap-0"
+            triggerClassName="aperture:h-8 aperture:w-full aperture:max-w-none aperture:justify-start aperture:group-data-[collapsible=icon]:gap-0"
             align="start"
           />
           <AuthMenu />
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup className="p-1.5">
+        <SidebarGroup className="aperture:p-1.5">
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1">
+            <SidebarMenu className="aperture:gap-1">
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.to}>
                   <SidebarMenuButton
@@ -73,7 +76,7 @@ export function AppSidebar() {
         </SidebarGroup>
         <RecentSessionsSidebarGroup pathname={pathname} />
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border">
+      <SidebarFooter className="aperture:border-t aperture:border-sidebar-border">
         <ThemeSwitcher />
       </SidebarFooter>
     </Sidebar>

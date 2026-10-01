@@ -107,11 +107,11 @@ export function BrowserToolbar({
   }
 
   return (
-    <div className="flex min-w-0 flex-col bg-background">
+    <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:bg-background">
       {leading || features.tabs || features.presence ? (
         <div
           data-workbench-titlebar
-          className="flex min-w-0 shrink-0 items-stretch border-b bg-muted/35"
+          className="aperture:flex aperture:min-w-0 aperture:shrink-0 aperture:items-stretch aperture:border-b aperture:bg-muted/35"
         >
           {leading}
           {features.tabs ? (
@@ -131,7 +131,7 @@ export function BrowserToolbar({
               loadThumbnail={control.loadTargetThumbnail}
             />
           ) : (
-            <div className="min-w-0 flex-1" />
+            <div className="aperture:min-w-0 aperture:flex-1" />
           )}
           {features.presence ? (
             <CollaborationPresence collaboration={control.collaboration} />
@@ -143,9 +143,9 @@ export function BrowserToolbar({
       features.drawing ||
       features.devTools ||
       features.menus ? (
-        <div className="flex h-9 items-center gap-1 px-1.5">
+        <div className="aperture:flex aperture:h-9 aperture:items-center aperture:gap-1 aperture:px-1.5">
           {features.navigation ? (
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-0.5">
               <ToolbarButton
                 label="Back"
                 disabled={!browserMutationEnabled}
@@ -176,7 +176,7 @@ export function BrowserToolbar({
             </div>
           ) : null}
           {features.addressBar ? (
-            <InputGroup className="h-7 border-transparent bg-transparent transition-colors hover:border-input/50 hover:bg-muted/35 has-[[data-slot=input-group-control]:focus-visible]:border-input/70 has-[[data-slot=input-group-control]:focus-visible]:bg-background has-[[data-slot=input-group-control]:focus-visible]:ring-2 has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 dark:hover:bg-input/20">
+            <InputGroup className="aperture:h-7 aperture:border-transparent aperture:bg-transparent aperture:transition-colors aperture:hover:border-input/50 aperture:hover:bg-muted/35 aperture:has-[[data-slot=input-group-control]:focus-visible]:border-input/70 aperture:has-[[data-slot=input-group-control]:focus-visible]:bg-background aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-2 aperture:has-[[data-slot=input-group-control]:focus-visible]:ring-ring/20 aperture:dark:hover:bg-input/20">
               <InputGroupInput
                 value={urlDraft ?? displayUrl}
                 onChange={(event) => setUrlDraft(event.target.value)}
@@ -188,14 +188,16 @@ export function BrowserToolbar({
                   }
                 }}
                 placeholder="URL"
-                className="h-7 px-2 font-mono text-xs text-muted-foreground transition-colors focus-visible:text-foreground"
+                className="aperture:h-7 aperture:px-2 aperture:font-mono aperture:text-xs aperture:text-muted-foreground aperture:transition-colors aperture:focus-visible:text-foreground"
                 disabled={!browserMutationEnabled}
               />
             </InputGroup>
           ) : (
-            <div className="min-w-0 flex-1" />
+            <div className="aperture:min-w-0 aperture:flex-1" />
           )}
-          {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+          {busy ? (
+            <Loader2 className="aperture:size-4 aperture:shrink-0 aperture:animate-spin aperture:text-muted-foreground" />
+          ) : null}
           {features.drawing ? (
             <Tooltip>
               <TooltipTrigger
@@ -204,7 +206,7 @@ export function BrowserToolbar({
                     type="button"
                     variant={paintingEnabled ? "secondary" : "ghost"}
                     size="icon-sm"
-                    className="shrink-0"
+                    className="aperture:shrink-0"
                     disabled={!paintingEnabled && !drawingAvailable}
                     aria-label={paintingEnabled ? "Stop drawing" : "Draw on this tab"}
                     aria-pressed={paintingEnabled}

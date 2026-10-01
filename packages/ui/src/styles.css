@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+@import "tailwindcss" prefix(aperture);
+@import "tw-animate-css/prefix";
 @import "@fontsource-variable/geist";
 @import "./tokens.css";
 @import "./theme.css";
@@ -7,14 +7,14 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply aperture:border-border aperture:outline-ring/50;
   }
 
   html {
-    @apply h-full overflow-hidden font-sans;
+    @apply aperture:h-full aperture:overflow-hidden aperture:font-sans;
   }
 
   body {
-    @apply h-full min-h-svh overflow-hidden bg-background text-foreground;
+    @apply aperture:h-full aperture:min-h-svh aperture:overflow-hidden aperture:bg-background aperture:text-foreground;
   }
 }

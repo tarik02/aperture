@@ -59,7 +59,9 @@ No token or role is supplied by the browser. The consumer backend authenticates 
 
 ### Styles
 
-`styles.css` styles everything inside the component's `.aperture-root` element: theme colors and a scoped reset. It does not touch your page's `html`, `body` or `:root`, and menus and tooltips render inside the root. It does include Tailwind utility classes, which your own unlayered CSS can override. For full isolation, use [session-element](/docs/packages/session-element), which renders into Shadow DOM.
+`styles.css` styles everything inside the component's `.aperture-root` element: theme colors and a scoped reset. It does not touch your page's `html`, `body` or `:root`, and menus and tooltips render inside the root. Its utility classes carry an `aperture:` prefix, and its keyframes, cascade layers and registered custom properties are namespaced with `aperture-`, so they do not clash with your page's own Tailwind. Your own unlayered CSS can still override them. Dark mode follows the root's `theme`, not a `dark` class on your page. For full isolation, use [session-element](/docs/packages/session-element), which renders into Shadow DOM.
+
+Classes supplied through `className` are preserved, but your page's Tailwind utilities do not replace Aperture's prefixed defaults; precedence depends on cascade layer order. Use an unlayered CSS class for overrides, or set the size on an outer wrapper.
 
 The component uses your page's font. To pick others, set `--aperture-font-sans` and `--aperture-font-mono` (used for URLs) on it or any ancestor, e.g. `--aperture-font-sans: "Inter", sans-serif`.
 
@@ -160,7 +162,7 @@ import "@aperture-browser/session-react/styles.css";
 </ApertureUIRoot>;
 ```
 
-`theme` defaults to `system`; `className` applies to the root element. This is a light-DOM root, not a CSS isolation boundary: the [stylesheet](#styles) still includes global Tailwind utilities.
+`theme` defaults to `system`; `className` applies to the root element. This is a light-DOM root, not a CSS isolation boundary: the [stylesheet](#styles) is namespaced, but your page's CSS still reaches inside it.
 
 <auto-type-table
   cwd

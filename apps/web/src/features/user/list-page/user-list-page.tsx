@@ -46,13 +46,13 @@ const STATUS_OPTIONS = [
 ] satisfies Array<{ value: UserDisabledFilterValue; label: string }>;
 
 const USER_SKELETON_COLUMNS = [
-  { skeletonClassName: "h-4 w-44" },
-  { skeletonClassName: "h-4 w-28" },
-  { skeletonClassName: "h-4 w-20" },
-  { skeletonClassName: "h-4 w-36" },
+  { skeletonClassName: "aperture:h-4 aperture:w-44" },
+  { skeletonClassName: "aperture:h-4 aperture:w-28" },
+  { skeletonClassName: "aperture:h-4 aperture:w-20" },
+  { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
     cellClassName: stickyTableEndCellClassName,
-    skeletonClassName: "ml-auto size-7",
+    skeletonClassName: "aperture:ml-auto aperture:size-7",
     sticky: "end",
   },
 ] as const;
@@ -77,7 +77,7 @@ export function UserListPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col">
       <PageHeaderActions>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus data-icon="inline-start" />
@@ -85,8 +85,8 @@ export function UserListPage() {
         </Button>
       </PageHeaderActions>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 p-3">
-        <InputGroup className="w-full sm:w-72">
+      <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
+        <InputGroup className="aperture:w-full aperture:sm:w-72">
           <InputGroupInput
             type="search"
             value={search}
@@ -107,7 +107,7 @@ export function UserListPage() {
             }
           }}
         >
-          <SelectTrigger className="w-36" aria-label="User status">
+          <SelectTrigger className="aperture:w-36" aria-label="User status">
             <SelectValue>
               {(value: unknown) =>
                 STATUS_OPTIONS.find((option) => option.value === value)?.label ?? "Status"
@@ -129,7 +129,7 @@ export function UserListPage() {
       <InfiniteTableShell
         query={query}
         emptyTitle={deferredSearch ? "No matching users" : "No users"}
-        className="[--table-sticky-start-width:0rem]"
+        className="aperture:[--table-sticky-start-width:0rem]"
         loading={
           <Table>
             <TableHeader>
@@ -162,16 +162,18 @@ export function UserListPage() {
               {users.map((user) => (
                 <TableRow
                   key={user.id}
-                  className="cursor-pointer"
+                  className="aperture:cursor-pointer"
                   onClick={() => {
                     setSelectedUserId(user.id);
                     setUserSheetOpen(true);
                   }}
                 >
                   <TableCell>
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate font-medium">{user.displayName}</span>
-                      <span className="truncate text-sm text-muted-foreground">
+                    <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-0.5">
+                      <span className="aperture:truncate aperture:font-medium">
+                        {user.displayName}
+                      </span>
+                      <span className="aperture:truncate aperture:text-sm aperture:text-muted-foreground">
                         {user.email ?? "No email"}
                       </span>
                     </div>
@@ -190,7 +192,7 @@ export function UserListPage() {
                       <Badge variant="secondary">Active</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="aperture:text-muted-foreground">
                     {formatTimestamp(user.updatedAt)}
                   </TableCell>
                   <TableCell data-table-sticky="end" className={stickyTableEndCellClassName}>

@@ -45,7 +45,7 @@ export function SelectedTenantControl({
       onSelect={(tenant) => void selectTenant(tenant.id)}
       disabled={switching}
       placeholder="Tenant"
-      triggerClassName={cn("h-7 max-w-56", triggerClassName)}
+      triggerClassName={cn("aperture:h-7 aperture:max-w-56", triggerClassName)}
       align={align}
       options={
         auth.principal.type === "user" && auth.principal.authorityType !== "system_admin"

@@ -13,7 +13,7 @@ export function SessionCreateModal({ onCreated }: SessionCreateModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="aperture:sm:max-w-2xl">
         <SessionForm onCreated={onCreated} />
       </DialogContent>
     </Dialog>

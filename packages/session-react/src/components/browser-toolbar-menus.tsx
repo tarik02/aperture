@@ -110,7 +110,7 @@ export function BrowserMenus({
 
   return (
     <>
-      <div className="shrink-0 sm:hidden">
+      <div className="aperture:shrink-0 aperture:sm:hidden">
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
@@ -135,7 +135,7 @@ export function BrowserMenus({
               {recordingActive ? "Browser menu, recording active" : "Browser menu"}
             </TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuContent align="end" className="aperture:w-72">
             <RestMenuItems
               control={control}
               cdpUrl={cdpUrl}
@@ -161,7 +161,7 @@ export function BrowserMenus({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
+      <div className="aperture:hidden aperture:shrink-0 aperture:items-center aperture:gap-0.5 aperture:sm:flex">
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger
@@ -184,7 +184,7 @@ export function BrowserMenus({
               {recordingActive ? "Recording in progress" : "Recording"}
             </TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuContent align="end" className="aperture:w-72">
             <RecordingMenuItems
               control={control}
               connected={connected}
@@ -214,7 +214,7 @@ export function BrowserMenus({
             </TooltipTrigger>
             <TooltipContent side="bottom">Viewport and stream</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="aperture:w-56">
             <ViewportStreamMenuItems
               control={control}
               connected={viewportConnected}
@@ -245,7 +245,7 @@ export function BrowserMenus({
             </TooltipTrigger>
             <TooltipContent side="bottom">More browser actions</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="aperture:w-48">
             <RestMenuItems
               control={control}
               cdpUrl={cdpUrl}
@@ -391,16 +391,18 @@ function RecordingMenuItems({
         <DropdownMenuLabel>Recording</DropdownMenuLabel>
         <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("tab")}>
           <Circle />
-          <span className="flex min-w-0 flex-col">
+          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
             <span>Record this tab</span>
-            <span className="text-xs text-muted-foreground">Stay pinned to this target</span>
+            <span className="aperture:text-xs aperture:text-muted-foreground">
+              Stay pinned to this target
+            </span>
           </span>
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("viewer")}>
           <Monitor />
-          <span className="flex min-w-0 flex-col">
+          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
             <span>Record this viewer</span>
-            <span className="text-xs text-muted-foreground">
+            <span className="aperture:text-xs aperture:text-muted-foreground">
               {recordingAvailable ? "Follow tab switches" : "Owner connection required"}
             </span>
           </span>
@@ -413,12 +415,12 @@ function RecordingMenuItems({
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuLabel>
-                <span className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="truncate">
+                <span className="aperture:flex aperture:min-w-0 aperture:items-center aperture:justify-between aperture:gap-2">
+                  <span className="aperture:truncate">
                     {recording.mode === "viewer" ? "Viewer" : "Tab"}:{" "}
                     {target?.title || recording.targetId.slice(0, 8)}
                   </span>
-                  <span className="shrink-0 tabular-nums">
+                  <span className="aperture:shrink-0 aperture:tabular-nums">
                     {formatElapsed(recording.startedAt, now)}
                   </span>
                 </span>
@@ -510,7 +512,7 @@ function StreamMenu({
         <Gauge />
         Stream
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="w-64">
+      <DropdownMenuSubContent className="aperture:w-64">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Source</DropdownMenuLabel>
           <DropdownMenuRadioGroup
@@ -537,9 +539,11 @@ function StreamMenu({
           >
             {!qualityUpdatesEnabled ? (
               <DropdownMenuRadioItem value="webrtc" disabled={disabled}>
-                <span className="flex min-w-0 flex-col">
+                <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
                   <span>WebRTC</span>
-                  <span className="text-xs text-muted-foreground">Live video</span>
+                  <span className="aperture:text-xs aperture:text-muted-foreground">
+                    Live video
+                  </span>
                 </span>
               </DropdownMenuRadioItem>
             ) : null}
@@ -550,9 +554,9 @@ function StreamMenu({
                     value={profile.id}
                     disabled={disabled || !settings}
                   >
-                    <span className="flex min-w-0 flex-col">
+                    <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
                       <span>{profile.label}</span>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="aperture:text-xs aperture:text-muted-foreground">
                         {profile.codec} · WebRTC
                       </span>
                     </span>
@@ -560,9 +564,11 @@ function StreamMenu({
                 ))
               : null}
             <DropdownMenuRadioItem value="jpeg" disabled={disabled}>
-              <span className="flex min-w-0 flex-col">
+              <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
                 <span>JPEG</span>
-                <span className="text-xs text-muted-foreground">WebSocket raster stream</span>
+                <span className="aperture:text-xs aperture:text-muted-foreground">
+                  WebSocket raster stream
+                </span>
               </span>
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
@@ -581,9 +587,11 @@ function StreamMenu({
               >
                 {STREAM_PRESETS.map((preset) => (
                   <DropdownMenuRadioItem key={preset.id} value={preset.id} disabled={disabled}>
-                    <span className="flex min-w-0 flex-col">
+                    <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
                       <span>{preset.label}</span>
-                      <span className="text-xs text-muted-foreground">{preset.detail}</span>
+                      <span className="aperture:text-xs aperture:text-muted-foreground">
+                        {preset.detail}
+                      </span>
                     </span>
                   </DropdownMenuRadioItem>
                 ))}
@@ -640,7 +648,7 @@ function ViewportPausedIndicator({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="text-muted-foreground"
+                  className="aperture:text-muted-foreground"
                   aria-label={`Auto-size paused. ${sizeController}`}
                 />
               }
@@ -651,7 +659,7 @@ function ViewportPausedIndicator({
         </TooltipTrigger>
         <TooltipContent side="bottom">{sizeController}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="aperture:w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel>{sizeController}</DropdownMenuLabel>
           <DropdownMenuItem disabled={!connected} onClick={() => control.takeOverViewport()}>
@@ -679,7 +687,7 @@ function ViewportMenu({
         <Monitor />
         Viewport
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="w-64">
+      <DropdownMenuSubContent className="aperture:w-64">
         <DropdownMenuLabel>Viewport</DropdownMenuLabel>
         <DropdownMenuItem
           disabled={!connected || !control.browserViewportSize}
@@ -694,10 +702,12 @@ function ViewportMenu({
           onCheckedChange={control.setViewportAutoSync}
         >
           <Monitor />
-          <span className="flex min-w-0 flex-col">
+          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
             <span>Auto-size</span>
             {sizeController !== null ? (
-              <span className="truncate text-xs text-muted-foreground">{sizeController}</span>
+              <span className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
+                {sizeController}
+              </span>
             ) : null}
           </span>
         </DropdownMenuCheckboxItem>
@@ -807,12 +817,12 @@ function CustomViewportSettings({
 
   return (
     <div
-      className="grid gap-2 px-2 py-1.5"
+      className="aperture:grid aperture:gap-2 aperture:px-2 aperture:py-1.5"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
-      <div className="grid grid-cols-3 gap-2">
+      <DropdownMenuLabel className="aperture:px-0">Custom</DropdownMenuLabel>
+      <div className="aperture:grid aperture:grid-cols-3 aperture:gap-2">
         <StreamNumberField label="Width" value={width} onChange={setWidth} />
         <StreamNumberField label="Height" value={height} onChange={setHeight} />
         <ViewportScaleField
@@ -824,7 +834,7 @@ function CustomViewportSettings({
       <Button
         type="button"
         size="sm"
-        className="h-7"
+        className="aperture:h-7"
         disabled={!connected || !nextViewport || unchanged}
         onClick={() => {
           if (nextViewport) {
@@ -861,19 +871,19 @@ function CustomStreamSettings({
 
   return (
     <FieldGroup
-      className="gap-2 px-2 py-1.5"
+      className="aperture:gap-2 aperture:px-2 aperture:py-1.5"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
     >
-      <DropdownMenuLabel className="px-0">Custom</DropdownMenuLabel>
-      <div className="grid grid-cols-2 gap-2">
+      <DropdownMenuLabel className="aperture:px-0">Custom</DropdownMenuLabel>
+      <div className="aperture:grid aperture:grid-cols-2 aperture:gap-2">
         <StreamNumberField label="FPS" value={fps} onChange={setFps} />
         <StreamNumberField label="Max Kbps" value={bitrateKbps} onChange={setBitrateKbps} />
       </div>
       <Button
         type="button"
         size="sm"
-        className="h-7 w-full"
+        className="aperture:h-7 aperture:w-full"
         disabled={disabled || !nextSettings || unchanged}
         onClick={() => {
           if (nextSettings) {
@@ -898,7 +908,7 @@ function StreamNumberField({
 }) {
   const id = useId();
   return (
-    <Field className="gap-1">
+    <Field className="aperture:gap-1">
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input
         id={id}
@@ -907,7 +917,7 @@ function StreamNumberField({
         value={value}
         onChange={(event) => onChange(digitsOnly(event.currentTarget.value))}
         onFocus={(event) => event.currentTarget.select()}
-        className="h-7"
+        className="aperture:h-7"
       />
     </Field>
   );
@@ -924,7 +934,7 @@ function ViewportScaleField({
 }) {
   const id = useId();
   return (
-    <Field className="gap-1">
+    <Field className="aperture:gap-1">
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input
         id={id}
@@ -933,7 +943,7 @@ function ViewportScaleField({
         value={value}
         onChange={(event) => onChange(decimalNumber(event.currentTarget.value))}
         onFocus={(event) => event.currentTarget.select()}
-        className="h-7"
+        className="aperture:h-7"
       />
     </Field>
   );

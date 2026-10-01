@@ -31,7 +31,7 @@ export function BrowserDevToolsPane({ cdpUrl, targetId }: BrowserDevToolsPanePro
 
   if (!src) {
     return (
-      <Empty className="h-full rounded-none border-none">
+      <Empty className="aperture:h-full aperture:rounded-none aperture:border-none">
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <Wrench />
@@ -45,7 +45,7 @@ export function BrowserDevToolsPane({ cdpUrl, targetId }: BrowserDevToolsPanePro
 
   return (
     <iframe
-      className="h-full w-full border-0 bg-background"
+      className="aperture:h-full aperture:w-full aperture:border-0 aperture:bg-background"
       src={src}
       title="Browser DevTools"
       allow="clipboard-read; clipboard-write"

@@ -152,7 +152,7 @@ export function SessionPromoteForm() {
           </AlertDescription>
         </Alert>
       ) : null}
-      <FieldGroup className="py-2">
+      <FieldGroup className="aperture:py-2">
         <Field
           data-invalid={nameError ? true : undefined}
           data-disabled={pending ? true : undefined}
@@ -177,13 +177,13 @@ export function SessionPromoteForm() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full justify-between font-normal"
+                  className="aperture:w-full aperture:justify-between aperture:font-normal"
                 />
               }
             >
               <AutocompleteValue>
                 {(value) => (
-                  <span id="promote-name-value" className="truncate">
+                  <span id="promote-name-value" className="aperture:truncate">
                     {value.trim() || "Select or create a snapshot"}
                   </span>
                 )}
@@ -219,7 +219,7 @@ export function SessionPromoteForm() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="m-1 w-[calc(100%-0.5rem)]"
+                  className="aperture:m-1 aperture:w-[calc(100%-0.5rem)]"
                   onClick={() => void snapshotsQuery.fetchNextPage()}
                   disabled={snapshotsQuery.isFetchingNextPage}
                 >

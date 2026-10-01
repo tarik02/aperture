@@ -82,7 +82,7 @@ export function SessionForm({ onCreated }: SessionFormProps) {
       <DialogHeader>
         <DialogTitle>Create session</DialogTitle>
       </DialogHeader>
-      <FieldGroup className="py-2">
+      <FieldGroup className="aperture:py-2">
         <Field>
           <FieldLabel>Label</FieldLabel>
           <Input
@@ -100,7 +100,7 @@ export function SessionForm({ onCreated }: SessionFormProps) {
             onValueChange={(value) => setFormData({ channel: value ?? "" })}
             disabled={mutation.isPending || channelsQuery.isLoading}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="aperture:w-full">
               <SelectValue placeholder="Channel" />
             </SelectTrigger>
             <SelectContent>
@@ -129,27 +129,32 @@ export function SessionForm({ onCreated }: SessionFormProps) {
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full min-w-0 justify-between"
+                  className="aperture:w-full aperture:min-w-0 aperture:justify-between"
                   disabled={mutation.isPending}
                 />
               }
             >
-              <span className={cn("min-w-0 truncate", !baseSnapshot && "text-muted-foreground")}>
+              <span
+                className={cn(
+                  "aperture:min-w-0 aperture:truncate",
+                  !baseSnapshot && "aperture:text-muted-foreground",
+                )}
+              >
                 {baseSnapshot ?? "None"}
               </span>
             </ComboboxTrigger>
-            <ComboboxContent align="start" className="w-(--anchor-width)">
+            <ComboboxContent align="start" className="aperture:w-(--anchor-width)">
               <ComboboxInput
                 placeholder="Search snapshots"
                 showTrigger={false}
-                className="w-auto"
+                className="aperture:w-auto"
               />
               {baseSnapshot ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="mx-1 mt-1 justify-start"
+                  className="aperture:mx-1 aperture:mt-1 aperture:justify-start"
                   onClick={() => setFormData({ baseSnapshot: null })}
                 >
                   No base snapshot
