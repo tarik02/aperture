@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link2Off, Loader2 } from "lucide-react";
 import {
   Empty,
@@ -8,14 +8,12 @@ import {
   EmptyTitle,
 } from "@aperture-browser/ui/components/empty";
 import { Toaster } from "@aperture-browser/ui/components/sonner";
-import { TooltipProvider } from "@aperture-browser/ui/components/tooltip";
-import { PortalContainerProvider } from "@aperture-browser/ui/portal";
-import { cn } from "@aperture-browser/ui/utils";
 import { BrowserControlPane } from "./components/browser-control-pane.tsx";
 import type { ApertureSessionFeatures, SessionFeatures } from "./features.ts";
 import { showNotice } from "./notices.ts";
 import { ApertureProvider } from "./provider.tsx";
 import { useSession } from "./session.ts";
+import { ApertureUIRoot, type ApertureTheme } from "./ui-root.tsx";
 import type { SessionAccess } from "@aperture-browser/live-session";
 
 export interface SessionProps {
@@ -26,55 +24,21 @@ export interface SessionProps {
 
 export interface ApertureSessionProps extends SessionProps {
   readonly features?: ApertureSessionFeatures;
-  readonly theme?: "light" | "dark" | "system";
+  readonly theme?: ApertureTheme;
   readonly className?: string;
 }
 
 export function ApertureSession({ theme = "system", className, ...props }: ApertureSessionProps) {
-  const [root, setRoot] = useState<HTMLDivElement | null>(null);
-  const dark = useDarkTheme(theme);
-
   return (
-    <div
-      ref={setRoot}
-      className={cn("aperture-root relative h-full w-full", dark && "dark", className)}
-    >
-      {root ? (
-        <ApertureProvider baseUrl={props.access?.baseUrl}>
-          <PortalContainerProvider container={root}>
-            <TooltipProvider>
-              <Session {...props} />
-              {props.features?.toaster !== false ? (
-                <Toaster
-                  theme={dark ? "dark" : "light"}
-                  richColors
-                  closeButton
-                  position="bottom-center"
-                />
-              ) : null}
-            </TooltipProvider>
-          </PortalContainerProvider>
-        </ApertureProvider>
-      ) : null}
-    </div>
+    <ApertureUIRoot theme={theme} className={className}>
+      <ApertureProvider baseUrl={props.access?.baseUrl}>
+        <Session {...props} />
+        {props.features?.toaster !== false ? (
+          <Toaster theme={theme} richColors closeButton position="bottom-center" />
+        ) : null}
+      </ApertureProvider>
+    </ApertureUIRoot>
   );
-}
-
-function useDarkTheme(theme: "light" | "dark" | "system"): boolean {
-  const [systemDark, setSystemDark] = useState(false);
-
-  useEffect(() => {
-    if (theme !== "system") {
-      return;
-    }
-    const query = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => setSystemDark(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, [theme]);
-
-  return theme === "dark" || (theme === "system" && systemDark);
 }
 
 export function Session({ access, features, leading }: SessionProps) {
