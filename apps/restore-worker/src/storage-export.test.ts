@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
-import { ChildProcess } from "effect/unstable/process";
+import { ChildProcess } from "effect/process";
 import { Playwright } from "effect-playwright";
 import { describe, expect, it } from "vite-plus/test";
 import { openStorageKeys } from "./storage-inventory.js";
