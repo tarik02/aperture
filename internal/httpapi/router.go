@@ -27,6 +27,7 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 	server.initMCPHandler()
 	router.Any("/mcp", server.mcp)
 	router.Any("/sessions/:sessionId/mcp", server.mcp)
+	router.GET("/sessions/:sessionId/browser/status", server.browserStatus)
 	router.GET("/sessions/:sessionId/files/*relativePath", server.sessionFile)
 	router.GET("/sessions/:sessionId/thumbnail", server.sessionThumbnail)
 	router.GET("/sessions/:sessionId/targets/:targetId/thumbnail", server.sessionThumbnail)

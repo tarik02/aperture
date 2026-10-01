@@ -170,6 +170,8 @@ func mapError(err error) (int, string, string) {
 		return http.StatusNotFound, "thumbnail_not_found", "thumbnail not found"
 	case errors.Is(err, session.ErrThumbnailCapture):
 		return http.StatusBadGateway, "browser_control_failed", "thumbnail capture failed"
+	case errors.Is(err, session.ErrBrowserOverview):
+		return http.StatusBadGateway, "browser_control_failed", "browser overview unavailable"
 	case errors.Is(err, errRecordingCodecUnavailable):
 		return http.StatusUnprocessableEntity, "recording_codec_unavailable", err.Error()
 	case errors.Is(err, errStorageExportUnsupported):

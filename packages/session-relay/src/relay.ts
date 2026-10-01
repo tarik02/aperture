@@ -118,8 +118,8 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         return { request, grant, capability };
       });
 
-      /** Reads upstream session status, turning refusals into the browser's terminal responses. */
-      const sessionStatus = Effect.fnUntraced(function* (
+      /** Reads passive upstream status, turning refusals into the browser's terminal responses. */
+      const readUpstreamStatus = Effect.fnUntraced(function* (
         admitted: Effect.Success<ReturnType<typeof admit>>,
         websocket: boolean,
       ) {
@@ -144,8 +144,9 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         return body;
       });
 
+      // This is the requested resource itself, not a live-session authorization preflight.
       const status = Effect.gen(function* () {
-        const body = yield* sessionStatus(yield* admit(false), false);
+        const body = yield* readUpstreamStatus(yield* admit(false), false);
         return HttpServerResponse.uint8Array(new Uint8Array(body), {
           contentType: "application/json",
           headers: { "cache-control": "no-store" },
@@ -156,7 +157,7 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
       const socket = (route: SocketRoute) =>
         Effect.gen(function* () {
           const admitted = yield* admit(true);
-          yield* sessionStatus(admitted, true);
+          yield* readUpstreamStatus(admitted, true);
           const url = upstreamURL(admitted.grant.sessionId, route);
           url.protocol = upstream.protocol === "https:" ? "wss:" : "ws:";
           yield* relaySocket(

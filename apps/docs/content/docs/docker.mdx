@@ -147,7 +147,7 @@ The Compose files select the GPU mode:
 
 `APERTURE_WEBRTC_MEDIA_PRODUCER_CODEC` accepts `auto`, `vp8`, or `h264-va`. The default `auto` uses H.264 VA when the selected GPU exposes the required GStreamer elements and falls back to VP8 otherwise. Explicit `h264-va` requires hardware, while explicit `vp8` permits GPU rendering with software media encoding.
 
-The per-session `/browser/status` response reports the resolved `gpuMode`, `mediaCodec`, and `renderNode` when hardware is active.
+The session wrapper logs the resolved GPU mode, render node, and media codec when it starts. The passive `/browser/status` response reports browser lifecycle and page readiness instead.
 
 ### Non-default host ports
 
@@ -244,10 +244,11 @@ session_token="$(jq -er '.sessionToken' <<<"$session_response")"
 
 curl -fsS \
   -H "Authorization: Bearer $session_token" \
-  "$APERTURE_BASE_URL/sessions/$session_id/browser/status" | jq
+  "$APERTURE_BASE_URL/sessions/$session_id/browser/status" |
+  jq -e '.status == "running" and .source == "live" and any(.pages[]; .state == "ready")'
 ```
 
-On GPU deployments, `browser/status` must report `gpuMode` as `hardware`, the selected `renderNode`, and at least one ready target. If session creation fails or the status has no ready target, inspect the supervised runtime logs:
+On GPU deployments, the wrapper log must report `gpu mode=hardware`, the selected `renderNode`, and the media codec. If session creation fails or status has no ready page, inspect the supervised runtime logs:
 
 ```bash
 docker compose -f packaging/docker/compose.yaml logs --tail=200 aperture
