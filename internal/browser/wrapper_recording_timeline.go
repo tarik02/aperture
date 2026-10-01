@@ -20,6 +20,7 @@ const (
 	timelineMaxActions  = 2000
 	timelineMaxGestures = 1000
 	timelineMaxPath     = 600
+	timelineMaxClicks   = 20     // per gesture
 	timelineMaxPoints   = 100000 // path points over all gestures
 	timelineMaxSpans    = 5000
 	// Damage is sampled at 20 Hz; changes at most this far apart form one activity span.
@@ -110,6 +111,10 @@ type timelineGesture struct {
 	Path     [][3]float64    `json:"path"` // t, x, y
 	Clicks   []timelineClick `json:"clicks"`
 	Scroll   *timelineScroll `json:"scroll,omitempty"`
+	// Zoom (true, a level or false) and Ripple are what the call asked for, as given;
+	// unset means the recording's default applies.
+	Zoom   any   `json:"zoom,omitempty"`
+	Ripple *bool `json:"ripple,omitempty"`
 }
 
 type timelineClick struct {
@@ -196,6 +201,7 @@ func (t *recordingTimeline) add(action *timelineAction, gesture *timelineGesture
 	}
 	if gesture != nil && len(t.gestures) < timelineMaxGestures {
 		gesture.Path = gesture.Path[:min(len(gesture.Path), timelineMaxPath, timelineMaxPoints-t.points)]
+		gesture.Clicks = gesture.Clicks[:min(len(gesture.Clicks), timelineMaxClicks)]
 		t.points += len(gesture.Path)
 		t.gestures = append(t.gestures, *gesture)
 	}

@@ -1484,6 +1484,7 @@ func ParseRuntimeEnvFromProcess() (RuntimeEnvValues, error) {
 	values.CompositorShell = strings.TrimSpace(os.Getenv("WEBRTC_COMPOSITOR_SHELL"))
 	values.MediaProducerEnabled = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ENABLED")) == "1"
 	values.MediaProducerGSTExecutable = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE"))
+	values.RecordingFFmpegExecutable = strings.TrimSpace(os.Getenv("RECORDING_FFMPEG_EXECUTABLE"))
 	values.MediaProducerPluginPath = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH"))
 	values.MediaProducerTarget = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_TARGET"))
 	values.MediaProducerICEServers = strings.TrimSpace(os.Getenv("WEBRTC_MEDIA_PRODUCER_ICE_SERVERS"))

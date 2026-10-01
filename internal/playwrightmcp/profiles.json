@@ -144,6 +144,10 @@
             ],
             "description": "How the pointer travels: \"natural\" (default; eased, slightly curved), \"fast\", \"instant\", or {durationMs}. Only sessions with a compositor show it; others ignore it."
           },
+          "ripple": {
+            "description": "Mark this click with a ripple in the recording. Defaults to the recording's ripple.",
+            "type": "boolean"
+          },
           "target": {
             "description": "Snapshot element ref, or a unique locator such as a CSS selector",
             "type": "string"
@@ -155,6 +159,19 @@
           "y": {
             "description": "Y in viewport CSS pixels",
             "type": "number"
+          },
+          "zoom": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "maximum": 4,
+                "minimum": 1.1,
+                "type": "number"
+              }
+            ],
+            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"
@@ -454,6 +471,19 @@
           "startY": {
             "description": "Start Y in viewport CSS pixels",
             "type": "number"
+          },
+          "zoom": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "maximum": 4,
+                "minimum": 1.1,
+                "type": "number"
+              }
+            ],
+            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"
@@ -1003,6 +1033,19 @@
           "y": {
             "description": "Y in viewport CSS pixels",
             "type": "number"
+          },
+          "zoom": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "maximum": 4,
+                "minimum": 1.1,
+                "type": "number"
+              }
+            ],
+            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"
@@ -1377,6 +1420,19 @@
           "y": {
             "description": "Y in viewport CSS pixels",
             "type": "number"
+          },
+          "zoom": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "maximum": 4,
+                "minimum": 1.1,
+                "type": "number"
+              }
+            ],
+            "description": "Zoom the recording toward this gesture: true, a level from 1.1 to 4, or false for none. Defaults to the recording's zoom."
           }
         },
         "type": "object"

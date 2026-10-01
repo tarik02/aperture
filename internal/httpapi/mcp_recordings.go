@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -17,8 +18,12 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
+	if err := browser.ValidateRecordingEffects(in.Idle, in.Zoom); err != nil {
+		return nil, mcpRecordingOutput{}, mcpToolError("invalid_arguments", err)
+	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+		"idle": in.Idle, "zoom": in.Zoom, "ripple": in.Ripple,
 	}, false)
 }
 
@@ -56,7 +61,7 @@ func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, i
 		return nil, mcpRecordingOutput{}, err
 	}
 	path := "/recordings/" + url.PathEscape(in.RecordingID)
-	if _, _, err := s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path+"/stop", nil, true); err != nil {
+	if _, _, err := s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path+"/stop?render=1", nil, true); err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, path, nil, false)
@@ -80,7 +85,7 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, mcpRecordingEffects: in.mcpRecordingEffects})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -170,8 +175,13 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 	if err != nil {
 		return mcpRecordingOutput{}, err
 	}
+	edit, err := recordingEdit(status)
+	if err != nil {
+		return mcpRecordingOutput{}, err
+	}
 	output := mcpRecordingOutput{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingEdit: edit,
+		RecordingID:   status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 		TimelineRelativePath: timelinePath,

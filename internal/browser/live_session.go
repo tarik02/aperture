@@ -74,6 +74,9 @@ type liveSession struct {
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
 	cursorVisible  bool
+	// renders is the context of recording effect renders; closing the session cancels it.
+	renders       context.Context
+	cancelRenders context.CancelFunc
 	// viewportOwner is the only session client whose auto-size requests resize targets.
 	viewportOwner    *liveSessionClient
 	autoSizeSequence uint64
@@ -265,7 +268,10 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		}
 		input = compositorInput
 	}
+	renders, cancelRenders := context.WithCancel(runtime.ctx)
 	return &liveSession{
+		renders:       renders,
+		cancelRenders: cancelRenders,
 		runtime:       runtime,
 		input:         input,
 		browser:       newLiveSessionBrowser(runtime),

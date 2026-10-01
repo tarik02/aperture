@@ -65,6 +65,10 @@ _Avoid_: Size lock, viewport lease, auto-sync leader
 A session file written next to a completed recording that describes it in video time: the capture segments, the browser tool calls with their captions and pointer gestures, and the spans in which the page's content changed.
 _Avoid_: Recording metadata, event log
 
+**Edited recording**:
+A video rendered next to a stopped recording when its recording timeline asks for effects: captions burned in, a zoom toward where the pointer works, a ripple at clicks, and idle stretches cut or sped up. The recording and its timeline are never changed, and a failed render leaves only the recording.
+_Avoid_: Processed recording, export
+
 **Editor capability**:
 A rotatable session secret that permits collaborative browser control without session management, recording, file, or unrestricted CDP authority.
 _Avoid_: Share token, session token

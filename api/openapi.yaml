@@ -881,8 +881,8 @@ paths:
         authorityTypes: [system_admin, tenant]
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
-      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+      x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, recording_effects_unavailable, session_service_unavailable, browser_control_failed]
+      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`, and effects (`idle`, `zoom`, `ripple`) on a host without ffmpeg with `recording_effects_unavailable`.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -934,13 +934,13 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file.
+      description: Stops the selected recording without transferring its media data and returns the resulting session file. When effects apply (a caption, a zoomed gesture, a rippled click, or `idle`), the request also renders `editedRelativePath` before it returns, which can take a while (a per-action effect on a host without ffmpeg is reported as `editError`); a failed render is reported as `editError` and never fails the stop.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
-        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
+        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/StoppedRecording'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files:
     get:
@@ -1688,6 +1688,7 @@ components:
         - recording_not_found
         - recording_invalid_state
         - recording_codec_unavailable
+        - recording_effects_unavailable
         - thumbnail_not_found
         - storage_export_unsupported
         - session_file_not_found
@@ -1752,6 +1753,7 @@ components:
         recording_not_found: 404
         recording_invalid_state: 409
         recording_codec_unavailable: 422
+        recording_effects_unavailable: 422
         thumbnail_not_found: 404
         storage_export_unsupported: 422
         session_file_not_found: 404
@@ -2948,6 +2950,18 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
+        idle:
+          type: string
+          enum: [cut, speed]
+          description: Cut, or speed up 8x, stretches of 1.5 seconds or more in which nothing changes on the screen or in the timeline's gestures and captions, in the edited video rendered when the recording stops.
+        zoom:
+          oneOf:
+            - {type: boolean}
+            - {type: number, minimum: 1.1, maximum: 4}
+          description: Default for pointer gestures that do not say otherwise, rendered in the edited video. `true` is a level of 1.6.
+        ripple:
+          type: boolean
+          description: Default for clicks that do not say otherwise, rendered in the edited video as a ripple.
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.
@@ -2960,6 +2974,8 @@ components:
     Recording:
       type: object
       description: One logical recording of a top-level target.
+      allOf:
+        - $ref: '#/components/schemas/RecordingEdit'
       required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
       properties:
         recordingId:
@@ -3011,6 +3027,26 @@ components:
         codec:
           type: string
           enum: [vp8, h264-va]
+    RecordingEdit:
+      type: object
+      description: What stopping a recording made of its effects. Only a stop requested through the API or MCP renders them.
+      properties:
+        editedRelativePath:
+          type: string
+          description: Session file path of the video with the recording's effects rendered (`<video>.edited.mp4`).
+          example: recordings/recording-550e8400-e29b-41d4-a716-446655440000.webm.edited.mp4
+        editError:
+          type: string
+          description: Why there is no edited video although effects applied; the recording and its timeline are unaffected.
+        editWarnings:
+          type: array
+          items: {type: string}
+          description: Effects that were left out of the edited video, and why.
+    StoppedRecording:
+      description: The recording file of a stopped recording, with what became of its effects.
+      allOf:
+        - $ref: '#/components/schemas/SessionFile'
+        - $ref: '#/components/schemas/RecordingEdit'
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

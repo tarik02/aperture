@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/playwrightmcp"
@@ -338,12 +339,21 @@ type mcpRecordingStartInput struct {
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	mcpRecordingEffects
 }
 type mcpBoundRecordingStartInput struct {
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	mcpRecordingEffects
+}
+
+// mcpRecordingEffects are the defaults of the effects rendered when the recording stops.
+type mcpRecordingEffects struct {
+	Idle   string `json:"idle,omitempty" jsonschema:"Cut or speed up stretches of 1.5 s or more where nothing changes: cut or speed."`
+	Zoom   any    `json:"zoom,omitempty" jsonschema:"Zoom toward pointer gestures that do not say otherwise: true, or a level from 1.1 to 4."`
+	Ripple bool   `json:"ripple,omitempty" jsonschema:"Mark clicks that do not say otherwise with a ripple."`
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -380,6 +390,8 @@ type mcpRecordingOutput struct {
 
 	// TimelineRelativePath names the timeline file of a stopped recording, when it has one.
 	TimelineRelativePath string `json:"timelineRelativePath,omitempty"`
+
+	browser.RecordingEdit
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`
