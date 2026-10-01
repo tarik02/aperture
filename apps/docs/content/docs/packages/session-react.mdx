@@ -147,6 +147,6 @@ Shows the active tab and forwards keyboard, pointer and clipboard input to it. I
 
 ## Lower-level pieces
 
-`Session` is the full view without its own runtime, tooltip provider and toaster, for apps that provide them (`RuntimeProvider` with `makeApertureRuntime`, and `TooltipProvider`). `useBrowserControl` and `BrowserControlPane` drive and render a session for other credentials. These are what the Aperture web app is built from.
+`Session` is the full view without its own runtime, tooltip provider and toaster, for apps that provide them (`RuntimeProvider` with `makeApertureRuntime`, and `TooltipProvider`). Wrap it in `PortalContainerProvider` with a `container` element to render menus and tooltips inside that element instead of the document body. `useBrowserControl` and `BrowserControlPane` drive and render a session for other credentials. These are what the Aperture web app is built from.
 
 Requires `effect` 4 and React 19.
