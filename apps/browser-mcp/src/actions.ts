@@ -3,6 +3,7 @@ import type { Context, ToolDefinition } from "playwright-core/lib/coreBundle";
 import { z } from "playwright-core/lib/utilsBundle";
 
 const targetIds = new WeakMap<Page, string>();
+const targetInfoResult = z.object({ targetInfo: z.object({ targetId: z.string() }) });
 
 /** The CDP target id of a page, which names the browser target Aperture records. */
 export async function targetIdOf(page: Page): Promise<string> {
@@ -10,9 +11,7 @@ export async function targetIdOf(page: Page): Promise<string> {
   if (known) return known;
   const session = await page.context().newCDPSession(page);
   try {
-    const { targetInfo } = (await session.send("Target.getTargetInfo")) as {
-      targetInfo: { targetId: string };
-    };
+    const { targetInfo } = targetInfoResult.parse(await session.send("Target.getTargetInfo"));
     targetIds.set(page, targetInfo.targetId);
     return targetInfo.targetId;
   } finally {
@@ -25,8 +24,9 @@ const tabTargetId = async (context: Context) => {
   return tab ? targetIdOf(tab.page).catch(() => "") : "";
 };
 
-async function smoothElementIntoView(element: ElementHandle) {
-  await element.evaluate(async (element) => {
+async function smoothElementIntoView(element: ElementHandle, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const scrolling = element.evaluate(async (element) => {
     if (!(element instanceof Element)) return;
     const rect = element.getBoundingClientRect();
     const visible =
@@ -65,9 +65,48 @@ async function smoothElementIntoView(element: ElementHandle) {
       requestAnimationFrame(sample);
     });
   });
+  if (!signal) {
+    await scrolling;
+    return;
+  }
+  let rejectCancelled: (reason?: unknown) => void = () => {};
+  let aborted = false;
+  const onAbort = () => {
+    if (aborted) return;
+    aborted = true;
+    void element
+      .evaluate((element) => {
+        for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+          const behavior = ancestor.style.scrollBehavior;
+          ancestor.style.scrollBehavior = "auto";
+          ancestor.scrollTo(ancestor.scrollLeft, ancestor.scrollTop);
+          ancestor.style.scrollBehavior = behavior;
+        }
+        const behavior = document.documentElement.style.scrollBehavior;
+        document.documentElement.style.scrollBehavior = "auto";
+        window.scrollTo(window.scrollX, window.scrollY);
+        document.documentElement.style.scrollBehavior = behavior;
+      })
+      .catch(() => {});
+    rejectCancelled(signal.reason);
+  };
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    rejectCancelled = reject;
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+  try {
+    await Promise.race([scrolling, cancelled]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
 }
 
-async function smoothTargetIntoView(context: Context, params: Record<string, unknown>) {
+async function smoothTargetIntoView(
+  context: Context,
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+) {
   const targets: { target: string; element?: string }[] = [];
   const add = (target: unknown, element: unknown) => {
     if (typeof target === "string") {
@@ -99,7 +138,7 @@ async function smoothTargetIntoView(context: Context, params: Record<string, unk
       frame = frame.parentFrame();
     }
     for (const scrollTarget of scrollChain.reverse()) {
-      await smoothElementIntoView(scrollTarget);
+      await smoothElementIntoView(scrollTarget, signal);
     }
   }
 }
@@ -136,7 +175,7 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
       const start = Date.now();
       let ok = true;
       try {
-        if (smoothScroll) await smoothTargetIntoView(context, rest);
+        if (smoothScroll) await smoothTargetIntoView(context, rest, signal);
         await tool.handle(context, rest as never, response, signal);
       } catch (error) {
         // Reported through the result, which a rethrown error would replace; the text
@@ -164,6 +203,7 @@ export function withAction(tool: ToolDefinition): ToolDefinition {
         }
         const action = {
           tool: tool.schema.name,
+          startTargetId: before,
           targetId,
           start,
           end,

@@ -81,11 +81,21 @@ interface FocusRect {
   height: number;
 }
 
+const targetList = z.array(
+  z.object({
+    targetId: z.string(),
+    surfaceId: z.number(),
+    state: z.string(),
+    viewport: z.object({ width: z.number(), height: z.number() }),
+  }),
+);
+
 // Not fetch: on Node 26 it takes seconds to reach the loopback wrapper.
-async function getJson(url: string): Promise<unknown> {
+async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
+  signal?.throwIfAborted();
   const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
     http
-      .get(url, { timeout: 2000 }, resolve)
+      .get(url, { timeout: 2000, ...(signal ? { signal } : {}) }, resolve)
       .on("timeout", function (this: http.ClientRequest) {
         this.destroy(new Error(`${url} timed out`));
       })
@@ -96,25 +106,48 @@ async function getJson(url: string): Promise<unknown> {
     throw new Error(`${url} answered ${response.statusCode}`);
   }
   let body = "";
-  for await (const chunk of response) body += chunk;
+  for await (const chunk of response) {
+    signal?.throwIfAborted();
+    body += chunk;
+  }
   return JSON.parse(body);
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal) => {
+  signal?.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+};
 
 export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
   /** The surface of a browser target; a new tab takes a moment to get one. */
-  async function surfaceOf(targetId: string): Promise<Surface | undefined> {
+  async function surfaceOf(targetId: string, signal?: AbortSignal): Promise<Surface | undefined> {
     if (!compositor) return undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
-      if (attempt) await sleep(100);
-      const targets = (await getJson(compositor.targetsUrl).catch(() => [])) as {
-        targetId: string;
-        surfaceId: number;
-        state: string;
-        viewport: { width: number; height: number };
-      }[];
-      const target = targets.find((t) => t.targetId === targetId && t.state === "ready");
+      if (attempt) await sleep(100, signal);
+      let raw: unknown;
+      try {
+        raw = await getJson(compositor.targetsUrl, signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        continue;
+      }
+      const decoded = targetList.safeParse(raw);
+      if (!decoded.success) continue;
+      const target = decoded.data.find(
+        (candidate) => candidate.targetId === targetId && candidate.state === "ready",
+      );
       if (target) {
         return {
           id: target.surfaceId,
@@ -216,8 +249,14 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
     return {
       capability: "core",
       schema: { name, title: name, description, inputSchema: z.object(shape), type: "input" },
-      handle: async (context: Context, params: Params, response: Response) => {
+      handle: async (
+        context: Context,
+        params: Params,
+        response: Response,
+        signal?: AbortSignal,
+      ) => {
         try {
+          signal?.throwIfAborted();
           const tab = await context.ensureTab();
           if (tab.modalStates().length) {
             throw new Error(
@@ -227,12 +266,18 @@ export function pointerTools(compositor?: CompositorConfig): ToolDefinition[] {
           const { page } = tab;
           const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
           const targetId = await targetIdOf(page);
-          const surface = await surfaceOf(targetId);
+          const surface = await surfaceOf(targetId, signal);
           const pointer =
             surface && compositor
-              ? new Pointer(compositorDevice(compositor.socket, surface, page), surface, size)
-              : new Pointer(pageDevice(page));
+              ? new Pointer(
+                  compositorDevice(compositor.socket, surface, page),
+                  surface,
+                  size,
+                  signal,
+                )
+              : new Pointer(pageDevice(page), undefined, undefined, signal);
           response.setIncludeSnapshot();
+          signal?.throwIfAborted();
           const extra = await act({ tab, page, pointer, size }, params);
           // Without a compositor surface the page's own mouse was used, and its viewport
           // coordinates mean nothing on the video, so only the timing is reported.

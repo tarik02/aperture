@@ -492,6 +492,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	if err := stopRecordingSegment(recording); err != nil {
 		return session.failRecording(recording, "pipeline_failed", err)
 	}
+	recording.timeline.waitForSampler()
 	finalPath, size, err := session.joinRecordingSegments(recording)
 	if errors.Is(err, errWrapperRecordingEmpty) {
 		return session.failRecording(recording, reason, err)
@@ -499,10 +500,16 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	if err != nil {
 		return session.failRecording(recording, "finalize_failed", err)
 	}
-	timelinePath := recording.publishTimeline(finalPath)
+	doc, timelineErr := recording.buildTimeline(finalPath)
+	timelinePath := ""
+	if timelineErr != nil {
+		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s timeline: %v\n", recording.ID, timelineErr)
+	} else {
+		timelinePath = recording.publishTimeline(finalPath, doc)
+	}
 	var edit RecordingEdit
 	if render {
-		edit = session.editRecording(recording, finalPath)
+		edit = session.editRecording(recording, finalPath, doc, timelineErr)
 	}
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()

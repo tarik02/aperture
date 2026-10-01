@@ -97,6 +97,10 @@ func TestEditPlanIdleKeepsWhatIsBusy(t *testing.T) {
 	if _, regions = idlePieces("cut", []span{{100, 900}, {2500, 9500}}, 10000); len(regions) != 0 {
 		t.Fatalf("regions = %v", regions)
 	}
+	if pieces, regions = idlePieces("cut", nil, 10000); !slices.Equal(pieces, []piece{{0, 300, 1}, {9700, 10000, 1}}) ||
+		!slices.Equal(regions, []span{{300, 9700}}) {
+		t.Fatalf("static recording: pieces = %v, regions = %v", pieces, regions)
+	}
 
 	doc := editDoc()
 	doc.Gestures = nil
@@ -242,14 +246,14 @@ func TestEditPlanBurstsCutEverythingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// One kept stretch: 1650 to 2600 (activity ends at 2400, settles 200 ms later), which
-	// the time map moves to the start; zoom and captions are rendered in edited time.
-	for _, want := range []string{"perspective=", "select='gte(t,1.6333)*lt(t,2.5833)'", "setpts='((min(max(T,1.650),2.600)-1.650))/TB'"} {
+	// One kept stretch: 1650 to 3000. Activity settles at 2600, but the caption lasts
+	// until 3000, so the cut preserves it before mapping the effects into edited time.
+	for _, want := range []string{"perspective=", "select='gte(t,1.6333)*lt(t,2.9833)'", "setpts='((min(max(T,1.650),3.000)-1.650))/TB'"} {
 		if !strings.Contains(plan.filter, want) {
 			t.Errorf("filter lacks %q: %s", want, plan.filter)
 		}
 	}
-	if i, j := strings.Index(plan.filter, "perspective="), strings.Index(plan.filter, "select="); i < j || !strings.Contains(string(plan.ass), "0:00:00.15,0:00:00.95") {
+	if i, j := strings.Index(plan.filter, "perspective="), strings.Index(plan.filter, "select="); i < j || !strings.Contains(string(plan.ass), "0:00:00.15,0:00:01.35") {
 		t.Errorf("effects and captions are not around the cut: %s\n%s", plan.filter, plan.ass)
 	}
 	doc.Actions = append(doc.Actions, timelineAction{Tool: "browser_click", Start: 5000, End: 9000, Caption: "Failed"})

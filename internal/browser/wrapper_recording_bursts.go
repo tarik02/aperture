@@ -72,8 +72,9 @@ func validateBursts(capture string, burst *RecordingBurst, idle string) error {
 // each successful action a lead, the action, and a tail that lasts until the screen
 // settles, all clamped to the video. Failed calls stay in the diagnostic timeline but
 // do not make a presentation freeze around an action that never happened. Stretches
-// that overlap or are no more than gap apart merge.
-func burstPieces(doc timelineDoc, burst RecordingBurst, gap int64) []piece {
+// that overlap or are no more than gap apart merge. Effect windows extend those
+// stretches so post-processing never cuts off an effect it is about to render.
+func burstPieces(doc timelineDoc, burst RecordingBurst, gap int64, effects ...span) []piece {
 	lead, tail, settle, maxTail := burst.times()
 	// With too many spans to hold them all, quiet does not mean still.
 	watched := doc.Activity.Complete && len(doc.Activity.Spans) < timelineMaxSpans
@@ -94,6 +95,12 @@ func burstPieces(doc timelineDoc, burst RecordingBurst, gap int64) []piece {
 			end = min(still, action.End+maxTail)
 		}
 		keep = append(keep, span{max(action.Start-lead, 0), min(end, doc.DurationMS)})
+	}
+	if len(keep) == 0 {
+		return nil
+	}
+	for _, effect := range effects {
+		keep = append(keep, span{max(effect.start, 0), min(effect.end, doc.DurationMS)})
 	}
 	slices.SortFunc(keep, func(a, b span) int { return int(a.start - b.start) })
 	var pieces []piece

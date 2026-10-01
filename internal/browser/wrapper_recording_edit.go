@@ -59,12 +59,12 @@ func (t *recordingTimeline) wantsEdit(fx recordingEffects) bool {
 // editRecording renders the effects a stopped recording asked for into `<video>.edited.mp4`
 // next to it. The video and its timeline are only read, and a failure is reported
 // instead of failing the stop.
-func (session *liveSession) editRecording(recording *wrapperRecording, video string) RecordingEdit {
+func (session *liveSession) editRecording(recording *wrapperRecording, video string, doc timelineDoc, timelineErr error) RecordingEdit {
 	if recording.timeline == nil || !recording.timeline.wantsEdit(recording.effects) {
 		return RecordingEdit{}
 	}
 	r := session.runtime
-	doc, err := recording.timeline.build(recording.ID, "")
+	err := timelineErr
 	var plan *editPlan
 	if err == nil {
 		plan, err = buildEditPlan(doc, recording.effects, recording.FPS)

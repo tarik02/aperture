@@ -157,9 +157,19 @@ func buildEditPlan(doc timelineDoc, fx recordingEffects, fps int) (*editPlan, er
 	var remap []string
 	switch {
 	case fx.Burst != nil:
+		var effects []span
+		for _, c := range cues {
+			effects = append(effects, span{c.start, c.end})
+		}
+		for _, focus := range focuses {
+			effects = append(effects, span{focus.start, focus.finish})
+		}
+		for _, mark := range marks {
+			effects = append(effects, span{mark.t, mark.t + rippleMs})
+		}
 		// The cut is mandatory: if its pieces do not fit, pieces separated by small gaps merge, ever larger ones.
 		for gap := int64(0); ; gap = max(2*gap, 250) {
-			if pieces = burstPieces(doc, *fx.Burst, gap); len(pieces) == 0 {
+			if pieces = burstPieces(doc, *fx.Burst, gap, effects...); len(pieces) == 0 {
 				return nil, errors.New("a bursts recording keeps the time around browser tool calls that change something, and this recording has none")
 			}
 			if remap = remapFilters(pieces, p.fps); take(strings.Join(remap, ",")) {
@@ -418,7 +428,15 @@ func idlePieces(mode string, busy []span, total int64) (pieces []piece, regions 
 		}
 	}
 	if len(merged) == 0 {
-		return []piece{{0, total, 1}}, nil
+		if total < idleMinMs+2*idleKeepMs {
+			return []piece{{0, total, 1}}, nil
+		}
+		region := span{idleKeepMs, total - idleKeepMs}
+		pieces = append(pieces, piece{0, region.start, 1})
+		if mode == "speed" {
+			pieces = append(pieces, piece{region.start, region.end, idleSpeed})
+		}
+		return append(pieces, piece{region.end, total, 1}), []span{region}
 	}
 	if head := merged[0].start; head >= idleMinMs+idleKeepMs {
 		regions = append(regions, span{0, head - idleKeepMs})
