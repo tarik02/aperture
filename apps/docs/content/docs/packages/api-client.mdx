@@ -134,6 +134,14 @@ message names the reason. Failures return no partial state. The JSON response us
 
 `getSessionThumbnail(credentials, sessionId, targetId?)` returns a JPEG `Blob` of the session, or of one tab. It never wakes a suspended session. For image elements, use the signed `session.thumbnail.url` and `session.thumbnail.targetUrlTemplate` from `getSession` or the session list instead; see [Thumbnails](/docs/session-sharing#thumbnails).
 
+### Passive browser status
+
+`getBrowserStatus(credentials, sessionId, sessionToken?)` reads page metadata without waking the browser, mounting its profile, updating retention activity, or preventing idle suspension. Account credentials need `sessions:read`; the optional bearer credential may instead be the owner session token or an editor or viewer capability.
+
+`status` is the session lifecycle state. `source: "live"` reports a running browser snapshot, while `source: "persisted"` reports the page generation saved with suspension thumbnails. Both include `capturedAt`, `pages`, and the optional `representativeTargetId`. A suspended session created before page persistence existed, one suspended with persistence disabled, or one whose best-effort capture failed returns `source: "unavailable"` and an empty page list rather than waking.
+
+Each page says whether its generation has a thumbnail. `thumbnailAvailable` does the same for the representative session thumbnail. Retrieve those images with `getSessionThumbnail`. Target IDs in persisted metadata identify the saved generation only; Chromium may assign different IDs after resume.
+
 ### Session files
 
 `listSessionFiles(sessionId)` lists a session's files and directories, tagged with `type`, and `sessionFileTree(entries)` arranges them into directory and file nodes for a tree view; `sessionFileRootDirectories` names the top-level directories that cannot be deleted, moved or renamed. `uploadSessionFiles(sessionId, files, { directory })`, `createSessionDirectory(sessionId, relativePath)`, `deleteSessionFile(sessionId, relativePath, { recursive })` and `moveSessionFile(sessionId, { from, to })` manage files and folders in any retained state; moves never overwrite, and a non-empty folder is deleted only with `recursive`. `createSessionFileDownloadURL(sessionId, { relativePath, disposition: "inline" })` returns a signed URL usable as an `<img>` source. Upload contents may be a `Blob`, a `Uint8Array` or a byte `Stream`. Any stream makes the whole request body streamed, which browsers other than Chromium cannot send. Each file carries `relativePath` for `browser_file_upload` and `sandboxPath` for CDP `DOM.setFileInputFiles`.

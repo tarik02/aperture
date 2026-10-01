@@ -105,6 +105,8 @@ const program = Effect.gen(function* () {
 
 The live-session calls reach the running session directly and take an optional `Redacted` `sessionToken` in place of the credentials: `uploadLiveSessionFiles` stores files in its `uploads` directory, `setSessionViewport` resizes a target, and `streamSessionRecording` streams a recording without buffering it (`downloadSessionRecording` returns a `Blob`). A failure inside the running session is an `ApiRequestError` with code `live_session_error`, its HTTP status, and the session's message.
 
+`getBrowserStatus(sessionId, sessionToken?)` is different: it is passive. Running sessions return live page metadata; suspended sessions return the page generation saved with their thumbnails. It never wakes the browser or extends retention. `source: "unavailable"` means no saved page generation exists. Persisted target IDs may change after resume.
+
 ```ts
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as FileSystem from "effect/FileSystem";

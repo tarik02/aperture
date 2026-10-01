@@ -240,6 +240,7 @@ export class SessionsApi extends Context.Service<
       input: SessionFileDownloadURLInput,
     ) => Call<SessionFileDownloadURL>;
     readonly getBrowserChannels: (credentials: ApiCredentials) => Call<BrowserChannelsResponse>;
+    /** Reads live or persisted page metadata without waking or keeping the session alive. */
     readonly getBrowserStatus: (
       credentials: ApiCredentials,
       sessionId: string,

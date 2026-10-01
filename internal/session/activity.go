@@ -449,9 +449,9 @@ func (s *Service) suspendSession(ctx context.Context, sessionRow *db.Session, ev
 		}
 	}
 
-	// Thumbnails are best effort: failing to save them must not keep the session running.
+	// Page metadata and thumbnails are best effort: failure must not keep the session running.
 	if err := s.persistThumbnails(ctx, latest); err != nil {
-		fmt.Fprintf(os.Stderr, "aperture: save thumbnails for session %s: %v\n", latest.ID, err)
+		fmt.Fprintf(os.Stderr, "aperture: save browser overview for session %s: %v\n", latest.ID, err)
 	}
 
 	if err := s.browser.Stop(ctx, latest.ID); err != nil {

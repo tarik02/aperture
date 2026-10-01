@@ -22,6 +22,7 @@ var (
 	ErrOverlayMissing       = errors.New("session overlay is not present")
 	ErrBrowserStart         = errors.New("browser failed to start")
 	ErrBrowserInitialize    = errors.New("browser initialization failed")
+	ErrBrowserOverview      = errors.New("browser overview unavailable")
 	ErrBrowserStateInvalid  = browser.ErrInvalidSessionInitialization
 	ErrBrowserStateTooLarge = errors.New("browser state exceeds the session creation limit")
 	ErrDeniedBrowserArg     = errors.New("browser argument conflicts with supervisor-owned behavior")

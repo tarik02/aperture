@@ -4,10 +4,10 @@ Apply the credential and tenant-selection rules from [authentication.md](authent
 
 ## Data-plane routes
 
-These public routes are forwarded to the running session:
+These public routes expose browser-session access. `browser/status` is handled by Aperture itself; the interactive routes are forwarded to the running session:
 
 - `GET /sessions/:sessionId/session` — live-session WebSocket; editor and viewer capabilities allowed
-- `GET /sessions/:sessionId/browser/status` — `sessions:read`
+- `GET /sessions/:sessionId/browser/status` — `sessions:read`; passive page discovery for account credentials, the owner session token, or editor/viewer capabilities. It never wakes or touches session activity. Running data is `live`; suspended data is the page and thumbnail generation saved at suspension, or explicitly `unavailable` when no generation exists. Persisted target IDs are historical and may change after resume.
 - `POST /sessions/:sessionId/browser/viewport` — `sessions:write`, `sessionToken`, or an editor capability
 - `POST /sessions/:sessionId/uploads` — `sessions:write` or `sessionToken`
 - `GET /sessions/:sessionId/webrtc/signal` — WebRTC signaling WebSocket
