@@ -3,7 +3,6 @@ package browser
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -27,6 +26,25 @@ type RecordingBurst struct {
 	TailMs    *int `json:"tailMs,omitempty"`
 	SettleMs  *int `json:"settleMs,omitempty"`
 	MaxTailMs *int `json:"maxTailMs,omitempty"`
+}
+
+// recordingEffects are the post-processing choices frozen when a recording starts.
+type recordingEffects struct {
+	Idle   string          `json:"idle"`
+	Ripple bool            `json:"ripple"`
+	Burst  *RecordingBurst `json:"burst"`
+}
+
+func (fx recordingEffects) any() bool {
+	return fx.Idle != "" || fx.Ripple || fx.Burst != nil
+}
+
+// ValidateRecordingEffects checks the effect defaults and capture mode a recording starts with.
+func ValidateRecordingEffects(idle string, capture string, burst *RecordingBurst) error {
+	if idle != "" && idle != "cut" && idle != "speed" {
+		return errors.New(`idle must be "cut" or "speed"`)
+	}
+	return validateBursts(capture, burst, idle)
 }
 
 func (b RecordingBurst) times() (lead, tail, settle, maxTail int64) {
@@ -66,55 +84,6 @@ func validateBursts(capture string, burst *RecordingBurst, idle string) error {
 		return errors.New("burst maxTailMs must not be less than tailMs")
 	}
 	return nil
-}
-
-// burstPieces are the stretches of the video that a bursts recording keeps: around
-// each successful action a lead, the action, and a tail that lasts until the screen
-// settles, all clamped to the video. Failed calls stay in the diagnostic timeline but
-// do not make a presentation freeze around an action that never happened. Stretches
-// that overlap or are no more than gap apart merge. Effect windows extend those
-// stretches so post-processing never cuts off an effect it is about to render.
-func burstPieces(doc timelineDoc, burst RecordingBurst, gap int64, effects ...span) []piece {
-	lead, tail, settle, maxTail := burst.times()
-	// With too many spans to hold them all, quiet does not mean still.
-	watched := doc.Activity.Complete && len(doc.Activity.Spans) < timelineMaxSpans
-	var keep []span
-	for _, action := range doc.Actions {
-		if !action.OK {
-			continue
-		}
-		end := action.End + tail
-		if watched {
-			// The first moment after the tail with no change in the last settle ms.
-			still := end
-			for _, a := range doc.Activity.Spans { // in time order
-				if a.End > still-settle && a.Start <= still {
-					still = a.End + settle
-				}
-			}
-			end = min(still, action.End+maxTail)
-		}
-		keep = append(keep, span{max(action.Start-lead, 0), min(end, doc.DurationMS)})
-	}
-	if len(keep) == 0 {
-		return nil
-	}
-	for _, effect := range effects {
-		keep = append(keep, span{max(effect.start, 0), min(effect.end, doc.DurationMS)})
-	}
-	slices.SortFunc(keep, func(a, b span) int { return int(a.start - b.start) })
-	var pieces []piece
-	for _, k := range keep {
-		if k.end <= k.start {
-			continue
-		}
-		if n := len(pieces); n > 0 && k.start <= pieces[n-1].end+gap {
-			pieces[n-1].end = max(pieces[n-1].end, k.end)
-		} else {
-			pieces = append(pieces, piece{k.start, k.end, 1})
-		}
-	}
-	return pieces
 }
 
 // followTarget moves a bursts recording to the tab the latest action ended on, which
