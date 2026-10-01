@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/api-client",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Effect services for the Aperture API: sessions, snapshots, tenants, users, tokens, events and authentication.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",

@@ -1,6 +1,6 @@
 {
   "name": "@aperture-browser/session-react",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "React components for embedding a live Aperture browser session, with or without its tab strip.",
   "homepage": "https://github.com/tarik02/aperture#readme",
   "bugs": "https://github.com/tarik02/aperture/issues",
