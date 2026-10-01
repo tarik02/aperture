@@ -1,10 +1,10 @@
 {
-  "playwright_mcp_version": "0.0.82",
   "profiles": {
     "core": {
       "tools": [
         "browser_click",
         "browser_console_messages",
+        "browser_cursor_attention",
         "browser_drag",
         "browser_drop",
         "browser_emulate_media",
@@ -12,14 +12,16 @@
         "browser_file_upload",
         "browser_fill_form",
         "browser_find",
+        "browser_focus_viewport",
         "browser_handle_dialog",
-        "browser_hover",
+        "browser_move",
         "browser_navigate",
         "browser_navigate_back",
         "browser_network_request",
         "browser_network_requests",
         "browser_press_key",
         "browser_resize",
+        "browser_scroll",
         "browser_select_option",
         "browser_snapshot",
         "browser_tabs",
@@ -58,26 +60,23 @@
       ]
     },
     "vision": {
-      "tools": [
-        "browser_mouse_click_xy",
-        "browser_mouse_down",
-        "browser_mouse_drag_xy",
-        "browser_mouse_move_xy",
-        "browser_mouse_up",
-        "browser_mouse_wheel"
-      ]
+      "tools": []
     }
   },
   "tools": {
     "browser_click": {
       "name": "browser_click",
-      "description": "Perform click on a web page",
+      "description": "Click an element or viewport point with the visible pointer.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "arrivalDwellMs": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
           "button": {
-            "description": "Button to click, defaults to left",
             "enum": [
               "left",
               "right",
@@ -85,16 +84,28 @@
             ],
             "type": "string"
           },
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "clickCount": {
+            "maximum": 3,
+            "minimum": 1,
+            "type": "integer"
+          },
           "doubleClick": {
-            "description": "Whether to perform a double click instead of a single click",
             "type": "boolean"
           },
           "element": {
-            "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
           },
+          "holdMs": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
           "modifiers": {
-            "description": "Modifier keys to press",
             "items": {
               "enum": [
                 "Alt",
@@ -107,20 +118,55 @@
             },
             "type": "array"
           },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "ripple": {
+            "type": "boolean"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
           "target": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
             "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
           }
         },
-        "required": [
-          "target"
-        ],
         "type": "object"
       },
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Click"
+        "title": "browser_click"
       },
       "_meta": null,
       "icons": null
@@ -172,7 +218,17 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -190,9 +246,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "name": {
             "description": "Cookie name to delete",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "required": [
@@ -268,6 +333,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "domain": {
             "description": "Cookie domain",
             "type": "string"
@@ -301,6 +371,10 @@
             "description": "Whether the cookie is secure",
             "type": "boolean"
           },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
           "value": {
             "description": "Cookie value",
             "type": "string"
@@ -320,40 +394,169 @@
       "_meta": null,
       "icons": null
     },
-    "browser_drag": {
-      "name": "browser_drag",
-      "description": "Perform drag and drop between two elements",
+    "browser_cursor_attention": {
+      "name": "browser_cursor_attention",
+      "description": "Draw attention with cursor loops, independently of camera focus.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "endElement": {
-            "description": "Human-readable target element description used to obtain the permission to interact with the element",
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
             "type": "string"
           },
-          "endTarget": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
+          "durationMs": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "element": {
             "type": "string"
           },
-          "startElement": {
-            "description": "Human-readable source element description used to obtain the permission to interact with the element",
+          "loops": {
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "radius": {
+            "maximum": 240,
+            "minimum": 8,
+            "type": "number"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
+          "target": {
             "type": "string"
           },
-          "startTarget": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
-            "type": "string"
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
           }
         },
-        "required": [
-          "startTarget",
-          "endTarget"
-        ],
         "type": "object"
       },
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Drag mouse"
+        "title": "browser_cursor_attention"
+      },
+      "_meta": null,
+      "icons": null
+    },
+    "browser_drag": {
+      "name": "browser_drag",
+      "description": "Drag between two elements or viewport points.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "arrivalDwellMs": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "endElement": {
+            "type": "string"
+          },
+          "endTarget": {
+            "type": "string"
+          },
+          "endX": {
+            "type": "number"
+          },
+          "endY": {
+            "type": "number"
+          },
+          "holdMs": {
+            "maximum": 10000,
+            "minimum": 0,
+            "type": "number"
+          },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
+          "startElement": {
+            "type": "string"
+          },
+          "startTarget": {
+            "type": "string"
+          },
+          "startX": {
+            "type": "number"
+          },
+          "startY": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "title": "browser_drag"
       },
       "_meta": null,
       "icons": null
@@ -365,6 +568,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "data": {
             "additionalProperties": {
               "type": "string"
@@ -385,6 +593,10 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "target": {
             "description": "Exact target element reference from the page snapshot, or a unique element selector",
@@ -411,6 +623,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "colorScheme": {
             "anyOf": [
               {
@@ -485,6 +702,10 @@
               }
             ],
             "description": "Emulates the prefers-reduced-motion media feature"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -504,6 +725,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "element": {
             "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
@@ -515,6 +741,10 @@
           "function": {
             "description": "() =\u003e { /* code */ } or (element) =\u003e { /* code */ } when element is provided",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "target": {
             "description": "Exact target element reference from the page snapshot, or a unique element selector",
@@ -541,12 +771,21 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "paths": {
             "description": "The absolute paths to the files to upload. Can be single file or multiple files. If omitted, file chooser is cancelled.",
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -566,6 +805,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "fields": {
             "description": "Fields to fill in",
             "items": {
@@ -608,6 +852,10 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "required": [
@@ -650,6 +898,71 @@
       "_meta": null,
       "icons": null
     },
+    "browser_focus_viewport": {
+      "name": "browser_focus_viewport",
+      "description": "Focus the camera for one active recording. Blocks for its duration; never moves the cursor.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "durationMs": {
+            "maximum": 10000,
+            "minimum": 100,
+            "type": "number"
+          },
+          "element": {
+            "type": "string"
+          },
+          "height": {
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "recordingId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
+          "target": {
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "zoom": {
+            "maximum": 4,
+            "minimum": 1.1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "recordingId",
+          "zoom"
+        ],
+        "type": "object"
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "title": "browser_focus_viewport"
+      },
+      "_meta": null,
+      "icons": null
+    },
     "browser_handle_dialog": {
       "name": "browser_handle_dialog",
       "description": "Handle a dialog",
@@ -661,9 +974,18 @@
             "description": "Whether to accept the dialog.",
             "type": "boolean"
           },
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "promptText": {
             "description": "The text of the prompt in case of a prompt dialog.",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "required": [
@@ -679,42 +1001,23 @@
       "_meta": null,
       "icons": null
     },
-    "browser_hover": {
-      "name": "browser_hover",
-      "description": "Hover over element on page",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "element": {
-            "description": "Human-readable element description used to obtain permission to interact with the element",
-            "type": "string"
-          },
-          "target": {
-            "description": "Exact target element reference from the page snapshot, or a unique element selector",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Hover mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
     "browser_localstorage_clear": {
       "name": "browser_localstorage_clear",
       "description": "Clear all localStorage",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -732,9 +1035,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to delete",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "required": [
@@ -801,9 +1113,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to set",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "value": {
             "description": "Value to set",
@@ -824,68 +1145,59 @@
       "_meta": null,
       "icons": null
     },
-    "browser_mouse_click_xy": {
-      "name": "browser_mouse_click_xy",
-      "description": "Click mouse button at a given position",
+    "browser_move": {
+      "name": "browser_move",
+      "description": "Move the pointer over an element or viewport point.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "button": {
-            "description": "Button to click, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
             "type": "string"
           },
-          "clickCount": {
-            "description": "Number of clicks, defaults to 1",
-            "type": "number"
+          "element": {
+            "type": "string"
           },
-          "delay": {
-            "description": "Time to wait between mouse down and mouse up in milliseconds, defaults to 0",
-            "type": "number"
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
+          "target": {
+            "type": "string"
           },
           "x": {
-            "description": "X coordinate",
             "type": "number"
           },
           "y": {
-            "description": "Y coordinate",
             "type": "number"
-          }
-        },
-        "required": [
-          "x",
-          "y"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Click"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_down": {
-      "name": "browser_mouse_down",
-      "description": "Press mouse down",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to press, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
           }
         },
         "type": "object"
@@ -893,136 +1205,7 @@
       "annotations": {
         "destructiveHint": true,
         "openWorldHint": true,
-        "title": "Press mouse down"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_drag_xy": {
-      "name": "browser_mouse_drag_xy",
-      "description": "Drag left mouse button to a given position",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "endX": {
-            "description": "End X coordinate",
-            "type": "number"
-          },
-          "endY": {
-            "description": "End Y coordinate",
-            "type": "number"
-          },
-          "startX": {
-            "description": "Start X coordinate",
-            "type": "number"
-          },
-          "startY": {
-            "description": "Start Y coordinate",
-            "type": "number"
-          }
-        },
-        "required": [
-          "startX",
-          "startY",
-          "endX",
-          "endY"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Drag mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_move_xy": {
-      "name": "browser_mouse_move_xy",
-      "description": "Move mouse to a given position",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "x": {
-            "description": "X coordinate",
-            "type": "number"
-          },
-          "y": {
-            "description": "Y coordinate",
-            "type": "number"
-          }
-        },
-        "required": [
-          "x",
-          "y"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Move mouse"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_up": {
-      "name": "browser_mouse_up",
-      "description": "Press mouse up",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "button": {
-            "description": "Button to press, defaults to left",
-            "enum": [
-              "left",
-              "right",
-              "middle"
-            ],
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Press mouse up"
-      },
-      "_meta": null,
-      "icons": null
-    },
-    "browser_mouse_wheel": {
-      "name": "browser_mouse_wheel",
-      "description": "Scroll mouse wheel",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "additionalProperties": false,
-        "properties": {
-          "deltaX": {
-            "default": 0,
-            "description": "X delta",
-            "type": "number"
-          },
-          "deltaY": {
-            "default": 0,
-            "description": "Y delta",
-            "type": "number"
-          }
-        },
-        "required": [
-          "deltaX",
-          "deltaY"
-        ],
-        "type": "object"
-      },
-      "annotations": {
-        "destructiveHint": true,
-        "openWorldHint": true,
-        "title": "Scroll mouse wheel"
+        "title": "browser_move"
       },
       "_meta": null,
       "icons": null
@@ -1034,6 +1217,15 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
           "url": {
             "description": "The URL to navigate to",
             "type": "string"
@@ -1058,7 +1250,17 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -1153,6 +1355,15 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
           "state": {
             "description": "Set to \"offline\" to simulate offline mode, \"online\" to restore network connectivity",
             "enum": [
@@ -1182,9 +1393,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Name of the key to press or a character to generate, such as `ArrowLeft` or `a`",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1207,9 +1427,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "height": {
             "description": "Height of the browser window",
             "type": "number"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "width": {
             "description": "Width of the browser window",
@@ -1241,6 +1470,11 @@
             "description": "Response body (text or JSON string)",
             "type": "string"
           },
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "contentType": {
             "description": "Content-Type header (e.g., \"application/json\", \"text/html\")",
             "type": "string"
@@ -1259,6 +1493,10 @@
           "removeHeaders": {
             "description": "Comma-separated list of header names to remove from request",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "status": {
             "description": "HTTP status code to return (default: 200)",
@@ -1296,6 +1534,77 @@
       "_meta": null,
       "icons": null
     },
+    "browser_scroll": {
+      "name": "browser_scroll",
+      "description": "Smooth wheel scrolling over an element or point, or the viewport center.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "deltaX": {
+            "type": "number"
+          },
+          "deltaY": {
+            "type": "number"
+          },
+          "element": {
+            "type": "string"
+          },
+          "motion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "natural",
+                  "fast",
+                  "instant"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "durationMs": {
+                    "maximum": 10000,
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "durationMs"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
+          "target": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true,
+        "title": "browser_scroll"
+      },
+      "_meta": null,
+      "icons": null
+    },
     "browser_select_option": {
       "name": "browser_select_option",
       "description": "Select an option in a dropdown",
@@ -1303,9 +1612,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "element": {
             "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "target": {
             "description": "Exact target element reference from the page snapshot, or a unique element selector",
@@ -1339,7 +1657,17 @@
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "annotations": {
@@ -1357,9 +1685,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to delete",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1426,9 +1763,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "key": {
             "description": "Key to set",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "value": {
             "description": "Value to set",
@@ -1456,9 +1802,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "filename": {
             "description": "Path to the storage state file to restore from. Relative file names are resolved against the workspace root.",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1549,9 +1904,18 @@
             ],
             "type": "string"
           },
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "index": {
             "description": "Tab index, used for close/select. If omitted for close, current tab is closed.",
             "type": "number"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           },
           "url": {
             "description": "URL to navigate to in the new tab, used for new.",
@@ -1634,12 +1998,21 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "element": {
             "description": "Human-readable element description used to obtain permission to interact with the element",
             "type": "string"
           },
           "slowly": {
             "description": "Whether to type one character at a time. Useful for triggering key handlers in the page. By default entire text is filled in at once.",
+            "type": "boolean"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
             "type": "boolean"
           },
           "submit": {
@@ -1676,9 +2049,18 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
           "pattern": {
             "description": "URL pattern to unroute (omit to remove all routes)",
             "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -1698,6 +2080,15 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "caption": {
+            "description": "Short on-screen recording caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "smoothScroll": {
+            "description": "Smoothly reveal action targets; defaults on for watchable automation",
+            "type": "boolean"
+          },
           "text": {
             "description": "The text to wait for",
             "type": "string"

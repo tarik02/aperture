@@ -53,7 +53,6 @@ type Tool struct {
 }
 
 type Metadata struct {
-	Version  string             `json:"playwright_mcp_version"`
 	Profiles map[string]Profile `json:"profiles"`
 	Tools    map[string]Tool    `json:"tools"`
 }

@@ -477,6 +477,15 @@ function ViewportStreamMenuItems({
         <MousePointer2 />
         Remote cursor
       </DropdownMenuCheckboxItem>
+      <DropdownMenuCheckboxItem
+        disabled={!connected || control.collaboration.role === "viewer"}
+        checked={control.watchableAutomation}
+        onCheckedChange={control.setWatchableAutomation}
+        title="Slow down agent actions so you can follow them"
+      >
+        <Gauge />
+        Watchable automation
+      </DropdownMenuCheckboxItem>
       <DropdownMenuCheckboxItem checked={localCursorEnabled} onCheckedChange={onLocalCursorChange}>
         <MousePointer2 />
         Local cursor

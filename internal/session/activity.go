@@ -575,6 +575,7 @@ func (s *Service) runtimeEnvValues(
 		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
 		MediaProducerEnabled:       mediaProducerEnabled,
 		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
+		RecordingFFmpegExecutable:  s.cfg.RecordingFFmpegExecutable,
 		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
 		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
 		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),

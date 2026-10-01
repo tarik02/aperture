@@ -103,6 +103,7 @@ export interface UseBrowserControlResult {
   canRecord: boolean;
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
+  watchableAutomation: boolean;
   collaboration: CollaborationControl;
   commands: BrowserCommands;
   setCaptured: (captured: boolean) => void;
@@ -134,6 +135,7 @@ export interface UseBrowserControlResult {
   stopRecording: (recordingId: string) => void;
   cancelRecording: (recordingId: string) => void;
   setRemoteCursorEnabled: (enabled: boolean) => void;
+  setWatchableAutomation: (enabled: boolean) => void;
   reconnect: () => void;
 }
 
@@ -183,6 +185,7 @@ export function useBrowserControl({
   );
   const [captured, setCaptured] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
+  const [watchableAutomation, setWatchableAutomation] = useState(true);
   const canRecord = collaborationRole === "owner" || collaborationRole === "editor";
   const loadTargetThumbnail = useMemo(
     () => (access === null ? null : (targetId: string) => getTargetThumbnail(access, targetId)),
@@ -544,6 +547,21 @@ export function useBrowserControl({
     [recordingBusy, runCancelRecording],
   );
 
+  const runSetAutomationPacing = useEffectCallback(
+    (watchable: boolean) =>
+      live
+        .request("presentation.automation.set", { pacing: watchable ? "watchable" : "normal" })
+        .pipe(
+          Effect.catchTag("LiveSessionError", (error) =>
+            notify("error", errorMessage(error, "Automation pacing could not be updated")),
+          ),
+        ),
+    [live.request],
+  );
+  useEffect(() => {
+    if (live.phase === "connected" && canRecord) runSetAutomationPacing(watchableAutomation);
+  }, [live.phase, canRecord, watchableAutomation, runSetAutomationPacing]);
+
   const runSetRemoteCursor = useEffectCallback(
     (visible: boolean) =>
       live
@@ -667,6 +685,7 @@ export function useBrowserControl({
     loadTargetThumbnail,
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
+    watchableAutomation,
     collaboration: live.collaboration,
     commands,
     setCaptured,
@@ -696,6 +715,7 @@ export function useBrowserControl({
     stopRecording,
     cancelRecording,
     setRemoteCursorEnabled,
+    setWatchableAutomation,
     reconnect: live.reconnect,
   };
 }

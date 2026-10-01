@@ -19,6 +19,7 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+		"capture": in.Capture, "presentation": in.Presentation, "idle": in.Idle, "ripple": in.Ripple, "burst": in.Burst,
 	}, false)
 }
 
@@ -80,7 +81,7 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{Config: in.Config, TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -167,7 +168,8 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 		return mcpRecordingOutput{}, err
 	}
 	output := mcpRecordingOutput{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingArtifacts: status.RecordingArtifacts,
+		RecordingID:        status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}

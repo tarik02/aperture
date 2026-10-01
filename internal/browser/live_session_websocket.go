@@ -216,6 +216,7 @@ func (session *liveSession) detachClientTransport(client *liveSessionClient, tra
 		return
 	}
 	client.recovering = true
+	client.automationPacing = "normal"
 	client.recoveryGeneration++
 	recoveryGeneration := client.recoveryGeneration
 	client.activePaintStroke = ""

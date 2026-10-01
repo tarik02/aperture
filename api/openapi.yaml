@@ -2931,6 +2931,22 @@ components:
       description: Top-level target and optional recording settings.
       required: [targetId]
       properties:
+        capture:
+          type: string
+          enum: [continuous, bursts]
+          description: Bursts capture continuously and retain action windows after capture. Mutually exclusive with idle.
+        presentation:
+          type: boolean
+          description: Use the more deliberate automation cadence and presentation defaults.
+        idle:
+          type: string
+          enum: [cut, speed]
+          description: Remove or speed up idle time in continuous capture only.
+        ripple:
+          type: boolean
+          description: Render click ripples. Defaults on for presentation recordings.
+        burst:
+          $ref: '#/components/schemas/RecordingBurstOptions'
         targetId:
           type: string
           minLength: 1
@@ -2948,6 +2964,14 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
+    RecordingBurstOptions:
+      type: object
+      description: Selection windows in milliseconds, accepted only with bursts capture.
+      properties:
+        leadMs: {type: integer, minimum: 0, maximum: 60000}
+        tailMs: {type: integer, minimum: 0, maximum: 60000}
+        settleMs: {type: integer, minimum: 0, maximum: 60000}
+        maxTailMs: {type: integer, minimum: 0, maximum: 60000}
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.
@@ -2962,6 +2986,21 @@ components:
       description: One logical recording of a top-level target.
       required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
       properties:
+        captureRelativePath:
+          type: string
+        actionsRelativePath:
+          type: string
+        configRelativePath:
+          type: string
+        timelineRelativePath:
+          type: string
+        editedRelativePath:
+          type: string
+        finalizeError:
+          type: string
+        warnings:
+          type: array
+          items: {type: string}
         recordingId:
           type: string
           format: uuid

@@ -9,7 +9,6 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@playwright/mcp": "catalog:",
     "playwright": "catalog:",
     "playwright-core": "catalog:"
   },

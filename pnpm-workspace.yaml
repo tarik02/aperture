@@ -59,6 +59,7 @@ catalog:
   vite-plus: 0.2.4
   "@vitejs/plugin-react": "^6.0.3"
   vitest: 4.1.10
+  zod: 3.25.76
   zustand: "^5.0.14"
 
 catalogs:

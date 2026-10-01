@@ -20,9 +20,10 @@ import (
 const playwrightCallRequestMaxBytes = 16 << 20
 
 type playwrightMCPBackend struct {
-	values  RuntimeEnvValues
-	mu      sync.Mutex
-	session *mcp.ClientSession
+	values        RuntimeEnvValues
+	controlSocket string
+	mu            sync.Mutex
+	session       *mcp.ClientSession
 }
 
 type playwrightCallRequest struct {
@@ -30,11 +31,11 @@ type playwrightCallRequest struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
-	return &playwrightMCPBackend{values: values}
+func newPlaywrightMCPBackend(values RuntimeEnvValues, controlSocket string) *playwrightMCPBackend {
+	return &playwrightMCPBackend{values: values, controlSocket: controlSocket}
 }
 
-func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
+func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any, live *liveSession) (*mcp.CallToolResult, error) {
 	if !playwrightmcp.HasTool(name) {
 		return nil, fmt.Errorf("playwright tool %q is not exposed", name)
 	}
@@ -47,12 +48,15 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 		}
 	}
 
+	arguments = live.recordingCallArguments(arguments)
 	result, err := b.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
+		live.markRecordingSourcesIncomplete("browser call failed before its journal could be persisted")
 		_ = b.session.Close()
 		b.session = nil
 		return nil, err
 	}
+	live.consumeRecordingCallResult(ctx, result)
 	return result, nil
 }
 
@@ -60,17 +64,13 @@ func (b *playwrightMCPBackend) start(ctx context.Context) error {
 	files := paths.SessionFiles(b.values.FilesDir)
 	args := []string{
 		"--cdp-endpoint", "http://127.0.0.1:" + strconv.Itoa(b.values.CDPPort),
-		"--cdp-timeout", "30000",
-		"--codegen", "none",
-		"--file-paths", "relative",
-		"--idle-timeout", "0",
-		"--no-webmcp",
 		"--output-dir", files.Outputs,
 	}
 	if capabilities := playwrightmcp.RuntimeCapabilities(); len(capabilities) > 0 {
 		args = append(args, "--caps", strings.Join(capabilities, ","))
 	}
-	command := exec.Command("playwright-mcp", args...)
+	args = append(args, "--compositor-socket", b.controlSocket, "--targets-url", "http://127.0.0.1:"+strconv.Itoa(b.values.WrapperPort)+"/targets")
+	command := exec.Command("aperture-browser-mcp", args...)
 	// The workspace root bounds which files browser tools may read, so every session
 	// file is usable by browser_file_upload under its relative path.
 	command.Dir = files.Root
@@ -132,7 +132,7 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 		call.Arguments = map[string]any{}
 	}
 
-	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments)
+	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments, r.liveSession)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: Playwright MCP tool %s failed: %v\n", call.Name, err)
 		writeWrapperError(w, http.StatusBadGateway, "Playwright MCP call failed")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	recordingconfig "github.com/aperture/aperture/internal/recording"
 	"io"
 	"net/http"
 	"sort"
@@ -85,6 +86,7 @@ type liveSession struct {
 }
 
 type liveSessionClient struct {
+	automationPacing          string
 	id                        string
 	role                      string
 	ownerID                   uint64
@@ -145,6 +147,8 @@ func (automation *liveSessionAutomation) actorOwnerID() uint64 { return automati
 func (automation *liveSessionAutomation) actorName() string    { return automation.name }
 
 type liveSessionClientMessage struct {
+	recordingconfig.Config
+	Pacing                string  `json:"pacing"`
 	Type                  string  `json:"type"`
 	RequestID             string  `json:"requestId"`
 	ClientID              string  `json:"clientId"`

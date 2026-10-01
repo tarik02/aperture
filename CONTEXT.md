@@ -29,6 +29,18 @@ The live visual output of one browser target delivered to one session client. Se
 The session client chooses WebRTC or WebSocket raster delivery locally. The compositor encoder profile, frame rate, and bitrate are shared by all WebRTC presentations in the live session.
 _Avoid_: Active tab, screen share, media target
 
+**Recording cadence**:
+The pace of browser automation visible to observers. It is immediate without observers, recorded while recording or requested by an editor, and presentation when any presentation recording is active.
+_Avoid_: Slow mode, interaction policy
+
+**Bursts recording**:
+A recording that follows browser automation and retains the time around its actions after capture. Its lead, tail, and settling windows determine what remains; idle editing applies only to continuous recordings.
+_Avoid_: Action recording, per-action capture
+
+**Viewport focus**:
+An explicit camera effect on one recording, held over a viewport area for a specified interval. It is independent of cursor attention and live presentation selection.
+_Avoid_: Auto zoom, pointer focus
+
 **Session actor**:
 An interactive session client or one automation operation authorized to act on a live session. Only one session actor may hold the input lease at a time.
 _Avoid_: User, peer, API token

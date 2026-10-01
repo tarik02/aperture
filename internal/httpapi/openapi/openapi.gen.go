@@ -105,6 +105,24 @@ func (e CreateAdminTokenInput1AuthorityType) Valid() bool {
 	}
 }
 
+// Defines values for CreateSessionRecordingInputCapture.
+const (
+	Bursts     CreateSessionRecordingInputCapture = "bursts"
+	Continuous CreateSessionRecordingInputCapture = "continuous"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputCapture enum.
+func (e CreateSessionRecordingInputCapture) Valid() bool {
+	switch e {
+	case Bursts:
+		return true
+	case Continuous:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSessionRecordingInputCodec.
 const (
 	CreateSessionRecordingInputCodecH264Va CreateSessionRecordingInputCodec = "h264-va"
@@ -117,6 +135,24 @@ func (e CreateSessionRecordingInputCodec) Valid() bool {
 	case CreateSessionRecordingInputCodecH264Va:
 		return true
 	case CreateSessionRecordingInputCodecVp8:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSessionRecordingInputIdle.
+const (
+	Cut   CreateSessionRecordingInputIdle = "cut"
+	Speed CreateSessionRecordingInputIdle = "speed"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputIdle enum.
+func (e CreateSessionRecordingInputIdle) Valid() bool {
+	switch e {
+	case Cut:
+		return true
+	case Speed:
 		return true
 	default:
 		return false
@@ -1246,18 +1282,39 @@ type CreateSessionRecordingInput struct {
 	// BitrateKbps Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.
 	BitrateKbps *int `json:"bitrateKbps,omitempty"`
 
+	// Burst Selection windows in milliseconds, accepted only with bursts capture.
+	Burst *RecordingBurstOptions `json:"burst,omitempty"`
+
+	// Capture Bursts capture continuously and retain action windows after capture. Mutually exclusive with idle.
+	Capture *CreateSessionRecordingInputCapture `json:"capture,omitempty"`
+
 	// Codec Video codec. Omit for the instance default.
 	Codec *CreateSessionRecordingInputCodec `json:"codec,omitempty"`
 
 	// Fps Requested frames per second. Omit or use a non-positive value for the instance default.
 	Fps *int `json:"fps,omitempty"`
 
+	// Idle Remove or speed up idle time in continuous capture only.
+	Idle *CreateSessionRecordingInputIdle `json:"idle,omitempty"`
+
+	// Presentation Use the more deliberate automation cadence and presentation defaults.
+	Presentation *bool `json:"presentation,omitempty"`
+
+	// Ripple Render click ripples. Defaults on for presentation recordings.
+	Ripple *bool `json:"ripple,omitempty"`
+
 	// TargetId Identifier of the ready top-level target to record.
 	TargetId string `json:"targetId"`
 }
 
+// CreateSessionRecordingInputCapture Bursts capture continuously and retain action windows after capture. Mutually exclusive with idle.
+type CreateSessionRecordingInputCapture string
+
 // CreateSessionRecordingInputCodec Video codec. Omit for the instance default.
 type CreateSessionRecordingInputCodec string
+
+// CreateSessionRecordingInputIdle Remove or speed up idle time in continuous capture only.
+type CreateSessionRecordingInputIdle string
 
 // CreateSessionResult Newly created session and its one-time initial access credentials.
 type CreateSessionResult struct {
@@ -1804,12 +1861,17 @@ type ProxyUpstream struct {
 
 // Recording One logical recording of a top-level target.
 type Recording struct {
-	BitrateKbps int `json:"bitrateKbps"`
+	ActionsRelativePath *string `json:"actionsRelativePath,omitempty"`
+	BitrateKbps         int     `json:"bitrateKbps"`
 
 	// CaptureGeneration Assignment generation for the current top-level target.
-	CaptureGeneration int64          `json:"captureGeneration"`
-	Codec             RecordingCodec `json:"codec"`
-	Fps               int            `json:"fps"`
+	CaptureGeneration   int64          `json:"captureGeneration"`
+	CaptureRelativePath *string        `json:"captureRelativePath,omitempty"`
+	Codec               RecordingCodec `json:"codec"`
+	ConfigRelativePath  *string        `json:"configRelativePath,omitempty"`
+	EditedRelativePath  *string        `json:"editedRelativePath,omitempty"`
+	FinalizeError       *string        `json:"finalizeError,omitempty"`
+	Fps                 int            `json:"fps"`
 
 	// Mode Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
 	Mode RecordingMode `json:"mode"`
@@ -1828,7 +1890,9 @@ type Recording struct {
 	StoppedAt  *time.Time `json:"stoppedAt,omitempty"`
 
 	// TargetId Identifier of the top-level target currently recorded.
-	TargetId string `json:"targetId"`
+	TargetId             string    `json:"targetId"`
+	TimelineRelativePath *string   `json:"timelineRelativePath,omitempty"`
+	Warnings             *[]string `json:"warnings,omitempty"`
 }
 
 // RecordingCodec defines model for Recording.Codec.
@@ -1839,6 +1903,14 @@ type RecordingMode string
 
 // RecordingStatus defines model for Recording.Status.
 type RecordingStatus string
+
+// RecordingBurstOptions Selection windows in milliseconds, accepted only with bursts capture.
+type RecordingBurstOptions struct {
+	LeadMs    *int `json:"leadMs,omitempty"`
+	MaxTailMs *int `json:"maxTailMs,omitempty"`
+	SettleMs  *int `json:"settleMs,omitempty"`
+	TailMs    *int `json:"tailMs,omitempty"`
+}
 
 // ReplaceTagsInput Complete replacement tag set. The map may be empty to clear all tags.
 type ReplaceTagsInput struct {

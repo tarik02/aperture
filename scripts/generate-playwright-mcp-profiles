@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_path="${1:-${repo_root}/internal/playwrightmcp/profiles.json}"
-playwright_mcp_bin="${PLAYWRIGHT_MCP_BIN:-${repo_root}/apps/restore-worker/node_modules/.bin/playwright-mcp}"
+host="${BROWSER_MCP_HOST:-${repo_root}/apps/browser-mcp/dist/main.mjs}"
 
-exec go run -tags tools ./cmd/generate-playwright-mcp-profiles "${playwright_mcp_bin}" "${output_path}"
+# The host is built first: pnpm --filter @aperture-browser/browser-mcp build
+exec go run -tags tools ./cmd/generate-playwright-mcp-profiles "${output_path}" node "${host}"

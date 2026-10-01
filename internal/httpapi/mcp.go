@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/aperture/aperture/internal/browser"
+	recordingconfig "github.com/aperture/aperture/internal/recording"
 	"io"
 	"net/http"
 	"strings"
@@ -332,6 +334,7 @@ type mcpSessionIDInput struct {
 	SessionID string `json:"sessionId"`
 }
 type mcpRecordingStartInput struct {
+	recordingconfig.Config
 	TenantID    string `json:"tenantId,omitempty"`
 	SessionID   string `json:"sessionId"`
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
@@ -340,6 +343,7 @@ type mcpRecordingStartInput struct {
 	Codec       string `json:"codec,omitempty"`
 }
 type mcpBoundRecordingStartInput struct {
+	recordingconfig.Config
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
@@ -364,6 +368,7 @@ type mcpBoundRecordingRetargetInput struct {
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready destination top-level target."`
 }
 type mcpRecordingOutput struct {
+	browser.RecordingArtifacts
 	RecordingID       string `json:"recordingId"`
 	Mode              string `json:"mode"`
 	TargetID          string `json:"targetId"`

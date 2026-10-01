@@ -13,12 +13,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aperture/aperture/internal/browser"
 	"github.com/aperture/aperture/internal/paths"
+	recordingconfig "github.com/aperture/aperture/internal/recording"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/gin-gonic/gin"
 )
 
 type wrapperRecordingStatus struct {
+	browser.RecordingArtifacts
 	RecordingID       string `json:"recordingId"`
 	Mode              string `json:"mode"`
 	TargetID          string `json:"targetId"`
@@ -37,6 +40,7 @@ type wrapperRecordingStatus struct {
 }
 
 type recordingResponse struct {
+	browser.RecordingArtifacts
 	RecordingID       string `json:"recordingId"`
 	Mode              string `json:"mode"`
 	TargetID          string `json:"targetId"`
@@ -53,6 +57,7 @@ type recordingResponse struct {
 }
 
 type createSessionRecordingRequest struct {
+	recordingconfig.Config
 	TargetID    string `json:"targetId"`
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
@@ -60,6 +65,9 @@ type createSessionRecordingRequest struct {
 }
 
 func (r createSessionRecordingRequest) Validate() error {
+	if err := r.Config.Validate(); err != nil {
+		return validationError(err.Error())
+	}
 	if strings.TrimSpace(r.TargetID) == "" {
 		return validationError("targetId is required")
 	}
@@ -99,6 +107,7 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 	var status wrapperRecordingStatus
 	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
+		"capture": input.Capture, "presentation": input.Presentation, "idle": input.Idle, "ripple": input.Ripple, "burst": input.Burst,
 	}, false, &status)
 	if err != nil {
 		WriteError(c, err)
@@ -312,7 +321,8 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 		return recordingResponse{}, err
 	}
 	return recordingResponse{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingArtifacts: status.RecordingArtifacts,
+		RecordingID:        status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}, nil
