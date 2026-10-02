@@ -54,7 +54,7 @@ func (session *liveSession) handleAnnotation(w http.ResponseWriter, req *http.Re
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil {
-		writeWrapperError(w, http.StatusBadRequest, "invalid annotation request")
+		writeWrapperError(w, http.StatusBadRequest, "invalid annotation request: "+err.Error())
 		return
 	}
 	err := session.annotate(req.Context(), kind, body)
