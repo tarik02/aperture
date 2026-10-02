@@ -56,6 +56,7 @@ type wrapperRuntime struct {
 	liveSession              *liveSession
 	proxyManager             *proxy.Manager
 	playwright               *playwrightMCPBackend
+	cadence                  *automationCadenceState
 	startedAt                time.Time
 	uploads                  wrapperUploadCounters
 }
@@ -145,6 +146,7 @@ func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRu
 		viewers:                  make(map[*wrapperViewer]struct{}),
 		revokedAccessGenerations: make(map[string]map[string]struct{}),
 		startedAt:                time.Now(),
+		cadence:                  newAutomationCadenceState(),
 	}
 }
 
@@ -337,7 +339,7 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	r.liveSession = liveSession
 	r.mu.Unlock()
 	go liveSession.run(ctx)
-	if err := r.startAutomationBackend(ctx); err != nil {
+	if err := r.startAutomationBackend(ctx, liveSession); err != nil {
 		return nil, nil, err
 	}
 	mux := http.NewServeMux()

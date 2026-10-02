@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -24,16 +25,18 @@ const (
 	cdpProxyInternalIDBase = 1 << 30
 )
 
-// cdpProxy sits between Playwright MCP and Chromium. It relays CDP frames untouched while keeping
-// track of which browser target every session belongs to.
+// cdpProxy sits between Playwright MCP and Chromium. It relays CDP frames untouched and, when the
+// automation cadence asks for it, turns pointer input and reveal scrolling into followable motion.
 type cdpProxy struct {
 	upstream string // Chromium's debugging endpoint, host:port
-	// observe is told about each new connection; tests use it to inspect the session map.
-	observe func(*cdpProxyConn)
+	cadence  func() automationCadence
+	pointer  *cdpPointer // nil for sessions without a compositor
+	// timing overrides the cadence pacing; tests use it to run fast.
+	timing *cadenceTiming
 }
 
-func newCDPProxy(upstream string) *cdpProxy {
-	return &cdpProxy{upstream: upstream}
+func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer) *cdpProxy {
+	return &cdpProxy{upstream: upstream, cadence: cadence, pointer: pointer}
 }
 
 // serve listens on an ephemeral loopback port until ctx ends and returns the endpoint to hand to Playwright.
@@ -110,9 +113,9 @@ func (p *cdpProxy) serveWebSocket(w http.ResponseWriter, req *http.Request) {
 		sessions:  make(map[string]cdpSession),
 		attaching: make(map[int64]string),
 		internal:  make(map[int64]chan cdpMessage),
-	}
-	if p.observe != nil {
-		p.observe(conn)
+		dpr:       make(map[string]cdpDPRSample),
+		mouse:     make(chan func(), 1024),
+		dragged:   make(chan struct{}, 1),
 	}
 	conn.run(cancel)
 	_ = up.Close(websocket.StatusNormalClosure, "")
@@ -146,12 +149,24 @@ type cdpProxyConn struct {
 	attaching map[int64]string // Target.attachToTarget request id -> target
 	internal  map[int64]chan cdpMessage
 	nextID    atomic.Int64
+
+	// Pointer state, used from cdp_input.go.
+	mouse         chan func() // Playwright pipelines mouse commands without awaiting them, so they run in order
+	mouseBusy     atomic.Int32
+	interceptDrag atomic.Bool // Playwright's Input.setInterceptDrags window
+	dragged       chan struct{}
+	dpr           map[string]cdpDPRSample
+	held          *cdpHeldButton
 }
 
 func (c *cdpProxyConn) run(cancel context.CancelFunc) {
 	c.nextID.Store(cdpProxyInternalIDBase)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		c.runMouseQueue()
+	}()
 	go func() {
 		defer wg.Done()
 		defer cancel()
@@ -175,6 +190,7 @@ func (c *cdpProxyConn) run(cancel context.CancelFunc) {
 		}
 	}()
 	wg.Wait()
+	c.releaseHeld()
 }
 
 func (c *cdpProxyConn) toUp(raw []byte) {
@@ -185,8 +201,20 @@ func (c *cdpProxyConn) toDown(raw []byte) {
 	_ = c.down.Write(c.ctx, websocket.MessageText, raw)
 }
 
+func (c *cdpProxyConn) reply(request cdpMessage, result json.RawMessage, failure string) {
+	response := cdpMessage{ID: request.ID, SessionID: request.SessionID, Result: result}
+	if failure != "" {
+		response.Result = nil
+		response.Error, _ = json.Marshal(map[string]any{"code": -32000, "message": failure})
+	}
+	raw, _ := json.Marshal(response)
+	c.toDown(raw)
+}
+
 func (c *cdpProxyConn) fromClient(raw []byte) {
-	if _, method := peekCDP(raw); method == "Target.attachToTarget" {
+	_, method := peekCDP(raw)
+	switch method {
+	case "Target.attachToTarget":
 		var message cdpMessage
 		var params struct {
 			TargetID string `json:"targetId"`
@@ -195,6 +223,22 @@ func (c *cdpProxyConn) fromClient(raw []byte) {
 			c.mu.Lock()
 			c.attaching[*message.ID] = params.TargetID
 			c.mu.Unlock()
+		}
+	case "Input.setInterceptDrags":
+		var message cdpMessage
+		var params struct {
+			Enabled bool `json:"enabled"`
+		}
+		if json.Unmarshal(raw, &message) == nil && json.Unmarshal(message.Params, &params) == nil {
+			c.interceptDrag.Store(params.Enabled)
+		}
+	case "Input.dispatchMouseEvent", "Input.dispatchDragEvent":
+		if c.queueMouse(raw) {
+			return
+		}
+	case "DOM.scrollIntoViewIfNeeded", "Runtime.callFunctionOn":
+		if c.proxy.cadence() != cadenceImmediate && c.revealScroll(raw, method) {
+			return
 		}
 	}
 	c.toUp(raw)
@@ -250,6 +294,11 @@ func (c *cdpProxyConn) fromUpstream(raw []byte) {
 			}
 			c.mu.Unlock()
 		}
+	case "Input.dragIntercepted":
+		select {
+		case c.dragged <- struct{}{}:
+		default:
+		}
 	}
 	c.toDown(raw)
 }
@@ -296,6 +345,28 @@ func (c *cdpProxyConn) call(ctx context.Context, sessionID, method string, param
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// evaluate runs an expression in a session's main world and decodes its value.
+func (c *cdpProxyConn) evaluate(ctx context.Context, sessionID, expression string, value any) error {
+	result, err := c.call(ctx, sessionID, "Runtime.evaluate", map[string]any{"expression": expression, "awaitPromise": true, "returnByValue": true})
+	if err != nil {
+		return err
+	}
+	var evaluated struct {
+		Result           struct{ Value json.RawMessage } `json:"result"`
+		ExceptionDetails json.RawMessage                 `json:"exceptionDetails"`
+	}
+	if err := json.Unmarshal(result, &evaluated); err != nil {
+		return err
+	}
+	if len(evaluated.ExceptionDetails) > 0 {
+		return errors.New("page evaluation failed")
+	}
+	if value == nil {
+		return nil
+	}
+	return json.Unmarshal(evaluated.Result.Value, value)
 }
 
 var (

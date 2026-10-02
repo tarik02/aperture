@@ -122,6 +122,7 @@ func isLiveSessionCommand(messageType string) bool {
 		"viewport.owner.claim",
 		"presentation.quality.set",
 		"presentation.cursor.set",
+		"presentation.automation.set",
 		"recording.start",
 		"recording.stop",
 		"recording.cancel":
@@ -258,6 +259,16 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			return liveSessionServerMessage{}, err
 		}
 		return liveSessionServerMessage{Presentation: &presentation}, nil
+	case "presentation.automation.set":
+		// Pacing only matters to clients that can act on the browser; it is dropped with the client.
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errors.New("automation pacing requires the owner or editor role")
+		}
+		if message.Pacing != automationPacingNormal && message.Pacing != automationPacingWatchable {
+			return liveSessionServerMessage{}, errors.New("automation pacing must be normal or watchable")
+		}
+		session.runtime.cadence.setPacing(client.id, message.Pacing)
+		return liveSessionServerMessage{}, nil
 	case "recording.start":
 		if !client.canRecord() {
 			return liveSessionServerMessage{}, errRecordingRole

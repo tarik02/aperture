@@ -191,6 +191,7 @@ type liveSessionClientMessage struct {
 	Visible               *bool   `json:"visible"`
 	AutoSize              *bool   `json:"autoSize"`
 	Enabled               *bool   `json:"enabled"`
+	Pacing                string  `json:"pacing"`
 }
 
 type liveSessionParticipant struct {
@@ -415,6 +416,7 @@ func (session *liveSession) removeClient(client *liveSessionClient) {
 		return
 	}
 	delete(session.clients, client.id)
+	session.runtime.cadence.clearPacing(client.id)
 	client.cancel()
 	for _, participant := range session.clients {
 		if participant.followingClientID == client.id {

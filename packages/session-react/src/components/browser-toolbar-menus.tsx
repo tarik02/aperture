@@ -12,6 +12,7 @@ import {
   MoreVertical,
   Monitor,
   MonitorPause,
+  Eye,
   MousePointer2,
   RotateCcw,
   Share2,
@@ -478,6 +479,19 @@ function ViewportStreamMenuItems({
       >
         <MousePointer2 />
         Remote cursor
+      </DropdownMenuCheckboxItem>
+      <DropdownMenuCheckboxItem
+        disabled={!connected || !control.canRecord}
+        checked={control.watchableAutomation}
+        onCheckedChange={control.setWatchableAutomation}
+      >
+        <Eye />
+        <span className="flex flex-col">
+          Watchable automation
+          <span className="text-xs text-muted-foreground">
+            Slow down agent actions so you can follow them
+          </span>
+        </span>
       </DropdownMenuCheckboxItem>
       <DropdownMenuCheckboxItem checked={localCursorEnabled} onCheckedChange={onLocalCursorChange}>
         <MousePointer2 />

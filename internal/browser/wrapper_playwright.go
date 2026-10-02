@@ -38,8 +38,17 @@ func newPlaywrightMCPBackend(values RuntimeEnvValues, cdpEndpoint string) *playw
 
 // startAutomationBackend starts the CDP proxy that Playwright MCP drives the browser through and the
 // backend that talks to it. Both end with ctx.
-func (r *wrapperRuntime) startAutomationBackend(ctx context.Context) error {
-	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)))
+func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession *liveSession) error {
+	r.cadence.setRecordingSource(func() (bool, bool) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return liveSession.activeRecordingCountLocked() > 0, false
+	})
+	var pointer *cdpPointer
+	if multiTargetCompositorEnabled(r.values) {
+		pointer = newCDPPointer(r.controlSocket, r.pointerSurface)
+	}
+	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), r.cadence.current, pointer)
 	endpoint, err := proxy.serve(ctx)
 	if err != nil {
 		return err
@@ -50,6 +59,18 @@ func (r *wrapperRuntime) startAutomationBackend(ctx context.Context) error {
 		r.playwright.Close()
 	}()
 	return nil
+}
+
+// pointerSurface finds the compositor surface of a browser target that can take input.
+func (r *wrapperRuntime) pointerSurface(targetID string) (cdpSurface, bool) {
+	r.mu.Lock()
+	registry := r.targets
+	r.mu.Unlock()
+	if registry == nil {
+		return cdpSurface{}, false
+	}
+	target, ready := registry.readyTarget(targetID)
+	return cdpSurface{id: target.SurfaceID, width: float64(target.Viewport.Width), height: float64(target.Viewport.Height)}, ready
 }
 
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
