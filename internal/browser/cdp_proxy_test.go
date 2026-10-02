@@ -70,7 +70,15 @@ func newFakeChromium(t *testing.T) *fakeChromium {
 				result = map[string]any{"sessionId": "S3"}
 			}
 			if message.Method == "Runtime.evaluate" {
-				result = map[string]any{"result": map[string]any{"value": 1}}
+				var params struct {
+					Expression string `json:"expression"`
+				}
+				_ = json.Unmarshal(message.Params, &params)
+				value := any(1)
+				if strings.Contains(params.Expression, "elementFromPoint") {
+					value = `button "Save"`
+				}
+				result = map[string]any{"result": map[string]any{"value": value}}
 			}
 			if message.Method == "Runtime.callFunctionOn" {
 				var params struct {
@@ -162,6 +170,37 @@ type proxyHarness struct {
 	cadence atomic.Int32
 	client  *websocket.Conn
 	nextID  int64
+
+	journalMu sync.Mutex
+	journaled []map[string]any
+}
+
+func (h *proxyHarness) record(kind string, _ time.Time, fields map[string]any) {
+	h.journalMu.Lock()
+	defer h.journalMu.Unlock()
+	h.journaled = append(h.journaled, map[string]any{"kind": kind, "fields": fields})
+}
+
+// entries waits for the async press entry and returns what was journaled, one summary per entry.
+func (h *proxyHarness) entries(want int) []string {
+	h.t.Helper()
+	for range 100 {
+		h.journalMu.Lock()
+		count := len(h.journaled)
+		h.journalMu.Unlock()
+		if count >= want {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.journalMu.Lock()
+	defer h.journalMu.Unlock()
+	summaries := make([]string, 0, len(h.journaled))
+	for _, entry := range h.journaled {
+		encoded, _ := json.Marshal(entry["fields"])
+		summaries = append(summaries, fmt.Sprintf("%s %s", entry["kind"], encoded))
+	}
+	return summaries
 }
 
 func newProxyHarness(t *testing.T, cadence automationCadence) *proxyHarness {
@@ -171,9 +210,9 @@ func newProxyHarness(t *testing.T, cadence automationCadence) *proxyHarness {
 	h.weston = weston
 	h.cadence.Store(int32(cadence))
 	pointer := newCDPPointer(socket, func(targetID string) (cdpSurface, bool) {
-		return cdpSurface{id: 7, width: 2000, height: 1000}, targetID == "T1"
-	})
-	proxy := newCDPProxy(strings.TrimPrefix(h.chrome.server.URL, "http://"), func() automationCadence { return automationCadence(h.cadence.Load()) }, pointer)
+		return cdpSurface{id: 7, targetID: "T1", width: 2000, height: 1000}, targetID == "T1"
+	}, h.record)
+	proxy := newCDPProxy(strings.TrimPrefix(h.chrome.server.URL, "http://"), func() automationCadence { return automationCadence(h.cadence.Load()) }, pointer, h.record)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	endpoint, err := proxy.serve(ctx)
@@ -411,6 +450,35 @@ func TestRevealScrollIsSmoothedOnlyOutsideImmediateCadence(t *testing.T) {
 		}
 		if last := methods[len(methods)-1]; last != "DOM.scrollIntoViewIfNeeded" {
 			t.Fatalf("original command must be forwarded last, got %v", methods)
+		}
+	}
+}
+
+func TestProxyJournalsGesturesWithoutDelayingTheReply(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
+	for _, id := range []int64{
+		h.mouse("S1", "mouseMoved", 1300, 50, nil),
+		h.mouse("S1", "mousePressed", 1300, 50, nil),
+		h.mouse("S1", "mouseReleased", 1300, 50, nil),
+		h.mouse("S1", "mouseWheel", 1300, 50, map[string]any{"deltaY": 240}),
+	} {
+		if reply := h.read(); reply.ID == nil || *reply.ID != id {
+			t.Fatalf("reply %+v, want id %d", reply, id)
+		}
+	}
+	id := h.send("S2", "DOM.scrollIntoViewIfNeeded", map[string]any{"objectId": "obj1"})
+	if reply := h.read(); reply.ID == nil || *reply.ID != id {
+		t.Fatalf("reply %+v, want id %d", reply, id)
+	}
+	got := strings.Join(h.entries(4), "\n")
+	for _, want := range []string{
+		`glide {"from":[1000,500],"targetId":"T1","to":[1300,50]}`,
+		`press {"button":"left","count":1,"element":"button \"Save\"","targetId":"T1","x":1300,"y":50}`,
+		`wheel {"dx":0,"dy":240,"targetId":"T1","x":1300,"y":50}`,
+		`reveal {"targetId":"T1"}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("journal lacks %s:\n%s", want, got)
 		}
 	}
 }

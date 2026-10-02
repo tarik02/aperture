@@ -293,7 +293,7 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if message.Type == "recording.cancel" {
 			reason = "canceled"
 		}
-		recording, err := session.stopRecording(message.RecordingID, reason)
+		recording, err := session.stopRecordingRequested(message.RecordingID, reason)
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}

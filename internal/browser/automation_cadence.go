@@ -91,5 +91,5 @@ func (session *liveSession) hasWatchableClient() bool {
 
 // automationCadence is evaluated for every intercepted command, so it takes no runtime lock.
 func (session *liveSession) automationCadence() automationCadence {
-	return resolveAutomationCadence(session.activeRecordings.Load() > 0, false, session.hasWatchableClient())
+	return resolveAutomationCadence(session.activeRecordings.Load() > 0, session.presentationRecordings.Load() > 0, session.hasWatchableClient())
 }

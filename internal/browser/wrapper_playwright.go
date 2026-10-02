@@ -41,9 +41,10 @@ func newPlaywrightMCPBackend(values RuntimeEnvValues, cdpEndpoint string) *playw
 func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession *liveSession) error {
 	var pointer *cdpPointer
 	if multiTargetCompositorEnabled(r.values) {
-		pointer = newCDPPointer(r.controlSocket, r.pointerSurface)
+		pointer = newCDPPointer(r.controlSocket, r.pointerSurface, liveSession.journal)
+		liveSession.pointer = pointer
 	}
-	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer)
+	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer, liveSession.journal)
 	endpoint, err := proxy.serve(ctx)
 	if err != nil {
 		return err
@@ -65,7 +66,7 @@ func (r *wrapperRuntime) pointerSurface(targetID string) (cdpSurface, bool) {
 		return cdpSurface{}, false
 	}
 	target, ready := registry.readyTarget(targetID)
-	return cdpSurface{id: target.SurfaceID, width: float64(target.Viewport.Width), height: float64(target.Viewport.Height)}, ready
+	return cdpSurface{id: target.SurfaceID, targetID: target.TargetID, width: float64(target.Viewport.Width), height: float64(target.Viewport.Height)}, ready
 }
 
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
@@ -166,7 +167,18 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 		call.Arguments = map[string]any{}
 	}
 
+	// One browser call at a time, and none while a recording starts or stops.
+	release, err := r.liveSession.acquireGate(req.Context())
+	if err != nil {
+		writeWrapperError(w, http.StatusServiceUnavailable, "browser call was canceled")
+		return
+	}
+	defer release()
+	started := time.Now()
 	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments)
+	if !playwrightmcp.ReadOnly(call.Name) {
+		r.liveSession.journal("call", started, map[string]any{"tool": call.Name, "ok": err == nil && !result.IsError})
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: Playwright MCP tool %s failed: %v\n", call.Name, err)
 		writeWrapperError(w, http.StatusBadGateway, "Playwright MCP call failed")

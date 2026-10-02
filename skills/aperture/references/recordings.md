@@ -61,3 +61,15 @@ MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.
 Viewer recordings belong to a live session client and follow that client's selected top-level target. They stop after the client's five-second transport recovery window expires. HTTP and MCP callers start tab recordings because they have no session-client lifecycle.
 
 Treat `targetId` as the opaque identifier of an Aperture top-level target. Retargeting keeps the same logical recording, output path, timeline, and settings. Aperture keeps recording the current target until the destination is ready. Sending the current target is idempotent. Viewer, stopped, and failed recordings cannot be explicitly retargeted.
+
+## Annotating a running recording
+
+While a recording runs, Aperture journals the browser automation of its session for later editing: the pointer's travel, presses and wheel input, smooth reveal scrolls, and a span for each browser tool call that is not read-only. Automation runs at recorded pace while a recording runs (see the cadence in the live-session reference).
+
+`recording.caption`, `recording.focus` and `recording.attention` add explicit annotations. They act on the recording named by `recordingId`, or on the only running recording; they fail when none is running, or when several are and no `recordingId` is given. Coordinates are CSS pixels of the recorded tab's viewport, and a `selector` is resolved in its top-level document.
+
+- `recording.caption` takes `text` (1 to 200 characters) and optional `durationMs` (default 3000) and returns at once.
+- `recording.focus` takes a `rect` or a `selector`, a `zoom` above 1 and up to 4, and optional `durationMs` (200 to 10000, default 2000). It blocks for the duration, and no browser tool runs meanwhile.
+- `recording.attention` takes a `point` or a `selector` and optional `radius` (default 40), `loops` (default 2) and `durationMs` (default 1200). It circles the real pointer around the place and blocks for the duration. It needs a compositor session and the session's input to be free.
+
+Starting or stopping a recording waits for a browser call that is running, and a start returns once the capture's first frame exists, so no automation happens before the video begins.

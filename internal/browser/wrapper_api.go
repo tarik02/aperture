@@ -639,12 +639,11 @@ func (r *wrapperRuntime) handleSignal(w http.ResponseWriter, req *http.Request) 
 	mediaProducer.Handler(metadata).ServeHTTP(w, req.WithContext(ctx))
 }
 
-func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, error) {
+func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, controlSocket string, captureID string, target string, viewport compositorViewport, path string, fps int, bitrateKbps int, codec string) (*exec.Cmd, <-chan error, *frameClock, error) {
 	keepaliveMS := 1000 / fps
-	recordingWidth := min(viewport.CanvasWidth, (viewport.ContentWidth+1)/2*2)
-	recordingHeight := min(viewport.CanvasHeight, (viewport.ContentHeight+1)/2*2)
+	recordingWidth, recordingHeight := recordingSize(viewport)
 	args := []string{
-		"-e",
+		"-e", "-v", // -v reports every frame at the identity element, which tells when the first one happened
 		"pipewiresrc",
 		"target-object=" + target,
 		"do-timestamp=true",
@@ -668,16 +667,19 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 		"bottom=" + strconv.Itoa(viewport.CanvasHeight-recordingHeight),
 		"!",
 	}
+	args = append(args, "identity", "name="+frameElement, "silent=false", "!")
 	args = append(args, wrapperRecordingPipeline(codec, bitrateKbps, values.MediaProducerKeyframe)...)
 	// A replacement segment takes over once its file has data; buffered, the file
 	// stays empty for up to a second after the first frame and the segments overlap.
 	args = append(args, "!", "filesink", "location="+path, "sync=false", "buffer-mode=unbuffered")
 	cmd := exec.CommandContext(ctx, values.MediaProducerGSTExecutable, args...)
 	cmd.Env = wrapperMediaProcessEnv(values.MediaProducerPluginPath)
-	cmd.Stdout = os.Stdout
+	clock := newFrameClock(fps)
+	cmd.Stdout = clock
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start screencast pipeline: %w", err)
+		return nil, nil, nil, fmt.Errorf("start screencast pipeline: %w", err)
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -695,7 +697,7 @@ func startWrapperScreencast(ctx context.Context, values RuntimeEnvValues, contro
 			_, _ = sendCompositorControlCommand(ctx, controlSocket, "output-repaint "+captureID+"\n")
 		}
 	}()
-	return cmd, done, nil
+	return cmd, done, clock, nil
 }
 
 func wrapperRecordingPipeline(codec string, bitrateKbps int, keyframe int) []string {

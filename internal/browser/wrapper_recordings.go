@@ -59,7 +59,9 @@ type wrapperRecording struct {
 	Codec             string                 `json:"codec"`
 	filesRoot         string
 	segmentDir        string
-	segments          []string
+	segments          []*recordingSegment
+	journal           *recordingJournal
+	presentation      bool // the recording is meant to be watched: automation acts at presentation pace
 	cmd               *exec.Cmd
 	done              <-chan error
 	viewport          compositorViewport
@@ -77,6 +79,8 @@ type wrapperRecordingRequest struct {
 	BitrateKbps int                  `json:"bitrateKbps"`
 	Codec       string               `json:"codec"`
 	Path        string               `json:"path"`
+	// Presentation makes automation act at presentation pace while the recording runs.
+	Presentation bool `json:"presentation"`
 }
 
 type wrapperRecordingRetargetRequest struct {
@@ -123,8 +127,12 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 		writeWrapperJSON(w, http.StatusOK, recording)
 		return
 	}
+	if len(parts) == 2 && parts[0] == "annotations" && req.Method == http.MethodPost {
+		session.handleAnnotation(w, req, parts[1])
+		return
+	}
 	if len(parts) == 2 && parts[1] == "stop" && req.Method == http.MethodPost {
-		recording, err := session.stopRecording(parts[0], "requested")
+		recording, err := session.stopRecordingRequested(parts[0], "requested")
 		if err != nil {
 			if errors.Is(err, errWrapperRecordingNotFound) {
 				writeWrapperError(w, http.StatusNotFound, err.Error())
@@ -184,6 +192,32 @@ func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording w
 	http.ServeFile(w, req, recording.Path)
 }
 
+// recordingGateWait bounds how long starting or stopping a recording waits for a browser call.
+const recordingGateWait = 30 * time.Second
+
+// acquireGate takes the slot that serializes browser calls with recording start and stop: a start
+// holds it until the capture's first frame, so no automation happens before frame 0, and a stop
+// holds it while the recording leaves the journal. The release can be called more than once.
+func (session *liveSession) acquireGate(ctx context.Context) (func(), error) {
+	select {
+	case session.gate <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	var once sync.Once
+	return func() { once.Do(func() { <-session.gate }) }, nil
+}
+
+func (session *liveSession) acquireRecordingGate() (func(), error) {
+	ctx, cancel := context.WithTimeout(session.runtime.ctx, recordingGateWait)
+	defer cancel()
+	release, err := session.acquireGate(ctx)
+	if err != nil {
+		return nil, errors.New("a browser call is still running; try again")
+	}
+	return release, nil
+}
+
 func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
 	r := session.runtime
 	if request.ClientID != "" {
@@ -207,6 +241,12 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	if registry == nil {
 		return wrapperRecording{}, errors.New("target registry is unavailable")
 	}
+	// The gate comes before recordingMu: nothing that holds recordingMu waits for the gate.
+	release, err := session.acquireRecordingGate()
+	if err != nil {
+		return wrapperRecording{}, err
+	}
+	defer release()
 	if request.ClientID != "" {
 		session.recordingMu.Lock()
 		defer session.recordingMu.Unlock()
@@ -242,7 +282,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	if err := os.MkdirAll(segmentDir, 0o700); err != nil {
 		return wrapperRecording{}, fmt.Errorf("mkdir recording segment dir: %w", err)
 	}
-	segment := filepath.Join(segmentDir, "segment-0000"+filepath.Ext(path))
+	segmentPath := filepath.Join(segmentDir, "segment-0000"+filepath.Ext(path))
 
 	targetID := request.TargetID
 	if request.ClientID != "" {
@@ -288,14 +328,16 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		BitrateKbps:       bitrateKbps,
 		Codec:             codec,
 		segmentDir:        segmentDir,
-		segments:          []string{segment},
+		segments:          []*recordingSegment{newRecordingSegment(segmentPath, target)},
+		journal:           newRecordingJournal(segmentDir),
+		presentation:      request.Presentation,
 		viewport:          target.Viewport,
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
 	}
 	session.recordings[id] = recording
 	session.setRecordingStatusLocked(recording, wrapperRecordingStarting)
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segmentPath, fps, bitrateKbps, codec)
 	if err != nil {
 		session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
 		recording.StopReason = "start_failed"
@@ -306,6 +348,17 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	recording.cmd = cmd
 	recording.done = done
+	recording.segments[0].clock = clock
+	r.mu.Unlock()
+	session.broadcastRecordings()
+	// The gate is still held, so the first automation is admitted only once frame 0 exists.
+	if err := clock.waitForFirstFrame(r.ctx); err != nil {
+		_ = stopRecordingSegment(recording)
+		_, _ = session.failRecording(recording, "start_failed", err)
+		session.broadcastRecordings()
+		return wrapperRecording{}, err
+	}
+	r.mu.Lock()
 	session.setRecordingStatusLocked(recording, wrapperRecordingRunning)
 	status := *recording
 	r.mu.Unlock()
@@ -397,7 +450,25 @@ func (session *liveSession) stopRecording(recordingID string, reason string) (wr
 	return session.stopRecordingForTarget(recordingID, "", reason)
 }
 
+// stopRecordingRequested stops a recording on behalf of a client or the API. The recording leaves
+// the journal under the gate, so a browser call that is running finishes inside it; the stop's
+// slow part, joining and finalizing, runs after the gate is released. Stops that follow from
+// events (a closed target, a gone client, the session ending) do not wait for the gate: they can
+// run while recordingMu is held, which a starting recording needs after it took the gate.
+func (session *liveSession) stopRecordingRequested(recordingID string, reason string) (wrapperRecording, error) {
+	release, err := session.acquireRecordingGate()
+	if err != nil {
+		return wrapperRecording{}, err
+	}
+	defer release()
+	return session.stopRecordingWithGate(recordingID, "", reason, release)
+}
+
 func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
+	return session.stopRecordingWithGate(recordingID, targetID, reason, func() {})
+}
+
+func (session *liveSession) stopRecordingWithGate(recordingID string, targetID string, reason string, releaseGate func()) (wrapperRecording, error) {
 	r := session.runtime
 	r.mu.Lock()
 	recording := session.recordings[recordingID]
@@ -429,9 +500,13 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	}
 	recording.finalizing = true
 	r.mu.Unlock()
+	releaseGate()
 
 	if err := stopRecordingSegment(recording); err != nil {
 		return session.failRecording(recording, "pipeline_failed", err)
+	}
+	if err := writeCaptureFacts(recording); err != nil {
+		return session.failRecording(recording, "finalize_failed", err)
 	}
 	finalPath, size, err := session.joinRecordingSegments(recording)
 	if errors.Is(err, errWrapperRecordingEmpty) {
@@ -602,7 +677,7 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		return errors.New("tab recording cannot switch targets")
 	}
 	recording.replacing = true
-	segment := filepath.Join(recording.segmentDir, "segment-"+fmt.Sprintf("%04d", len(recording.segments))+filepath.Ext(recording.Path))
+	segment := newRecordingSegment(filepath.Join(recording.segmentDir, "segment-"+fmt.Sprintf("%04d", len(recording.segments))+filepath.Ext(recording.Path)), target)
 	fps := recording.FPS
 	bitrateKbps := recording.BitrateKbps
 	codec := recording.Codec
@@ -613,11 +688,12 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		r.mu.Unlock()
 	}()
 
-	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
+	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment.path, fps, bitrateKbps, codec)
+	segment.clock = clock
 	if err == nil {
 		waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		for waitCtx.Err() == nil {
-			if info, statErr := os.Stat(segment); statErr == nil && info.Size() > 0 {
+			if info, statErr := os.Stat(segment.path); statErr == nil && info.Size() > 0 {
 				break
 			}
 			select {
@@ -749,7 +825,7 @@ func (session *liveSession) stopAllRecordings(reason string) {
 func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) (string, int64, error) {
 	r := session.runtime
 	if len(recording.segments) == 1 {
-		return publishFinishedRecording(recording.segments[0], recording.Path, recording.segmentDir)
+		return publishFinishedRecording(recording.segments[0].path, recording.Path, recording.segmentDir)
 	}
 	mux := "webmmux"
 	parser := ""
@@ -762,7 +838,7 @@ func (session *liveSession) joinRecordingSegments(recording *wrapperRecording) (
 	joined := filepath.Join(recording.segmentDir, "joined"+filepath.Ext(recording.Path))
 	args := []string{"concat", "name=join", "!", "queue", "!", mux, "!", "filesink", "location=" + joined, "sync=false"}
 	for _, segment := range recording.segments {
-		args = append(args, "filesrc", "location="+segment, "!", "matroskademux", "!", "queue", "!")
+		args = append(args, "filesrc", "location="+segment.path, "!", "matroskademux", "!", "queue", "!")
 		if parser != "" {
 			args = append(args, parser, "!")
 		}
@@ -803,8 +879,8 @@ func abandonRecordingSegments(segmentDir, target string) string {
 	failed := strings.TrimSuffix(target, extension) + "-failed" + extension
 	salvaged := ""
 	for _, entry := range entries {
-		// A join output may be incomplete; the segments it came from are kept.
-		if !entry.Type().IsRegular() || strings.HasPrefix(entry.Name(), "joined") {
+		// A join output may be incomplete; the segments it came from are kept. Sources are not video.
+		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), "segment-") {
 			continue
 		}
 		source := filepath.Join(segmentDir, entry.Name())
@@ -956,13 +1032,28 @@ func (session *liveSession) listRecordingsLocked() []wrapperRecording {
 // setRecordingStatusLocked changes a recording's status and refreshes the count the cadence reads without locks.
 func (session *liveSession) setRecordingStatusLocked(recording *wrapperRecording, status wrapperRecordingStatus) {
 	recording.Status = status
-	active := int32(0)
+	var active, presentation int32
 	for _, other := range session.recordings {
 		if other.Status == wrapperRecordingStarting || other.Status == wrapperRecordingRunning {
 			active++
+			if other.presentation {
+				presentation++
+			}
 		}
 	}
 	session.activeRecordings.Store(active)
+	session.presentationRecordings.Store(presentation)
+}
+
+// refreshRecordings notices capture pipelines that have exited, which stops their recordings
+// counting for the automation cadence.
+func (session *liveSession) refreshRecordings() {
+	r := session.runtime
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, recording := range session.recordings {
+		session.refreshRecordingLocked(recording)
+	}
 }
 
 func (session *liveSession) activeRecordingCountLocked() int {

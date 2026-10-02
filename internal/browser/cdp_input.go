@@ -15,6 +15,7 @@ type cdpPoint struct{ x, y float64 }
 // whatever the device scale factor (that is what the human pointer path maps to as well).
 type cdpSurface struct {
 	id            uint64
+	targetID      string
 	width, height float64
 }
 
@@ -35,13 +36,14 @@ type cdpPointerState struct {
 type cdpPointer struct {
 	socket  string
 	surface func(targetID string) (cdpSurface, bool)
+	journal journalFunc
 
 	mu     sync.Mutex
 	states map[uint64]*cdpPointerState
 }
 
-func newCDPPointer(socket string, surface func(targetID string) (cdpSurface, bool)) *cdpPointer {
-	return &cdpPointer{socket: socket, surface: surface, states: make(map[uint64]*cdpPointerState)}
+func newCDPPointer(socket string, surface func(targetID string) (cdpSurface, bool), journal journalFunc) *cdpPointer {
+	return &cdpPointer{socket: socket, surface: surface, journal: journal, states: make(map[uint64]*cdpPointerState)}
 }
 
 // state returns a copy of the surface's pointer state; the caller must not hold p.mu.
@@ -98,7 +100,9 @@ func (p *cdpPointer) glide(ctx context.Context, surface cdpSurface, to cdpPoint,
 	if !state.known {
 		from = cdpPoint{surface.width / 2, surface.height / 2}
 	}
+	began := time.Now()
 	if distance := math.Hypot(to.x-from.x, to.y-from.y); distance >= 2 {
+		defer p.journal.add("glide", began, map[string]any{"targetId": surface.targetID, "from": []float64{from.x, from.y}, "to": []float64{to.x, to.y}})
 		duration := time.Duration(distance / timing.glideSpeed * float64(time.Second))
 		duration = min(max(duration, timing.glideMin), timing.glideMax)
 		start := time.Now()
@@ -157,6 +161,7 @@ func (p *cdpPointer) release(ctx context.Context, surface cdpSurface, code int, 
 // axis unit, so whole-pixel steps carry their rounding error to keep the total exact.
 func (p *cdpPointer) wheel(ctx context.Context, surface cdpSurface, dx, dy float64) error {
 	at := p.state(surface.id).position
+	defer p.journal.add("wheel", time.Now(), map[string]any{"targetId": surface.targetID, "x": at.x, "y": at.y, "dx": dx, "dy": dy})
 	duration := min(wheelBaseDuration+time.Duration(wheelMsPerPx*math.Max(math.Abs(dx), math.Abs(dy))*float64(time.Millisecond)), wheelMaxDuration)
 	steps := max(int(duration/wheelStepInterval), 1)
 	var sentX, sentY float64
@@ -177,6 +182,26 @@ func (p *cdpPointer) wheel(ctx context.Context, surface cdpSurface, dx, dy float
 		}
 	}
 	return nil
+}
+
+// circle moves the pointer around a point: it glides to the circle's start, then goes round at an even pace.
+func (p *cdpPointer) circle(ctx context.Context, surface cdpSurface, center cdpPoint, radius float64, loops int, duration time.Duration, timing cadenceTiming) error {
+	at := func(angle float64) cdpPoint {
+		return cdpPoint{clamp(center.x+radius*math.Cos(angle), 0, surface.width-1), clamp(center.y+radius*math.Sin(angle), 0, surface.height-1)}
+	}
+	if err := p.glide(ctx, surface, at(0), timing); err != nil {
+		return err
+	}
+	for start := time.Now(); time.Since(start) < duration; {
+		point := at(2 * math.Pi * float64(loops) * float64(time.Since(start)) / float64(duration))
+		if err := p.send(ctx, "motion %d %.2f %.2f", surface.id, point.x, point.y); err != nil {
+			return err
+		}
+		if err := sleepContext(ctx, glideFrameInterval); err != nil {
+			return err
+		}
+	}
+	return p.glide(ctx, surface, at(0), timing)
 }
 
 type cdpHeldButton struct {
@@ -295,8 +320,27 @@ func (c *cdpProxyConn) runMouse(raw []byte) {
 	// The page sees a real event shortly after the compositor accepted it; one round trip covers that.
 	_ = c.evaluate(probe, rootSession, "1", nil)
 	cancel()
+	pressed := time.Now()
 	c.reply(message, json.RawMessage(`{}`), "")
+	if params.Type == "mousePressed" {
+		go c.journalPress(rootSession, surface, params, pressed)
+	}
 }
+
+// journalPress records a press with a short description of what is under the pointer. It runs after
+// the reply, so the click path pays nothing for it.
+func (c *cdpProxyConn) journalPress(sessionID string, surface cdpSurface, params cdpInputParams, pressed time.Time) {
+	var element string
+	ctx, cancel := context.WithTimeout(c.ctx, pageProbeTimeout)
+	defer cancel()
+	_ = c.evaluate(ctx, sessionID, fmt.Sprintf(describeElementExpression, params.X, params.Y), &element)
+	c.proxy.journal.add("press", pressed, map[string]any{"targetId": surface.targetID, "x": params.X, "y": params.Y, "button": params.Button, "count": params.ClickCount, "element": element})
+}
+
+// describeElementExpression names the element at a point as tag#id "text", at most 60 characters of text.
+const describeElementExpression = `(()=>{const e=document.elementFromPoint(%v,%v);if(!e)return "";
+const t=(e.getAttribute("aria-label")||e.innerText||e.value||"").trim().replace(/\s+/g," ").slice(0,60);
+return e.tagName.toLowerCase()+(e.id?"#"+e.id:"")+(t?' "'+t+'"':"")})()`
 
 func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, surface cdpSurface, at cdpPoint, code int, timing cadenceTiming) error {
 	pointer := c.proxy.pointer

@@ -2,11 +2,91 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// The explicit recording tools act on one running recording of the session: recordingId, or the only
+// one running. Coordinates are CSS px of the recorded tab's viewport.
+type mcpSurfaceRect struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+type mcpSurfacePoint struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+type mcpRecordingCaptionArgs struct {
+	RecordingID string `json:"recordingId,omitempty" jsonschema:"Recording to caption; omit when exactly one recording is running."`
+	Text        string `json:"text" jsonschema:"Caption text, 1 to 200 characters."`
+	DurationMs  int    `json:"durationMs,omitempty" jsonschema:"How long the caption shows, 200 to 30000. Defaults to 3000."`
+}
+type mcpRecordingFocusArgs struct {
+	RecordingID string          `json:"recordingId,omitempty" jsonschema:"Recording to zoom; omit when exactly one recording is running."`
+	Rect        *mcpSurfaceRect `json:"rect,omitempty" jsonschema:"Area to zoom on. Pass rect or selector."`
+	Selector    string          `json:"selector,omitempty" jsonschema:"CSS selector of the element to zoom on, in the top-level document. Pass rect or selector."`
+	Zoom        float64         `json:"zoom" jsonschema:"Zoom factor above 1, up to 4."`
+	DurationMs  int             `json:"durationMs,omitempty" jsonschema:"How long the zoom holds, 200 to 10000. Defaults to 2000. The call blocks for this long."`
+}
+type mcpRecordingAttentionArgs struct {
+	RecordingID string           `json:"recordingId,omitempty" jsonschema:"Recording to annotate; omit when exactly one recording is running."`
+	Point       *mcpSurfacePoint `json:"point,omitempty" jsonschema:"Where to draw attention. Pass point or selector."`
+	Selector    string           `json:"selector,omitempty" jsonschema:"CSS selector of the element to draw attention to, in the top-level document. Pass point or selector."`
+	Radius      float64          `json:"radius,omitempty" jsonschema:"Radius of the pointer's circle in px, 8 to 300. Defaults to 40."`
+	Loops       int              `json:"loops,omitempty" jsonschema:"How many times the pointer circles, 1 to 5. Defaults to 2."`
+	DurationMs  int              `json:"durationMs,omitempty" jsonschema:"How long the pointer circles, 300 to 5000. Defaults to 1200. The call blocks for this long."`
+}
+
+// addRecordingAnnotationTool adds one explicit recording tool, session-addressed or bound to the
+// session of its path. Its arguments go to the wrapper, which validates them.
+func addRecordingAnnotationTool[Args any](s *Server, server *mcp.Server, a mcpAuth, kind, description string) {
+	schema, err := jsonschema.For[Args](nil)
+	if err != nil {
+		panic(err)
+	}
+	if !a.pathBound {
+		schema.Properties["tenantId"] = &jsonschema.Schema{Type: "string"}
+		schema.Properties["sessionId"] = &jsonschema.Schema{Type: "string", Description: "Aperture session ID."}
+		schema.Required = append(schema.Required, "sessionId")
+	}
+	server.AddTool(&mcp.Tool{Name: "recording." + kind, Description: description, InputSchema: schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		arguments := map[string]any{}
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &arguments); err != nil {
+				return nil, mcpToolError("invalid_arguments", err)
+			}
+		}
+		sessionID, _ := arguments["sessionId"].(string)
+		tenantID, _ := arguments["tenantId"].(string)
+		delete(arguments, "sessionId")
+		delete(arguments, "tenantId")
+		view, err := s.sessionForMCP(ctx, a, sessionID, tenantID, true)
+		if err != nil {
+			return nil, err
+		}
+		port, release, err := s.Sessions.AcquireWrapperPort(ctx, view.Session.TenantID, view.Session.ID)
+		if err != nil {
+			return nil, mcpToolError("session_unavailable", err)
+		}
+		defer release()
+		if err := requestWrapperRecording(ctx, port, http.MethodPost, "/recordings/annotations/"+kind, arguments, false, nil); err != nil {
+			return nil, mcpToolError("recording_unavailable", err)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	})
+}
+
+func (s *Server) addRecordingAnnotationTools(server *mcp.Server, a mcpAuth) {
+	addRecordingAnnotationTool[mcpRecordingCaptionArgs](s, server, a, "caption", "Show a caption in the recording from now on. Returns at once.")
+	addRecordingAnnotationTool[mcpRecordingFocusArgs](s, server, a, "focus", "Zoom the recording on a rect or element for a while. Blocks for the duration, so no browser tool runs meanwhile.")
+	addRecordingAnnotationTool[mcpRecordingAttentionArgs](s, server, a, "attention", "Circle the real pointer around a point or element so a viewer looks there. Blocks for the duration. Needs a compositor session.")
+}
 
 func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)

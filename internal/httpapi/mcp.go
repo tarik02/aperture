@@ -603,6 +603,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.create", Description: "Create an API bearer token for authorized Aperture access."}, s.mcpTokensCreate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tokens.revoke", Description: "Revoke an API bearer token."}, s.mcpTokensRevoke)
 	}
+	s.addRecordingAnnotationTools(server, a)
 	canProxy := a.sessionOnly || (a.principal != nil && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite))
 	tools, err := playwrightmcp.ToolsForProfilesMetadata(a.profiles)
 	if canProxy && err == nil {

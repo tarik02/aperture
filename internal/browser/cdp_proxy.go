@@ -32,10 +32,11 @@ type cdpProxy struct {
 	upstream string // Chromium's debugging endpoint, host:port
 	cadence  func() automationCadence
 	pointer  *cdpPointer // nil for sessions without a compositor
+	journal  journalFunc // what the proxy does for real, for the recordings that run
 }
 
-func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer) *cdpProxy {
-	return &cdpProxy{upstream: upstream, cadence: cadence, pointer: pointer}
+func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer, journal journalFunc) *cdpProxy {
+	return &cdpProxy{upstream: upstream, cadence: cadence, pointer: pointer, journal: journal}
 }
 
 // serve listens on an ephemeral loopback port until ctx ends and returns the endpoint to hand to Playwright.

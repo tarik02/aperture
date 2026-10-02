@@ -73,9 +73,15 @@ type liveSession struct {
 	paintTokens    float64
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
-	// activeRecordings is read by the automation cadence, which must never wait on the runtime lock.
-	activeRecordings atomic.Int32
-	cursorVisible    bool
+	// activeRecordings and presentationRecordings are read by the automation cadence, which must
+	// never wait on the runtime lock.
+	activeRecordings       atomic.Int32
+	presentationRecordings atomic.Int32
+	// gate is the slot that serializes browser calls with recording start and stop; see acquireGate.
+	gate chan struct{}
+	// pointer is the compositor pointer automation moves; nil without a compositor.
+	pointer       *cdpPointer
+	cursorVisible bool
 	// viewportOwner is the only session client whose auto-size requests resize targets.
 	viewportOwner    *liveSessionClient
 	autoSizeSequence uint64
@@ -275,6 +281,7 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		browser:       newLiveSessionBrowser(runtime),
 		clients:       make(map[string]*liveSessionClient),
 		recordings:    make(map[string]*wrapperRecording),
+		gate:          make(chan struct{}, 1),
 		cursorVisible: true,
 	}, nil
 }
@@ -289,6 +296,7 @@ func (session *liveSession) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			session.expireLease()
+			session.refreshRecordings()
 			session.mu.Lock()
 			hasClients := len(session.clients) > 0
 			session.mu.Unlock()
