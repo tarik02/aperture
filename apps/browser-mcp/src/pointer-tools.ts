@@ -76,20 +76,28 @@ async function locate(
       target: params.target,
       ...(params.element === undefined ? {} : { element: params.element }),
     });
-    if (mode !== "peek") await locator[mode]({ trial: true, ...run.tab.actionTimeoutOptions });
+    if (mode !== "peek") {
+      await locator[mode]({ ...run.tab.actionTimeoutOptions, scroll: "none", trial: true });
+    }
     const box = await locator.boundingBox();
-    if (box === null) throw new Error("target is not visible");
+    if (box === null) {
+      throw new Error("target is not visible");
+    }
     const left = Math.max(0, box.x),
       top = Math.max(0, box.y);
     const right = Math.min(run.size.width, box.x + box.width),
       bottom = Math.min(run.size.height, box.y + box.height);
-    if (right <= left || bottom <= top) throw new Error("target is outside the viewport");
+    if (right <= left || bottom <= top) {
+      throw new Error("target is outside the viewport");
+    }
     return { x: (left + right) / 2, y: (top + bottom) / 2 };
   }
-  if (params.x === undefined || params.y === undefined)
+  if (params.x === undefined || params.y === undefined) {
     throw new Error("give a target or both x and y");
-  if (params.x < 0 || params.y < 0 || params.x >= run.size.width || params.y >= run.size.height)
+  }
+  if (params.x < 0 || params.y < 0 || params.x >= run.size.width || params.y >= run.size.height) {
     throw new Error("point is outside the viewport");
+  }
   return { x: params.x, y: params.y };
 }
 
@@ -105,11 +113,14 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
       schema: { name, title: name, description, inputSchema: z.object(shape), type: "input" },
       async handle(context, argumentsForTool, response, signal) {
         const scope = state.current;
-        if (scope === null) throw new Error("browser call context is unavailable");
+        if (scope === null) {
+          throw new Error("browser call context is unavailable");
+        }
         const params = PointerArguments.parse(argumentsForTool);
         const tab = await context.ensureTab();
-        if (tab.modalStates().length > 0)
+        if (tab.modalStates().length > 0) {
           throw new Error("handle the open dialog before using pointer tools");
+        }
         const page = tab.page;
         const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
         const targetId = await targetIdOf(page);
@@ -124,7 +135,7 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
         try {
           await act({ tab, page, pointer, size, targetId, signal }, params);
         } finally {
-          if (pointer.record.start !== 0)
+          if (pointer.record.start !== 0) {
             scope.events.push({
               recordingIds:
                 params.recordingId === undefined
@@ -140,12 +151,15 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
                 ...(params.ripple === undefined ? {} : { ripple: params.ripple }),
               },
             });
+          }
         }
       },
     };
   }
   const defaults = () => {
-    if (state.current === null) throw new Error("browser call context is unavailable");
+    if (state.current === null) {
+      throw new Error("browser call context is unavailable");
+    }
     return cadence[state.current.context.cadence];
   };
   return [
@@ -266,8 +280,9 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
           scope === null ||
           params.recordingId === undefined ||
           !scope.context.recordingIds.includes(params.recordingId)
-        )
+        ) {
           throw new Error("cursor attention requires an active recordingId");
+        }
         const point = await locate(run, params);
         const start = Date.now();
         await run.tab.waitForCompletion(() =>
@@ -308,8 +323,9 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
           scope === null ||
           params.recordingId === undefined ||
           !scope.context.recordingIds.includes(params.recordingId)
-        )
+        ) {
           throw new Error("focus requires an active recordingId");
+        }
         let rect;
         if (params.target !== undefined) {
           const { locator } = await run.tab.targetLocator({
@@ -317,15 +333,18 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
             ...(params.element === undefined ? {} : { element: params.element }),
           });
           rect = await locator.boundingBox();
-          if (rect === null) throw new Error("focus target is not visible");
+          if (rect === null) {
+            throw new Error("focus target is not visible");
+          }
         } else {
           if (
             params.x === undefined ||
             params.y === undefined ||
             params.width === undefined ||
             params.height === undefined
-          )
+          ) {
             throw new Error("give a target or x, y, width and height");
+          }
           rect = { x: params.x, y: params.y, width: params.width, height: params.height };
         }
         if (
@@ -335,9 +354,12 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
           rect.height <= 0 ||
           rect.x + rect.width > run.size.width ||
           rect.y + rect.height > run.size.height
-        )
+        ) {
           throw new Error("focus rectangle must be inside the viewport");
-        if (params.zoom === undefined) throw new Error("zoom is required");
+        }
+        if (params.zoom === undefined) {
+          throw new Error("zoom is required");
+        }
         const start = Date.now();
         scope.events.push({
           recordingIds: [params.recordingId],

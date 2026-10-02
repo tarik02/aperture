@@ -23,7 +23,9 @@ const targetIds = new WeakMap<Page, string>();
 const TargetInfo = Schema.Struct({ targetInfo: Schema.Struct({ targetId: Schema.String }) });
 export async function targetIdOf(page: Page): Promise<string> {
   const known = targetIds.get(page);
-  if (known !== undefined) return known;
+  if (known !== undefined) {
+    return known;
+  }
   const session = await page.context().newCDPSession(page);
   try {
     const result = Schema.decodeUnknownSync(TargetInfo)(await session.send("Target.getTargetInfo"));
@@ -34,16 +36,25 @@ export async function targetIdOf(page: Page): Promise<string> {
   }
 }
 
-// Animate each scrollable ancestor directly. Waiting on its own rAF animation
-// avoids browser-dependent scrollend support and nested-frame completion guesses.
-export async function smoothElementIntoView(handle: ElementHandle, signal?: AbortSignal) {
+// Reveal each scrollable ancestor directly. Smooth mode waits on its own rAF
+// animation to avoid browser-dependent scrollend and nested-frame completion guesses.
+type RevealMotion = "instant" | "smooth";
+
+export async function revealElement(
+  handle: ElementHandle,
+  motion: RevealMotion,
+  signal?: AbortSignal,
+) {
   signal?.throwIfAborted();
-  await handle.evaluate(async (element) => {
-    if (!(element instanceof Element)) throw new Error("target is not an element");
+  await handle.evaluate(async (element, motion) => {
+    if (!(element instanceof Element)) {
+      throw new Error("target is not an element");
+    }
     const ancestors: Element[] = [];
     for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
-      if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth)
+      if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth) {
         ancestors.push(parent);
+      }
     }
     for (const parent of ancestors.reverse()) {
       const box = element.getBoundingClientRect();
@@ -71,29 +82,42 @@ export async function smoothElementIntoView(handle: ElementHandle, signal?: Abor
       const toX = Math.max(0, Math.min(parent.scrollWidth - parent.clientWidth, fromX + dx));
       const toY = Math.max(0, Math.min(parent.scrollHeight - parent.clientHeight, fromY + dy));
       const distance = Math.hypot(toX - fromX, toY - fromY);
-      if (distance < 1) continue;
+      if (distance < 1) {
+        continue;
+      }
+      if (motion === "instant") {
+        parent.scrollTo(toX, toY);
+        continue;
+      }
       // A reveal is part of the presentation: keep even short container scrolls
       // legible instead of letting them look like a layout jump in the edit.
       const duration = Math.min(900, Math.max(320, (distance / 700) * 1000));
       const began = performance.now();
       const previousBehavior = parent instanceof HTMLElement ? parent.style.scrollBehavior : "";
-      if (parent instanceof HTMLElement) parent.style.scrollBehavior = "auto";
+      if (parent instanceof HTMLElement) {
+        parent.style.scrollBehavior = "auto";
+      }
       try {
         await new Promise<void>((resolve) => {
           const frame = () => {
             const t = Math.min(1, (performance.now() - began) / duration);
             const eased = t * t * (3 - 2 * t);
             parent.scrollTo(fromX + (toX - fromX) * eased, fromY + (toY - fromY) * eased);
-            if (t === 1) resolve();
-            else requestAnimationFrame(frame);
+            if (t === 1) {
+              resolve();
+            } else {
+              requestAnimationFrame(frame);
+            }
           };
           requestAnimationFrame(frame);
         });
       } finally {
-        if (parent instanceof HTMLElement) parent.style.scrollBehavior = previousBehavior;
+        if (parent instanceof HTMLElement) {
+          parent.style.scrollBehavior = previousBehavior;
+        }
       }
     }
-  });
+  }, motion);
   signal?.throwIfAborted();
 }
 
@@ -101,6 +125,7 @@ export async function revealTarget(
   context: Context,
   target: string,
   element: string | undefined,
+  motion: RevealMotion,
   signal?: AbortSignal,
 ) {
   const tab = await context.ensureTab();
@@ -109,7 +134,9 @@ export async function revealTarget(
     ...(element === undefined ? {} : { element }),
   });
   const handle = await locator.elementHandle();
-  if (handle === null) throw new Error("target element disappeared");
+  if (handle === null) {
+    throw new Error("target element disappeared");
+  }
   const chain: ElementHandle[] = [handle];
   let frame = await handle.ownerFrame();
   while (frame !== null && frame.parentFrame() !== null) {
@@ -117,7 +144,9 @@ export async function revealTarget(
     frame = frame.parentFrame();
   }
   try {
-    for (const item of chain.reverse()) await smoothElementIntoView(item, signal);
+    for (const item of chain.reverse()) {
+      await revealElement(item, motion, signal);
+    }
   } finally {
     await Promise.all(chain.map((item) => item.dispose()));
   }
@@ -140,7 +169,9 @@ const ActionArguments = z.object({
 });
 
 export function withAction(tool: ToolDefinition, state: CallState): ToolDefinition {
-  if (tool.schema.type === "readOnly") return tool;
+  if (tool.schema.type === "readOnly") {
+    return tool;
+  }
   return {
     ...tool,
     schema: {
@@ -155,7 +186,9 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
     },
     async handle(context, params, response, signal) {
       const scope = state.current;
-      if (scope === null) throw new Error("browser call context is unavailable");
+      if (scope === null) {
+        throw new Error("browser call context is unavailable");
+      }
       const parsed = ActionArguments.parse(params);
       const { caption: _caption, smoothScroll: _smoothScroll, ...argumentsForTool } = params;
       const before = context.currentTab();
@@ -170,10 +203,11 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
       const start = Date.now();
       let ok = true;
       try {
-        if (
-          (parsed.smoothScroll ?? cadence[scope.context.cadence].smoothScroll) &&
-          tool.schema.name !== "browser_focus_viewport"
-        ) {
+        if (tool.schema.name !== "browser_focus_viewport") {
+          const motion =
+            (parsed.smoothScroll ?? cadence[scope.context.cadence].smoothScroll) === true
+              ? "smooth"
+              : "instant";
           const targets = [
             { target: parsed.target, element: parsed.element },
             { target: parsed.endTarget, element: parsed.endElement },
@@ -183,9 +217,11 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
               element: field.name,
             })),
           ];
-          for (const item of targets)
-            if (item.target !== undefined)
-              await revealTarget(context, item.target, item.element, signal);
+          for (const item of targets) {
+            if (item.target !== undefined) {
+              await revealTarget(context, item.target, item.element, motion, signal);
+            }
+          }
         }
         await tool.handle(context, argumentsForTool, response, signal);
       } catch (error) {
@@ -201,7 +237,9 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
             scope.warnings.push("ending browser target could not be observed");
           }
         }
-        if (targetId !== "") scope.endTargetId = targetId;
+        if (targetId !== "") {
+          scope.endTargetId = targetId;
+        }
         const recordingIds =
           parsed.recordingId === undefined
             ? scope.context.recordingIds
@@ -233,7 +271,9 @@ export function encodeJournal(scope: CallScope, failed: boolean) {
       const event =
         entry.event._tag === "Action" && failed ? { ...entry.event, ok: false } : entry.event;
       const line = Schema.encodeSync(RecordingEventJson)(event);
-      for (const recordingId of entry.recordingIds) journal.push({ recordingId, line });
+      for (const recordingId of entry.recordingIds) {
+        journal.push({ recordingId, line });
+      }
     } catch {
       scope.warnings.push("recording event could not be encoded");
     }
