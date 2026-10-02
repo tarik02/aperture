@@ -882,7 +882,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -934,7 +934,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file.
+      description: Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
@@ -2948,6 +2948,40 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
+        capture:
+          type: string
+          enum: [continuous, bursts]
+          description: With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`.
+        presentation:
+          type: boolean
+          description: Run browser automation at presentation pace while the recording runs.
+        idle:
+          type: string
+          enum: [cut, speed]
+          description: Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video.
+        ripple:
+          type: boolean
+          description: Mark clicks with a ripple in the edited video.
+        burst:
+          type: object
+          description: Burst sizes in milliseconds for `capture` `bursts`, each up to 60000. Omitted or zero fields take the defaults. `tailMs` must not exceed `maxTailMs`.
+          properties:
+            leadMs:
+              type: integer
+              minimum: 0
+              description: Kept before a tool call. Defaults to 500.
+            tailMs:
+              type: integer
+              minimum: 0
+              description: Kept after a tool call. Defaults to 800.
+            settleMs:
+              type: integer
+              minimum: 0
+              description: How long the screen must stand still to count as settled. Defaults to 400.
+            maxTailMs:
+              type: integer
+              minimum: 0
+              description: Longest wait for the screen to settle after a call. Defaults to 3000.
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.
@@ -3007,6 +3041,23 @@ components:
         codec:
           type: string
           enum: [vp8, h264-va]
+        editedRelativePath:
+          type: string
+          description: The edited H.264 video, published next to the raw one as `<name>.edited.mp4`, once a stop made it.
+        timelineRelativePath:
+          type: string
+          description: What the recording's automation did and when, in the raw and edited video's time, published as `<name>.timeline.json`.
+        editError: {$ref: '#/components/schemas/RecordingEditError'}
+    RecordingEditError:
+      type: object
+      description: Why a recording has no edit although one was due or a timeline could not be written. The raw video is published regardless.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [ffmpeg_unavailable, analysis_failed, plan_failed, render_failed, timeout, timeline_failed]
+        message:
+          type: string
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

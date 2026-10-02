@@ -187,7 +187,10 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
       targetId: string,
     ) => Call<SessionRecording>;
-    /** Stops a recording and returns the session file it was saved to. */
+    /**
+     * Stops a recording and returns the session file of its raw video. Resolves once the
+     * edit is done, which takes about as long as the video; `getSessionRecording` reports it.
+     */
     readonly stopSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,

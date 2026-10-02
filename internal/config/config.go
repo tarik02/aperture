@@ -96,6 +96,7 @@ type Config struct {
 	WebRTCCompositorHeight           int                      `mapstructure:"webrtc_compositor_height"`
 	WebRTCMediaProducerEnabled       bool                     `mapstructure:"webrtc_media_producer_enabled"`
 	WebRTCMediaProducerGSTExecutable string                   `mapstructure:"webrtc_media_producer_gst_executable"`
+	RecordingFFmpegExecutable        string                   `mapstructure:"recording_ffmpeg_executable"`
 	WebRTCMediaProducerPluginPath    string                   `mapstructure:"webrtc_media_producer_plugin_path"`
 	WebRTCMediaProducerTarget        string                   `mapstructure:"webrtc_media_producer_target"`
 	WebRTCMediaProducerAdvertisedIP  string                   `mapstructure:"webrtc_media_producer_advertised_ip"`
@@ -162,6 +163,7 @@ func Defaults() Config {
 		WebRTCCompositorHeight:           720,
 		WebRTCMediaProducerEnabled:       false,
 		WebRTCMediaProducerGSTExecutable: "",
+		RecordingFFmpegExecutable:        "",
 		WebRTCMediaProducerPluginPath:    "",
 		WebRTCMediaProducerTarget:        "weston.pipewire",
 		WebRTCMediaProducerAdvertisedIP:  "",
@@ -309,6 +311,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_compositor_height",
 		"webrtc_media_producer_enabled",
 		"webrtc_media_producer_gst_executable",
+		"recording_ffmpeg_executable",
 		"webrtc_media_producer_plugin_path",
 		"webrtc_media_producer_target",
 		"webrtc_media_producer_codec",
@@ -432,6 +435,7 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"webrtc-compositor-height":                "webrtc_compositor_height",
 		"webrtc-media-producer-enabled":           "webrtc_media_producer_enabled",
 		"webrtc-media-producer-gst-executable":    "webrtc_media_producer_gst_executable",
+		"recording-ffmpeg-executable":             "recording_ffmpeg_executable",
 		"webrtc-media-producer-plugin-path":       "webrtc_media_producer_plugin_path",
 		"webrtc-media-producer-target":            "webrtc_media_producer_target",
 		"webrtc-media-producer-codec":             "webrtc_media_producer_codec",

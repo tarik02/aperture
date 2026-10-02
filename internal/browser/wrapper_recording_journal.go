@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -21,6 +22,9 @@ import (
 //	attention  targetId, x, y, radius, loops    recording.attention
 //
 // and startMs and endMs, both Unix milliseconds. Surface px are CSS px of the target's viewport.
+//
+// The kind target, which automation reports as it starts to act on a tab, is not written: it only
+// makes a bursts recording follow that tab.
 type recordingJournal struct {
 	path string
 
@@ -84,17 +88,38 @@ func (session *liveSession) journal(kind string, started time.Time, fields map[s
 	r := session.runtime
 	r.mu.Lock()
 	journals := make([]*recordingJournal, 0, len(session.recordings))
+	targetID, _ := fields["targetId"].(string)
 	for _, recording := range session.recordings {
 		if recording.Status == wrapperRecordingRunning && !recording.finalizing {
 			journals = append(journals, recording.journal)
+			if recording.follow != nil && targetID != "" && targetID != recording.TargetID {
+				select { // the latest target wins
+				case <-recording.follow:
+				default:
+				}
+				recording.follow <- targetID // this is the only sender, under the lock, so there is room
+			}
 		}
 	}
 	r.mu.Unlock()
-	if len(journals) == 0 {
+	if len(journals) == 0 || kind == "target" {
 		return
 	}
 	line := journalLine(kind, started, fields)
 	for _, journal := range journals {
 		journal.append(line)
+	}
+}
+
+// followAutomation moves a bursts recording to the tab the latest automation acted on, one move at
+// a time. A move that fails (the tab is not ready yet) is retried by the next action's entry.
+func (session *liveSession) followAutomation(ctx context.Context, recording *wrapperRecording) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case targetID := <-recording.follow:
+			_, _ = session.retargetRecording(ctx, recording.ID, targetID)
+		}
 	}
 }

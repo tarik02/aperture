@@ -103,6 +103,7 @@ func (p *cdpPointer) glide(ctx context.Context, surface cdpSurface, to cdpPoint,
 		from = cdpPoint{surface.width / 2, surface.height / 2}
 	}
 	began := time.Now()
+	p.journal.add("target", began, map[string]any{"targetId": surface.targetID})
 	if distance := math.Hypot(to.x-from.x, to.y-from.y); distance >= 2 {
 		defer p.journal.add("glide", began, map[string]any{"targetId": surface.targetID, "from": []float64{from.x, from.y}, "to": []float64{to.x, to.y}})
 		duration := time.Duration(distance / timing.glideSpeed * float64(time.Second))
@@ -167,6 +168,7 @@ func (p *cdpPointer) release(ctx context.Context, surface cdpSurface, code int, 
 // axis unit, so whole-pixel steps carry their rounding error to keep the total exact.
 func (p *cdpPointer) wheel(ctx context.Context, surface cdpSurface, dx, dy float64) error {
 	at := p.state(surface.id).position
+	p.journal.add("target", time.Now(), map[string]any{"targetId": surface.targetID})
 	defer p.journal.add("wheel", time.Now(), map[string]any{"targetId": surface.targetID, "x": at.x, "y": at.y, "dx": dx, "dy": dy})
 	duration := min(wheelBaseDuration+time.Duration(wheelMsPerPx*math.Max(math.Abs(dx), math.Abs(dy))*float64(time.Millisecond)), wheelMaxDuration)
 	steps := max(int(duration/wheelStepInterval), 1)

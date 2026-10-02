@@ -157,6 +157,9 @@ func Validate(cfg Config) error {
 			errs = append(errs, errors.New("webrtc_compositor_height must be positive when webrtc_compositor_enabled is true"))
 		}
 	}
+	if executable := strings.TrimSpace(cfg.RecordingFFmpegExecutable); executable != "" && !filepath.IsAbs(executable) {
+		errs = append(errs, errors.New("recording_ffmpeg_executable must be an absolute path"))
+	}
 	if webRTCRuntimeEnabled && cfg.WebRTCMediaProducerEnabled {
 		if !cfg.WebRTCCompositorEnabled {
 			errs = append(errs, errors.New("webrtc_media_producer_enabled requires webrtc_compositor_enabled"))

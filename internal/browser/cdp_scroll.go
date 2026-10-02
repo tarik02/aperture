@@ -50,6 +50,7 @@ func (c *cdpProxyConn) smoothReveal(sessionID, handle string) {
 	// A failed probe ends the wait: a page blocked by a dialog must not hold the command up.
 	rootSession, root, _ := c.rootSession(sessionID)
 	defer c.proxy.journal.add("reveal", time.Now(), map[string]any{"targetId": root.targetID})
+	c.proxy.journal.add("target", time.Now(), map[string]any{"targetId": root.targetID})
 	position := func() (string, error) {
 		element, err := c.callOn(ctx, sessionID, handle, revealPositionFunction)
 		var page json.RawMessage

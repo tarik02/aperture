@@ -97,8 +97,8 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
-		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", wrapperRecordingStart{
+		Mode: "tab", TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, recordingOptions: in.recordingOptions,
 	}, false)
 }
 
@@ -160,7 +160,7 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, recordingOptions: in.recordingOptions})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -246,8 +246,12 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 	if err != nil {
 		return mcpRecordingOutput{}, err
 	}
+	edit, err := status.validEdit()
+	if err != nil {
+		return mcpRecordingOutput{}, err
+	}
 	output := mcpRecordingOutput{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		recordingEdit: edit, RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}

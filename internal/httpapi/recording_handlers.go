@@ -18,6 +18,44 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// recordingOptions are what recording.start says about the edit made when the recording stops.
+type recordingOptions struct {
+	Capture      string          `json:"capture,omitempty" jsonschema:"continuous (default) or bursts. Bursts keep only the stretches around browser tool calls in the edited video and follow the tab they act on; it excludes idle."`
+	Presentation bool            `json:"presentation,omitempty" jsonschema:"Run browser automation at presentation pace while recording."`
+	Idle         string          `json:"idle,omitempty" jsonschema:"cut or speed: remove, or fast-forward, the stretches in which nothing happens. Continuous capture only."`
+	Ripple       bool            `json:"ripple,omitempty" jsonschema:"Mark clicks with a ripple in the edited video."`
+	Burst        *recordingBurst `json:"burst,omitempty" jsonschema:"Burst sizes in ms for capture bursts; omitted or zero fields take the defaults."`
+}
+
+type recordingBurst struct {
+	LeadMs    int64 `json:"leadMs,omitempty" jsonschema:"Kept before a tool call. Defaults to 500."`
+	TailMs    int64 `json:"tailMs,omitempty" jsonschema:"Kept after a tool call. Defaults to 800."`
+	SettleMs  int64 `json:"settleMs,omitempty" jsonschema:"How long the screen must stand still to count as settled. Defaults to 400."`
+	MaxTailMs int64 `json:"maxTailMs,omitempty" jsonschema:"Longest wait for the screen to settle after a call. Defaults to 3000."`
+}
+
+// recordingEdit is what stopping a recording made of its edit. The raw video is always the recording's own path.
+type recordingEdit struct {
+	EditedRelativePath   string                 `json:"editedRelativePath,omitempty"`
+	TimelineRelativePath string                 `json:"timelineRelativePath,omitempty"`
+	EditError            *recordingEditResponse `json:"editError,omitempty"`
+}
+
+type recordingEditResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// wrapperRecordingStart is the body of a start request to the wrapper.
+type wrapperRecordingStart struct {
+	Mode        string `json:"mode"`
+	TargetID    string `json:"targetId"`
+	FPS         int    `json:"fps"`
+	BitrateKbps int    `json:"bitrateKbps"`
+	Codec       string `json:"codec"`
+	recordingOptions
+}
+
 type wrapperRecordingStatus struct {
 	RecordingID       string `json:"recordingId"`
 	Mode              string `json:"mode"`
@@ -34,6 +72,7 @@ type wrapperRecordingStatus struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+	recordingEdit
 }
 
 type recordingResponse struct {
@@ -50,6 +89,7 @@ type recordingResponse struct {
 	FPS               int    `json:"fps"`
 	BitrateKbps       int    `json:"bitrateKbps"`
 	Codec             string `json:"codec"`
+	recordingEdit
 }
 
 type createSessionRecordingRequest struct {
@@ -57,6 +97,7 @@ type createSessionRecordingRequest struct {
 	FPS         int    `json:"fps"`
 	BitrateKbps int    `json:"bitrateKbps"`
 	Codec       string `json:"codec"`
+	recordingOptions
 }
 
 func (r createSessionRecordingRequest) Validate() error {
@@ -97,8 +138,8 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 		return
 	}
 	var status wrapperRecordingStatus
-	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", map[string]any{
-		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
+	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", wrapperRecordingStart{
+		Mode: "tab", TargetID: input.TargetID, FPS: input.FPS, BitrateKbps: input.BitrateKbps, Codec: input.Codec, recordingOptions: input.recordingOptions,
 	}, false, &status)
 	if err != nil {
 		WriteError(c, err)
@@ -169,6 +210,7 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
+	// The wrapper answers once its edit is done, which takes about as long as the video; the edit is on the recording.
 	file, err := s.stopRecording(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), c.Param("recordingId"))
 	if err != nil {
 		WriteError(c, err)
@@ -285,6 +327,8 @@ func mapWrapperRecordingRequestError(err error) error {
 		return fmt.Errorf("%w: %w", errBrowserControlFailed, err)
 	}
 	switch responseErr.StatusCode {
+	case http.StatusBadRequest:
+		return validationError(responseErr.Message)
 	case http.StatusNotFound:
 		return errRecordingNotFound
 	case http.StatusConflict:
@@ -311,8 +355,12 @@ func (s *Server) recordingResponse(sessionID string, status wrapperRecordingStat
 	if err != nil {
 		return recordingResponse{}, err
 	}
+	edit, err := status.validEdit()
+	if err != nil {
+		return recordingResponse{}, err
+	}
 	return recordingResponse{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		recordingEdit: edit, RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}, nil
@@ -338,4 +386,20 @@ func (s *Server) recordingRelativePath(sessionID string, status wrapperRecording
 		return "", fmt.Errorf("%w: invalid wrapper recording path %q", errBrowserControlFailed, relativePath)
 	}
 	return relativePath, nil
+}
+
+// validEdit checks the paths of the edit the wrapper reports, which are published below recordings/ like the video.
+func (status wrapperRecordingStatus) validEdit() (recordingEdit, error) {
+	edit := status.recordingEdit
+	for _, relativePath := range []*string{&edit.EditedRelativePath, &edit.TimelineRelativePath} {
+		if *relativePath == "" {
+			continue
+		}
+		clean, err := sessionfiles.Normalize(*relativePath)
+		if err != nil || !strings.HasPrefix(clean, "recordings/") {
+			return recordingEdit{}, fmt.Errorf("%w: invalid wrapper recording path %q", errBrowserControlFailed, *relativePath)
+		}
+		*relativePath = clean
+	}
+	return edit, nil
 }

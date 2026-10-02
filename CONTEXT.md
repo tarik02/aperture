@@ -12,6 +12,10 @@ _Avoid_: Collaboration hub, browser transport, wrapper runtime
 A regular file below the session's single files root, identified by its path relative to that root. Browser downloads, completed recordings, uploads, and Playwright MCP output are session files; operational logs and crash dumps are not. Session files never enter a promoted snapshot, and a session created from a snapshot starts with none.
 _Avoid_: Retained file, recording file
 
+**Recording edit**:
+What stopping a recording makes of its raw video and its journal: an H.264 video with the cuts, captions, zooms and click ripples the recording asked for, and a timeline of what the automation did, in the raw and the edited video's time. The raw video is always kept and is never replaced; a failed edit is reported with it.
+_Avoid_: Post-processing, render
+
 **Hot storage**:
 Host-local storage for the overlay state of running and stopped sessions.
 _Avoid_: Store, state directory

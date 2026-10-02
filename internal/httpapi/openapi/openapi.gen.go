@@ -105,6 +105,24 @@ func (e CreateAdminTokenInput1AuthorityType) Valid() bool {
 	}
 }
 
+// Defines values for CreateSessionRecordingInputCapture.
+const (
+	Bursts     CreateSessionRecordingInputCapture = "bursts"
+	Continuous CreateSessionRecordingInputCapture = "continuous"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputCapture enum.
+func (e CreateSessionRecordingInputCapture) Valid() bool {
+	switch e {
+	case Bursts:
+		return true
+	case Continuous:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSessionRecordingInputCodec.
 const (
 	CreateSessionRecordingInputCodecH264Va CreateSessionRecordingInputCodec = "h264-va"
@@ -117,6 +135,24 @@ func (e CreateSessionRecordingInputCodec) Valid() bool {
 	case CreateSessionRecordingInputCodecH264Va:
 		return true
 	case CreateSessionRecordingInputCodecVp8:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSessionRecordingInputIdle.
+const (
+	Cut   CreateSessionRecordingInputIdle = "cut"
+	Speed CreateSessionRecordingInputIdle = "speed"
+)
+
+// Valid indicates whether the value is a known member of the CreateSessionRecordingInputIdle enum.
+func (e CreateSessionRecordingInputIdle) Valid() bool {
+	switch e {
+	case Cut:
+		return true
+	case Speed:
 		return true
 	default:
 		return false
@@ -603,6 +639,36 @@ func (e RecordingStatus) Valid() bool {
 	case RecordingStatusStarting:
 		return true
 	case RecordingStatusStopped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordingEditErrorCode.
+const (
+	AnalysisFailed    RecordingEditErrorCode = "analysis_failed"
+	FfmpegUnavailable RecordingEditErrorCode = "ffmpeg_unavailable"
+	PlanFailed        RecordingEditErrorCode = "plan_failed"
+	RenderFailed      RecordingEditErrorCode = "render_failed"
+	TimelineFailed    RecordingEditErrorCode = "timeline_failed"
+	Timeout           RecordingEditErrorCode = "timeout"
+)
+
+// Valid indicates whether the value is a known member of the RecordingEditErrorCode enum.
+func (e RecordingEditErrorCode) Valid() bool {
+	switch e {
+	case AnalysisFailed:
+		return true
+	case FfmpegUnavailable:
+		return true
+	case PlanFailed:
+		return true
+	case RenderFailed:
+		return true
+	case TimelineFailed:
+		return true
+	case Timeout:
 		return true
 	default:
 		return false
@@ -1246,18 +1312,51 @@ type CreateSessionRecordingInput struct {
 	// BitrateKbps Requested video bitrate in kilobits per second. Omit or use a non-positive value for the instance default.
 	BitrateKbps *int `json:"bitrateKbps,omitempty"`
 
+	// Burst Burst sizes in milliseconds for `capture` `bursts`, each up to 60000. Omitted or zero fields take the defaults. `tailMs` must not exceed `maxTailMs`.
+	Burst *struct {
+		// LeadMs Kept before a tool call. Defaults to 500.
+		LeadMs *int `json:"leadMs,omitempty"`
+
+		// MaxTailMs Longest wait for the screen to settle after a call. Defaults to 3000.
+		MaxTailMs *int `json:"maxTailMs,omitempty"`
+
+		// SettleMs How long the screen must stand still to count as settled. Defaults to 400.
+		SettleMs *int `json:"settleMs,omitempty"`
+
+		// TailMs Kept after a tool call. Defaults to 800.
+		TailMs *int `json:"tailMs,omitempty"`
+	} `json:"burst,omitempty"`
+
+	// Capture With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`.
+	Capture *CreateSessionRecordingInputCapture `json:"capture,omitempty"`
+
 	// Codec Video codec. Omit for the instance default.
 	Codec *CreateSessionRecordingInputCodec `json:"codec,omitempty"`
 
 	// Fps Requested frames per second. Omit or use a non-positive value for the instance default.
 	Fps *int `json:"fps,omitempty"`
 
+	// Idle Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video.
+	Idle *CreateSessionRecordingInputIdle `json:"idle,omitempty"`
+
+	// Presentation Run browser automation at presentation pace while the recording runs.
+	Presentation *bool `json:"presentation,omitempty"`
+
+	// Ripple Mark clicks with a ripple in the edited video.
+	Ripple *bool `json:"ripple,omitempty"`
+
 	// TargetId Identifier of the ready top-level target to record.
 	TargetId string `json:"targetId"`
 }
 
+// CreateSessionRecordingInputCapture With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`.
+type CreateSessionRecordingInputCapture string
+
 // CreateSessionRecordingInputCodec Video codec. Omit for the instance default.
 type CreateSessionRecordingInputCodec string
+
+// CreateSessionRecordingInputIdle Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video.
+type CreateSessionRecordingInputIdle string
 
 // CreateSessionResult Newly created session and its one-time initial access credentials.
 type CreateSessionResult struct {
@@ -1809,7 +1908,13 @@ type Recording struct {
 	// CaptureGeneration Assignment generation for the current top-level target.
 	CaptureGeneration int64          `json:"captureGeneration"`
 	Codec             RecordingCodec `json:"codec"`
-	Fps               int            `json:"fps"`
+
+	// EditError Why a recording has no edit although one was due or a timeline could not be written. The raw video is published regardless.
+	EditError *RecordingEditError `json:"editError,omitempty"`
+
+	// EditedRelativePath The edited H.264 video, published next to the raw one as `<name>.edited.mp4`, once a stop made it.
+	EditedRelativePath *string `json:"editedRelativePath,omitempty"`
+	Fps                int     `json:"fps"`
 
 	// Mode Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
 	Mode RecordingMode `json:"mode"`
@@ -1829,6 +1934,9 @@ type Recording struct {
 
 	// TargetId Identifier of the top-level target currently recorded.
 	TargetId string `json:"targetId"`
+
+	// TimelineRelativePath What the recording's automation did and when, in the raw and edited video's time, published as `<name>.timeline.json`.
+	TimelineRelativePath *string `json:"timelineRelativePath,omitempty"`
 }
 
 // RecordingCodec defines model for Recording.Codec.
@@ -1839,6 +1947,15 @@ type RecordingMode string
 
 // RecordingStatus defines model for Recording.Status.
 type RecordingStatus string
+
+// RecordingEditError Why a recording has no edit although one was due or a timeline could not be written. The raw video is published regardless.
+type RecordingEditError struct {
+	Code    RecordingEditErrorCode `json:"code"`
+	Message string                 `json:"message"`
+}
+
+// RecordingEditErrorCode defines model for RecordingEditError.Code.
+type RecordingEditErrorCode string
 
 // ReplaceTagsInput Complete replacement tag set. The map may be empty to clear all tags.
 type ReplaceTagsInput struct {
@@ -3750,7 +3867,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecordingWithBody Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -3759,7 +3876,7 @@ type ClientInterface interface {
 
 	// CreateSessionRecording Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -3793,7 +3910,7 @@ type ClientInterface interface {
 
 	// StopSessionRecording Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4987,7 +5104,7 @@ func (c *Client) ListSessionRecordings(ctx context.Context, sessionId SessionId,
 
 // CreateSessionRecordingWithBody Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5006,7 +5123,7 @@ func (c *Client) CreateSessionRecordingWithBody(ctx context.Context, sessionId S
 
 // CreateSessionRecording Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5080,7 +5197,7 @@ func (c *Client) RetargetSessionRecording(ctx context.Context, sessionId Session
 
 // StopSessionRecording Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file.
+// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
 //
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -9669,7 +9786,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithBodyWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9678,7 +9795,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateSessionRecordingWithResponse Start a session recording
 	//
-	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+	// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9714,7 +9831,7 @@ type ClientWithResponsesInterface interface {
 
 	// StopSessionRecordingWithResponse Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -13712,7 +13829,7 @@ func (c *ClientWithResponses) ListSessionRecordingsWithResponse(ctx context.Cont
 
 // CreateSessionRecordingWithBodyWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13727,7 +13844,7 @@ func (c *ClientWithResponses) CreateSessionRecordingWithBodyWithResponse(ctx con
 
 // CreateSessionRecordingWithResponse Start a session recording
 //
-// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`.
+// Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13787,7 +13904,7 @@ func (c *ClientWithResponses) RetargetSessionRecordingWithResponse(ctx context.C
 
 // StopSessionRecordingWithResponse Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file.
+// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
 //
 // Returns a wrapper object for the known response body format(s).
 //

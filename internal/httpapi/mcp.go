@@ -338,12 +338,14 @@ type mcpRecordingStartInput struct {
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	recordingOptions
 }
 type mcpBoundRecordingStartInput struct {
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
+	recordingOptions
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -377,6 +379,7 @@ type mcpRecordingOutput struct {
 	FPS               int    `json:"fps,omitempty"`
 	BitrateKbps       int    `json:"bitrateKbps,omitempty"`
 	Codec             string `json:"codec,omitempty"`
+	recordingEdit
 }
 type mcpRecordingsOutput struct {
 	Recordings []mcpRecordingOutput `json:"recordings"`
@@ -556,7 +559,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for this session."}, s.mcpBoundRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpBoundRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpBoundRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID."}, s.mcpBoundRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID. Returns once the edit is done, which can take about as long as the recording; the raw video is always kept, and editError says why an edit is missing."}, s.mcpBoundRecordingStop)
 		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
@@ -589,7 +592,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for a session."}, s.mcpRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID."}, s.mcpRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID. Returns once the edit is done, which can take about as long as the recording; the raw video is always kept, and editError says why an edit is missing."}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
