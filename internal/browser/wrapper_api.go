@@ -318,11 +318,6 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 		return nil, nil, fmt.Errorf("wrapper port is required")
 	}
 	r.ctx = ctx
-	r.playwright = newPlaywrightMCPBackend(r.values)
-	go func() {
-		<-ctx.Done()
-		r.playwright.Close()
-	}()
 	if err := r.watchSessionToken(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -342,6 +337,9 @@ func (r *wrapperRuntime) serve(ctx context.Context) (*http.Server, <-chan error,
 	r.liveSession = liveSession
 	r.mu.Unlock()
 	go liveSession.run(ctx)
+	if err := r.startAutomationBackend(ctx); err != nil {
+		return nil, nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/{$}", r.handleCDPDiscovery)
 	mux.HandleFunc("/health", r.handleHealth)

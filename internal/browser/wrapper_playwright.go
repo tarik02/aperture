@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,9 +21,10 @@ import (
 const playwrightCallRequestMaxBytes = 16 << 20
 
 type playwrightMCPBackend struct {
-	values  RuntimeEnvValues
-	mu      sync.Mutex
-	session *mcp.ClientSession
+	values      RuntimeEnvValues
+	cdpEndpoint string
+	mu          sync.Mutex
+	session     *mcp.ClientSession
 }
 
 type playwrightCallRequest struct {
@@ -30,8 +32,24 @@ type playwrightCallRequest struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
-	return &playwrightMCPBackend{values: values}
+func newPlaywrightMCPBackend(values RuntimeEnvValues, cdpEndpoint string) *playwrightMCPBackend {
+	return &playwrightMCPBackend{values: values, cdpEndpoint: cdpEndpoint}
+}
+
+// startAutomationBackend starts the CDP proxy that Playwright MCP drives the browser through and the
+// backend that talks to it. Both end with ctx.
+func (r *wrapperRuntime) startAutomationBackend(ctx context.Context) error {
+	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)))
+	endpoint, err := proxy.serve(ctx)
+	if err != nil {
+		return err
+	}
+	r.playwright = newPlaywrightMCPBackend(r.values, endpoint)
+	go func() {
+		<-ctx.Done()
+		r.playwright.Close()
+	}()
+	return nil
 }
 
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
@@ -59,7 +77,7 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 func (b *playwrightMCPBackend) start(ctx context.Context) error {
 	files := paths.SessionFiles(b.values.FilesDir)
 	args := []string{
-		"--cdp-endpoint", "http://127.0.0.1:" + strconv.Itoa(b.values.CDPPort),
+		"--cdp-endpoint", b.cdpEndpoint,
 		"--cdp-timeout", "30000",
 		"--codegen", "none",
 		"--file-paths", "relative",
