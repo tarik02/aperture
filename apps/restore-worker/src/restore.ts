@@ -45,8 +45,19 @@ class RestoreFailed extends Data.TaggedError("RestoreFailed")<{ readonly message
 }
 
 // Strips URLs and file paths, which may carry restored browser data, from a failure.
+// Wrappers such as PlaywrightError have no message of their own, so the causes follow.
 function diagnosticMessage(error: unknown): string {
-  return errorMessage(error)
+  const parts: string[] = [];
+  for (let current = error; current !== undefined && parts.length < 8; ) {
+    if (current instanceof Playwright.PlaywrightError) {
+      parts.push(`PlaywrightError(${current.reason})`);
+    } else {
+      parts.push(errorMessage(current));
+    }
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return parts
+    .join(" <- ")
     .replaceAll(/\b(?:https?|wss?|file):\/\/\S+|\b(?:blob|data):\S+/giu, "[url]")
     .replaceAll(/(^|\s)\/(?:[^\s/]+\/)+\S*/gu, "$1[path]")
     .replaceAll(/\s+/gu, " ")

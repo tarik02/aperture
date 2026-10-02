@@ -84,13 +84,13 @@ export function MembershipDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="aperture:sm:max-w-md">
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader>
             <DialogTitle>{membership ? "Edit tenant access" : "Add tenant access"}</DialogTitle>
             <DialogDescription>Choose what this user can do within one tenant.</DialogDescription>
           </DialogHeader>
-          <FieldGroup className="py-2">
+          <FieldGroup className="aperture:py-2">
             <Field data-invalid={tenantError ? true : undefined}>
               <FieldLabel>Tenant</FieldLabel>
               {membership ? (
@@ -106,7 +106,7 @@ export function MembershipDialog({
                   }}
                   disabled={mutation.isPending}
                   align="start"
-                  triggerClassName="w-full"
+                  triggerClassName="aperture:w-full"
                 />
               )}
               <FieldError>{tenantError}</FieldError>
@@ -124,7 +124,7 @@ export function MembershipDialog({
                   setScopeError(null);
                 }}
                 disabled={mutation.isPending}
-                className="flex w-full flex-wrap justify-start"
+                className="aperture:flex aperture:w-full aperture:flex-wrap aperture:justify-start"
               >
                 {tenantScopeOptions.map((scope) => (
                   <ToggleGroupItem key={scope.value} value={scope.value}>

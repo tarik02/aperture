@@ -267,6 +267,9 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 	if client.activeTargetID == "" {
 		client.activeTargetID = session.browser.firstSelectableTargetID(targets)
 	}
+	if session.lastActiveTargetID == "" {
+		session.lastActiveTargetID = client.activeTargetID
+	}
 	participants := session.participantsLocked()
 	holderClientID := ""
 	if session.holder != nil {

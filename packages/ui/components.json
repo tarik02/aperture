@@ -8,7 +8,7 @@
     "css": "src/styles.css",
     "baseColor": "neutral",
     "cssVariables": true,
-    "prefix": ""
+    "prefix": "aperture"
   },
   "aliases": {
     "components": "@aperture-browser/ui/components",

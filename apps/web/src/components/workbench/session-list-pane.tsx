@@ -57,53 +57,55 @@ export function SessionListPane({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-r">
-      <div className="border-b p-2">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col aperture:border-r">
+      <div className="aperture:border-b aperture:p-2">
         <Input
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Filter sessions"
-          className="h-7 text-xs"
+          className="aperture:h-7 aperture:text-xs"
         />
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-1 p-1">
+      <ScrollArea className="aperture:min-h-0 aperture:flex-1">
+        <div className="aperture:space-y-1 aperture:p-1">
           {filtered.map((session) => (
             <button
               key={session.id}
               type="button"
               onClick={() => selectSession(session)}
               className={cn(
-                "w-full rounded-md border px-2 py-1.5 text-left transition-colors",
+                "aperture:w-full aperture:rounded-md aperture:border aperture:px-2 aperture:py-1.5 aperture:text-left aperture:transition-colors",
                 selectedSessionId === session.id
-                  ? "border-primary/40 bg-primary/10"
-                  : "border-transparent hover:bg-muted/60",
+                  ? "aperture:border-primary/40 aperture:bg-primary/10"
+                  : "aperture:border-transparent aperture:hover:bg-muted/60",
               )}
             >
-              <div className="space-y-1">
+              <div className="aperture:space-y-1">
                 {session.label ? (
-                  <span className="block truncate text-sm font-medium leading-snug">
+                  <span className="aperture:block aperture:truncate aperture:text-sm aperture:font-medium aperture:leading-snug">
                     {session.label}
                   </span>
                 ) : null}
                 <span
                   className={cn(
-                    "block break-all font-mono leading-snug",
-                    session.label ? "text-xs text-muted-foreground" : "text-sm",
+                    "aperture:block aperture:break-all aperture:font-mono aperture:leading-snug",
+                    session.label
+                      ? "aperture:text-xs aperture:text-muted-foreground"
+                      : "aperture:text-sm",
                   )}
                 >
                   {session.id}
                 </span>
                 <SessionStatusBadge status={session.status} />
               </div>
-              <div className="mt-1 text-sm text-muted-foreground">
+              <div className="aperture:mt-1 aperture:text-sm aperture:text-muted-foreground">
                 {session.baseSnapshotName ?? "—"}
               </div>
               <TagBadges tags={session.tags} max={2} />
             </button>
           ))}
           {filtered.length === 0 ? (
-            <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+            <div className="aperture:px-2 aperture:py-6 aperture:text-center aperture:text-xs aperture:text-muted-foreground">
               No controllable sessions
             </div>
           ) : null}

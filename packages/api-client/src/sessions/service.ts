@@ -240,6 +240,7 @@ export class SessionsApi extends Context.Service<
       input: SessionFileDownloadURLInput,
     ) => Call<SessionFileDownloadURL>;
     readonly getBrowserChannels: (credentials: ApiCredentials) => Call<BrowserChannelsResponse>;
+    /** Reads live or persisted page metadata without waking or keeping the session alive. */
     readonly getBrowserStatus: (
       credentials: ApiCredentials,
       sessionId: string,
@@ -251,6 +252,12 @@ export class SessionsApi extends Context.Service<
       recordingId: string,
       sessionToken?: Redacted.Redacted<string>,
     ) => Call<DownloadedFile>;
+    /** A JPEG of the session, or of one tab when `targetId` is given. Never wakes a suspended session. */
+    readonly getSessionThumbnail: (
+      credentials: ApiCredentials,
+      sessionId: string,
+      targetId?: string,
+    ) => Call<Blob>;
     /** The recording's bytes as they arrive, for files too large to hold in memory. */
     readonly streamSessionRecording: (
       credentials: ApiCredentials,

@@ -57,11 +57,11 @@ export function SnapshotDetailModals({
 
   return (
     <Dialog open={section !== null && snapshot !== null} onOpenChange={closeIfNeeded}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="aperture:gap-0 aperture:overflow-hidden aperture:p-0 aperture:sm:max-w-3xl">
         {displayedSnapshot ? (
           <>
-            <DialogHeader className="gap-0 px-4 pt-4 pr-12 pb-3">
-              <DialogTitle className="flex items-center gap-2">
+            <DialogHeader className="aperture:gap-0 aperture:px-4 aperture:pt-4 aperture:pr-12 aperture:pb-3">
+              <DialogTitle className="aperture:flex aperture:items-center aperture:gap-2">
                 {displayedSnapshot.name}
                 <DeletedBadge deletedAt={displayedSnapshot.deletedAt} />
               </DialogTitle>
@@ -73,24 +73,36 @@ export function SnapshotDetailModals({
                   onSectionChange(value);
                 }
               }}
-              className="min-h-0 gap-0"
+              className="aperture:min-h-0 aperture:gap-0"
             >
               <TabsList
                 variant="line"
-                className="h-10 w-full shrink-0 justify-start border-y px-4 py-0"
+                className="aperture:h-10 aperture:w-full aperture:shrink-0 aperture:justify-start aperture:border-y aperture:px-4 aperture:py-0"
               >
-                <TabsTrigger value="details" className="h-full flex-none rounded-none px-2.5">
+                <TabsTrigger
+                  value="details"
+                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
+                >
                   <Info data-icon="inline-start" />
                   Details
                 </TabsTrigger>
-                <TabsTrigger value="events" className="h-full flex-none rounded-none px-2.5">
+                <TabsTrigger
+                  value="events"
+                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
+                >
                   <Clock3 data-icon="inline-start" />
                   Events
                 </TabsTrigger>
               </TabsList>
-              <div className="h-[min(50svh,20rem)] min-h-0 overflow-hidden p-4">
-                <TabsContent value="details" className="flex h-full min-h-0 flex-col gap-4">
-                  <ScrollArea className="min-h-0 flex-1" viewportClassName="pr-3">
+              <div className="aperture:h-[min(50svh,20rem)] aperture:min-h-0 aperture:overflow-hidden aperture:p-4">
+                <TabsContent
+                  value="details"
+                  className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col aperture:gap-4"
+                >
+                  <ScrollArea
+                    className="aperture:min-h-0 aperture:flex-1"
+                    viewportClassName="aperture:pr-3"
+                  >
                     <MetadataGrid
                       items={[
                         { kind: "identifier", label: "ID", value: displayedSnapshot.id },
@@ -138,7 +150,7 @@ export function SnapshotDetailModals({
                     />
                   </ScrollArea>
                   {canCreateSession && !displayedSnapshot.deletedAt ? (
-                    <DialogFooter className="shrink-0">
+                    <DialogFooter className="aperture:shrink-0">
                       <Button type="button" onClick={() => onCreateSession(displayedSnapshot)}>
                         <AppWindow data-icon="inline-start" />
                         Create session
@@ -146,11 +158,11 @@ export function SnapshotDetailModals({
                     </DialogFooter>
                   ) : null}
                 </TabsContent>
-                <TabsContent value="events" className="h-full min-h-0">
+                <TabsContent value="events" className="aperture:h-full aperture:min-h-0">
                   <EventsPanel
                     resourceType="snapshot"
                     resourceId={displayedSnapshot.id}
-                    className="h-full"
+                    className="aperture:h-full"
                   />
                 </TabsContent>
               </div>

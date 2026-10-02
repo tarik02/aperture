@@ -3,11 +3,11 @@ import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpRouter from "effect/unstable/http/HttpRouter";
-import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
-import * as Socket from "effect/unstable/socket/Socket";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpRouter from "effect/http/HttpRouter";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
+import * as Socket from "effect/socket/Socket";
 
 const protocol = "aperture-session.v1";
 const pathParams = Schema.Struct({
@@ -47,6 +47,10 @@ const recordingParams = Schema.Struct({
   recordingId: Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]+$/)),
 });
 
+const targetParams = Schema.Struct({
+  targetId: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]{1,128}$/))),
+});
+
 /** Ends a handler early with a finished response. */
 class Respond extends Data.TaggedError("Respond")<{
   readonly response: HttpServerResponse.HttpServerResponse;
@@ -56,8 +60,8 @@ const respond = (response: HttpServerResponse.HttpServerResponse) =>
   Effect.fail(new Respond({ response }));
 
 /**
- * Registers session status, the session and signaling WebSockets, and recording downloads;
- * the consumer owns login.
+ * Registers session status, the session and signaling WebSockets, recording downloads, and
+ * thumbnails; the consumer owns login.
  */
 export function sessionRelay<R>(options: SessionRelayOptions<R>) {
   const publicOrigin = new URL(options.publicOrigin).origin;
@@ -78,9 +82,9 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
       const http = yield* HttpClient.HttpClient;
       const makeSocket = yield* Socket.WebSocketConstructor;
 
-      const upstreamGet = (url: URL, capability: string) =>
+      const upstreamGet = (url: URL, capability: string, headers: Record<string, string> = {}) =>
         http
-          .get(url.toString(), { headers: { Authorization: `Bearer ${capability}` } })
+          .get(url.toString(), { headers: { ...headers, Authorization: `Bearer ${capability}` } })
           .pipe(
             Effect.timeout("15 seconds"),
             Effect.provideService(HttpClient.TracerPropagationEnabled, false),
@@ -114,8 +118,8 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         return { request, grant, capability };
       });
 
-      /** Reads upstream session status, turning refusals into the browser's terminal responses. */
-      const sessionStatus = Effect.fnUntraced(function* (
+      /** Reads passive upstream status, turning refusals into the browser's terminal responses. */
+      const readUpstreamStatus = Effect.fnUntraced(function* (
         admitted: Effect.Success<ReturnType<typeof admit>>,
         websocket: boolean,
       ) {
@@ -140,8 +144,9 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         return body;
       });
 
+      // This is the requested resource itself, not a live-session authorization preflight.
       const status = Effect.gen(function* () {
-        const body = yield* sessionStatus(yield* admit(false), false);
+        const body = yield* readUpstreamStatus(yield* admit(false), false);
         return HttpServerResponse.uint8Array(new Uint8Array(body), {
           contentType: "application/json",
           headers: { "cache-control": "no-store" },
@@ -152,7 +157,7 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
       const socket = (route: SocketRoute) =>
         Effect.gen(function* () {
           const admitted = yield* admit(true);
-          yield* sessionStatus(admitted, true);
+          yield* readUpstreamStatus(admitted, true);
           const url = upstreamURL(admitted.grant.sessionId, route);
           url.protocol = upstream.protocol === "https:" ? "wss:" : "ws:";
           yield* relaySocket(
@@ -199,11 +204,49 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         );
       });
 
+      // Aperture serves thumbnails without waking a suspended session, so hovers stay cheap.
+      const thumbnail = Effect.gen(function* () {
+        const { request, grant, capability } = yield* admit(false);
+        const { targetId } = yield* HttpRouter.schemaPathParams(targetParams);
+        const route =
+          targetId === undefined
+            ? "thumbnail"
+            : `targets/${encodeURIComponent(targetId)}/thumbnail`;
+        const ifModifiedSince = request.headers["if-modified-since"];
+        const response = yield* upstreamGet(
+          upstreamURL(grant.sessionId, route),
+          capability,
+          ifModifiedSince === undefined ? {} : { "if-modified-since": ifModifiedSince },
+        );
+        const headers: Record<string, string> = { "cache-control": "private, no-cache" };
+        const lastModified = response.headers["last-modified"];
+        if (lastModified !== undefined) headers["last-modified"] = lastModified;
+        if (response.status === 304) {
+          return HttpServerResponse.empty({ status: 304, headers });
+        }
+        if (response.status === 404) {
+          return relayError(404, "thumbnail_not_found", "Thumbnail not found");
+        }
+        if (isTerminalStatus(response.status)) {
+          return yield* rejectAccess(request, false, response.status);
+        }
+        if (response.status !== 200) {
+          return relayError(502, "upstream_unavailable", "Aperture is unavailable");
+        }
+        const image = yield* response.arrayBuffer.pipe(Effect.timeout("15 seconds"));
+        return HttpServerResponse.uint8Array(new Uint8Array(image), {
+          contentType: "image/jpeg",
+          headers,
+        });
+      });
+
       const routes = [
         { path: "browser/status", websocket: false, handler: status },
         { path: "session", websocket: true, handler: socket("session") },
         { path: "webrtc/signal", websocket: true, handler: socket("webrtc/signal") },
         { path: "recordings/:recordingId/content", websocket: false, handler: recording },
+        { path: "thumbnail", websocket: false, handler: thumbnail },
+        { path: "targets/:targetId/thumbnail", websocket: false, handler: thumbnail },
       ];
       const prefixed = router.prefixed(prefix);
       for (const { path, websocket, handler } of routes) {

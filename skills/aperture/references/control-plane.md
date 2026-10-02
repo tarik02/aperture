@@ -81,6 +81,8 @@ Tenant and token lists are paginated. Tenant lists accept `deleted=active|delete
 - `POST /api/sessions/:sessionId/reopen`
 - `POST /api/sessions/:sessionId/session-token/rotate`
 - `POST /api/sessions/:sessionId/promote`
+- `GET /api/sessions/:sessionId/thumbnail` and `GET /api/sessions/:sessionId/targets/:targetId/thumbnail` — JPEG thumbnails, `sessions:read`; never wake a suspended session, which serves the thumbnails saved when it suspended. Session responses include signed `thumbnail.url` and `thumbnail.targetUrlTemplate` for image elements; `/sessions/:sessionId/thumbnail` also accepts the session token or an editor or viewer capability.
+- `GET /sessions/:sessionId/browser/status` — passive browser overview with account, owner-session, editor, or viewer credentials. It returns live page metadata for running sessions and the saved page/thumbnail generation for suspended sessions without waking, touching retention, or mounting the profile. `source: unavailable` means historical metadata does not exist; persisted target IDs may change after resume.
 
 Session list filters:
 

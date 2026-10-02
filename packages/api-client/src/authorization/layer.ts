@@ -6,9 +6,9 @@ import * as Redacted from "effect/Redacted";
 import * as Stream from "effect/Stream";
 import type * as Schema from "effect/Schema";
 import * as Function from "effect/Function";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import type * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import type * as HttpClientError from "effect/http/HttpClientError";
 import { toApiRequestError } from "../errors.ts";
 import {
   ApiAuthorization,

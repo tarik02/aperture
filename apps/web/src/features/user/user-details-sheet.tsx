@@ -192,17 +192,17 @@ export function UserDetailsSheet({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
-        <SheetContent className="data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
-          <SheetHeader className="border-b pr-12">
+        <SheetContent className="aperture:data-[side=right]:w-full aperture:data-[side=right]:sm:max-w-xl">
+          <SheetHeader className="aperture:border-b aperture:pr-12">
             <SheetTitle>{user?.displayName ?? "User details"}</SheetTitle>
             <SheetDescription>{user?.email ?? "Account without an email address"}</SheetDescription>
           </SheetHeader>
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col gap-4 p-4">
+          <ScrollArea className="aperture:min-h-0 aperture:flex-1">
+            <div className="aperture:flex aperture:flex-col aperture:gap-4 aperture:p-4">
               {userQuery.isLoading ? (
                 <>
-                  <Skeleton className="h-52 w-full rounded-xl" />
-                  <Skeleton className="h-48 w-full rounded-xl" />
+                  <Skeleton className="aperture:h-52 aperture:w-full aperture:rounded-xl" />
+                  <Skeleton className="aperture:h-48 aperture:w-full aperture:rounded-xl" />
                 </>
               ) : userQuery.isError || !user ? (
                 <Alert variant="destructive">
@@ -257,7 +257,7 @@ export function UserDetailsSheet({
                         ]}
                       />
                     </CardContent>
-                    <CardFooter className="justify-end">
+                    <CardFooter className="aperture:justify-end">
                       {user.disabledAt ? (
                         <Button
                           type="button"
@@ -296,7 +296,7 @@ export function UserDetailsSheet({
                         <CardDescription>{setupLinkDescription}</CardDescription>
                       </CardHeader>
                       {canCreatePasswordLink ? (
-                        <CardFooter className="justify-end">
+                        <CardFooter className="aperture:justify-end">
                           <Button
                             type="button"
                             variant="outline"
@@ -342,16 +342,16 @@ export function UserDetailsSheet({
                     </CardHeader>
                     <CardContent>
                       {membershipsQuery.isLoading ? (
-                        <div className="flex flex-col gap-3">
-                          <Skeleton className="h-14 w-full" />
-                          <Skeleton className="h-14 w-full" />
+                        <div className="aperture:flex aperture:flex-col aperture:gap-3">
+                          <Skeleton className="aperture:h-14 aperture:w-full" />
+                          <Skeleton className="aperture:h-14 aperture:w-full" />
                         </div>
                       ) : membershipsQuery.isError ? (
                         <Alert variant="destructive">
                           <AlertDescription>Failed to load tenant access</AlertDescription>
                         </Alert>
                       ) : memberships.length === 0 ? (
-                        <Empty className="min-h-40 border">
+                        <Empty className="aperture:min-h-40 aperture:border">
                           <EmptyHeader>
                             <EmptyMedia variant="icon">
                               <KeyRound />
@@ -363,19 +363,19 @@ export function UserDetailsSheet({
                           </EmptyHeader>
                         </Empty>
                       ) : (
-                        <div className="flex flex-col">
+                        <div className="aperture:flex aperture:flex-col">
                           {memberships.map((membership, index) => (
                             <Fragment key={membership.tenantId}>
                               {index > 0 ? <Separator /> : null}
-                              <div className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                                <div className="min-w-0 flex-1">
-                                  <div className="truncate font-medium">
+                              <div className="aperture:flex aperture:items-start aperture:gap-3 aperture:py-3 aperture:first:pt-0 aperture:last:pb-0">
+                                <div className="aperture:min-w-0 aperture:flex-1">
+                                  <div className="aperture:truncate aperture:font-medium">
                                     {tenantNames.get(membership.tenantId) ?? "Tenant"}
                                   </div>
-                                  <div className="truncate font-mono text-xs text-muted-foreground">
+                                  <div className="aperture:truncate aperture:font-mono aperture:text-xs aperture:text-muted-foreground">
                                     {membership.tenantId}
                                   </div>
-                                  <div className="mt-2 flex flex-wrap gap-1">
+                                  <div className="aperture:mt-2 aperture:flex aperture:flex-wrap aperture:gap-1">
                                     {membership.scopes.map((scope) => (
                                       <Badge key={scope} variant="secondary">
                                         {scopeLabel(scope)}
@@ -383,7 +383,7 @@ export function UserDetailsSheet({
                                     ))}
                                   </div>
                                 </div>
-                                <div className="flex shrink-0 gap-1">
+                                <div className="aperture:flex aperture:shrink-0 aperture:gap-1">
                                   <Button
                                     type="button"
                                     variant="ghost"

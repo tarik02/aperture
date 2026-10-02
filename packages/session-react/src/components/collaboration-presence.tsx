@@ -40,10 +40,13 @@ export function CollaborationPresence({ collaboration }: { collaboration: Collab
   }
 
   return (
-    <div className="group flex shrink-0 items-center px-2" aria-label="Session participants">
+    <div
+      className="aperture:group aperture:flex aperture:shrink-0 aperture:items-center aperture:px-2"
+      aria-label="Session participants"
+    >
       {overflow > 0 ? (
         <div
-          className="relative transition-[margin] duration-200"
+          className="aperture:relative aperture:transition-[margin] aperture:duration-200"
           style={{ zIndex: visible.length + 1 }}
         >
           <OverflowParticipants
@@ -57,8 +60,9 @@ export function CollaborationPresence({ collaboration }: { collaboration: Collab
         <div
           key={participant.clientId}
           className={cn(
-            "relative transition-[margin] duration-200",
-            (index > 0 || overflow > 0) && "-ml-4 group-hover:ml-0 group-focus-within:ml-0",
+            "aperture:relative aperture:transition-[margin] aperture:duration-200",
+            (index > 0 || overflow > 0) &&
+              "aperture:-ml-4 aperture:group-hover:ml-0 aperture:group-focus-within:ml-0",
           )}
           style={{ zIndex: visible.length - index }}
         >
@@ -86,16 +90,18 @@ function OverflowParticipants({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 rounded-full border bg-background text-[0.65rem] text-muted-foreground"
+            className="aperture:shrink-0 aperture:rounded-full aperture:border aperture:bg-background aperture:text-[0.65rem] aperture:text-muted-foreground"
             aria-label={`${overflow} more participants`}
           />
         }
       >
         +{overflow}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto gap-2">
-        <PopoverTitle className="text-xs text-muted-foreground">Everyone</PopoverTitle>
-        <div className="flex flex-wrap items-center gap-1">
+      <PopoverContent align="end" className="aperture:w-auto aperture:gap-2">
+        <PopoverTitle className="aperture:text-xs aperture:text-muted-foreground">
+          Everyone
+        </PopoverTitle>
+        <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-1">
           {participants.map((participant) => (
             <ParticipantButton
               key={participant.clientId}
@@ -129,7 +135,7 @@ function ParticipantButton({
   const trigger =
     local || !followable ? (
       <span
-        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full"
+        className="aperture:inline-flex aperture:size-7 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-full"
         aria-label={label}
       />
     ) : (
@@ -137,7 +143,7 @@ function ParticipantButton({
         type="button"
         variant={following ? "secondary" : "ghost"}
         size="icon-sm"
-        className="shrink-0 rounded-full p-0"
+        className="aperture:shrink-0 aperture:rounded-full aperture:p-0"
         aria-label={label}
         aria-pressed={following}
         onClick={() => collaboration.follow(following ? null : participant.clientId)}
@@ -164,15 +170,21 @@ function ParticipantAvatar({
   const controlClaimed = participant.holdingInput && participant.leaseMode === "explicit";
 
   return (
-    <Avatar size="sm" className={cn("shrink-0 ring-2 ring-background", following && "ring-ring")}>
+    <Avatar
+      size="sm"
+      className={cn(
+        "aperture:shrink-0 aperture:ring-2 aperture:ring-background",
+        following && "aperture:ring-ring",
+      )}
+    >
       <AvatarImage src={gravatarURL(participant.avatarHash)} alt="" />
       <AvatarFallback>{initials(participant.name)}</AvatarFallback>
       {participant.holdingInput ? (
         <AvatarBadge
           className={cn(
-            "bg-emerald-500",
+            "aperture:bg-emerald-500",
             controlClaimed &&
-              "group-data-[size=sm]/avatar:size-3 group-data-[size=sm]/avatar:[&>svg]:!block group-data-[size=sm]/avatar:[&>svg]:size-2",
+              "aperture:group-data-[size=sm]/avatar:size-3 aperture:group-data-[size=sm]/avatar:[&>svg]:!block aperture:group-data-[size=sm]/avatar:[&>svg]:size-2",
           )}
           title={controlClaimed ? "Control claimed" : "Has input control"}
         >

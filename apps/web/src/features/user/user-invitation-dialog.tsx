@@ -38,7 +38,7 @@ export function UserInvitationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="aperture:sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{reset ? "Reset password link" : "Password setup link"}</DialogTitle>
           <DialogDescription>
@@ -46,7 +46,7 @@ export function UserInvitationDialog({
           </DialogDescription>
         </DialogHeader>
         <CopyField value={setupUrl} label={linkLabel} />
-        <p className="text-xs text-muted-foreground">
+        <p className="aperture:text-xs aperture:text-muted-foreground">
           Expires {formatTimestamp(link?.invitation.expiresAt)}. Creating another link replaces this
           one.
         </p>

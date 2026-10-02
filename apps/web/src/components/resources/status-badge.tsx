@@ -19,7 +19,7 @@ export function DeletedBadge({ deletedAt }: { deletedAt?: string | null }) {
     return null;
   }
   return (
-    <Badge variant="outline" className="text-muted-foreground">
+    <Badge variant="outline" className="aperture:text-muted-foreground">
       deleted
     </Badge>
   );

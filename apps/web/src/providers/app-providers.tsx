@@ -16,7 +16,13 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 
   return (
     <RuntimeProvider runtime={runtime}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <ThemeProvider
+        attribute="class"
+        value={{ dark: "aperture-dark" }}
+        defaultTheme="system"
+        enableSystem
+        disableTransitionOnChange
+      >
         <QueryClientProvider client={queryClient}>
           <HotkeysProvider>
             <TooltipProvider>

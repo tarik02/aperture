@@ -3,7 +3,7 @@ import type * as Effect from "effect/Effect";
 import type * as Redacted from "effect/Redacted";
 import type * as Schema from "effect/Schema";
 import type * as Stream from "effect/Stream";
-import type * as HttpClientError from "effect/unstable/http/HttpClientError";
+import type * as HttpClientError from "effect/http/HttpClientError";
 import type { ApiRequestError } from "../errors.ts";
 
 export const TENANT_HEADER = "X-Aperture-Tenant-Id";

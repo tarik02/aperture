@@ -21,11 +21,11 @@ function AutocompleteTrigger({
   return (
     <AutocompletePrimitive.Trigger
       data-slot="autocomplete-trigger"
-      className={cn("[&_svg:not([class*='size-'])]:size-4", className)}
+      className={cn("aperture:[&_svg:not([class*='size-'])]:size-4", className)}
       {...props}
     >
       {children}
-      <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+      <ChevronDownIcon className="aperture:pointer-events-none aperture:size-4 aperture:text-muted-foreground" />
     </AutocompletePrimitive.Trigger>
   );
 }
@@ -38,7 +38,7 @@ function AutocompleteClear({ className, ...props }: AutocompletePrimitive.Clear.
       className={cn(className)}
       {...props}
     >
-      <XIcon className="pointer-events-none" />
+      <XIcon className="aperture:pointer-events-none" />
     </AutocompletePrimitive.Clear>
   );
 }
@@ -52,7 +52,7 @@ function AutocompleteInput({
   showClear?: boolean;
 }) {
   return (
-    <InputGroup className={cn("w-auto", className)}>
+    <InputGroup className={cn("aperture:w-auto", className)}>
       <AutocompletePrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
       {showClear ? (
         <InputGroupAddon align="inline-end">
@@ -84,12 +84,12 @@ function AutocompleteContent({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="isolate z-50"
+        className="aperture:isolate aperture:z-50"
       >
         <AutocompletePrimitive.Popup
           data-slot="autocomplete-content"
           className={cn(
-            "relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-8 *:data-[slot=input-group]:border-input/30 *:data-[slot=input-group]:bg-input/30 *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "aperture:relative aperture:max-h-(--available-height) aperture:w-(--anchor-width) aperture:max-w-(--available-width) aperture:origin-(--transform-origin) aperture:overflow-hidden aperture:rounded-lg aperture:bg-popover aperture:text-popover-foreground aperture:shadow-md aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:data-[side=bottom]:slide-in-from-top-2 aperture:data-[side=inline-end]:slide-in-from-left-2 aperture:data-[side=inline-start]:slide-in-from-right-2 aperture:data-[side=left]:slide-in-from-right-2 aperture:data-[side=right]:slide-in-from-left-2 aperture:data-[side=top]:slide-in-from-bottom-2 aperture:*:data-[slot=input-group]:m-1 aperture:*:data-[slot=input-group]:mb-0 aperture:*:data-[slot=input-group]:h-8 aperture:*:data-[slot=input-group]:border-input/30 aperture:*:data-[slot=input-group]:bg-input/30 aperture:*:data-[slot=input-group]:shadow-none aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:zoom-in-95 aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:zoom-out-95",
             className,
           )}
           {...props}
@@ -104,7 +104,7 @@ function AutocompleteList({ className, ...props }: AutocompletePrimitive.List.Pr
     <AutocompletePrimitive.List
       data-slot="autocomplete-list"
       className={cn(
-        "no-scrollbar max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0",
+        "no-scrollbar aperture:max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] aperture:scroll-py-1 aperture:overflow-y-auto aperture:overscroll-contain aperture:p-1 aperture:data-empty:p-0",
         className,
       )}
       {...props}
@@ -117,7 +117,7 @@ function AutocompleteItem({ className, ...props }: AutocompletePrimitive.Item.Pr
     <AutocompletePrimitive.Item
       data-slot="autocomplete-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        "aperture:relative aperture:flex aperture:w-full aperture:cursor-default aperture:items-center aperture:gap-2 aperture:rounded-md aperture:px-1.5 aperture:py-1 aperture:text-sm aperture:outline-hidden aperture:select-none aperture:data-highlighted:bg-accent aperture:data-highlighted:text-accent-foreground aperture:data-disabled:pointer-events-none aperture:data-disabled:opacity-50",
         className,
       )}
       {...props}
@@ -130,7 +130,7 @@ function AutocompleteEmpty({ className, ...props }: AutocompletePrimitive.Empty.
     <AutocompletePrimitive.Empty
       data-slot="autocomplete-empty"
       className={cn(
-        "flex w-full justify-center py-2 text-center text-sm text-muted-foreground",
+        "aperture:flex aperture:w-full aperture:justify-center aperture:py-2 aperture:text-center aperture:text-sm aperture:text-muted-foreground",
         className,
       )}
       {...props}

@@ -2,13 +2,14 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
-const PortalContainerContext = createContext<HTMLElement | null>(null);
+// Without a provider, portals keep Base UI's default container, the document body.
+const PortalContainerContext = createContext<HTMLElement | undefined>(undefined);
 
 export function PortalContainerProvider({
   container,
   children,
 }: {
-  container: HTMLElement | null;
+  container: HTMLElement;
   children: ReactNode;
 }) {
   return (
@@ -17,5 +18,5 @@ export function PortalContainerProvider({
 }
 
 export function usePortalContainer(): HTMLElement | undefined {
-  return useContext(PortalContainerContext) ?? undefined;
+  return useContext(PortalContainerContext);
 }

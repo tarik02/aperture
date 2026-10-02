@@ -39,7 +39,7 @@ export function InfiniteTableShell<T>({
   if (query.isError) {
     return (
       <TableScrollArea className={className}>
-        <div className="min-w-full">
+        <div className="aperture:min-w-full">
           <Alert variant="destructive">
             <AlertDescription>Failed to load data</AlertDescription>
           </Alert>
@@ -53,8 +53,8 @@ export function InfiniteTableShell<T>({
   if (items.length === 0) {
     return (
       <TableScrollArea className={className}>
-        <div className="flex h-full min-h-full min-w-full flex-1">
-          <Empty className="min-h-full border">
+        <div className="aperture:flex aperture:h-full aperture:min-h-full aperture:min-w-full aperture:flex-1">
+          <Empty className="aperture:min-h-full aperture:border">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <Inbox />
@@ -71,7 +71,7 @@ export function InfiniteTableShell<T>({
     <TableScrollArea className={className}>
       {children(items)}
       {query.hasNextPage ? (
-        <div className="flex justify-center pt-1">
+        <div className="aperture:flex aperture:justify-center aperture:pt-1">
           <Button
             type="button"
             variant="outline"
@@ -135,19 +135,19 @@ function TableScrollArea({
       data-can-scroll-left="false"
       data-can-scroll-right="false"
       className={cn(
-        "relative flex h-full min-h-0 min-w-0 flex-1 [--table-scroll-padding-inline:0.75rem]",
+        "aperture:relative aperture:flex aperture:h-full aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:[--table-scroll-padding-inline:0.75rem]",
         className,
       )}
     >
       <ScrollArea
         data-table-scroll
         scrollbars="both"
-        className="h-full min-h-0 min-w-0 flex-1"
-        viewportClassName="flex min-h-0 flex-col"
+        className="aperture:h-full aperture:min-h-0 aperture:min-w-0 aperture:flex-1"
+        viewportClassName="aperture:flex aperture:min-h-0 aperture:flex-col"
       >
         <div
           ref={contentRef}
-          className="flex h-full min-h-full min-w-full flex-1 flex-col gap-2 px-3 pb-3"
+          className="aperture:flex aperture:h-full aperture:min-h-full aperture:min-w-full aperture:flex-1 aperture:flex-col aperture:gap-2 aperture:px-3 aperture:pb-3"
         >
           {children}
         </div>

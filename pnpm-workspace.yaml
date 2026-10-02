@@ -12,11 +12,11 @@ catalog:
   class-variance-authority: "^0.7.1"
   clsx: "^2.1.1"
   devalue: 6.0.2
-  effect: 4.0.0-rc.117
-  effect-playwright: 0.8.0-2
+  effect: 4.0.0
+  effect-playwright: 0.8.0
   "@effect/language-service": 0.87.2
-  "@effect/openapi-generator": 4.0.0-rc.117
-  "@effect/platform-node": 4.0.0-rc.117
+  "@effect/openapi-generator": 4.0.0
+  "@effect/platform-node": 4.0.0
   "@floating-ui/dom": "^1.8.0"
   fumadocs-core: "^16.15.14"
   fumadocs-mdx: "^15.4.4"
@@ -64,9 +64,9 @@ catalog:
 
 catalogs:
   peers:
-    "@effect/platform-node": ^4.0.0-rc.117
+    "@effect/platform-node": ^4.0.0
     "@simplewebauthn/browser": "^13.3.0"
-    effect: "^4.0.0-rc.117"
+    effect: "^4.0.0"
     react: "^19.2.7"
     react-dom: "^19.2.7"
 
@@ -101,6 +101,11 @@ minimumReleaseAgeExclude:
   - "@typescript/native-preview-win32-x64@7.0.0-dev.20260707.2"
   - "@typescript/native-preview@7.0.0-dev.20260707.2"
   - devalue@6.0.2
+  - "@effect/openapi-generator@4.0.0"
+  - "@effect/platform-node-shared@4.0.0"
+  - "@effect/platform-node@4.0.0"
+  - effect-playwright@0.8.0
+  - effect@4.0.0
 
 allowBuilds:
   "@parcel/watcher": false

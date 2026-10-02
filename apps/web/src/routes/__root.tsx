@@ -39,7 +39,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body className="h-dvh overflow-hidden bg-background text-foreground antialiased">
+      <body className="aperture:h-dvh aperture:overflow-hidden aperture:bg-background aperture:text-foreground aperture:antialiased">
         <AppProviders>{children}</AppProviders>
         <Scripts />
       </body>

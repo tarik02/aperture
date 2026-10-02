@@ -13,7 +13,7 @@ Each API area is a service: `AuthApi`, `SessionsApi`, `SnapshotsApi`, `TenantsAp
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { apiClientLayer, baseUrlLayer, SessionsApi } from "@aperture-browser/api-client";
 
 const credentials = {
@@ -129,6 +129,18 @@ non-extractable cryptographic keys, or data exceeding the import limits: 100 ori
 10,000 cookies, and 64 MiB of JSON. These fail with `storage_export_unsupported` (`422`), whose
 message names the reason. Failures return no partial state. The JSON response uses
 `Cache-Control: no-store`.
+
+### Thumbnails
+
+`getSessionThumbnail(credentials, sessionId, targetId?)` returns a JPEG `Blob` of the session, or of one tab. It never wakes a suspended session. For image elements, use the signed `session.thumbnail.url` and `session.thumbnail.targetUrlTemplate` from `getSession` or the session list instead; see [Thumbnails](/docs/session-sharing#thumbnails).
+
+### Passive browser status
+
+`getBrowserStatus(credentials, sessionId, sessionToken?)` reads page metadata without waking the browser, mounting its profile, updating retention activity, or preventing idle suspension. Account credentials need `sessions:read`; the optional bearer credential may instead be the owner session token or an editor or viewer capability.
+
+`status` is the session lifecycle state. `source: "live"` reports a running browser snapshot, while `source: "persisted"` reports the page generation saved with suspension thumbnails. Both include `capturedAt`, `pages`, and the optional `representativeTargetId`. A suspended session created before page persistence existed, one suspended with persistence disabled, or one whose best-effort capture failed returns `source: "unavailable"` and an empty page list rather than waking.
+
+Each page says whether its generation has a thumbnail. `thumbnailAvailable` does the same for the representative session thumbnail. Retrieve those images with `getSessionThumbnail`. Target IDs in persisted metadata identify the saved generation only; Chromium may assign different IDs after resume.
 
 ### Session files
 

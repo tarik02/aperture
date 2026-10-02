@@ -25,7 +25,7 @@ function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdr
     <AlertDialogPrimitive.Backdrop
       data-slot="alert-dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "aperture:fixed aperture:inset-0 aperture:isolate aperture:z-50 aperture:bg-black/10 aperture:duration-100 aperture:supports-backdrop-filter:backdrop-blur-xs aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-closed:animate-out aperture:data-closed:fade-out-0",
         className,
       )}
       {...props}
@@ -47,7 +47,7 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          "group/alert-dialog-content fixed inset-x-0 bottom-0 z-50 grid w-full max-w-none gap-4 rounded-t-xl bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:sm:max-w-sm data-[size=sm]:sm:max-w-xs data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-bottom-2 sm:top-1/2 sm:left-1/2 sm:bottom-auto sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:data-closed:zoom-out-95 sm:data-open:zoom-in-95",
+          "aperture:group/alert-dialog-content aperture:fixed aperture:inset-x-0 aperture:bottom-0 aperture:z-50 aperture:grid aperture:w-full aperture:max-w-none aperture:gap-4 aperture:rounded-t-xl aperture:bg-popover aperture:p-4 aperture:text-popover-foreground aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:outline-none aperture:data-[size=default]:sm:max-w-sm aperture:data-[size=sm]:sm:max-w-xs aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:slide-out-to-bottom-2 aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:slide-in-from-bottom-2 aperture:sm:top-1/2 aperture:sm:left-1/2 aperture:sm:bottom-auto aperture:sm:-translate-x-1/2 aperture:sm:-translate-y-1/2 aperture:sm:rounded-xl aperture:sm:data-closed:zoom-out-95 aperture:sm:data-open:zoom-in-95",
           className,
         )}
         {...props}
@@ -61,7 +61,7 @@ function AlertDialogHeader({ className, ...props }: React.ComponentProps<"div">)
     <div
       data-slot="alert-dialog-header"
       className={cn(
-        "grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-4 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
+        "aperture:grid aperture:grid-rows-[auto_1fr] aperture:place-items-center aperture:gap-1.5 aperture:text-center aperture:has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] aperture:has-data-[slot=alert-dialog-media]:gap-x-4 aperture:sm:group-data-[size=default]/alert-dialog-content:place-items-start aperture:sm:group-data-[size=default]/alert-dialog-content:text-left aperture:sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
         className,
       )}
       {...props}
@@ -74,7 +74,7 @@ function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">)
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end",
+        "aperture:-mx-4 aperture:-mb-4 aperture:flex aperture:flex-col-reverse aperture:gap-2 aperture:rounded-b-xl aperture:border-t aperture:bg-muted/50 aperture:p-4 aperture:group-data-[size=sm]/alert-dialog-content:grid aperture:group-data-[size=sm]/alert-dialog-content:grid-cols-2 aperture:sm:flex-row aperture:sm:justify-end",
         className,
       )}
       {...props}
@@ -87,7 +87,7 @@ function AlertDialogMedia({ className, ...props }: React.ComponentProps<"div">) 
     <div
       data-slot="alert-dialog-media"
       className={cn(
-        "mb-2 inline-flex size-10 items-center justify-center rounded-md bg-muted sm:group-data-[size=default]/alert-dialog-content:row-span-2 *:[svg:not([class*='size-'])]:size-6",
+        "aperture:mb-2 aperture:inline-flex aperture:size-10 aperture:items-center aperture:justify-center aperture:rounded-md aperture:bg-muted aperture:sm:group-data-[size=default]/alert-dialog-content:row-span-2 aperture:*:[svg:not([class*='size-'])]:size-6",
         className,
       )}
       {...props}
@@ -100,7 +100,7 @@ function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Pr
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
       className={cn(
-        "text-base font-medium sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
+        "aperture:text-base aperture:font-medium aperture:sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
         className,
       )}
       {...props}
@@ -113,7 +113,7 @@ function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.De
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
       className={cn(
-        "text-sm text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        "aperture:text-sm aperture:text-balance aperture:text-muted-foreground aperture:md:text-pretty aperture:*:[a]:underline aperture:*:[a]:underline-offset-3 aperture:*:[a]:hover:text-foreground",
         className,
       )}
       {...props}

@@ -15,18 +15,23 @@ export default function StandardAppShell({ children }: StandardAppShellProps) {
   return (
     <>
       <AppSidebar />
-      <SidebarInset className="h-full min-h-0 overflow-hidden">
-        <header data-app-titlebar className="flex shrink-0 items-center gap-2 border-b">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="h-4" />
-          <h1 className="min-w-0 truncate text-sm font-semibold">{pageTitle}</h1>
+      <SidebarInset className="aperture:h-full aperture:min-h-0 aperture:overflow-hidden">
+        <header
+          data-app-titlebar
+          className="aperture:flex aperture:shrink-0 aperture:items-center aperture:gap-2 aperture:border-b"
+        >
+          <SidebarTrigger className="aperture:-ml-1" />
+          <Separator orientation="vertical" className="aperture:h-4" />
+          <h1 className="aperture:min-w-0 aperture:truncate aperture:text-sm aperture:font-semibold">
+            {pageTitle}
+          </h1>
           <div
             id="app-header-actions"
             data-no-window-drag
-            className="ml-auto flex items-center gap-2"
+            className="aperture:ml-auto aperture:flex aperture:items-center aperture:gap-2"
           />
         </header>
-        <div className="min-h-0 flex-1">{children}</div>
+        <div className="aperture:min-h-0 aperture:flex-1">{children}</div>
       </SidebarInset>
     </>
   );

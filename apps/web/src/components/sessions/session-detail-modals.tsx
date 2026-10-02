@@ -103,11 +103,11 @@ export function SessionDetailModals({
 
   return (
     <Dialog open={section !== null && session !== null} onOpenChange={closeIfNeeded}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="aperture:gap-0 aperture:overflow-hidden aperture:p-0 aperture:sm:max-w-3xl">
         {displayedSession ? (
           <>
-            <DialogHeader className="gap-0 px-4 pt-4 pr-12 pb-3">
-              <DialogTitle className="flex items-center gap-2">
+            <DialogHeader className="aperture:gap-0 aperture:px-4 aperture:pt-4 aperture:pr-12 aperture:pb-3">
+              <DialogTitle className="aperture:flex aperture:items-center aperture:gap-2">
                 {displayedSession.label ?? "Session details"}
                 <SessionStatusBadge status={displayedSession.status} />
               </DialogTitle>
@@ -119,59 +119,77 @@ export function SessionDetailModals({
                   onSectionChange(value);
                 }
               }}
-              className="min-h-0 gap-0"
+              className="aperture:min-h-0 aperture:gap-0"
             >
               <TabsList
                 variant="line"
-                className="h-10 w-full shrink-0 justify-start border-y px-4 py-0"
+                className="aperture:h-10 aperture:w-full aperture:shrink-0 aperture:justify-start aperture:border-y aperture:px-4 aperture:py-0"
               >
-                <TabsTrigger value="details" className="h-full flex-none rounded-none px-2.5">
+                <TabsTrigger
+                  value="details"
+                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
+                >
                   <Info data-icon="inline-start" />
                   Details
                 </TabsTrigger>
-                <TabsTrigger value="connection" className="h-full flex-none rounded-none px-2.5">
+                <TabsTrigger
+                  value="connection"
+                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
+                >
                   <PlugZap data-icon="inline-start" />
                   Connection
                 </TabsTrigger>
-                <TabsTrigger value="events" className="h-full flex-none rounded-none px-2.5">
+                <TabsTrigger
+                  value="events"
+                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
+                >
                   <Clock3 data-icon="inline-start" />
                   Events
                 </TabsTrigger>
-                <TabsTrigger value="tags" className="h-full flex-none rounded-none px-2.5">
+                <TabsTrigger
+                  value="tags"
+                  className="aperture:h-full aperture:flex-none aperture:rounded-none aperture:px-2.5"
+                >
                   <Tags data-icon="inline-start" />
                   Tags
                 </TabsTrigger>
               </TabsList>
-              <div className="h-[min(50svh,20rem)] min-h-0 overflow-hidden p-4">
-                <TabsContent value="details" className="h-full min-h-0">
+              <div className="aperture:h-[min(50svh,20rem)] aperture:min-h-0 aperture:overflow-hidden aperture:p-4">
+                <TabsContent value="details" className="aperture:h-full aperture:min-h-0">
                   {actions ? (
-                    <div className="grid h-full min-h-0 gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]">
-                      <ScrollArea className="h-full min-h-0" viewportClassName="pr-3">
+                    <div className="aperture:grid aperture:h-full aperture:min-h-0 aperture:gap-4 aperture:sm:grid-cols-[minmax(0,1fr)_11rem]">
+                      <ScrollArea
+                        className="aperture:h-full aperture:min-h-0"
+                        viewportClassName="aperture:pr-3"
+                      >
                         <SessionMetadata session={displayedSession} />
                       </ScrollArea>
                       <SessionDetailActionBar session={displayedSession} actions={actions} />
                     </div>
                   ) : (
-                    <ScrollArea className="h-full min-h-0" viewportClassName="pr-3">
+                    <ScrollArea
+                      className="aperture:h-full aperture:min-h-0"
+                      viewportClassName="aperture:pr-3"
+                    >
                       <SessionMetadata session={displayedSession} />
                     </ScrollArea>
                   )}
                 </TabsContent>
-                <TabsContent value="connection" className="h-full min-h-0">
+                <TabsContent value="connection" className="aperture:h-full aperture:min-h-0">
                   <ConnectionPanel
                     session={displayedSession}
                     onRotate={onSessionChange}
                     modalFooter
                   />
                 </TabsContent>
-                <TabsContent value="events" className="h-full min-h-0">
+                <TabsContent value="events" className="aperture:h-full aperture:min-h-0">
                   <EventsPanel
                     resourceType="session"
                     resourceId={displayedSession.id}
-                    className="h-full"
+                    className="aperture:h-full"
                   />
                 </TabsContent>
-                <TabsContent value="tags" className="h-full min-h-0">
+                <TabsContent value="tags" className="aperture:h-full aperture:min-h-0">
                   <SessionTagsPanel
                     key={displayedSession.id}
                     session={displayedSession}
@@ -231,7 +249,7 @@ function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProp
     actions.canWrite && (session.status === "running" || session.status === "suspended");
 
   return (
-    <div className="flex flex-col gap-2 sm:border-l sm:border-border sm:pl-4">
+    <div className="aperture:flex aperture:flex-col aperture:gap-2 aperture:sm:border-l aperture:sm:border-border aperture:sm:pl-4">
       <OpenSessionButton sessionId={session.id} disabled={!canOpen} />
       {actions.canWrite ? (
         <Button
@@ -296,7 +314,7 @@ function SessionDetailActionBar({ session, actions }: SessionDetailActionBarProp
             type="button"
             variant="destructive"
             size="sm"
-            className="mt-2"
+            className="aperture:mt-2"
             onClick={() => actions.onDelete(session)}
             disabled={actions.deletePending}
           >
@@ -334,10 +352,13 @@ function SessionTagsPanel({ session, actions, onSessionChange }: SessionTagsPane
 
   return (
     <form
-      className="flex h-full min-h-0 flex-col gap-3"
+      className="aperture:flex aperture:h-full aperture:min-h-0 aperture:flex-col aperture:gap-3"
       onSubmit={(event) => void handleSubmit(event)}
     >
-      <ScrollArea className="min-h-0 flex-1" viewportClassName="data-[has-overflow-y]:pr-3">
+      <ScrollArea
+        className="aperture:min-h-0 aperture:flex-1"
+        viewportClassName="aperture:data-[has-overflow-y]:pr-3"
+      >
         <TagEditor
           entries={entries}
           onChange={setEntries}
@@ -345,7 +366,7 @@ function SessionTagsPanel({ session, actions, onSessionChange }: SessionTagsPane
           hideLabel
         />
       </ScrollArea>
-      <div className="flex shrink-0 justify-end border-t pt-3">
+      <div className="aperture:flex aperture:shrink-0 aperture:justify-end aperture:border-t aperture:pt-3">
         <Button type="submit" size="sm" disabled={actions.tagsPending}>
           Save tags
         </Button>
@@ -361,11 +382,11 @@ type OpenSessionButtonProps = {
 
 function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
   return (
-    <div className="flex w-full">
+    <div className="aperture:flex aperture:w-full">
       <Button
         type="button"
         size="sm"
-        className="flex-1 rounded-r-none"
+        className="aperture:flex-1 aperture:rounded-r-none"
         disabled={disabled}
         render={disabled ? undefined : <Link to="/-/sessions/$sessionId" params={{ sessionId }} />}
         nativeButton={disabled}
@@ -379,7 +400,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
             <Button
               type="button"
               size="icon-sm"
-              className="-ml-px rounded-l-none border-l-primary-foreground/30"
+              className="aperture:-ml-px aperture:rounded-l-none aperture:border-l-primary-foreground/30"
               aria-label="Open session options"
               disabled={disabled}
             />
@@ -387,7 +408,7 @@ function OpenSessionButton({ sessionId, disabled }: OpenSessionButtonProps) {
         >
           <ChevronDown />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuContent align="end" className="aperture:min-w-48">
           <DropdownMenuGroup>
             <DropdownMenuItem
               render={

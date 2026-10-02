@@ -8,7 +8,7 @@ type PagePlaceholderProps = {
 
 export function PagePlaceholder({ title, icon: Icon }: PagePlaceholderProps) {
   return (
-    <Empty className="min-h-[50vh] border-0">
+    <Empty className="aperture:min-h-[50vh] aperture:border-0">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Icon />

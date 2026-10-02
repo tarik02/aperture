@@ -105,8 +105,19 @@ export function BrowserControlPane({
     }
   }
 
+  const viewport = (
+    <BrowserViewport
+      control={control}
+      viewport={control.viewport}
+      localCursorEnabled={localCursorEnabled}
+      paintingEnabled={features.drawing && paintingEnabled}
+      onPaintingEnabledChange={setPaintingEnabled}
+      statusBadge={features.statusBadge}
+    />
+  );
+
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="aperture:flex aperture:h-full aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:overflow-hidden">
       <BrowserToolbar
         control={control}
         leading={leading}
@@ -125,39 +136,40 @@ export function BrowserControlPane({
         onDevToolsDockChange={setDevToolsDock}
         onSessionDetails={onSessionDetails}
       />
-      <ResizablePanelGroup
-        orientation={devToolsDock === "bottom" ? "vertical" : "horizontal"}
-        className="min-h-0 min-w-0 flex-1 has-[[data-separator=active]]:[&_iframe]:pointer-events-none"
-      >
-        <ResizablePanel className="flex min-h-0 min-w-0" defaultSize="60%" minSize="20%">
-          <BrowserViewport
-            control={control}
-            viewport={control.viewport}
-            localCursorEnabled={localCursorEnabled}
-            paintingEnabled={features.drawing && paintingEnabled}
-            onPaintingEnabledChange={setPaintingEnabled}
-            statusBadge={features.statusBadge}
-          />
-        </ResizablePanel>
-        <ResizableHandle withHandle disabled={!devToolsOpen} hidden={!devToolsOpen} />
-        <ResizablePanel
-          panelRef={devToolsPanelRef}
-          className="flex min-h-0 min-w-0"
-          collapsible
-          defaultSize="40%"
-          minSize="20%"
+      {features.devTools ? (
+        <ResizablePanelGroup
+          orientation={devToolsDock === "bottom" ? "vertical" : "horizontal"}
+          className="aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:has-[[data-separator=active]]:[&_iframe]:pointer-events-none"
         >
-          {Array.from(features.devTools ? devToolsTargetIds : [], (targetId) => (
-            <div
-              key={targetId}
-              className="h-full min-h-0 w-full min-w-0"
-              hidden={targetId !== activeTargetId}
-            >
-              <BrowserDevToolsPane cdpUrl={cdpUrl} targetId={targetId} />
-            </div>
-          ))}
-        </ResizablePanel>
-      </ResizablePanelGroup>
+          <ResizablePanel
+            className="aperture:flex aperture:min-h-0 aperture:min-w-0"
+            defaultSize="60%"
+            minSize="20%"
+          >
+            {viewport}
+          </ResizablePanel>
+          <ResizableHandle withHandle disabled={!devToolsOpen} hidden={!devToolsOpen} />
+          <ResizablePanel
+            panelRef={devToolsPanelRef}
+            className="aperture:flex aperture:min-h-0 aperture:min-w-0"
+            collapsible
+            defaultSize="40%"
+            minSize="20%"
+          >
+            {Array.from(devToolsTargetIds, (targetId) => (
+              <div
+                key={targetId}
+                className="aperture:h-full aperture:min-h-0 aperture:w-full aperture:min-w-0"
+                hidden={targetId !== activeTargetId}
+              >
+                <BrowserDevToolsPane cdpUrl={cdpUrl} targetId={targetId} />
+              </div>
+            ))}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      ) : (
+        viewport
+      )}
     </div>
   );
 }

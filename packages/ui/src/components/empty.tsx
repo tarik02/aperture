@@ -7,7 +7,7 @@ function Empty({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="empty"
       className={cn(
-        "flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border-dashed p-6 text-center text-balance",
+        "aperture:flex aperture:w-full aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:items-center aperture:justify-center aperture:gap-4 aperture:rounded-xl aperture:border-dashed aperture:p-6 aperture:text-center aperture:text-balance",
         className,
       )}
       {...props}
@@ -19,19 +19,22 @@ function EmptyHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty-header"
-      className={cn("flex max-w-sm flex-col items-center gap-2", className)}
+      className={cn(
+        "aperture:flex aperture:max-w-sm aperture:flex-col aperture:items-center aperture:gap-2",
+        className,
+      )}
       {...props}
     />
   );
 }
 
 const emptyMediaVariants = cva(
-  "mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "aperture:mb-2 aperture:flex aperture:shrink-0 aperture:items-center aperture:justify-center aperture:[&_svg]:pointer-events-none aperture:[&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-transparent",
-        icon: "flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground [&_svg:not([class*='size-'])]:size-4",
+        default: "aperture:bg-transparent",
+        icon: "aperture:flex aperture:size-8 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-lg aperture:bg-muted aperture:text-foreground aperture:[&_svg:not([class*='size-'])]:size-4",
       },
     },
     defaultVariants: {
@@ -59,7 +62,7 @@ function EmptyTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty-title"
-      className={cn("text-sm font-medium tracking-tight", className)}
+      className={cn("aperture:text-sm aperture:font-medium aperture:tracking-tight", className)}
       {...props}
     />
   );
@@ -70,7 +73,7 @@ function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
     <div
       data-slot="empty-description"
       className={cn(
-        "text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+        "aperture:text-sm/relaxed aperture:text-muted-foreground aperture:[&>a]:underline aperture:[&>a]:underline-offset-4 aperture:[&>a:hover]:text-primary",
         className,
       )}
       {...props}
@@ -83,7 +86,7 @@ function EmptyContent({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="empty-content"
       className={cn(
-        "flex w-full max-w-sm min-w-0 flex-col items-center gap-2.5 text-sm text-balance",
+        "aperture:flex aperture:w-full aperture:max-w-sm aperture:min-w-0 aperture:flex-col aperture:items-center aperture:gap-2.5 aperture:text-sm aperture:text-balance",
         className,
       )}
       {...props}

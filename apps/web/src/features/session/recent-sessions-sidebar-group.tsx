@@ -29,10 +29,10 @@ export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGr
   return (
     <>
       <SidebarSeparator />
-      <SidebarGroup className="p-1.5">
+      <SidebarGroup className="aperture:p-1.5">
         <SidebarGroupLabel>Recent sessions</SidebarGroupLabel>
         <SidebarGroupContent>
-          <SidebarMenu className="gap-1">
+          <SidebarMenu className="aperture:gap-1">
             {sessions.map((session) => {
               const title = recentSessionTitle(session);
 
@@ -45,9 +45,12 @@ export function RecentSessionsSidebarGroup({ pathname }: RecentSessionsSidebarGr
                     tooltip={title}
                   >
                     <AppWindow />
-                    <span data-sidebar-collapse-label className="flex min-w-0 flex-col">
-                      <span className="truncate">{title}</span>
-                      <span className="truncate text-xs font-normal text-sidebar-foreground/60">
+                    <span
+                      data-sidebar-collapse-label
+                      className="aperture:flex aperture:min-w-0 aperture:flex-col"
+                    >
+                      <span className="aperture:truncate">{title}</span>
+                      <span className="aperture:truncate aperture:text-xs aperture:font-normal aperture:text-sidebar-foreground/60">
                         {session.browserChannel
                           ? `${session.status} · ${session.browserChannel}`
                           : session.status}

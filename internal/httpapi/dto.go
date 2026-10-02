@@ -524,6 +524,7 @@ type sessionResponse struct {
 	CDPURL           string                            `json:"cdpUrl,omitempty"`
 	SessionToken     string                            `json:"sessionToken,omitempty"`
 	Collaboration    *sessionCollaborationCapabilities `json:"collaboration,omitempty"`
+	Thumbnail        *sessionThumbnailResponse         `json:"thumbnail,omitempty"`
 	Proxy            *sessionProxyView                 `json:"proxy,omitempty"`
 }
 

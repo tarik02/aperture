@@ -101,6 +101,8 @@ func (s *Server) authorizeOpenAPIRoute(c *gin.Context) {
 		path == "/api/sessions/bulk",
 		path == "/api/sessions/:sessionId" && c.Request.Method == http.MethodGet,
 		path == "/api/sessions/:sessionId/cursor" && c.Request.Method == http.MethodGet,
+		path == "/api/sessions/:sessionId/thumbnail",
+		path == "/api/sessions/:sessionId/targets/:targetId/thumbnail",
 		path == "/api/sessions/:sessionId/storage-state",
 		path == "/api/events":
 		if !s.requireSessionScope(c, auth.ScopeSessionsRead) {
@@ -488,6 +490,24 @@ func (s openAPIServer) ExportSessionStorageState(ctx context.Context, _ generate
 		return nil, errOpenAPIContext
 	}
 	s.server.exportSessionStorageState(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) GetSessionThumbnail(ctx context.Context, _ generated.GetSessionThumbnailRequestObject) (generated.GetSessionThumbnailResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.getSessionThumbnail(c)
+	return openAPIPassthroughResponse{}, nil
+}
+
+func (s openAPIServer) GetSessionTargetThumbnail(ctx context.Context, _ generated.GetSessionTargetThumbnailRequestObject) (generated.GetSessionTargetThumbnailResponseObject, error) {
+	c, ok := ctx.(*gin.Context)
+	if !ok {
+		return nil, errOpenAPIContext
+	}
+	s.server.getSessionThumbnail(c)
 	return openAPIPassthroughResponse{}, nil
 }
 
@@ -892,6 +912,14 @@ func (openAPIPassthroughResponse) VisitGetSessionResponse(http.ResponseWriter) e
 }
 
 func (openAPIPassthroughResponse) VisitExportSessionStorageStateResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitGetSessionThumbnailResponse(http.ResponseWriter) error {
+	return nil
+}
+
+func (openAPIPassthroughResponse) VisitGetSessionTargetThumbnailResponse(http.ResponseWriter) error {
 	return nil
 }
 

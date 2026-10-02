@@ -7,7 +7,7 @@ function Accordion({ className, ...props }: AccordionPrimitive.Root.Props) {
   return (
     <AccordionPrimitive.Root
       data-slot="accordion"
-      className={cn("flex w-full flex-col", className)}
+      className={cn("aperture:flex aperture:w-full aperture:flex-col", className)}
       {...props}
     />
   );
@@ -17,7 +17,7 @@ function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props) {
   return (
     <AccordionPrimitive.Item
       data-slot="accordion-item"
-      className={cn("not-last:border-b", className)}
+      className={cn("aperture:not-last:border-b", className)}
       {...props}
     />
   );
@@ -25,11 +25,11 @@ function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props) {
 
 function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.Trigger.Props) {
   return (
-    <AccordionPrimitive.Header className="flex">
+    <AccordionPrimitive.Header className="aperture:flex">
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
         className={cn(
-          "group/accordion-trigger relative flex flex-1 items-start justify-between rounded-lg border border-transparent py-2.5 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:after:border-ring aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground",
+          "aperture:group/accordion-trigger aperture:relative aperture:flex aperture:flex-1 aperture:items-start aperture:justify-between aperture:rounded-lg aperture:border aperture:border-transparent aperture:py-2.5 aperture:text-left aperture:text-sm aperture:font-medium aperture:transition-all aperture:outline-none aperture:hover:underline aperture:focus-visible:border-ring aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:focus-visible:after:border-ring aperture:aria-disabled:pointer-events-none aperture:aria-disabled:opacity-50 aperture:**:data-[slot=accordion-trigger-icon]:ml-auto aperture:**:data-[slot=accordion-trigger-icon]:size-4 aperture:**:data-[slot=accordion-trigger-icon]:text-muted-foreground",
           className,
         )}
         {...props}
@@ -37,11 +37,11 @@ function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.
         {children}
         <ChevronDownIcon
           data-slot="accordion-trigger-icon"
-          className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
+          className="aperture:pointer-events-none aperture:shrink-0 aperture:group-aria-expanded/accordion-trigger:hidden"
         />
         <ChevronUpIcon
           data-slot="accordion-trigger-icon"
-          className="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
+          className="aperture:pointer-events-none aperture:hidden aperture:shrink-0 aperture:group-aria-expanded/accordion-trigger:inline"
         />
       </AccordionPrimitive.Trigger>
     </AccordionPrimitive.Header>
@@ -52,12 +52,12 @@ function AccordionContent({ className, children, ...props }: AccordionPrimitive.
   return (
     <AccordionPrimitive.Panel
       data-slot="accordion-content"
-      className="overflow-hidden text-sm data-closed:animate-accordion-up data-open:animate-accordion-down"
+      className="aperture:overflow-hidden aperture:text-sm aperture:data-closed:animate-accordion-up aperture:data-open:animate-accordion-down"
       {...props}
     >
       <div
         className={cn(
-          "h-(--accordion-panel-height) pt-0 pb-2.5 data-ending-style:h-0 data-starting-style:h-0 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
+          "aperture:h-(--accordion-panel-height) aperture:pt-0 aperture:pb-2.5 aperture:data-ending-style:h-0 aperture:data-starting-style:h-0 aperture:[&_a]:underline aperture:[&_a]:underline-offset-3 aperture:[&_a]:hover:text-foreground aperture:[&_p:not(:last-child)]:mb-4",
           className,
         )}
       >

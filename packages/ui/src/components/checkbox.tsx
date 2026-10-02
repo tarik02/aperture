@@ -10,14 +10,14 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input transition-colors outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary",
+        "aperture:peer aperture:relative aperture:flex aperture:size-4 aperture:shrink-0 aperture:items-center aperture:justify-center aperture:rounded-[4px] aperture:border aperture:border-input aperture:transition-colors aperture:outline-none aperture:group-has-disabled/field:opacity-50 aperture:after:absolute aperture:after:-inset-x-3 aperture:after:-inset-y-2 aperture:focus-visible:border-ring aperture:focus-visible:ring-3 aperture:focus-visible:ring-ring/50 aperture:disabled:cursor-not-allowed aperture:disabled:opacity-50 aperture:aria-invalid:border-destructive aperture:aria-invalid:ring-3 aperture:aria-invalid:ring-destructive/20 aperture:aria-invalid:aria-checked:border-primary aperture:dark:bg-input/30 aperture:dark:aria-invalid:border-destructive/50 aperture:dark:aria-invalid:ring-destructive/40 aperture:data-checked:border-primary aperture:data-checked:bg-primary aperture:data-checked:text-primary-foreground aperture:dark:data-checked:bg-primary",
         className,
       )}
       {...props}
     >
       <CheckboxPrimitive.Indicator
         data-slot="checkbox-indicator"
-        className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
+        className="aperture:grid aperture:place-content-center aperture:text-current aperture:transition-none aperture:[&>svg]:size-3.5"
       >
         <CheckIcon />
       </CheckboxPrimitive.Indicator>

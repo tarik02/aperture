@@ -8,10 +8,12 @@ import {
   type LiveSessionMediaSelection,
   type LiveSessionViewportOwnership,
 } from "./use-live-session.ts";
-import type { IceServer } from "@aperture-browser/api-client";
+import type * as HttpClient from "effect/http/HttpClient";
+import type { ApiRequestError, IceServer } from "@aperture-browser/api-client";
 import type { Recording } from "@aperture-browser/api-client";
 import {
   downloadSessionRecording,
+  getTargetThumbnail,
   LiveSessionError,
   type BrowserInputMessage,
 } from "@aperture-browser/live-session";
@@ -93,6 +95,10 @@ export interface UseBrowserControlResult {
   viewportAutoSizeDefault: boolean;
   captured: boolean;
   recordings: readonly Recording[];
+  /** Loads a JPEG preview of one tab, or is null while the session has no access. */
+  loadTargetThumbnail:
+    | ((targetId: string) => Effect.Effect<Blob, ApiRequestError, HttpClient.HttpClient>)
+    | null;
   /** Owners and editors can start, stop, and download recordings. */
   canRecord: boolean;
   recordingBusy: boolean;
@@ -178,6 +184,10 @@ export function useBrowserControl({
   const [captured, setCaptured] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
   const canRecord = collaborationRole === "owner" || collaborationRole === "editor";
+  const loadTargetThumbnail = useMemo(
+    () => (access === null ? null : (targetId: string) => getTargetThumbnail(access, targetId)),
+    [access],
+  );
   const activeTargetIdRef = useRef<string | null>(null);
   const viewportRef = useRef(viewport);
   const inputDimensionsRef = useRef<BrowserViewportSize>(DEFAULT_VIEWPORT);
@@ -654,6 +664,7 @@ export function useBrowserControl({
     captured,
     recordings: live.recordings,
     canRecord,
+    loadTargetThumbnail,
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
     collaboration: live.collaboration,
