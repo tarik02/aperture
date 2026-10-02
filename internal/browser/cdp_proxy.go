@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -31,8 +32,6 @@ type cdpProxy struct {
 	upstream string // Chromium's debugging endpoint, host:port
 	cadence  func() automationCadence
 	pointer  *cdpPointer // nil for sessions without a compositor
-	// timing overrides the cadence pacing; tests use it to run fast.
-	timing *cadenceTiming
 }
 
 func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer) *cdpProxy {
@@ -45,7 +44,12 @@ func (p *cdpProxy) serve(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("listen cdp proxy: %w", err)
 	}
-	server := &http.Server{Handler: p}
+	// Hijacked websocket connections take their context from the server's base, so they end with ctx.
+	server := &http.Server{
+		Handler:           p,
+		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
 	go func() { _ = server.Serve(listener) }()
 	go func() {
 		<-ctx.Done()
@@ -113,7 +117,6 @@ func (p *cdpProxy) serveWebSocket(w http.ResponseWriter, req *http.Request) {
 		sessions:  make(map[string]cdpSession),
 		attaching: make(map[int64]string),
 		internal:  make(map[int64]chan cdpMessage),
-		dpr:       make(map[string]cdpDPRSample),
 		mouse:     make(chan func(), 1024),
 		dragged:   make(chan struct{}, 1),
 	}
@@ -155,7 +158,6 @@ type cdpProxyConn struct {
 	mouseBusy     atomic.Int32
 	interceptDrag atomic.Bool // Playwright's Input.setInterceptDrags window
 	dragged       chan struct{}
-	dpr           map[string]cdpDPRSample
 	held          *cdpHeldButton
 }
 
@@ -215,29 +217,20 @@ func (c *cdpProxyConn) fromClient(raw []byte) {
 	_, method := peekCDP(raw)
 	switch method {
 	case "Target.attachToTarget":
-		var message cdpMessage
 		var params struct {
 			TargetID string `json:"targetId"`
 		}
-		if json.Unmarshal(raw, &message) == nil && json.Unmarshal(message.Params, &params) == nil && message.ID != nil {
+		if message, ok := decodeCDP(raw, &params); ok && message.ID != nil {
 			c.mu.Lock()
 			c.attaching[*message.ID] = params.TargetID
 			c.mu.Unlock()
 		}
-	case "Input.setInterceptDrags":
-		var message cdpMessage
-		var params struct {
-			Enabled bool `json:"enabled"`
-		}
-		if json.Unmarshal(raw, &message) == nil && json.Unmarshal(message.Params, &params) == nil {
-			c.interceptDrag.Store(params.Enabled)
-		}
-	case "Input.dispatchMouseEvent", "Input.dispatchDragEvent":
-		if c.queueMouse(raw) {
+	case "Input.dispatchMouseEvent", "Input.dispatchDragEvent", "Input.setInterceptDrags":
+		if c.queueMouse(raw, method) {
 			return
 		}
-	case "DOM.scrollIntoViewIfNeeded", "Runtime.callFunctionOn":
-		if c.proxy.cadence() != cadenceImmediate && c.revealScroll(raw, method) {
+	case "DOM.scrollIntoViewIfNeeded":
+		if c.proxy.cadence() != cadenceImmediate && c.revealScroll(raw) {
 			return
 		}
 	}
@@ -247,24 +240,27 @@ func (c *cdpProxyConn) fromClient(raw []byte) {
 func (c *cdpProxyConn) fromUpstream(raw []byte) {
 	id, method := peekCDP(raw)
 	if id != nil {
+		if *id >= cdpProxyInternalIDBase {
+			// Responses to the proxy's own commands never reach Playwright, awaited or not.
+			c.mu.Lock()
+			waiter := c.internal[*id]
+			c.mu.Unlock()
+			if waiter != nil {
+				var message cdpMessage
+				_ = json.Unmarshal(raw, &message)
+				waiter <- message
+			}
+			return
+		}
 		c.mu.Lock()
-		waiter := c.internal[*id]
-		delete(c.internal, *id)
 		targetID, attaching := c.attaching[*id]
 		delete(c.attaching, *id)
 		c.mu.Unlock()
-		if waiter != nil {
-			var message cdpMessage
-			_ = json.Unmarshal(raw, &message)
-			waiter <- message
-			return
-		}
 		if attaching {
-			var message cdpMessage
 			var result struct {
 				SessionID string `json:"sessionId"`
 			}
-			if json.Unmarshal(raw, &message) == nil && json.Unmarshal(message.Result, &result) == nil && result.SessionID != "" {
+			if _, ok := decodeCDP(raw, &result); ok && result.SessionID != "" {
 				c.mu.Lock()
 				if _, known := c.sessions[result.SessionID]; !known {
 					c.sessions[result.SessionID] = cdpSession{targetID: targetID}
@@ -277,7 +273,6 @@ func (c *cdpProxyConn) fromUpstream(raw []byte) {
 	}
 	switch method {
 	case "Target.attachedToTarget", "Target.detachedFromTarget":
-		var message cdpMessage
 		var params struct {
 			SessionID  string `json:"sessionId"`
 			TargetInfo struct {
@@ -285,12 +280,17 @@ func (c *cdpProxyConn) fromUpstream(raw []byte) {
 				Type     string `json:"type"`
 			} `json:"targetInfo"`
 		}
-		if json.Unmarshal(raw, &message) == nil && json.Unmarshal(message.Params, &params) == nil {
+		if message, ok := decodeCDP(raw, &params); ok {
 			c.mu.Lock()
 			if method == "Target.attachedToTarget" {
 				c.sessions[params.SessionID] = cdpSession{targetID: params.TargetInfo.TargetID, kind: params.TargetInfo.Type, parent: message.SessionID}
 			} else {
 				delete(c.sessions, params.SessionID)
+				for sessionID, session := range c.sessions {
+					if session.parent == params.SessionID {
+						delete(c.sessions, sessionID)
+					}
+				}
 			}
 			c.mu.Unlock()
 		}
@@ -316,8 +316,13 @@ func (c *cdpProxyConn) rootSession(sessionID string) (string, cdpSession, bool) 
 	return sessionID, session, ok
 }
 
-// call issues a proxy-internal command; its response never reaches Playwright.
+// call issues a proxy-internal command; its response never reaches Playwright. The write belongs
+// to the connection (a write cut short by a cancelled context closes the websocket), so only the
+// wait for the response is bounded: by ctx and by pageProbeTimeout, so a page blocked by a dialog
+// fails the call quickly.
 func (c *cdpProxyConn) call(ctx context.Context, sessionID, method string, params any) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, pageProbeTimeout)
+	defer cancel()
 	id := c.nextID.Add(1)
 	waiter := make(chan cdpMessage, 1)
 	c.mu.Lock()
@@ -333,7 +338,7 @@ func (c *cdpProxyConn) call(ctx context.Context, sessionID, method string, param
 		return nil, err
 	}
 	raw, _ := json.Marshal(cdpMessage{ID: &id, Method: method, Params: encoded, SessionID: sessionID})
-	if err := c.up.Write(ctx, websocket.MessageText, raw); err != nil {
+	if err := c.up.Write(c.ctx, websocket.MessageText, raw); err != nil {
 		return nil, err
 	}
 	select {
@@ -370,12 +375,13 @@ func (c *cdpProxyConn) evaluate(ctx context.Context, sessionID, expression strin
 }
 
 var (
-	cdpLeadingID     = regexp.MustCompile(`^\{"id":(\d+)(?:,"method":"([^"]*)")?`)
+	// A command leads with its id and method, a response with its id and result or error.
+	cdpLeadingID     = regexp.MustCompile(`^\{"id":(\d+),"(?:method":"([^"]*)|result|error)"`)
 	cdpLeadingMethod = regexp.MustCompile(`^\{"method":"([^"]*)"`)
 )
 
-// peekCDP reads the leading id and method keys that Playwright and Chromium write first, so relayed
-// frames are not decoded; other layouts fall back to a full decode.
+// peekCDP reads the leading keys that Playwright and Chromium write first, so relayed frames are
+// not decoded; any other key order falls back to a full decode.
 func peekCDP(raw []byte) (*int64, string) {
 	if match := cdpLeadingID.FindSubmatch(raw); match != nil {
 		if id, err := strconv.ParseInt(string(match[1]), 10, 64); err == nil {
@@ -385,10 +391,21 @@ func peekCDP(raw []byte) (*int64, string) {
 	if match := cdpLeadingMethod.FindSubmatch(raw); match != nil {
 		return nil, string(match[1])
 	}
-	var message struct {
-		ID     *int64 `json:"id"`
-		Method string `json:"method"`
-	}
+	var message cdpMessage
 	_ = json.Unmarshal(raw, &message)
 	return message.ID, message.Method
+}
+
+// decodeCDP decodes a frame's envelope and its payload: the params of a command or event, the
+// result of a response. It reports whether both decoded.
+func decodeCDP(raw []byte, payload any) (cdpMessage, bool) {
+	var message cdpMessage
+	if json.Unmarshal(raw, &message) != nil {
+		return message, false
+	}
+	body := message.Params
+	if len(body) == 0 {
+		body = message.Result
+	}
+	return message, json.Unmarshal(body, payload) == nil
 }

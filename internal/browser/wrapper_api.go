@@ -56,7 +56,6 @@ type wrapperRuntime struct {
 	liveSession              *liveSession
 	proxyManager             *proxy.Manager
 	playwright               *playwrightMCPBackend
-	cadence                  *automationCadenceState
 	startedAt                time.Time
 	uploads                  wrapperUploadCounters
 }
@@ -146,7 +145,6 @@ func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRu
 		viewers:                  make(map[*wrapperViewer]struct{}),
 		revokedAccessGenerations: make(map[string]map[string]struct{}),
 		startedAt:                time.Now(),
-		cadence:                  newAutomationCadenceState(),
 	}
 }
 

@@ -3,7 +3,6 @@ package browser
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -12,7 +11,8 @@ import (
 
 type cdpPoint struct{ x, y float64 }
 
-// cdpSurface is the compositor surface of one browser target; its pixels are CSS pixels times devicePixelRatio.
+// cdpSurface is the compositor surface of one browser target. Surface coordinates are CSS pixels
+// whatever the device scale factor (that is what the human pointer path maps to as well).
 type cdpSurface struct {
 	id            uint64
 	width, height float64
@@ -23,25 +23,46 @@ type cdpPress struct {
 	cdpPoint
 }
 
+// cdpPointerState is what the pointer last did on one surface.
+type cdpPointerState struct {
+	position  cdpPoint
+	known     bool
+	arrivedAt time.Time
+	lastPress cdpPress
+}
+
 // cdpPointer drives the compositor's one real pointer for automation, shared by every proxy connection.
 type cdpPointer struct {
 	socket  string
 	surface func(targetID string) (cdpSurface, bool)
 
-	mu        sync.Mutex
-	position  map[uint64]cdpPoint
-	arrivedAt map[uint64]time.Time
-	lastPress map[uint64]cdpPress
+	mu     sync.Mutex
+	states map[uint64]*cdpPointerState
 }
 
 func newCDPPointer(socket string, surface func(targetID string) (cdpSurface, bool)) *cdpPointer {
-	return &cdpPointer{
-		socket:    socket,
-		surface:   surface,
-		position:  make(map[uint64]cdpPoint),
-		arrivedAt: make(map[uint64]time.Time),
-		lastPress: make(map[uint64]cdpPress),
+	return &cdpPointer{socket: socket, surface: surface, states: make(map[uint64]*cdpPointerState)}
+}
+
+// state returns a copy of the surface's pointer state; the caller must not hold p.mu.
+func (p *cdpPointer) state(surfaceID uint64) cdpPointerState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if state := p.states[surfaceID]; state != nil {
+		return *state
 	}
+	return cdpPointerState{}
+}
+
+func (p *cdpPointer) update(surfaceID uint64, change func(*cdpPointerState)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	state := p.states[surfaceID]
+	if state == nil {
+		state = &cdpPointerState{}
+		p.states[surfaceID] = state
+	}
+	change(state)
 }
 
 func (p *cdpPointer) send(ctx context.Context, format string, args ...any) error {
@@ -72,11 +93,10 @@ func (p *cdpPointer) glide(ctx context.Context, surface cdpSurface, to cdpPoint,
 	if surface.width > 0 && surface.height > 0 {
 		to = cdpPoint{clamp(to.x, 0, surface.width-1), clamp(to.y, 0, surface.height-1)}
 	}
-	p.mu.Lock()
-	from, known := p.position[surface.id]
-	p.mu.Unlock()
-	if !known {
-		from = to
+	state := p.state(surface.id)
+	from := state.position
+	if !state.known {
+		from = cdpPoint{surface.width / 2, surface.height / 2}
 	}
 	if distance := math.Hypot(to.x-from.x, to.y-from.y); distance >= 2 {
 		duration := time.Duration(distance / timing.glideSpeed * float64(time.Second))
@@ -99,22 +119,18 @@ func (p *cdpPointer) glide(ctx context.Context, surface cdpSurface, to cdpPoint,
 	if err := p.send(ctx, "motion %d %.2f %.2f", surface.id, to.x, to.y); err != nil {
 		return err
 	}
-	p.mu.Lock()
-	p.position[surface.id] = to
-	p.arrivedAt[surface.id] = time.Now()
-	p.mu.Unlock()
+	p.update(surface.id, func(state *cdpPointerState) {
+		state.position, state.known, state.arrivedAt = to, true, time.Now()
+	})
 	return nil
 }
 
 // press lets the pointer rest, then pushes the button; an unrelated repeat click at the same
 // spot first waits out Chromium's double-click window.
 func (p *cdpPointer) press(ctx context.Context, surface cdpSurface, code int, clickCount int, timing cadenceTiming) error {
-	p.mu.Lock()
-	at := p.position[surface.id]
-	arrived := p.arrivedAt[surface.id]
-	last := p.lastPress[surface.id]
-	p.mu.Unlock()
-	wait := time.Until(arrived.Add(timing.dwell))
+	state := p.state(surface.id)
+	at, last := state.position, state.lastPress
+	wait := time.Until(state.arrivedAt.Add(timing.dwell))
 	if clickCount <= 1 && math.Hypot(at.x-last.x, at.y-last.y) < dblclickGuardDistance {
 		wait = max(wait, time.Until(last.at.Add(dblclickGuardWindow)))
 	}
@@ -124,18 +140,14 @@ func (p *cdpPointer) press(ctx context.Context, surface cdpSurface, code int, cl
 	if err := p.send(ctx, "button-at %d %.2f %.2f %d 1", surface.id, at.x, at.y, code); err != nil {
 		return err
 	}
-	p.mu.Lock()
-	p.lastPress[surface.id] = cdpPress{time.Now(), at}
-	p.mu.Unlock()
+	p.update(surface.id, func(state *cdpPointerState) { state.lastPress = cdpPress{time.Now(), at} })
 	return nil
 }
 
 func (p *cdpPointer) release(ctx context.Context, surface cdpSurface, code int, timing cadenceTiming) error {
-	p.mu.Lock()
-	at := p.position[surface.id]
-	pressedAt := p.lastPress[surface.id].at
-	p.mu.Unlock()
-	if err := sleepContext(ctx, time.Until(pressedAt.Add(timing.hold))); err != nil {
+	state := p.state(surface.id)
+	at := state.position
+	if err := sleepContext(ctx, time.Until(state.lastPress.at.Add(timing.hold))); err != nil {
 		return err
 	}
 	return p.send(ctx, "button-at %d %.2f %.2f %d 0", surface.id, at.x, at.y, code)
@@ -144,9 +156,7 @@ func (p *cdpPointer) release(ctx context.Context, surface cdpSurface, code int, 
 // wheel spreads a scroll delta over eased axis events. Weston scrolls wheelPxPerAxisUnit pixels per
 // axis unit, so whole-pixel steps carry their rounding error to keep the total exact.
 func (p *cdpPointer) wheel(ctx context.Context, surface cdpSurface, dx, dy float64) error {
-	p.mu.Lock()
-	at := p.position[surface.id]
-	p.mu.Unlock()
+	at := p.state(surface.id).position
 	duration := min(wheelBaseDuration+time.Duration(wheelMsPerPx*math.Max(math.Abs(dx), math.Abs(dy))*float64(time.Millisecond)), wheelMaxDuration)
 	steps := max(int(duration/wheelStepInterval), 1)
 	var sentX, sentY float64
@@ -160,8 +170,10 @@ func (p *cdpPointer) wheel(ctx context.Context, surface cdpSurface, dx, dy float
 				return err
 			}
 		}
-		if err := sleepContext(ctx, wheelStepInterval); err != nil {
-			return err
+		if step < steps {
+			if err := sleepContext(ctx, wheelStepInterval); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -172,12 +184,10 @@ type cdpHeldButton struct {
 	code    int
 }
 
-type cdpDPRSample struct {
-	value float64
-	at    time.Time
-}
+// mouseButtonCodes are the Linux button codes of the buttons that can be pressed for real; others stay on CDP.
+var mouseButtonCodes = map[string]int{"left": 272, "right": 273, "middle": 274}
 
-type cdpMouseParams struct {
+type cdpInputParams struct {
 	Type       string  `json:"type"`
 	X          float64 `json:"x"`
 	Y          float64 `json:"y"`
@@ -186,12 +196,14 @@ type cdpMouseParams struct {
 	Modifiers  int     `json:"modifiers"`
 	DeltaX     float64 `json:"deltaX"`
 	DeltaY     float64 `json:"deltaY"`
+	Enabled    bool    `json:"enabled"` // Input.setInterceptDrags
 }
 
-// queueMouse takes a mouse command into the connection's FIFO. It reports false when the command
+// queueMouse takes an input command into the connection's FIFO. It reports false when the command
 // should just be relayed: pass-through cadence with nothing queued ahead of it, or no compositor.
-func (c *cdpProxyConn) queueMouse(raw []byte) bool {
-	if c.proxy.pointer == nil || (c.proxy.cadence() == cadenceImmediate && c.mouseBusy.Load() == 0) {
+// Input.setInterceptDrags always queues so the flag changes in order with the mouse commands.
+func (c *cdpProxyConn) queueMouse(raw []byte, method string) bool {
+	if c.proxy.pointer == nil || (method != "Input.setInterceptDrags" && c.proxy.cadence() == cadenceImmediate && c.mouseBusy.Load() == 0) {
 		return false
 	}
 	c.mouseBusy.Add(1)
@@ -217,59 +229,64 @@ func (c *cdpProxyConn) runMouseQueue() {
 	}
 }
 
-// runMouse turns one queued CDP mouse command into real compositor input and answers Playwright.
+// relayMouse sends an input command over CDP after letting go of a real button, which the
+// command's CDP twin would otherwise leave stuck down.
+func (c *cdpProxyConn) relayMouse(raw []byte) {
+	c.releaseHeld()
+	c.toUp(raw)
+}
+
+// runMouse turns one queued CDP input command into real compositor input and answers Playwright.
 // Whatever cannot be done for real falls back to the original CDP command.
 func (c *cdpProxyConn) runMouse(raw []byte) {
-	var message cdpMessage
-	if json.Unmarshal(raw, &message) != nil || message.ID == nil {
+	var params cdpInputParams
+	message, ok := decodeCDP(raw, &params)
+	if !ok || message.ID == nil {
+		c.relayMouse(raw)
+		return
+	}
+	if message.Method == "Input.setInterceptDrags" {
+		c.interceptDrag.Store(params.Enabled)
 		c.toUp(raw)
 		return
 	}
 	cadence := c.proxy.cadence()
-	if cadence == cadenceImmediate {
-		c.toUp(raw)
+	rootSession, session, known := c.rootSession(message.SessionID)
+	surface, haveSurface := c.proxy.pointer.surface(session.targetID)
+	if cadence == cadenceImmediate || !known || !haveSurface {
+		c.relayMouse(raw)
 		return
 	}
 	timing := cadence.timing()
-	if c.proxy.timing != nil {
-		timing = *c.proxy.timing
-	}
-	rootSession, session, ok := c.rootSession(message.SessionID)
-	surface, haveSurface := c.proxy.pointer.surface(session.targetID)
-	if !ok || !haveSurface {
-		c.toUp(raw)
-		return
-	}
-	ratio, err := c.devicePixelRatio(rootSession, session.targetID)
-	if err != nil {
-		c.toUp(raw)
-		return
-	}
-	var params cdpMouseParams
-	_ = json.Unmarshal(message.Params, &params)
-	at := cdpPoint{params.X * ratio, params.Y * ratio}
-
+	at := cdpPoint{params.X, params.Y}
 	if message.Method == "Input.dispatchDragEvent" {
 		// The drag itself stays CDP; moving the real pointer only shows where it happens.
 		_ = c.proxy.pointer.glide(c.ctx, surface, at, timing)
-		c.toUp(raw)
+		c.relayMouse(raw)
+		return
+	}
+	code, knownButton := mouseButtonCodes[params.Button]
+	switch params.Type {
+	case "mousePressed", "mouseReleased":
+		if !knownButton {
+			c.relayMouse(raw)
+			return
+		}
+	case "mouseMoved", "mouseWheel":
+	default:
+		c.relayMouse(raw)
 		return
 	}
 	// Playwright holds modifiers through CDP key events, which real button events would not carry.
-	if params.Modifiers != 0 && params.Type != "mouseWheel" {
+	if params.Modifiers != 0 {
+		c.releaseHeld()
 		if params.Type == "mouseMoved" {
 			_ = c.proxy.pointer.glide(c.ctx, surface, at, timing)
 		}
 		c.toUp(raw)
 		return
 	}
-	switch params.Type {
-	case "mousePressed", "mouseReleased", "mouseMoved", "mouseWheel":
-	default:
-		c.toUp(raw)
-		return
-	}
-	if err := c.deliverMouse(message, params, rootSession, surface, at, timing); err != nil {
+	if err := c.deliverMouse(message, params, surface, at, code, timing); err != nil {
 		c.releaseHeld()
 		c.reply(message, nil, err.Error())
 		return
@@ -281,15 +298,8 @@ func (c *cdpProxyConn) runMouse(raw []byte) {
 	c.reply(message, json.RawMessage(`{}`), "")
 }
 
-func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpMouseParams, rootSession string, surface cdpSurface, at cdpPoint, timing cadenceTiming) error {
+func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpInputParams, surface cdpSurface, at cdpPoint, code int, timing cadenceTiming) error {
 	pointer := c.proxy.pointer
-	code := 272
-	switch params.Button {
-	case "right":
-		code = 273
-	case "middle":
-		code = 274
-	}
 	switch params.Type {
 	case "mouseMoved":
 		if c.interceptDrag.Load() && params.Button == "left" {
@@ -298,23 +308,13 @@ func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpMouseParams, r
 			case <-c.dragged:
 			default:
 			}
-			probe, cancel := context.WithTimeout(c.ctx, pageProbeTimeout)
-			_, err := c.call(probe, message.SessionID, "Input.dispatchMouseEvent", json.RawMessage(message.Params))
-			cancel()
-			if err != nil {
+			if _, err := c.call(c.ctx, message.SessionID, "Input.dispatchMouseEvent", json.RawMessage(message.Params)); err != nil {
 				return err
 			}
 			select {
 			case <-c.dragged:
 				// Chromium took over the drag: let go of the real button so Weston does not start a native drag.
-				c.mu.Lock()
-				held := c.held
-				c.held = nil
-				c.mu.Unlock()
-				if held != nil {
-					return pointer.release(c.ctx, surface, held.code, timing)
-				}
-				return nil
+				return c.releaseReal(surface, timing)
 			case <-time.After(dragInterceptWindow):
 			case <-c.ctx.Done():
 				return c.ctx.Err()
@@ -333,20 +333,30 @@ func (c *cdpProxyConn) deliverMouse(message cdpMessage, params cdpMouseParams, r
 		c.mu.Unlock()
 		return nil
 	case "mouseReleased":
-		c.mu.Lock()
-		held := c.held
-		c.held = nil
-		c.mu.Unlock()
-		if held == nil {
-			return nil // the drag handling already released it
-		}
-		return pointer.release(c.ctx, surface, code, timing)
+		return c.releaseReal(surface, timing)
 	default: // mouseWheel
 		if err := pointer.glide(c.ctx, surface, at, timing); err != nil {
 			return err
 		}
 		return pointer.wheel(c.ctx, surface, params.DeltaX, params.DeltaY)
 	}
+}
+
+// releaseReal lets go of the held real button; it stays held when that fails so releaseHeld can retry.
+func (c *cdpProxyConn) releaseReal(surface cdpSurface, timing cadenceTiming) error {
+	c.mu.Lock()
+	held := c.held
+	c.mu.Unlock()
+	if held == nil {
+		return nil // the drag handling already released it
+	}
+	if err := c.proxy.pointer.release(c.ctx, surface, held.code, timing); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.held = nil
+	c.mu.Unlock()
+	return nil
 }
 
 // releaseHeld is the safety net for a button left down by an error or a vanished client; without
@@ -362,28 +372,4 @@ func (c *cdpProxyConn) releaseHeld() {
 	ctx, cancel := context.WithTimeout(context.Background(), pageProbeTimeout)
 	defer cancel()
 	_ = c.proxy.pointer.send(ctx, "button %d %d 0", held.surface, held.code)
-}
-
-// devicePixelRatio converts CSS pixels to surface pixels. It is read from the page and refreshed
-// periodically because viewport emulation and zoom change it.
-func (c *cdpProxyConn) devicePixelRatio(rootSession, targetID string) (float64, error) {
-	c.mu.Lock()
-	sample, ok := c.dpr[targetID]
-	c.mu.Unlock()
-	if ok && time.Since(sample.at) < dprCacheTTL {
-		return sample.value, nil
-	}
-	ctx, cancel := context.WithTimeout(c.ctx, pageProbeTimeout)
-	defer cancel()
-	var value float64
-	if err := c.evaluate(ctx, rootSession, "devicePixelRatio", &value); err != nil {
-		return 0, err
-	}
-	if value <= 0 {
-		return 0, errors.New("page reported no device pixel ratio")
-	}
-	c.mu.Lock()
-	c.dpr[targetID] = cdpDPRSample{value, time.Now()}
-	c.mu.Unlock()
-	return value, nil
 }

@@ -294,9 +294,10 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		operationMu:       &sync.Mutex{},
 	}
 	session.recordings[id] = recording
+	session.setRecordingStatusLocked(recording, wrapperRecordingStarting)
 	cmd, done, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segment, fps, bitrateKbps, codec)
 	if err != nil {
-		recording.Status = wrapperRecordingFailed
+		session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
 		recording.StopReason = "start_failed"
 		r.mu.Unlock()
 		_ = os.RemoveAll(segmentDir)
@@ -305,7 +306,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	recording.cmd = cmd
 	recording.done = done
-	recording.Status = wrapperRecordingRunning
+	session.setRecordingStatusLocked(recording, wrapperRecordingRunning)
 	status := *recording
 	r.mu.Unlock()
 	session.broadcastRecordings()
@@ -444,7 +445,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	recording.Path = finalPath
 	recording.SizeBytes = size
 	recording.StoppedAt = &stoppedAt
-	recording.Status = wrapperRecordingStopped
+	session.setRecordingStatusLocked(recording, wrapperRecordingStopped)
 	recording.StopReason = reason
 	recording.finalizing = false
 	status := *recording
@@ -460,7 +461,7 @@ func (session *liveSession) failRecording(recording *wrapperRecording, reason st
 	defer r.mu.Unlock()
 	stoppedAt := time.Now().UTC()
 	recording.finalizing = false
-	recording.Status = wrapperRecordingFailed
+	session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
 	recording.StopReason = reason
 	recording.StoppedAt = &stoppedAt
 	if salvaged != "" {
@@ -656,7 +657,7 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		replacement := &wrapperRecording{cmd: cmd, done: done}
 		_ = stopRecordingSegment(replacement)
 		r.mu.Lock()
-		recording.Status = wrapperRecordingFailed
+		session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
 		recording.StopReason = "replacement_failed"
 		r.mu.Unlock()
 		return err
@@ -703,7 +704,7 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 		recording.cmd = nil
 		recording.done = nil
 		recording.StoppedAt = &stoppedAt
-		recording.Status = wrapperRecordingFailed
+		session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
 		recording.StopReason = "replacement_rollback_failed"
 		recording.replacing = false
 		r.mu.Unlock()
@@ -952,6 +953,18 @@ func (session *liveSession) listRecordingsLocked() []wrapperRecording {
 	return recordings
 }
 
+// setRecordingStatusLocked changes a recording's status and refreshes the count the cadence reads without locks.
+func (session *liveSession) setRecordingStatusLocked(recording *wrapperRecording, status wrapperRecordingStatus) {
+	recording.Status = status
+	active := int32(0)
+	for _, other := range session.recordings {
+		if other.Status == wrapperRecordingStarting || other.Status == wrapperRecordingRunning {
+			active++
+		}
+	}
+	session.activeRecordings.Store(active)
+}
+
 func (session *liveSession) activeRecordingCountLocked() int {
 	count := 0
 	for _, recording := range session.recordings {
@@ -974,7 +987,7 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 	}
 	recording.cmd = nil
 	recording.done = nil
-	recording.Status = wrapperRecordingFailed
+	session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
 	recording.StopReason = "pipeline_exited"
 	stoppedAt := time.Now().UTC()
 	recording.StoppedAt = &stoppedAt

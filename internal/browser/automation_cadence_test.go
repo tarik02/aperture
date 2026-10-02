@@ -20,34 +20,6 @@ func TestResolveAutomationCadence(t *testing.T) {
 	}
 }
 
-func TestAutomationCadenceStateFollowsPacingAndRecordings(t *testing.T) {
-	t.Parallel()
-	state := newAutomationCadenceState()
-	if got := state.current(); got != cadenceImmediate {
-		t.Fatalf("empty state = %v", got)
-	}
-	state.setPacing("a", automationPacingWatchable)
-	state.setPacing("b", automationPacingWatchable)
-	state.clearPacing("a")
-	if got := state.current(); got != cadenceRecorded {
-		t.Fatalf("one watchable client left = %v", got)
-	}
-	state.setPacing("b", automationPacingNormal)
-	var active, presentation bool
-	state.setRecordingSource(func() (bool, bool) { return active, presentation })
-	if got := state.current(); got != cadenceImmediate {
-		t.Fatalf("no watchers or recordings = %v", got)
-	}
-	active = true
-	if got := state.current(); got != cadenceRecorded {
-		t.Fatalf("recording = %v", got)
-	}
-	presentation = true
-	if got := state.current(); got != cadencePresentation {
-		t.Fatalf("presentation recording = %v", got)
-	}
-}
-
 func TestAutomationPacingCommandIsLimitedToEditorsAndEndsWithTheClient(t *testing.T) {
 	t.Parallel()
 	session := &liveSession{
@@ -62,20 +34,26 @@ func TestAutomationPacingCommandIsLimitedToEditorsAndEndsWithTheClient(t *testin
 		t.Fatal("viewers must not set pacing")
 	}
 	editor := &liveSessionClient{id: "editor", role: "editor"}
+	session.clients[editor.id] = editor
 	if err := set(editor, "fast"); err == nil {
 		t.Fatal("unknown pacing was accepted")
+	}
+	if got := session.automationCadence(); got != cadenceImmediate {
+		t.Fatalf("idle cadence = %v", got)
 	}
 	if err := set(editor, "watchable"); err != nil {
 		t.Fatal(err)
 	}
-	if got := session.runtime.cadence.current(); got != cadenceRecorded {
+	if got := session.automationCadence(); got != cadenceRecorded {
 		t.Fatalf("cadence after watchable = %v", got)
 	}
-	if err := set(editor, "normal"); err != nil {
-		t.Fatal(err)
+	delete(session.clients, editor.id)
+	if got := session.automationCadence(); got != cadenceImmediate {
+		t.Fatalf("cadence after the editor left = %v", got)
 	}
-	if got := session.runtime.cadence.current(); got != cadenceImmediate {
-		t.Fatalf("cadence after normal = %v", got)
+	session.activeRecordings.Store(1)
+	if got := session.automationCadence(); got != cadenceRecorded {
+		t.Fatalf("cadence while recording = %v", got)
 	}
 	if !isLiveSessionCommand("presentation.automation.set") {
 		t.Fatal("pacing must be a reliable command")

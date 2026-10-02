@@ -1,9 +1,6 @@
 package browser
 
-import (
-	"sync"
-	"time"
-)
+import "time"
 
 // automationCadence is how visibly browser automation acts: immediate keeps raw
 // CDP behavior, recorded and presentation replace it with real, followable input.
@@ -46,7 +43,6 @@ const (
 	// Page round trips made around input must not outlive a page that is blocked by a dialog.
 	pageProbeTimeout = time.Second
 	deliveryBarrier  = 250 * time.Millisecond
-	dprCacheTTL      = time.Second
 
 	wheelPxPerAxisUnit = 12.0
 	wheelStepInterval  = 50 * time.Millisecond
@@ -80,48 +76,20 @@ func resolveAutomationCadence(recording, presentation, watchable bool) automatio
 	}
 }
 
-// automationCadenceState gathers what decides the cadence: the recordings (pulled from the
-// recordings code through recordings) and the per-editor pacing live clients have set.
-type automationCadenceState struct {
-	mu sync.Mutex
-	// recordings reports whether any recording is active and whether any of them is a presentation.
-	recordings func() (active, presentation bool)
-	watchable  map[string]struct{}
-}
-
-func newAutomationCadenceState() *automationCadenceState {
-	return &automationCadenceState{watchable: make(map[string]struct{})}
-}
-
-func (s *automationCadenceState) setRecordingSource(source func() (active, presentation bool)) {
-	s.mu.Lock()
-	s.recordings = source
-	s.mu.Unlock()
-}
-
-// setPacing records one session client's pacing; it lasts until the client is removed.
-func (s *automationCadenceState) setPacing(clientID, pacing string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if pacing == automationPacingWatchable {
-		s.watchable[clientID] = struct{}{}
-	} else {
-		delete(s.watchable, clientID)
+// hasWatchableClient reports whether a connected client asked for automation it can follow; only
+// owners and editors can ask.
+func (session *liveSession) hasWatchableClient() bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	for _, client := range session.clients {
+		if client.watchable.Load() {
+			return true
+		}
 	}
+	return false
 }
 
-func (s *automationCadenceState) clearPacing(clientID string) {
-	s.setPacing(clientID, automationPacingNormal)
-}
-
-func (s *automationCadenceState) current() automationCadence {
-	s.mu.Lock()
-	source := s.recordings
-	watchable := len(s.watchable) > 0
-	s.mu.Unlock()
-	var active, presentation bool
-	if source != nil {
-		active, presentation = source()
-	}
-	return resolveAutomationCadence(active, presentation, watchable)
+// automationCadence is evaluated for every intercepted command, so it takes no runtime lock.
+func (session *liveSession) automationCadence() automationCadence {
+	return resolveAutomationCadence(session.activeRecordings.Load() > 0, false, session.hasWatchableClient())
 }

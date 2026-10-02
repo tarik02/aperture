@@ -39,16 +39,11 @@ func newPlaywrightMCPBackend(values RuntimeEnvValues, cdpEndpoint string) *playw
 // startAutomationBackend starts the CDP proxy that Playwright MCP drives the browser through and the
 // backend that talks to it. Both end with ctx.
 func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession *liveSession) error {
-	r.cadence.setRecordingSource(func() (bool, bool) {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		return liveSession.activeRecordingCountLocked() > 0, false
-	})
 	var pointer *cdpPointer
 	if multiTargetCompositorEnabled(r.values) {
 		pointer = newCDPPointer(r.controlSocket, r.pointerSurface)
 	}
-	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), r.cadence.current, pointer)
+	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer)
 	endpoint, err := proxy.serve(ctx)
 	if err != nil {
 		return err

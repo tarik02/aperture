@@ -73,7 +73,9 @@ type liveSession struct {
 	paintTokens    float64
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
-	cursorVisible  bool
+	// activeRecordings is read by the automation cadence, which must never wait on the runtime lock.
+	activeRecordings atomic.Int32
+	cursorVisible    bool
 	// viewportOwner is the only session client whose auto-size requests resize targets.
 	viewportOwner    *liveSessionClient
 	autoSizeSequence uint64
@@ -106,6 +108,7 @@ type liveSessionClient struct {
 	recoveryGeneration        uint64
 	realtimeCounter           uint64
 	outboundRealtimeCounter   atomic.Uint64
+	watchable                 atomic.Bool // the client asked for automation it can follow
 	pressedButtons            map[uint32]struct{}
 	pressedKeys               map[string]struct{}
 	name                      string
@@ -416,7 +419,6 @@ func (session *liveSession) removeClient(client *liveSessionClient) {
 		return
 	}
 	delete(session.clients, client.id)
-	session.runtime.cadence.clearPacing(client.id)
 	client.cancel()
 	for _, participant := range session.clients {
 		if participant.followingClientID == client.id {

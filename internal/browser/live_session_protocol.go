@@ -267,7 +267,7 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		if message.Pacing != automationPacingNormal && message.Pacing != automationPacingWatchable {
 			return liveSessionServerMessage{}, errors.New("automation pacing must be normal or watchable")
 		}
-		session.runtime.cadence.setPacing(client.id, message.Pacing)
+		client.watchable.Store(message.Pacing == automationPacingWatchable)
 		return liveSessionServerMessage{}, nil
 	case "recording.start":
 		if !client.canRecord() {

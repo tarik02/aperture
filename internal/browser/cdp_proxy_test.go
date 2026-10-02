@@ -19,6 +19,11 @@ import (
 	"github.com/coder/websocket"
 )
 
+func init() {
+	// Tests run the recorded cadence quickly.
+	recordedTiming = cadenceTiming{glideSpeed: 1e5, glideMin: 30 * time.Millisecond, glideMax: 60 * time.Millisecond, dwell: 5 * time.Millisecond, hold: 5 * time.Millisecond}
+}
+
 // fakeChromium accepts CDP websocket clients, announces one page and one iframe session, and
 // answers every command, recording what it received.
 type fakeChromium struct {
@@ -65,7 +70,7 @@ func newFakeChromium(t *testing.T) *fakeChromium {
 				result = map[string]any{"sessionId": "S3"}
 			}
 			if message.Method == "Runtime.evaluate" {
-				result = map[string]any{"result": map[string]any{"value": 2}}
+				result = map[string]any{"result": map[string]any{"value": 1}}
 			}
 			if message.Method == "Runtime.callFunctionOn" {
 				var params struct {
@@ -169,8 +174,6 @@ func newProxyHarness(t *testing.T, cadence automationCadence) *proxyHarness {
 		return cdpSurface{id: 7, width: 2000, height: 1000}, targetID == "T1"
 	})
 	proxy := newCDPProxy(strings.TrimPrefix(h.chrome.server.URL, "http://"), func() automationCadence { return automationCadence(h.cadence.Load()) }, pointer)
-	fast := cadenceTiming{glideSpeed: 1e5, glideMin: 30 * time.Millisecond, glideMax: 60 * time.Millisecond, dwell: 5 * time.Millisecond, hold: 5 * time.Millisecond}
-	proxy.timing = &fast
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	endpoint, err := proxy.serve(ctx)
@@ -246,33 +249,33 @@ func TestProxyMapsSessionsToTargets(t *testing.T) {
 		h.mouse(session, "mouseMoved", 10, 10, nil)
 		h.read()
 	}
-	if got := len(h.weston.commands("motion")); got != 2 {
-		t.Fatalf("motions = %d, want input from both sessions to reach surface 7", got)
+	if motions := h.weston.commands("motion"); len(motions) < 2 || motions[len(motions)-1] != "motion 7 10.00 10.00" || motions[len(motions)-2] != "motion 7 10.00 10.00" {
+		t.Fatalf("motions = %v, want input from both sessions to reach surface 7", motions)
 	}
 	h.send("", "Target.attachToTarget", map[string]any{"targetId": "T-unknown", "flatten": true})
 	h.read()
 }
 
-func TestRealMouseGlidesClicksInOrderAndMapsDevicePixels(t *testing.T) {
+func TestRealMouseGlidesClicksInOrderInCSSPixels(t *testing.T) {
 	h := newProxyHarness(t, cadenceRecorded)
 	// Playwright does not await these: they must still run in order.
 	ids := []int64{
-		h.mouse("S1", "mouseMoved", 100, 50, nil),
-		h.mouse("S1", "mouseMoved", 300, 50, nil),
-		h.mouse("S1", "mousePressed", 300, 50, nil),
-		h.mouse("S1", "mouseReleased", 300, 50, nil),
+		h.mouse("S1", "mouseMoved", 1100, 50, nil),
+		h.mouse("S1", "mouseMoved", 1300, 50, nil),
+		h.mouse("S1", "mousePressed", 1300, 50, nil),
+		h.mouse("S1", "mouseReleased", 1300, 50, nil),
 	}
 	for _, want := range ids {
 		if reply := h.read(); reply.ID == nil || *reply.ID != want {
 			t.Fatalf("reply %+v, want id %d in order", reply, want)
 		}
 	}
-	// devicePixelRatio is 2 in the fake page, so CSS 300,50 is surface 600,100.
+	// Surface coordinates are CSS pixels, whatever the device scale factor.
 	motions := h.weston.commands("motion")
-	if len(motions) < 3 || motions[len(motions)-1] != "motion 7 600.00 100.00" {
-		t.Fatalf("motions = %v, want a glide ending at 600,100", motions)
+	if len(motions) < 3 || motions[len(motions)-1] != "motion 7 1300.00 50.00" {
+		t.Fatalf("motions = %v, want a glide ending at 1300,50", motions)
 	}
-	var lastX float64
+	lastX := 1000.0 // a glide from an unknown position starts at the surface center
 	for _, line := range motions {
 		var surface int
 		var x, y float64
@@ -283,7 +286,7 @@ func TestRealMouseGlidesClicksInOrderAndMapsDevicePixels(t *testing.T) {
 		lastX = x
 	}
 	buttons := h.weston.commands("button-at")
-	if len(buttons) != 2 || buttons[0] != "button-at 7 600.00 100.00 272 1" || buttons[1] != "button-at 7 600.00 100.00 272 0" {
+	if len(buttons) != 2 || buttons[0] != "button-at 7 1300.00 50.00 272 1" || buttons[1] != "button-at 7 1300.00 50.00 272 0" {
 		t.Fatalf("buttons = %v", buttons)
 	}
 	for _, method := range h.chrome.methods() {
