@@ -25,8 +25,12 @@ async function encodeRecordPart(value: unknown, database: string, store: string)
 }
 
 function keyPath(value: string | string[] | null) {
-  if (value === null) return { kind: "none" } as const;
-  if (Array.isArray(value)) return { kind: "array", value } as const;
+  if (value === null) {
+    return { kind: "none" } as const;
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array", value } as const;
+  }
   return { kind: "string", value: [value] } as const;
 }
 
@@ -35,8 +39,9 @@ async function exportIndexedDB(): Promise<
 > {
   const result: Schema.Codec.Encoded<typeof InitialIndexedDBDatabase>[] = [];
   for (const { name, version } of await indexedDB.databases()) {
-    if (name === undefined || version === undefined)
+    if (name === undefined || version === undefined) {
       throw new Error("IndexedDB database metadata is incomplete");
+    }
     let disappeared = false;
     const database = await openDB(name, version, {
       upgrade(_db, _old, _next, tx) {
@@ -45,7 +50,9 @@ async function exportIndexedDB(): Promise<
       },
     });
     try {
-      if (disappeared) throw new Error("IndexedDB changed during export");
+      if (disappeared) {
+        throw new Error("IndexedDB changed during export");
+      }
       const names = [...database.objectStoreNames];
       const stores: Schema.Codec.Encoded<typeof InitialIndexedDBObjectStore>[] = [];
       if (names.length > 0) {
@@ -57,7 +64,9 @@ async function exportIndexedDB(): Promise<
           const indexes = [...store.indexNames].map((indexName) => {
             const index = store.index(indexName);
             const path = keyPath(index.keyPath);
-            if (path.kind === "none") throw new Error("IndexedDB index has no key path");
+            if (path.kind === "none") {
+              throw new Error("IndexedDB index has no key path");
+            }
             return {
               name: indexName,
               keyPath: path,
@@ -102,14 +111,18 @@ async function exportIndexedDB(): Promise<
 async function exportCaches(): Promise<
   readonly Schema.Codec.Encoded<typeof InitialCacheStorageCache>[]
 > {
-  if (!("caches" in globalThis)) return [];
+  if (!("caches" in globalThis)) {
+    return [];
+  }
   const result: Schema.Codec.Encoded<typeof InitialCacheStorageCache>[] = [];
   for (const name of await caches.keys()) {
     const cache = await caches.open(name);
     const entries: Schema.Codec.Encoded<typeof InitialCacheStorageEntry>[] = [];
     for (const request of await cache.keys()) {
       const response = await cache.match(request);
-      if (response === undefined) throw new Error("Cache Storage changed during export");
+      if (response === undefined) {
+        throw new Error("Cache Storage changed during export");
+      }
       if (
         response.type === "opaque" ||
         response.type === "opaqueredirect" ||
@@ -132,7 +145,9 @@ async function exportCaches(): Promise<
 }
 
 async function exportFiles(): Promise<readonly Schema.Codec.Encoded<typeof InitialOPFSFile>[]> {
-  if (!("getDirectory" in navigator.storage)) return [];
+  if (!("getDirectory" in navigator.storage)) {
+    return [];
+  }
   const result: Schema.Codec.Encoded<typeof InitialOPFSFile>[] = [];
   async function readDirectory(
     directory: FileSystemDirectoryHandle,
@@ -144,8 +159,9 @@ async function exportFiles(): Promise<readonly Schema.Codec.Encoded<typeof Initi
         await readDirectory(handle, `${path}/`);
       } else {
         const file = await handle.getFile();
-        if (file.size > 64 * 1024 * 1024)
+        if (file.size > 64 * 1024 * 1024) {
           throw new UnsupportedValue("an OPFS file exceeds the 64 MiB export limit");
+        }
         result.push({ path, body: new Uint8Array(await file.arrayBuffer()).toBase64() });
       }
     }
@@ -158,7 +174,9 @@ export async function run(quota: boolean): Promise<OriginStorageExport> {
   try {
     return { storage: await readOrigin(quota) };
   } catch (error) {
-    if (error instanceof UnsupportedValue) return { unsupported: error.message };
+    if (error instanceof UnsupportedValue) {
+      return { unsupported: error.message };
+    }
     throw error;
   }
 }
@@ -167,9 +185,13 @@ async function readOrigin(quota: boolean): Promise<ExportedStorageOrigin> {
   const local = [];
   for (let index = 0; index < localStorage.length; index++) {
     const name = localStorage.key(index);
-    if (name === null) throw new Error("localStorage changed during export");
+    if (name === null) {
+      throw new Error("localStorage changed during export");
+    }
     const value = localStorage.getItem(name);
-    if (value === null) throw new Error("localStorage changed during export");
+    if (value === null) {
+      throw new Error("localStorage changed during export");
+    }
     local.push({ name, value });
   }
   return {

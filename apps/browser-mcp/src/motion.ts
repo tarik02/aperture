@@ -21,8 +21,12 @@ const presets = {
 
 /** Milliseconds a glide of this length takes; 0 means jump. */
 export function travelMs(motion: Motion, distance: number): number {
-  if (distance < 0.5 || motion === "instant") return 0;
-  if (typeof motion === "object") return motion.durationMs;
+  if (distance < 0.5 || motion === "instant") {
+    return 0;
+  }
+  if (typeof motion === "object") {
+    return motion.durationMs;
+  }
   const { speed, min, max } = presets[motion];
   return Math.min(max, Math.max(min, (distance / speed) * 1000));
 }

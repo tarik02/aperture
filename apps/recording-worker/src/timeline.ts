@@ -1,9 +1,14 @@
 import * as Effect from "effect/Effect";
-import {
-  type ActionSource,
-  type CaptureSource,
-  type RecordingTimeline,
-  type RecordingEvent,
+import type {
+  ActionSource,
+  CaptureSource,
+  RecordingTimeline,
+  RecordingEvent,
+  TimelineAction,
+  TimelineAttention,
+  TimelineFocus,
+  TimelineGesture,
+  TimelineSegment,
 } from "@aperture-browser/recording/schema";
 import { PlanError } from "./error.ts";
 
@@ -13,18 +18,23 @@ export const buildTimeline = Effect.fn("recording.buildTimeline")(function* (
   capture: CaptureSource,
   events: ActionSource,
 ) {
-  if (capture.segments.length === 0)
+  if (capture.segments.length === 0) {
     return yield* new PlanError({ message: "recording has no capture segments" });
-  const actions: RecordingTimeline["actions"][number][] = [];
-  const gestures: RecordingTimeline["gestures"][number][] = [];
-  const focuses: RecordingTimeline["focuses"][number][] = [];
-  const attention: RecordingTimeline["attention"][number][] = [];
-  const segments: RecordingTimeline["segments"][number][] = [];
+  }
+  const actions: TimelineAction[] = [];
+  const gestures: TimelineGesture[] = [];
+  const focuses: TimelineFocus[] = [];
+  const attention: TimelineAttention[] = [];
+  const segments: TimelineSegment[] = [];
   const damage: number[] = [];
   let offset = 0;
   const warnings = [...capture.warnings];
-  if (!capture.actionsComplete) warnings.push("browser action source is incomplete");
-  if (!capture.activityComplete) warnings.push("capture activity source is incomplete");
+  if (!capture.actionsComplete) {
+    warnings.push("browser action source is incomplete");
+  }
+  if (!capture.activityComplete) {
+    warnings.push("capture activity source is incomplete");
+  }
   for (const segment of capture.segments) {
     const wallEnd = segment.firstFrameMs + segment.durationMs;
     const videoEnd = offset + segment.durationMs;
@@ -41,17 +51,25 @@ export const buildTimeline = Effect.fn("recording.buildTimeline")(function* (
       width: segment.width,
       height: segment.height,
     });
-    for (const at of segment.damage)
-      if (at >= segment.firstFrameMs && at < wallEnd) damage.push(time(at));
+    for (const at of segment.damage) {
+      if (at >= segment.firstFrameMs && at < wallEnd) {
+        damage.push(time(at));
+      }
+    }
     for (const event of events) {
-      if (event.end < event.start)
+      if (event.end < event.start) {
         return yield* new PlanError({ message: "recording event ends before it starts" });
-      if (!overlaps(event)) continue;
+      }
+      if (!overlaps(event)) {
+        continue;
+      }
       switch (event._tag) {
         case "Action": {
           const { _tag, ...action } = event;
           actions.push({ ...action, start: time(event.start), end: time(event.end) });
-          if (!event.ok) warnings.push(`browser action failed: ${event.tool}`);
+          if (!event.ok) {
+            warnings.push(`browser action failed: ${event.tool}`);
+          }
           break;
         }
         case "Gesture": {
@@ -114,8 +132,11 @@ export const buildTimeline = Effect.fn("recording.buildTimeline")(function* (
   const spans: { start: number; end: number }[] = [];
   for (const at of damage.sort((a, b) => a - b)) {
     const last = spans.at(-1);
-    if (last !== undefined && at - last.end <= 300) last.end = at;
-    else spans.push({ start: at, end: at });
+    if (last !== undefined && at - last.end <= 300) {
+      last.end = at;
+    } else {
+      spans.push({ start: at, end: at });
+    }
   }
   return {
     timeline: {

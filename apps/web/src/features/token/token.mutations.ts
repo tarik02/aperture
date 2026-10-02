@@ -1,8 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  type CreateAdminTokenInput,
-  type CreateTenantTokenInput,
-} from "@aperture-browser/api-client";
+import type { CreateAdminTokenInput, CreateTenantTokenInput } from "@aperture-browser/api-client";
 import { toastMutationError } from "#/lib/mutation-toast.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { TokensApi } from "@aperture-browser/api-client";

@@ -3,10 +3,10 @@ import {
   defaultListLimit,
   getNextPageParam,
   listQueryDefaults,
+  TokensApi,
 } from "@aperture-browser/api-client";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type TokensFilters } from "#/lib/api/query-keys.ts";
-import { TokensApi } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
 
 export function useTokensInfiniteQuery(filters: TokensFilters = {}) {

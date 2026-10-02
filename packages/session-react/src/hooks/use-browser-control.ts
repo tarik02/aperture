@@ -9,24 +9,19 @@ import {
   type LiveSessionViewportOwnership,
 } from "./use-live-session.ts";
 import type * as HttpClient from "effect/http/HttpClient";
-import type { ApiRequestError, IceServer } from "@aperture-browser/api-client";
-import type { Recording } from "@aperture-browser/api-client";
+import type { ApiRequestError, IceServer, Recording } from "@aperture-browser/api-client";
 import {
+  createViewportPreset,
+  DEFAULT_VIEWPORT,
   downloadSessionRecording,
   getTargetThumbnail,
   LiveSessionError,
   type BrowserInputMessage,
-} from "@aperture-browser/live-session";
-import type {
-  SessionAccess,
-  LiveSessionPresentation,
-  LiveSessionPresentationQuality,
-  LiveSessionRasterFrame,
-  LiveSessionTarget,
-} from "@aperture-browser/live-session";
-import {
-  createViewportPreset,
-  DEFAULT_VIEWPORT,
+  type LiveSessionPresentation,
+  type LiveSessionPresentationQuality,
+  type LiveSessionRasterFrame,
+  type LiveSessionTarget,
+  type SessionAccess,
   type ViewportPreset,
 } from "@aperture-browser/live-session";
 import { useEffectCallback, useRuntime } from "../effect.tsx";
@@ -559,7 +554,9 @@ export function useBrowserControl({
     [live.request],
   );
   useEffect(() => {
-    if (live.phase === "connected" && canRecord) runSetAutomationPacing(watchableAutomation);
+    if (live.phase === "connected" && canRecord) {
+      runSetAutomationPacing(watchableAutomation);
+    }
   }, [live.phase, canRecord, watchableAutomation, runSetAutomationPacing]);
 
   const runSetRemoteCursor = useEffectCallback(

@@ -15,7 +15,9 @@ function keyPath(specification: {
   kind: string;
   value?: readonly string[];
 }): string | string[] | null {
-  if (specification.kind === "none") return null;
+  if (specification.kind === "none") {
+    return null;
+  }
   return specification.kind === "string" ? specification.value![0] : [...specification.value!];
 }
 
@@ -64,7 +66,9 @@ async function restoreIndexedDB(databases: readonly DatabaseState[]): Promise<vo
             value: await decodeStructuredCloneAsync(record.value),
           })),
         );
-        if (decoded.length === 0) continue;
+        if (decoded.length === 0) {
+          continue;
+        }
 
         const transaction = database.transaction(storeState.name, "readwrite");
         const store = transaction.objectStore(storeState.name);
@@ -83,9 +87,13 @@ async function restoreIndexedDB(databases: readonly DatabaseState[]): Promise<vo
 }
 
 async function restoreCacheStorage(cachesState: StorageOrigin["cacheStorage"]): Promise<void> {
-  if (cachesState === undefined) return;
+  if (cachesState === undefined) {
+    return;
+  }
   if (typeof caches === "undefined") {
-    if (cachesState.length > 0) throw new Error("Cache Storage is unavailable");
+    if (cachesState.length > 0) {
+      throw new Error("Cache Storage is unavailable");
+    }
     return;
   }
 
@@ -113,9 +121,13 @@ async function restoreCacheStorage(cachesState: StorageOrigin["cacheStorage"]): 
 }
 
 async function restoreOPFS(files: StorageOrigin["opfs"]): Promise<void> {
-  if (files === undefined) return;
+  if (files === undefined) {
+    return;
+  }
   if (typeof navigator.storage.getDirectory !== "function") {
-    if (files.length > 0) throw new Error("OPFS is unavailable");
+    if (files.length > 0) {
+      throw new Error("OPFS is unavailable");
+    }
     return;
   }
 
@@ -127,7 +139,9 @@ async function restoreOPFS(files: StorageOrigin["opfs"]): Promise<void> {
   for (const fileState of files) {
     const parts = fileState.path.split("/");
     const fileName = parts.pop();
-    if (fileName === undefined) throw new Error("OPFS path has no file name");
+    if (fileName === undefined) {
+      throw new Error("OPFS path has no file name");
+    }
 
     let directory = root;
     for (const part of parts) {

@@ -53,7 +53,9 @@ const keyCodes = { Alt: 56, Control: 29, ControlOrMeta: 29, Meta: 125, Shift: 42
 export function compositorDevice(socket: string, surface: Surface, page: Page): Device {
   const send = (line: string, signal?: AbortSignal) => sendCommand(socket, line, signal);
   const known = compositorDevices.get(page);
-  if (known?.surfaceId === surface.id) return known.device;
+  if (known?.surfaceId === surface.id) {
+    return known.device;
+  }
   let at = { x: 0, y: 0 };
   const device: Device = {
     async move(to, signal) {
@@ -86,7 +88,9 @@ export function compositorDevice(socket: string, surface: Surface, page: Page): 
 /** Playwright's own mouse and keyboard, for sessions without a compositor. */
 export function pageDevice(page: Page): Device {
   const known = pageDevices.get(page);
-  if (known !== undefined) return known;
+  if (known !== undefined) {
+    return known;
+  }
   const device: Device = {
     move: (to) => page.mouse.move(to.x, to.y),
     down: (button, count) => page.mouse.down({ button, clickCount: count }),
@@ -107,7 +111,9 @@ const clickGapMs = 60;
 
 const sleep = (ms: number, signal?: AbortSignal) => {
   signal?.throwIfAborted();
-  if (ms <= 0) return Promise.resolve();
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
   return new Promise<void>((resolve, reject) => {
     const finish = () => {
       signal?.removeEventListener("abort", abort);
@@ -119,7 +125,9 @@ const sleep = (ms: number, signal?: AbortSignal) => {
       reject(signal?.reason);
     };
     signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted) abort();
+    if (signal?.aborted) {
+      abort();
+    }
   });
 };
 const round = (value: number) => Math.round(value * 10) / 10;
@@ -202,13 +210,17 @@ export class Pointer {
     const from = known ?? { x: (surface?.width ?? 0) / 2, y: (surface?.height ?? 0) / 2 };
     const duration = travelMs(motion, Math.hypot(to.x - from.x, to.y - from.y));
     if (duration > 0) {
-      if (!known) await this.place(from);
+      if (!known) {
+        await this.place(from);
+      }
       const path = pathAt(from, to, motion, this.max);
       const began = performance.now();
       for (;;) {
         await sleep(frameMs, this.signal);
         const progress = (performance.now() - began) / duration;
-        if (progress >= 1) break;
+        if (progress >= 1) {
+          break;
+        }
         await this.place(path(progress));
       }
     }
@@ -248,7 +260,9 @@ export class Pointer {
       await sleep(frameMs, this.signal);
       const progress = Math.min((performance.now() - began) / durationMs, 1);
       await this.place(orbit(progress));
-      if (progress >= 1) break;
+      if (progress >= 1) {
+        break;
+      }
     }
     this.record.end = Date.now();
   }
@@ -275,7 +289,9 @@ export class Pointer {
 
   private async holding(modifiers: Modifier[], action: () => Promise<void>) {
     const [modifier, ...rest] = new Set(modifiers);
-    if (!modifier) return action();
+    if (!modifier) {
+      return action();
+    }
     await this.pressed(
       () => this.device.key(modifier, true, this.signal),
       () => this.device.key(modifier, false),
@@ -311,7 +327,9 @@ export class Pointer {
     await this.holding(modifiers, async () => {
       for (let index = 1; index <= count; index++) {
         await this.press(button, index, () => sleep(holdMs, this.signal));
-        if (index < count) await sleep(clickGapMs, this.signal);
+        if (index < count) {
+          await sleep(clickGapMs, this.signal);
+        }
       }
     });
     this.record.end = Date.now();
@@ -369,7 +387,9 @@ export class Pointer {
           this.signal,
         );
         previous = eased;
-        if (progress >= 1) break;
+        if (progress >= 1) {
+          break;
+        }
       }
     }
     this.record.end = Date.now();

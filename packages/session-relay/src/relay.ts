@@ -192,7 +192,9 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         }
         const headers: Record<string, string> = { "cache-control": "no-store" };
         const disposition = response.headers["content-disposition"];
-        if (disposition !== undefined) headers["content-disposition"] = disposition;
+        if (disposition !== undefined) {
+          headers["content-disposition"] = disposition;
+        }
         const contentLength = Number(response.headers["content-length"]);
         return HttpServerResponse.stream(
           response.stream.pipe(Stream.interruptWhen(revoked(grant.signal))),
@@ -220,7 +222,9 @@ export function sessionRelay<R>(options: SessionRelayOptions<R>) {
         );
         const headers: Record<string, string> = { "cache-control": "private, no-cache" };
         const lastModified = response.headers["last-modified"];
-        if (lastModified !== undefined) headers["last-modified"] = lastModified;
+        if (lastModified !== undefined) {
+          headers["last-modified"] = lastModified;
+        }
         if (response.status === 304) {
           return HttpServerResponse.empty({ status: 304, headers });
         }

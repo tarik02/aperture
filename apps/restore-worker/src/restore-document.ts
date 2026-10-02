@@ -25,11 +25,15 @@ const appearTimeout = 1_000;
  */
 export const restoreDocument = Effect.fnUntraced(function* (page: Playwright.Page, target: Target) {
   const state = target.documentState;
-  if (!state && !target.scroll) return;
+  if (!state && !target.scroll) {
+    return;
+  }
 
   yield* settle(page);
   // The saved state belongs to this exact URL, not to wherever a redirect led.
-  if (page.url() !== new URL(target.url).href) return;
+  if (page.url() !== new URL(target.url).href) {
+    return;
+  }
 
   const payloads = yield* PayloadSource;
   const helpers: Helpers = yield* Effect.acquireRelease(
@@ -38,7 +42,9 @@ export const restoreDocument = Effect.fnUntraced(function* (page: Playwright.Pag
   );
 
   const controls = state?.controls ?? [];
-  for (const control of controls) yield* restoreControl(helpers, control, false);
+  for (const control of controls) {
+    yield* restoreControl(helpers, control, false);
+  }
 
   for (const editable of state?.contentEditables ?? []) {
     yield* attempt(() => helpers.evaluate((h, value) => h.restoreEditable(value), editable));
@@ -47,7 +53,9 @@ export const restoreDocument = Effect.fnUntraced(function* (page: Playwright.Pag
   // Second pass: controls the page reset while reacting to the restored values, and
   // controls Playwright could not act on yet. Only now do native setters step in.
   yield* Effect.sleep(reactionDelay);
-  for (const control of controls) yield* restoreControl(helpers, control, true);
+  for (const control of controls) {
+    yield* restoreControl(helpers, control, true);
+  }
 
   if (state?.focus) {
     const focus = yield* resolve(helpers, state.focus);
@@ -81,14 +89,18 @@ const resolve = Effect.fnUntraced(function* (helpers: Helpers, locator: ControlS
     helpers.evaluateHandle((h, value) => h.resolve(value), locator),
   );
   const element = handle.asElement();
-  if (!element) yield* attempt(() => handle.dispose());
+  if (!element) {
+    yield* attempt(() => handle.dispose());
+  }
   return element;
 });
 
 const restoreControl = (helpers: Helpers, control: ControlState, nativeFallback: boolean) =>
   Effect.gen(function* () {
     const element = yield* resolve(helpers, control.locator);
-    if (!element) return;
+    if (!element) {
+      return;
+    }
 
     yield* Effect.gen(function* () {
       const alreadySet = yield* attempt(() =>
@@ -96,10 +108,14 @@ const restoreControl = (helpers: Helpers, control: ControlState, nativeFallback:
       );
       if (!alreadySet) {
         const kind = yield* attempt(() => helpers.evaluate((h, el) => h.controlKind(el), element));
-        if (kind === "none") return;
+        if (kind === "none") {
+          return;
+        }
         const acted =
           kind !== "native" && (yield* act(helpers, element, kind, control, nativeFallback));
-        if (!acted && !nativeFallback) return;
+        if (!acted && !nativeFallback) {
+          return;
+        }
         if (!acted) {
           yield* attempt(() =>
             helpers.evaluate((h, [el, c]) => h.setControl(el, c), [element, control] as const),
@@ -147,7 +163,9 @@ const act = (
       // Styled checkboxes often hide the input behind its label; a label click is still a
       // real click on the control.
       const label = yield* visibleLabel(helpers, element);
-      if (!label) return false;
+      if (!label) {
+        return false;
+      }
       yield* attempt(() => label.click(options)).pipe(
         Effect.ensuring(Effect.ignore(attempt(() => label.dispose()))),
       );
@@ -156,7 +174,9 @@ const act = (
       );
     }
 
-    if (!visible) return false;
+    if (!visible) {
+      return false;
+    }
     if (kind === "fill") {
       yield* attempt(() => element.fill(control.value, options));
     } else if (kind === "select") {
@@ -176,7 +196,9 @@ const visibleLabel = Effect.fnUntraced(function* (
 ) {
   const handle = yield* attempt(() => helpers.evaluateHandle((h, el) => h.label(el), element));
   const label = handle.asElement();
-  if (label && (yield* attempt(() => label.isVisible()))) return label;
+  if (label && (yield* attempt(() => label.isVisible()))) {
+    return label;
+  }
   yield* attempt(() => handle.dispose());
   return null;
 });

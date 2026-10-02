@@ -34,7 +34,9 @@ const checkPreload = Effect.fnUntraced(function* (page: Playwright.Page) {
     (key) => Reflect.get(window, Symbol.for(key)) as string | undefined,
     preloadErrorKey,
   );
-  if (error) return yield* restoreError(`restore initial document state: ${error}`);
+  if (error) {
+    return yield* restoreError(`restore initial document state: ${error}`);
+  }
 });
 
 const addPreloadScript = Effect.fnUntraced(function* (cdp: Cdp, source: string) {
@@ -87,7 +89,9 @@ const createTarget = Effect.fnUntraced(function* (
       const error = yield* page.evaluate<string | undefined>(
         payloads.targetHistoryState(historyState),
       );
-      if (error) return yield* restoreError(`restore initial document state: ${error}`);
+      if (error) {
+        return yield* restoreError(`restore initial document state: ${error}`);
+      }
     }
 
     yield* page.waitForLoadState("domcontentloaded", { timeout: minute });
@@ -114,8 +118,12 @@ const createTarget = Effect.fnUntraced(function* (
 
 function frameOrigins(tree: FrameTree, origins = new Set<string>()): Set<string> {
   const origin = urlOrigin(tree.frame.url);
-  if (origin) origins.add(origin);
-  for (const child of tree.childFrames ?? []) frameOrigins(child, origins);
+  if (origin) {
+    origins.add(origin);
+  }
+  for (const child of tree.childFrames ?? []) {
+    frameOrigins(child, origins);
+  }
   return origins;
 }
 
@@ -124,7 +132,9 @@ const removePageKeys = (page: Playwright.Page) =>
   page
     .evaluate(
       (keys) => {
-        for (const key of keys) Reflect.deleteProperty(window, Symbol.for(key));
+        for (const key of keys) {
+          Reflect.deleteProperty(window, Symbol.for(key));
+        }
       },
       [windowOpenKey, preloadErrorKey],
     )
@@ -162,7 +172,9 @@ export const restoreTargets = Effect.fnUntraced(function* (
     activeIndex: targets.findIndex((item) => item.active),
     sessionStorageSources: {},
   };
-  if (targets.length === 0) return result;
+  if (targets.length === 0) {
+    return result;
+  }
 
   const existing = yield* browserCDP.send<{ targetInfos: TargetInfo[] }>("Target.getTargets");
   const existingIDs = existing.targetInfos
@@ -179,11 +191,15 @@ export const restoreTargets = Effect.fnUntraced(function* (
     let progress = false;
 
     for (const [index, target] of targets.entries()) {
-      if (created.has(index)) continue;
+      if (created.has(index)) {
+        continue;
+      }
 
       const opener =
         target.openerTargetIndex == null ? undefined : created.get(target.openerTargetIndex)?.page;
-      if (target.openerTargetIndex != null && !opener) continue;
+      if (target.openerTargetIndex != null && !opener) {
+        continue;
+      }
 
       const made = yield* createTarget(context, target, opener);
       created.set(index, made);
@@ -194,7 +210,9 @@ export const restoreTargets = Effect.fnUntraced(function* (
       progress = true;
     }
 
-    if (!progress) return yield* restoreError("initial target opener graph could not be resolved");
+    if (!progress) {
+      return yield* restoreError("initial target opener graph could not be resolved");
+    }
   }
 
   yield* Effect.forEach(created.values(), (target) => removePageKeys(target.page), {

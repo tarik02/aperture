@@ -43,8 +43,12 @@ interface SessionState {
 const emptyIceServers: readonly IceServer[] = [];
 
 function failedStatus(httpStatus: number): SessionState["status"] {
-  if (httpStatus === 401 || httpStatus === 403) return "denied";
-  if (httpStatus === 410) return "expired";
+  if (httpStatus === 401 || httpStatus === 403) {
+    return "denied";
+  }
+  if (httpStatus === 410) {
+    return "expired";
+  }
   return "unavailable";
 }
 

@@ -24,28 +24,38 @@ export const reconcile = Effect.gen(function* () {
   const liveWindowIds = new Set(windows.map((window) => String(window.id)));
 
   for (const windowId of Object.keys(managedWindows)) {
-    if (!liveWindowIds.has(windowId)) delete managedWindows[windowId];
+    if (!liveWindowIds.has(windowId)) {
+      delete managedWindows[windowId];
+    }
   }
 
   for (const window of windows) {
     const windowId = window.id;
-    if (windowId === undefined) continue;
+    if (windowId === undefined) {
+      continue;
+    }
     const tabs = window.tabs ?? [];
     const userTabs = tabs.filter(isUserTab);
     if (userTabs.length === 0) {
-      if (tabs.some(isMarkerTab)) yield* removeWindow(windowId);
+      if (tabs.some(isMarkerTab)) {
+        yield* removeWindow(windowId);
+      }
       continue;
     }
 
     const managedTabId = managedWindows[String(windowId)];
     const stableManagedTab = userTabs.find((tab) => tab.id === managedTabId);
     if (!stableManagedTab) {
-      for (const tab of userTabs) yield* moveTabToManagedWindow(tab, managedWindows);
+      for (const tab of userTabs) {
+        yield* moveTabToManagedWindow(tab, managedWindows);
+      }
       continue;
     }
 
     for (const tab of userTabs) {
-      if (tab.id !== stableManagedTab.id) yield* moveTabToManagedWindow(tab, managedWindows);
+      if (tab.id !== stableManagedTab.id) {
+        yield* moveTabToManagedWindow(tab, managedWindows);
+      }
     }
     yield* Effect.forEach(tabs.filter(isMarkerTab), (tab) => removeTab(tab.id), {
       concurrency: "unbounded",

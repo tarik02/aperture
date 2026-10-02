@@ -17,7 +17,9 @@ export const Route = createFileRoute("/docs/$")({
   component: Page,
   loader: async ({ params }) => {
     const page = source.getPage(params._splat?.split("/") ?? []);
-    if (!page) throw notFound();
+    if (!page) {
+      throw notFound();
+    }
     await docs.getPage(page.path)?.preload();
     return {
       path: page.path,
@@ -28,7 +30,9 @@ export const Route = createFileRoute("/docs/$")({
 
 function Content({ path }: { path: string }) {
   const page = docs.getPage(path);
-  if (!page) throw notFound();
+  if (!page) {
+    throw notFound();
+  }
   const { toc } = use(page.load());
   const Body = page.body;
 

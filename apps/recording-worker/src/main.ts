@@ -99,7 +99,9 @@ const render = Effect.fn("recording.render")(function* (ffmpeg: string, video: s
       ],
       { concurrency: "unbounded" },
     );
-    if (exitCode !== 0) return yield* new FfmpegFailed({ exitCode, diagnostic });
+    if (exitCode !== 0) {
+      return yield* new FfmpegFailed({ exitCode, diagnostic });
+    }
   });
   yield* Effect.scoped(renderProcess).pipe(
     Effect.catchTag("PlatformError", (cause) => Effect.fail(new RenderStartFailed({ cause }))),
@@ -138,10 +140,13 @@ const finalize = Effect.gen(function* () {
   yield* writeOutput("timeline.json", encodedTimeline);
   const outcome = yield* Effect.gen(function* () {
     const plan = yield* buildEditPlan(timeline, config, capture.fps);
-    if (plan === undefined || plan.filter === "")
+    if (plan === undefined || plan.filter === "") {
       return { edited: false, warnings: plan?.warnings ?? [] };
+    }
     yield* writeOutput("filter.txt", plan.filter);
-    if (plan.ass !== undefined) yield* writeOutput("captions.ass", plan.ass);
+    if (plan.ass !== undefined) {
+      yield* writeOutput("captions.ass", plan.ass);
+    }
     yield* render(request.ffmpeg, capture.video);
     return { edited: true, warnings: plan.warnings };
   }).pipe(

@@ -5,13 +5,11 @@ import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { IceServer } from "@aperture-browser/api-client";
-import type { Recording } from "@aperture-browser/api-client";
-import type { BrowserInputMessage } from "@aperture-browser/live-session";
-import { evdevKeycodeByCode } from "@aperture-browser/live-session";
-import { windowsVirtualKeyCodeForCodeOrKey } from "@aperture-browser/live-session";
-import { LiveSessionConnection } from "@aperture-browser/live-session";
+import type { IceServer, Recording } from "@aperture-browser/api-client";
 import {
+  type BrowserInputMessage,
+  evdevKeycodeByCode,
+  LiveSessionConnection,
   strictParseOptions,
   type SessionAccess,
   type CollaborationCursor,
@@ -28,6 +26,7 @@ import {
   type LiveSessionRasterFrame,
   type LiveSessionServerMessage,
   type LiveSessionTarget,
+  windowsVirtualKeyCodeForCodeOrKey,
 } from "@aperture-browser/live-session";
 import { useEffectCallback, useFork, useRuntime } from "../effect.tsx";
 

@@ -84,10 +84,12 @@ export const RecordingConfig = Schema.Struct({
   burst: Schema.optionalKey(Burst),
 }).check(
   Schema.makeFilter((config) => {
-    if (config.capture === "bursts" && config.idle !== undefined)
+    if (config.capture === "bursts" && config.idle !== undefined) {
       return "bursts and idle are mutually exclusive";
-    if (config.burst !== undefined && config.capture !== "bursts")
+    }
+    if (config.burst !== undefined && config.capture !== "bursts") {
       return "burst requires capture: bursts";
+    }
     return true;
   }),
 );
@@ -117,18 +119,32 @@ export const CaptureSource = Schema.Struct({
 });
 export type CaptureSource = typeof CaptureSource.Type;
 
+export const TimelineSegment = Schema.Struct({
+  ...interval,
+  targetId: Schema.String,
+  width: positive,
+  height: positive,
+});
+export type TimelineSegment = typeof TimelineSegment.Type;
+export const TimelineAction = Schema.Struct(Struct.omit(Action.fields, ["_tag"]));
+export type TimelineAction = typeof TimelineAction.Type;
+export const TimelineGesture = Schema.Struct(Struct.omit(Gesture.fields, ["_tag", "space"]));
+export type TimelineGesture = typeof TimelineGesture.Type;
+export const TimelineFocus = Schema.Struct(Struct.omit(Focus.fields, ["_tag"]));
+export type TimelineFocus = typeof TimelineFocus.Type;
+export const TimelineAttention = Schema.Struct(Struct.omit(Attention.fields, ["_tag"]));
+export type TimelineAttention = typeof TimelineAttention.Type;
+
 export const RecordingTimeline = Schema.Struct({
   version: Schema.Literal(1),
   recordingId: Schema.String,
   video: Schema.String,
   durationMs: ms,
-  segments: Schema.Array(
-    Schema.Struct({ ...interval, targetId: Schema.String, width: positive, height: positive }),
-  ),
-  actions: Schema.Array(Schema.Struct(Struct.omit(Action.fields, ["_tag"]))),
-  gestures: Schema.Array(Schema.Struct(Struct.omit(Gesture.fields, ["_tag", "space"]))),
-  focuses: Schema.Array(Schema.Struct(Struct.omit(Focus.fields, ["_tag"]))),
-  attention: Schema.Array(Schema.Struct(Struct.omit(Attention.fields, ["_tag"]))),
+  segments: Schema.Array(TimelineSegment),
+  actions: Schema.Array(TimelineAction),
+  gestures: Schema.Array(TimelineGesture),
+  focuses: Schema.Array(TimelineFocus),
+  attention: Schema.Array(TimelineAttention),
   activity: Schema.Struct({
     complete: Schema.Boolean,
     spans: Schema.Array(Schema.Struct(interval)),

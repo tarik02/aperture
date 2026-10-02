@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
+import type * as Scope from "effect/Scope";
 import { ChildProcess } from "effect/process";
 import { Playwright } from "effect-playwright";
 import { describe, expect, it } from "vite-plus/test";
@@ -35,11 +36,7 @@ const withBrowser = Effect.fnUntraced(function* () {
 });
 
 const run = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    Playwright.Playwright | NodeServices.NodeServices | import("effect/Scope").Scope
-  >,
+  effect: Effect.Effect<A, E, Playwright.Playwright | NodeServices.NodeServices | Scope.Scope>,
 ) =>
   Effect.runPromise(
     effect.pipe(Effect.scoped, Effect.provide(Layer.merge(Playwright.layer, NodeServices.layer))),
@@ -87,7 +84,9 @@ describe("storage export", { timeout: 120_000 }, () => {
     run(
       Effect.gen(function* () {
         const context = yield* withBrowser();
-        for (const blank of context.pages()) yield* blank.close;
+        for (const blank of context.pages()) {
+          yield* blank.close;
+        }
         yield* openJira(
           context,
           `<script>

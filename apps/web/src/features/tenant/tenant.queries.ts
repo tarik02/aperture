@@ -3,10 +3,10 @@ import {
   defaultListLimit,
   getNextPageParam,
   listQueryDefaults,
+  TenantsApi,
 } from "@aperture-browser/api-client";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type TenantsFilters } from "#/lib/api/query-keys.ts";
-import { TenantsApi } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
 
 export function useTenantsInfiniteQuery(filters: TenantsFilters = {}) {

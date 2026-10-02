@@ -15,8 +15,12 @@ export const tagQuery = (tags: TagFilterValue | undefined) => ({
 export const compactQuery = <T extends object>(query: T): T =>
   Object.fromEntries(
     Object.entries(query).flatMap(([key, value]) => {
-      if (value === undefined || value === null || value === "") return [];
-      if (!Array.isArray(value)) return [[key, value]];
+      if (value === undefined || value === null || value === "") {
+        return [];
+      }
+      if (!Array.isArray(value)) {
+        return [[key, value]];
+      }
       const items = value.filter((item) => item !== "");
       return items.length > 0 ? [[key, items]] : [];
     }),

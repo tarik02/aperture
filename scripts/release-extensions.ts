@@ -53,11 +53,15 @@ const release = Command.make(
     for (const name of yield* fs.readDirectory(path.join(root, "extensions"))) {
       const dir = path.join(root, "extensions", name);
       const packagePath = path.join(dir, "package.json");
-      if (!(yield* fs.exists(packagePath))) continue;
+      if (!(yield* fs.exists(packagePath))) {
+        continue;
+      }
       const manifest = yield* fs
         .readFileString(packagePath)
         .pipe(Effect.flatMap(Schema.decodeUnknownEffect(PackageManifest)));
-      if (manifest.aperture?.releaseZip !== true) continue;
+      if (manifest.aperture?.releaseZip !== true) {
+        continue;
+      }
 
       yield* run(root, "pnpm", "--filter", manifest.name, "build");
 

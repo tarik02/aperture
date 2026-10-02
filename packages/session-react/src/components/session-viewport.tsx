@@ -10,13 +10,13 @@ import {
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import {
+  computeRenderMetrics,
   keyboardInputMessage,
   keyboardModifiers,
   shouldForwardBrowserShortcut,
+  type LiveSessionRasterFrame,
+  type ViewportPreset,
 } from "@aperture-browser/live-session";
-import { computeRenderMetrics } from "@aperture-browser/live-session";
-import type { LiveSessionRasterFrame } from "@aperture-browser/live-session";
-import type { ViewportPreset } from "@aperture-browser/live-session";
 import type { SessionNotice, UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 import { CollaborationPaintOverlay } from "./collaboration-paint-overlay.tsx";
 import { useFork } from "../effect.tsx";

@@ -9,11 +9,17 @@ import { canonicalOrigin } from "./schema.js";
 
 export const StorageExportInput = ExportSessionStorageStateInput.check(
   Schema.makeFilter(({ origins }) => {
-    if (origins === "open-tabs") return true;
+    if (origins === "open-tabs") {
+      return true;
+    }
     return (
       origins.every((pattern) => {
-        if (pattern === "*") return true;
-        if (!pattern.includes("*")) return canonicalOrigin(pattern) !== null;
+        if (pattern === "*") {
+          return true;
+        }
+        if (!pattern.includes("*")) {
+          return canonicalOrigin(pattern) !== null;
+        }
         return /^(https?|\*):\/\/[^/?#@\s]+\/?$/.test(pattern);
       }) ||
       "origins must contain HTTP origins or origin patterns without paths, credentials, queries, or fragments"
@@ -44,10 +50,14 @@ export interface StoragePartition {
 /** Patterns match the entire canonical origin; only * has special meaning. */
 export function matchesOrigin(patterns: readonly string[], origin: string): boolean {
   return patterns.some((pattern) => {
-    if (!pattern.includes("*")) return canonicalOrigin(pattern) === origin;
+    if (!pattern.includes("*")) {
+      return canonicalOrigin(pattern) === origin;
+    }
     const parts = pattern.replace(/\/$/, "").toLowerCase().split("*");
     const value = origin.toLowerCase();
-    if (!value.startsWith(parts[0])) return false;
+    if (!value.startsWith(parts[0])) {
+      return false;
+    }
     let position = parts[0].length;
     // Match literal fragments in order. Unlike a chain of .* expressions, this
     // cannot cause exponential regular-expression backtracking.
@@ -55,7 +65,9 @@ export function matchesOrigin(patterns: readonly string[], origin: string): bool
       const part = parts[index];
       const next =
         index === parts.length - 1 ? value.length - part.length : value.indexOf(part, position);
-      if (next < position || !value.startsWith(part, next)) return false;
+      if (next < position || !value.startsWith(part, next)) {
+        return false;
+      }
       position = next + part.length;
     }
     return true;

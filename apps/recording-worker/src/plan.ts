@@ -1,6 +1,13 @@
 import * as Effect from "effect/Effect";
 import { PlanError } from "./error.ts";
-import type { RecordingConfig, RecordingTimeline, Burst } from "@aperture-browser/recording/schema";
+import type {
+  Burst,
+  RecordingConfig,
+  RecordingTimeline,
+  TimelineAction,
+  TimelineFocus,
+  TimelineGesture,
+} from "@aperture-browser/recording/schema";
 
 const zoomMin = 1.1;
 const zoomMax = 4;
@@ -122,10 +129,14 @@ export const buildEditPlan = Effect.fn("recordingWorker.buildEditPlan")(function
 
   const renders =
     !isIdentity(pieces, total) || cues.length > 0 || focuses.length > 0 || marks.length > 0;
-  if (!renders) return { filter: "", durationMs: total, warnings };
+  if (!renders) {
+    return { filter: "", durationMs: total, warnings };
+  }
 
   const filters = ["setpts=PTS-STARTPTS", `fps=fps=${fps}:start_time=0`, "format=yuv420p"];
-  if (!isIdentity(pieces, total)) filters.push(...remapFilters(pieces, fps));
+  if (!isIdentity(pieces, total)) {
+    filters.push(...remapFilters(pieces, fps));
+  }
   filters.push(...marks.map((mark) => rippleFilter(mark, first.width, fps)));
   filters.push(
     ...focusScenes(focuses, first.width, first.height).map((scene) =>
@@ -133,7 +144,9 @@ export const buildEditPlan = Effect.fn("recordingWorker.buildEditPlan")(function
     ),
   );
   filters.push("crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0");
-  if (cues.length > 0) filters.push("ass=captions.ass");
+  if (cues.length > 0) {
+    filters.push("ass=captions.ass");
+  }
 
   return {
     filter: filters.join(","),
@@ -165,7 +178,9 @@ function burstPieces(
   const keep: Span[] = [];
 
   for (const action of timeline.actions) {
-    if (!action.ok) continue;
+    if (!action.ok) {
+      continue;
+    }
     let end = action.end + tail;
     if (watched) {
       let still = end;
@@ -181,7 +196,9 @@ function burstPieces(
       end: Math.min(end, timeline.durationMs),
     });
   }
-  if (keep.length === 0) return [];
+  if (keep.length === 0) {
+    return [];
+  }
   keep.push(
     ...effectWindows.map((effect) => ({
       start: Math.max(effect.start, 0),
@@ -192,20 +209,29 @@ function burstPieces(
 
   const pieces: Piece[] = [];
   for (const span of keep) {
-    if (span.end <= span.start) continue;
+    if (span.end <= span.start) {
+      continue;
+    }
     const previous = pieces.at(-1);
-    if (previous && span.start <= previous.end) previous.end = Math.max(previous.end, span.end);
-    else pieces.push({ ...span, speed: 1 });
+    if (previous && span.start <= previous.end) {
+      previous.end = Math.max(previous.end, span.end);
+    } else {
+      pieces.push({ ...span, speed: 1 });
+    }
   }
   return pieces;
 }
 
-function captionCues(actions: RecordingTimeline["actions"], total: number): Cue[] {
+function captionCues(actions: readonly TimelineAction[], total: number): Cue[] {
   const cues: Cue[] = [];
   for (const action of actions) {
-    if (!action.ok) continue;
+    if (!action.ok) {
+      continue;
+    }
     const text = action.caption?.trim().replaceAll(/\s+/gu, " ") ?? "";
-    if (text === "" || action.start >= total) continue;
+    if (text === "" || action.start >= total) {
+      continue;
+    }
     const reading = Math.min(
       Math.max(1_000 + 40 * Array.from(graphemeSegmenter.segment(text)).length, 1_200),
       5_000,
@@ -220,12 +246,14 @@ function captionCues(actions: RecordingTimeline["actions"], total: number): Cue[
   for (let index = 0; index + 1 < cues.length; index++) {
     const cue = cues[index];
     const next = cues[index + 1];
-    if (cue && next) cue.end = Math.min(cue.end, next.start);
+    if (cue && next) {
+      cue.end = Math.min(cue.end, next.start);
+    }
   }
   return cues.filter((cue) => cue.end > cue.start);
 }
 
-function focusedRegions(focuses: RecordingTimeline["focuses"]): FocusedRegion[] {
+function focusedRegions(focuses: readonly TimelineFocus[]): FocusedRegion[] {
   return focuses
     .filter((focus) => focus.end > focus.start && focus.zoom >= zoomMin && focus.zoom <= zoomMax)
     .map((focus) => ({
@@ -241,7 +269,7 @@ function focusedRegions(focuses: RecordingTimeline["focuses"]): FocusedRegion[] 
     .sort((a, b) => a.start - b.start);
 }
 
-function ripples(gestures: RecordingTimeline["gestures"], enabled: boolean): Ripple[] {
+function ripples(gestures: readonly TimelineGesture[], enabled: boolean): Ripple[] {
   const marks: Ripple[] = [];
   for (const gesture of gestures) {
     if (
@@ -265,9 +293,11 @@ function groupFocuses(focuses: readonly FocusedRegion[]): FocusedRegion[] {
       focus.start - previous.end <= 300 &&
       Math.abs(previous.point.level - focus.point.level) < 0.01 &&
       Math.hypot(previous.point.x - focus.point.x, previous.point.y - focus.point.y) < 2
-    )
+    ) {
       previous.end = Math.max(previous.end, focus.end);
-    else grouped.push({ ...focus });
+    } else {
+      grouped.push({ ...focus });
+    }
   }
   return grouped;
 }
@@ -320,7 +350,9 @@ function zoomFilter(scene: readonly ZoomKey[], width: number, height: number, fp
     let expression = formatNumber(value(scene[0]!));
     for (let index = 0; index + 1 < scene.length; index++) {
       let delta = value(scene[index + 1]!) - value(scene[index]!);
-      if (Math.abs(delta) < 5e-4) continue;
+      if (Math.abs(delta) < 5e-4) {
+        continue;
+      }
       const sign = delta < 0 ? "-" : "+";
       delta = Math.abs(delta);
       expression += `${sign}${formatNumber(delta)}*(1-cos(PI*clip((in-${frames[index]! + 1})/${frames[index + 1]! - frames[index]!},0,1)))/2`;
@@ -366,10 +398,15 @@ function idlePieces(
   const merged: Span[] = [];
   for (const source of [...busy].sort((a, b) => a.start - b.start)) {
     const span = { start: Math.max(source.start, 0), end: Math.min(source.end, total) };
-    if (span.end < span.start) continue;
+    if (span.end < span.start) {
+      continue;
+    }
     const previous = merged.at(-1);
-    if (previous && span.start <= previous.end) previous.end = Math.max(previous.end, span.end);
-    else merged.push(span);
+    if (previous && span.start <= previous.end) {
+      previous.end = Math.max(previous.end, span.end);
+    } else {
+      merged.push(span);
+    }
   }
   if (merged.length === 0) {
     if (total < idleMinMs + 2 * idleKeepMs) {
@@ -411,11 +448,17 @@ function idlePieces(
   const pieces: Piece[] = [];
   let cursor = 0;
   for (const region of regions) {
-    if (region.start > cursor) pieces.push({ start: cursor, end: region.start, speed: 1 });
-    if (mode === "speed") pieces.push({ ...region, speed: idleSpeed });
+    if (region.start > cursor) {
+      pieces.push({ start: cursor, end: region.start, speed: 1 });
+    }
+    if (mode === "speed") {
+      pieces.push({ ...region, speed: idleSpeed });
+    }
     cursor = region.end;
   }
-  if (cursor < total) pieces.push({ start: cursor, end: total, speed: 1 });
+  if (cursor < total) {
+    pieces.push({ start: cursor, end: total, speed: 1 });
+  }
   return { pieces, regions };
 }
 
@@ -428,7 +471,9 @@ function remapFilters(pieces: readonly Piece[], fps: number): string[] {
       `gte(t,${(piece.start / 1_000 - half / 1_000).toFixed(4)})*lt(t,${(piece.end / 1_000 - half / 1_000).toFixed(4)})`,
     );
     let term = `(min(max(T,${(piece.start / 1_000).toFixed(3)}),${(piece.end / 1_000).toFixed(3)})-${(piece.start / 1_000).toFixed(3)})`;
-    if (piece.speed !== 1) term += `/${piece.speed}`;
+    if (piece.speed !== 1) {
+      term += `/${piece.speed}`;
+    }
     times.push(term);
   }
   return [`select='${selects.join("+")}'`, `setpts='(${times.join("+")})/TB'`, `fps=fps=${fps}`];
@@ -437,7 +482,9 @@ function remapFilters(pieces: readonly Piece[], fps: number): string[] {
 export function mapTime(pieces: readonly Piece[], time: number): number {
   let output = 0;
   for (const piece of pieces) {
-    if (time <= piece.start) break;
+    if (time <= piece.start) {
+      break;
+    }
     output += (Math.min(time, piece.end) - piece.start) / piece.speed;
   }
   return Math.round(output);

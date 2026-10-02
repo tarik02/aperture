@@ -34,12 +34,14 @@ export function sendCommand(
         const decoder = new TextDecoder();
         while (!reply.includes("\n")) {
           const chunks = yield* reader.pull;
-          for (const chunk of chunks)
+          for (const chunk of chunks) {
             reply += typeof chunk === "string" ? chunk : decoder.decode(chunk);
+          }
         }
         const answer = reply.trim();
-        if (!answer.startsWith("ok"))
+        if (!answer.startsWith("ok")) {
           return yield* Effect.fail(new Error(`compositor rejected command: ${answer}`));
+        }
         return answer;
       }),
     ).pipe(Effect.timeout("5 seconds")),
@@ -54,9 +56,13 @@ export async function surfaceOf(
 ): Promise<Surface> {
   // Failure is actionable: falling back to a different input device would hide it.
   const response = await fetch(config.targetsUrl, { signal });
-  if (!response.ok) throw new Error(`target registry answered ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`target registry answered ${response.status}`);
+  }
   const targets = Schema.decodeUnknownSync(Targets)(await response.text());
   const target = targets.find((item) => item.targetId === targetId && item.state === "ready");
-  if (target === undefined) throw new Error("browser target has no ready compositor surface");
+  if (target === undefined) {
+    throw new Error("browser target has no ready compositor surface");
+  }
   return { id: target.surfaceId, width: target.viewport.width, height: target.viewport.height };
 }

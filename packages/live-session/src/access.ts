@@ -55,7 +55,9 @@ export function sessionWebSocketURL(access: SessionAccess, route: string): strin
 
 /** Credentials the browser sends itself; relay access is authenticated by the consumer backend instead. */
 function directAuthorization(access: SessionAccess) {
-  if (access.kind !== "direct") return { token: undefined, tenantId: undefined };
+  if (access.kind !== "direct") {
+    return { token: undefined, tenantId: undefined };
+  }
   const { credentials } = access;
   return {
     token: credentials.kind === "bearer" ? Redacted.value(credentials.token) : undefined,
@@ -66,8 +68,12 @@ function directAuthorization(access: SessionAccess) {
 export function sessionProtocols(access: SessionAccess): string[] {
   const { token, tenantId } = directAuthorization(access);
   const protocols = [LIVE_SESSION_PROTOCOL];
-  if (token !== undefined) protocols.push(`authorization.bearer.${token}`);
-  if (tenantId !== undefined) protocols.push(`x-aperture-tenant-id.${tenantId}`);
+  if (token !== undefined) {
+    protocols.push(`authorization.bearer.${token}`);
+  }
+  if (tenantId !== undefined) {
+    protocols.push(`x-aperture-tenant-id.${tenantId}`);
+  }
   return protocols;
 }
 
@@ -75,8 +81,12 @@ export function sessionProtocols(access: SessionAccess): string[] {
 function sessionGet(access: SessionAccess, url: URL) {
   const { token, tenantId } = directAuthorization(access);
   const headers: Record<string, string> = {};
-  if (token !== undefined) headers.Authorization = `Bearer ${token}`;
-  if (tenantId !== undefined) headers["X-Aperture-Tenant-Id"] = tenantId;
+  if (token !== undefined) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (tenantId !== undefined) {
+    headers["X-Aperture-Tenant-Id"] = tenantId;
+  }
   return Effect.flatMap(HttpClient.HttpClient, (http) =>
     HttpClient.filterStatusOk(http).get(url.toString(), { headers }),
   ).pipe(

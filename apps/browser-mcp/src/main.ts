@@ -73,8 +73,9 @@ const host = Command.make(
               });
               const callTool = backend.callTool.bind(backend);
               backend.callTool = async (name, argumentsForTool = {}, signal) => {
-                if (state.current !== null)
+                if (state.current !== null) {
                   throw new Error("concurrent browser calls are not supported");
+                }
                 const envelope = Schema.decodeUnknownSync(Envelope)(argumentsForTool);
                 const scope = {
                   context: envelope._meta?.aperture ?? {

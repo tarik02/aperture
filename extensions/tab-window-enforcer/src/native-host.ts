@@ -54,19 +54,27 @@ export class NativeHost extends Context.Service<
     const pending = new Map<string, Deferred.Deferred<NativeResponse, NativeHostError>>();
 
     const connect = (): chrome.runtime.Port => {
-      if (port !== null) return port;
+      if (port !== null) {
+        return port;
+      }
       const connected = chrome.runtime.connectNative(nativeHost);
       connected.onMessage.addListener((message: unknown) => {
         const response = decodeResponse(message);
-        if (Option.isNone(response)) return;
+        if (Option.isNone(response)) {
+          return;
+        }
         const deferred = pending.get(response.value.id);
-        if (deferred) Deferred.doneUnsafe(deferred, Effect.succeed(response.value));
+        if (deferred) {
+          Deferred.doneUnsafe(deferred, Effect.succeed(response.value));
+        }
       });
       connected.onDisconnect.addListener(() => {
         const error = new NativeHostError({
           message: chrome.runtime.lastError?.message ?? "Aperture native host disconnected",
         });
-        for (const deferred of pending.values()) Deferred.doneUnsafe(deferred, Effect.fail(error));
+        for (const deferred of pending.values()) {
+          Deferred.doneUnsafe(deferred, Effect.fail(error));
+        }
         pending.clear();
         port = null;
       });
