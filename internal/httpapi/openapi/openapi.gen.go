@@ -648,7 +648,10 @@ func (e RecordingStatus) Valid() bool {
 // Defines values for RecordingEditErrorCode.
 const (
 	AnalysisFailed    RecordingEditErrorCode = "analysis_failed"
+	Cancelled         RecordingEditErrorCode = "cancelled"
 	FfmpegUnavailable RecordingEditErrorCode = "ffmpeg_unavailable"
+	NothingKept       RecordingEditErrorCode = "nothing_kept"
+	OpenFailed        RecordingEditErrorCode = "open_failed"
 	PlanFailed        RecordingEditErrorCode = "plan_failed"
 	RenderFailed      RecordingEditErrorCode = "render_failed"
 	TimelineFailed    RecordingEditErrorCode = "timeline_failed"
@@ -660,7 +663,13 @@ func (e RecordingEditErrorCode) Valid() bool {
 	switch e {
 	case AnalysisFailed:
 		return true
+	case Cancelled:
+		return true
 	case FfmpegUnavailable:
+		return true
+	case NothingKept:
+		return true
+	case OpenFailed:
 		return true
 	case PlanFailed:
 		return true
@@ -761,13 +770,13 @@ func (e SessionDirectoryType) Valid() bool {
 
 // Defines values for SessionFileType.
 const (
-	File SessionFileType = "file"
+	SessionFileTypeFile SessionFileType = "file"
 )
 
 // Valid indicates whether the value is a known member of the SessionFileType enum.
 func (e SessionFileType) Valid() bool {
 	switch e {
-	case File:
+	case SessionFileTypeFile:
 		return true
 	default:
 		return false
@@ -855,6 +864,21 @@ func (e SessionStatus) Valid() bool {
 	case SessionStatusRunning:
 		return true
 	case SessionStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for StoppedRecordingFileType.
+const (
+	StoppedRecordingFileTypeFile StoppedRecordingFileType = "file"
+)
+
+// Valid indicates whether the value is a known member of the StoppedRecordingFileType enum.
+func (e StoppedRecordingFileType) Valid() bool {
+	switch e {
+	case StoppedRecordingFileTypeFile:
 		return true
 	default:
 		return false
@@ -2297,6 +2321,30 @@ type SnapshotPage struct {
 	// Meta Cursor pagination metadata for a newest-first result page.
 	Meta PageMeta `json:"meta"`
 }
+
+// StoppedRecordingFile The raw video of a stopped recording as a session file, with the edit the stop made of it.
+type StoppedRecordingFile struct {
+	// EditError Why a recording has no edit although one was due or a timeline could not be written. The raw video is published regardless.
+	EditError *RecordingEditError `json:"editError,omitempty"`
+
+	// EditedRelativePath The edited H.264 video, published next to the raw one as `<name>.edited.mp4`.
+	EditedRelativePath *string   `json:"editedRelativePath,omitempty"`
+	MimeType           string    `json:"mimeType"`
+	ModifiedAt         time.Time `json:"modifiedAt"`
+	Name               string    `json:"name"`
+
+	// RelativePath Path of the raw video below the session files root.
+	RelativePath string  `json:"relativePath"`
+	SandboxPath  *string `json:"sandboxPath,omitempty"`
+	Size         int64   `json:"size"`
+
+	// TimelineRelativePath What the recording's automation did and when, published as `<name>.timeline.json`.
+	TimelineRelativePath *string                  `json:"timelineRelativePath,omitempty"`
+	Type                 StoppedRecordingFileType `json:"type"`
+}
+
+// StoppedRecordingFileType defines model for StoppedRecordingFile.Type.
+type StoppedRecordingFileType string
 
 // StringMap Arbitrary string key-value metadata. Tag-writing operations additionally reject blank keys and blank values.
 type StringMap map[string]string
@@ -3910,7 +3958,7 @@ type ClientInterface interface {
 
 	// StopSessionRecording Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
+	// Stops the selected recording without transferring its media data and returns the resulting session file of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them. The call returns once the edit is done, which takes about as long as the video; the raw video is always published.
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5197,7 +5245,7 @@ func (c *Client) RetargetSessionRecording(ctx context.Context, sessionId Session
 
 // StopSessionRecording Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
+// Stops the selected recording without transferring its media data and returns the resulting session file of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them. The call returns once the edit is done, which takes about as long as the video; the raw video is always published.
 //
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
 func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -9831,7 +9879,7 @@ type ClientWithResponsesInterface interface {
 
 	// StopSessionRecordingWithResponse Stop a session recording
 	//
-	// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
+	// Stops the selected recording without transferring its media data and returns the resulting session file of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them. The call returns once the edit is done, which takes about as long as the video; the raw video is always published.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -12168,13 +12216,13 @@ type StopSessionRecordingResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *SessionFile
+	JSON200 *StoppedRecordingFile
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r StopSessionRecordingResponse) GetJSON200() *SessionFile {
+func (r StopSessionRecordingResponse) GetJSON200() *StoppedRecordingFile {
 	return r.JSON200
 }
 
@@ -13904,7 +13952,7 @@ func (c *ClientWithResponses) RetargetSessionRecordingWithResponse(ctx context.C
 
 // StopSessionRecordingWithResponse Stop a session recording
 //
-// Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
+// Stops the selected recording without transferring its media data and returns the resulting session file of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them. The call returns once the edit is done, which takes about as long as the video; the raw video is always published.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -15744,7 +15792,7 @@ func ParseStopSessionRecordingResponse(rsp *http.Response) (*StopSessionRecordin
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionFile
+		var dest StoppedRecordingFile
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -21066,7 +21114,7 @@ type StopSessionRecordingResponseObject interface {
 	VisitStopSessionRecordingResponse(w http.ResponseWriter) error
 }
 
-type StopSessionRecording200JSONResponse SessionFile
+type StopSessionRecording200JSONResponse StoppedRecordingFile
 
 func (response StopSessionRecording200JSONResponse) VisitStopSessionRecordingResponse(w http.ResponseWriter) error {
 

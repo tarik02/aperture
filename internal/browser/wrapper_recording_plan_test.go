@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -42,9 +43,9 @@ func TestPlacingTheJournalAndKeepingBursts(t *testing.T) {
 	if got := plan.videoTime(1_011_000); got != 10_000 {
 		t.Fatalf("a time between segments = %d", got)
 	}
-	// The screen stood still from 4.3 s, so the first tail runs to 4.3 s plus the settle time. The
+	// The picture changed until 4.3 s and then stood still, so the first tail runs to 4.3 s plus the settle time. The
 	// second burst overlaps it, and the third never settles, so it runs to its maximum.
-	pieces := burstPieces(defaultBurst, plan.events, []span{{4300, 8000}}, plan.total)
+	pieces := burstPieces(defaultBurst, plan.events, []span{{2000, 4300}, {11_500, 18_000}}, plan.total)
 	want := []piece{{1500, 4800, 1}, {10_500, 15_000, 1}}
 	if !slices.Equal(pieces, want) {
 		t.Fatalf("pieces = %v, want %v", pieces, want)
@@ -77,20 +78,20 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 	plan := placeJournal(planSegments(), []journalEntry{
 		entry("call", 4000, 5000, nil),
 		entry("press", 4200, 4200, map[string]any{"x": 100.0, "y": 50.0}),
-		entry("caption", 3000, 3000, map[string]any{"text": `a\b {c}  d`, "durationMs": 2000.0}),
+		entry("caption", 3600, 3600, map[string]any{"text": `a\b {c}  d`, "durationMs": 2000.0}),
 		entry("focus", 4500, 5000, map[string]any{"zoom": 2.0, "rect": map[string]any{"x": 10.0, "y": 10.0, "width": 100.0, "height": 40.0}}),
 		entry("call", 13_000, 14_000, nil),
 	})
-	if err := plan.plan(cfg, 30, videoAnalysis{}); err != nil {
+	if err := plan.plan(cfg, 30, nil); err != nil {
 		t.Fatal(err)
 	}
-	for _, part := range []string{"select='", "setpts='", "scale=1280:720", "geq=lum=", "perspective=", "enable='between(t,", "ass=captions.ass"} {
+	for _, part := range []string{"select='", "setpts='", "scale=1280:720", "perspective=", "enable='between(t,", "ass=captions.ass"} {
 		if !strings.Contains(plan.filter, part) {
 			t.Errorf("filter lacks %s: %s", part, plan.filter)
 		}
 	}
 	// Backslashes and braces cannot start an override tag; whitespace collapses.
-	if !strings.Contains(string(plan.ass), "Dialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,a＼b \\{c\\} d") {
+	if !strings.Contains(string(plan.ass), "Dialogue: 0,0:00:00.10,0:00:02.10,Default,,0,0,0,,a＼b \\{c\\} d") {
 		t.Errorf("ass: %s", plan.ass)
 	}
 	// The timeline reports edited times only for an edit that exists.
@@ -98,12 +99,12 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 		t.Error("an unedited timeline has edited times")
 	}
 	edited := plan.timeline(true)
-	if edited.EditedDurationMS != 5000 || edited.Map[1].EditedStartMS != 2500 || edited.Events[1]["editedStartMs"] != 500.0 {
+	if edited.EditedDurationMS != 4000 || edited.Map[1].EditedStartMS != 2000 || edited.Events[1]["editedStartMs"] != 500.0 {
 		t.Errorf("timeline = %+v", edited)
 	}
 	// Nothing to apply, nothing to render.
 	idle := placeJournal(planSegments(), nil)
-	if err := idle.plan(recordingConfig{Capture: "continuous"}, 30, videoAnalysis{}); err != nil || idle.filter != "" {
+	if err := idle.plan(recordingConfig{Capture: "continuous"}, 30, nil); err != nil || idle.filter != "" {
 		t.Errorf("empty plan: %q %v", idle.filter, err)
 	}
 }
@@ -122,10 +123,6 @@ func TestFocusWindowsCloseTogetherShareOneZoom(t *testing.T) {
 }
 
 func TestVideoAnalysisLogs(t *testing.T) {
-	frozen := parseFreezes("[freezedetect @ 0x1] lavfi.freezedetect.freeze_start: 1.5\n[freezedetect @ 0x1] lavfi.freezedetect.freeze_duration: 2\n[freezedetect @ 0x1] lavfi.freezedetect.freeze_end: 3.5\nfreeze_start: 8\n", 10_000)
-	if !slices.Equal(frozen, []span{{1500, 3500}, {8000, 10_000}}) {
-		t.Errorf("frozen = %v", frozen)
-	}
 	// A run of close frames is a change; a frame alone, as a blinking caret makes, is not.
 	log := "pts_time:0\npts_time:0.5\npts_time:1.2\npts_time:1.25\npts_time:1.3\npts_time:2.5\n"
 	if active := parseActive(log); !slices.Equal(active, []span{{1200, 1300}}) {
@@ -208,7 +205,7 @@ func TestFinalizeEditsTheRecording(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = video.Close() }()
-	edited, timeline, failure := session.finalizeRecording(recording, video, raw)
+	edited, timeline, failure := session.finalizeRecording(context.Background(), recording, video, raw)
 	if failure != nil {
 		t.Fatalf("failure: %+v", failure)
 	}
@@ -237,7 +234,7 @@ func TestFinalizeFailureKeepsTheRawVideoAndSaysWhy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		edited, timeline, failure := session.finalizeRecording(recording, video, raw)
+		edited, timeline, failure := session.finalizeRecording(context.Background(), recording, video, raw)
 		_ = video.Close()
 		if edited != "" || failure == nil || failure.Code != code {
 			t.Errorf("%q: edited %q, failure %+v", executable, edited, failure)

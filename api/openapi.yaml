@@ -934,13 +934,13 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file. The call returns once the edit is done, which takes about as long as the video; the raw video is always published. Read the recording for the edit it made, or `editError`.
+      description: Stops the selected recording without transferring its media data and returns the resulting session file of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them. The call returns once the edit is done, which takes about as long as the video; the raw video is always published.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
-        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
+        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/StoppedRecordingFile'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files:
     get:
@@ -3055,9 +3055,40 @@ components:
       properties:
         code:
           type: string
-          enum: [ffmpeg_unavailable, analysis_failed, plan_failed, render_failed, timeout, timeline_failed]
+          enum: [ffmpeg_unavailable, open_failed, nothing_kept, analysis_failed, plan_failed, render_failed, timeout, cancelled, timeline_failed]
         message:
           type: string
+    StoppedRecordingFile:
+      type: object
+      description: The raw video of a stopped recording as a session file, with the edit the stop made of it.
+      required: [type, name, relativePath, size, modifiedAt, mimeType]
+      properties:
+        type:
+          type: string
+          enum: [file]
+        name:
+          type: string
+        relativePath:
+          type: string
+          description: Path of the raw video below the session files root.
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        modifiedAt:
+          type: string
+          format: date-time
+        mimeType:
+          type: string
+        sandboxPath:
+          type: string
+        editedRelativePath:
+          type: string
+          description: The edited H.264 video, published next to the raw one as `<name>.edited.mp4`.
+        timelineRelativePath:
+          type: string
+          description: What the recording's automation did and when, published as `<name>.timeline.json`.
+        editError: {$ref: '#/components/schemas/RecordingEditError'}
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

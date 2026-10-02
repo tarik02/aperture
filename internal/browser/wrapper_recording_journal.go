@@ -112,7 +112,8 @@ func (session *liveSession) journal(kind string, started time.Time, fields map[s
 }
 
 // followAutomation moves a bursts recording to the tab the latest automation acted on, one move at
-// a time. A move that fails (the tab is not ready yet) is retried by the next action's entry.
+// a time. A move that fails (the tab is not ready yet) is retried by the next action's entry. The
+// move starts after the action does, so the recording loses roughly the first 350 ms of an action on a new tab.
 func (session *liveSession) followAutomation(ctx context.Context, recording *wrapperRecording) {
 	for {
 		select {

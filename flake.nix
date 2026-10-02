@@ -425,13 +425,14 @@
               encoders=$(ffmpeg -hide_banner -encoders)
               grep -qw libx264 <<<"$encoders" || { echo "ffmpeg lacks libx264" >&2; exit 1; }
               filters=$(ffmpeg -hide_banner -filters)
-              for filter in ass mpdecimate freezedetect showinfo geq perspective select setpts fps; do
+              for filter in ass mpdecimate showinfo perspective select setpts fps; do
                 grep -Eq "^ [A-Z.]+ +$filter +" <<<"$filters" || { echo "ffmpeg lacks the $filter filter" >&2; exit 1; }
               done
-              # One render with a caption, which needs libass and a font.
+              # One render with a caption, which needs libass and the bundled font: libass says which file it chose.
               printf '[Script Info]\nPlayResX: 320\nPlayResY: 240\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, Alignment\nStyle: Default,Noto Sans,20,&H00FFFFFF,2\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,Hello\n' > c.ass
-              ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=s=320x240:r=10:d=1 -vf ass=c.ass -c:v libx264 out.mp4
+              log=$(ffmpeg -hide_banner -loglevel verbose -f lavfi -i testsrc2=s=320x240:r=10:d=1 -vf ass=c.ass -c:v libx264 out.mp4 2>&1)
               [ -s out.mp4 ]
+              grep -Fq "fontselect: (Noto Sans, 400, 0) -> ${pkgs.noto-fonts}/" <<<"$log" || { echo "the caption did not use the bundled Noto Sans" >&2; exit 1; }
               touch $out
             '';
 

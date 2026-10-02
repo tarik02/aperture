@@ -22,6 +22,7 @@ import type {
   SessionRecording,
   SessionsBulkResponse,
   SetViewportInput,
+  StoppedRecordingFile,
   TargetViewport,
   UpdateProxyConfig,
 } from "../schemas.ts";
@@ -188,14 +189,14 @@ export class SessionsApi extends Context.Service<
       targetId: string,
     ) => Call<SessionRecording>;
     /**
-     * Stops a recording and returns the session file of its raw video. Resolves once the
-     * edit is done, which takes about as long as the video; `getSessionRecording` reports it.
+     * Stops a recording and returns the session file of its raw video with the edit the stop
+     * made. Resolves once the edit is done, which takes about as long as the video.
      */
     readonly stopSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
-    ) => Call<SessionFile>;
+    ) => Call<StoppedRecordingFile>;
     /**
      * Every file and directory of the session, also while it is not running. See
      * `sessionFileTree`.

@@ -54,15 +54,22 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 			writeLiveSessionTransportError(transport, "invalid_request", "live session command requires a valid request ID")
 			return
 		}
-		result, err := session.handleSessionCommand(client, message)
-		if err != nil {
-			session.writeCommandError(transport, message, err)
-			return
+		run := func() {
+			result, err := session.handleSessionCommand(client, message)
+			if err != nil {
+				session.writeCommandError(transport, message, err)
+				return
+			}
+			result.Type = message.Type + ".result"
+			result.RequestID = message.RequestID
+			result.OK = liveSessionBool(true)
+			_ = transport.send(liveSessionDeliveryReliable, mustJSON(result))
 		}
-		result.Type = message.Type + ".result"
-		result.RequestID = message.RequestID
-		result.OK = liveSessionBool(true)
-		_ = transport.send(liveSessionDeliveryReliable, mustJSON(result))
+		if message.Type == "recording.stop" {
+			go run() // finalizing can take as long as the recording; the client's other messages must not wait for it
+		} else {
+			run()
+		}
 		return
 	}
 

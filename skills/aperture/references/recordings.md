@@ -50,7 +50,7 @@ These routes require `sessions:write`:
 - `GET /api/sessions/:sessionId/recordings` — list recordings
 - `GET /api/sessions/:sessionId/recordings/:recordingId` — get recording status
 - `POST /api/sessions/:sessionId/recordings/:recordingId/retarget` — move a running tab recording to another ready target
-- `POST /api/sessions/:sessionId/recordings/:recordingId/stop` — stop and return the completed `SessionFile` of the raw video; read the recording afterwards for its edit
+- `POST /api/sessions/:sessionId/recordings/:recordingId/stop` — stop and return the completed `SessionFile` of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them
 
 Public recording results use `relativePath`; absolute host paths are never returned. The formal stop route finalizes without media transfer and returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`, plus `sandboxPath`.
 
@@ -78,7 +78,7 @@ Starting or stopping a recording waits for a browser call that is running, and a
 
 ## Editing a recording
 
-Stopping a recording publishes its raw video next to a timeline, `<name>.timeline.json`, when the recording journaled anything, and, when something is to be applied, an H.264 video, `<name>.edited.mp4`. Names are numbered like the raw video's when they exist; nothing is overwritten. The stop returns only after the edit is done, which takes about as long as the recording (at most 30 minutes). Clients should allow for that. Only a requested stop edits; a recording that stops because its tab closed, its client left or the session ended keeps its raw video alone.
+Stopping a recording publishes its raw video next to a timeline, `<name>.timeline.json`, when the recording journaled anything, and, when something is to be applied, an H.264 video, `<name>.edited.mp4`. Names are numbered like the raw video's when they exist; nothing is overwritten. The stop returns only after the edit is done, which takes about as long as the recording (at most 30 minutes). Clients should allow for that. Only a requested stop edits; a recording that stops because its tab closed, its client left or the session ended keeps its raw video alone, with no `editError`. A second stop while one is finalizing waits for the same result. Closing the session ends a running edit with `editError` `cancelled`; the raw video stays.
 
 Edit settings on `recording.start`:
 
@@ -89,6 +89,6 @@ Edit settings on `recording.start`:
 
 Captions from `recording.caption` are burned in, and each `recording.focus` zooms inside its window only; focus windows less than half a second apart stay zoomed in between and pan. There is no automatic zoom. A recording with none of these settings or annotations is not edited. Frames of a later segment of a recording that changed size are scaled to the first segment's size.
 
-The raw video is always published. If the edit fails the stop still succeeds and the recording has `editError` with a `code` (`ffmpeg_unavailable`, `analysis_failed`, `plan_failed`, `render_failed`, `timeout` or `timeline_failed`) and a `message`. The timeline holds `segments`, the `map` from raw to edited time when an edit exists, and `events`: the journal's tool calls, pointer glides, presses, wheel input, reveal scrolls, captions, focus and attention, with `startMs` and `endMs` in raw video milliseconds and `editedStartMs` and `editedEndMs` in the edited video's.
+The raw video is always published. If the edit fails the stop still succeeds and the recording has `editError` with a `code` (`ffmpeg_unavailable`, `open_failed`, `nothing_kept`, `analysis_failed`, `plan_failed`, `render_failed`, `timeout`, `cancelled` or `timeline_failed`; `nothing_kept` is a bursts recording with no browser call to keep) and a `message`. The timeline holds `segments`, the `map` from raw to edited time when an edit exists, and `events`: the journal's tool calls, pointer glides, presses, wheel input, reveal scrolls, captions, focus and attention, with `startMs` and `endMs` in raw video milliseconds and `editedStartMs` and `editedEndMs` in the edited video's.
 
 Edits need ffmpeg with libx264, libass and fontconfig fonts; the Nix image ships it and sets `recording_ffmpeg_executable` (`--recording-ffmpeg-executable`) to an absolute path. Without it recordings still work and report `ffmpeg_unavailable`.

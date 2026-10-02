@@ -65,6 +65,7 @@ type wrapperRecording struct {
 	config            recordingConfig
 	follow            chan string         // bursts: the target the latest automation acted on, for followAutomation
 	cancelFollow      context.CancelFunc  // ends followAutomation
+	cancelEdit        context.CancelFunc  // ends the render of a finalizing recording
 	EditedPath        string              `json:"-"` // the edited video, when the stop made one
 	TimelinePath      string              `json:"-"`
 	EditError         *recordingEditError `json:"editError,omitempty"`
@@ -486,16 +487,27 @@ func (session *liveSession) stopRecording(recordingID string, reason string) (wr
 // the journal under the gate, so a browser call that is running finishes inside it; the stop's
 // slow part, joining and finalizing, runs after the gate is released. Stops that follow from
 // events (a closed target, a gone client, the session ending) do not wait for the gate: they can
-// run while recordingMu is held, which a starting recording needs after it took the gate.
+// run while recordingMu is held, which a starting recording needs after it took the gate. Nor do
+// they wait for a recording that is already finalizing, and they publish the raw video only.
 func (session *liveSession) stopRecordingRequested(recordingID string, reason string) (wrapperRecording, error) {
-	if status, found := session.recording(recordingID); !found || status.Status == wrapperRecordingStopped || status.Status == wrapperRecordingFailed {
-		return session.stopRecordingForTarget(recordingID, "", reason) // nothing to wait for
+	// A recording that is done, or already being finalized by another stop, needs no gate: this
+	// stop only waits for that result, and must not hold the gate while it does.
+	settled := func() bool {
+		status, found := session.recording(recordingID)
+		return !found || status.Status == wrapperRecordingStopped || status.Status == wrapperRecordingFailed || status.finalizing
+	}
+	if settled() {
+		return session.stopRecordingForTarget(recordingID, "", reason)
 	}
 	release, err := session.acquireRecordingGate(session.runtime.ctx)
 	if err != nil {
 		return wrapperRecording{}, err
 	}
 	defer release()
+	if settled() { // the stop ahead of this one finalized the recording while this waited for the gate
+		release()
+		return session.stopRecordingForTarget(recordingID, "", reason)
+	}
 	return session.stopRecordingWithGate(recordingID, "", reason, release)
 }
 
@@ -510,6 +522,11 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 	if recording == nil {
 		r.mu.Unlock()
 		return wrapperRecording{}, errWrapperRecordingNotFound
+	}
+	if recording.finalizing && reason != "requested" {
+		status := *recording // a requested stop is rendering it; an event does not wait for that
+		r.mu.Unlock()
+		return status, nil
 	}
 	r.mu.Unlock()
 	defer session.broadcastRecordings()
@@ -534,6 +551,9 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 		return status, errors.New("recording has failed")
 	}
 	recording.finalizing = true
+	var editCtx context.Context
+	editCtx, recording.cancelEdit = context.WithCancel(r.ctx) // session close cancels the render
+	defer recording.cancelEdit()
 	session.setRecordingStatusLocked(recording, recording.Status) // no longer counts as running
 	r.mu.Unlock()
 	releaseGate()
@@ -551,8 +571,12 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 	// Only a requested stop edits: the others come from events that cannot wait for ffmpeg. The
 	// video is opened before it is published, so the edit reads this very file.
 	var video *os.File
+	var editError *recordingEditError
 	if reason == "requested" {
-		video, _ = openRecordingVideo(source)
+		var err error
+		if video, err = openRecordingVideo(source); err != nil {
+			editError = &recordingEditError{Code: "open_failed", Message: err.Error()}
+		}
 	}
 	finalPath, size, err := publishFinishedRecording(source, recording.Path)
 	if err != nil {
@@ -564,10 +588,13 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 		}
 		return session.failRecording(recording, "finalize_failed", err)
 	}
+	// The raw video is published, so the segments must not be published again by a sweep after a crash.
+	for _, segment := range recording.segments {
+		_ = os.Remove(segment.path)
+	}
 	var edited, timeline string
-	var editError *recordingEditError
 	if video != nil {
-		edited, timeline, editError = session.finalizeRecording(recording, video, finalPath)
+		edited, timeline, editError = session.finalizeRecording(editCtx, recording, video, finalPath)
 		_ = video.Close()
 	}
 	_ = os.RemoveAll(recording.segmentDir)
@@ -864,15 +891,23 @@ func (session *liveSession) stopAllRecordings(reason string) {
 	r := session.runtime
 	r.mu.Lock()
 	ids := make([]string, 0)
+	var rendering []*wrapperRecording
 	for _, recording := range session.recordings {
 		session.refreshRecordingLocked(recording)
-		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
+		if recording.finalizing {
+			recording.cancelEdit()
+			rendering = append(rendering, recording)
+		} else if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
 			ids = append(ids, recording.ID)
 		}
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
 		_, _ = session.stopRecording(id, reason)
+	}
+	for _, recording := range rendering { // ffmpeg is killed, and gone once the stop that ran it returns
+		recording.operationMu.Lock()
+		recording.operationMu.Unlock() //nolint:staticcheck // waits for the stop to end
 	}
 }
 

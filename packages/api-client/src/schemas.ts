@@ -24,6 +24,7 @@ export type ProxyRule = Api.ProxyRule;
 export type CursorVisibility = Api.CursorVisibility;
 export type SessionRecording = Api.Recording;
 export type SessionFile = Api.SessionFile;
+export type StoppedRecordingFile = Api.StoppedRecordingFile;
 export type SessionDirectory = Api.SessionDirectory;
 export type SessionFileEntry = Api.SessionFileEntry;
 export type SessionFileDownloadURL = Api.SessionFileDownloadURL;

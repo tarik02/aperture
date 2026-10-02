@@ -19,11 +19,14 @@ import (
 // recordingEditError says why a recording that asked for an edit, or has a timeline to publish,
 // has none. It never fails the stop: the raw video is always published.
 type recordingEditError struct {
-	Code    string `json:"code"` // ffmpeg_unavailable, analysis_failed, plan_failed, render_failed, timeout or timeline_failed
+	Code    string `json:"code"` // ffmpeg_unavailable, open_failed, nothing_kept, analysis_failed, plan_failed, render_failed, timeout, cancelled or timeline_failed
 	Message string `json:"message"`
 }
 
 var errFFmpegUnavailable = errors.New("recording edits need ffmpeg, which is not configured")
+
+// renderSlot lets one ffmpeg render run at a time: a render is heavy, and so is waiting for several.
+var renderSlot = make(chan struct{}, 1)
 
 // renderTimeout is how long analysing and rendering a recording of the given length may take.
 func renderTimeout(videoMS int64) time.Duration {
@@ -32,8 +35,9 @@ func renderTimeout(videoMS int64) time.Duration {
 
 // finalizeRecording turns a stopped recording's journal into a timeline and, when it asks for
 // something to apply (bursts, idle, captions, focus or ripples), an edited video, both published
-// next to the raw video at raw. The video is the raw file, opened before it was published.
-func (session *liveSession) finalizeRecording(recording *wrapperRecording, video *os.File, raw string) (edited, timeline string, failure *recordingEditError) {
+// next to the raw video at raw. The video is the raw file, opened before it was published. Only
+// requested stops come here; ctx ends when the session closes, which ends the render.
+func (session *liveSession) finalizeRecording(ctx context.Context, recording *wrapperRecording, video *os.File, raw string) (edited, timeline string, failure *recordingEditError) {
 	r := session.runtime
 	journal, _ := os.ReadFile(filepath.Join(recording.segmentDir, recordingJournalFile))
 	var entries []journalEntry
@@ -44,18 +48,27 @@ func (session *liveSession) finalizeRecording(recording *wrapperRecording, video
 		}
 	}
 	plan := placeJournal(recording.segments, entries)
-	if len(entries) == 0 || plan.total <= 0 {
-		return "", "", nil
-	}
-	ctx, cancel := context.WithTimeout(r.ctx, renderTimeout(plan.total))
-	defer cancel()
 	work, stem, cfg := recording.segmentDir, strings.TrimSuffix(raw, filepath.Ext(raw)), recording.config
+	if len(entries) == 0 || plan.total <= 0 {
+		if cfg.Capture == "bursts" {
+			failure = &recordingEditError{Code: "nothing_kept", Message: errNothingKept.Error()}
+		}
+		return "", "", failure
+	}
 
 	stage := "analysis_failed"
-	var analysis videoAnalysis
+	var analysis []span
 	var err error
-	if cfg.Capture == "bursts" || cfg.Idle != "" {
-		analysis, err = analyzeVideo(ctx, r.values, work, video, cfg, plan.total)
+	select {
+	case renderSlot <- struct{}{}:
+		defer func() { <-renderSlot }()
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(ctx, renderTimeout(plan.total))
+	defer cancel()
+	if err == nil && (cfg.Capture == "bursts" || cfg.Idle != "") {
+		analysis, err = analyzeVideo(ctx, r.values, work, video)
 	}
 	if err == nil {
 		stage = "plan_failed"
@@ -73,8 +86,12 @@ func (session *liveSession) finalizeRecording(recording *wrapperRecording, video
 		switch {
 		case errors.Is(err, errFFmpegUnavailable):
 			code = "ffmpeg_unavailable"
+		case errors.Is(err, errNothingKept):
+			code = "nothing_kept"
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			code, err = "timeout", fmt.Errorf("edit timed out after %s", renderTimeout(plan.total))
+		case ctx.Err() != nil:
+			code, err = "cancelled", errors.New("edit cancelled because the session is closing")
 		}
 		failure = &recordingEditError{Code: code, Message: err.Error()}
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: recording %s edit: %v\n", recording.ID, err)
@@ -93,21 +110,11 @@ func (session *liveSession) finalizeRecording(recording *wrapperRecording, video
 	return edited, timeline, failure
 }
 
-// analyzeVideo asks ffmpeg what the raw video does: mpdecimate keeps the frames that differ from
-// their predecessor (idle), freezedetect finds the stretches that stand still for the settle time (bursts).
-func analyzeVideo(ctx context.Context, values RuntimeEnvValues, work string, video *os.File, cfg recordingConfig, total int64) (videoAnalysis, error) {
-	filter := "setpts=PTS-STARTPTS,mpdecimate,showinfo"
-	if cfg.Capture == "bursts" {
-		filter = "setpts=PTS-STARTPTS,freezedetect=n=-60dB:d=" + seconds(cfg.Burst.SettleMS)
-	}
-	log, err := runFFmpeg(ctx, values, work, video, "-loglevel", "info", "-an", "-vf", filter, "-f", "null", "-")
-	if err != nil {
-		return videoAnalysis{}, err
-	}
-	if cfg.Capture == "bursts" {
-		return videoAnalysis{frozen: parseFreezes(log, total)}, nil
-	}
-	return videoAnalysis{active: parseActive(log)}, nil
+// analyzeVideo asks ffmpeg where the raw video changes: mpdecimate keeps the frames that differ
+// from their predecessor. Idle and the settling of bursts both come from that.
+func analyzeVideo(ctx context.Context, values RuntimeEnvValues, work string, video *os.File) ([]span, error) {
+	log, err := runFFmpeg(ctx, values, work, video, "-loglevel", "info", "-an", "-vf", "setpts=PTS-STARTPTS,mpdecimate,showinfo", "-f", "null", "-")
+	return parseActive(log), err
 }
 
 // renderEdit encodes the planned filter chain into edited.mp4 in the work directory.
@@ -117,7 +124,11 @@ func renderEdit(ctx context.Context, values RuntimeEnvValues, work string, video
 			return "", err
 		}
 	}
-	_, err := runFFmpeg(ctx, values, work, video, "-loglevel", "error", "-xerror", "-y", "-an", "-vf", plan.filter,
+	// ffmpeg reads the filter chain from a file (-/vf), so its length does not meet the limit of a command line.
+	if err := os.WriteFile(filepath.Join(work, "filter.txt"), []byte(plan.filter), 0o600); err != nil {
+		return "", err
+	}
+	_, err := runFFmpeg(ctx, values, work, video, "-loglevel", "error", "-xerror", "-y", "-an", "-/vf", "filter.txt",
 		"-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
 		"-fps_mode", "passthrough", "-movflags", "+faststart", "-f", "mp4", "edited.mp4")
 	return filepath.Join(work, "edited.mp4"), err

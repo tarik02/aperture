@@ -210,7 +210,7 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
-	// The wrapper answers once its edit is done, which takes about as long as the video; the edit is on the recording.
+	// The wrapper answers once its edit is done, which takes about as long as the video.
 	file, err := s.stopRecording(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), c.Param("recordingId"))
 	if err != nil {
 		WriteError(c, err)
@@ -219,30 +219,40 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 	c.JSON(http.StatusOK, file)
 }
 
-func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string) (sessionfiles.File, error) {
+// stoppedRecordingFile is the raw video as a session file, with the edit the stop made of it.
+type stoppedRecordingFile struct {
+	sessionfiles.File
+	recordingEdit
+}
+
+func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string) (stoppedRecordingFile, error) {
 	endpoint := "/recordings/" + url.PathEscape(recordingID)
 	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, endpoint+"/stop", nil, true, nil); err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecordingFile{}, err
 	}
 	status, err := s.getRecording(ctx, tenantID, sessionID, recordingID)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecordingFile{}, err
+	}
+	edit, err := status.validEdit()
+	if err != nil {
+		return stoppedRecordingFile{}, err
 	}
 	relativePath, err := s.recordingRelativePath(sessionID, status)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecordingFile{}, err
 	}
 	view, err := s.Sessions.Get(ctx, tenantID, sessionID)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecordingFile{}, err
 	}
 	scope, err := s.sessionFilesScope(view.Session)
 	if err != nil {
-		return sessionfiles.File{}, err
+		return stoppedRecordingFile{}, err
 	}
 	stoppedAt, err := time.Parse(time.RFC3339Nano, status.StoppedAt)
 	if err != nil {
-		return sessionfiles.File{}, fmt.Errorf("%w: invalid recording stop time: %w", errBrowserControlFailed, err)
+		return stoppedRecordingFile{}, fmt.Errorf("%w: invalid recording stop time: %w", errBrowserControlFailed, err)
 	}
 	// Built from what the wrapper measured when it published the file rather than
 	// looked up again, because the file may be moved as soon as it is visible.
@@ -250,7 +260,7 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 	if status.Codec == "h264-va" {
 		mimeType = "video/x-matroska"
 	}
-	return scope.presentFile(sessionfiles.File{
+	file := scope.presentFile(sessionfiles.File{
 		Type:         sessionfiles.EntryFile,
 		Name:         path.Base(relativePath),
 		RelativePath: relativePath,
@@ -258,7 +268,8 @@ func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordi
 		ModifiedAt:   stoppedAt.UTC(),
 		MIMEType:     mimeType,
 		SandboxPath:  sessionfiles.SandboxPath(relativePath),
-	}), nil
+	})
+	return stoppedRecordingFile{file, edit}, nil
 }
 
 func (s *Server) getRecording(ctx context.Context, tenantID, sessionID, recordingID string) (wrapperRecordingStatus, error) {

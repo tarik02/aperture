@@ -25,11 +25,9 @@ const (
 	focusMergeGapMS = 500 // focus windows closer than this share one zoom, so it does not bounce
 	rippleMS        = 600
 	rippleRadius    = 48 // px of a 1280 px wide frame
-
-	filterMaxBytes = 100_000 // one command line argument may be 128 KiB
 )
 
-var errTooManyEdits = errors.New("the recording has too many cuts and effects to render")
+var errNothingKept = errors.New("nothing of the recording was kept: no browser call or effect fell in it")
 
 type span struct{ start, end int64 }
 
@@ -38,10 +36,6 @@ type piece struct {
 	start, end int64
 	speed      float64
 }
-
-// videoAnalysis is what ffmpeg saw in the raw video: where the picture changed (idle) or stood
-// still for the settle time (bursts).
-type videoAnalysis struct{ active, frozen []span }
 
 // journalEntry is one line of the journal: kind, startMs and endMs plus the kind's own fields.
 type journalEntry map[string]any
@@ -125,27 +119,28 @@ func (p *recordingPlan) videoTime(wall int64) int64 {
 }
 
 // plan decides the time map and the effects. Nothing to render leaves the filter empty.
-func (p *recordingPlan) plan(cfg recordingConfig, fps int, a videoAnalysis) error {
+func (p *recordingPlan) plan(cfg recordingConfig, fps int, active []span) error {
 	if p.total <= 0 {
 		return nil
 	}
 	switch {
 	case cfg.Capture == "bursts":
-		p.pieces = burstPieces(*cfg.Burst, p.events, a.frozen, p.total)
+		p.pieces = burstPieces(*cfg.Burst, p.events, active, p.total)
 	case cfg.Idle != "":
-		p.pieces = idlePieces(cfg.Idle, p.events, a.active, p.total)
+		p.pieces = idlePieces(cfg.Idle, p.events, active, p.total)
 	default:
 		p.pieces = []piece{{0, p.total, 1}}
 	}
 	if len(p.pieces) == 0 {
-		return nil
+		return errNothingKept
 	}
 	first := p.segments[0]
 	width, height := first.Width, first.Height
 	chain := []string{"setpts=PTS-STARTPTS"}
 	for _, segment := range p.segments {
 		if segment.Width != width || segment.Height != height {
-			chain = append(chain, fmt.Sprintf("scale=%d:%d", width, height)) // later segments take the first one's size
+			// Later segments are fitted into the first one's size.
+			chain = append(chain, fmt.Sprintf("scale=%[1]d:%[2]d:force_original_aspect_ratio=decrease,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2", width, height))
 			break
 		}
 	}
@@ -155,8 +150,8 @@ func (p *recordingPlan) plan(cfg recordingConfig, fps int, a videoAnalysis) erro
 	}
 	chain = append(chain, fmt.Sprintf("fps=%d", fps), "format=yuv420p")
 
-	effects := 0
 	var cues []cue
+	var ripples []ripple
 	var zooms []focus
 	for _, e := range p.events {
 		at, scaleX, scaleY := e.span(), 1.0, 1.0
@@ -166,11 +161,12 @@ func (p *recordingPlan) plan(cfg recordingConfig, fps int, a videoAnalysis) erro
 		start := mapTime(p.pieces, at.start)
 		switch e.kind() {
 		case "caption":
-			cues = append(cues, cue{start, start + int64(e.num("durationMs")), sanitizeCaption(e)})
+			if inPieces(p.pieces, at.start) {
+				cues = append(cues, cue{start, start + int64(e.num("durationMs")), sanitizeCaption(e)})
+			}
 		case "press":
 			if cfg.Ripple && inPieces(p.pieces, at.start) {
-				chain = append(chain, rippleFilter(start, e.num("x")*scaleX, e.num("y")*scaleY, width, fps))
-				effects++
+				ripples = append(ripples, ripple{start, e.num("x") * scaleX, e.num("y") * scaleY})
 			}
 		case "focus":
 			rect, _ := e["rect"].(map[string]any)
@@ -182,17 +178,14 @@ func (p *recordingPlan) plan(cfg recordingConfig, fps int, a videoAnalysis) erro
 	}
 	chain = append(chain, focusFilters(zooms, float64(width), float64(height), fps)...)
 	cues = fitCues(cues, mapTime(p.pieces, p.total))
-	if len(cues) > 0 {
-		p.ass = marshalASS(cues, width, height)
+	if len(cues)+len(ripples) > 0 {
+		p.ass = marshalASS(cues, ripples, width, height)
 		chain = append(chain, "ass=captions.ass")
 	}
-	if !mapped && len(cues)+len(zooms)+effects == 0 {
+	if !mapped && len(cues)+len(zooms)+len(ripples) == 0 {
 		return nil
 	}
 	p.filter = strings.Join(chain, ",")
-	if len(p.filter) > filterMaxBytes {
-		return errTooManyEdits
-	}
 	return nil
 }
 
@@ -252,21 +245,22 @@ func mergeSpans(spans []span, pad, total int64) []span {
 
 // burstPieces keeps the stretch around every browser tool call and every explicit focus or
 // attention: from lead before it to the end of its tail, which lasts until the screen has settled
-// (stood still for the settle time) but not longer than maxTail.
-func burstPieces(b burstConfig, events []journalEntry, frozen []span, total int64) []piece {
+// (no change for the settle time) but not longer than maxTail.
+func burstPieces(b burstConfig, events []journalEntry, active []span, total int64) []piece {
 	var keep []span
 	for _, e := range events {
 		if kind := e.kind(); kind != "call" && kind != "focus" && kind != "attention" {
 			continue
 		}
 		at := e.span()
-		end := at.end + b.TailMS
-		if i := slices.IndexFunc(frozen, func(f span) bool { return f.end >= end }); i >= 0 {
-			end = max(end, frozen[i].start+b.SettleMS)
-		} else {
-			end = at.end + b.MaxTailMS // the screen was still changing when the video ended
+		still := at.end // until when the picture changes, with pauses shorter than the settle time
+		for _, a := range active {
+			if a.end > at.end && a.start-still < b.SettleMS {
+				still = max(still, a.end)
+			}
 		}
-		keep = append(keep, span{at.start - b.LeadMS, min(end, at.end+b.MaxTailMS)})
+		end := min(max(at.end+b.TailMS, still+b.SettleMS), at.end+b.MaxTailMS)
+		keep = append(keep, span{at.start - b.LeadMS, end})
 	}
 	var pieces []piece
 	for _, s := range mergeSpans(keep, 0, total) {
@@ -349,10 +343,17 @@ func fitCues(cues []cue, total int64) []cue {
 	return slices.DeleteFunc(cues, func(c cue) bool { return c.end <= c.start || c.text == "" })
 }
 
-// marshalASS writes the cues as an ASS script for the ass filter: white text on a dark box near
-// the bottom edge. A backslash would start an override tag, so it becomes the fullwidth one, and
-// braces are escaped.
-func marshalASS(cues []cue, width, height int) []byte {
+// ripple is a click: the edited time it happens and where, in frame px.
+type ripple struct {
+	start int64
+	x, y  float64
+}
+
+// marshalASS writes the cues and ripples as an ASS script for the ass filter. A cue is white text
+// on a dark box near the bottom edge; a backslash would start an override tag, so it becomes the
+// fullwidth one, and braces are escaped. A ripple is a ring, drawn as a vector shape, that spreads
+// from the click and fades; its dark shadow shows it on light pages.
+func marshalASS(cues []cue, ripples []ripple, width, height int) []byte {
 	size := max(int(float64(height)*0.045+0.5), 12)
 	margin := int(float64(width)*0.06 + 0.5)
 	box := max(int(float64(height)*0.008+0.5), 2)
@@ -360,7 +361,8 @@ func marshalASS(cues []cue, width, height int) []byte {
 	fmt.Fprintf(&out, "[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n", width, height)
 	out.WriteString("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
 	// BorderStyle 3 draws the outline colour as a box behind the text.
-	fmt.Fprintf(&out, "Style: Default,Noto Sans,%d,&H00FFFFFF,&H00FFFFFF,&H30000000,&H30000000,0,0,0,0,100,100,0,0,3,%d,0,2,%d,%d,%d,1\n\n", size, box, margin, margin, int(float64(height)*0.06+0.5))
+	fmt.Fprintf(&out, "Style: Default,Noto Sans,%d,&H00FFFFFF,&H00FFFFFF,&H30000000,&H30000000,0,0,0,0,100,100,0,0,3,%d,0,2,%d,%d,%d,1\n", size, box, margin, margin, int(float64(height)*0.06+0.5))
+	out.WriteString("Style: Ripple,Noto Sans,20,&HFF000000,&HFF000000,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,1,0,5,0,0,0,1\n\n")
 	out.WriteString("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 	escape := strings.NewReplacer(`\`, "＼", "{", `\{`, "}", `\}`)
 	stamp := func(ms int64) string {
@@ -369,26 +371,15 @@ func marshalASS(cues []cue, width, height int) []byte {
 	for _, c := range cues {
 		fmt.Fprintf(&out, "Dialogue: 0,%s,%s,Default,,0,0,0,,%s\n", stamp(c.start), stamp(c.end), escape.Replace(strings.ToValidUTF8(c.text, "")))
 	}
+	// A circle of radius 100 drawn with four curves, in the positive quarter so that libass centres it on the click.
+	const circle = "m 0 100 b 0 45 45 0 100 0 b 155 0 200 45 200 100 b 200 155 155 200 100 200 b 45 200 0 155 0 100"
+	scale := float64(width) / 1280 * rippleRadius
+	for _, r := range ripples {
+		fmt.Fprintf(&out, "Dialogue: 1,%s,%s,Ripple,,0,0,0,,{\\an5\\pos(%.0f,%.0f)\\bord%.1f\\shad%.1f\\4c&H000000&\\fscx%.0f\\fscy%.0f\\t(0,%d,0.4,\\fscx%.0f\\fscy%.0f)\\t(%d,%d,\\3a&HFF&\\4a&HFF&)\\p1}%s\n",
+			stamp(r.start), stamp(r.start+rippleMS), r.x, r.y, 5*float64(width)/1280, 3*float64(width)/1280,
+			scale*0.3, scale*0.3, rippleMS, scale, scale, rippleMS/2, rippleMS, circle)
+	}
 	return []byte(out.String())
-}
-
-// rippleFilter draws a ring that spreads from a click and fades, with a dark halo outside it so it
-// shows on light and dark pages. It changes luma only; geq passes every pixel out of the ring's
-// reach through, and the filter is enabled only while the ripple shows.
-func rippleFilter(startMS int64, x, y float64, width, fps int) string {
-	scale := float64(width) / 1280
-	final := rippleRadius * scale
-	soft, gap := 3.5*scale, 2.6*scale
-	reach := final + gap + 3*soft
-	begin, duration := float64(startMS)/1000, float64(rippleMS)/1000
-	// Y values are limited range: white is 235 and the halo's dark 24.
-	luma := fmt.Sprintf("if(gt(abs(X-%[1]g),%[3]g)+gt(abs(Y-%[2]g),%[3]g),lum(X,Y),"+
-		"st(0,clip((T-%[4]g)/%[5]g,0,1));st(1,hypot(X-%[1]g,Y-%[2]g)-%[6]g-%[7]g*(1-pow(1-ld(0),2)));"+
-		"st(2,0.95*(1-ld(0))*exp(-pow(ld(1)/%[8]g,2)));st(3,0.65*(1-ld(0))*exp(-pow((ld(1)-%[9]g)/%[8]g,2)));"+
-		"(lum(X,Y)+(24-lum(X,Y))*ld(3))*(1-ld(2))+235*ld(2))",
-		math.Round(x*10)/10, math.Round(y*10)/10, math.Round(reach), begin, duration, final*0.3, final*0.7, soft, gap)
-	half := 0.5 / float64(fps)
-	return fmt.Sprintf("geq=lum='%s':cb='cb(X,Y)':cr='cr(X,Y)':enable='between(t,%.3f,%.3f)'", luma, begin-half, begin+duration+half)
 }
 
 // focus is a zoom the recording asked for: a window of edited time, a factor and the view's centre in frame px.
@@ -465,27 +456,9 @@ func focusFilter(keys []focusKey, width, height float64, fps int) string {
 		float64(frames[0])/float64(fps)-half, float64(frames[len(frames)-1])/float64(fps)+half)
 }
 
-var (
-	freezeLine = regexp.MustCompile(`freeze_(start|end): ([0-9.]+)`)
-	frameLine  = regexp.MustCompile(`pts_time:([0-9.]+)`)
-)
+var frameLine = regexp.MustCompile(`pts_time:([0-9.]+)`)
 
 func msOf(s string) int64 { f, _ := strconv.ParseFloat(s, 64); return int64(math.Round(f * 1000)) }
-
-// parseFreezes reads freezedetect's log: the stretches in which the picture stood still. A freeze
-// still running when the video ended has no end.
-func parseFreezes(log string, total int64) []span {
-	var frozen []span
-	for _, m := range freezeLine.FindAllStringSubmatch(log, -1) {
-		switch {
-		case m[1] == "start":
-			frozen = append(frozen, span{msOf(m[2]), total})
-		case len(frozen) > 0:
-			frozen[len(frozen)-1].end = msOf(m[2])
-		}
-	}
-	return frozen
-}
 
 // parseActive reads showinfo's log of the frames mpdecimate kept and joins those that follow each
 // other closely into the stretches in which the picture changed. A frame that stands alone, like a
