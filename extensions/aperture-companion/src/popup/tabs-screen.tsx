@@ -21,7 +21,7 @@ export function TabsScreen({ popup }: { popup: Popup }) {
 
   return (
     <>
-      <header className="flex items-center gap-2">
+      <header className="aperture:flex aperture:items-center aperture:gap-2">
         <Button
           type="button"
           variant="ghost"
@@ -33,28 +33,28 @@ export function TabsScreen({ popup }: { popup: Popup }) {
         >
           <ArrowLeftIcon />
         </Button>
-        <h1 className="text-base font-semibold">Select tabs</h1>
+        <h1 className="aperture:text-base aperture:font-semibold">Select tabs</h1>
       </header>
-      <FieldSet className="min-h-0 min-w-0 flex-1 gap-3">
+      <FieldSet className="aperture:min-h-0 aperture:min-w-0 aperture:flex-1 aperture:gap-3">
         <ScrollArea
           scrollbars="vertical"
-          className="-mx-3 -my-2 min-h-0 w-[calc(100%+1.5rem)] min-w-0 flex-1"
+          className="aperture:-mx-3 aperture:-my-2 aperture:min-h-0 aperture:w-[calc(100%+1.5rem)] aperture:min-w-0 aperture:flex-1"
         >
-          <div className="flex min-w-0 flex-col gap-3 pt-2">
+          <div className="aperture:flex aperture:min-w-0 aperture:flex-col aperture:gap-3 aperture:pt-2">
             {popup.browserWindows.map((browserWindow) => (
               <FieldSet
                 key={browserWindow.id}
-                className="w-full min-w-0 max-w-full gap-1 overflow-hidden"
+                className="aperture:w-full aperture:min-w-0 aperture:max-w-full aperture:gap-1 aperture:overflow-hidden"
               >
                 <FieldLegend
                   variant="label"
-                  className="mb-0 w-full max-w-full truncate px-3 pb-1 text-xs text-muted-foreground"
+                  className="aperture:mb-0 aperture:w-full aperture:max-w-full aperture:truncate aperture:px-3 aperture:pb-1 aperture:text-xs aperture:text-muted-foreground"
                 >
                   {browserWindow.label}
                 </FieldLegend>
                 <FieldGroup
                   data-slot="checkbox-group"
-                  className="min-w-0 data-[slot=checkbox-group]:gap-0"
+                  className="aperture:min-w-0 aperture:data-[slot=checkbox-group]:gap-0"
                 >
                   {browserWindow.tabs.map((tab) =>
                     tab.id === undefined ? null : (
@@ -116,8 +116,8 @@ function TabRow({
     <Field
       orientation="horizontal"
       className={cn(
-        "min-w-0 items-center px-3 py-1 transition-colors hover:bg-muted/50",
-        selected && "bg-muted",
+        "aperture:min-w-0 aperture:items-center aperture:px-3 aperture:py-1 aperture:transition-colors aperture:hover:bg-muted/50",
+        selected && "aperture:bg-muted",
       )}
     >
       <Checkbox
@@ -126,11 +126,11 @@ function TabRow({
         disabled={busy || selectionLocked}
         onCheckedChange={(checked) => onToggle(tabId, checked)}
       />
-      <FieldLabel htmlFor={inputId} className="min-w-0 items-center gap-2">
+      <FieldLabel htmlFor={inputId} className="aperture:min-w-0 aperture:items-center aperture:gap-2">
         <TabFavicon tab={tab} />
-        <span className="flex min-w-0 flex-1 flex-col gap-0">
-          <span className="truncate">{tab.title?.trim() || tab.url || "Untitled tab"}</span>
-          <span className="truncate font-mono text-xs leading-tight font-normal text-muted-foreground">
+        <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:flex-col aperture:gap-0">
+          <span className="aperture:truncate">{tab.title?.trim() || tab.url || "Untitled tab"}</span>
+          <span className="aperture:truncate aperture:font-mono aperture:text-xs aperture:leading-tight aperture:font-normal aperture:text-muted-foreground">
             {tabUrlLabel(tab.url)}
           </span>
         </span>
@@ -139,7 +139,7 @@ function TabRow({
         type="button"
         variant={active ? "secondary" : "ghost"}
         size="sm"
-        className="h-7 shrink-0 px-2 text-xs"
+        className="aperture:h-7 aperture:shrink-0 aperture:px-2 aperture:text-xs"
         disabled={busy || !selected || active}
         aria-pressed={active}
         onClick={() => onActivate(tabId)}
@@ -158,14 +158,14 @@ function TabFavicon({ tab }: { tab: chrome.tabs.Tab }) {
   }, [tab.favIconUrl]);
 
   if (!tab.favIconUrl || failed) {
-    return <Globe2Icon className="size-4 shrink-0 text-muted-foreground" />;
+    return <Globe2Icon className="aperture:size-4 aperture:shrink-0 aperture:text-muted-foreground" />;
   }
 
   return (
     <img
       src={tab.favIconUrl}
       alt=""
-      className="size-4 shrink-0 rounded-sm"
+      className="aperture:size-4 aperture:shrink-0 aperture:rounded-sm"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
     />

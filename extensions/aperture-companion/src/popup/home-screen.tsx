@@ -19,19 +19,19 @@ export function HomeScreen({ popup, connection }: { popup: Popup; connection: Co
     <>
       <ConnectionMenu popup={popup} connection={connection} />
 
-      <ScrollArea scrollbars="vertical" className="-mx-3 min-h-0 flex-1">
-        <FieldGroup className="px-3 pr-4">
+      <ScrollArea scrollbars="vertical" className="aperture:-mx-3 aperture:min-h-0 aperture:flex-1">
+        <FieldGroup className="aperture:px-3 aperture:pr-4">
           <Field>
             <FieldLabel htmlFor="teleport-tabs">Tabs</FieldLabel>
             <Button
               id="teleport-tabs"
               type="button"
               variant="outline"
-              className="w-full min-w-0 justify-between font-normal"
+              className="aperture:w-full aperture:min-w-0 aperture:justify-between aperture:font-normal"
               disabled={busy}
               onClick={actions.openTabPicker}
             >
-              <span className="truncate">
+              <span className="aperture:truncate">
                 {selectedTabsLabel(popup.selectedTabIds, popup.currentTab, popup.browserWindows)}
               </span>
               <ChevronRightIcon data-icon="inline-end" />
@@ -44,7 +44,7 @@ export function HomeScreen({ popup, connection }: { popup: Popup; connection: Co
               value={[draft.destination]}
               variant="outline"
               spacing={0}
-              className="w-full"
+              className="aperture:w-full"
               onValueChange={(values) => {
                 const value = values[0];
                 if (value === "session" || value === "snapshot") {
@@ -52,11 +52,11 @@ export function HomeScreen({ popup, connection }: { popup: Popup; connection: Co
                 }
               }}
             >
-              <ToggleGroupItem className="flex-1" value="session" aria-label="Session">
+              <ToggleGroupItem className="aperture:flex-1" value="session" aria-label="Session">
                 Session
               </ToggleGroupItem>
               <ToggleGroupItem
-                className="flex-1"
+                className="aperture:flex-1"
                 value="snapshot"
                 aria-label="Snapshot"
                 disabled={!popup.canCreateSnapshot}
@@ -73,7 +73,7 @@ export function HomeScreen({ popup, connection }: { popup: Popup; connection: Co
 
       <StatusAlert status={popup.status} />
 
-      <footer className="mt-auto flex gap-2">
+      <footer className="aperture:mt-auto aperture:flex aperture:gap-2">
         <Button
           type="button"
           variant="outline"
@@ -87,7 +87,7 @@ export function HomeScreen({ popup, connection }: { popup: Popup; connection: Co
         </Button>
         <Button
           type="button"
-          className="flex-1"
+          className="aperture:flex-1"
           disabled={busy}
           onClick={() => void actions.teleport()}
         >

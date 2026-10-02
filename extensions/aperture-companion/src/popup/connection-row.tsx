@@ -92,21 +92,21 @@ export function ConnectionRow({
   }, [connection.id, disabled, onReorder]);
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="aperture:flex aperture:flex-col aperture:gap-1">
       <div
         ref={rowRef}
-        className={cn("relative flex items-center gap-1", dragging && "opacity-60")}
+        className={cn("aperture:relative aperture:flex aperture:items-center aperture:gap-1", dragging && "aperture:opacity-60")}
       >
         <span
           className={cn(
-            "pointer-events-none absolute inset-x-1 top-0 h-0.5 rounded-full bg-primary opacity-0",
-            dropPlacement === "before" && "opacity-100",
+            "aperture:pointer-events-none aperture:absolute aperture:inset-x-1 aperture:top-0 aperture:h-0.5 aperture:rounded-full aperture:bg-primary aperture:opacity-0",
+            dropPlacement === "before" && "aperture:opacity-100",
           )}
         />
         <span
           className={cn(
-            "pointer-events-none absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-primary opacity-0",
-            dropPlacement === "after" && "opacity-100",
+            "aperture:pointer-events-none aperture:absolute aperture:inset-x-1 aperture:bottom-0 aperture:h-0.5 aperture:rounded-full aperture:bg-primary aperture:opacity-0",
+            dropPlacement === "after" && "aperture:opacity-100",
           )}
         />
         <Button
@@ -114,7 +114,7 @@ export function ConnectionRow({
           type="button"
           variant="ghost"
           size="icon-xs"
-          className="cursor-grab touch-none active:cursor-grabbing"
+          className="aperture:cursor-grab aperture:touch-none aperture:active:cursor-grabbing"
           aria-label={`Reorder ${label}`}
           title="Drag to reorder"
           disabled={disabled}
@@ -125,11 +125,11 @@ export function ConnectionRow({
           type="button"
           variant={active ? "secondary" : "ghost"}
           size="sm"
-          className="min-w-0 flex-1 justify-start"
+          className="aperture:min-w-0 aperture:flex-1 aperture:justify-start"
           disabled={disabled}
           onClick={() => onSelect(connection.id)}
         >
-          <span className="truncate">{label}</span>
+          <span className="aperture:truncate">{label}</span>
         </Button>
         <Button
           type="button"
@@ -147,10 +147,10 @@ export function ConnectionRow({
         <div
           role="group"
           aria-label={`Confirm removal of ${label}`}
-          className="flex items-center justify-between gap-2 px-2 py-1"
+          className="aperture:flex aperture:items-center aperture:justify-between aperture:gap-2 aperture:px-2 aperture:py-1"
         >
-          <p className="truncate text-xs text-muted-foreground">Remove this connection?</p>
-          <div className="flex gap-1">
+          <p className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">Remove this connection?</p>
+          <div className="aperture:flex aperture:gap-1">
             <Button
               type="button"
               variant="ghost"

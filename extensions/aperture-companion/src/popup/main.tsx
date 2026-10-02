@@ -10,11 +10,11 @@ function CompanionPopup() {
   const popup = usePopup();
 
   if (!popup.initialized) {
-    return <main className="h-[34rem] w-96 p-3 text-sm text-muted-foreground">Loading…</main>;
+    return <main className="aperture:h-[34rem] aperture:w-96 aperture:p-3 aperture:text-sm aperture:text-muted-foreground">Loading…</main>;
   }
 
   return (
-    <main className="flex h-[34rem] w-96 flex-col gap-4 overflow-hidden p-3">
+    <main className="aperture:flex aperture:h-[34rem] aperture:w-96 aperture:flex-col aperture:gap-4 aperture:overflow-hidden aperture:p-3">
       {popup.screen === "home" && popup.connection !== null ? (
         <HomeScreen popup={popup} connection={popup.connection} />
       ) : null}

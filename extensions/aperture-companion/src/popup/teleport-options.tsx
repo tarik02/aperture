@@ -39,9 +39,9 @@ export function TeleportOptions({ popup, connection }: { popup: Popup; connectio
       value={draft.advanced ? ["advanced"] : []}
       onValueChange={(values) => actions.updateDraft({ advanced: values.includes("advanced") })}
     >
-      <AccordionItem value="advanced" className="border-none">
+      <AccordionItem value="advanced" className="aperture:border-none">
         <AccordionTrigger disabled={busy}>Advanced</AccordionTrigger>
-        <AccordionContent className="pt-2 pb-0">
+        <AccordionContent className="aperture:pt-2 aperture:pb-0">
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="resource-name">
@@ -81,7 +81,7 @@ export function TeleportOptions({ popup, connection }: { popup: Popup; connectio
                 disabled={busy}
                 onValueChange={(value) => void actions.changeChannel(value)}
               >
-                <SelectTrigger id="browser-channel" className="w-full">
+                <SelectTrigger id="browser-channel" className="aperture:w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="start" alignItemWithTrigger={false}>
@@ -134,21 +134,21 @@ function BaseSnapshotField({ snapshots, selected, disabled, onChange }: BaseSnap
             <Button
               type="button"
               variant="outline"
-              className="w-full min-w-0 justify-between"
+              className="aperture:w-full aperture:min-w-0 aperture:justify-between"
               disabled={disabled}
             />
           }
         >
-          <span className="min-w-0 truncate">{blank ? "Blank session" : selected}</span>
+          <span className="aperture:min-w-0 aperture:truncate">{blank ? "Blank session" : selected}</span>
         </ComboboxTrigger>
-        <ComboboxContent align="start" className="w-(--anchor-width) min-w-(--anchor-width)">
-          <ComboboxInput placeholder="Search snapshots" showTrigger={false} className="w-auto" />
+        <ComboboxContent align="start" className="aperture:w-(--anchor-width) aperture:min-w-(--anchor-width)">
+          <ComboboxInput placeholder="Search snapshots" showTrigger={false} className="aperture:w-auto" />
           {blank ? null : (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="mx-1 mt-1 justify-start"
+              className="aperture:mx-1 aperture:mt-1 aperture:justify-start"
               onClick={() => onChange(blankSnapshot)}
             >
               Blank session

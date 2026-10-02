@@ -13,9 +13,9 @@ export function AddConnectionScreen({ popup }: { popup: Popup }) {
 
   return (
     <>
-      <header className="flex items-center gap-2">
+      <header className="aperture:flex aperture:items-center aperture:gap-2">
         {firstConnection ? (
-          <img src="/icon.svg" alt="Aperture" className="size-8 shrink-0" />
+          <img src="/icon.svg" alt="Aperture" className="aperture:size-8 aperture:shrink-0" />
         ) : (
           <Button
             type="button"
@@ -29,12 +29,12 @@ export function AddConnectionScreen({ popup }: { popup: Popup }) {
             <ArrowLeftIcon />
           </Button>
         )}
-        <h1 className="text-base font-semibold">
+        <h1 className="aperture:text-base aperture:font-semibold">
           {firstConnection ? "Connect to Aperture" : "Add connection"}
         </h1>
       </header>
-      <form className="flex flex-1 flex-col" onSubmit={(event) => void actions.connect(event)}>
-        <FieldGroup className="flex-1 gap-3">
+      <form className="aperture:flex aperture:flex-1 aperture:flex-col" onSubmit={(event) => void actions.connect(event)}>
+        <FieldGroup className="aperture:flex-1 aperture:gap-3">
           <Field>
             <FieldLabel htmlFor="origin">Aperture URL</FieldLabel>
             <Input
@@ -65,7 +65,7 @@ export function AddConnectionScreen({ popup }: { popup: Popup }) {
             />
           </Field>
           <StatusAlert status={popup.status} />
-          <Button className="mt-auto" type="submit" disabled={busy}>
+          <Button className="aperture:mt-auto" type="submit" disabled={busy}>
             {connecting ? <Spinner data-icon="inline-start" /> : null}
             {connecting ? "Connecting…" : "Add connection"}
           </Button>

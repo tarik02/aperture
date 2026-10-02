@@ -35,19 +35,19 @@ export function ConnectionMenu({ popup, connection }: { popup: Popup; connection
 
   return (
     <Popover open={open} onOpenChange={setMenuOpen}>
-      <header className="flex items-center gap-2">
-        <img src="/icon.svg" alt="Aperture" className="size-8 shrink-0" />
+      <header className="aperture:flex aperture:items-center aperture:gap-2">
+        <img src="/icon.svg" alt="Aperture" className="aperture:size-8 aperture:shrink-0" />
         <PopoverTrigger
           render={
             <Button
               type="button"
               variant="outline"
-              className="min-w-0 flex-1 justify-between"
+              className="aperture:min-w-0 aperture:flex-1 aperture:justify-between"
               disabled={busy}
             />
           }
         >
-          <span className="truncate">{connectionLabel(connection)}</span>
+          <span className="aperture:truncate">{connectionLabel(connection)}</span>
           {popup.managingConnection ? (
             <Spinner data-icon="inline-end" />
           ) : (
@@ -57,9 +57,9 @@ export function ConnectionMenu({ popup, connection }: { popup: Popup; connection
       </header>
       <PopoverContent
         align="start"
-        className="max-h-(--available-height) w-(--anchor-width) overflow-y-auto"
+        className="aperture:max-h-(--available-height) aperture:w-(--anchor-width) aperture:overflow-y-auto"
       >
-        <div className="flex flex-col gap-2">
+        <div className="aperture:flex aperture:flex-col aperture:gap-2">
           {popup.connections.map((candidate) => (
             <ConnectionRow
               key={candidate.id}
