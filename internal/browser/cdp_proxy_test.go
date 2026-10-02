@@ -212,7 +212,7 @@ func newProxyHarness(t *testing.T, cadence automationCadence) *proxyHarness {
 	pointer := newCDPPointer(socket, func(targetID string) (cdpSurface, bool) {
 		return cdpSurface{id: 7, targetID: "T1", width: 2000, height: 1000}, targetID == "T1"
 	}, h.record)
-	proxy := newCDPProxy(strings.TrimPrefix(h.chrome.server.URL, "http://"), func() automationCadence { return automationCadence(h.cadence.Load()) }, pointer, h.record)
+	proxy := newCDPProxy(strings.TrimPrefix(h.chrome.server.URL, "http://"), func() automationCadence { return automationCadence(h.cadence.Load()) }, pointer, h.record, func() bool { return true })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	endpoint, err := proxy.serve(ctx)

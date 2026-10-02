@@ -49,7 +49,7 @@ func TestFrameClockPlacesTheFirstFrameOnTheWallClock(t *testing.T) {
 	if first.IsZero() || time.Since(first) > time.Second || duration != time.Second+20*time.Millisecond {
 		t.Fatalf("span = %v, %v", first, duration)
 	}
-	if err := clock.waitForFirstFrame(context.Background()); err != nil {
+	if err := clock.waitForFirstFrame(context.Background(), func() {}, nil); err != nil {
 		t.Fatal(err)
 	}
 	// The facts a finished capture leaves for the finalizer.
@@ -154,5 +154,24 @@ func TestAnnotationsTargetTheOneRunningRecordingAndHoldTheGate(t *testing.T) {
 	release()
 	if err := <-finished; err != nil || !strings.Contains(readJournal(t, second), `"rect":{"x":1,"y":2,"width":30,"height":40}`) {
 		t.Fatalf("err = %v, journal = %q", err, readJournal(t, second))
+	}
+}
+
+func TestFirstFrameWaitRepaintsAndEndsWithThePipeline(t *testing.T) {
+	clock := newFrameClock(60)
+	repaints := make(chan struct{}, 1)
+	exited := make(chan error, 1)
+	go func() {
+		<-repaints
+		exited <- errors.New("exit status 1")
+	}()
+	err := clock.waitForFirstFrame(context.Background(), func() {
+		select {
+		case repaints <- struct{}{}:
+		default:
+		}
+	}, exited)
+	if !errors.Is(err, errCapturePipelineExited) {
+		t.Fatalf("err = %v", err)
 	}
 }

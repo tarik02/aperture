@@ -29,14 +29,15 @@ const (
 // cdpProxy sits between Playwright MCP and Chromium. It relays CDP frames untouched and, when the
 // automation cadence asks for it, turns pointer input and reveal scrolling into followable motion.
 type cdpProxy struct {
-	upstream string // Chromium's debugging endpoint, host:port
-	cadence  func() automationCadence
-	pointer  *cdpPointer // nil for sessions without a compositor
-	journal  journalFunc // what the proxy does for real, for the recordings that run
+	upstream  string // Chromium's debugging endpoint, host:port
+	cadence   func() automationCadence
+	pointer   *cdpPointer // nil for sessions without a compositor
+	journal   journalFunc // what the proxy does for real, for the recordings that run
+	recording func() bool // whether any recording runs, so the journal's extra page queries are worth it
 }
 
-func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer, journal journalFunc) *cdpProxy {
-	return &cdpProxy{upstream: upstream, cadence: cadence, pointer: pointer, journal: journal}
+func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer, journal journalFunc, recording func() bool) *cdpProxy {
+	return &cdpProxy{upstream: upstream, cadence: cadence, pointer: pointer, journal: journal, recording: recording}
 }
 
 // serve listens on an ephemeral loopback port until ctx ends and returns the endpoint to hand to Playwright.

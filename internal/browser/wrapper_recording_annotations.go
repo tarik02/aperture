@@ -69,19 +69,17 @@ func (session *liveSession) handleAnnotation(w http.ResponseWriter, req *http.Re
 }
 
 func (session *liveSession) annotate(ctx context.Context, kind string, request annotationRequest) error {
-	release, err := session.acquireGate(ctx)
-	if err != nil {
+	if err := validateAnnotation(kind, &request); err != nil {
 		return err
 	}
-	defer release()
 	r := session.runtime
-	var journal *recordingJournal
+	var recording *wrapperRecording
 	var targetID string
 	running := 0
 	r.mu.Lock()
-	for _, recording := range session.recordings {
-		if recording.Status == wrapperRecordingRunning && !recording.finalizing && (request.RecordingID == "" || recording.ID == request.RecordingID) {
-			journal, targetID = recording.journal, recording.TargetID
+	for _, candidate := range session.recordings {
+		if candidate.Status == wrapperRecordingRunning && !candidate.finalizing && (request.RecordingID == "" || candidate.ID == request.RecordingID) {
+			recording, targetID = candidate, candidate.TargetID
 			running++
 		}
 	}
@@ -93,120 +91,127 @@ func (session *liveSession) annotate(ctx context.Context, kind string, request a
 	default:
 		return errors.New("several recordings are running: pass recordingId")
 	}
-	switch kind {
-	case "caption":
-		return session.annotateCaption(journal, request)
-	case "focus":
-		return session.annotateFocus(ctx, journal, targetID, request)
-	case "attention":
-		return session.annotateAttention(ctx, journal, targetID, request)
-	}
-	return fmt.Errorf("%w: unknown kind %q", errAnnotationInvalid, kind)
-}
-
-// annotationMS validates a duration in milliseconds, with a default for none.
-func annotationMS(value, fallback, low, high int) (int, error) {
-	if value == 0 {
-		return fallback, nil
-	}
-	if value < low || value > high {
-		return 0, fmt.Errorf("%w: durationMs must be %d to %d", errAnnotationInvalid, low, high)
-	}
-	return value, nil
-}
-
-// annotateCaption shows text from now for durationMs; the finalizer burns it in.
-func (session *liveSession) annotateCaption(journal *recordingJournal, request annotationRequest) error {
-	text := strings.TrimSpace(request.Text)
-	if text == "" || utf8.RuneCountInString(text) > captionMaxRunes {
-		return fmt.Errorf("%w: text must be 1 to %d characters", errAnnotationInvalid, captionMaxRunes)
-	}
-	duration, err := annotationMS(request.DurationMS, 3000, 200, 30000)
+	release, err := session.acquireRecordingGate(ctx)
 	if err != nil {
 		return err
 	}
-	journal.append(journalLine("caption", time.Now(), map[string]any{"text": text, "durationMs": duration}))
+	defer release()
+	var started time.Time
+	var fields map[string]any
+	switch kind {
+	case "caption":
+		started, fields = time.Now(), map[string]any{"text": request.Text, "durationMs": request.DurationMS}
+	case "focus":
+		started, fields, err = session.annotateFocus(ctx, targetID, request)
+	default:
+		started, fields, err = session.annotateAttention(ctx, targetID, request)
+	}
+	if err != nil {
+		return err
+	}
+	// The recording may have stopped meanwhile (the gate does not stop an event from ending it).
+	r.mu.Lock()
+	member := recording.Status == wrapperRecordingRunning && !recording.finalizing
+	r.mu.Unlock()
+	if !member {
+		return errors.New("recording stopped")
+	}
+	recording.journal.append(journalLine(kind, started, fields))
 	return nil
+}
+
+// validateAnnotation checks a request and fills its defaults, so a bad one fails before it waits for the gate.
+func validateAnnotation(kind string, request *annotationRequest) error {
+	invalid := func(format string, args ...any) error {
+		return fmt.Errorf("%w: "+format, append([]any{errAnnotationInvalid}, args...)...)
+	}
+	duration := func(fallback, low, high int) error {
+		if request.DurationMS == 0 {
+			request.DurationMS = fallback
+		} else if request.DurationMS < low || request.DurationMS > high {
+			return invalid("durationMs must be %d to %d", low, high)
+		}
+		return nil
+	}
+	if kind == "caption" {
+		request.Text = strings.TrimSpace(request.Text)
+		if request.Text == "" || utf8.RuneCountInString(request.Text) > captionMaxRunes {
+			return invalid("text must be 1 to %d characters", captionMaxRunes)
+		}
+		return duration(3000, 200, 30000)
+	}
+	if kind != "focus" && kind != "attention" {
+		return invalid("unknown kind %q", kind)
+	}
+	if kind == "attention" && request.Point != nil {
+		request.Rect = &annotationRect{X: request.Point.X, Y: request.Point.Y}
+	}
+	if (request.Rect == nil) == (request.Selector == "") {
+		return invalid("name the place with a rect or point, or with a selector, not both")
+	}
+	if request.Rect != nil && (request.Rect.Width < 0 || request.Rect.Height < 0) {
+		return invalid("size must not be negative")
+	}
+	if kind == "focus" {
+		if request.Zoom <= 1 || request.Zoom > focusMaxZoom {
+			return invalid("zoom must be above 1 and at most %v", focusMaxZoom)
+		}
+		return duration(2000, 200, 10000)
+	}
+	if request.Radius == 0 {
+		request.Radius = 40
+	}
+	if request.Loops == 0 {
+		request.Loops = 2
+	}
+	if request.Radius < 8 || request.Radius > 300 || request.Loops < 1 || request.Loops > 5 {
+		return invalid("radius must be 8 to 300 and loops 1 to 5")
+	}
+	return duration(1200, 300, 5000)
 }
 
 // annotateFocus blocks for the duration of a zoom on a rect, so nothing else happens meanwhile.
-func (session *liveSession) annotateFocus(ctx context.Context, journal *recordingJournal, targetID string, request annotationRequest) error {
-	if request.Zoom <= 1 || request.Zoom > focusMaxZoom {
-		return fmt.Errorf("%w: zoom must be above 1 and at most %v", errAnnotationInvalid, focusMaxZoom)
-	}
-	duration, err := annotationMS(request.DurationMS, 2000, 200, 10000)
-	if err != nil {
-		return err
-	}
+func (session *liveSession) annotateFocus(ctx context.Context, targetID string, request annotationRequest) (time.Time, map[string]any, error) {
 	rect, err := session.annotationRect(targetID, request)
 	if err != nil {
-		return err
+		return time.Time{}, nil, err
 	}
 	started := time.Now()
-	if err := sleepContext(ctx, time.Duration(duration)*time.Millisecond); err != nil {
-		return err
+	if err := sleepContext(ctx, time.Duration(request.DurationMS)*time.Millisecond); err != nil {
+		return time.Time{}, nil, err
 	}
-	journal.append(journalLine("focus", started, map[string]any{"targetId": targetID, "rect": rect, "zoom": request.Zoom}))
-	return nil
+	return started, map[string]any{"targetId": targetID, "rect": rect, "zoom": request.Zoom}, nil
 }
 
 // annotateAttention loops the real pointer around a point so a viewer looks there.
-func (session *liveSession) annotateAttention(ctx context.Context, journal *recordingJournal, targetID string, request annotationRequest) error {
-	radius, loops := request.Radius, request.Loops
-	if radius == 0 {
-		radius = 40
-	}
-	if loops == 0 {
-		loops = 2
-	}
-	if radius < 8 || radius > 300 || loops < 1 || loops > 5 {
-		return fmt.Errorf("%w: radius must be 8 to 300 and loops 1 to 5", errAnnotationInvalid)
-	}
-	duration, err := annotationMS(request.DurationMS, 1200, 300, 5000)
+func (session *liveSession) annotateAttention(ctx context.Context, targetID string, request annotationRequest) (time.Time, map[string]any, error) {
+	rect, err := session.annotationRect(targetID, request)
 	if err != nil {
-		return err
-	}
-	rect, err := session.annotationRect(targetID, annotationRequest{Selector: request.Selector, Rect: pointRect(request.Point)})
-	if err != nil {
-		return err
+		return time.Time{}, nil, err
 	}
 	if session.pointer == nil {
-		return errors.New("attention needs a compositor session")
+		return time.Time{}, nil, errors.New("attention needs a compositor session")
 	}
 	surface, ready := session.pointer.surface(targetID)
 	if !ready {
-		return errors.New("recorded target is not ready")
+		return time.Time{}, nil, errors.New("recorded target is not ready")
 	}
 	automation, err := session.acquireAutomation("Recording attention")
 	if err != nil {
-		return err
+		return time.Time{}, nil, err
 	}
 	defer session.releaseAutomation(automation)
 	center := cdpPoint{rect.X + rect.Width/2, rect.Y + rect.Height/2}
 	started := time.Now()
-	if err := session.pointer.circle(ctx, surface, center, radius, loops, time.Duration(duration)*time.Millisecond, session.automationCadence().timing()); err != nil {
-		return err
+	if err := session.pointer.circle(ctx, surface, center, request.Radius, request.Loops, time.Duration(request.DurationMS)*time.Millisecond, session.automationCadence().timing()); err != nil {
+		return time.Time{}, nil, err
 	}
-	journal.append(journalLine("attention", started, map[string]any{"targetId": targetID, "x": center.x, "y": center.y, "radius": radius, "loops": loops}))
-	return nil
-}
-
-func pointRect(point *annotationPoint) *annotationRect {
-	if point == nil {
-		return nil
-	}
-	return &annotationRect{X: point.X, Y: point.Y}
+	return started, map[string]any{"targetId": targetID, "x": center.x, "y": center.y, "radius": request.Radius, "loops": request.Loops}, nil
 }
 
 // annotationRect takes the request's rect, or resolves its selector, to a rect in surface px.
 func (session *liveSession) annotationRect(targetID string, request annotationRequest) (annotationRect, error) {
-	if (request.Rect == nil) == (request.Selector == "") {
-		return annotationRect{}, fmt.Errorf("%w: name the place with a rect or point, or with a selector, not both", errAnnotationInvalid)
-	}
 	if request.Rect != nil {
-		if request.Rect.Width < 0 || request.Rect.Height < 0 {
-			return annotationRect{}, fmt.Errorf("%w: size must not be negative", errAnnotationInvalid)
-		}
 		return *request.Rect, nil
 	}
 	quoted, _ := json.Marshal(request.Selector)

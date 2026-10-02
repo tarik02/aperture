@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,11 +16,12 @@ import (
 
 const (
 	// frameElement names the pipeline's identity element, whose frame reports tell when frames happen.
-	frameElement           = "aperture_frames"
-	firstFrameTimeout      = 5 * time.Second
-	captureFactsFile       = "capture.json"
-	recordingJournalFile   = "journal.jsonl"
-	recordingJournalBudget = 4 << 20
+	frameElement              = "aperture_frames"
+	firstFrameTimeout         = 5 * time.Second
+	firstFrameRepaintInterval = 250 * time.Millisecond
+	captureFactsFile          = "capture.json"
+	recordingJournalFile      = "journal.jsonl"
+	recordingJournalBudget    = 4 << 20
 )
 
 // A report line: "...aperture_frames: last-message = chain ... pts: 0:00:00.033233797, ..."
@@ -85,15 +87,26 @@ func (c *frameClock) span() (time.Time, time.Duration) {
 	return c.first, c.last - c.pts0 + c.frame
 }
 
-// waitForFirstFrame returns once the pipeline has produced its first frame.
-func (c *frameClock) waitForFirstFrame(ctx context.Context) error {
+var errCapturePipelineExited = errors.New("capture pipeline exited before its first frame")
+
+// waitForFirstFrame returns once the pipeline has produced its first frame. A static page produces
+// none until it repaints, so it asks for repaints meanwhile; the pipeline's exit ends the wait early.
+func (c *frameClock) waitForFirstFrame(ctx context.Context, repaint func(), exited <-chan error) error {
 	ctx, cancel := context.WithTimeout(ctx, firstFrameTimeout)
 	defer cancel()
-	select {
-	case <-c.ready:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("wait for first capture frame: %w", ctx.Err())
+	ticker := time.NewTicker(firstFrameRepaintInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.ready:
+			return nil
+		case <-ticker.C:
+			repaint()
+		case err := <-exited:
+			return fmt.Errorf("%w: %v", errCapturePipelineExited, err)
+		case <-ctx.Done():
+			return fmt.Errorf("wait for first capture frame: %w", ctx.Err())
+		}
 	}
 }
 
@@ -102,9 +115,9 @@ func (c *frameClock) waitForFirstFrame(ctx context.Context) error {
 // the capture boundary observed, saved for the finalizer.
 type recordingSegment struct {
 	TargetID       string  `json:"targetId"`
-	FirstFrameMS   int64   `json:"firstFrameMs"` // wall clock, set when the capture ends
-	DurationMS     float64 `json:"durationMs"`   // set when the capture ends
-	Width          int     `json:"width"`        // encoded size
+	FirstFrameMS   int64   `json:"firstFrameMs,omitempty"` // wall clock, set when the capture ends; absent when it produced no frame
+	DurationMS     float64 `json:"durationMs"`             // set when the capture ends
+	Width          int     `json:"width"`                  // encoded size
 	Height         int     `json:"height"`
 	ViewportWidth  int     `json:"viewportWidth"` // CSS px of the captured surface: Width/ViewportWidth is the scale to video pixels
 	ViewportHeight int     `json:"viewportHeight"`
@@ -127,7 +140,10 @@ func recordingSize(viewport compositorViewport) (int, int) {
 func writeCaptureFacts(recording *wrapperRecording) error {
 	for _, segment := range recording.segments {
 		first, duration := segment.clock.span()
-		segment.FirstFrameMS, segment.DurationMS = first.UnixMilli(), float64(duration)/float64(time.Millisecond)
+		if !first.IsZero() {
+			segment.FirstFrameMS = first.UnixMilli()
+		}
+		segment.DurationMS = float64(duration) / float64(time.Millisecond)
 	}
 	encoded, err := json.Marshal(map[string]any{"segments": recording.segments, "journalDropped": recording.journal.droppedEntries()})
 	if err != nil {

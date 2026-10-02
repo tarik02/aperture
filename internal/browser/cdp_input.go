@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -28,6 +29,7 @@ type cdpPress struct {
 type cdpPointerState struct {
 	position  cdpPoint
 	known     bool
+	down      bool // a real button is held
 	arrivedAt time.Time
 	lastPress cdpPress
 }
@@ -144,7 +146,7 @@ func (p *cdpPointer) press(ctx context.Context, surface cdpSurface, code int, cl
 	if err := p.send(ctx, "button-at %d %.2f %.2f %d 1", surface.id, at.x, at.y, code); err != nil {
 		return err
 	}
-	p.update(surface.id, func(state *cdpPointerState) { state.lastPress = cdpPress{time.Now(), at} })
+	p.update(surface.id, func(state *cdpPointerState) { state.lastPress, state.down = cdpPress{time.Now(), at}, true })
 	return nil
 }
 
@@ -154,7 +156,11 @@ func (p *cdpPointer) release(ctx context.Context, surface cdpSurface, code int, 
 	if err := sleepContext(ctx, time.Until(state.lastPress.at.Add(timing.hold))); err != nil {
 		return err
 	}
-	return p.send(ctx, "button-at %d %.2f %.2f %d 0", surface.id, at.x, at.y, code)
+	if err := p.send(ctx, "button-at %d %.2f %.2f %d 0", surface.id, at.x, at.y, code); err != nil {
+		return err
+	}
+	p.update(surface.id, func(state *cdpPointerState) { state.down = false })
+	return nil
 }
 
 // wheel spreads a scroll delta over eased axis events. Weston scrolls wheelPxPerAxisUnit pixels per
@@ -184,10 +190,14 @@ func (p *cdpPointer) wheel(ctx context.Context, surface cdpSurface, dx, dy float
 	return nil
 }
 
-// circle moves the pointer around a point: it glides to the circle's start, then goes round at an even pace.
+// circle moves the pointer around a point: it glides to the circle's start, then goes round at an
+// even pace and glides back to the start. It refuses while a button is held, which it would drag.
 func (p *cdpPointer) circle(ctx context.Context, surface cdpSurface, center cdpPoint, radius float64, loops int, duration time.Duration, timing cadenceTiming) error {
 	at := func(angle float64) cdpPoint {
 		return cdpPoint{clamp(center.x+radius*math.Cos(angle), 0, surface.width-1), clamp(center.y+radius*math.Sin(angle), 0, surface.height-1)}
+	}
+	if p.state(surface.id).down {
+		return errors.New("a mouse button is held down")
 	}
 	if err := p.glide(ctx, surface, at(0), timing); err != nil {
 		return err
@@ -197,6 +207,7 @@ func (p *cdpPointer) circle(ctx context.Context, surface cdpSurface, center cdpP
 		if err := p.send(ctx, "motion %d %.2f %.2f", surface.id, point.x, point.y); err != nil {
 			return err
 		}
+		p.update(surface.id, func(state *cdpPointerState) { state.position = point })
 		if err := sleepContext(ctx, glideFrameInterval); err != nil {
 			return err
 		}
@@ -316,25 +327,21 @@ func (c *cdpProxyConn) runMouse(raw []byte) {
 		c.reply(message, nil, err.Error())
 		return
 	}
+	// The page sees a real event shortly after the compositor accepted it; one round trip covers
+	// that, and a recording's journal gets the pressed element's description from the same one.
+	expression, journaled := `""`, params.Type == "mousePressed" && c.proxy.recording()
+	if journaled {
+		expression = fmt.Sprintf(describeElementExpression, params.X, params.Y)
+	}
+	var element string
 	probe, cancel := context.WithTimeout(c.ctx, deliveryBarrier)
-	// The page sees a real event shortly after the compositor accepted it; one round trip covers that.
-	_ = c.evaluate(probe, rootSession, "1", nil)
+	_ = c.evaluate(probe, rootSession, expression, &element)
 	cancel()
 	pressed := time.Now()
 	c.reply(message, json.RawMessage(`{}`), "")
-	if params.Type == "mousePressed" {
-		go c.journalPress(rootSession, surface, params, pressed)
+	if journaled {
+		c.proxy.journal.add("press", pressed, map[string]any{"targetId": surface.targetID, "x": params.X, "y": params.Y, "button": params.Button, "count": params.ClickCount, "element": element})
 	}
-}
-
-// journalPress records a press with a short description of what is under the pointer. It runs after
-// the reply, so the click path pays nothing for it.
-func (c *cdpProxyConn) journalPress(sessionID string, surface cdpSurface, params cdpInputParams, pressed time.Time) {
-	var element string
-	ctx, cancel := context.WithTimeout(c.ctx, pageProbeTimeout)
-	defer cancel()
-	_ = c.evaluate(ctx, sessionID, fmt.Sprintf(describeElementExpression, params.X, params.Y), &element)
-	c.proxy.journal.add("press", pressed, map[string]any{"targetId": surface.targetID, "x": params.X, "y": params.Y, "button": params.Button, "count": params.ClickCount, "element": element})
 }
 
 // describeElementExpression names the element at a point as tag#id "text", at most 60 characters of text.
@@ -415,5 +422,7 @@ func (c *cdpProxyConn) releaseHeld() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), pageProbeTimeout)
 	defer cancel()
-	_ = c.proxy.pointer.send(ctx, "button %d %d 0", held.surface, held.code)
+	if c.proxy.pointer.send(ctx, "button %d %d 0", held.surface, held.code) == nil {
+		c.proxy.pointer.update(held.surface, func(state *cdpPointerState) { state.down = false })
+	}
 }

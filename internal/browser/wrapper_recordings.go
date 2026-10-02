@@ -67,6 +67,7 @@ type wrapperRecording struct {
 	viewport          compositorViewport
 	finalizing        bool
 	replacing         bool
+	unsalvaged        bool // the pipeline exited; refreshRecordings still has to keep what it captured
 	clientID          string
 	operationMu       *sync.Mutex
 }
@@ -192,7 +193,7 @@ func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording w
 	http.ServeFile(w, req, recording.Path)
 }
 
-// recordingGateWait bounds how long starting or stopping a recording waits for a browser call.
+// recordingGateWait bounds how long starting, stopping or annotating a recording waits for a browser call.
 const recordingGateWait = 30 * time.Second
 
 // acquireGate takes the slot that serializes browser calls with recording start and stop: a start
@@ -208,8 +209,8 @@ func (session *liveSession) acquireGate(ctx context.Context) (func(), error) {
 	return func() { once.Do(func() { <-session.gate }) }, nil
 }
 
-func (session *liveSession) acquireRecordingGate() (func(), error) {
-	ctx, cancel := context.WithTimeout(session.runtime.ctx, recordingGateWait)
+func (session *liveSession) acquireRecordingGate(ctx context.Context) (func(), error) {
+	ctx, cancel := context.WithTimeout(ctx, recordingGateWait)
 	defer cancel()
 	release, err := session.acquireGate(ctx)
 	if err != nil {
@@ -242,7 +243,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		return wrapperRecording{}, errors.New("target registry is unavailable")
 	}
 	// The gate comes before recordingMu: nothing that holds recordingMu waits for the gate.
-	release, err := session.acquireRecordingGate()
+	release, err := session.acquireRecordingGate(r.ctx)
 	if err != nil {
 		return wrapperRecording{}, err
 	}
@@ -336,6 +337,9 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		operationMu:       &sync.Mutex{},
 	}
 	session.recordings[id] = recording
+	// Event-driven stops and failures wait on this until the start is over, so they never see a half-started pipeline.
+	recording.operationMu.Lock()
+	defer recording.operationMu.Unlock()
 	session.setRecordingStatusLocked(recording, wrapperRecordingStarting)
 	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segmentPath, fps, bitrateKbps, codec)
 	if err != nil {
@@ -352,8 +356,15 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	r.mu.Unlock()
 	session.broadcastRecordings()
 	// The gate is still held, so the first automation is admitted only once frame 0 exists.
-	if err := clock.waitForFirstFrame(r.ctx); err != nil {
-		_ = stopRecordingSegment(recording)
+	repaint := func() {
+		_, _ = sendCompositorControlCommand(r.ctx, r.controlSocket, "output-repaint "+target.CaptureID+"\n")
+	}
+	if err := clock.waitForFirstFrame(r.ctx, repaint, done); err != nil {
+		if errors.Is(err, errCapturePipelineExited) {
+			recording.cmd, recording.done = nil, nil
+		} else {
+			_ = stopRecordingSegment(recording)
+		}
 		_, _ = session.failRecording(recording, "start_failed", err)
 		session.broadcastRecordings()
 		return wrapperRecording{}, err
@@ -456,7 +467,10 @@ func (session *liveSession) stopRecording(recordingID string, reason string) (wr
 // events (a closed target, a gone client, the session ending) do not wait for the gate: they can
 // run while recordingMu is held, which a starting recording needs after it took the gate.
 func (session *liveSession) stopRecordingRequested(recordingID string, reason string) (wrapperRecording, error) {
-	release, err := session.acquireRecordingGate()
+	if status, found := session.recording(recordingID); !found || status.Status == wrapperRecordingStopped || status.Status == wrapperRecordingFailed {
+		return session.stopRecordingForTarget(recordingID, "", reason) // nothing to wait for
+	}
+	release, err := session.acquireRecordingGate(session.runtime.ctx)
 	if err != nil {
 		return wrapperRecording{}, err
 	}
@@ -1046,13 +1060,26 @@ func (session *liveSession) setRecordingStatusLocked(recording *wrapperRecording
 }
 
 // refreshRecordings notices capture pipelines that have exited, which stops their recordings
-// counting for the automation cadence.
+// counting for the automation cadence, and keeps what they captured, outside the lock.
 func (session *liveSession) refreshRecordings() {
 	r := session.runtime
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	var exited []*wrapperRecording
 	for _, recording := range session.recordings {
 		session.refreshRecordingLocked(recording)
+		if recording.unsalvaged {
+			exited = append(exited, recording)
+		}
+	}
+	r.mu.Unlock()
+	for _, recording := range exited {
+		salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path)
+		r.mu.Lock()
+		recording.unsalvaged = false
+		if salvaged != "" {
+			recording.Path = salvaged
+		}
+		r.mu.Unlock()
 	}
 }
 
@@ -1082,7 +1109,5 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 	recording.StopReason = "pipeline_exited"
 	stoppedAt := time.Now().UTC()
 	recording.StoppedAt = &stoppedAt
-	if salvaged := abandonRecordingSegments(recording.segmentDir, recording.Path); salvaged != "" {
-		recording.Path = salvaged
-	}
+	recording.unsalvaged = true
 }

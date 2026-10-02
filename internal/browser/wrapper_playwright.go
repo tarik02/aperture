@@ -44,7 +44,7 @@ func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession
 		pointer = newCDPPointer(r.controlSocket, r.pointerSurface, liveSession.journal)
 		liveSession.pointer = pointer
 	}
-	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer, liveSession.journal)
+	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer, liveSession.journal, func() bool { return liveSession.activeRecordings.Load() > 0 })
 	endpoint, err := proxy.serve(ctx)
 	if err != nil {
 		return err
