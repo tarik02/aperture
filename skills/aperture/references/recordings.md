@@ -1,94 +1,61 @@
 # Recordings
 
-Apply the credential and tenant-selection rules from [authentication.md](authentication.md). For interactive recording commands, also read [live-session.md](live-session.md).
+A recording captures one browser target of a running session into a session file under `recordings/`. Stopping it on request also makes the recording edit: a timeline of what the automation did and, when the recording asked for cuts, captions, zooms or ripples, an H.264 video. The raw video is always kept.
 
-## Live-session HTTP routes
+## One recording, three surfaces
 
-- `GET /sessions/:sessionId/recordings` — list recordings, `sessions:write`, `sessionToken`, or an editor capability
-- `POST /sessions/:sessionId/recordings` — start a recording, `sessions:write`, `sessionToken`, or an editor capability
-- `GET /sessions/:sessionId/recordings/:recordingId` — recording status, `sessions:write`, `sessionToken`, or an editor capability
-- `POST /sessions/:sessionId/recordings/:recordingId/stop` — stop and download, `sessions:write`, `sessionToken`, or an editor capability
-- `GET /sessions/:sessionId/recordings/:recordingId/content` — download a stopped recording, `sessions:write`, `sessionToken`, or an editor capability
+| | Live-session HTTP (`/sessions/:id/recordings…`) | API (`/api/sessions/:id/recordings…`) | MCP |
+|---|---|---|---|
+| Credentials | API `sessions:write`, `aps_`, `ape_` | API `sessions:write` | API token or `aps_` |
+| Start | `POST …/recordings` | `POST …/recordings` | `recording.start` |
+| List, status | `GET …/recordings`, `GET …/recordings/:rid` | same paths | `recording.list`, `recording.status` |
+| Retarget | — | `POST …/recordings/:rid/retarget {targetId}` | `recording.retarget` |
+| Stop | `POST …/recordings/:rid/stop` answers with the raw media bytes | `POST …/recordings/:rid/stop` answers with the recording | `recording.stop` answers with the recording |
+| Download later | `GET …/recordings/:rid/content` of a `stopped` recording | a signed URL for the `relativePath` ([session-files.md](session-files.md#download)) | same |
+| Annotate | `POST …/recordings/annotations/{caption,focus,attention}` | — | `recording.caption`, `recording.focus`, `recording.attention` |
 
-Tab recording body:
+Interactive clients use the `recording.start`, `recording.stop` and `recording.cancel` commands of the [session protocol](live-session.md#session-protocol) instead, with the same fields; after `recording.stop.result`, fetch `/content` rather than stopping again. The API routes and their bodies are in the spec; the live-session and MCP bodies are the same fields.
 
-```json
-{
-  "mode": "tab",
-  "targetId": "TARGET_ID",
-  "fps": 60,
-  "bitrateKbps": 6000,
-  "codec": "vp8"
-}
-```
+**Start body.** `targetId` of a ready top-level target (from `browser.targets` or `browser/status`), with optional `fps`, `bitrateKbps`, `codec` (`vp8` or `h264-va`; the latter is refused where the host lacks VA-API, `422` / `recording_codec_unavailable`), `path` below `recordings/` (ignored for `aps_` and `ape_` callers), the [edit settings](#edit-settings), and over live-session HTTP `mode` (`tab`, or `viewer` with the `clientId` of a connected client, which then follows that client's selected target and stops when the client is gone for five seconds) and an optional `clientId` for a tab recording that should stop with that client. API and MCP start tab recordings only. Several recordings may run at once.
 
-Viewer recording body:
+**Recording object.** `recordingId`, `mode`, `targetId`, `captureGeneration`, `status` (`starting`, `running`, `stopped`, `failed`), `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, `codec`, `editing`; once over, `stopReason`, `stoppedAt`, `sizeBytes`, and once `editing` is false again, `editedRelativePath`, `timelineRelativePath` or `editError {code, message}`. Host paths never appear. A failed recording keeps what it captured as `…-failed` files, and `relativePath` points at the first.
 
-```json
-{
-  "mode": "viewer",
-  "targetId": "TARGET_ID",
-  "clientId": "CLIENT_UUID"
-}
-```
+**Targets.** `targetId` is an opaque Aperture target id; it survives navigation and ends when the page closes. Retargeting keeps the recording, its path, timeline and settings, records the old target until the new one is ready, is idempotent for the current target, and is refused for viewer, stopped and failed recordings.
 
-`targetId` must identify a ready top-level target. A tab recording stays pinned to it. A viewer recording follows the selected target of the connected `clientId`; `clientId` is required for viewer mode. Pass `clientId` with a tab recording when it should also stop if that client disconnects. Multiple recordings may run concurrently.
+## Gate and journal
 
-Optional edit settings, accepted by the start route and by `recording.start` (see [Editing a recording](#editing-a-recording)): `capture` (`continuous` or `bursts`), `presentation`, `idle` (`cut` or `speed`), `ripple`, and `burst`.
+Browser automation calls and recording start, stop and annotations share one gate: a start waits for a running browser call and returns only after the capture's first frame, so nothing happens before frame 0; a stop leaves the gate before the render begins. While a recording runs, automation goes at the recorded or presentation [cadence](live-session.md#automation-pacing) and is journaled: pointer glides, presses and wheel input, smooth reveal scrolls, a span for every browser tool whose `readOnlyHint` is not true, and the explicit annotations.
 
-Supported codecs are `vp8` and `h264-va`; `h264-va` is rejected up front where the host's GStreamer lacks its VA-API elements (`422`, or `recording_codec_unavailable` through the API). Omitted or non-positive FPS and bitrate values use instance defaults. Omit `path` to generate a file in the session's `recordings` directory. A supplied `path` is a session file path below `recordings/`, such as `recordings/demo/intro.webm`; missing directories are created. Session tokens cannot override the generated path.
+### Annotations
 
-Start and status return `recordingId`, `mode`, `targetId`, `captureGeneration`, `status`, `relativePath`, `sandboxPath`, `startedAt`, `fps`, `bitrateKbps`, and `codec`; host paths are never returned. `path` repeats `relativePath` for older clients and is deprecated. Completed jobs may also include `stopReason`, `stoppedAt`, `sizeBytes`, and, after an edit, `editedRelativePath`, `timelineRelativePath` and `editError`. When a recording fails, what it captured is kept as `…-failed` files next to its target and `relativePath` points at the first one. Status is `starting`, `running`, `stopped`, or `failed`. The list route returns an array of these objects.
+They act on the recording named by `recordingId`, or on the only running one; with none or several running and no id, they fail. Coordinates are CSS pixels of the recorded tab's viewport; a `selector` is resolved in its top-level document.
 
-Stopping blocks until the edit is done (see below). The live-session HTTP stop request finalizes the recording and serves the completed media attachment. Interactive clients start and stop through `aperture-session.v1`; after `recording.stop.result`, fetch `/content` to download without issuing a second stop.
+- `caption`: `text` (1 to 200 characters), `durationMs` (200 to 30000, default 3000). Returns at once; the text is burned in from that moment.
+- `focus`: `rect {x, y, width, height}` or `selector`, `zoom` (above 1, up to 4), `durationMs` (200 to 10000, default 2000). Blocks for the duration and no browser tool runs meanwhile. Focus windows under half a second apart stay zoomed and pan between.
+- `attention`: `point {x, y}` or `selector`, `radius` (8 to 300, default 40), `loops` (1 to 5, default 2), `durationMs` (300 to 5000, default 1200). Circles the real pointer around the place, so it needs a compositor session and the session's input to be free; blocks for the duration.
 
-## Formal API
+## Edit settings
 
-These routes require `sessions:write`:
+On every start surface:
 
-- `POST /api/sessions/:sessionId/recordings` — start a tab recording
-- `GET /api/sessions/:sessionId/recordings` — list recordings
-- `GET /api/sessions/:sessionId/recordings/:recordingId` — get recording status
-- `POST /api/sessions/:sessionId/recordings/:recordingId/retarget` — move a running tab recording to another ready target
-- `POST /api/sessions/:sessionId/recordings/:recordingId/stop` — stop and return the completed `SessionFile` of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them
+| Setting | Values | Effect |
+|---|---|---|
+| `capture` | `continuous` (default), `bursts` | `bursts` keeps only the stretches around non-read-only browser tool calls and follows the tab the automation acts on |
+| `burst` | `{leadMs, tailMs, settleMs, maxTailMs}`, each 0 to 60000, 0 meaning the default | a stretch runs from `leadMs` (500) before the call to `tailMs` (800) after it, extended until the screen has stood still for `settleMs` (400) but never past `maxTailMs` (3000); `tailMs` may not exceed `maxTailMs`; overlapping stretches merge; focus and attention windows are kept too; only with `bursts` |
+| `idle` | `cut`, `speed` | removes, or plays at ×8, the stretches of a continuous recording where neither the screen nor the automation changes (a little padding stays); not with `bursts` |
+| `ripple` | bool | draws a ripple on every click |
+| `presentation` | bool | runs automation at presentation cadence while recording |
 
-Public recording results use `relativePath`; absolute host paths are never returned. The formal stop route finalizes without media transfer and returns the completed session file with `name`, `relativePath`, `size`, `modifiedAt`, and `mimeType`, plus `sandboxPath`.
+Contradictory settings are refused at start (`validation_failed` over the API, `400` from the session). Idle detection counts only changes at 5 fps or more as activity, so a slow spinner is idle.
 
-## MCP
+## What a stop produces
 
-MCP exposes `recording.start`, `recording.list`, `recording.status`, `recording.retarget`, and `recording.stop`. MCP starts tab recordings only. Call `browser.targets` and select a target whose `state` is `ready` before starting or retargeting a recording. Central tools take `sessionId` and tenant selection where required; session-bound tools bind the session from the URL. `recording.start` takes `targetId` and optional `fps`, `bitrateKbps`, `codec`, and the edit settings. `recording.stop` returns the recording with its edit. Status and stop take `recordingId`; retarget takes both `recordingId` and the ready destination `targetId`.
+Only a requested stop edits; a recording that ends because its tab closed, its client left or the session ended keeps the raw video alone, without `editError`. The stop returns as soon as the raw video is published: the recording is `stopped` with `editing: true`, and the edit runs on its own for about as long as the recording, at most 30 minutes. Poll status (or watch `recordings.state` on the live session) until `editing` is false. A second stop meanwhile returns the current state; `recording.cancel`, suspending, deleting or closing the session ends the edit with `editError.code` `cancelled`. A running edit counts as session activity, so the session does not idle-suspend under it.
 
-## Lifecycle
+Next to the raw video, named like it and never overwriting: `<name>.timeline.json` whenever the journal has anything, and `<name>.edited.mp4` when something is to be applied (cuts, captions, focus, ripples). A recording with no settings and no annotations is not edited. Segments recorded after a resize are scaled to the first segment's size.
 
-Viewer recordings belong to a live session client and follow that client's selected top-level target. They stop after the client's five-second transport recovery window expires. HTTP and MCP callers start tab recordings because they have no session-client lifecycle.
+The timeline holds `segments`, the `map` from raw to edited time when a video was made, and `events`: tool calls, glides, presses, wheel input, reveals, captions, focus and attention, each with `startMs` and `endMs` in raw time and `editedStartMs` and `editedEndMs` in edited time.
 
-Treat `targetId` as the opaque identifier of an Aperture top-level target. Retargeting keeps the same logical recording, output path, timeline, and settings. Aperture keeps recording the current target until the destination is ready. Sending the current target is idempotent. Viewer, stopped, and failed recordings cannot be explicitly retargeted.
+`editError.code` is one of `ffmpeg_unavailable`, `open_failed`, `nothing_kept` (a bursts recording with no call to keep), `analysis_failed`, `plan_failed`, `render_failed`, `timeout`, `cancelled` or `timeline_failed`. The raw video is there whatever the code.
 
-## Annotating a running recording
-
-While a recording runs, Aperture journals the browser automation of its session for later editing: the pointer's travel, presses and wheel input, smooth reveal scrolls, and a span for each browser tool call that is not read-only. Automation runs at recorded pace while a recording runs (see the cadence in the live-session reference).
-
-`recording.caption`, `recording.focus` and `recording.attention` add explicit annotations. They act on the recording named by `recordingId`, or on the only running recording; they fail when none is running, or when several are and no `recordingId` is given. Coordinates are CSS pixels of the recorded tab's viewport, and a `selector` is resolved in its top-level document.
-
-- `recording.caption` takes `text` (1 to 200 characters) and optional `durationMs` (default 3000) and returns at once.
-- `recording.focus` takes a `rect` or a `selector`, a `zoom` above 1 and up to 4, and optional `durationMs` (200 to 10000, default 2000). It blocks for the duration, and no browser tool runs meanwhile.
-- `recording.attention` takes a `point` or a `selector` and optional `radius` (default 40), `loops` (default 2) and `durationMs` (default 1200). It circles the real pointer around the place and blocks for the duration. It needs a compositor session and the session's input to be free.
-
-Starting or stopping a recording waits for a browser call that is running, and a start returns once the capture's first frame exists, so no automation happens before the video begins.
-
-## Editing a recording
-
-Stopping a recording publishes its raw video next to a timeline, `<name>.timeline.json`, when the recording journaled anything, and, when something is to be applied, an H.264 video, `<name>.edited.mp4`. Names are numbered like the raw video's when they exist; nothing is overwritten. The stop returns only after the edit is done, which takes about as long as the recording (at most 30 minutes). Clients should allow for that. Only a requested stop edits; a recording that stops because its tab closed, its client left or the session ended keeps its raw video alone, with no `editError`. A second stop while one is finalizing waits for the same result. Closing the session ends a running edit with `editError` `cancelled`; the raw video stays.
-
-Edit settings on `recording.start`:
-
-- `capture`: `continuous` (default) or `bursts`. With `bursts` the edited video keeps only the stretches around browser tool calls that are not read-only, and the recording follows the tab the automation acts on. A stretch runs from `burst.leadMs` before the call (default 500) to `burst.tailMs` after it (800), longer until the screen has stood still for `burst.settleMs` (400) but at most `burst.maxTailMs` (3000) after the call. Overlapping stretches merge. Explicit `recording.focus` and `recording.attention` are kept too. Zero or missing burst fields take the defaults.
-- `idle`: `cut` or `speed` (8 times faster) for the stretches of a continuous recording in which neither the screen nor the automation changes. A little padding stays around everything that happens. `idle` is rejected with `bursts`, and so is `burst` without them.
-- `ripple`: mark each click with a ripple.
-- `presentation`: run automation at presentation pace while recording.
-
-Captions from `recording.caption` are burned in, and each `recording.focus` zooms inside its window only; focus windows less than half a second apart stay zoomed in between and pan. There is no automatic zoom. A recording with none of these settings or annotations is not edited. Frames of a later segment of a recording that changed size are scaled to the first segment's size.
-
-The raw video is always published. If the edit fails the stop still succeeds and the recording has `editError` with a `code` (`ffmpeg_unavailable`, `open_failed`, `nothing_kept`, `analysis_failed`, `plan_failed`, `render_failed`, `timeout`, `cancelled` or `timeline_failed`; `nothing_kept` is a bursts recording with no browser call to keep) and a `message`. The timeline holds `segments`, the `map` from raw to edited time when an edit exists, and `events`: the journal's tool calls, pointer glides, presses, wheel input, reveal scrolls, captions, focus and attention, with `startMs` and `endMs` in raw video milliseconds and `editedStartMs` and `editedEndMs` in the edited video's.
-
-Edits need ffmpeg with libx264, libass and fontconfig fonts; the Nix image ships it and sets `recording_ffmpeg_executable` (`--recording-ffmpeg-executable`) to an absolute path. Without it recordings still work and report `ffmpeg_unavailable`.
+Edits need `recording_ffmpeg_executable` on the instance (the Nix image sets it). Without it, `capture: bursts`, `idle` and `ripple` are refused at start; `presentation` alone still works, since it only paces.
