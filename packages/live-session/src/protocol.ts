@@ -205,6 +205,7 @@ const CommandResult = Schema.Struct({
     "viewport.owner.claim.result",
     "presentation.quality.set.result",
     "presentation.cursor.set.result",
+    "automation.pacing.set.result",
     "recording.start.result",
     "recording.stop.result",
     "recording.cancel.result",

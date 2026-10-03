@@ -20,7 +20,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func newSessionTestEnv(t *testing.T) *testEnv {
+func newSessionTestEnv(t *testing.T, configure ...func(*config.Config)) *testEnv {
 	t.Helper()
 
 	env := newTestEnv(t)
@@ -44,6 +44,9 @@ func newSessionTestEnv(t *testing.T) *testEnv {
 		CdpRouteBasePath: "/cdp",
 		LogLevel:         "info",
 	}
+	for _, option := range configure {
+		option(&cfg)
+	}
 
 	channels, err := browser.NewRegistry(cfg)
 	if err != nil {
@@ -57,8 +60,9 @@ func newSessionTestEnv(t *testing.T) *testEnv {
 	sessions := session.NewService(cfg, env.repo, &sessionHandlerFakeOverlay{cfg: cfg}, browserSupervisor, channels, traefik.NoopReconciler{})
 	sessions.SetCDPReadyWaiter(func(context.Context, int) error { return nil })
 
-	server := &Server{Auth: env.service, Sessions: sessions, Channels: channels}
+	server := &Server{Config: cfg, Auth: env.service, Sessions: sessions, Channels: channels}
 	env.router = NewRouter(zap.NewNop(), server, nil, cfg.CdpRouteBasePath)
+	env.server = server
 	return env
 }
 

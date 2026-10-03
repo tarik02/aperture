@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/aperture/aperture/internal/recording"
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
@@ -73,7 +75,17 @@ type liveSession struct {
 	paintTokens    float64
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
-	cursorVisible  bool
+	// finalize edits a stopped recording; nil means finalizeRecording. Tests stub it.
+	finalize func(ctx context.Context, recording *wrapperRecording, video *os.File, raw string) (edited, timeline string, failure *recording.EditError)
+	// activeRecordings and presentationRecordings are read by the automation cadence, which must
+	// never wait on the runtime lock.
+	activeRecordings       atomic.Int32
+	presentationRecordings atomic.Int32
+	// gate is the slot that serializes browser calls with recording start and stop; see acquireGate.
+	gate chan struct{}
+	// pointer is the compositor pointer automation moves; nil without a compositor.
+	pointer       *cdpPointer
+	cursorVisible bool
 	// viewportOwner is the only session client whose auto-size requests resize targets.
 	viewportOwner    *liveSessionClient
 	autoSizeSequence uint64
@@ -106,6 +118,7 @@ type liveSessionClient struct {
 	recoveryGeneration        uint64
 	realtimeCounter           uint64
 	outboundRealtimeCounter   atomic.Uint64
+	watchable                 atomic.Bool // the client asked for automation it can follow
 	pressedButtons            map[uint32]struct{}
 	pressedKeys               map[string]struct{}
 	name                      string
@@ -191,6 +204,13 @@ type liveSessionClientMessage struct {
 	Visible               *bool   `json:"visible"`
 	AutoSize              *bool   `json:"autoSize"`
 	Enabled               *bool   `json:"enabled"`
+	Pacing                string  `json:"pacing"`
+	// recording.start's edit settings; see recording.Config.
+	Presentation bool             `json:"presentation"`
+	Capture      string           `json:"capture"`
+	Idle         string           `json:"idle"`
+	Ripple       bool             `json:"ripple"`
+	Burst        *recording.Burst `json:"burst"`
 }
 
 type liveSessionParticipant struct {
@@ -271,6 +291,7 @@ func newLiveSession(runtime *wrapperRuntime) (*liveSession, error) {
 		browser:       newLiveSessionBrowser(runtime),
 		clients:       make(map[string]*liveSessionClient),
 		recordings:    make(map[string]*wrapperRecording),
+		gate:          make(chan struct{}, 1),
 		cursorVisible: true,
 	}, nil
 }
@@ -285,6 +306,7 @@ func (session *liveSession) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			session.expireLease()
+			session.refreshRecordings()
 			session.mu.Lock()
 			hasClients := len(session.clients) > 0
 			session.mu.Unlock()

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 //go:embed profiles.json
@@ -146,11 +147,24 @@ func ToolsForProfilesMetadata(profiles []string) (map[string]Tool, error) {
 	return tools, nil
 }
 
+var embeddedMetadata = sync.OnceValues(MetadataFromEmbedded)
+
 func HasTool(name string) bool {
-	metadata, err := MetadataFromEmbedded()
+	metadata, err := embeddedMetadata()
 	if err != nil {
 		return false
 	}
 	_, ok := metadata.Tools[name]
 	return ok
+}
+
+// ReadOnly reports whether a tool declares readOnlyHint, that it changes nothing in the browser.
+func ReadOnly(name string) bool {
+	metadata, err := embeddedMetadata()
+	if err != nil {
+		return false
+	}
+	annotations, _ := metadata.Tools[name].Annotations.(map[string]any)
+	readOnly, _ := annotations["readOnlyHint"].(bool)
+	return readOnly
 }
