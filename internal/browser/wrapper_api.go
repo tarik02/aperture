@@ -135,6 +135,7 @@ type WrapperActivityStatus struct {
 	ViewerConnected   bool `json:"viewerConnected"`
 	CDPConnections    int  `json:"cdpConnections"`
 	RecordingsRunning int  `json:"recordingsRunning"`
+	RecordingsEditing int  `json:"recordingsEditing"`
 }
 
 func newWrapperRuntime(values RuntimeEnvValues, controlSocket string) *wrapperRuntime {
@@ -527,12 +528,14 @@ func (r *wrapperRuntime) handleStatus(w http.ResponseWriter, req *http.Request) 
 func (r *wrapperRuntime) handleActivity(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	running, editing := r.liveSession.activeRecordingCountLocked(), r.liveSession.editingRecordingCountLocked()
 	writeWrapperJSON(w, http.StatusOK, WrapperActivityStatus{
-		Active:            r.activeRequests > 0 || r.liveSession.activeRecordingCountLocked() > 0,
+		Active:            r.activeRequests > 0 || running > 0 || editing > 0,
 		ActiveRequests:    r.activeRequests,
 		ViewerConnected:   len(r.viewers) > 0,
 		CDPConnections:    r.cdpConnections,
-		RecordingsRunning: r.liveSession.activeRecordingCountLocked(),
+		RecordingsRunning: running,
+		RecordingsEditing: editing,
 	})
 }
 

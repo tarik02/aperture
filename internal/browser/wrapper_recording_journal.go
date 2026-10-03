@@ -58,6 +58,7 @@ func (j *recordingJournal) append(line []byte) {
 	j.size += len(line)
 }
 
+// droppedEntries counts the entries the budget or a write failure lost.
 func (j *recordingJournal) droppedEntries() int {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -90,7 +91,7 @@ func (session *liveSession) journal(kind string, started time.Time, fields map[s
 	journals := make([]*recordingJournal, 0, len(session.recordings))
 	targetID, _ := fields["targetId"].(string)
 	for _, recording := range session.recordings {
-		if recording.Status == wrapperRecordingRunning && !recording.finalizing {
+		if recording.Status == wrapperRecordingRunning && !recording.stopping {
 			journals = append(journals, recording.journal)
 			if recording.follow != nil && targetID != "" && targetID != recording.TargetID {
 				select { // the latest target wins

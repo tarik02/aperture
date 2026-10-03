@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/aperture/aperture/internal/recording"
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
@@ -73,6 +75,8 @@ type liveSession struct {
 	paintTokens    float64
 	paintTokensAt  time.Time
 	recordings     map[string]*wrapperRecording
+	// finalize edits a stopped recording; nil means finalizeRecording. Tests stub it.
+	finalize func(ctx context.Context, recording *wrapperRecording, video *os.File, raw string) (edited, timeline string, failure *recording.EditError)
 	// activeRecordings and presentationRecordings are read by the automation cadence, which must
 	// never wait on the runtime lock.
 	activeRecordings       atomic.Int32
@@ -201,6 +205,12 @@ type liveSessionClientMessage struct {
 	AutoSize              *bool   `json:"autoSize"`
 	Enabled               *bool   `json:"enabled"`
 	Pacing                string  `json:"pacing"`
+	// recording.start's edit settings; see recording.Config.
+	Presentation bool             `json:"presentation"`
+	Capture      string           `json:"capture"`
+	Idle         string           `json:"idle"`
+	Ripple       bool             `json:"ripple"`
+	Burst        *recording.Burst `json:"burst"`
 }
 
 type liveSessionParticipant struct {

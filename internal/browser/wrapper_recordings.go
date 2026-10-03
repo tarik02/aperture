@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aperture/aperture/internal/paths"
+	"github.com/aperture/aperture/internal/recording"
 	"github.com/aperture/aperture/internal/sessionfiles"
 	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
@@ -61,22 +62,27 @@ type wrapperRecording struct {
 	segmentDir        string
 	segments          []*recordingSegment
 	journal           *recordingJournal
-	presentation      bool // the recording is meant to be watched: automation acts at presentation pace
-	config            recordingConfig
-	follow            chan string         // bursts: the target the latest automation acted on, for followAutomation
-	cancelFollow      context.CancelFunc  // ends followAutomation
-	cancelEdit        context.CancelFunc  // ends the render of a finalizing recording
-	EditedPath        string              `json:"-"` // the edited video, when the stop made one
-	TimelinePath      string              `json:"-"`
-	EditError         *recordingEditError `json:"editError,omitempty"`
-	cmd               *exec.Cmd
-	done              <-chan error
-	viewport          compositorViewport
-	finalizing        bool
-	replacing         bool
-	unsalvaged        bool // the pipeline exited; refreshRecordings still has to keep what it captured
-	clientID          string
-	operationMu       *sync.Mutex
+	config            recording.Config
+	follow            chan string        // bursts: the target the latest automation acted on, for followAutomation
+	cancelFollow      context.CancelFunc // ends followAutomation
+	// Editing says the stop's edit is still running; the raw video is already published. The edit
+	// fields are filled when it ends.
+	Editing      bool                    `json:"editing"`
+	cancelEdit   context.CancelCauseFunc // ends the edit; the cause says why
+	editDone     chan struct{}           // closed when the edit has ended
+	EditedPath   string                  `json:"-"` // the edited video, when the stop made one
+	TimelinePath string                  `json:"-"`
+	EditError    *recording.EditError    `json:"editError,omitempty"`
+	cmd          *exec.Cmd
+	done         <-chan error
+	viewport     compositorViewport
+	// stopping says the capture is being stopped: the recording takes no more journal entries, no
+	// longer counts as active, and its pipeline's exit is expected.
+	stopping    bool
+	replacing   bool
+	unsalvaged  bool // the pipeline exited; refreshRecordings still has to keep what it captured
+	clientID    string
+	operationMu *sync.Mutex
 }
 
 type wrapperRecordingRequest struct {
@@ -87,9 +93,7 @@ type wrapperRecordingRequest struct {
 	BitrateKbps int                  `json:"bitrateKbps"`
 	Codec       string               `json:"codec"`
 	Path        string               `json:"path"`
-	// Presentation makes automation act at presentation pace while the recording runs.
-	Presentation bool `json:"presentation"`
-	recordingConfig
+	recording.Config
 }
 
 type wrapperRecordingRetargetRequest struct {
@@ -109,12 +113,12 @@ func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Re
 		if req.Header.Get("X-Aperture-Actor-Kind") == "session_capability" {
 			body.Path = ""
 		}
-		recording, err := session.startRecording(body)
+		started, err := session.startRecording(body)
 		if errors.Is(err, errWrapperRecordingCodecUnavailable) {
 			writeWrapperError(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		if errors.Is(err, errRecordingConfigInvalid) {
+		if errors.Is(err, recording.ErrInvalid) {
 			writeWrapperError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -122,7 +126,7 @@ func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Re
 			writeWrapperError(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeWrapperJSON(w, http.StatusCreated, recording)
+		writeWrapperJSON(w, http.StatusCreated, started)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -222,10 +226,13 @@ func (session *liveSession) acquireGate(ctx context.Context) (func(), error) {
 }
 
 func (session *liveSession) acquireRecordingGate(ctx context.Context) (func(), error) {
-	ctx, cancel := context.WithTimeout(ctx, recordingGateWait)
+	waitCtx, cancel := context.WithTimeout(ctx, recordingGateWait)
 	defer cancel()
-	release, err := session.acquireGate(ctx)
+	release, err := session.acquireGate(waitCtx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("wait for the browser call to end: %w", ctx.Err())
+		}
 		return nil, errors.New("a browser call is still running; try again")
 	}
 	return release, nil
@@ -233,7 +240,8 @@ func (session *liveSession) acquireRecordingGate(ctx context.Context) (func(), e
 
 func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
 	r := session.runtime
-	if err := request.validate(); err != nil {
+	// The daemon checked the config already; live-session clients reach the wrapper without it.
+	if err := request.Validate(); err != nil {
 		return wrapperRecording{}, err
 	}
 	if request.ClientID != "" {
@@ -247,6 +255,9 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	case wrapperRecordingModeViewer:
 		if request.ClientID == "" {
 			return wrapperRecording{}, errors.New("viewer recording requires a valid clientId")
+		}
+		if request.Capture == recording.CaptureBursts { // a viewer recording follows its client, so it cannot follow automation
+			return wrapperRecording{}, fmt.Errorf("%w: capture bursts applies to tab recordings, not to viewer recordings", recording.ErrInvalid)
 		}
 	default:
 		return wrapperRecording{}, errors.New("recording mode must be tab or viewer")
@@ -319,18 +330,6 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		return wrapperRecording{}, errors.New("target is not ready")
 	}
 
-	r.mu.Lock()
-	active := 0
-	for _, recording := range session.recordings {
-		if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
-			active++
-		}
-	}
-	if active >= wrapperRecordingCapacity {
-		r.mu.Unlock()
-		_ = os.RemoveAll(segmentDir)
-		return wrapperRecording{}, fmt.Errorf("recording capacity of %d is exhausted", wrapperRecordingCapacity)
-	}
 	recording := &wrapperRecording{
 		ID:                id,
 		Mode:              request.Mode,
@@ -346,11 +345,27 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		segmentDir:        segmentDir,
 		segments:          []*recordingSegment{newRecordingSegment(segmentPath, target)},
 		journal:           newRecordingJournal(segmentDir),
-		presentation:      request.Presentation,
-		config:            request.recordingConfig,
+		config:            request.Config,
 		viewport:          target.Viewport,
 		clientID:          request.ClientID,
 		operationMu:       &sync.Mutex{},
+	}
+	// Event-driven stops and failures wait on this until the start is over, so they never see a
+	// half-started pipeline. It is taken while the recording is still private, before r.mu, which
+	// is the order every other operation takes the two in.
+	recording.operationMu.Lock()
+	defer recording.operationMu.Unlock()
+	r.mu.Lock()
+	active := 0
+	for _, other := range session.recordings {
+		if other.Status == wrapperRecordingStarting || other.Status == wrapperRecordingRunning {
+			active++
+		}
+	}
+	if active >= wrapperRecordingCapacity {
+		r.mu.Unlock()
+		_ = os.RemoveAll(segmentDir)
+		return wrapperRecording{}, fmt.Errorf("recording capacity of %d is exhausted", wrapperRecordingCapacity)
 	}
 	if request.Capture == "bursts" {
 		var followCtx context.Context
@@ -359,14 +374,10 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		go session.followAutomation(followCtx, recording)
 	}
 	session.recordings[id] = recording
-	// Event-driven stops and failures wait on this until the start is over, so they never see a half-started pipeline.
-	recording.operationMu.Lock()
-	defer recording.operationMu.Unlock()
 	session.setRecordingStatusLocked(recording, wrapperRecordingStarting)
 	cmd, done, clock, err := startWrapperScreencast(r.ctx, r.values, r.controlSocket, target.CaptureID, target.PipeWireTarget, target.Viewport, segmentPath, fps, bitrateKbps, codec)
 	if err != nil {
-		session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
-		recording.StopReason = "start_failed"
+		session.markFailedLocked(recording, "start_failed")
 		r.mu.Unlock()
 		_ = os.RemoveAll(segmentDir)
 		session.broadcastRecordings()
@@ -383,7 +394,9 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 	}
 	if err := clock.waitForFirstFrame(r.ctx, repaint, done); err != nil {
 		if errors.Is(err, errCapturePipelineExited) {
+			r.mu.Lock()
 			recording.cmd, recording.done = nil, nil
+			r.mu.Unlock()
 		} else {
 			_ = stopRecordingSegment(recording)
 		}
@@ -485,16 +498,16 @@ func (session *liveSession) stopRecording(recordingID string, reason string) (wr
 
 // stopRecordingRequested stops a recording on behalf of a client or the API. The recording leaves
 // the journal under the gate, so a browser call that is running finishes inside it; the stop's
-// slow part, joining and finalizing, runs after the gate is released. Stops that follow from
-// events (a closed target, a gone client, the session ending) do not wait for the gate: they can
-// run while recordingMu is held, which a starting recording needs after it took the gate. Nor do
-// they wait for a recording that is already finalizing, and they publish the raw video only.
+// slower part, joining and publishing the raw video, runs after the gate is released, and its
+// edit runs on after the stop has returned. Stops that follow from events (a closed target, a
+// gone client, the session ending) do not wait for the gate: they can run while recordingMu is
+// held, which a starting recording needs after it took the gate; and they publish the raw video only.
 func (session *liveSession) stopRecordingRequested(recordingID string, reason string) (wrapperRecording, error) {
-	// A recording that is done, or already being finalized by another stop, needs no gate: this
-	// stop only waits for that result, and must not hold the gate while it does.
+	// A recording that is done needs no gate, whether or not its edit still runs: this stop only
+	// reports its status, and must not hold the gate while it does.
 	settled := func() bool {
 		status, found := session.recording(recordingID)
-		return !found || status.Status == wrapperRecordingStopped || status.Status == wrapperRecordingFailed || status.finalizing
+		return !found || status.Status == wrapperRecordingStopped || status.Status == wrapperRecordingFailed
 	}
 	if settled() {
 		return session.stopRecordingForTarget(recordingID, "", reason)
@@ -504,11 +517,31 @@ func (session *liveSession) stopRecordingRequested(recordingID string, reason st
 		return wrapperRecording{}, err
 	}
 	defer release()
-	if settled() { // the stop ahead of this one finalized the recording while this waited for the gate
+	if settled() { // the stop ahead of this one ended the recording while this waited for the gate
 		release()
 		return session.stopRecordingForTarget(recordingID, "", reason)
 	}
 	return session.stopRecordingWithGate(recordingID, "", reason, release)
+}
+
+// cancelRecording stops a recording without an edit; a recording whose edit is running keeps the
+// raw video and loses the edit.
+func (session *liveSession) cancelRecording(recordingID string) (wrapperRecording, error) {
+	r := session.runtime
+	r.mu.Lock()
+	recording := session.recordings[recordingID]
+	var editDone chan struct{}
+	if recording != nil && recording.Editing {
+		recording.cancelEdit(errors.New("cancelled on request"))
+		editDone = recording.editDone
+	}
+	r.mu.Unlock()
+	if editDone == nil {
+		return session.stopRecordingRequested(recordingID, "canceled")
+	}
+	<-editDone
+	status, _ := session.recording(recordingID)
+	return status, nil
 }
 
 func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
@@ -519,28 +552,17 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 	r := session.runtime
 	r.mu.Lock()
 	recording := session.recordings[recordingID]
+	r.mu.Unlock()
 	if recording == nil {
-		r.mu.Unlock()
 		return wrapperRecording{}, errWrapperRecordingNotFound
 	}
-	if recording.finalizing && reason != "requested" {
-		status := *recording // a requested stop is rendering it; an event does not wait for that
-		r.mu.Unlock()
-		return status, nil
-	}
-	r.mu.Unlock()
 	defer session.broadcastRecordings()
 	recording.operationMu.Lock()
 	defer recording.operationMu.Unlock()
 
 	r.mu.Lock()
 	session.refreshRecordingLocked(recording)
-	if targetID != "" && recording.TargetID != targetID {
-		status := *recording
-		r.mu.Unlock()
-		return status, nil
-	}
-	if recording.Status == wrapperRecordingStopped {
+	if (targetID != "" && recording.TargetID != targetID) || recording.Status == wrapperRecordingStopped {
 		status := *recording
 		r.mu.Unlock()
 		return status, nil
@@ -550,66 +572,103 @@ func (session *liveSession) stopRecordingWithGate(recordingID string, targetID s
 		r.mu.Unlock()
 		return status, errors.New("recording has failed")
 	}
-	recording.finalizing = true
-	var editCtx context.Context
-	editCtx, recording.cancelEdit = context.WithCancel(r.ctx) // session close cancels the render
-	defer recording.cancelEdit()
+	recording.stopping = true
 	session.setRecordingStatusLocked(recording, recording.Status) // no longer counts as running
 	r.mu.Unlock()
 	releaseGate()
 
-	if err := stopRecordingSegment(recording); err != nil {
-		return session.failRecording(recording, "pipeline_failed", err)
-	}
-	if err := writeCaptureFacts(recording); err != nil {
-		return session.failRecording(recording, "finalize_failed", err)
-	}
-	source, err := session.joinRecordingSegments(recording)
+	source, failure, err := session.stopCapture(recording)
 	if err != nil {
-		return session.failRecording(recording, "finalize_failed", err)
+		return session.failRecording(recording, failure, err)
 	}
-	// Only a requested stop edits: the others come from events that cannot wait for ffmpeg. The
-	// video is opened before it is published, so the edit reads this very file.
+	return session.publishStoppedRecording(recording, source, reason)
+}
+
+// stopCapture ends the capture pipeline and joins what it recorded into one file, in the work
+// directory. The failure names what a returned error failed.
+func (session *liveSession) stopCapture(recording *wrapperRecording) (source string, failure string, err error) {
+	if err := stopRecordingSegment(recording); err != nil {
+		return "", "pipeline_failed", err
+	}
+	recordCaptureFacts(recording)
+	source, err = session.joinRecordingSegments(recording)
+	if err != nil {
+		return "", "finalize_failed", err
+	}
+	return source, "", nil
+}
+
+// publishStoppedRecording makes the raw video visible and the recording stopped. Only a requested
+// stop edits: the others come from events that cannot wait for ffmpeg. The video is opened before
+// it is published, so the edit reads this very file, and the edit runs on after the stop returns.
+func (session *liveSession) publishStoppedRecording(rec *wrapperRecording, source string, reason string) (wrapperRecording, error) {
+	r := session.runtime
 	var video *os.File
-	var editError *recordingEditError
+	var editError *recording.EditError
 	if reason == "requested" {
 		var err error
 		if video, err = openRecordingVideo(source); err != nil {
-			editError = &recordingEditError{Code: "open_failed", Message: err.Error()}
+			editError = &recording.EditError{Code: recording.EditOpenFailed, Message: err.Error()}
 		}
 	}
-	finalPath, size, err := publishFinishedRecording(source, recording.Path)
+	finalPath, size, err := publishFinishedRecording(source, rec.Path)
 	if err != nil {
 		if video != nil {
 			_ = video.Close()
 		}
 		if errors.Is(err, errWrapperRecordingEmpty) {
-			return session.failRecording(recording, reason, err)
+			return session.failRecording(rec, reason, err)
 		}
-		return session.failRecording(recording, "finalize_failed", err)
+		return session.failRecording(rec, "finalize_failed", err)
 	}
 	// The raw video is published, so the segments must not be published again by a sweep after a crash.
-	for _, segment := range recording.segments {
+	for _, segment := range rec.segments {
 		_ = os.Remove(segment.path)
 	}
-	var edited, timeline string
-	if video != nil {
-		edited, timeline, editError = session.finalizeRecording(editCtx, recording, video, finalPath)
-		_ = video.Close()
+	if video == nil {
+		_ = os.RemoveAll(rec.segmentDir)
 	}
-	_ = os.RemoveAll(recording.segmentDir)
 	r.mu.Lock()
 	stoppedAt := time.Now().UTC()
-	recording.Path = finalPath
-	recording.EditedPath, recording.TimelinePath, recording.EditError = edited, timeline, editError
-	recording.SizeBytes = size
-	recording.StoppedAt = &stoppedAt
-	session.setRecordingStatusLocked(recording, wrapperRecordingStopped)
-	recording.StopReason = reason
-	recording.finalizing = false
-	status := *recording
+	rec.Path = finalPath
+	rec.EditError = editError
+	rec.SizeBytes = size
+	rec.StoppedAt = &stoppedAt
+	rec.stopping = false
+	session.setRecordingStatusLocked(rec, wrapperRecordingStopped)
+	rec.StopReason = reason
+	if video != nil {
+		session.startEditLocked(rec, video, finalPath)
+	}
+	status := *rec
 	r.mu.Unlock()
 	return status, nil
+}
+
+// startEditLocked runs the edit of a stopped recording on its own; the recording is editing until
+// it ends. The session's end and a cancel end it early, and the edit counts as activity meanwhile,
+// so the session is not suspended under it.
+func (session *liveSession) startEditLocked(recording *wrapperRecording, video *os.File, raw string) {
+	r := session.runtime
+	finalize := session.finalize
+	if finalize == nil {
+		finalize = session.finalizeRecording
+	}
+	ctx, cancel := context.WithCancelCause(r.ctx)
+	done := make(chan struct{})
+	recording.Editing, recording.cancelEdit, recording.editDone = true, cancel, done
+	go func() {
+		defer close(done)
+		edited, timeline, failure := finalize(ctx, recording, video, raw)
+		cancel(nil)
+		_ = video.Close()
+		_ = os.RemoveAll(recording.segmentDir)
+		r.mu.Lock()
+		recording.Editing = false
+		recording.EditedPath, recording.TimelinePath, recording.EditError = edited, timeline, failure
+		r.mu.Unlock()
+		session.broadcastRecordings()
+	}()
 }
 
 // failRecording marks a recording failed after keeping what it captured.
@@ -618,15 +677,20 @@ func (session *liveSession) failRecording(recording *wrapperRecording, reason st
 	r := session.runtime
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	stoppedAt := time.Now().UTC()
-	recording.finalizing = false
-	session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
-	recording.StopReason = reason
-	recording.StoppedAt = &stoppedAt
+	session.markFailedLocked(recording, reason)
 	if salvaged != "" {
 		recording.Path = salvaged
 	}
 	return *recording, cause
+}
+
+// markFailedLocked ends a recording in failure: it stops counting, and keeps why and when.
+func (session *liveSession) markFailedLocked(recording *wrapperRecording, reason string) {
+	stoppedAt := time.Now().UTC()
+	recording.stopping = false
+	session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
+	recording.StopReason = reason
+	recording.StoppedAt = &stoppedAt
 }
 
 func stopRecordingSegment(recording *wrapperRecording) error {
@@ -817,8 +881,7 @@ func (session *liveSession) rotateRecordingTargetLocked(ctx context.Context, rec
 		replacement := &wrapperRecording{cmd: cmd, done: done}
 		_ = stopRecordingSegment(replacement)
 		r.mu.Lock()
-		session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
-		recording.StopReason = "replacement_failed"
+		session.markFailedLocked(recording, "replacement_failed")
 		r.mu.Unlock()
 		return err
 	}
@@ -860,12 +923,9 @@ func (session *liveSession) failRecordingTargets(targetID string, generation uin
 		r.mu.Unlock()
 		_ = stopRecordingSegment(recording)
 		r.mu.Lock()
-		stoppedAt := time.Now().UTC()
 		recording.cmd = nil
 		recording.done = nil
-		recording.StoppedAt = &stoppedAt
-		session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
-		recording.StopReason = "replacement_rollback_failed"
+		session.markFailedLocked(recording, "replacement_rollback_failed")
 		recording.replacing = false
 		r.mu.Unlock()
 		recording.operationMu.Unlock()
@@ -887,16 +947,18 @@ func (session *liveSession) stopTabRecordings(targetID string) {
 	}
 }
 
+// stopAllRecordings ends every recording as the session ends: captures stop and publish their raw
+// video, and running edits are cancelled. It returns once the edits are gone.
 func (session *liveSession) stopAllRecordings(reason string) {
 	r := session.runtime
 	r.mu.Lock()
 	ids := make([]string, 0)
-	var rendering []*wrapperRecording
+	var editing []chan struct{}
 	for _, recording := range session.recordings {
 		session.refreshRecordingLocked(recording)
-		if recording.finalizing {
-			recording.cancelEdit()
-			rendering = append(rendering, recording)
+		if recording.Editing {
+			recording.cancelEdit(errors.New("the session is closing"))
+			editing = append(editing, recording.editDone)
 		} else if recording.Status == wrapperRecordingStarting || recording.Status == wrapperRecordingRunning {
 			ids = append(ids, recording.ID)
 		}
@@ -905,9 +967,8 @@ func (session *liveSession) stopAllRecordings(reason string) {
 	for _, id := range ids {
 		_, _ = session.stopRecording(id, reason)
 	}
-	for _, recording := range rendering { // ffmpeg is killed, and gone once the stop that ran it returns
-		recording.operationMu.Lock()
-		recording.operationMu.Unlock() //nolint:staticcheck // waits for the stop to end
+	for _, done := range editing {
+		<-done
 	}
 }
 
@@ -1127,14 +1188,14 @@ func (session *liveSession) listRecordingsLocked() []wrapperRecording {
 // setRecordingStatusLocked changes a recording's status and refreshes the count the cadence reads without locks.
 func (session *liveSession) setRecordingStatusLocked(recording *wrapperRecording, status wrapperRecordingStatus) {
 	recording.Status = status
-	if recording.cancelFollow != nil && (recording.finalizing || status == wrapperRecordingStopped || status == wrapperRecordingFailed) {
+	if recording.cancelFollow != nil && (recording.stopping || status == wrapperRecordingStopped || status == wrapperRecordingFailed) {
 		recording.cancelFollow()
 	}
 	var active, presentation int32
 	for _, other := range session.recordings {
-		if (other.Status == wrapperRecordingStarting || other.Status == wrapperRecordingRunning) && !other.finalizing {
+		if (other.Status == wrapperRecordingStarting || other.Status == wrapperRecordingRunning) && !other.stopping {
 			active++
-			if other.presentation {
+			if other.config.Presentation {
 				presentation++
 			}
 		}
@@ -1178,8 +1239,20 @@ func (session *liveSession) activeRecordingCountLocked() int {
 	return count
 }
 
+// editingRecordingCountLocked counts the recordings whose edit still runs; they are activity, so
+// idle suspension does not end the session under a render.
+func (session *liveSession) editingRecordingCountLocked() int {
+	count := 0
+	for _, recording := range session.recordings {
+		if recording.Editing {
+			count++
+		}
+	}
+	return count
+}
+
 func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) {
-	if recording.Status != wrapperRecordingRunning || recording.finalizing || recording.replacing || recording.cmd == nil {
+	if recording.Status != wrapperRecordingRunning || recording.stopping || recording.replacing || recording.cmd == nil {
 		return
 	}
 	select {
@@ -1189,9 +1262,6 @@ func (session *liveSession) refreshRecordingLocked(recording *wrapperRecording) 
 	}
 	recording.cmd = nil
 	recording.done = nil
-	session.setRecordingStatusLocked(recording, wrapperRecordingFailed)
-	recording.StopReason = "pipeline_exited"
-	stoppedAt := time.Now().UTC()
-	recording.StoppedAt = &stoppedAt
+	session.markFailedLocked(recording, "pipeline_exited")
 	recording.unsalvaged = true
 }

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/aperture/aperture/internal/recording"
 )
 
 // The planner turns a stopped recording's journal, capture facts and video analysis into an ffmpeg
@@ -62,18 +64,20 @@ type recordingTimeline struct {
 	DurationMS       int64             `json:"durationMs"`
 	EditedDurationMS int64             `json:"editedDurationMs,omitempty"`
 	Segments         []timelineSegment `json:"segments"`
-	Map              []timelinePiece   `json:"map,omitempty"` // present when the video was edited
-	Events           []journalEntry    `json:"events"`        // journal entries with startMs and endMs in raw video time
+	Map              []timelinePiece   `json:"map,omitempty"`           // present when the video was edited
+	Events           []journalEntry    `json:"events"`                  // journal entries with startMs and endMs in raw video time
+	EventsDropped    int               `json:"eventsDropped,omitempty"` // journal entries lost to its budget: the events are incomplete
 }
 
 // recordingPlan is placed first (the journal on the video's clock) and then planned.
 type recordingPlan struct {
-	segments []timelineSegment
-	events   []journalEntry
-	total    int64
-	pieces   []piece
-	filter   string // empty when there is nothing to render
-	ass      []byte
+	segments      []timelineSegment
+	events        []journalEntry
+	eventsDropped int
+	total         int64
+	pieces        []piece
+	filter        string // empty when there is nothing to render
+	ass           []byte
 }
 
 // placeJournal puts the journal's wall-clock times on the raw video's clock through the first-frame
@@ -119,13 +123,17 @@ func (p *recordingPlan) videoTime(wall int64) int64 {
 }
 
 // plan decides the time map and the effects. Nothing to render leaves the filter empty.
-func (p *recordingPlan) plan(cfg recordingConfig, fps int, active []span) error {
+func (p *recordingPlan) plan(cfg recording.Config, fps int, active []span) error {
 	if p.total <= 0 {
 		return nil
 	}
 	switch {
 	case cfg.Capture == "bursts":
-		p.pieces = burstPieces(*cfg.Burst, p.events, active, p.total)
+		burst := recording.DefaultBurst
+		if cfg.Burst != nil {
+			burst = *cfg.Burst
+		}
+		p.pieces = burstPieces(burst, p.events, active, p.total)
 	case cfg.Idle != "":
 		p.pieces = idlePieces(cfg.Idle, p.events, active, p.total)
 	default:
@@ -139,7 +147,7 @@ func (p *recordingPlan) plan(cfg recordingConfig, fps int, active []span) error 
 	chain := []string{"setpts=PTS-STARTPTS"}
 	for _, segment := range p.segments {
 		if segment.Width != width || segment.Height != height {
-			// Later segments are fitted into the first one's size.
+			// Later segments are fitted into the first one's size; framePoint maps their coordinates the same way.
 			chain = append(chain, fmt.Sprintf("scale=%[1]d:%[2]d:force_original_aspect_ratio=decrease,pad=%[1]d:%[2]d:(ow-iw)/2:(oh-ih)/2", width, height))
 			break
 		}
@@ -150,34 +158,8 @@ func (p *recordingPlan) plan(cfg recordingConfig, fps int, active []span) error 
 	}
 	chain = append(chain, fmt.Sprintf("fps=%d", fps), "format=yuv420p")
 
-	var cues []cue
-	var ripples []ripple
-	var zooms []focus
-	for _, e := range p.events {
-		at, scaleX, scaleY := e.span(), 1.0, 1.0
-		if segment := p.segmentAt(at.start); segment.ViewportWidth > 0 && segment.ViewportHeight > 0 {
-			scaleX, scaleY = float64(width)/float64(segment.ViewportWidth), float64(height)/float64(segment.ViewportHeight)
-		}
-		start := mapTime(p.pieces, at.start)
-		switch e.kind() {
-		case "caption":
-			if inPieces(p.pieces, at.start) {
-				cues = append(cues, cue{start, start + int64(e.num("durationMs")), sanitizeCaption(e)})
-			}
-		case "press":
-			if cfg.Ripple && inPieces(p.pieces, at.start) {
-				ripples = append(ripples, ripple{start, e.num("x") * scaleX, e.num("y") * scaleY})
-			}
-		case "focus":
-			rect, _ := e["rect"].(map[string]any)
-			num := func(key string) float64 { n, _ := rect[key].(float64); return n }
-			if inPieces(p.pieces, (at.start+at.end)/2) {
-				zooms = append(zooms, focus{start, mapTime(p.pieces, at.end), e.num("zoom"), (num("x") + num("width")/2) * scaleX, (num("y") + num("height")/2) * scaleY})
-			}
-		}
-	}
+	cues, ripples, zooms := p.effects(cfg.Ripple)
 	chain = append(chain, focusFilters(zooms, float64(width), float64(height), fps)...)
-	cues = fitCues(cues, mapTime(p.pieces, p.total))
 	if len(cues)+len(ripples) > 0 {
 		p.ass = marshalASS(cues, ripples, width, height)
 		chain = append(chain, "ass=captions.ass")
@@ -189,9 +171,55 @@ func (p *recordingPlan) plan(cfg recordingConfig, fps int, active []span) error 
 	return nil
 }
 
+// effects places the journal's captions, clicks and focuses on the edited video: at edited times,
+// in frame px, and only those that fall in a kept piece. A caption ends with the piece it starts
+// in, so it does not run on across a cut.
+func (p *recordingPlan) effects(markClicks bool) (cues []cue, ripples []ripple, zooms []focus) {
+	for _, e := range p.events {
+		at := e.span()
+		segment := p.segmentAt(at.start)
+		start := mapTime(p.pieces, at.start)
+		switch e.kind() {
+		case "caption":
+			if pc, kept := pieceAt(p.pieces, at.start); kept {
+				end := min(start+int64(e.num("durationMs")), mapTime(p.pieces, pc.end))
+				cues = append(cues, cue{start, end, sanitizeCaption(e)})
+			}
+		case "press":
+			if _, kept := pieceAt(p.pieces, at.start); markClicks && kept {
+				x, y := p.framePoint(segment, e.num("x"), e.num("y"))
+				ripples = append(ripples, ripple{start, x, y})
+			}
+		case "focus":
+			rect, _ := e["rect"].(map[string]any)
+			num := func(key string) float64 { n, _ := rect[key].(float64); return n }
+			if _, kept := pieceAt(p.pieces, (at.start+at.end)/2); kept {
+				x, y := p.framePoint(segment, num("x")+num("width")/2, num("y")+num("height")/2)
+				zooms = append(zooms, focus{start, mapTime(p.pieces, at.end), e.num("zoom"), x, y})
+			}
+		}
+	}
+	cues = fitCues(cues, mapTime(p.pieces, p.total))
+	return cues, ripples, zooms
+}
+
+// framePoint maps a point in a segment's viewport px to the edited frame, whose size is the first
+// segment's: the segment's video is fitted into it, keeping its aspect ratio, and centred, as the
+// scale and pad filters do.
+func (p *recordingPlan) framePoint(segment timelineSegment, x, y float64) (float64, float64) {
+	if segment.ViewportWidth <= 0 || segment.ViewportHeight <= 0 || segment.Width <= 0 || segment.Height <= 0 {
+		return x, y
+	}
+	width, height := float64(p.segments[0].Width), float64(p.segments[0].Height)
+	segmentWidth, segmentHeight := float64(segment.Width), float64(segment.Height)
+	fit := min(width/segmentWidth, height/segmentHeight)
+	offsetX, offsetY := (width-segmentWidth*fit)/2, (height-segmentHeight*fit)/2
+	return x*segmentWidth/float64(segment.ViewportWidth)*fit + offsetX, y*segmentHeight/float64(segment.ViewportHeight)*fit + offsetY
+}
+
 // timeline reports the journal in video time; edited adds the time map and each event's edited times.
 func (p *recordingPlan) timeline(edited bool) recordingTimeline {
-	t := recordingTimeline{Version: 1, DurationMS: p.total, Segments: p.segments, Events: p.events}
+	t := recordingTimeline{Version: 1, DurationMS: p.total, Segments: p.segments, Events: p.events, EventsDropped: p.eventsDropped}
 	if !edited {
 		return t
 	}
@@ -218,8 +246,13 @@ func mapTime(pieces []piece, t int64) int64 {
 	return int64(math.Round(out))
 }
 
-func inPieces(pieces []piece, t int64) bool {
-	return slices.ContainsFunc(pieces, func(pc piece) bool { return t >= pc.start && t < pc.end })
+// pieceAt is the kept piece a raw video time falls in, if any.
+func pieceAt(pieces []piece, t int64) (piece, bool) {
+	index := slices.IndexFunc(pieces, func(pc piece) bool { return t >= pc.start && t < pc.end })
+	if index < 0 {
+		return piece{}, false
+	}
+	return pieces[index], true
 }
 
 // mergeSpans pads spans, clamps them to the video and joins those that touch.
@@ -246,7 +279,7 @@ func mergeSpans(spans []span, pad, total int64) []span {
 // burstPieces keeps the stretch around every browser tool call and every explicit focus or
 // attention: from lead before it to the end of its tail, which lasts until the screen has settled
 // (no change for the settle time) but not longer than maxTail.
-func burstPieces(b burstConfig, events []journalEntry, active []span, total int64) []piece {
+func burstPieces(b recording.Burst, events []journalEntry, active []span, total int64) []piece {
 	var keep []span
 	for _, e := range events {
 		if kind := e.kind(); kind != "call" && kind != "focus" && kind != "attention" {
@@ -460,26 +493,46 @@ var frameLine = regexp.MustCompile(`pts_time:([0-9.]+)`)
 
 func msOf(s string) int64 { f, _ := strconv.ParseFloat(s, 64); return int64(math.Round(f * 1000)) }
 
-// parseActive reads showinfo's log of the frames mpdecimate kept and joins those that follow each
-// other closely into the stretches in which the picture changed. A frame that stands alone, like a
-// blinking caret's, is not a change; the journal covers the single-frame effects of real input.
+// activeSpans reads showinfo's log of the frames mpdecimate kept, a line at a time, and joins those
+// that follow each other closely into the stretches in which the picture changed. A frame that
+// stands alone, like a blinking caret's, is not a change; the journal covers the single-frame
+// effects of real input.
+type activeSpans struct {
+	active              []span
+	start, last, frames int64
+}
+
+func (a *activeSpans) observe(line string) {
+	m := frameLine.FindStringSubmatch(line)
+	if m == nil {
+		return
+	}
+	if t := msOf(m[1]); a.frames > 0 && t-a.last <= activeGapMS {
+		a.frames++
+		a.last = t
+	} else {
+		a.flush()
+		a.start, a.last, a.frames = t, t, 1
+	}
+}
+
+func (a *activeSpans) flush() {
+	if a.frames >= 2 {
+		a.active = append(a.active, span{a.start, a.last})
+	}
+	a.frames = 0
+}
+
+// spans ends the run being read and returns the stretches.
+func (a *activeSpans) spans() []span {
+	a.flush()
+	return a.active
+}
+
 func parseActive(log string) []span {
-	var active []span
-	var start, last, frames int64
-	flush := func() {
-		if frames >= 2 {
-			active = append(active, span{start, last})
-		}
+	var a activeSpans
+	for _, line := range strings.Split(log, "\n") {
+		a.observe(line)
 	}
-	for _, m := range frameLine.FindAllStringSubmatch(log, -1) {
-		if t := msOf(m[1]); frames > 0 && t-last <= activeGapMS {
-			frames++
-			last = t
-		} else {
-			flush()
-			start, last, frames = t, t, 1
-		}
-	}
-	flush()
-	return active
+	return a.spans()
 }

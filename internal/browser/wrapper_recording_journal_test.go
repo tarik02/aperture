@@ -2,14 +2,16 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aperture/aperture/internal/recording"
 )
 
 func newJournalSession(t *testing.T, recordings ...*wrapperRecording) *liveSession {
@@ -52,14 +54,12 @@ func TestFrameClockPlacesTheFirstFrameOnTheWallClock(t *testing.T) {
 	if err := clock.waitForFirstFrame(context.Background(), func() {}, nil); err != nil {
 		t.Fatal(err)
 	}
-	// The facts a finished capture leaves for the finalizer.
+	// The facts a finished capture leaves for the finalizer, as the timeline publishes them.
 	segment := newRecordingSegment("segment-0000.webm", wrapperTargetSnapshot{TargetID: "T1", Viewport: compositorViewport{Width: 640, Height: 360, ContentWidth: 1281, ContentHeight: 720, CanvasWidth: 1280, CanvasHeight: 768}})
 	segment.clock = clock
 	recording := &wrapperRecording{segmentDir: t.TempDir(), segments: []*recordingSegment{segment}, journal: newRecordingJournal(t.TempDir())}
-	if err := writeCaptureFacts(recording); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := os.ReadFile(filepath.Join(recording.segmentDir, captureFactsFile))
+	recordCaptureFacts(recording)
+	raw, _ := json.Marshal(recording.segments)
 	for _, want := range []string{`"targetId":"T1"`, `"durationMs":1020`, `"width":1280,"height":720`, `"viewportWidth":640,"viewportHeight":360`, fmt.Sprintf(`"firstFrameMs":%d`, first.UnixMilli())} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("capture facts lack %s: %s", want, raw)
@@ -69,7 +69,7 @@ func TestFrameClockPlacesTheFirstFrameOnTheWallClock(t *testing.T) {
 
 func TestJournalTakesPartOnlyWhileTheRecordingRuns(t *testing.T) {
 	running := &wrapperRecording{ID: "running", Status: wrapperRecordingRunning}
-	stopping := &wrapperRecording{ID: "stopping", Status: wrapperRecordingRunning, finalizing: true}
+	stopping := &wrapperRecording{ID: "stopping", Status: wrapperRecordingRunning, stopping: true}
 	failed := &wrapperRecording{ID: "failed", Status: wrapperRecordingFailed}
 	session := newJournalSession(t, running, stopping, failed)
 	session.journal("call", time.Now().Add(-time.Second), map[string]any{"tool": "browser_click", "ok": true})
@@ -93,7 +93,7 @@ func TestJournalIsBounded(t *testing.T) {
 }
 
 func TestRecordingWhoseCaptureDiedStopsCountingForTheCadence(t *testing.T) {
-	recording := &wrapperRecording{ID: "r", Status: wrapperRecordingRunning, presentation: true, cmd: &exec.Cmd{}}
+	recording := &wrapperRecording{ID: "r", Status: wrapperRecordingRunning, config: recording.Config{Presentation: true}, cmd: &exec.Cmd{}}
 	done := make(chan error, 1)
 	recording.done = done
 	session := newJournalSession(t, recording)
@@ -109,43 +109,47 @@ func TestRecordingWhoseCaptureDiedStopsCountingForTheCadence(t *testing.T) {
 
 func TestAnnotationsTargetTheOneRunningRecordingAndHoldTheGate(t *testing.T) {
 	session := newJournalSession(t)
-	caption := annotationRequest{Text: "  Open the menu ", DurationMS: 1500}
-	if err := session.annotate(context.Background(), "caption", caption); err == nil || !strings.Contains(err.Error(), "no running recording") {
+	caption, err := decodeAnnotation("caption", json.RawMessage(`{"text":"  Open the menu ","durationMs":1500}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.annotate(context.Background(), caption); err == nil || !strings.Contains(err.Error(), "no running recording") {
 		t.Fatalf("err = %v", err)
 	}
 	first := &wrapperRecording{ID: "first", Status: wrapperRecordingRunning, TargetID: "T1"}
 	second := &wrapperRecording{ID: "second", Status: wrapperRecordingRunning, TargetID: "T1"}
 	session = newJournalSession(t, first)
-	if err := session.annotate(context.Background(), "caption", caption); err != nil {
+	if err := session.annotate(context.Background(), caption); err != nil {
 		t.Fatal(err)
 	}
 	if got := readJournal(t, first); !strings.Contains(got, `"kind":"caption"`) || !strings.Contains(got, `"text":"Open the menu"`) || !strings.Contains(got, `"durationMs":1500`) {
 		t.Fatalf("journal = %q", got)
 	}
 	session = newJournalSession(t, first, second)
-	if err := session.annotate(context.Background(), "caption", caption); err == nil || !strings.Contains(err.Error(), "recordingId") {
+	if err := session.annotate(context.Background(), caption); err == nil || !strings.Contains(err.Error(), "recordingId") {
 		t.Fatalf("ambiguous err = %v", err)
 	}
-	caption.RecordingID = "second"
-	if err := session.annotate(context.Background(), "caption", caption); err != nil || readJournal(t, second) == "" {
+	caption.recordingID = "second"
+	if err := session.annotate(context.Background(), caption); err != nil || readJournal(t, second) == "" {
 		t.Fatalf("err = %v, journal = %q", err, readJournal(t, second))
 	}
-	for _, request := range []annotationRequest{
-		{Zoom: 1, Rect: &annotationRect{Width: 10, Height: 10}},                  // no zoom
-		{Zoom: 2, DurationMS: 10001, Rect: &annotationRect{Width: 1, Height: 1}}, // too long
-		{Zoom: 2, Rect: &annotationRect{Width: 1, Height: 1}, Selector: "#a"},    // two places
-		{Zoom: 2, DurationMS: 200},                                               // no place
-	} {
-		request.RecordingID = "second"
-		if err := session.annotate(context.Background(), "focus", request); !errors.Is(err, errAnnotationInvalid) {
-			t.Errorf("focus %+v: err = %v", request, err)
+	// A bad request fails before it waits for the gate; an unknown field is one.
+	for _, body := range []string{`{"zoom":1,"rect":{"width":10,"height":10}}`, `{"zoom":2,"durationMs":200}`, `{"zoom":2,"rect":{},"colour":"red"}`} {
+		if _, err := decodeAnnotation("focus", json.RawMessage(body)); !errors.Is(err, recording.ErrInvalid) {
+			t.Errorf("focus %s: err = %v", body, err)
 		}
 	}
+	if _, err := decodeAnnotation("blink", json.RawMessage(`{}`)); !errors.Is(err, recording.ErrInvalid) {
+		t.Errorf("unknown kind: err = %v", err)
+	}
 	// Focus blocks for its duration with the gate held, so a browser call waits for it.
-	focus := annotationRequest{RecordingID: "second", Zoom: 2, DurationMS: 200, Rect: &annotationRect{X: 1, Y: 2, Width: 30, Height: 40}}
+	focus, err := decodeAnnotation("focus", json.RawMessage(`{"recordingId":"second","zoom":2,"durationMs":200,"rect":{"x":1,"y":2,"width":30,"height":40}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	started := time.Now()
 	finished := make(chan error, 1)
-	go func() { finished <- session.annotate(context.Background(), "focus", focus) }()
+	go func() { finished <- session.annotate(context.Background(), focus) }()
 	time.Sleep(50 * time.Millisecond)
 	release, err := session.acquireGate(context.Background())
 	if err != nil || time.Since(started) < 200*time.Millisecond {

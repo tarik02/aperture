@@ -27,7 +27,7 @@ func TestAutomationPacingCommandIsLimitedToEditorsAndEndsWithTheClient(t *testin
 		clients: make(map[string]*liveSessionClient),
 	}
 	set := func(client *liveSessionClient, pacing string) error {
-		_, err := session.handleSessionCommand(client, liveSessionClientMessage{Type: "presentation.automation.set", Pacing: pacing})
+		_, err := session.handleSessionCommand(client, liveSessionClientMessage{Type: "automation.pacing.set", Pacing: pacing})
 		return err
 	}
 	if err := set(&liveSessionClient{id: "viewer", role: "viewer"}, "watchable"); err == nil {
@@ -55,7 +55,7 @@ func TestAutomationPacingCommandIsLimitedToEditorsAndEndsWithTheClient(t *testin
 	if got := session.automationCadence(); got != cadenceRecorded {
 		t.Fatalf("cadence while recording = %v", got)
 	}
-	if !isLiveSessionCommand("presentation.automation.set") {
+	if !isLiveSessionCommand("automation.pacing.set") {
 		t.Fatal("pacing must be a reliable command")
 	}
 }

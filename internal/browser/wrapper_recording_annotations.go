@@ -1,65 +1,85 @@
 package browser
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/aperture/aperture/internal/recording"
 	"github.com/chromedp/cdproto/runtime"
 )
 
-// The explicit recording tools. Each one acts on one running recording: the one named by
-// recordingId, or the only one running. They hold the browser-call gate while they act, so no
-// automation interleaves with them.
-const (
-	captionMaxRunes = 200
-	focusMaxZoom    = 4.0
-)
-
-var errAnnotationInvalid = errors.New("invalid annotation")
-
-type annotationRect struct {
-	X      float64 `json:"x"`
-	Y      float64 `json:"y"`
-	Width  float64 `json:"width"`
-	Height float64 `json:"height"`
-}
-
-type annotationPoint struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
-}
-
-// annotationRequest is the body of every kind; each reads the fields it documents. Coordinates are
-// surface px: CSS px of the recorded target's viewport.
+// annotationRequest is one explicit recording tool, decoded and validated: a caption, a focus or an
+// attention. Each kind reads the fields it documents; attention's point is a rect without size.
+// Coordinates are surface px: CSS px of the recorded target's viewport.
 type annotationRequest struct {
-	RecordingID string           `json:"recordingId"`
-	Text        string           `json:"text"`
-	Selector    string           `json:"selector"`
-	Rect        *annotationRect  `json:"rect"`
-	Point       *annotationPoint `json:"point"`
-	Zoom        float64          `json:"zoom"`
-	Radius      float64          `json:"radius"`
-	Loops       int              `json:"loops"`
-	DurationMS  int              `json:"durationMs"`
+	kind        string
+	recordingID string
+	text        string
+	selector    string
+	rect        *recording.Rect
+	zoom        float64
+	radius      float64
+	loops       int
+	durationMS  int
+}
+
+// decodeAnnotation reads the typed arguments of a kind and checks them, so a bad request fails
+// before it waits for the gate. The daemon checked them already; the wrapper is also reached by
+// live-session clients.
+func decodeAnnotation(kind string, body json.RawMessage) (annotationRequest, error) {
+	decode := func(into interface{ Validate() error }) error {
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(into); err != nil {
+			return fmt.Errorf("%w: invalid annotation request: %w", recording.ErrInvalid, err)
+		}
+		return into.Validate()
+	}
+	switch kind {
+	case "caption":
+		var c recording.Caption
+		if err := decode(&c); err != nil {
+			return annotationRequest{}, err
+		}
+		return annotationRequest{kind: kind, recordingID: c.RecordingID, text: c.Text, durationMS: c.DurationMS}, nil
+	case "focus":
+		var f recording.Focus
+		if err := decode(&f); err != nil {
+			return annotationRequest{}, err
+		}
+		return annotationRequest{kind: kind, recordingID: f.RecordingID, rect: f.Rect, selector: f.Selector, zoom: f.Zoom, durationMS: f.DurationMS}, nil
+	case "attention":
+		var a recording.Attention
+		if err := decode(&a); err != nil {
+			return annotationRequest{}, err
+		}
+		request := annotationRequest{kind: kind, recordingID: a.RecordingID, selector: a.Selector, radius: a.Radius, loops: a.Loops, durationMS: a.DurationMS}
+		if a.Point != nil {
+			request.rect = &recording.Rect{X: a.Point.X, Y: a.Point.Y}
+		}
+		return request, nil
+	default:
+		return annotationRequest{}, fmt.Errorf("%w: unknown kind %q", recording.ErrInvalid, kind)
+	}
 }
 
 func (session *liveSession) handleAnnotation(w http.ResponseWriter, req *http.Request, kind string) {
-	var body annotationRequest
-	decoder := json.NewDecoder(req.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil {
+	var body json.RawMessage
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		writeWrapperError(w, http.StatusBadRequest, "invalid annotation request: "+err.Error())
 		return
 	}
-	err := session.annotate(req.Context(), kind, body)
+	request, err := decodeAnnotation(kind, body)
+	if err == nil {
+		err = session.annotate(req.Context(), request)
+	}
 	switch {
-	case errors.Is(err, errAnnotationInvalid):
+	case errors.Is(err, recording.ErrInvalid):
 		writeWrapperError(w, http.StatusBadRequest, err.Error())
 	case err != nil:
 		writeWrapperError(w, http.StatusConflict, err.Error())
@@ -68,18 +88,17 @@ func (session *liveSession) handleAnnotation(w http.ResponseWriter, req *http.Re
 	}
 }
 
-func (session *liveSession) annotate(ctx context.Context, kind string, request annotationRequest) error {
-	if err := validateAnnotation(kind, &request); err != nil {
-		return err
-	}
+// annotate acts on one running recording: the one named by the request, or the only one running.
+// It holds the browser-call gate while it acts, so no automation interleaves with it.
+func (session *liveSession) annotate(ctx context.Context, request annotationRequest) error {
 	r := session.runtime
-	var recording *wrapperRecording
+	var active *wrapperRecording
 	var targetID string
 	running := 0
 	r.mu.Lock()
 	for _, candidate := range session.recordings {
-		if candidate.Status == wrapperRecordingRunning && !candidate.finalizing && (request.RecordingID == "" || candidate.ID == request.RecordingID) {
-			recording, targetID = candidate, candidate.TargetID
+		if candidate.Status == wrapperRecordingRunning && !candidate.stopping && (request.recordingID == "" || candidate.ID == request.recordingID) {
+			active, targetID = candidate, candidate.TargetID
 			running++
 		}
 	}
@@ -98,9 +117,9 @@ func (session *liveSession) annotate(ctx context.Context, kind string, request a
 	defer release()
 	var started time.Time
 	var fields map[string]any
-	switch kind {
+	switch request.kind {
 	case "caption":
-		started, fields = time.Now(), map[string]any{"text": request.Text, "durationMs": request.DurationMS}
+		started, fields = time.Now(), map[string]any{"text": request.text, "durationMs": request.durationMS}
 	case "focus":
 		started, fields, err = session.annotateFocus(ctx, targetID, request)
 	default:
@@ -111,63 +130,13 @@ func (session *liveSession) annotate(ctx context.Context, kind string, request a
 	}
 	// The recording may have stopped meanwhile (the gate does not stop an event from ending it).
 	r.mu.Lock()
-	member := recording.Status == wrapperRecordingRunning && !recording.finalizing
+	member := active.Status == wrapperRecordingRunning && !active.stopping
 	r.mu.Unlock()
 	if !member {
 		return errors.New("recording stopped")
 	}
-	recording.journal.append(journalLine(kind, started, fields))
+	active.journal.append(journalLine(request.kind, started, fields))
 	return nil
-}
-
-// validateAnnotation checks a request and fills its defaults, so a bad one fails before it waits for the gate.
-func validateAnnotation(kind string, request *annotationRequest) error {
-	invalid := func(format string, args ...any) error {
-		return fmt.Errorf("%w: "+format, append([]any{errAnnotationInvalid}, args...)...)
-	}
-	duration := func(fallback, low, high int) error {
-		if request.DurationMS == 0 {
-			request.DurationMS = fallback
-		} else if request.DurationMS < low || request.DurationMS > high {
-			return invalid("durationMs must be %d to %d", low, high)
-		}
-		return nil
-	}
-	if kind == "caption" {
-		request.Text = strings.TrimSpace(request.Text)
-		if request.Text == "" || utf8.RuneCountInString(request.Text) > captionMaxRunes {
-			return invalid("text must be 1 to %d characters", captionMaxRunes)
-		}
-		return duration(3000, 200, 30000)
-	}
-	if kind != "focus" && kind != "attention" {
-		return invalid("unknown kind %q", kind)
-	}
-	if kind == "attention" && request.Point != nil {
-		request.Rect = &annotationRect{X: request.Point.X, Y: request.Point.Y}
-	}
-	if (request.Rect == nil) == (request.Selector == "") {
-		return invalid("name the place with a rect or point, or with a selector, not both")
-	}
-	if request.Rect != nil && (request.Rect.Width < 0 || request.Rect.Height < 0) {
-		return invalid("size must not be negative")
-	}
-	if kind == "focus" {
-		if request.Zoom <= 1 || request.Zoom > focusMaxZoom {
-			return invalid("zoom must be above 1 and at most %v", focusMaxZoom)
-		}
-		return duration(2000, 200, 10000)
-	}
-	if request.Radius == 0 {
-		request.Radius = 40
-	}
-	if request.Loops == 0 {
-		request.Loops = 2
-	}
-	if request.Radius < 8 || request.Radius > 300 || request.Loops < 1 || request.Loops > 5 {
-		return invalid("radius must be 8 to 300 and loops 1 to 5")
-	}
-	return duration(1200, 300, 5000)
 }
 
 // annotateFocus blocks for the duration of a zoom on a rect, so nothing else happens meanwhile.
@@ -177,10 +146,10 @@ func (session *liveSession) annotateFocus(ctx context.Context, targetID string, 
 		return time.Time{}, nil, err
 	}
 	started := time.Now()
-	if err := sleepContext(ctx, time.Duration(request.DurationMS)*time.Millisecond); err != nil {
+	if err := sleepContext(ctx, time.Duration(request.durationMS)*time.Millisecond); err != nil {
 		return time.Time{}, nil, err
 	}
-	return started, map[string]any{"targetId": targetID, "rect": rect, "zoom": request.Zoom}, nil
+	return started, map[string]any{"targetId": targetID, "rect": rect, "zoom": request.zoom}, nil
 }
 
 // annotateAttention loops the real pointer around a point so a viewer looks there.
@@ -203,18 +172,18 @@ func (session *liveSession) annotateAttention(ctx context.Context, targetID stri
 	defer session.releaseAutomation(automation)
 	center := cdpPoint{rect.X + rect.Width/2, rect.Y + rect.Height/2}
 	started := time.Now()
-	if err := session.pointer.circle(ctx, surface, center, request.Radius, request.Loops, time.Duration(request.DurationMS)*time.Millisecond, session.automationCadence().timing()); err != nil {
+	if err := session.pointer.circle(ctx, surface, center, request.radius, request.loops, time.Duration(request.durationMS)*time.Millisecond, session.automationCadence().timing()); err != nil {
 		return time.Time{}, nil, err
 	}
-	return started, map[string]any{"targetId": targetID, "x": center.x, "y": center.y, "radius": request.Radius, "loops": request.Loops}, nil
+	return started, map[string]any{"targetId": targetID, "x": center.x, "y": center.y, "radius": request.radius, "loops": request.loops}, nil
 }
 
 // annotationRect takes the request's rect, or resolves its selector, to a rect in surface px.
-func (session *liveSession) annotationRect(targetID string, request annotationRequest) (annotationRect, error) {
-	if request.Rect != nil {
-		return *request.Rect, nil
+func (session *liveSession) annotationRect(targetID string, request annotationRequest) (recording.Rect, error) {
+	if request.rect != nil {
+		return *request.rect, nil
 	}
-	quoted, _ := json.Marshal(request.Selector)
+	quoted, _ := json.Marshal(request.selector)
 	expression := fmt.Sprintf(`(()=>{const e=document.querySelector(%s);if(!e)return null;const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})()`, quoted)
 	var box []float64
 	err := session.browser.withTarget(targetID, func(ctx context.Context) error {
@@ -223,15 +192,15 @@ func (session *liveSession) annotationRect(targetID string, request annotationRe
 			return err
 		}
 		if details != nil {
-			return fmt.Errorf("%w: selector is not valid", errAnnotationInvalid)
+			return fmt.Errorf("%w: selector is not valid", recording.ErrInvalid)
 		}
 		return json.Unmarshal(object.Value, &box)
 	})
 	if err != nil {
-		return annotationRect{}, err
+		return recording.Rect{}, err
 	}
 	if len(box) != 4 {
-		return annotationRect{}, fmt.Errorf("%w: selector matched no element", errAnnotationInvalid)
+		return recording.Rect{}, fmt.Errorf("%w: selector matched no element", recording.ErrInvalid)
 	}
-	return annotationRect{X: box[0], Y: box[1], Width: box[2], Height: box[3]}, nil
+	return recording.Rect{X: box[0], Y: box[1], Width: box[2], Height: box[3]}, nil
 }

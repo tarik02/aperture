@@ -3,11 +3,8 @@ package browser
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"sync"
@@ -19,7 +16,6 @@ const (
 	frameElement              = "aperture_frames"
 	firstFrameTimeout         = 5 * time.Second
 	firstFrameRepaintInterval = 250 * time.Millisecond
-	captureFactsFile          = "capture.json"
 	recordingJournalFile      = "journal.jsonl"
 	recordingJournalBudget    = 4 << 20
 )
@@ -112,7 +108,7 @@ func (c *frameClock) waitForFirstFrame(ctx context.Context, repaint func(), exit
 
 // recordingSegment is one capture pipeline's file of a recording, which changes pipeline whenever
 // it follows another target or the target's capture is replaced. The exported fields are the facts
-// the capture boundary observed, saved for the finalizer.
+// the capture boundary observed, kept for the finalizer and published in the timeline.
 type recordingSegment struct {
 	TargetID       string  `json:"targetId"`
 	FirstFrameMS   int64   `json:"firstFrameMs,omitempty"` // wall clock, set when the capture ends; absent when it produced no frame
@@ -136,8 +132,9 @@ func recordingSize(viewport compositorViewport) (int, int) {
 	return min(viewport.CanvasWidth, (viewport.ContentWidth+1)/2*2), min(viewport.CanvasHeight, (viewport.ContentHeight+1)/2*2)
 }
 
-// writeCaptureFacts saves the facts of a recording whose capture pipeline has ended.
-func writeCaptureFacts(recording *wrapperRecording) error {
+// recordCaptureFacts keeps, on the segments of a recording whose capture pipeline has ended, what
+// their clocks observed.
+func recordCaptureFacts(recording *wrapperRecording) {
 	for _, segment := range recording.segments {
 		first, duration := segment.clock.span()
 		if !first.IsZero() {
@@ -145,9 +142,4 @@ func writeCaptureFacts(recording *wrapperRecording) error {
 		}
 		segment.DurationMS = float64(duration) / float64(time.Millisecond)
 	}
-	encoded, err := json.Marshal(map[string]any{"segments": recording.segments, "journalDropped": recording.journal.droppedEntries()})
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(recording.segmentDir, captureFactsFile), encoded, 0o600)
 }

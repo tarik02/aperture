@@ -3,7 +3,6 @@ package browser
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aperture/aperture/internal/recording"
 )
 
 // Wall clock 1_000_000 ms is the first frame of segment A (10 s, 1280x720 for a 640x360 viewport);
@@ -45,7 +46,7 @@ func TestPlacingTheJournalAndKeepingBursts(t *testing.T) {
 	}
 	// The picture changed until 4.3 s and then stood still, so the first tail runs to 4.3 s plus the settle time. The
 	// second burst overlaps it, and the third never settles, so it runs to its maximum.
-	pieces := burstPieces(defaultBurst, plan.events, []span{{2000, 4300}, {11_500, 18_000}}, plan.total)
+	pieces := burstPieces(recording.DefaultBurst, plan.events, []span{{2000, 4300}, {11_500, 18_000}}, plan.total)
 	want := []piece{{1500, 4800, 1}, {10_500, 15_000, 1}}
 	if !slices.Equal(pieces, want) {
 		t.Fatalf("pieces = %v, want %v", pieces, want)
@@ -74,7 +75,7 @@ func TestIdleIsCutOrSpedUpAroundWhatHappens(t *testing.T) {
 }
 
 func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
-	cfg := recordingConfig{Capture: "bursts", Burst: &burstConfig{LeadMS: 500, TailMS: 500, SettleMS: 400, MaxTailMS: 1000}, Ripple: true}
+	cfg := recording.Config{Capture: "bursts", Burst: &recording.Burst{LeadMS: 500, TailMS: 500, SettleMS: 400, MaxTailMS: 1000}, Ripple: true}
 	plan := placeJournal(planSegments(), []journalEntry{
 		entry("call", 4000, 5000, nil),
 		entry("press", 4200, 4200, map[string]any{"x": 100.0, "y": 50.0}),
@@ -90,8 +91,9 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 			t.Errorf("filter lacks %s: %s", part, plan.filter)
 		}
 	}
-	// Backslashes and braces cannot start an override tag; whitespace collapses.
-	if !strings.Contains(string(plan.ass), "Dialogue: 0,0:00:00.10,0:00:02.10,Default,,0,0,0,,a＼b \\{c\\} d") {
+	// Backslashes and braces cannot start an override tag; whitespace collapses. The caption would
+	// last until 2.1 s, but its piece is cut at 2.0 s, and it must not run on into the next one.
+	if !strings.Contains(string(plan.ass), "Dialogue: 0,0:00:00.10,0:00:02.00,Default,,0,0,0,,a＼b \\{c\\} d") {
 		t.Errorf("ass: %s", plan.ass)
 	}
 	// The timeline reports edited times only for an edit that exists.
@@ -104,8 +106,46 @@ func TestPlanLowersEffectsOntoEditedTime(t *testing.T) {
 	}
 	// Nothing to apply, nothing to render.
 	idle := placeJournal(planSegments(), nil)
-	if err := idle.plan(recordingConfig{Capture: "continuous"}, 30, nil); err != nil || idle.filter != "" {
+	if err := idle.plan(recording.Config{Capture: "continuous"}, 30, nil); err != nil || idle.filter != "" {
 		t.Errorf("empty plan: %q %v", idle.filter, err)
+	}
+}
+
+func TestEffectsFollowTheFitOfASegmentOfAnotherShape(t *testing.T) {
+	// Segment B is 4:3 and is fitted into A's 16:9 frame: scaled by 1.5 to 960x720 and centred, 160 px in.
+	plan := placeJournal([]*recordingSegment{
+		{TargetID: "A", FirstFrameMS: 1_000_000, DurationMS: 10_000, Width: 1280, Height: 720, ViewportWidth: 640, ViewportHeight: 360},
+		{TargetID: "B", FirstFrameMS: 1_012_000, DurationMS: 8_000, Width: 640, Height: 480, ViewportWidth: 320, ViewportHeight: 240},
+	}, []journalEntry{
+		entry("press", 2000, 2000, map[string]any{"x": 100.0, "y": 50.0}),
+		entry("press", 13_000, 13_000, map[string]any{"x": 100.0, "y": 50.0}),
+		entry("focus", 14_000, 15_000, map[string]any{"zoom": 2.0, "rect": map[string]any{"x": 0.0, "y": 0.0, "width": 320.0, "height": 240.0}}),
+	})
+	plan.pieces = []piece{{0, plan.total, 1}}
+	_, ripples, zooms := plan.effects(true)
+	if len(ripples) != 2 || ripples[0] != (ripple{2000, 200, 100}) || ripples[1] != (ripple{11_000, 460, 150}) {
+		t.Errorf("ripples = %v", ripples)
+	}
+	// The centre of B's viewport is the centre of the fitted picture, which is the frame's centre.
+	if len(zooms) != 1 || zooms[0].x != 640 || zooms[0].y != 360 {
+		t.Errorf("zooms = %v", zooms)
+	}
+}
+
+func TestCaptionsEndAtTheCutAndBurstsHaveDefaults(t *testing.T) {
+	plan := placeJournal(planSegments(), []journalEntry{
+		entry("caption", 1500, 1500, map[string]any{"text": "stay", "durationMs": 3000.0}),
+		entry("call", 4000, 5000, nil),
+	})
+	// The caption would last to 4.5 s, but its piece is cut at 2 s; the next piece starts at 3 s of edited time.
+	plan.pieces = []piece{{0, 2000, 1}, {5000, 8000, 1}}
+	cues, _, _ := plan.effects(false)
+	if len(cues) != 1 || cues[0] != (cue{1500, 2000, "stay"}) {
+		t.Errorf("cues = %v", cues)
+	}
+	// A bursts config without burst sizes, as a stop made of an older start, takes the defaults.
+	if err := plan.plan(recording.Config{Capture: "bursts"}, 30, nil); err != nil || !slices.Equal(plan.pieces, burstPieces(recording.DefaultBurst, plan.events, nil, plan.total)) {
+		t.Errorf("pieces = %v, err = %v", plan.pieces, err)
 	}
 }
 
@@ -130,26 +170,6 @@ func TestVideoAnalysisLogs(t *testing.T) {
 	}
 }
 
-func TestRecordingConfigRules(t *testing.T) {
-	for config, wantErr := range map[string]bool{
-		`{}`: false, `{"capture":"bursts"}`: false, `{"capture":"bursts","burst":{"leadMs":100}}`: false, `{"idle":"speed","ripple":true}`: false,
-		`{"capture":"bursts","idle":"cut"}`: true, `{"capture":"burst"}`: true, `{"idle":"fast"}`: true, `{"burst":{"leadMs":1}}`: true,
-		`{"capture":"bursts","burst":{"tailMs":5000}}`: true, `{"capture":"bursts","burst":{"leadMs":-1}}`: true,
-	} {
-		var c recordingConfig
-		if err := json.Unmarshal([]byte(config), &c); err != nil {
-			t.Fatal(err)
-		}
-		if err := c.validate(); (err != nil) != wantErr || (err != nil && !errors.Is(err, errRecordingConfigInvalid)) {
-			t.Errorf("%s: %v", config, err)
-		}
-	}
-	c := recordingConfig{Capture: "bursts", Burst: &burstConfig{LeadMS: 100}}
-	if _ = c.validate(); *c.Burst != (burstConfig{100, 800, 400, 3000}) {
-		t.Errorf("defaults = %+v", *c.Burst)
-	}
-}
-
 // ffmpegForTest finds an ffmpeg that can encode h264, or skips.
 func ffmpegForTest(t *testing.T) string {
 	t.Helper()
@@ -163,13 +183,13 @@ func ffmpegForTest(t *testing.T) string {
 	return path
 }
 
-// finalizeFixture is a stopped recording of 6 s: a red box moves for 2 s, then the screen stands still.
-func finalizeFixture(t *testing.T, ffmpeg string, config recordingConfig, journal ...journalEntry) (*liveSession, *wrapperRecording, string) {
+// finalizeFixture is a stopped recording of 6 s: the test pattern moves for 2 s, then the screen stands still.
+func finalizeFixture(t *testing.T, ffmpeg string, config recording.Config, journal ...journalEntry) (*liveSession, *wrapperRecording, string) {
 	t.Helper()
 	recordings := t.TempDir()
 	raw := filepath.Join(recordings, "demo.mkv")
-	source := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=white:s=320x240:r=30:d=6",
-		"-vf", "drawbox=x='mod(t*60,200)':y=100:w=40:h=40:color=red:t=fill:enable='lt(t,2)'", "-c:v", "libx264", "-y", raw)
+	source := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+		"-i", "testsrc2=s=320x240:r=30:d=2[a];color=c=white:s=320x240:r=30:d=4[b];[a][b]concat=n=2:v=1:a=0", "-c:v", "libx264", "-y", raw)
 	if out, err := source.CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %v: %s", err, out)
 	}
@@ -191,7 +211,7 @@ func finalizeFixture(t *testing.T, ffmpeg string, config recordingConfig, journa
 
 func TestFinalizeEditsTheRecording(t *testing.T) {
 	ffmpeg := ffmpegForTest(t)
-	session, recording, raw := finalizeFixture(t, ffmpeg, recordingConfig{Idle: "cut", Ripple: true},
+	session, recording, raw := finalizeFixture(t, ffmpeg, recording.Config{Idle: "cut", Ripple: true},
 		entry("call", 500, 1500, nil),
 		entry("press", 600, 600, map[string]any{"x": 100.0, "y": 100.0}),
 		entry("caption", 700, 700, map[string]any{"text": `Hello {world} \ !`, "durationMs": 1500.0}),
@@ -225,16 +245,44 @@ func TestFinalizeEditsTheRecording(t *testing.T) {
 	}
 }
 
+func TestFinalizeEditsIdleWithoutAJournal(t *testing.T) {
+	ffmpeg := ffmpegForTest(t)
+	// Nothing drove the browser through the wrapper, so the journal is empty; the picture alone says
+	// the recording stands still after 2 s, and idle cuts that.
+	session, rec, raw := finalizeFixture(t, ffmpeg, recording.Config{Idle: "cut"})
+	video, err := openRecordingVideo(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = video.Close() }()
+	edited, timeline, failure := session.finalizeRecording(context.Background(), rec, video, raw)
+	if failure != nil || edited == "" || timeline == "" {
+		t.Fatalf("edited %q, timeline %q, failure %+v", edited, timeline, failure)
+	}
+	probe, _ := exec.Command(ffmpeg, "-hide_banner", "-i", edited).CombinedOutput()
+	if duration := regexp.MustCompile(`Duration: 00:00:0(\d\.\d+)`).FindStringSubmatch(string(probe)); duration == nil || duration[1] >= "4" {
+		t.Errorf("edited video: %s", probe)
+	}
+	// Bursts without a call keep nothing, and say so, but the timeline still tells what the video holds.
+	burst := recording.DefaultBurst
+	rec.config = recording.Config{Capture: "bursts", Burst: &burst}
+	_ = os.Remove(timeline)
+	edited, timeline, failure = session.finalizeRecording(context.Background(), rec, video, raw)
+	if edited != "" || timeline == "" || failure == nil || failure.Code != "nothing_kept" {
+		t.Errorf("edited %q, timeline %q, failure %+v", edited, timeline, failure)
+	}
+}
+
 func TestFinalizeFailureKeepsTheRawVideoAndSaysWhy(t *testing.T) {
 	ffmpeg := ffmpegForTest(t)
-	session, recording, raw := finalizeFixture(t, ffmpeg, recordingConfig{Ripple: true}, entry("press", 600, 600, map[string]any{"x": 1.0, "y": 1.0}))
-	for executable, code := range map[string]string{"": "ffmpeg_unavailable", "/nonexistent/ffmpeg": "render_failed"} {
+	session, rec, raw := finalizeFixture(t, ffmpeg, recording.Config{Ripple: true}, entry("press", 600, 600, map[string]any{"x": 1.0, "y": 1.0}))
+	for executable, code := range map[string]recording.EditErrorCode{"": "ffmpeg_unavailable", "/nonexistent/ffmpeg": "render_failed"} {
 		session.runtime.values.RecordingFFmpegExecutable = executable
 		video, err := openRecordingVideo(raw)
 		if err != nil {
 			t.Fatal(err)
 		}
-		edited, timeline, failure := session.finalizeRecording(context.Background(), recording, video, raw)
+		edited, timeline, failure := session.finalizeRecording(context.Background(), rec, video, raw)
 		_ = video.Close()
 		if edited != "" || failure == nil || failure.Code != code {
 			t.Errorf("%q: edited %q, failure %+v", executable, edited, failure)
