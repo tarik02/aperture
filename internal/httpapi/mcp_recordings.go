@@ -3,89 +3,144 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
+	"sync"
 
+	"github.com/aperture/aperture/internal/recording"
+	"github.com/aperture/aperture/internal/session"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// The explicit recording tools act on one running recording of the session: recordingId, or the only
-// one running. Coordinates are CSS px of the recorded tab's viewport.
-type mcpSurfaceRect struct {
-	X      float64 `json:"x"`
-	Y      float64 `json:"y"`
-	Width  float64 `json:"width"`
-	Height float64 `json:"height"`
-}
-type mcpSurfacePoint struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
-}
-type mcpRecordingCaptionArgs struct {
-	RecordingID string `json:"recordingId,omitempty" jsonschema:"Recording to caption; omit when exactly one recording is running."`
-	Text        string `json:"text" jsonschema:"Caption text, 1 to 200 characters."`
-	DurationMs  int    `json:"durationMs,omitempty" jsonschema:"How long the caption shows, 200 to 30000. Defaults to 3000."`
-}
-type mcpRecordingFocusArgs struct {
-	RecordingID string          `json:"recordingId,omitempty" jsonschema:"Recording to zoom; omit when exactly one recording is running."`
-	Rect        *mcpSurfaceRect `json:"rect,omitempty" jsonschema:"Area to zoom on. Pass rect or selector."`
-	Selector    string          `json:"selector,omitempty" jsonschema:"CSS selector of the element to zoom on, in the top-level document. Pass rect or selector."`
-	Zoom        float64         `json:"zoom" jsonschema:"Zoom factor above 1, up to 4."`
-	DurationMs  int             `json:"durationMs,omitempty" jsonschema:"How long the zoom holds, 200 to 10000. Defaults to 2000. The call blocks for this long."`
-}
-type mcpRecordingAttentionArgs struct {
-	RecordingID string           `json:"recordingId,omitempty" jsonschema:"Recording to annotate; omit when exactly one recording is running."`
-	Point       *mcpSurfacePoint `json:"point,omitempty" jsonschema:"Where to draw attention. Pass point or selector."`
-	Selector    string           `json:"selector,omitempty" jsonschema:"CSS selector of the element to draw attention to, in the top-level document. Pass point or selector."`
-	Radius      float64          `json:"radius,omitempty" jsonschema:"Radius of the pointer's circle in px, 8 to 300. Defaults to 40."`
-	Loops       int              `json:"loops,omitempty" jsonschema:"How many times the pointer circles, 1 to 5. Defaults to 2."`
-	DurationMs  int              `json:"durationMs,omitempty" jsonschema:"How long the pointer circles, 300 to 5000. Defaults to 1200. The call blocks for this long."`
+// mcpRecordingError turns an error of the recording path into the tool's code: invalid arguments,
+// the recording's state, or a wrapper that could not be reached.
+func mcpRecordingError(err error) error {
+	switch {
+	case errors.Is(err, recording.ErrInvalid):
+		return mcpToolError("invalid_arguments", err)
+	case errors.Is(err, errRecordingNotFound):
+		return mcpToolError("recording_not_found", err)
+	case errors.Is(err, errRecordingInvalidState):
+		return mcpToolError("recording_invalid_state", err)
+	case errors.Is(err, errRecordingCodecUnavailable):
+		return mcpToolError("recording_codec_unavailable", err)
+	default:
+		return mcpToolError("recording_unavailable", err)
+	}
 }
 
+// mcpSchema builds a tool's input schema once; the server is rebuilt per MCP session.
+func mcpSchema[In any](adjust func(*jsonschema.Schema)) func() *jsonschema.Schema {
+	return sync.OnceValue(func() *jsonschema.Schema {
+		schema, err := jsonschema.For[In](nil)
+		if err != nil {
+			panic(err)
+		}
+		if adjust != nil {
+			adjust(schema)
+		}
+		return schema
+	})
+}
+
+// recordingStartSchema says in the schema what recording.Config.Validate checks, which the struct
+// tags cannot: the enums and the burst bounds.
+func recordingStartSchema(schema *jsonschema.Schema) {
+	schema.Properties["capture"].Enum = []any{recording.CaptureContinuous, recording.CaptureBursts}
+	schema.Properties["idle"].Enum = []any{recording.IdleCut, recording.IdleSpeed}
+	for _, field := range schema.Properties["burst"].Properties {
+		field.Minimum = jsonschema.Ptr(0.0)
+		field.Maximum = jsonschema.Ptr(float64(recording.BurstMaxMS))
+	}
+}
+
+// sessionAddressed adds the session address to a tool's schema when its path does not bind one.
+func sessionAddressed(schema *jsonschema.Schema) {
+	schema.Properties["tenantId"] = &jsonschema.Schema{Type: "string"}
+	schema.Properties["sessionId"] = &jsonschema.Schema{Type: "string", Description: "Aperture session ID."}
+	schema.Required = append(schema.Required, "sessionId")
+}
+
+var (
+	mcpRecordingStartSchema      = mcpSchema[mcpRecordingStartInput](recordingStartSchema)
+	mcpBoundRecordingStartSchema = mcpSchema[mcpBoundRecordingStartInput](recordingStartSchema)
+	mcpCaptionSchema             = mcpSchema[recording.Caption](sessionAddressed)
+	mcpBoundCaptionSchema        = mcpSchema[recording.Caption](nil)
+	mcpFocusSchema               = mcpSchema[recording.Focus](sessionAddressed)
+	mcpBoundFocusSchema          = mcpSchema[recording.Focus](nil)
+	mcpAttentionSchema           = mcpSchema[recording.Attention](sessionAddressed)
+	mcpBoundAttentionSchema      = mcpSchema[recording.Attention](nil)
+)
+
 // addRecordingAnnotationTool adds one explicit recording tool, session-addressed or bound to the
-// session of its path. Its arguments go to the wrapper, which validates them.
-func addRecordingAnnotationTool[Args any](s *Server, server *mcp.Server, a mcpAuth, kind, description string) {
-	schema, err := jsonschema.For[Args](nil)
-	if err != nil {
-		panic(err)
-	}
-	if !a.pathBound {
-		schema.Properties["tenantId"] = &jsonschema.Schema{Type: "string"}
-		schema.Properties["sessionId"] = &jsonschema.Schema{Type: "string", Description: "Aperture session ID."}
-		schema.Required = append(schema.Required, "sessionId")
-	}
+// session of its path. Its arguments are checked here, and the recording must already be running,
+// so a suspended session is never woken for one.
+func addRecordingAnnotationTool[Args any, PArgs interface {
+	*Args
+	Validate() error
+}](s *Server, server *mcp.Server, kind, description string, schema *jsonschema.Schema) {
 	server.AddTool(&mcp.Tool{Name: "recording." + kind, Description: description, InputSchema: schema}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		arguments := map[string]any{}
+		a, err := mcpAuthFromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		arguments := map[string]json.RawMessage{}
 		if len(req.Params.Arguments) > 0 {
 			if err := json.Unmarshal(req.Params.Arguments, &arguments); err != nil {
 				return nil, mcpToolError("invalid_arguments", err)
 			}
 		}
-		sessionID, _ := arguments["sessionId"].(string)
-		tenantID, _ := arguments["tenantId"].(string)
-		delete(arguments, "sessionId")
-		delete(arguments, "tenantId")
+		var sessionID, tenantID string
+		for name, into := range map[string]*string{"sessionId": &sessionID, "tenantId": &tenantID} {
+			if raw, ok := arguments[name]; ok {
+				if err := json.Unmarshal(raw, into); err != nil {
+					return nil, mcpToolError("invalid_arguments", err)
+				}
+				delete(arguments, name)
+			}
+		}
+		encoded, err := json.Marshal(arguments)
+		if err != nil {
+			return nil, mcpToolError("invalid_arguments", err)
+		}
+		var args Args
+		if err := json.Unmarshal(encoded, &args); err != nil {
+			return nil, mcpToolError("invalid_arguments", err)
+		}
+		if err := PArgs(&args).Validate(); err != nil {
+			return nil, mcpToolError("invalid_arguments", err)
+		}
 		view, err := s.sessionForMCP(ctx, a, sessionID, tenantID, true)
 		if err != nil {
 			return nil, err
 		}
-		port, release, err := s.Sessions.AcquireWrapperPort(ctx, view.Session.TenantID, view.Session.ID)
+		port, _, release, err := s.Sessions.AcquireRunningWrapperControl(ctx, view.Session.TenantID, view.Session.ID)
+		if errors.Is(err, session.ErrNotRunning) { // a suspended session has no running recording
+			return nil, mcpToolError("recording_invalid_state", errors.New("no running recording"))
+		}
 		if err != nil {
 			return nil, mcpToolError("session_unavailable", err)
 		}
 		defer release()
-		if err := requestWrapperRecording(ctx, port, http.MethodPost, "/recordings/annotations/"+kind, arguments, false, nil); err != nil {
-			return nil, mcpToolError("recording_unavailable", err)
+		if err := requestWrapperRecording(ctx, port, http.MethodPost, "/recordings/annotations/"+kind, args, false, nil); err != nil {
+			return nil, mcpRecordingError(err)
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
 	})
 }
 
 func (s *Server) addRecordingAnnotationTools(server *mcp.Server, a mcpAuth) {
-	addRecordingAnnotationTool[mcpRecordingCaptionArgs](s, server, a, "caption", "Show a caption in the recording from now on. Returns at once.")
-	addRecordingAnnotationTool[mcpRecordingFocusArgs](s, server, a, "focus", "Zoom the recording on a rect or element for a while. Blocks for the duration, so no browser tool runs meanwhile.")
-	addRecordingAnnotationTool[mcpRecordingAttentionArgs](s, server, a, "attention", "Circle the real pointer around a point or element so a viewer looks there. Blocks for the duration. Needs a compositor session.")
+	pick := func(addressed, bound func() *jsonschema.Schema) *jsonschema.Schema {
+		if a.pathBound {
+			return bound()
+		}
+		return addressed()
+	}
+	addRecordingAnnotationTool[recording.Caption](s, server, "caption", "Show a caption in the recording from now on. Returns at once.", pick(mcpCaptionSchema, mcpBoundCaptionSchema))
+	addRecordingAnnotationTool[recording.Focus](s, server, "focus", "Zoom the recording on a rect or element for a while. Blocks for the duration, so no browser tool runs meanwhile.", pick(mcpFocusSchema, mcpBoundFocusSchema))
+	addRecordingAnnotationTool[recording.Attention](s, server, "attention", "Circle the real pointer around a point or element so a viewer looks there. Blocks for the duration. Needs a compositor session.", pick(mcpAttentionSchema, mcpBoundAttentionSchema))
 }
 
 func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStartInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
@@ -93,12 +148,15 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
+	if err := s.checkRecordingConfig(&in.Config); err != nil {
+		return nil, mcpRecordingOutput{}, mcpRecordingError(err)
+	}
 	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", wrapperRecordingStart{
-		Mode: "tab", TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, recordingOptions: in.recordingOptions,
+		Mode: "tab", TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, Config: in.Config,
 	}, false)
 }
 
@@ -126,6 +184,8 @@ func (s *Server) mcpRecordingStatus(ctx context.Context, _ *mcp.CallToolRequest,
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, "/recordings/"+url.PathEscape(in.RecordingID), nil, false)
 }
 
+// mcpRecordingStop returns as soon as the raw video is published; the recording is editing until
+// its edit is over.
 func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
@@ -160,7 +220,7 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, recordingOptions: in.recordingOptions})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, Config: in.Config})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -205,17 +265,17 @@ func (s *Server) mcpRecordingRequest(ctx context.Context, tenantID, sessionID, m
 	defer release()
 	if stop {
 		if err := requestWrapperRecording(ctx, port, method, path, body, true, nil); err != nil {
-			return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
+			return nil, mcpRecordingOutput{}, mcpRecordingError(err)
 		}
 		return nil, mcpRecordingOutput{}, nil
 	}
 	var status wrapperRecordingStatus
 	if err := requestWrapperRecording(ctx, port, method, path, body, false, &status); err != nil {
-		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
+		return nil, mcpRecordingOutput{}, mcpRecordingError(err)
 	}
 	output, err := s.mcpRecordingOutputFromStatus(sessionID, status)
 	if err != nil {
-		return nil, mcpRecordingOutput{}, mcpToolError("recording_unavailable", err)
+		return nil, mcpRecordingOutput{}, mcpRecordingError(err)
 	}
 	return nil, output, nil
 }
@@ -228,13 +288,13 @@ func (s *Server) mcpRecordingsRequest(ctx context.Context, tenantID, sessionID s
 	defer release()
 	var statuses []wrapperRecordingStatus
 	if err := requestWrapperRecording(ctx, port, http.MethodGet, "/recordings", nil, false, &statuses); err != nil {
-		return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", err)
+		return nil, mcpRecordingsOutput{}, mcpRecordingError(err)
 	}
 	output := mcpRecordingsOutput{Recordings: make([]mcpRecordingOutput, 0, len(statuses))}
 	for _, status := range statuses {
 		recording, err := s.mcpRecordingOutputFromStatus(sessionID, status)
 		if err != nil {
-			return nil, mcpRecordingsOutput{}, mcpToolError("recording_unavailable", err)
+			return nil, mcpRecordingsOutput{}, mcpRecordingError(err)
 		}
 		output.Recordings = append(output.Recordings, recording)
 	}
@@ -246,14 +306,9 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 	if err != nil {
 		return mcpRecordingOutput{}, err
 	}
-	edit, err := status.validEdit()
-	if err != nil {
-		return mcpRecordingOutput{}, err
-	}
-	output := mcpRecordingOutput{
-		recordingEdit: edit, RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+	return mcpRecordingOutput{
+		recordingEdit: s.recordingEdit(status), RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
-	}
-	return output, nil
+	}, nil
 }

@@ -61,7 +61,6 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().Int("webrtc-compositor-height", 0, "nested compositor output height")
 	cmd.PersistentFlags().Bool("webrtc-media-producer-enabled", false, "enable nested compositor media producer")
 	cmd.PersistentFlags().String("webrtc-media-producer-gst-executable", "", "media producer gst-launch executable path")
-	cmd.PersistentFlags().String("recording-ffmpeg-executable", "", "ffmpeg executable path for recording edits")
 	cmd.PersistentFlags().String("webrtc-media-producer-plugin-path", "", "media producer plugin search path")
 	cmd.PersistentFlags().String("webrtc-media-producer-target", "", "media producer PipeWire target")
 	cmd.PersistentFlags().String("webrtc-media-producer-codec", "", "media producer codec (auto, vp8, h264-va)")
@@ -70,6 +69,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().Int("webrtc-media-producer-keyframe-interval", 0, "media producer keyframe interval")
 	cmd.PersistentFlags().Int("webrtc-media-producer-udp-port-min", 0, "media producer ICE UDP port range minimum")
 	cmd.PersistentFlags().Int("webrtc-media-producer-udp-port-max", 0, "media producer ICE UDP port range maximum")
+	cmd.PersistentFlags().String("recording-ffmpeg-executable", "", "ffmpeg executable path for recording edits")
 
 	if err := rootFlags.BindPFlags(cmd.PersistentFlags()); err != nil {
 		panic(err)

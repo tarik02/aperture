@@ -78,9 +78,11 @@ const recordingFields = {
   fps: positiveInt,
   bitrateKbps: positiveInt,
   codec: Schema.String,
+  /** The stop returned and the edit is still running; `editedRelativePath` or `editError` follows. */
+  editing: Schema.Boolean,
   editedRelativePath: Schema.optionalKey(Schema.String),
   timelineRelativePath: Schema.optionalKey(Schema.String),
-  editError: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
+  editError: Schema.optionalKey(Api.RecordingEditError),
 };
 
 /**

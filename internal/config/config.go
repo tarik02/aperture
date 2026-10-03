@@ -96,7 +96,6 @@ type Config struct {
 	WebRTCCompositorHeight           int                      `mapstructure:"webrtc_compositor_height"`
 	WebRTCMediaProducerEnabled       bool                     `mapstructure:"webrtc_media_producer_enabled"`
 	WebRTCMediaProducerGSTExecutable string                   `mapstructure:"webrtc_media_producer_gst_executable"`
-	RecordingFFmpegExecutable        string                   `mapstructure:"recording_ffmpeg_executable"`
 	WebRTCMediaProducerPluginPath    string                   `mapstructure:"webrtc_media_producer_plugin_path"`
 	WebRTCMediaProducerTarget        string                   `mapstructure:"webrtc_media_producer_target"`
 	WebRTCMediaProducerAdvertisedIP  string                   `mapstructure:"webrtc_media_producer_advertised_ip"`
@@ -107,6 +106,7 @@ type Config struct {
 	WebRTCMediaProducerUDPPortMin    int                      `mapstructure:"webrtc_media_producer_udp_port_min"`
 	WebRTCMediaProducerUDPPortMax    int                      `mapstructure:"webrtc_media_producer_udp_port_max"`
 	WebRTCICEServers                 []WebRTCICEServer        `mapstructure:"webrtc_ice_servers"`
+	RecordingFFmpegExecutable        string                   `mapstructure:"recording_ffmpeg_executable"`
 	MCPEnabled                       bool                     `mapstructure:"mcp_enabled"`
 	BrowserToolsDefault              string                   `mapstructure:"browser_tools_default"`
 	ToolOutputMaxBytes               int64                    `mapstructure:"tool_output_max_bytes"`
@@ -163,7 +163,6 @@ func Defaults() Config {
 		WebRTCCompositorHeight:           720,
 		WebRTCMediaProducerEnabled:       false,
 		WebRTCMediaProducerGSTExecutable: "",
-		RecordingFFmpegExecutable:        "",
 		WebRTCMediaProducerPluginPath:    "",
 		WebRTCMediaProducerTarget:        "weston.pipewire",
 		WebRTCMediaProducerAdvertisedIP:  "",
@@ -174,6 +173,7 @@ func Defaults() Config {
 		WebRTCMediaProducerUDPPortMin:    50000,
 		WebRTCMediaProducerUDPPortMax:    50010,
 		WebRTCICEServers:                 nil,
+		RecordingFFmpegExecutable:        "",
 		MCPEnabled:                       true,
 		BrowserToolsDefault:              "core,vision,network",
 		ToolOutputMaxBytes:               16 * 1024 * 1024,
@@ -311,7 +311,6 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_compositor_height",
 		"webrtc_media_producer_enabled",
 		"webrtc_media_producer_gst_executable",
-		"recording_ffmpeg_executable",
 		"webrtc_media_producer_plugin_path",
 		"webrtc_media_producer_target",
 		"webrtc_media_producer_codec",
@@ -321,6 +320,7 @@ func Load(flags *viper.Viper) (Config, error) {
 		"webrtc_media_producer_udp_port_min",
 		"webrtc_media_producer_udp_port_max",
 		"webrtc_ice_servers",
+		"recording_ffmpeg_executable",
 		"mcp_enabled",
 		"browser_tools_default",
 		"tool_output_max_bytes",
@@ -435,7 +435,6 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"webrtc-compositor-height":                "webrtc_compositor_height",
 		"webrtc-media-producer-enabled":           "webrtc_media_producer_enabled",
 		"webrtc-media-producer-gst-executable":    "webrtc_media_producer_gst_executable",
-		"recording-ffmpeg-executable":             "recording_ffmpeg_executable",
 		"webrtc-media-producer-plugin-path":       "webrtc_media_producer_plugin_path",
 		"webrtc-media-producer-target":            "webrtc_media_producer_target",
 		"webrtc-media-producer-codec":             "webrtc_media_producer_codec",
@@ -444,6 +443,7 @@ func applyFlagOverrides(v *viper.Viper, flags *viper.Viper) {
 		"webrtc-media-producer-keyframe-interval": "webrtc_media_producer_keyframe_interval",
 		"webrtc-media-producer-udp-port-min":      "webrtc_media_producer_udp_port_min",
 		"webrtc-media-producer-udp-port-max":      "webrtc_media_producer_udp_port_max",
+		"recording-ffmpeg-executable":             "recording_ffmpeg_executable",
 	}
 
 	for flagName, configKey := range flagBindings {

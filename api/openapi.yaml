@@ -882,7 +882,7 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [invalid_request_body, validation_failed, session_not_found, session_expired, session_not_running, recording_invalid_state, recording_codec_unavailable, session_service_unavailable, browser_control_failed]
-      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The `capture`, `idle`, `ripple` and `burst` settings are rejected with `validation_failed` when they contradict each other.
+      description: Starts a tab recording of one ready top-level target. A codec the host cannot run is rejected with `recording_codec_unavailable`. The edit settings are checked before the session is woken and rejected with `validation_failed` when they contradict each other (`idle` with `capture` `bursts`, `burst` without `capture` `bursts`, `tailMs` above `maxTailMs`), and `capture` `bursts`, `idle` and `ripple` are rejected the same way on an instance without `recording_ffmpeg_executable`; `presentation` alone needs nothing.
       requestBody: {$ref: '#/components/requestBodies/CreateSessionRecording'}
       responses:
         '201': {description: Started recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
@@ -934,13 +934,13 @@ paths:
         requiredScopes: [sessions:write]
         tenantResolution: token_tenant_or_required_header
       x-aperture-errors: [validation_failed, session_not_found, session_expired, session_not_running, recording_not_found, recording_invalid_state, session_service_unavailable, browser_control_failed]
-      description: Stops the selected recording without transferring its media data and returns the resulting session file of the raw video, with `editedRelativePath`, `timelineRelativePath` and `editError` when the stop made them. The call returns once the edit is done, which takes about as long as the video; the raw video is always published.
+      description: Stops the selected recording and returns it at once, without transferring its media data. The raw video is published at `relativePath` before the call returns. The recording is `stopped` with `editing` true while its edit runs, which takes about as long as the recording and at most 30 minutes; poll `GET` until `editing` is false, when `editedRelativePath`, `timelineRelativePath` or `editError` are filled. Stopping again meanwhile returns the current state. Cancelling the recording, or suspending, deleting or closing the session, ends the edit with `editError.code` `cancelled`.
       parameters:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
       responses:
-        '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/StoppedRecordingFile'}}}}
+        '200': {description: Stopped recording, content: {application/json: {schema: {$ref: '#/components/schemas/Recording'}}}}
         default: {$ref: '#/components/responses/Error'}
   /api/sessions/{sessionId}/files:
     get:
@@ -2951,36 +2951,40 @@ components:
         capture:
           type: string
           enum: [continuous, bursts]
-          description: With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`.
+          description: With `bursts`, the edited video keeps only the stretches around browser tool calls, from `burst.leadMs` before a call to `burst.tailMs` after it, longer until the screen has stood still for `burst.settleMs` but at most `burst.maxTailMs`, and the recording follows the tab the automation acts on. The raw video is always the whole capture. Defaults to `continuous`. Cannot be combined with `idle`. Needs `recording_ffmpeg_executable` on the instance.
         presentation:
           type: boolean
-          description: Run browser automation at presentation pace while the recording runs.
+          description: Run browser automation at presentation pace while the recording runs. Needs nothing of the instance.
         idle:
           type: string
           enum: [cut, speed]
-          description: Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video.
+          description: Remove (`cut`) or fast-forward (`speed`) the stretches of a continuous recording in which neither the picture nor the automation changes, in the edited video. Needs `recording_ffmpeg_executable` on the instance.
         ripple:
           type: boolean
-          description: Mark clicks with a ripple in the edited video.
+          description: Mark clicks with a ripple in the edited video. Needs `recording_ffmpeg_executable` on the instance.
         burst:
           type: object
-          description: Burst sizes in milliseconds for `capture` `bursts`, each up to 60000. Omitted or zero fields take the defaults. `tailMs` must not exceed `maxTailMs`.
+          description: Burst sizes in milliseconds for `capture` `bursts`; rejected without it. Omitted or zero fields take the defaults. `tailMs` must not exceed `maxTailMs` (default 3000).
           properties:
             leadMs:
               type: integer
               minimum: 0
+              maximum: 60000
               description: Kept before a tool call. Defaults to 500.
             tailMs:
               type: integer
               minimum: 0
+              maximum: 60000
               description: Kept after a tool call. Defaults to 800.
             settleMs:
               type: integer
               minimum: 0
+              maximum: 60000
               description: How long the screen must stand still to count as settled. Defaults to 400.
             maxTailMs:
               type: integer
               minimum: 0
+              maximum: 60000
               description: Longest wait for the screen to settle after a call. Defaults to 3000.
     RetargetSessionRecordingInput:
       type: object
@@ -2994,7 +2998,7 @@ components:
     Recording:
       type: object
       description: One logical recording of a top-level target.
-      required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
+      required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec, editing]
       properties:
         recordingId:
           type: string
@@ -3041,6 +3045,9 @@ components:
         codec:
           type: string
           enum: [vp8, h264-va]
+        editing:
+          type: boolean
+          description: Whether the edit a requested stop makes is still running. The raw video is already published; `editedRelativePath`, `timelineRelativePath` and `editError` are filled once this is false.
         editedRelativePath:
           type: string
           description: The edited H.264 video, published next to the raw one as `<name>.edited.mp4`, once a stop made it.
@@ -3058,37 +3065,6 @@ components:
           enum: [ffmpeg_unavailable, open_failed, nothing_kept, analysis_failed, plan_failed, render_failed, timeout, cancelled, timeline_failed]
         message:
           type: string
-    StoppedRecordingFile:
-      type: object
-      description: The raw video of a stopped recording as a session file, with the edit the stop made of it.
-      required: [type, name, relativePath, size, modifiedAt, mimeType]
-      properties:
-        type:
-          type: string
-          enum: [file]
-        name:
-          type: string
-        relativePath:
-          type: string
-          description: Path of the raw video below the session files root.
-        size:
-          type: integer
-          format: int64
-          minimum: 0
-        modifiedAt:
-          type: string
-          format: date-time
-        mimeType:
-          type: string
-        sandboxPath:
-          type: string
-        editedRelativePath:
-          type: string
-          description: The edited H.264 video, published next to the raw one as `<name>.edited.mp4`.
-        timelineRelativePath:
-          type: string
-          description: What the recording's automation did and when, published as `<name>.timeline.json`.
-        editError: {$ref: '#/components/schemas/RecordingEditError'}
     SessionFile:
       type: object
       description: Regular file retained with a browser session.

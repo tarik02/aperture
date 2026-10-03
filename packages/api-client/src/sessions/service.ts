@@ -22,7 +22,6 @@ import type {
   SessionRecording,
   SessionsBulkResponse,
   SetViewportInput,
-  StoppedRecordingFile,
   TargetViewport,
   UpdateProxyConfig,
 } from "../schemas.ts";
@@ -189,14 +188,15 @@ export class SessionsApi extends Context.Service<
       targetId: string,
     ) => Call<SessionRecording>;
     /**
-     * Stops a recording and returns the session file of its raw video with the edit the stop
-     * made. Resolves once the edit is done, which takes about as long as the video.
+     * Stops a recording and returns it at once with its raw video published. The edit runs
+     * afterwards: the recording stays `editing` until `editedRelativePath` or `editError` is set,
+     * which `getSessionRecording` reports.
      */
     readonly stopSessionRecording: (
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
-    ) => Call<StoppedRecordingFile>;
+    ) => Call<SessionRecording>;
     /**
      * Every file and directory of the session, also while it is not running. See
      * `sessionFileTree`.

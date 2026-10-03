@@ -1134,7 +1134,7 @@
             pkgs.sqlite
             pkgs.traefik
             pkgs.chromium
-            pkgs.ffmpeg
+            runtimeFfmpeg
             runtimeGstreamer
             pkgs.gst_all_1.gst-plugins-base
             pkgs.bubblewrap

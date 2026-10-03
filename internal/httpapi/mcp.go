@@ -15,6 +15,7 @@ import (
 	"github.com/aperture/aperture/internal/db"
 	"github.com/aperture/aperture/internal/event"
 	"github.com/aperture/aperture/internal/playwrightmcp"
+	"github.com/aperture/aperture/internal/recording"
 	"github.com/aperture/aperture/internal/session"
 	"github.com/aperture/aperture/internal/snapshot"
 	"github.com/gin-gonic/gin"
@@ -338,14 +339,14 @@ type mcpRecordingStartInput struct {
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
-	recordingOptions
+	recording.Config
 }
 type mcpBoundRecordingStartInput struct {
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
 	FPS         int    `json:"fps,omitempty"`
 	BitrateKbps int    `json:"bitrateKbps,omitempty"`
 	Codec       string `json:"codec,omitempty"`
-	recordingOptions
+	recording.Config
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -555,11 +556,11 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.targets", Description: "List browser targets and their readiness, waking this session if it is suspended."}, s.mcpBoundBrowserTargets)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.get", Description: "Get remote cursor visibility for this session."}, s.mcpBoundCursorGet)
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in this session's live stream and recordings."}, s.mcpBoundCursorSet)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpBoundRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance.", InputSchema: mcpBoundRecordingStartSchema()}, s.mcpBoundRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for this session."}, s.mcpBoundRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpBoundRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpBoundRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID. Returns once the edit is done, which can take about as long as the recording; the raw video is always kept, and editError says why an edit is missing."}, s.mcpBoundRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID. Returns at once with the recording: its raw video is published, and editing is true while its edit runs, about as long as the recording. Poll recording.status until editing is false; editedRelativePath, timelineRelativePath or editError are filled then. Stopping again returns the current state."}, s.mcpBoundRecordingStop)
 		if !a.sessionOnly && auth.HasScope(a.principal.Scopes, auth.ScopeSessionsWrite) && auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 			mcp.AddTool(server, &mcp.Tool{Name: "sessions.promote", Description: "Promote this stopped retained session into a snapshot."}, s.mcpBoundPromote)
 		}
@@ -588,11 +589,11 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "cursor.set", Description: "Set whether the remote cursor is included in a session's live stream and recordings."}, s.mcpCursorSet)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.list", Description: "List safe metadata for files in a session."}, s.mcpSessionFilesList)
 		mcp.AddTool(server, &mcp.Tool{Name: "session_files.create_download_url", Description: "Create a signed URL for one file in a session."}, s.mcpSessionFileURL)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target."}, s.mcpRecordingStart)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.start", Description: "Start a tab recording of one ready top-level target. Edit settings are checked here; capture bursts, idle and ripple need ffmpeg on the instance.", InputSchema: mcpRecordingStartSchema()}, s.mcpRecordingStart)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.list", Description: "List recordings and their current top-level targets for a session."}, s.mcpRecordingsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.status", Description: "Get one recording and its current top-level target by recording ID."}, s.mcpRecordingStatus)
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.retarget", Description: "Move a running tab recording to another ready top-level target without starting a new logical recording."}, s.mcpRecordingRetarget)
-		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID. Returns once the edit is done, which can take about as long as the recording; the raw video is always kept, and editError says why an edit is missing."}, s.mcpRecordingStop)
+		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop one recording by ID. Returns at once with the recording: its raw video is published, and editing is true while its edit runs, about as long as the recording. Poll recording.status until editing is false; editedRelativePath, timelineRelativePath or editError are filled then. Stopping again returns the current state."}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
