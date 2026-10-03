@@ -568,12 +568,12 @@ export function useBrowserControl({
   );
 
   // Pacing is per session client and ephemeral, so every new connection announces the preference.
-  const [watchableAutomation, setWatchableAutomation] = useState(true);
+  const [watchableAutomation, setWatchableAutomation] = useState(false);
   const commandRef = useRef(live.command);
   commandRef.current = live.command;
   useEffect(() => {
     if (live.phase === "connected" && canRecord) {
-      commandRef.current("presentation.automation.set", {
+      commandRef.current("automation.pacing.set", {
         pacing: watchableAutomation ? "watchable" : "normal",
       });
     }

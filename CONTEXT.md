@@ -13,8 +13,16 @@ A regular file below the session's single files root, identified by its path rel
 _Avoid_: Retained file, recording file
 
 **Recording edit**:
-What stopping a recording makes of its raw video and its journal: an H.264 video with the cuts, captions, zooms and click ripples the recording asked for, and a timeline of what the automation did, in the raw and the edited video's time. The raw video is always kept and is never replaced; a failed edit is reported with it.
+What stopping a recording makes of its raw video and its journal: an H.264 video with the cuts, captions, zooms and click ripples the recording asked for, and a timeline of what the automation did, in the raw and the edited video's time. Stopping returns at once with the raw video kept and published; the edit runs afterwards, shown as `editing` on the recording, and is never a replacement of the raw video. A failed or cancelled edit is reported on the recording.
 _Avoid_: Post-processing, render
+
+**Automation cadence**:
+How visibly browser automation acts on a live session: `immediate` is raw CDP with no added latency; `recorded` is real compositor input with eased motion, in effect while any recording runs or a connected owner or editor asked for watchable pacing; `presentation` is slower still and in effect while a presentation recording runs.
+_Avoid_: Speed mode, slow mode, throttling
+
+**Pacing**:
+A session client's request (`automation.pacing.set`) that the automation it watches run at the recorded cadence. It is ephemeral: it belongs to the client and ends when the client disconnects.
+_Avoid_: Watch mode, follow mode
 
 **Hot storage**:
 Host-local storage for the overlay state of running and stopped sessions.
