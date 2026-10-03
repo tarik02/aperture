@@ -40,8 +40,9 @@ func newPlaywrightMCPBackend(values RuntimeEnvValues, cdpEndpoint string) *playw
 // backend that talks to it. Both end with ctx.
 func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession *liveSession) error {
 	var pointer *cdpPointer
-	if multiTargetCompositorEnabled(r.values) {
-		pointer = newCDPPointer(r.controlSocket, r.pointerSurface, liveSession.journal)
+	// The compositor input is the human's path to the same pointer; automation shares its position tracking.
+	if input, ok := liveSession.input.(*liveSessionCompositorInput); ok {
+		pointer = newCDPPointer(input.pointer, r.pointerSurface, liveSession.journal)
 		liveSession.pointer = pointer
 	}
 	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer, liveSession.journal, func() bool { return liveSession.activeRecordings.Load() > 0 })
@@ -57,15 +58,20 @@ func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession
 	return nil
 }
 
-// pointerSurface finds the compositor surface of a browser target that can take input.
-func (r *wrapperRuntime) pointerSurface(targetID string) (cdpSurface, bool) {
+// readyTarget finds a browser target that can take input.
+func (r *wrapperRuntime) readyTarget(targetID string) (wrapperTargetSnapshot, bool) {
 	r.mu.Lock()
 	registry := r.targets
 	r.mu.Unlock()
-	if registry == nil {
-		return cdpSurface{}, false
+	if registry == nil || strings.TrimSpace(targetID) == "" {
+		return wrapperTargetSnapshot{}, false
 	}
-	target, ready := registry.readyTarget(targetID)
+	return registry.readyTarget(targetID)
+}
+
+// pointerSurface is a ready target as the compositor surface automation moves the pointer on.
+func (r *wrapperRuntime) pointerSurface(targetID string) (cdpSurface, bool) {
+	target, ready := r.readyTarget(targetID)
 	return cdpSurface{id: target.SurfaceID, targetID: target.TargetID, width: float64(target.Viewport.Width), height: float64(target.Viewport.Height)}, ready
 }
 

@@ -3,7 +3,6 @@ package browser
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 )
@@ -49,8 +48,8 @@ func (c *cdpProxyConn) smoothReveal(sessionID, handle string) {
 	}
 	// A failed probe ends the wait: a page blocked by a dialog must not hold the command up.
 	rootSession, root, _ := c.rootSession(sessionID)
-	defer c.proxy.journal.add("reveal", time.Now(), map[string]any{"targetId": root.targetID})
-	c.proxy.journal.add("target", time.Now(), map[string]any{"targetId": root.targetID})
+	began := time.Now()
+	c.proxy.journal.add("target", began, map[string]any{"targetId": root.targetID})
 	position := func() (string, error) {
 		element, err := c.callOn(ctx, sessionID, handle, revealPositionFunction)
 		var page json.RawMessage
@@ -69,7 +68,7 @@ func (c *cdpProxyConn) smoothReveal(sessionID, handle string) {
 	if _, err := c.callOn(ctx, sessionID, handle, revealScrollFunction); err != nil {
 		return
 	}
-	began := time.Now()
+	scrolled := time.Now()
 	for stable := 0; ctx.Err() == nil; {
 		if sleepContext(ctx, revealPollInterval) != nil {
 			return
@@ -85,7 +84,8 @@ func (c *cdpProxyConn) smoothReveal(sessionID, handle string) {
 		}
 		last = current
 		// A scroll that has not started yet looks stable; only trust that once it had time to start.
-		if stable >= revealStableRuns && (current != start || time.Since(began) > revealStartGrace) {
+		if stable >= revealStableRuns && (current != start || time.Since(scrolled) > revealStartGrace) {
+			c.proxy.journal.add("reveal", began, map[string]any{"targetId": root.targetID})
 			return
 		}
 	}
@@ -102,17 +102,5 @@ func (c *cdpProxyConn) callOn(ctx context.Context, sessionID, objectID, function
 	if err != nil {
 		return nil, err
 	}
-	var called struct {
-		Result struct {
-			Value json.RawMessage `json:"value"`
-		} `json:"result"`
-		ExceptionDetails json.RawMessage `json:"exceptionDetails"`
-	}
-	if err := json.Unmarshal(result, &called); err != nil {
-		return nil, err
-	}
-	if len(called.ExceptionDetails) > 0 {
-		return nil, errors.New("page function failed")
-	}
-	return called.Result.Value, nil
+	return decodeRemoteObject(result)
 }

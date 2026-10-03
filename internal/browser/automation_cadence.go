@@ -44,11 +44,10 @@ const (
 	pageProbeTimeout = time.Second
 	deliveryBarrier  = 250 * time.Millisecond
 
-	wheelPxPerAxisUnit = 12.0
-	wheelStepInterval  = 50 * time.Millisecond
-	wheelBaseDuration  = 120 * time.Millisecond
-	wheelMaxDuration   = 900 * time.Millisecond
-	wheelMsPerPx       = 0.6
+	wheelStepInterval = 50 * time.Millisecond
+	wheelBaseDuration = 120 * time.Millisecond
+	wheelMaxDuration  = 900 * time.Millisecond
+	wheelMsPerPx      = 0.6
 
 	revealPollInterval = 30 * time.Millisecond
 	revealStableRuns   = 3

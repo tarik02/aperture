@@ -19,19 +19,14 @@ import (
 	"github.com/coder/websocket"
 )
 
-func init() {
-	// Tests run the recorded cadence quickly.
-	recordedTiming = cadenceTiming{glideSpeed: 1e5, glideMin: 30 * time.Millisecond, glideMax: 60 * time.Millisecond, dwell: 5 * time.Millisecond, hold: 5 * time.Millisecond}
-}
-
 // fakeChromium accepts CDP websocket clients, announces one page and one iframe session, and
 // answers every command, recording what it received.
 type fakeChromium struct {
 	server *httptest.Server
 	mu     sync.Mutex
 	got    []cdpMessage
-	// dragIntercept makes the first synthetic mouse move report Input.dragIntercepted.
-	dragIntercept bool
+	// emit writes an event on the latest connection.
+	emit func(value any)
 }
 
 func newFakeChromium(t *testing.T) *fakeChromium {
@@ -52,6 +47,9 @@ func newFakeChromium(t *testing.T) *fakeChromium {
 			raw, _ := json.Marshal(value)
 			_ = conn.Write(ctx, websocket.MessageText, raw)
 		}
+		fake.mu.Lock()
+		fake.emit = write
+		fake.mu.Unlock()
 		write(map[string]any{"method": "Target.attachedToTarget", "params": map[string]any{"sessionId": "S1", "targetInfo": map[string]any{"targetId": "T1", "type": "page"}}})
 		write(map[string]any{"method": "Target.attachedToTarget", "sessionId": "S1", "params": map[string]any{"sessionId": "S2", "targetInfo": map[string]any{"targetId": "F1", "type": "iframe"}}})
 		for {
@@ -63,7 +61,6 @@ func newFakeChromium(t *testing.T) *fakeChromium {
 			_ = json.Unmarshal(raw, &message)
 			fake.mu.Lock()
 			fake.got = append(fake.got, message)
-			intercept := fake.dragIntercept
 			fake.mu.Unlock()
 			result := map[string]any{}
 			if message.Method == "Target.attachToTarget" {
@@ -92,9 +89,6 @@ func newFakeChromium(t *testing.T) *fakeChromium {
 				result = map[string]any{"result": map[string]any{"value": value}}
 			}
 			write(map[string]any{"id": message.ID, "sessionId": message.SessionID, "result": result})
-			if intercept && message.Method == "Input.dispatchMouseEvent" && message.ID != nil && *message.ID >= cdpProxyInternalIDBase {
-				write(map[string]any{"method": "Input.dragIntercepted", "sessionId": message.SessionID, "params": map[string]any{}})
-			}
 		}
 	}))
 	t.Cleanup(fake.server.Close)
@@ -111,11 +105,36 @@ func (f *fakeChromium) methods() []string {
 	return methods
 }
 
-// fakeWeston records compositor control commands and accepts them all.
+func (f *fakeChromium) count(method string) int {
+	count := 0
+	for _, got := range f.methods() {
+		if got == method {
+			count++
+		}
+	}
+	return count
+}
+
+// event sends an upstream event with the fake's own session routing.
+func (f *fakeChromium) event(method, sessionID string, params map[string]any) {
+	f.mu.Lock()
+	emit := f.emit
+	f.mu.Unlock()
+	message := map[string]any{"method": method, "params": params}
+	if sessionID != "" {
+		message["sessionId"] = sessionID
+	}
+	emit(message)
+}
+
+// fakeWeston records compositor control commands and accepts them all, apart from those with
+// the reject prefix.
 type fakeWeston struct {
-	mu    sync.Mutex
-	lines []string
-	times []time.Time
+	mu     sync.Mutex
+	lines  []string
+	times  []time.Time
+	reject string
+	onLine func(line string, count int) // called for every command once recorded, with the count so far
 }
 
 func newFakeWeston(t *testing.T) (*fakeWeston, string) {
@@ -134,11 +153,21 @@ func newFakeWeston(t *testing.T) (*fakeWeston, string) {
 				return
 			}
 			line, _ := bufio.NewReader(conn).ReadString('\n')
+			line = strings.TrimSpace(line)
 			weston.mu.Lock()
-			weston.lines = append(weston.lines, strings.TrimSpace(line))
+			weston.lines = append(weston.lines, line)
 			weston.times = append(weston.times, time.Now())
+			rejected := weston.reject != "" && strings.HasPrefix(line, weston.reject)
+			onLine, count := weston.onLine, len(weston.lines)
 			weston.mu.Unlock()
-			_, _ = conn.Write([]byte("ok\n"))
+			if onLine != nil {
+				onLine(line, count)
+			}
+			response := "ok\n"
+			if rejected {
+				response = "error rejected\n"
+			}
+			_, _ = conn.Write([]byte(response))
 			_ = conn.Close()
 		}
 	}()
@@ -163,16 +192,49 @@ func (w *fakeWeston) all() []string {
 	return append([]string(nil), w.lines...)
 }
 
+func (w *fakeWeston) rejectPrefix(prefix string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.reject = prefix
+}
+
+// waitFor polls until the compositor saw want commands with the prefix.
+func (w *fakeWeston) waitFor(t *testing.T, prefix string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(w.commands(prefix)) >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("compositor never saw %d %q commands: %v", want, prefix, w.all())
+}
+
 type proxyHarness struct {
-	t       *testing.T
-	chrome  *fakeChromium
-	weston  *fakeWeston
-	cadence atomic.Int32
-	client  *websocket.Conn
-	nextID  int64
+	t          *testing.T
+	chrome     *fakeChromium
+	weston     *fakeWeston
+	compositor *compositorPointer
+	cadence    atomic.Int32
+	realTiming atomic.Bool // pace the cadences as shipped instead of the fast test timings
+	slowGlide  atomic.Bool // make every glide take seconds, to interrupt it
+	client     *websocket.Conn
+	nextID     int64
 
 	journalMu sync.Mutex
 	journaled []map[string]any
+}
+
+func (h *proxyHarness) timing(cadence automationCadence) cadenceTiming {
+	if h.realTiming.Load() {
+		return cadence.timing()
+	}
+	timing := cadenceTiming{glideSpeed: 1e5, glideMin: 30 * time.Millisecond, glideMax: 60 * time.Millisecond, dwell: 5 * time.Millisecond, hold: 5 * time.Millisecond}
+	if h.slowGlide.Load() {
+		timing.glideSpeed, timing.glideMin, timing.glideMax = 100, 3*time.Second, 3*time.Second
+	}
+	return timing
 }
 
 func (h *proxyHarness) record(kind string, _ time.Time, fields map[string]any) {
@@ -209,10 +271,12 @@ func newProxyHarness(t *testing.T, cadence automationCadence) *proxyHarness {
 	weston, socket := newFakeWeston(t)
 	h.weston = weston
 	h.cadence.Store(int32(cadence))
-	pointer := newCDPPointer(socket, func(targetID string) (cdpSurface, bool) {
+	h.compositor = newCompositorPointer(socket)
+	pointer := newCDPPointer(h.compositor, func(targetID string) (cdpSurface, bool) {
 		return cdpSurface{id: 7, targetID: "T1", width: 2000, height: 1000}, targetID == "T1"
 	}, h.record)
 	proxy := newCDPProxy(strings.TrimPrefix(h.chrome.server.URL, "http://"), func() automationCadence { return automationCadence(h.cadence.Load()) }, pointer, h.record, func() bool { return true })
+	proxy.timing = h.timing
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	endpoint, err := proxy.serve(ctx)
@@ -382,20 +446,75 @@ func TestRealWheelQuantizesWithCarry(t *testing.T) {
 		var x, y, dx, dy float64
 		_, _ = fmt.Sscanf(line, "axis-at %d %f %f %f %f", &surface, &x, &y, &dx, &dy)
 		total += dy
-		if math.Abs(dy*wheelPxPerAxisUnit-math.Round(dy*wheelPxPerAxisUnit)) > 1e-3 {
+		if math.Abs(dy*compositorAxisPxPerUnit-math.Round(dy*compositorAxisPxPerUnit)) > 1e-3 {
 			t.Fatalf("step %q is not a whole number of pixels", line)
 		}
 	}
-	if math.Abs(total*wheelPxPerAxisUnit-101) > 0.01 {
-		t.Fatalf("scrolled %.3f px, want 101", total*wheelPxPerAxisUnit)
+	if math.Abs(total*compositorAxisPxPerUnit-101) > 0.01 {
+		t.Fatalf("scrolled %.3f px, want 101", total*compositorAxisPxPerUnit)
 	}
 }
 
-func TestInterceptedDragReleasesRealButton(t *testing.T) {
+// Playwright's drag watch: when Chromium reports that a drag started during the real glide, the
+// glide stops and the real button goes up without coordinates; Playwright drives the drag on CDP.
+func TestInterceptedDragStopsTheGlideAndDropsTheRealButton(t *testing.T) {
 	h := newProxyHarness(t, cadenceRecorded)
-	h.chrome.mu.Lock()
-	h.chrome.dragIntercept = true
-	h.chrome.mu.Unlock()
+	h.slowGlide.Store(true)
+	h.send("S1", "Input.setInterceptDrags", map[string]any{"enabled": true})
+	h.read()
+	h.mouse("S1", "mouseMoved", 100, 50, map[string]any{"button": "none"})
+	h.mouse("S1", "mousePressed", 100, 50, nil)
+	h.read()
+	h.read()
+	before := len(h.weston.all())
+	h.weston.mu.Lock()
+	h.weston.onLine = func(line string, count int) {
+		// Chromium reports the drag after the fifth frame of the glide.
+		if strings.HasPrefix(line, "motion ") && count == before+5 {
+			h.chrome.event("Input.dragIntercepted", "S1", map[string]any{})
+		}
+	}
+	h.weston.mu.Unlock()
+	id := h.mouse("S1", "mouseMoved", 1900, 50, map[string]any{"buttons": 1})
+	started := time.Now()
+	for {
+		reply := h.read()
+		if reply.Method == "Input.dragIntercepted" {
+			continue
+		}
+		if reply.ID == nil || *reply.ID != id || len(reply.Error) > 0 {
+			t.Fatalf("reply %+v", reply)
+		}
+		break
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("the glide did not stop when the drag was intercepted")
+	}
+	if releases := h.weston.commands("button"); len(releases) != 1 || releases[0] != "button 7 272 0" {
+		t.Fatalf("releases = %v, want one without coordinates; all %v", releases, h.weston.all())
+	}
+	if buttons := h.weston.commands("button-at"); len(buttons) != 1 {
+		t.Fatalf("button-at = %v, want only the press", buttons)
+	}
+	all := h.weston.all()
+	if frames := len(all) - 1 - before - 5; frames > 3 || all[len(all)-1] != "button 7 272 0" {
+		t.Fatalf("%d frames after the interception, ending with %q", frames, all[len(all)-1])
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(h.weston.all()); n != len(all) {
+		t.Fatalf("the glide went on after the interception: %v", h.weston.all()[len(all):])
+	}
+	// The drag then ends on CDP: nothing is held for real, so the release is relayed.
+	h.mouse("S1", "mouseReleased", 1900, 50, nil)
+	h.read()
+	if n := h.chrome.count("Input.dispatchMouseEvent"); n != 1 {
+		t.Fatalf("upstream saw %d mouse commands, want the relayed release", n)
+	}
+}
+
+// Without an interception the watched glide is an ordinary one: no synthetic move goes upstream.
+func TestDragWatchWithoutInterceptionGlidesForReal(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
 	h.send("S1", "Input.setInterceptDrags", map[string]any{"enabled": true})
 	h.read()
 	h.mouse("S1", "mouseMoved", 100, 50, map[string]any{"button": "none"})
@@ -403,14 +522,34 @@ func TestInterceptedDragReleasesRealButton(t *testing.T) {
 	h.mouse("S1", "mouseMoved", 140, 50, map[string]any{"buttons": 1})
 	h.mouse("S1", "mouseReleased", 140, 50, nil)
 	for range 4 {
-		h.read()
+		if reply := h.read(); len(reply.Error) > 0 {
+			t.Fatalf("reply %+v", reply)
+		}
 	}
 	buttons := h.weston.commands("button-at")
-	if len(buttons) != 2 || !strings.HasSuffix(buttons[0], " 1") || !strings.HasSuffix(buttons[1], " 0") {
-		t.Fatalf("buttons = %v, want one press and one release; all %v", buttons, h.weston.all())
+	if len(buttons) != 2 || buttons[0] != "button-at 7 100.00 50.00 272 1" || buttons[1] != "button-at 7 140.00 50.00 272 0" {
+		t.Fatalf("buttons = %v; all %v", buttons, h.weston.all())
 	}
-	if got := h.chrome.methods(); !strings.Contains(strings.Join(got, ","), "Input.dispatchMouseEvent") {
-		t.Fatalf("the drag start was not sent over CDP: %v", got)
+	if n := h.chrome.count("Input.dispatchMouseEvent"); n != 0 {
+		t.Fatalf("%d synthetic mouse commands went upstream", n)
+	}
+}
+
+// A move with a button that is not held for real continues a CDP press, and stays on CDP.
+func TestDragMoveAfterCDPPressIsRelayed(t *testing.T) {
+	h := newProxyHarness(t, cadenceImmediate)
+	h.mouse("S1", "mousePressed", 100, 50, nil)
+	h.read()
+	h.cadence.Store(int32(cadenceRecorded))
+	h.mouse("S1", "mouseMoved", 140, 50, map[string]any{"buttons": 1})
+	h.mouse("S1", "mouseReleased", 140, 50, nil)
+	h.read()
+	h.read()
+	if n := h.chrome.count("Input.dispatchMouseEvent"); n != 3 {
+		t.Fatalf("upstream saw %d mouse commands, want the whole gesture", n)
+	}
+	if lines := h.weston.all(); len(lines) != 0 {
+		t.Fatalf("the compositor got %v", lines)
 	}
 }
 
@@ -480,5 +619,191 @@ func TestProxyJournalsGesturesWithoutDelayingTheReply(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("journal lacks %s:\n%s", want, got)
 		}
+	}
+}
+
+// The cadence can drop to immediate between a real press and its release (an editor leaves, a
+// recording stops): the release must still happen for real, and only then is input relayed again.
+func TestCadenceFlipAfterRealPressStillReleasesForReal(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
+	h.mouse("S1", "mouseMoved", 100, 50, nil)
+	h.mouse("S1", "mousePressed", 100, 50, nil)
+	h.read()
+	h.read()
+	h.cadence.Store(int32(cadenceImmediate))
+	id := h.mouse("S1", "mouseReleased", 100, 50, nil)
+	if reply := h.read(); reply.ID == nil || *reply.ID != id || len(reply.Error) > 0 {
+		t.Fatalf("reply %+v", reply)
+	}
+	if buttons := h.weston.commands("button-at"); len(buttons) != 2 || buttons[1] != "button-at 7 100.00 50.00 272 0" {
+		t.Fatalf("buttons = %v, want the real release", buttons)
+	}
+	if n := h.chrome.count("Input.dispatchMouseEvent"); n != 0 {
+		t.Fatalf("the real gesture leaked %d commands over CDP", n)
+	}
+	motions := len(h.weston.commands("motion"))
+	h.mouse("S1", "mouseMoved", 300, 50, nil)
+	h.read()
+	if n := h.chrome.count("Input.dispatchMouseEvent"); n != 1 || len(h.weston.commands("motion")) != motions {
+		t.Fatalf("immediate cadence after the gesture: %d CDP moves, motions %v", n, h.weston.commands("motion"))
+	}
+}
+
+// A release of a button whose press went over CDP (before a recording started, with modifiers,
+// on a target without a surface) follows it over CDP, or Chromium's button stays down.
+func TestReleaseWithNothingHeldIsRelayed(t *testing.T) {
+	h := newProxyHarness(t, cadenceImmediate)
+	h.mouse("S1", "mousePressed", 100, 50, nil)
+	h.read()
+	h.cadence.Store(int32(cadenceRecorded))
+	id := h.mouse("S1", "mouseReleased", 100, 50, nil)
+	if reply := h.read(); reply.ID == nil || *reply.ID != id {
+		t.Fatalf("reply %+v", reply)
+	}
+	if n := h.chrome.count("Input.dispatchMouseEvent"); n != 2 {
+		t.Fatalf("upstream saw %d mouse commands, want press and release", n)
+	}
+	if lines := h.weston.all(); len(lines) != 0 {
+		t.Fatalf("nothing was held, yet the compositor got %v", lines)
+	}
+}
+
+func TestTwoButtonsAreHeldAndReleasedIndividually(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
+	h.mouse("S1", "mouseMoved", 100, 50, nil)
+	h.mouse("S1", "mousePressed", 100, 50, nil)
+	h.mouse("S1", "mousePressed", 100, 50, map[string]any{"button": "right"})
+	h.mouse("S1", "mouseReleased", 100, 50, nil)
+	h.mouse("S1", "mouseReleased", 100, 50, map[string]any{"button": "right"})
+	for range 5 {
+		if reply := h.read(); len(reply.Error) > 0 {
+			t.Fatalf("reply %+v", reply)
+		}
+	}
+	var codes []string
+	for _, line := range h.weston.commands("button-at") {
+		codes = append(codes, line[strings.LastIndex(line, " 27"):])
+	}
+	if got := strings.Join(codes, ","); got != " 272 1, 273 1, 272 0, 273 0" {
+		t.Fatalf("button sequence %q", got)
+	}
+	if releases := h.weston.commands("button"); len(releases) != 0 {
+		t.Fatalf("the safety net released buttons that were released properly: %v", releases)
+	}
+}
+
+func TestRejectedCompositorCommandFailsTheCallAndReleasesHeld(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
+	h.mouse("S1", "mouseMoved", 100, 50, nil)
+	h.mouse("S1", "mousePressed", 100, 50, nil)
+	h.read()
+	h.read()
+	h.weston.rejectPrefix("motion")
+	id := h.mouse("S1", "mouseMoved", 500, 50, nil)
+	reply := h.read()
+	if reply.ID == nil || *reply.ID != id || !strings.Contains(string(reply.Error), "rejected") {
+		t.Fatalf("reply %+v, want the compositor's rejection", reply)
+	}
+	if releases := h.weston.commands("button"); len(releases) != 1 || releases[0] != "button 7 272 0" {
+		t.Fatalf("releases = %v", releases)
+	}
+}
+
+func TestCancelledGlideIsNotJournaled(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
+	h.slowGlide.Store(true)
+	h.mouse("S1", "mouseMoved", 1900, 900, nil)
+	h.weston.waitFor(t, "motion", 3)
+	_ = h.client.CloseNow()
+	time.Sleep(150 * time.Millisecond)
+	got := strings.Join(h.entries(1), "\n")
+	if !strings.Contains(got, "target ") || strings.Contains(got, "glide ") {
+		t.Fatalf("journal after an interrupted glide:\n%s", got)
+	}
+}
+
+// A worker attached through an out-of-process iframe is gone with the page that owned both; so is
+// what the pointer remembered about the page's surface.
+func TestNestedSessionsGoWithTheirPage(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
+	h.chrome.event("Target.attachedToTarget", "S2", map[string]any{"sessionId": "S4", "targetInfo": map[string]any{"targetId": "W1", "type": "worker"}})
+	h.read()
+	h.mouse("S4", "mouseMoved", 100, 50, nil)
+	h.read()
+	if motions := h.weston.commands("motion"); len(motions) == 0 {
+		t.Fatal("input on the worker session did not reach the page's surface")
+	}
+	if _, known := h.compositor.position(7); !known {
+		t.Fatal("the pointer forgot where it is")
+	}
+	h.chrome.event("Target.detachedFromTarget", "", map[string]any{"sessionId": "S1", "targetId": "T1"})
+	h.read()
+	motions := len(h.weston.commands("motion"))
+	h.mouse("S4", "mouseMoved", 200, 50, nil)
+	h.read()
+	if n := h.chrome.count("Input.dispatchMouseEvent"); n != 1 || len(h.weston.commands("motion")) != motions {
+		t.Fatalf("after the page detached: %d CDP moves, motions %v", n, h.weston.commands("motion"))
+	}
+	if _, known := h.compositor.position(7); known {
+		t.Fatal("the detached page's surface kept its pointer position")
+	}
+}
+
+// A human and automation move the same pointer: a glide starts where the human left it, and both
+// scroll with the same axis unit.
+func TestHumanAndAutomationShareThePointerPosition(t *testing.T) {
+	h := newProxyHarness(t, cadenceRecorded)
+	human := newCompositorInputSender(h.compositor, 2000, 1000)
+	human.SetTarget(7, 2000, 1000)
+	if err := human.PointerAbsolute(0.1, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	if err := human.Scroll(0, 24, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.weston.all(); len(got) != 2 || got[0] != "motion 7 200.00 200.00" || got[1] != "axis-at 7 200.00 200.00 0.00000 2.00000" {
+		t.Fatalf("human input = %v", got)
+	}
+	id := h.mouse("S1", "mouseMoved", 1300, 50, nil)
+	if reply := h.read(); reply.ID == nil || *reply.ID != id {
+		t.Fatalf("reply %+v", reply)
+	}
+	motions := h.weston.commands("motion")
+	var x float64
+	if _, err := fmt.Sscanf(motions[1], "motion 7 %f", &x); err != nil || x > 400 {
+		t.Fatalf("the glide started at %q, not near the human's 200,200", motions[1])
+	}
+	if got := strings.Join(h.entries(2), "\n"); !strings.Contains(got, `glide {"from":[200,200],"targetId":"T1","to":[1300,50]}`) {
+		t.Fatalf("journal:\n%s", got)
+	}
+	if err := human.Button(272, true); err != nil {
+		t.Fatal(err)
+	}
+	if buttons := h.weston.commands("button-at"); len(buttons) != 1 || buttons[0] != "button-at 7 1300.00 50.00 272 1" {
+		t.Fatalf("the human's click did not land where automation left the pointer: %v", buttons)
+	}
+}
+
+// The presentation cadence is paced by its own timing table.
+func TestPresentationCadenceRestsLongerBeforePressing(t *testing.T) {
+	h := newProxyHarness(t, cadencePresentation)
+	h.realTiming.Store(true)
+	h.mouse("S1", "mouseMoved", 1100, 500, nil)
+	h.mouse("S1", "mousePressed", 1100, 500, nil)
+	h.read()
+	h.read()
+	h.weston.mu.Lock()
+	var arrived, pressed time.Time
+	for i, line := range h.weston.lines {
+		if strings.HasPrefix(line, "motion ") {
+			arrived = h.weston.times[i]
+		}
+		if strings.HasSuffix(line, " 272 1") {
+			pressed = h.weston.times[i]
+		}
+	}
+	h.weston.mu.Unlock()
+	if dwell := pressed.Sub(arrived); dwell < presentationTiming.dwell-20*time.Millisecond {
+		t.Fatalf("pressed %v after arriving, want the presentation dwell of %v", dwell, presentationTiming.dwell)
 	}
 }

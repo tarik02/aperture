@@ -31,13 +31,14 @@ const (
 type cdpProxy struct {
 	upstream  string // Chromium's debugging endpoint, host:port
 	cadence   func() automationCadence
-	pointer   *cdpPointer // nil for sessions without a compositor
-	journal   journalFunc // what the proxy does for real, for the recordings that run
-	recording func() bool // whether any recording runs, so the journal's extra page queries are worth it
+	timing    func(automationCadence) cadenceTiming // tests pace the cadences faster
+	pointer   *cdpPointer                           // nil for sessions without a compositor
+	journal   journalFunc                           // what the proxy does for real, for the recordings that run
+	recording func() bool                           // whether any recording runs, so the journal's extra page queries are worth it
 }
 
 func newCDPProxy(upstream string, cadence func() automationCadence, pointer *cdpPointer, journal journalFunc, recording func() bool) *cdpProxy {
-	return &cdpProxy{upstream: upstream, cadence: cadence, pointer: pointer, journal: journal, recording: recording}
+	return &cdpProxy{upstream: upstream, cadence: cadence, timing: automationCadence.timing, pointer: pointer, journal: journal, recording: recording}
 }
 
 // serve listens on an ephemeral loopback port until ctx ends and returns the endpoint to hand to Playwright.
@@ -112,15 +113,17 @@ func (p *cdpProxy) serveWebSocket(w http.ResponseWriter, req *http.Request) {
 	down.SetReadLimit(cdpProxyReadLimit)
 	up.SetReadLimit(cdpProxyReadLimit)
 	conn := &cdpProxyConn{
-		proxy:     p,
-		up:        up,
-		down:      down,
-		ctx:       ctx,
-		sessions:  make(map[string]cdpSession),
-		attaching: make(map[int64]string),
-		internal:  make(map[int64]chan cdpMessage),
-		mouse:     make(chan func(), 1024),
-		dragged:   make(chan struct{}, 1),
+		proxy:          p,
+		up:             up,
+		down:           down,
+		ctx:            ctx,
+		sessions:       make(map[string]cdpSession),
+		attaching:      make(map[int64]string),
+		internal:       make(map[int64]chan cdpMessage),
+		mouse:          make(chan func(), 1024),
+		interceptDrags: make(map[string]bool),
+		dragged:        make(chan struct{}, 1),
+		held:           make(map[cdpHeldButton]struct{}),
 	}
 	conn.run(cancel)
 	_ = up.Close(websocket.StatusNormalClosure, "")
@@ -156,11 +159,11 @@ type cdpProxyConn struct {
 	nextID    atomic.Int64
 
 	// Pointer state, used from cdp_input.go.
-	mouse         chan func() // Playwright pipelines mouse commands without awaiting them, so they run in order
-	mouseBusy     atomic.Int32
-	interceptDrag atomic.Bool // Playwright's Input.setInterceptDrags window
-	dragged       chan struct{}
-	held          *cdpHeldButton
+	mouse          chan func() // Playwright pipelines mouse commands without awaiting them, so they run in order
+	mouseBusy      atomic.Int32
+	interceptDrags map[string]bool // sessions inside Playwright's Input.setInterceptDrags window
+	dragged        chan struct{}
+	held           map[cdpHeldButton]struct{} // real buttons this connection pressed and has not released
 }
 
 func (c *cdpProxyConn) run(cancel context.CancelFunc) {
@@ -287,12 +290,7 @@ func (c *cdpProxyConn) fromUpstream(raw []byte) {
 			if method == "Target.attachedToTarget" {
 				c.sessions[params.SessionID] = cdpSession{targetID: params.TargetInfo.TargetID, kind: params.TargetInfo.Type, parent: message.SessionID}
 			} else {
-				delete(c.sessions, params.SessionID)
-				for sessionID, session := range c.sessions {
-					if session.parent == params.SessionID {
-						delete(c.sessions, sessionID)
-					}
-				}
+				c.dropSession(params.SessionID)
 			}
 			c.mu.Unlock()
 		}
@@ -303,6 +301,26 @@ func (c *cdpProxyConn) fromUpstream(raw []byte) {
 		}
 	}
 	c.toDown(raw)
+}
+
+// dropSession forgets a detached session and everything attached through it: a worker of an
+// out-of-process iframe goes with the page. A page takes the pointer's state for it along. The
+// caller holds c.mu.
+func (c *cdpProxyConn) dropSession(sessionID string) {
+	session, known := c.sessions[sessionID]
+	if !known {
+		return
+	}
+	delete(c.sessions, sessionID)
+	delete(c.interceptDrags, sessionID)
+	for childID, child := range c.sessions {
+		if child.parent == sessionID {
+			c.dropSession(childID)
+		}
+	}
+	if session.kind == "page" && c.proxy.pointer != nil {
+		c.proxy.pointer.forget(session.targetID)
+	}
 }
 
 // rootSession resolves a session to the page-level session that owns it: out-of-process
@@ -360,20 +378,29 @@ func (c *cdpProxyConn) evaluate(ctx context.Context, sessionID, expression strin
 	if err != nil {
 		return err
 	}
-	var evaluated struct {
-		Result           struct{ Value json.RawMessage } `json:"result"`
-		ExceptionDetails json.RawMessage                 `json:"exceptionDetails"`
-	}
-	if err := json.Unmarshal(result, &evaluated); err != nil {
+	evaluated, err := decodeRemoteObject(result)
+	if err != nil || value == nil {
 		return err
 	}
-	if len(evaluated.ExceptionDetails) > 0 {
-		return errors.New("page evaluation failed")
+	return json.Unmarshal(evaluated, value)
+}
+
+// decodeRemoteObject takes the by-value result out of a Runtime.evaluate or Runtime.callFunctionOn
+// response; a thrown exception is an error.
+func decodeRemoteObject(raw json.RawMessage) (json.RawMessage, error) {
+	var response struct {
+		Result struct {
+			Value json.RawMessage `json:"value"`
+		} `json:"result"`
+		ExceptionDetails json.RawMessage `json:"exceptionDetails"`
 	}
-	if value == nil {
-		return nil
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return nil, err
 	}
-	return json.Unmarshal(evaluated.Result.Value, value)
+	if len(response.ExceptionDetails) > 0 {
+		return nil, errors.New("page script failed")
+	}
+	return response.Result.Value, nil
 }
 
 var (
