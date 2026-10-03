@@ -939,6 +939,7 @@ paths:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/StopSessionRecording'}
       responses:
         '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -1479,6 +1480,10 @@ components:
       required: true
       description: Ready destination top-level target. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/RetargetSessionRecordingInput'}}}
+    StopSessionRecording:
+      required: true
+      description: One-time editing policy applied while the recording is finalized. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/StopSessionRecordingInput'}}}
     SetCursorVisibility:
       required: true
       description: Remote cursor visibility. The JSON body must not exceed 1 MiB.
@@ -2931,22 +2936,9 @@ components:
       description: Top-level target and optional recording settings.
       required: [targetId]
       properties:
-        capture:
-          type: string
-          enum: [continuous, bursts]
-          description: Bursts capture continuously and retain action windows after capture. Mutually exclusive with idle.
         presentation:
           type: boolean
-          description: Use the more deliberate automation cadence and presentation defaults.
-        idle:
-          type: string
-          enum: [cut, speed]
-          description: Remove or speed up idle time in continuous capture only.
-        ripple:
-          type: boolean
-          description: Render click ripples. Defaults on for presentation recordings.
-        burst:
-          $ref: '#/components/schemas/RecordingBurstOptions'
+          description: Use the deliberate automation cadence and follow browser automation between top-level targets while recording.
         targetId:
           type: string
           minLength: 1
@@ -2964,14 +2956,28 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
-    RecordingBurstOptions:
+    RecordingEdit:
       type: object
-      description: Selection windows in milliseconds, accepted only with bursts capture.
+      description: Editing policy applied once when capture stops. Worker timing values are implementation details.
       properties:
-        leadMs: {type: integer, minimum: 0, maximum: 60000}
-        tailMs: {type: integer, minimum: 0, maximum: 60000}
-        settleMs: {type: integer, minimum: 0, maximum: 60000}
-        maxTailMs: {type: integer, minimum: 0, maximum: 60000}
+        trim:
+          type: string
+          enum: [none, idle, actions]
+          description: Keep the full capture, remove long idle regions, or retain action and explicit effect windows.
+        cutStyle:
+          type: string
+          enum: [natural, tight]
+          description: Cut style for action trimming. Tight follows gesture and activity windows closely without accelerating visible motion.
+        ripple:
+          type: boolean
+          description: Render click ripples. Defaults on for presentation recordings.
+    StopSessionRecordingInput:
+      type: object
+      description: Finalization settings for a recording.
+      required: [edit]
+      properties:
+        edit:
+          $ref: '#/components/schemas/RecordingEdit'
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.

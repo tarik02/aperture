@@ -44,6 +44,7 @@ const PointerArguments = z.object({
   deltaY: z.number().optional(),
   radius: z.number().min(8).max(240).optional(),
   loops: z.number().int().min(1).max(5).optional(),
+  delayMs: z.number().min(0).max(10_000).optional(),
   durationMs: z.number().min(0).max(10_000).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
@@ -107,6 +108,7 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
     description: string,
     shape: ZodRawShape,
     act: (run: Run, params: Params) => Promise<void>,
+    includeSnapshot = true,
   ): ToolDefinition {
     return {
       capability: "core",
@@ -131,7 +133,9 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
             ? compositorDevice(compositor.socket, surface, page)
             : pageDevice(page);
         const pointer = new Pointer(device, surface, size, signal);
-        response.setIncludeSnapshot();
+        if (includeSnapshot) {
+          response.setIncludeSnapshot();
+        }
         try {
           await act({ tab, page, pointer, size, targetId, signal }, params);
         } finally {
@@ -272,6 +276,7 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
         motion,
         radius: PointerArguments.shape.radius,
         loops: PointerArguments.shape.loops,
+        delayMs: PointerArguments.shape.delayMs,
         durationMs: PointerArguments.shape.durationMs,
       },
       async (run, params) => {
@@ -283,23 +288,21 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
         ) {
           throw new Error("cursor attention requires an active recordingId");
         }
-        const point = await locate(run, params);
-        const start = Date.now();
-        await run.tab.waitForCompletion(() =>
-          run.pointer.attention(point, {
-            radius: params.radius ?? 32,
-            loops: params.loops ?? 2,
-            durationMs: params.durationMs ?? defaults().attentionMs,
-            motion: params.motion ?? defaults().motion,
-          }),
-        );
+        const point = await locate(run, params, "peek");
+        await run.pointer.attention(point, {
+          radius: params.radius ?? 32,
+          loops: params.loops ?? 2,
+          delayMs: params.delayMs ?? 0,
+          durationMs: params.durationMs ?? defaults().attentionMs,
+          motion: params.motion ?? defaults().motion,
+        });
         scope.events.push({
           recordingIds: [params.recordingId],
           event: {
             _tag: "Attention",
             targetId: run.targetId,
-            start,
-            end: Date.now(),
+            start: run.pointer.record.start,
+            end: run.pointer.record.end,
             ...point,
             radius: params.radius ?? 32,
           },
@@ -373,6 +376,7 @@ export function pointerTools(state: CallState, compositor?: CompositorConfig): T
           },
         });
       },
+      false,
     ),
   ];
 }

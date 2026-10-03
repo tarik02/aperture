@@ -10,8 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// These functions run under the existing Playwright call mutex, shared with
-// recording membership changes. The journal's browser event domain stays opaque.
+// These functions run under the recording membership gate. The journal's browser
+// event domain stays opaque.
 func (session *liveSession) recordingCallArguments(arguments map[string]any) map[string]any {
 	ids := []string{}
 	cadence := "immediate"
@@ -118,16 +118,16 @@ func (session *liveSession) consumeRecordingCallResult(ctx context.Context, resu
 		}
 	}
 	if targetID, ok := envelope["endTargetId"].(string); ok && targetID != "" {
-		session.followBurstRecordings(ctx, targetID)
+		session.followPresentationRecordings(ctx, targetID)
 	}
 }
 
-func (session *liveSession) followBurstRecordings(ctx context.Context, targetID string) {
+func (session *liveSession) followPresentationRecordings(ctx context.Context, targetID string) {
 	session.runtime.mu.Lock()
 	registry := session.runtime.targets
 	recordings := []*wrapperRecording{}
 	for _, recording := range session.recordings {
-		if recording.Capture == "bursts" && recording.Status == wrapperRecordingRunning && !recording.finalizing && recording.TargetID != targetID {
+		if recording.Presentation && recording.Status == wrapperRecordingRunning && !recording.finalizing && recording.TargetID != targetID {
 			recordings = append(recordings, recording)
 		}
 	}
@@ -137,7 +137,7 @@ func (session *liveSession) followBurstRecordings(ctx context.Context, targetID 
 	}
 	target, ready := registry.readyTarget(targetID)
 	if !ready {
-		session.markRecordingSourcesIncomplete("burst destination is not ready")
+		session.markRecordingSourcesIncomplete("presentation destination is not ready")
 		return
 	}
 	for _, recording := range recordings {
@@ -150,9 +150,9 @@ func (session *liveSession) followBurstRecordings(ctx context.Context, targetID 
 		if err != nil {
 			session.runtime.mu.Lock()
 			recording.actionsComplete = false
-			recording.sourceWarnings = append(recording.sourceWarnings, "burst target could not follow browser automation")
+			recording.sourceWarnings = append(recording.sourceWarnings, "presentation recording could not follow browser automation")
 			session.runtime.mu.Unlock()
-			fmt.Fprintf(os.Stderr, "browser-session-wrapper: burst recording %s: %v\n", recording.ID, err)
+			fmt.Fprintf(os.Stderr, "browser-session-wrapper: presentation recording %s: %v\n", recording.ID, err)
 		}
 	}
 	session.broadcastRecordings()

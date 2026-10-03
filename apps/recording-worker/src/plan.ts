@@ -1,8 +1,7 @@
 import * as Effect from "effect/Effect";
 import { PlanError } from "./error.ts";
 import type {
-  Burst,
-  RecordingConfig,
+  RecordingEdit,
   RecordingTimeline,
   TimelineAction,
   TimelineFocus,
@@ -17,10 +16,15 @@ const rippleMs = 600;
 const rippleRadius = 48;
 const idleMinMs = 1_500;
 const idleKeepMs = 300;
-const idleSpeed = 8;
 const idleMaxRegions = 100;
 const gesturePadMs = 100;
 const timelineSpanGapMs = 300;
+const actionLeadMs = 100;
+const actionTailMs = 180;
+const actionSettleMs = 120;
+const actionMaxTailMs = 800;
+const tightActionMinMs = 800;
+const tightSpanMergeGapMs = 150;
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 type Span = { start: number; end: number };
@@ -40,11 +44,12 @@ export type EditPlan = {
 
 export const buildEditPlan = Effect.fn("recordingWorker.buildEditPlan")(function* (
   timeline: RecordingTimeline,
-  config: RecordingConfig,
+  edit: RecordingEdit,
   requestedFps: number,
 ) {
-  const burst = config.capture === "bursts" ? (config.burst ?? {}) : null;
-  const ripple = config.ripple ?? config.presentation === true;
+  const trim = edit.trim ?? "none";
+  const cutStyle = edit.cutStyle ?? "natural";
+  const ripple = edit.ripple ?? false;
   const total = timeline.durationMs;
   let cues = captionCues(timeline.actions, total);
   let focuses = focusedRegions(timeline.focuses);
@@ -53,8 +58,8 @@ export const buildEditPlan = Effect.fn("recordingWorker.buildEditPlan")(function
     cues.length === 0 &&
     focuses.length === 0 &&
     marks.length === 0 &&
-    config.idle === undefined &&
-    burst === null
+    trim === "none" &&
+    cutStyle === "natural"
   ) {
     return undefined;
   }
@@ -77,16 +82,16 @@ export const buildEditPlan = Effect.fn("recordingWorker.buildEditPlan")(function
   const warnings: string[] = [];
 
   let pieces: Piece[] = [{ start: 0, end: total, speed: 1 }];
-  if (burst !== null) {
+  if (trim === "actions") {
     const effectWindows: Span[] = [...focuses, ...timeline.attention];
-    pieces = burstPieces(timeline, burst, effectWindows);
+    pieces = actionPieces(timeline, effectWindows, cutStyle === "tight");
     if (pieces.length === 0) {
       return yield* new PlanError({
         message:
-          "a bursts recording keeps the time around browser tool calls that change something, and this recording has none",
+          "action trimming keeps the time around browser tool calls that change something, and this recording has none",
       });
     }
-  } else if (config.idle !== undefined) {
+  } else if (trim === "idle") {
     if (!timeline.activity.complete) {
       warnings.push(
         "idle time was preserved because capture or action observations are incomplete",
@@ -107,7 +112,7 @@ export const buildEditPlan = Effect.fn("recordingWorker.buildEditPlan")(function
           end: span.end + timelineSpanGapMs / 2,
         })),
       ];
-      const idle = idlePieces(config.idle, busy, total);
+      const idle = idlePieces(busy, total);
       if (idle.regions.length === 0) {
         warnings.push(
           "idle was left as it is: no stretch of 1.5 s or more without changes or gestures",
@@ -117,7 +122,6 @@ export const buildEditPlan = Effect.fn("recordingWorker.buildEditPlan")(function
       }
     }
   }
-
   focuses = groupFocuses(focuses);
   focuses = mapFocusedRegions(pieces, focuses);
   marks = marks.map((mark) => ({ ...mark, t: mapTime(pieces, mark.t) }));
@@ -165,46 +169,62 @@ function isIdentity(pieces: readonly Piece[], total: number): boolean {
   );
 }
 
-function burstPieces(
+function actionPieces(
   timeline: RecordingTimeline,
-  burst: Burst,
   effectWindows: readonly Span[],
+  tight: boolean,
 ): Piece[] {
-  const lead = burst.leadMs ?? 150;
-  const tail = burst.tailMs ?? 250;
-  const settle = burst.settleMs ?? 200;
-  const maxTail = burst.maxTailMs ?? Math.max(1_200, tail);
   const watched = timeline.activity.complete;
-  const keep: Span[] = [];
+  const keep: Span[] = effectWindows.map((effect) => ({
+    start: Math.max(effect.start, 0),
+    end: Math.min(effect.end, timeline.durationMs),
+  }));
 
   for (const action of timeline.actions) {
     if (!action.ok) {
       continue;
     }
-    let end = action.end + tail;
+    const gesture = tight
+      ? timeline.gestures.find(
+          (candidate) =>
+            candidate.tool === action.tool &&
+            candidate.targetId === action.targetId &&
+            candidate.start >= action.start &&
+            candidate.start <= action.end,
+        )
+      : undefined;
+    const visibleStart =
+      tight && gesture === undefined && action.reveal !== undefined
+        ? action.reveal.end
+        : (gesture?.start ?? action.start);
+    const activeEnd = gesture === undefined ? action.end : gesture.end + gesture.hold;
+    let end = activeEnd + actionTailMs;
     if (watched) {
       let still = end;
       for (const activity of timeline.activity.spans) {
-        if (activity.end > still - settle && activity.start <= still) {
-          still = activity.end + settle;
+        if (activity.end > still - actionSettleMs && activity.start <= still) {
+          still = activity.end + actionSettleMs;
         }
       }
-      end = Math.min(still, action.end + maxTail);
+      end = Math.min(still, activeEnd + actionMaxTailMs);
+    }
+    if (tight) {
+      end = Math.max(end, visibleStart - actionLeadMs + tightActionMinMs);
+      if (action.reveal !== undefined) {
+        keep.push({
+          start: Math.max(action.reveal.start, 0),
+          end: Math.min(action.reveal.end, timeline.durationMs),
+        });
+      }
     }
     keep.push({
-      start: Math.max(action.start - lead, 0),
+      start: Math.max(visibleStart - actionLeadMs, 0),
       end: Math.min(end, timeline.durationMs),
     });
   }
   if (keep.length === 0) {
     return [];
   }
-  keep.push(
-    ...effectWindows.map((effect) => ({
-      start: Math.max(effect.start, 0),
-      end: Math.min(effect.end, timeline.durationMs),
-    })),
-  );
   keep.sort((a, b) => a.start - b.start);
 
   const pieces: Piece[] = [];
@@ -213,7 +233,7 @@ function burstPieces(
       continue;
     }
     const previous = pieces.at(-1);
-    if (previous && span.start <= previous.end) {
+    if (previous && span.start <= previous.end + (tight ? tightSpanMergeGapMs : 0)) {
       previous.end = Math.max(previous.end, span.end);
     } else {
       pieces.push({ ...span, speed: 1 });
@@ -390,11 +410,7 @@ function rippleFilter(mark: Ripple, width: number, fps: number): string {
   return `geq=${luma}:cb='cb(X,Y)':cr='cr(X,Y)':enable='between(t,${(begin - 0.5 / fps).toFixed(3)},${(begin + duration + 0.5 / fps).toFixed(3)})'`;
 }
 
-function idlePieces(
-  mode: "cut" | "speed",
-  busy: readonly Span[],
-  total: number,
-): { pieces: Piece[]; regions: Span[] } {
+function idlePieces(busy: readonly Span[], total: number): { pieces: Piece[]; regions: Span[] } {
   const merged: Span[] = [];
   for (const source of [...busy].sort((a, b) => a.start - b.start)) {
     const span = { start: Math.max(source.start, 0), end: Math.min(source.end, total) };
@@ -416,7 +432,6 @@ function idlePieces(
     return {
       pieces: [
         { start: 0, end: region.start, speed: 1 },
-        ...(mode === "speed" ? [{ ...region, speed: idleSpeed }] : []),
         { start: region.end, end: total, speed: 1 },
       ],
       regions: [region],
@@ -450,9 +465,6 @@ function idlePieces(
   for (const region of regions) {
     if (region.start > cursor) {
       pieces.push({ start: cursor, end: region.start, speed: 1 });
-    }
-    if (mode === "speed") {
-      pieces.push({ ...region, speed: idleSpeed });
     }
     cursor = region.end;
   }

@@ -45,7 +45,6 @@ const (
 )
 
 type wrapperRecording struct {
-	recordingconfig.Config
 	RecordingArtifacts
 	capture           *captureSource
 	actions           *os.File
@@ -64,6 +63,7 @@ type wrapperRecording struct {
 	FPS               int                    `json:"fps"`
 	BitrateKbps       int                    `json:"bitrateKbps"`
 	Codec             string                 `json:"codec"`
+	Presentation      bool                   `json:"presentation,omitempty"`
 	filesRoot         string
 	segmentDir        string
 	segments          []string
@@ -77,18 +77,22 @@ type wrapperRecording struct {
 }
 
 type wrapperRecordingRequest struct {
-	recordingconfig.Config
-	Mode        wrapperRecordingMode `json:"mode"`
-	TargetID    string               `json:"targetId"`
-	ClientID    string               `json:"clientId"`
-	FPS         int                  `json:"fps"`
-	BitrateKbps int                  `json:"bitrateKbps"`
-	Codec       string               `json:"codec"`
-	Path        string               `json:"path"`
+	Mode         wrapperRecordingMode `json:"mode"`
+	TargetID     string               `json:"targetId"`
+	ClientID     string               `json:"clientId"`
+	FPS          int                  `json:"fps"`
+	BitrateKbps  int                  `json:"bitrateKbps"`
+	Codec        string               `json:"codec"`
+	Path         string               `json:"path"`
+	Presentation bool                 `json:"presentation,omitempty"`
 }
 
 type wrapperRecordingRetargetRequest struct {
 	TargetID string `json:"targetId"`
+}
+
+type wrapperRecordingStopRequest struct {
+	Edit recordingconfig.Edit `json:"edit"`
 }
 
 func (session *liveSession) handleRecordings(w http.ResponseWriter, req *http.Request) {
@@ -132,7 +136,16 @@ func (session *liveSession) handleRecording(w http.ResponseWriter, req *http.Req
 		return
 	}
 	if len(parts) == 2 && parts[1] == "stop" && req.Method == http.MethodPost {
-		recording, err := session.stopRecording(parts[0], "requested")
+		var body wrapperRecordingStopRequest
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeWrapperError(w, http.StatusBadRequest, "invalid recording stop request")
+			return
+		}
+		if err := body.Edit.Validate(); err != nil {
+			writeWrapperError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		recording, err := session.stopRecording(parts[0], "requested", body.Edit)
 		if err != nil {
 			if errors.Is(err, errWrapperRecordingNotFound) {
 				writeWrapperError(w, http.StatusNotFound, err.Error())
@@ -194,15 +207,12 @@ func serveWrapperRecording(w http.ResponseWriter, req *http.Request, recording w
 
 func (session *liveSession) startRecording(request wrapperRecordingRequest) (wrapperRecording, error) {
 	r := session.runtime
-	if err := request.Validate(); err != nil {
-		return wrapperRecording{}, err
-	}
 	if request.ClientID != "" {
 		session.recordingMu.Lock()
 		defer session.recordingMu.Unlock()
 	}
-	r.playwright.mu.Lock()
-	defer r.playwright.mu.Unlock()
+	r.playwright.membership.Lock()
+	defer r.playwright.membership.Unlock()
 	if request.ClientID != "" {
 		parsedClientID, err := uuid.Parse(request.ClientID)
 		if err != nil || parsedClientID.String() != request.ClientID {
@@ -298,7 +308,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		return wrapperRecording{}, err
 	}
 	recording := &wrapperRecording{
-		Config: request.Config, actions: actions, actionsComplete: true, sourceWarnings: []string{},
+		actions: actions, actionsComplete: true, sourceWarnings: []string{},
 		ID:                id,
 		Mode:              request.Mode,
 		TargetID:          target.TargetID,
@@ -310,6 +320,7 @@ func (session *liveSession) startRecording(request wrapperRecordingRequest) (wra
 		FPS:               fps,
 		BitrateKbps:       bitrateKbps,
 		Codec:             codec,
+		Presentation:      request.Presentation,
 		segmentDir:        segmentDir,
 		segments:          []string{segment},
 		viewport:          target.Viewport,
@@ -405,7 +416,7 @@ func (session *liveSession) stopClientRecordings(clientID string) {
 	}
 	r.mu.Unlock()
 	for _, recordingID := range recordingIDs {
-		_, _ = session.stopRecording(recordingID, "client_disconnected")
+		_, _ = session.stopRecording(recordingID, "client_disconnected", recordingconfig.Edit{})
 	}
 }
 
@@ -422,34 +433,34 @@ func (session *liveSession) stopViewerRecordings(clientID, reason string) {
 	}
 	r.mu.Unlock()
 	for _, recordingID := range recordingIDs {
-		_, _ = session.stopRecording(recordingID, reason)
+		_, _ = session.stopRecording(recordingID, reason, recordingconfig.Edit{})
 	}
 }
 
-func (session *liveSession) stopRecording(recordingID string, reason string) (wrapperRecording, error) {
-	return session.stopRecordingForTarget(recordingID, "", reason)
+func (session *liveSession) stopRecording(recordingID string, reason string, edit recordingconfig.Edit) (wrapperRecording, error) {
+	return session.stopRecordingForTarget(recordingID, "", reason, edit)
 }
 
-func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string) (wrapperRecording, error) {
+func (session *liveSession) stopRecordingForTarget(recordingID string, targetID string, reason string, edit recordingconfig.Edit) (wrapperRecording, error) {
 	r := session.runtime
-	r.playwright.mu.Lock()
+	r.playwright.membership.Lock()
 	r.mu.Lock()
 	recording := session.recordings[recordingID]
 	if recording == nil {
 		r.mu.Unlock()
-		r.playwright.mu.Unlock()
+		r.playwright.membership.Unlock()
 		return wrapperRecording{}, errWrapperRecordingNotFound
 	}
 	if targetID != "" && recording.TargetID != targetID {
 		status := *recording
 		r.mu.Unlock()
-		r.playwright.mu.Unlock()
+		r.playwright.membership.Unlock()
 		return status, nil
 	}
 	if recording.Status == wrapperRecordingStopped || recording.Status == wrapperRecordingFailed {
 		status := *recording
 		r.mu.Unlock()
-		r.playwright.mu.Unlock()
+		r.playwright.membership.Unlock()
 		if status.Status == wrapperRecordingFailed {
 			return status, errors.New("recording has failed")
 		}
@@ -459,7 +470,7 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	// A duplicate stop must never retain the browser-call gate while it waits.
 	recording.finalizing = true
 	r.mu.Unlock()
-	r.playwright.mu.Unlock()
+	r.playwright.membership.Unlock()
 	defer session.broadcastRecordings()
 	recording.operationMu.Lock()
 	defer recording.operationMu.Unlock()
@@ -492,7 +503,11 @@ func (session *liveSession) stopRecordingForTarget(recordingID string, targetID 
 	if err != nil {
 		return session.failRecording(recording, "finalize_failed", err)
 	}
-	artifacts, finalPath, size, err := session.finalizeRecording(recording, raw)
+	if edit.Ripple == nil && recording.Presentation {
+		ripple := true
+		edit.Ripple = &ripple
+	}
+	artifacts, finalPath, size, err := session.finalizeRecording(recording, raw, edit)
 	if err != nil {
 		return session.failRecording(recording, "publication_failed", err)
 	}
@@ -757,7 +772,7 @@ func (session *liveSession) stopTabRecordings(targetID string) {
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		_, _ = session.stopRecordingForTarget(id, targetID, "target_closed")
+		_, _ = session.stopRecordingForTarget(id, targetID, "target_closed", recordingconfig.Edit{})
 	}
 }
 
@@ -773,7 +788,7 @@ func (session *liveSession) stopAllRecordings(reason string) {
 	}
 	r.mu.Unlock()
 	for _, id := range ids {
-		_, _ = session.stopRecording(id, reason)
+		_, _ = session.stopRecording(id, reason, recordingconfig.Edit{})
 	}
 }
 

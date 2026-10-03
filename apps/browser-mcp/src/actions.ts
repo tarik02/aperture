@@ -4,6 +4,7 @@ import type { Context, ToolDefinition } from "playwright-core/lib/coreBundle";
 import { z } from "playwright-core/lib/utilsBundle";
 import {
   RecordingEventJson,
+  type ActionReveal,
   type ApertureCallContext,
   type RecordingEvent,
 } from "@aperture-browser/recording/schema";
@@ -16,7 +17,7 @@ export interface CallScope {
   endTargetId?: string;
 }
 export interface CallState {
-  current: CallScope | null;
+  readonly current: CallScope | null;
 }
 
 const targetIds = new WeakMap<Page, string>();
@@ -36,28 +37,51 @@ export async function targetIdOf(page: Page): Promise<string> {
   }
 }
 
-// Reveal each scrollable ancestor directly. Smooth mode waits on its own rAF
-// animation to avoid browser-dependent scrollend and nested-frame completion guesses.
+// Reveal each scrollable ancestor directly. Smooth mode uses one rAF animation
+// so nested containers move together and do not multiply the visible duration.
 type RevealMotion = "instant" | "smooth";
 
 export async function revealElement(
   handle: ElementHandle,
   motion: RevealMotion,
   signal?: AbortSignal,
-) {
+): Promise<boolean> {
   signal?.throwIfAborted();
-  await handle.evaluate(async (element, motion) => {
+  const revealed = await handle.evaluate(async (element, motion) => {
     if (!(element instanceof Element)) {
       throw new Error("target is not an element");
     }
     const ancestors: Element[] = [];
     for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
-      if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth) {
+      const style = getComputedStyle(parent);
+      const scrollsVertically =
+        parent.scrollHeight > parent.clientHeight &&
+        style.overflowY !== "visible" &&
+        style.overflowY !== "clip";
+      const scrollsHorizontally =
+        parent.scrollWidth > parent.clientWidth &&
+        style.overflowX !== "visible" &&
+        style.overflowX !== "clip";
+      if (scrollsVertically || scrollsHorizontally) {
         ancestors.push(parent);
       }
     }
-    for (const parent of ancestors.reverse()) {
-      const box = element.getBoundingClientRect();
+    const initialBox = element.getBoundingClientRect();
+    const box = {
+      top: initialBox.top,
+      left: initialBox.left,
+      right: initialBox.right,
+      bottom: initialBox.bottom,
+    };
+    const plans: {
+      parent: Element;
+      fromX: number;
+      fromY: number;
+      toX: number;
+      toY: number;
+      duration: number;
+    }[] = [];
+    for (const parent of ancestors) {
       const bounds =
         parent === document.scrollingElement
           ? {
@@ -85,40 +109,73 @@ export async function revealElement(
       if (distance < 1) {
         continue;
       }
-      if (motion === "instant") {
-        parent.scrollTo(toX, toY);
-        continue;
+      plans.push({
+        parent,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        duration: Math.min(500, Math.max(120, (distance / 900) * 1000)),
+      });
+      const movedX = toX - fromX;
+      const movedY = toY - fromY;
+      box.left -= movedX;
+      box.right -= movedX;
+      box.top -= movedY;
+      box.bottom -= movedY;
+    }
+    if (plans.length === 0) {
+      return false;
+    }
+    if (motion === "instant") {
+      for (const plan of plans) {
+        plan.parent.scrollTo(plan.toX, plan.toY);
       }
-      // A reveal is part of the presentation: keep even short container scrolls
-      // legible instead of letting them look like a layout jump in the edit.
-      const duration = Math.min(900, Math.max(320, (distance / 700) * 1000));
-      const began = performance.now();
-      const previousBehavior = parent instanceof HTMLElement ? parent.style.scrollBehavior : "";
+      return true;
+    }
+    const previousBehaviors = plans.map(({ parent }) => ({
+      parent,
+      behavior: parent instanceof HTMLElement ? parent.style.scrollBehavior : "",
+    }));
+    for (const { parent } of previousBehaviors) {
       if (parent instanceof HTMLElement) {
         parent.style.scrollBehavior = "auto";
       }
-      try {
-        await new Promise<void>((resolve) => {
-          const frame = () => {
-            const t = Math.min(1, (performance.now() - began) / duration);
+    }
+    const began = performance.now();
+    try {
+      await new Promise<void>((resolve) => {
+        const frame = () => {
+          const elapsed = performance.now() - began;
+          let complete = true;
+          for (const plan of plans) {
+            const t = Math.min(1, elapsed / plan.duration);
             const eased = t * t * (3 - 2 * t);
-            parent.scrollTo(fromX + (toX - fromX) * eased, fromY + (toY - fromY) * eased);
-            if (t === 1) {
-              resolve();
-            } else {
-              requestAnimationFrame(frame);
-            }
-          };
-          requestAnimationFrame(frame);
-        });
-      } finally {
+            plan.parent.scrollTo(
+              plan.fromX + (plan.toX - plan.fromX) * eased,
+              plan.fromY + (plan.toY - plan.fromY) * eased,
+            );
+            complete &&= t === 1;
+          }
+          if (complete) {
+            resolve();
+          } else {
+            requestAnimationFrame(frame);
+          }
+        };
+        requestAnimationFrame(frame);
+      });
+    } finally {
+      for (const { parent, behavior } of previousBehaviors) {
         if (parent instanceof HTMLElement) {
-          parent.style.scrollBehavior = previousBehavior;
+          parent.style.scrollBehavior = behavior;
         }
       }
     }
+    return true;
   }, motion);
   signal?.throwIfAborted();
+  return revealed;
 }
 
 export async function revealTarget(
@@ -127,7 +184,7 @@ export async function revealTarget(
   element: string | undefined,
   motion: RevealMotion,
   signal?: AbortSignal,
-) {
+): Promise<ActionReveal | undefined> {
   const tab = await context.ensureTab();
   const { locator } = await tab.targetLocator({
     target,
@@ -144,9 +201,23 @@ export async function revealTarget(
     frame = frame.parentFrame();
   }
   try {
-    for (const item of chain.reverse()) {
-      await revealElement(item, motion, signal);
+    const reveals = await Promise.all(
+      chain.map(async (item) => {
+        const startedAt = Date.now();
+        if (await revealElement(item, motion, signal)) {
+          return { start: startedAt, end: Date.now() };
+        }
+        return undefined;
+      }),
+    );
+    const visible = reveals.filter((reveal) => reveal !== undefined);
+    if (visible.length === 0) {
+      return undefined;
     }
+    return {
+      start: Math.min(...visible.map((reveal) => reveal.start)),
+      end: Math.max(...visible.map((reveal) => reveal.end)),
+    };
   } finally {
     await Promise.all(chain.map((item) => item.dispose()));
   }
@@ -201,6 +272,7 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
         }
       }
       const start = Date.now();
+      let reveal: ActionReveal | undefined;
       let ok = true;
       try {
         if (tool.schema.name !== "browser_focus_viewport") {
@@ -219,7 +291,22 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
           ];
           for (const item of targets) {
             if (item.target !== undefined) {
-              await revealTarget(context, item.target, item.element, motion, signal);
+              const targetReveal = await revealTarget(
+                context,
+                item.target,
+                item.element,
+                motion,
+                signal,
+              );
+              if (targetReveal !== undefined) {
+                reveal =
+                  reveal === undefined
+                    ? targetReveal
+                    : {
+                        start: Math.min(reveal.start, targetReveal.start),
+                        end: Math.max(reveal.end, targetReveal.end),
+                      };
+              }
             }
           }
         }
@@ -256,6 +343,7 @@ export function withAction(tool: ToolDefinition, state: CallState): ToolDefiniti
             start,
             end: Date.now(),
             ok,
+            ...(reveal === undefined ? {} : { reveal }),
             ...(parsed.caption === undefined ? {} : { caption: parsed.caption }),
           },
         });

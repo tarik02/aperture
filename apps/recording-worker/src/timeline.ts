@@ -65,8 +65,15 @@ export const buildTimeline = Effect.fn("recording.buildTimeline")(function* (
       }
       switch (event._tag) {
         case "Action": {
-          const { _tag, ...action } = event;
-          actions.push({ ...action, start: time(event.start), end: time(event.end) });
+          const { _tag, reveal, ...action } = event;
+          actions.push({
+            ...action,
+            start: time(event.start),
+            end: time(event.end),
+            ...(reveal === undefined
+              ? {}
+              : { reveal: { start: time(reveal.start), end: time(reveal.end) } }),
+          });
           if (!event.ok) {
             warnings.push(`browser action failed: ${event.tool}`);
           }

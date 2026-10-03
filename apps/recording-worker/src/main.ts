@@ -11,7 +11,7 @@ import {
   CaptureSource,
   FinalizeInput,
   FinalizeResult,
-  RecordingConfig,
+  RecordingEdit,
   RecordingEventJson,
   RecordingTimeline,
 } from "@aperture-browser/recording/schema";
@@ -121,7 +121,7 @@ const finalize = Effect.gen(function* () {
     requestText,
   ).pipe(Effect.mapError((cause) => new InvalidSource({ source: "process input", cause })));
   const capture = yield* readSource("capture.json", Schema.fromJsonString(CaptureSource));
-  const config = yield* readSource("config.json", Schema.fromJsonString(RecordingConfig));
+  const edit = yield* readSource("config.json", Schema.fromJsonString(RecordingEdit));
   const fs = yield* FileSystem.FileSystem;
   const text = yield* fs
     .readFileString("actions.ndjson")
@@ -139,7 +139,7 @@ const finalize = Effect.gen(function* () {
   );
   yield* writeOutput("timeline.json", encodedTimeline);
   const outcome = yield* Effect.gen(function* () {
-    const plan = yield* buildEditPlan(timeline, config, capture.fps);
+    const plan = yield* buildEditPlan(timeline, edit, capture.fps);
     if (plan === undefined || plan.filter === "") {
       return { edited: false, warnings: plan?.warnings ?? [] };
     }

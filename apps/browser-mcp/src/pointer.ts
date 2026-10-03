@@ -25,6 +25,7 @@ export interface ClickOptions {
 export interface AttentionOptions {
   radius: number;
   loops: number;
+  delayMs: number;
   durationMs: number;
   motion: Motion;
 }
@@ -234,7 +235,8 @@ export class Pointer {
   }
 
   /** Approaches an area and traces a smooth orbit that leaves the pointer where it stops. */
-  async attention(center: Point, { radius, loops, durationMs, motion }: AttentionOptions) {
+  async attention(center: Point, { radius, loops, delayMs, durationMs, motion }: AttentionOptions) {
+    await sleep(delayMs, this.signal);
     this.record.start ||= Date.now();
     const at = this.toDevice(center);
     if (durationMs <= 0) {

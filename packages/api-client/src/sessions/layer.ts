@@ -23,6 +23,7 @@ import {
   type SessionFileDownloadURLInput,
   type SessionsFilter,
   type SessionsListParams,
+  type StopSessionRecordingInput,
   type DeleteSessionFileOptions,
   type MoveSessionFileInput,
   type SessionUploadFile,
@@ -248,9 +249,10 @@ export const makeSessionsApi = Effect.gen(function* () {
     credentials: ApiCredentials,
     sessionId: string,
     recordingId: string,
+    input: StopSessionRecordingInput,
   ) {
     return yield* api
-      .stopSessionRecording(sessionId, recordingId, undefined)
+      .stopSessionRecording(sessionId, recordingId, { payload: input })
       .pipe(tenantScoped(credentials));
   });
 

@@ -57,22 +57,30 @@ type recordingResponse struct {
 }
 
 type createSessionRecordingRequest struct {
-	recordingconfig.Config
-	TargetID    string `json:"targetId"`
-	FPS         int    `json:"fps"`
-	BitrateKbps int    `json:"bitrateKbps"`
-	Codec       string `json:"codec"`
+	TargetID     string `json:"targetId"`
+	FPS          int    `json:"fps"`
+	BitrateKbps  int    `json:"bitrateKbps"`
+	Codec        string `json:"codec"`
+	Presentation bool   `json:"presentation,omitempty"`
 }
 
 func (r createSessionRecordingRequest) Validate() error {
-	if err := r.Config.Validate(); err != nil {
-		return validationError(err.Error())
-	}
 	if strings.TrimSpace(r.TargetID) == "" {
 		return validationError("targetId is required")
 	}
 	if r.Codec != "" && r.Codec != "vp8" && r.Codec != "h264-va" {
 		return validationError("codec must be vp8 or h264-va")
+	}
+	return nil
+}
+
+type stopSessionRecordingRequest struct {
+	Edit recordingconfig.Edit `json:"edit"`
+}
+
+func (r stopSessionRecordingRequest) Validate() error {
+	if err := r.Edit.Validate(); err != nil {
+		return validationError(err.Error())
 	}
 	return nil
 }
@@ -107,7 +115,7 @@ func (s *Server) createSessionRecording(c *gin.Context) {
 	var status wrapperRecordingStatus
 	err := s.sessionRecordingRequest(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": input.TargetID, "fps": input.FPS, "bitrateKbps": input.BitrateKbps, "codec": input.Codec,
-		"capture": input.Capture, "presentation": input.Presentation, "idle": input.Idle, "ripple": input.Ripple, "burst": input.Burst,
+		"presentation": input.Presentation,
 	}, false, &status)
 	if err != nil {
 		WriteError(c, err)
@@ -178,7 +186,12 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 		WriteError(c, errSessionServiceUnavailable)
 		return
 	}
-	file, err := s.stopRecording(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), c.Param("recordingId"))
+	var input stopSessionRecordingRequest
+	if err := bindJSON(c, &input); err != nil {
+		WriteError(c, err)
+		return
+	}
+	file, err := s.stopRecording(c.Request.Context(), tenantIDFromContext(c), c.Param("sessionId"), c.Param("recordingId"), input.Edit)
 	if err != nil {
 		WriteError(c, err)
 		return
@@ -186,9 +199,9 @@ func (s *Server) stopSessionRecording(c *gin.Context) {
 	c.JSON(http.StatusOK, file)
 }
 
-func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string) (sessionfiles.File, error) {
+func (s *Server) stopRecording(ctx context.Context, tenantID, sessionID, recordingID string, edit recordingconfig.Edit) (sessionfiles.File, error) {
 	endpoint := "/recordings/" + url.PathEscape(recordingID)
-	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, endpoint+"/stop", nil, true, nil); err != nil {
+	if err := s.sessionRecordingRequest(ctx, tenantID, sessionID, http.MethodPost, endpoint+"/stop", stopSessionRecordingRequest{Edit: edit}, true, nil); err != nil {
 		return sessionfiles.File{}, err
 	}
 	status, err := s.getRecording(ctx, tenantID, sessionID, recordingID)

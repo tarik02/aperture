@@ -58,6 +58,10 @@ export default defineConfig({
         files: ["**/vite.config.ts"],
         rules: { "import/no-nodejs-modules": "off", "no-restricted-globals": "off" },
       },
+      {
+        files: ["apps/browser-mcp/src/main.ts"],
+        rules: { "import/no-nodejs-modules": "off" },
+      },
     ],
     options: {
       denyWarnings: true,

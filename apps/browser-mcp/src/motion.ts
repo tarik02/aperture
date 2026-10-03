@@ -67,18 +67,27 @@ export function attentionPathAt(
   loops: number,
   max: Point,
 ): (t: number) => Point {
-  const rotation = -Math.PI / 6;
+  const randomBetween = (minimum: number, maximum: number) =>
+    minimum + Math.random() * (maximum - minimum);
+  const direction = Math.random() < 0.5 ? -1 : 1;
+  const rotation = -Math.PI / 6 + randomBetween(-Math.PI / 18, Math.PI / 18);
+  const startAngle = -Math.PI * 0.72 + randomBetween(-Math.PI / 12, Math.PI / 12);
+  const taperAmount = randomBetween(0.34, 0.46);
+  const pulseAmount = randomBetween(0.05, 0.1);
+  const driftX = randomBetween(0.06, 0.12);
+  const driftY = randomBetween(-0.11, -0.05);
+  const wobble = randomBetween(0.05, 0.1);
   const cosRotation = Math.cos(rotation);
   const sinRotation = Math.sin(rotation);
   return (t) => {
     const progress = easeInOut(t);
-    const angle = -Math.PI * 0.72 + progress * loops * Math.PI * 2;
-    const taper = 1 - progress * 0.42;
-    const pulse = 1 + Math.sin(progress * Math.PI * 3) * 0.09;
-    const x = Math.cos(angle) * radius.x * taper * pulse + radius.x * progress * 0.1;
+    const angle = startAngle + direction * progress * loops * Math.PI * 2;
+    const taper = 1 - progress * taperAmount;
+    const pulse = 1 + Math.sin(progress * Math.PI * 3) * pulseAmount;
+    const x = Math.cos(angle) * radius.x * taper * pulse + radius.x * progress * driftX;
     const y =
-      Math.sin(angle) * radius.y * taper * (1 + Math.cos(angle * 1.7) * 0.08) -
-      radius.y * progress * 0.08;
+      Math.sin(angle) * radius.y * taper * (1 + Math.cos(angle * 1.7) * wobble) +
+      radius.y * progress * driftY;
     return {
       x: clamp(center.x + x * cosRotation - y * sinRotation, max.x),
       y: clamp(center.y + x * sinRotation + y * cosRotation, max.y),

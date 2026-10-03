@@ -61,18 +61,7 @@ export const BrowserStatus = Schema.Union([
 ]);
 
 const recordingFields = {
-  capture: Schema.optionalKey(Schema.Literals(["continuous", "bursts"])),
   presentation: Schema.optionalKey(Schema.Boolean),
-  idle: Schema.optionalKey(Schema.Literals(["cut", "speed"])),
-  ripple: Schema.optionalKey(Schema.Boolean),
-  burst: Schema.optionalKey(
-    Schema.Struct({
-      leadMs: Schema.optionalKey(Schema.Number),
-      tailMs: Schema.optionalKey(Schema.Number),
-      settleMs: Schema.optionalKey(Schema.Number),
-      maxTailMs: Schema.optionalKey(Schema.Number),
-    }),
-  ),
   captureRelativePath: Schema.optionalKey(Schema.String),
   actionsRelativePath: Schema.optionalKey(Schema.String),
   configRelativePath: Schema.optionalKey(Schema.String),

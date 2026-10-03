@@ -4,9 +4,10 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Command from "effect/cli/Command";
 import * as Flag from "effect/cli/Flag";
+import { AsyncLocalStorage } from "node:async_hooks";
 import coreBundle from "playwright-core/lib/coreBundle";
 import { ApertureCallContext, ApertureCallResult } from "@aperture-browser/recording/schema";
-import { encodeJournal, withAction, type CallState } from "./actions.ts";
+import { encodeJournal, withAction, type CallScope, type CallState } from "./actions.ts";
 import { pointerTools } from "./pointer-tools.ts";
 import { releaseAll } from "./pointer.ts";
 
@@ -63,7 +64,13 @@ const host = Command.make(
               const context =
                 info.browser.contexts()[0] ??
                 (await info.browser.newContext(config.browser.contextOptions));
-              const state: CallState = { current: null };
+              const scopes = new AsyncLocalStorage<CallScope | null>();
+              const state: CallState = {
+                get current() {
+                  return scopes.getStore() ?? null;
+                },
+              };
+              const activeCalls = new Map<symbol, string>();
               const backend = new playwright.BrowserBackend(config, context, createTools(state), {
                 idleTimer: info.idleTimer,
                 dispose: async () => {
@@ -73,11 +80,14 @@ const host = Command.make(
               });
               const callTool = backend.callTool.bind(backend);
               backend.callTool = async (name, argumentsForTool = {}, signal) => {
-                if (state.current !== null) {
+                const focus = "browser_focus_viewport";
+                const canOverlap =
+                  name === focus || [...activeCalls.values()].every((active) => active === focus);
+                if (activeCalls.size > 0 && !canOverlap) {
                   throw new Error("concurrent browser calls are not supported");
                 }
                 const envelope = Schema.decodeUnknownSync(Envelope)(argumentsForTool);
-                const scope = {
+                const scope: CallScope = {
                   context: envelope._meta?.aperture ?? {
                     cadence: "immediate" as const,
                     recordingIds: [],
@@ -85,20 +95,22 @@ const host = Command.make(
                   events: [],
                   warnings: [],
                 };
-                state.current = scope;
+                const call = Symbol(name);
+                activeCalls.set(call, name);
                 try {
-                  const result = await callTool(name, argumentsForTool, signal);
-                  const active = state.current;
-                  const metadata = Schema.encodeSync(ApertureCallResult)({
-                    journal: encodeJournal(active, result.isError === true),
-                    warnings: active.warnings,
-                    ...(active.endTargetId === undefined
-                      ? {}
-                      : { endTargetId: active.endTargetId }),
+                  return await scopes.run(scope, async () => {
+                    const result = await callTool(name, argumentsForTool, signal);
+                    const metadata = Schema.encodeSync(ApertureCallResult)({
+                      journal: encodeJournal(scope, result.isError === true),
+                      warnings: scope.warnings,
+                      ...(scope.endTargetId === undefined
+                        ? {}
+                        : { endTargetId: scope.endTargetId }),
+                    });
+                    return { ...result, _meta: { ...result._meta, aperture: metadata } };
                   });
-                  return { ...result, _meta: { ...result._meta, aperture: metadata } };
                 } finally {
-                  state.current = null;
+                  activeCalls.delete(call);
                 }
               };
               return backend;

@@ -275,13 +275,13 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			return liveSessionServerMessage{}, errRecordingRole
 		}
 		recording, err := session.startRecording(wrapperRecordingRequest{
-			Config:      message.Config,
-			Mode:        wrapperRecordingMode(message.Mode),
-			TargetID:    message.TargetID,
-			ClientID:    client.id,
-			FPS:         message.FPS,
-			BitrateKbps: message.BitrateKbps,
-			Codec:       message.Codec,
+			Mode:         wrapperRecordingMode(message.Mode),
+			TargetID:     message.TargetID,
+			ClientID:     client.id,
+			FPS:          message.FPS,
+			BitrateKbps:  message.BitrateKbps,
+			Codec:        message.Codec,
+			Presentation: message.Presentation,
 		})
 		if err != nil {
 			return liveSessionServerMessage{}, err
@@ -294,8 +294,10 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		reason := "requested"
 		if message.Type == "recording.cancel" {
 			reason = "canceled"
+		} else if err := message.Edit.Validate(); err != nil {
+			return liveSessionServerMessage{}, err
 		}
-		recording, err := session.stopRecording(message.RecordingID, reason)
+		recording, err := session.stopRecording(message.RecordingID, reason, message.Edit)
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}

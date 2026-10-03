@@ -492,7 +492,7 @@ export function useBrowserControl({
   const runStopRecording = useEffectCallback(
     (access: SessionAccess, recordingId: string) =>
       settleRecording(
-        live.request("recording.stop", { recordingId }).pipe(
+        live.request("recording.stop", { recordingId, edit: {} }).pipe(
           Effect.andThen(downloadSessionRecording(access, recordingId)),
           Effect.flatMap(({ blob, filename }) => {
             const recording = live.recordings.find(

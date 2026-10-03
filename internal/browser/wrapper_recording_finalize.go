@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	recordingconfig "github.com/aperture/aperture/internal/recording"
 	"golang.org/x/sys/unix"
 )
 
@@ -34,7 +35,7 @@ type recordingFinalizeResult struct {
 	Warnings []string `json:"warnings"`
 }
 
-func (session *liveSession) finalizeRecording(recording *wrapperRecording, raw string) (RecordingArtifacts, string, int64, error) {
+func (session *liveSession) finalizeRecording(recording *wrapperRecording, raw string, edit recordingconfig.Edit) (RecordingArtifacts, string, int64, error) {
 	artifacts := RecordingArtifacts{}
 	segments, complete := recording.capture.snapshot()
 	capture := struct {
@@ -48,7 +49,7 @@ func (session *liveSession) finalizeRecording(recording *wrapperRecording, raw s
 		Warnings         []string         `json:"warnings"`
 	}{1, recording.ID, filepath.Base(raw), recording.FPS, segments, complete, recording.actionsComplete, recording.sourceWarnings}
 	var sourceErr error
-	for name, source := range map[string]any{"capture.json": capture, "config.json": recording.Config} {
+	for name, source := range map[string]any{"capture.json": capture, "config.json": edit} {
 		encoded, err := json.Marshal(source)
 		if err == nil {
 			err = os.WriteFile(filepath.Join(recording.segmentDir, name), encoded, 0o600)

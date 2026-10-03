@@ -68,6 +68,7 @@ export interface PromoteSessionInput {
 }
 
 export type CreateSessionRecordingInput = Api.CreateSessionRecordingInput;
+export type StopSessionRecordingInput = Api.StopSessionRecordingInput;
 export type SessionFileDownloadURLInput = Api.SessionFileDownloadURLInput;
 
 export interface DownloadedFile {
@@ -192,6 +193,7 @@ export class SessionsApi extends Context.Service<
       credentials: ApiCredentials,
       sessionId: string,
       recordingId: string,
+      input: StopSessionRecordingInput,
     ) => Call<SessionFile>;
     /**
      * Every file and directory of the session, also while it is not running. See

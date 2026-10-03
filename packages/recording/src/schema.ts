@@ -8,6 +8,11 @@ const interval = { start: ms, end: ms };
 const event = { ...interval, targetId: Schema.String };
 const rect = { x: point, y: point, width: positive, height: positive };
 
+export const ActionReveal = Schema.Struct(interval).check(
+  Schema.makeFilter((reveal) => reveal.end >= reveal.start || "reveal ends before it starts"),
+);
+export type ActionReveal = typeof ActionReveal.Type;
+
 export const ApertureCallContext = Schema.Struct({
   cadence: Schema.Literals(["immediate", "recorded", "presentation"]),
   recordingIds: Schema.Array(Schema.String),
@@ -26,6 +31,7 @@ export const Action = Schema.Struct({
   ...event,
   tool: Schema.String,
   startTargetId: Schema.String,
+  reveal: Schema.optionalKey(ActionReveal),
   caption: Schema.optionalKey(Schema.String),
   ok: Schema.Boolean,
 });
@@ -68,32 +74,12 @@ export const RecordingEventJson = Schema.fromJsonString(RecordingEvent);
 export const ActionSource = Schema.Array(RecordingEvent);
 export type ActionSource = typeof ActionSource.Type;
 
-const burstDuration = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 60000 }));
-export const Burst = Schema.Struct({
-  leadMs: Schema.optionalKey(burstDuration),
-  tailMs: Schema.optionalKey(burstDuration),
-  settleMs: Schema.optionalKey(burstDuration),
-  maxTailMs: Schema.optionalKey(burstDuration),
-});
-export type Burst = typeof Burst.Type;
-export const RecordingConfig = Schema.Struct({
-  capture: Schema.optionalKey(Schema.Literals(["continuous", "bursts"])),
-  presentation: Schema.optionalKey(Schema.Boolean),
-  idle: Schema.optionalKey(Schema.Literals(["cut", "speed"])),
+export const RecordingEdit = Schema.Struct({
+  trim: Schema.optionalKey(Schema.Literals(["none", "idle", "actions"])),
+  cutStyle: Schema.optionalKey(Schema.Literals(["natural", "tight"])),
   ripple: Schema.optionalKey(Schema.Boolean),
-  burst: Schema.optionalKey(Burst),
-}).check(
-  Schema.makeFilter((config) => {
-    if (config.capture === "bursts" && config.idle !== undefined) {
-      return "bursts and idle are mutually exclusive";
-    }
-    if (config.burst !== undefined && config.capture !== "bursts") {
-      return "burst requires capture: bursts";
-    }
-    return true;
-  }),
-);
-export type RecordingConfig = typeof RecordingConfig.Type;
+});
+export type RecordingEdit = typeof RecordingEdit.Type;
 
 export const CaptureSegment = Schema.Struct({
   targetId: Schema.String,
