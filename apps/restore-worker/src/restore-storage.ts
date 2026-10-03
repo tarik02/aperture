@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { Playwright } from "effect-playwright";
+import type { Playwright } from "effect-playwright";
 import type { Frame } from "playwright-core";
 import {
   attempt,
@@ -20,9 +20,15 @@ const minute = 60_000;
 // separately and additively, so an origin import keeps an existing login.
 function storageTypes(origin: StorageOrigin): string {
   const types = ["local_storage"];
-  if (origin.indexedDB !== undefined) types.push("indexeddb");
-  if (origin.cacheStorage !== undefined) types.push("cache_storage");
-  if (origin.opfs !== undefined) types.push("file_systems");
+  if (origin.indexedDB !== undefined) {
+    types.push("indexeddb");
+  }
+  if (origin.cacheStorage !== undefined) {
+    types.push("cache_storage");
+  }
+  if (origin.opfs !== undefined) {
+    types.push("file_systems");
+  }
 
   return types.join(",");
 }
@@ -65,7 +71,9 @@ const restoreOrigin = Effect.fnUntraced(function* (
   const frameCDP = yield* cdpForFrame(frame);
   const tree = yield* frameCDP.send<{ frameTree: FrameTree }>("Page.getFrameTree");
   const frameId = findFrameID(tree.frameTree, destinationOrigin);
-  if (!frameId) return yield* restoreError("browser omitted the storage frame ID");
+  if (!frameId) {
+    return yield* restoreError("browser omitted the storage frame ID");
+  }
 
   const world = yield* frameCDP.send<{ executionContextId?: number }>("Page.createIsolatedWorld", {
     frameId,
@@ -108,7 +116,9 @@ const restoreOrigin = Effect.fnUntraced(function* (
 function findFrameID(tree: FrameTree, origin: string): string | null {
   for (const child of tree.childFrames ?? []) {
     const found = findFrameID(child, origin);
-    if (found) return found;
+    if (found) {
+      return found;
+    }
   }
 
   return urlOrigin(tree.frame.url) === origin ? tree.frame.id : null;
@@ -118,7 +128,9 @@ function restoreCookies(
   browserCDP: Cdp,
   cookies: NonNullable<Capsule["storageState"]>["cookies"],
 ): Effect.Effect<void, Playwright.PlaywrightError> {
-  if (cookies.length === 0) return Effect.void;
+  if (cookies.length === 0) {
+    return Effect.void;
+  }
 
   return Effect.asVoid(
     browserCDP.send("Storage.setCookies", {

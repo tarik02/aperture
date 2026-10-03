@@ -42,13 +42,15 @@ import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts"
 import { useSnapshotsInfiniteQuery } from "#/features/snapshot/snapshot.queries.ts";
 import { useCreateTokenMutation } from "#/features/token/token.mutations.ts";
 import { useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import type { ApiCredentials } from "@aperture-browser/api-client";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
-import { flattenInfinitePages } from "@aperture-browser/api-client";
+import {
+  type ApiCredentials,
+  flattenInfinitePages,
+  type ResourceGrant,
+} from "@aperture-browser/api-client";
 import { adminScopeOptions, tenantScopeOptions, type ScopeOption } from "#/lib/scopes.ts";
 import { useTokenCreateFormStore } from "#/features/token/create-form/token-create-form.store.ts";
 import { useTokenCreateModalStore } from "#/features/token/create-modal/token-create-modal.store.ts";
-import type { ResourceGrant } from "@aperture-browser/api-client";
 
 const AUTHORITY_OPTIONS = [
   { value: "tenant", label: "Tenant" },

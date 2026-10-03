@@ -2,7 +2,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
-import { Playwright } from "effect-playwright";
+import type { Playwright } from "effect-playwright";
 import type { Frame } from "playwright-core";
 import { cdpForFrame, evaluate, makeCdp, type Cdp } from "./cdp.js";
 import { matchesOrigin, type StorageExportInput, type StoragePartition } from "./export-schema.js";
@@ -80,7 +80,9 @@ export const partitionForKey = Effect.fn("storageInventory.partitionForKey")(fun
 ) {
   const [originText, suffix, ...extra] = storageKey.split("^");
   const origin = urlOrigin(originText);
-  if (origin === null || extra.length > 0) return yield* unsupportedPartition();
+  if (origin === null || extra.length > 0) {
+    return yield* unsupportedPartition();
+  }
 
   let ancestors: readonly string[] = [];
   if (suffix === "31") {
@@ -93,7 +95,9 @@ export const partitionForKey = Effect.fn("storageInventory.partitionForKey")(fun
     ancestors = [origin, bridge];
   } else if (suffix !== undefined) {
     const top = suffix.startsWith("0") ? canonicalOrigin(suffix.slice(1)) : null;
-    if (top === null) return yield* unsupportedPartition();
+    if (top === null) {
+      return yield* unsupportedPartition();
+    }
     ancestors = [top];
   }
   return { origin, ancestors, storageKey, quota } satisfies StoragePartition;
@@ -133,7 +137,9 @@ const frameStorageKeys = Effect.fnUntraced(function* (
   const { targetInfo } = yield* cdp
     .send("Target.getTargetInfo")
     .pipe(Effect.flatMap(Schema.decodeUnknownEffect(TargetInfoResult)));
-  if (visitedTargets.has(targetInfo.targetId)) return;
+  if (visitedTargets.has(targetInfo.targetId)) {
+    return;
+  }
   visitedTargets.add(targetInfo.targetId);
 
   const pending = [yield* frameTree(cdp)];
@@ -147,7 +153,9 @@ const frameStorageKeys = Effect.fnUntraced(function* (
         () => Effect.succeed(null),
       ),
     );
-    if (storageKey !== null && storageKeyOrigin(storageKey) !== null) keys.add(storageKey);
+    if (storageKey !== null && storageKeyOrigin(storageKey) !== null) {
+      keys.add(storageKey);
+    }
   }
 });
 
@@ -227,7 +235,9 @@ const partitionedSiteKeys = Effect.fnUntraced(function* (origin: string, groupin
   const keys: string[] = [];
   for (const top of tops) {
     const topOrigin = canonicalOrigin(top);
-    if (topOrigin === null) return yield* unsupportedPartition();
+    if (topOrigin === null) {
+      return yield* unsupportedPartition();
+    }
     const topURL = new URL(topOrigin);
     keys.push(`${origin}/${isSameSite(originURL, topURL) ? "^31" : `^0${topURL.origin}`}`);
   }
@@ -241,50 +251,67 @@ export const discoverStorage = Effect.fn("storageInventory.discoverStorage")(fun
 ) {
   const { origins: selection } = input;
   const isSelected = (key: string): boolean => {
-    if (selection === "open-tabs") return openKeys.has(key);
+    if (selection === "open-tabs") {
+      return openKeys.has(key);
+    }
     const origin = storageKeyOrigin(key);
     return origin !== null && matchesOrigin(selection, origin);
   };
 
   const inventory = new Map<string, StoragePartition>();
   const add = Effect.fnUntraced(function* (key: string, quota: boolean) {
-    if (!isSelected(key)) return;
+    if (!isSelected(key)) {
+      return;
+    }
     const hasQuota = quota || inventory.get(key)?.quota === true;
     inventory.set(key, yield* partitionForKey(key, hasQuota));
   });
 
   // Capture pages before opening helper targets; open-tabs never includes helpers.
-  for (const key of openKeys) yield* add(key, false);
+  for (const key of openKeys) {
+    yield* add(key, false);
+  }
 
   const page = yield* Effect.acquireRelease(context.newPage, (page) => Effect.ignore(page.close));
   const cdp = makeCdp(yield* page.use((raw) => raw.context().newCDPSession(raw)));
 
   for (const bucket of yield* quotaBuckets(page, cdp)) {
-    if (!isSelected(bucket.storageKey)) continue;
-    if (bucket.name !== "_default")
+    if (!isSelected(bucket.storageKey)) {
+      continue;
+    }
+    if (bucket.name !== "_default") {
       return yield* new UnsupportedStorageError({
         message: "named storage buckets are not supported",
       });
+    }
     yield* add(bucket.storageKey, true);
   }
 
-  if (selection === "open-tabs") return [...inventory.values()];
+  if (selection === "open-tabs") {
+    return [...inventory.values()];
+  }
 
   for (const group of yield* siteData(page, cdp)) {
     for (const site of group.origins) {
       const origin = urlOrigin(site.origin);
-      if (site.usage === 0 || origin === null || !matchesOrigin(selection, origin)) continue;
+      if (site.usage === 0 || origin === null || !matchesOrigin(selection, origin)) {
+        continue;
+      }
       const keys = site.isPartitioned
         ? yield* partitionedSiteKeys(origin, group.groupingKey)
         : [`${origin}/`];
-      for (const key of keys) yield* add(key, false);
+      for (const key of keys) {
+        yield* add(key, false);
+      }
     }
   }
 
   // Exact origins are always probed, even when no inventory reports them.
   for (const pattern of selection) {
     const origin = pattern.includes("*") ? null : canonicalOrigin(pattern);
-    if (origin !== null) yield* add(`${origin}/`, false);
+    if (origin !== null) {
+      yield* add(`${origin}/`, false);
+    }
   }
   return [...inventory.values()];
 }, Effect.scoped);

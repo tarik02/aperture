@@ -61,6 +61,14 @@ export const BrowserStatus = Schema.Union([
 ]);
 
 const recordingFields = {
+  presentation: Schema.optionalKey(Schema.Boolean),
+  captureRelativePath: Schema.optionalKey(Schema.String),
+  actionsRelativePath: Schema.optionalKey(Schema.String),
+  configRelativePath: Schema.optionalKey(Schema.String),
+  timelineRelativePath: Schema.optionalKey(Schema.String),
+  editedRelativePath: Schema.optionalKey(Schema.String),
+  finalizeError: Schema.optionalKey(Schema.String),
+  warnings: Schema.optionalKey(Schema.Array(Schema.String)),
   recordingId: Schema.String,
   mode: Schema.Literals(["tab", "viewer"]),
   targetId: Schema.String,

@@ -33,7 +33,9 @@ export default defineConfig({
     // Build only the environments below, not Vite's default index.html client.
     async buildApp(builder) {
       for (const [name, environment] of Object.entries(builder.environments)) {
-        if (name !== "client" && name !== "ssr") await builder.build(environment);
+        if (name !== "client" && name !== "ssr") {
+          await builder.build(environment);
+        }
       }
     },
   },

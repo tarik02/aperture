@@ -19,10 +19,18 @@ const unfillableInputTypes = new Set(["hidden", "range", "color", "button", "sub
 
 /** Chooses the Playwright action that restores a control. */
 export function controlKind(element: Element): ControlKind {
-  if (element instanceof HTMLSelectElement) return "select";
-  if (element instanceof HTMLTextAreaElement) return "fill";
-  if (!(element instanceof HTMLInputElement) || element.type === "file") return "none";
-  if (element.type === "checkbox" || element.type === "radio") return "check";
+  if (element instanceof HTMLSelectElement) {
+    return "select";
+  }
+  if (element instanceof HTMLTextAreaElement) {
+    return "fill";
+  }
+  if (!(element instanceof HTMLInputElement) || element.type === "file") {
+    return "none";
+  }
+  if (element.type === "checkbox" || element.type === "radio") {
+    return "check";
+  }
   return unfillableInputTypes.has(element.type) ? "native" : "fill";
 }
 
@@ -53,11 +61,16 @@ export function setControl(element: Element, control: ControlState): void {
       nativeSet(element, HTMLSelectElement, "value", control.value);
     } else {
       const selected = new Set(control.selectedIndices);
-      for (const option of element.options) option.selected = selected.has(option.index);
+      for (const option of element.options) {
+        option.selected = selected.has(option.index);
+      }
     }
   } else if (element instanceof HTMLInputElement) {
-    if (control.checked === undefined) nativeSet(element, HTMLInputElement, "value", control.value);
-    else nativeSet(element, HTMLInputElement, "checked", control.checked);
+    if (control.checked === undefined) {
+      nativeSet(element, HTMLInputElement, "value", control.value);
+    } else {
+      nativeSet(element, HTMLInputElement, "checked", control.checked);
+    }
   } else if (element instanceof HTMLTextAreaElement) {
     nativeSet(element, HTMLTextAreaElement, "value", control.value);
   } else {
@@ -86,7 +99,9 @@ export function setSelectionRange(element: Element, selection: ControlState["sel
 
 export function restoreEditable(editable: EditableState): void {
   const element = resolveLocator(editable.locator);
-  if (!element?.isContentEditable || element.innerHTML === editable.html) return;
+  if (!element?.isContentEditable || element.innerHTML === editable.html) {
+    return;
+  }
   element.innerHTML = editable.html;
   element.dispatchEvent(
     new InputEvent("input", { bubbles: true, inputType: "insertReplacementText" }),
@@ -97,15 +112,20 @@ export function restoreScroll(
   positions: readonly ScrollState[],
   windowScroll?: { x: number; y: number },
 ): void {
-  for (const position of positions)
+  for (const position of positions) {
     resolveLocator(position.locator)?.scrollTo(position.x, position.y);
-  if (windowScroll) scrollTo(windowScroll.x, windowScroll.y);
+  }
+  if (windowScroll) {
+    scrollTo(windowScroll.x, windowScroll.y);
+  }
 }
 
 export function restoreSelection(selection: SelectionState): void {
   const anchor = resolveEndpoint(selection.anchor);
   const focus = resolveEndpoint(selection.focus);
-  if (!anchor || !focus) return;
+  if (!anchor || !focus) {
+    return;
+  }
   try {
     document.getSelection()?.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
   } catch {
@@ -115,7 +135,9 @@ export function restoreSelection(selection: SelectionState): void {
 
 function resolveEndpoint(endpoint: SelectionEndpoint): { node: Node; offset: number } | null {
   let node: Node | undefined = resolveLocator(endpoint.locator) ?? undefined;
-  for (const index of endpoint.nodePath) node = node?.childNodes[index];
+  for (const index of endpoint.nodePath) {
+    node = node?.childNodes[index];
+  }
   return node ? { node, offset: endpoint.offset } : null;
 }
 
@@ -127,6 +149,8 @@ function nativeSet<T extends HTMLElement>(
 ): void {
   // oxlint-disable-next-line typescript/unbound-method
   const setter = Object.getOwnPropertyDescriptor(constructor.prototype, property)?.set;
-  if (!setter) throw new Error(`browser omitted the native ${property} setter`);
+  if (!setter) {
+    throw new Error(`browser omitted the native ${property} setter`);
+  }
   setter.call(element, value);
 }

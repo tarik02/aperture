@@ -49,6 +49,7 @@ type RuntimeEnvValues struct {
 	CompositorHeight           int
 	MediaProducerEnabled       bool
 	MediaProducerGSTExecutable string
+	RecordingFFmpegExecutable  string
 	MediaProducerPluginPath    string
 	MediaProducerTarget        string
 	MediaProducerICEServers    string
@@ -253,6 +254,10 @@ func RenderRuntimeEnv(values RuntimeEnvValues) ([]byte, error) {
 		)
 	}
 
+	if values.RecordingFFmpegExecutable != "" {
+		lines = append(lines, "RECORDING_FFMPEG_EXECUTABLE="+shellQuote(values.RecordingFFmpegExecutable))
+	}
+
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
 }
 
@@ -298,7 +303,7 @@ func ParseRuntimeEnv(body []byte) (RuntimeEnvValues, error) {
 		}
 
 		switch key {
-		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "FILES_DIR", "CACHE_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC":
+		case "INTERNAL_API_URL", "UPPER_DIR", "APERTURE_SESSION_ID", "EXTERNAL_BASE_URL", "EMBED_ALLOWED_ORIGINS", "SESSION_TOKEN", "SESSION_TOKEN_PATH", "WRAPPER_CONTROL_TOKEN", "MERGED_USER_DATA_DIR", "FILES_DIR", "CACHE_DIR", "BROWSER_EXECUTABLE", "CAPTURE_PROOF_EXTENSION_DIR", "GPU_MODE", "WEBRTC_COMPOSITOR_EXECUTABLE", "WEBRTC_COMPOSITOR_BACKEND", "WEBRTC_COMPOSITOR_RENDERER", "WEBRTC_COMPOSITOR_SHELL", "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE", "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH", "WEBRTC_MEDIA_PRODUCER_TARGET", "WEBRTC_MEDIA_PRODUCER_ICE_SERVERS", "WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP", "WEBRTC_MEDIA_PRODUCER_CODEC", "RECORDING_FFMPEG_EXECUTABLE":
 			unquoted, err := shellUnquote(val)
 			if err != nil {
 				return RuntimeEnvValues{}, fmt.Errorf("unquote %s: %w", key, err)
@@ -447,6 +452,8 @@ func assignRuntimeString(values *RuntimeEnvValues, key, value string) {
 		values.CompositorShell = value
 	case "WEBRTC_MEDIA_PRODUCER_GST_EXECUTABLE":
 		values.MediaProducerGSTExecutable = value
+	case "RECORDING_FFMPEG_EXECUTABLE":
+		values.RecordingFFmpegExecutable = value
 	case "WEBRTC_MEDIA_PRODUCER_PLUGIN_PATH":
 		values.MediaProducerPluginPath = value
 	case "WEBRTC_MEDIA_PRODUCER_TARGET":

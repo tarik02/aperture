@@ -87,10 +87,14 @@ import {
 import { useSessionsInfiniteQuery } from "#/features/session/session.queries.ts";
 import { hasAllScopes, hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { flattenInfinitePages } from "@aperture-browser/api-client";
+import {
+  type ApiCredentials,
+  flattenInfinitePages,
+  type Session,
+  SessionsApi,
+} from "@aperture-browser/api-client";
 import { formatTimestamp } from "#/lib/format.ts";
-import type { ApiCredentials, Session } from "@aperture-browser/api-client";
-import { copyText } from "@aperture-browser/session-react";
+import { copyText, useEffectCallback } from "@aperture-browser/session-react";
 import { cn } from "@aperture-browser/ui/utils";
 import { useSessionListPageStore } from "#/features/session/list-page/session-list-page.store.ts";
 import { useSessionCreateModalStore } from "#/features/session/create-modal/session-create-modal.store.ts";
@@ -99,8 +103,6 @@ import { useSessionPromoteFormStore } from "#/features/session/promote-form/sess
 import { useSessionPromoteModalStore } from "#/features/session/promote-modal/session-promote-modal.store.ts";
 import { useTagEditModalStore } from "#/features/tag/edit-modal/tag-edit-modal.store.ts";
 import { useTagFormStore } from "#/features/tag/form/tag-form.store.ts";
-import { SessionsApi } from "@aperture-browser/api-client";
-import { useEffectCallback } from "@aperture-browser/session-react";
 
 /** The session has no viewer token to build a share URL from. */
 class ViewerCapabilityUnavailableError extends Data.TaggedError(

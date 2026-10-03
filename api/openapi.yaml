@@ -939,6 +939,7 @@ paths:
         - {$ref: '#/components/parameters/SessionId'}
         - {$ref: '#/components/parameters/RecordingId'}
         - {$ref: '#/components/parameters/SelectedTenantId'}
+      requestBody: {$ref: '#/components/requestBodies/StopSessionRecording'}
       responses:
         '200': {description: Completed recording file, content: {application/json: {schema: {$ref: '#/components/schemas/SessionFile'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -1479,6 +1480,10 @@ components:
       required: true
       description: Ready destination top-level target. The JSON body must not exceed 1 MiB.
       content: {application/json: {schema: {$ref: '#/components/schemas/RetargetSessionRecordingInput'}}}
+    StopSessionRecording:
+      required: true
+      description: One-time editing policy applied while the recording is finalized. The JSON body must not exceed 1 MiB.
+      content: {application/json: {schema: {$ref: '#/components/schemas/StopSessionRecordingInput'}}}
     SetCursorVisibility:
       required: true
       description: Remote cursor visibility. The JSON body must not exceed 1 MiB.
@@ -2931,6 +2936,9 @@ components:
       description: Top-level target and optional recording settings.
       required: [targetId]
       properties:
+        presentation:
+          type: boolean
+          description: Use the deliberate automation cadence and follow browser automation between top-level targets while recording.
         targetId:
           type: string
           minLength: 1
@@ -2948,6 +2956,28 @@ components:
           enum: [vp8, h264-va]
           description: Video codec. Omit for the instance default.
           example: vp8
+    RecordingEdit:
+      type: object
+      description: Editing policy applied once when capture stops. Worker timing values are implementation details.
+      properties:
+        trim:
+          type: string
+          enum: [none, idle, actions]
+          description: Keep the full capture, remove long idle regions, or retain action and explicit effect windows.
+        cutStyle:
+          type: string
+          enum: [natural, tight]
+          description: Cut style for action trimming. Tight follows gesture and activity windows closely without accelerating visible motion.
+        ripple:
+          type: boolean
+          description: Render click ripples. Defaults on for presentation recordings.
+    StopSessionRecordingInput:
+      type: object
+      description: Finalization settings for a recording.
+      required: [edit]
+      properties:
+        edit:
+          $ref: '#/components/schemas/RecordingEdit'
     RetargetSessionRecordingInput:
       type: object
       description: Destination for a running tab recording.
@@ -2962,6 +2992,21 @@ components:
       description: One logical recording of a top-level target.
       required: [recordingId, mode, targetId, captureGeneration, status, relativePath, startedAt, fps, bitrateKbps, codec]
       properties:
+        captureRelativePath:
+          type: string
+        actionsRelativePath:
+          type: string
+        configRelativePath:
+          type: string
+        timelineRelativePath:
+          type: string
+        editedRelativePath:
+          type: string
+        finalizeError:
+          type: string
+        warnings:
+          type: array
+          items: {type: string}
         recordingId:
           type: string
           format: uuid

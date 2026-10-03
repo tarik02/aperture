@@ -150,7 +150,7 @@ function FieldSeparator({
   return (
     <div
       data-slot="field-separator"
-      data-content={!!children}
+      data-content={Boolean(children)}
       className={cn(
         "aperture:-my-2 aperture:flex aperture:items-center aperture:gap-2 aperture:text-sm aperture:group-data-[variant=outline]/field-group:-mb-2",
         className,
@@ -192,7 +192,7 @@ function FieldError({
 
     const uniqueErrors = [...new Map(errors.map((error) => [error?.message, error])).values()];
 
-    if (uniqueErrors?.length == 1) {
+    if (uniqueErrors?.length === 1) {
       return uniqueErrors[0]?.message;
     }
 

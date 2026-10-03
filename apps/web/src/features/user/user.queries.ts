@@ -4,9 +4,9 @@ import {
   defaultListLimit,
   getNextPageParam,
   listQueryDefaults,
+  UsersApi,
 } from "@aperture-browser/api-client";
 import { queryKeys, type UsersFilters } from "#/lib/api/query-keys.ts";
-import { UsersApi } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
 
 export function useUsersInfiniteQuery(filters: UsersFilters = {}) {

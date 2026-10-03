@@ -163,6 +163,7 @@ var openAPIRoutesWithRequestBody = map[string]map[string]struct{}{
 		"/api/sessions/bulk":                  {},
 		"/api/sessions/:sessionId/recordings": {},
 		"/api/sessions/:sessionId/recordings/:recordingId/retarget": {},
+		"/api/sessions/:sessionId/recordings/:recordingId/stop":     {},
 		"/api/sessions/:sessionId/files/download-url":               {},
 		"/api/sessions/:sessionId/files/move":                       {},
 		"/api/sessions/:sessionId/files/directories":                {},

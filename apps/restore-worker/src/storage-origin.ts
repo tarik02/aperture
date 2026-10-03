@@ -44,7 +44,9 @@ export const navigateIsolatedOrigin = Effect.fnUntraced(function* (
         headers: { "Cache-Control": "no-store" },
         body: child === undefined ? emptyDocument : documentForChild(child),
       });
-      if (served === chain.length) Deferred.doneUnsafe(finished, Effect.void);
+      if (served === chain.length) {
+        Deferred.doneUnsafe(finished, Effect.void);
+      }
     } catch (cause) {
       fail(new Playwright.PlaywrightError({ reason: "Unknown", cause }));
     }

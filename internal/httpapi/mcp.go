@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/aperture/aperture/internal/browser"
+	recordingconfig "github.com/aperture/aperture/internal/recording"
 	"io"
 	"net/http"
 	"strings"
@@ -332,18 +334,20 @@ type mcpSessionIDInput struct {
 	SessionID string `json:"sessionId"`
 }
 type mcpRecordingStartInput struct {
-	TenantID    string `json:"tenantId,omitempty"`
-	SessionID   string `json:"sessionId"`
-	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
-	FPS         int    `json:"fps,omitempty"`
-	BitrateKbps int    `json:"bitrateKbps,omitempty"`
-	Codec       string `json:"codec,omitempty"`
+	TenantID     string `json:"tenantId,omitempty"`
+	SessionID    string `json:"sessionId"`
+	TargetID     string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
+	FPS          int    `json:"fps,omitempty"`
+	BitrateKbps  int    `json:"bitrateKbps,omitempty"`
+	Codec        string `json:"codec,omitempty"`
+	Presentation bool   `json:"presentation,omitempty" jsonschema:"Use the deliberate presentation cadence while recording."`
 }
 type mcpBoundRecordingStartInput struct {
-	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
-	FPS         int    `json:"fps,omitempty"`
-	BitrateKbps int    `json:"bitrateKbps,omitempty"`
-	Codec       string `json:"codec,omitempty"`
+	TargetID     string `json:"targetId" jsonschema:"Identifier of the ready top-level target to record."`
+	FPS          int    `json:"fps,omitempty"`
+	BitrateKbps  int    `json:"bitrateKbps,omitempty"`
+	Codec        string `json:"codec,omitempty"`
+	Presentation bool   `json:"presentation,omitempty" jsonschema:"Use the deliberate presentation cadence while recording."`
 }
 type mcpRecordingInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -352,6 +356,16 @@ type mcpRecordingInput struct {
 }
 type mcpBoundRecordingInput struct {
 	RecordingID string `json:"recordingId"`
+}
+type mcpRecordingStopInput struct {
+	TenantID    string               `json:"tenantId,omitempty"`
+	SessionID   string               `json:"sessionId"`
+	RecordingID string               `json:"recordingId"`
+	Edit        recordingconfig.Edit `json:"edit"`
+}
+type mcpBoundRecordingStopInput struct {
+	RecordingID string               `json:"recordingId"`
+	Edit        recordingconfig.Edit `json:"edit"`
 }
 type mcpRecordingRetargetInput struct {
 	TenantID    string `json:"tenantId,omitempty"`
@@ -364,6 +378,7 @@ type mcpBoundRecordingRetargetInput struct {
 	TargetID    string `json:"targetId" jsonschema:"Identifier of the ready destination top-level target."`
 }
 type mcpRecordingOutput struct {
+	browser.RecordingArtifacts
 	RecordingID       string `json:"recordingId"`
 	Mode              string `json:"mode"`
 	TargetID          string `json:"targetId"`
@@ -691,15 +706,17 @@ func (s *Server) playwrightToolHandler(a mcpAuth, name string, pathBound bool) m
 			return nil, mcpToolError("session_unavailable", err)
 		}
 		defer release()
-		releaseLease, err := acquireAutomationLease(ctx, wrapperPort, view.SessionToken, automationActorName(a))
-		if err != nil {
-			code := "session_unavailable"
-			if errors.Is(err, errAutomationInputBusy) {
-				code = "input_busy"
+		if name != "browser_focus_viewport" {
+			releaseLease, err := acquireAutomationLease(ctx, wrapperPort, view.SessionToken, automationActorName(a))
+			if err != nil {
+				code := "session_unavailable"
+				if errors.Is(err, errAutomationInputBusy) {
+					code = "input_busy"
+				}
+				return nil, mcpToolError(code, err)
 			}
-			return nil, mcpToolError(code, err)
+			defer releaseLease()
 		}
-		defer releaseLease()
 		result, err := callPlaywright(ctx, wrapperPort, controlToken, name, arguments, s.Config.ToolOutputMaxBytes)
 		if err != nil {
 			return nil, mcpToolError("playwright_error", err)

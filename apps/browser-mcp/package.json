@@ -1,0 +1,22 @@
+{
+  "name": "@aperture-browser/browser-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@aperture-browser/recording": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "effect": "catalog:",
+    "playwright-core": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "zod": "catalog:"
+  }
+}

@@ -122,6 +122,7 @@ func isLiveSessionCommand(messageType string) bool {
 		"viewport.owner.claim",
 		"presentation.quality.set",
 		"presentation.cursor.set",
+		"presentation.automation.set",
 		"recording.start",
 		"recording.stop",
 		"recording.cancel":
@@ -258,17 +259,29 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			return liveSessionServerMessage{}, err
 		}
 		return liveSessionServerMessage{Presentation: &presentation}, nil
+	case "presentation.automation.set":
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errors.New("automation pacing requires the owner or editor role")
+		}
+		if message.Pacing != "normal" && message.Pacing != "watchable" {
+			return liveSessionServerMessage{}, errors.New("pacing must be normal or watchable")
+		}
+		session.mu.Lock()
+		client.automationPacing = message.Pacing
+		session.mu.Unlock()
+		return liveSessionServerMessage{}, nil
 	case "recording.start":
 		if !client.canRecord() {
 			return liveSessionServerMessage{}, errRecordingRole
 		}
 		recording, err := session.startRecording(wrapperRecordingRequest{
-			Mode:        wrapperRecordingMode(message.Mode),
-			TargetID:    message.TargetID,
-			ClientID:    client.id,
-			FPS:         message.FPS,
-			BitrateKbps: message.BitrateKbps,
-			Codec:       message.Codec,
+			Mode:         wrapperRecordingMode(message.Mode),
+			TargetID:     message.TargetID,
+			ClientID:     client.id,
+			FPS:          message.FPS,
+			BitrateKbps:  message.BitrateKbps,
+			Codec:        message.Codec,
+			Presentation: message.Presentation,
 		})
 		if err != nil {
 			return liveSessionServerMessage{}, err
@@ -281,8 +294,10 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 		reason := "requested"
 		if message.Type == "recording.cancel" {
 			reason = "canceled"
+		} else if err := message.Edit.Validate(); err != nil {
+			return liveSessionServerMessage{}, err
 		}
-		recording, err := session.stopRecording(message.RecordingID, reason)
+		recording, err := session.stopRecording(message.RecordingID, reason, message.Edit)
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}

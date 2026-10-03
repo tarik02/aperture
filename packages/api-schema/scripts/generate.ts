@@ -29,7 +29,9 @@ function normalize(schema: JsonSchema.JsonSchema): JsonSchema.JsonSchema {
   const out = { ...schema };
   // The generator only accepts patterns in the form RegExp#source prints them, so `/`
   // must be escaped. The escaped form matches the same strings.
-  if (typeof out.pattern === "string") out.pattern = new RegExp(out.pattern).source;
+  if (typeof out.pattern === "string") {
+    out.pattern = new RegExp(out.pattern).source;
+  }
   // Objects without additionalProperties would otherwise gain a JSON index signature.
   // Decoding still ignores unknown properties, so newer servers remain compatible.
   if (out.properties !== undefined && out.additionalProperties === undefined) {

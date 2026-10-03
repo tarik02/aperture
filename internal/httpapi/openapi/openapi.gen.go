@@ -609,6 +609,45 @@ func (e RecordingStatus) Valid() bool {
 	}
 }
 
+// Defines values for RecordingEditCutStyle.
+const (
+	Natural RecordingEditCutStyle = "natural"
+	Tight   RecordingEditCutStyle = "tight"
+)
+
+// Valid indicates whether the value is a known member of the RecordingEditCutStyle enum.
+func (e RecordingEditCutStyle) Valid() bool {
+	switch e {
+	case Natural:
+		return true
+	case Tight:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordingEditTrim.
+const (
+	RecordingEditTrimActions RecordingEditTrim = "actions"
+	RecordingEditTrimIdle    RecordingEditTrim = "idle"
+	RecordingEditTrimNone    RecordingEditTrim = "none"
+)
+
+// Valid indicates whether the value is a known member of the RecordingEditTrim enum.
+func (e RecordingEditTrim) Valid() bool {
+	switch e {
+	case RecordingEditTrimActions:
+		return true
+	case RecordingEditTrimIdle:
+		return true
+	case RecordingEditTrimNone:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResourceMode.
 const (
 	ResourceModeAll       ResourceMode = "all"
@@ -1252,6 +1291,9 @@ type CreateSessionRecordingInput struct {
 	// Fps Requested frames per second. Omit or use a non-positive value for the instance default.
 	Fps *int `json:"fps,omitempty"`
 
+	// Presentation Use the deliberate automation cadence and follow browser automation between top-level targets while recording.
+	Presentation *bool `json:"presentation,omitempty"`
+
 	// TargetId Identifier of the ready top-level target to record.
 	TargetId string `json:"targetId"`
 }
@@ -1804,12 +1846,17 @@ type ProxyUpstream struct {
 
 // Recording One logical recording of a top-level target.
 type Recording struct {
-	BitrateKbps int `json:"bitrateKbps"`
+	ActionsRelativePath *string `json:"actionsRelativePath,omitempty"`
+	BitrateKbps         int     `json:"bitrateKbps"`
 
 	// CaptureGeneration Assignment generation for the current top-level target.
-	CaptureGeneration int64          `json:"captureGeneration"`
-	Codec             RecordingCodec `json:"codec"`
-	Fps               int            `json:"fps"`
+	CaptureGeneration   int64          `json:"captureGeneration"`
+	CaptureRelativePath *string        `json:"captureRelativePath,omitempty"`
+	Codec               RecordingCodec `json:"codec"`
+	ConfigRelativePath  *string        `json:"configRelativePath,omitempty"`
+	EditedRelativePath  *string        `json:"editedRelativePath,omitempty"`
+	FinalizeError       *string        `json:"finalizeError,omitempty"`
+	Fps                 int            `json:"fps"`
 
 	// Mode Tab recordings stay on their specified top-level target; viewer recordings follow a live session client's selected top-level target and cannot be explicitly retargeted.
 	Mode RecordingMode `json:"mode"`
@@ -1828,7 +1875,9 @@ type Recording struct {
 	StoppedAt  *time.Time `json:"stoppedAt,omitempty"`
 
 	// TargetId Identifier of the top-level target currently recorded.
-	TargetId string `json:"targetId"`
+	TargetId             string    `json:"targetId"`
+	TimelineRelativePath *string   `json:"timelineRelativePath,omitempty"`
+	Warnings             *[]string `json:"warnings,omitempty"`
 }
 
 // RecordingCodec defines model for Recording.Codec.
@@ -1839,6 +1888,24 @@ type RecordingMode string
 
 // RecordingStatus defines model for Recording.Status.
 type RecordingStatus string
+
+// RecordingEdit Editing policy applied once when capture stops. Worker timing values are implementation details.
+type RecordingEdit struct {
+	// CutStyle Cut style for action trimming. Tight follows gesture and activity windows closely without accelerating visible motion.
+	CutStyle *RecordingEditCutStyle `json:"cutStyle,omitempty"`
+
+	// Ripple Render click ripples. Defaults on for presentation recordings.
+	Ripple *bool `json:"ripple,omitempty"`
+
+	// Trim Keep the full capture, remove long idle regions, or retain action and explicit effect windows.
+	Trim *RecordingEditTrim `json:"trim,omitempty"`
+}
+
+// RecordingEditCutStyle Cut style for action trimming. Tight follows gesture and activity windows closely without accelerating visible motion.
+type RecordingEditCutStyle string
+
+// RecordingEditTrim Keep the full capture, remove long idle regions, or retain action and explicit effect windows.
+type RecordingEditTrim string
 
 // ReplaceTagsInput Complete replacement tag set. The map may be empty to clear all tags.
 type ReplaceTagsInput struct {
@@ -2181,6 +2248,12 @@ type SnapshotPage struct {
 	Meta PageMeta `json:"meta"`
 }
 
+// StopSessionRecordingInput Finalization settings for a recording.
+type StopSessionRecordingInput struct {
+	// Edit Editing policy applied once when capture stops. Worker timing values are implementation details.
+	Edit RecordingEdit `json:"edit"`
+}
+
 // StringMap Arbitrary string key-value metadata. Tag-writing operations additionally reject blank keys and blank values.
 type StringMap map[string]string
 
@@ -2488,6 +2561,9 @@ type SessionBulk = SessionBulkInput
 
 // SetCursorVisibility Whether the remote browser cursor is composited into session media.
 type SetCursorVisibility = CursorVisibility
+
+// StopSessionRecording Finalization settings for a recording.
+type StopSessionRecording = StopSessionRecordingInput
 
 // UpdateProxy Replacement session egress proxy configuration. Fields other than `drain` are as in `ProxyConfig`.
 type UpdateProxy = UpdateProxyConfig
@@ -2951,6 +3027,9 @@ type CreateSessionRecordingJSONRequestBody = CreateSessionRecordingInput
 
 // RetargetSessionRecordingJSONRequestBody defines body for RetargetSessionRecording for application/json ContentType.
 type RetargetSessionRecordingJSONRequestBody = RetargetSessionRecordingInput
+
+// StopSessionRecordingJSONRequestBody defines body for StopSessionRecording for application/json ContentType.
+type StopSessionRecordingJSONRequestBody = StopSessionRecordingInput
 
 // ExportSessionStorageStateJSONRequestBody defines body for ExportSessionStorageState for application/json ContentType.
 type ExportSessionStorageStateJSONRequestBody = ExportSessionStorageStateInput
@@ -3791,12 +3870,23 @@ type ClientInterface interface {
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/retarget (the `RetargetSessionRecording` operationId).
 	RetargetSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *RetargetSessionRecordingParams, body RetargetSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// StopSessionRecordingWithBody Stop a session recording
+	//
+	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+	StopSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// StopSessionRecording Stop a session recording
 	//
 	// Stops the selected recording without transferring its media data and returns the resulting session file.
 	//
+	// Takes a body of the `application/json` content type.
+	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
-	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, body StopSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReopenSession Reopen a browser session
 	//
@@ -5078,13 +5168,34 @@ func (c *Client) RetargetSessionRecording(ctx context.Context, sessionId Session
 	return c.Client.Do(req)
 }
 
+// StopSessionRecordingWithBody Stop a session recording
+//
+// Stops the selected recording without transferring its media data and returns the resulting session file.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+func (c *Client) StopSessionRecordingWithBody(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopSessionRecordingRequestWithBody(c.Server, sessionId, recordingId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // StopSessionRecording Stop a session recording
 //
 // Stops the selected recording without transferring its media data and returns the resulting session file.
 //
+// Takes a body of the `application/json` content type.
+//
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
-func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewStopSessionRecordingRequest(c.Server, sessionId, recordingId, params)
+func (c *Client) StopSessionRecording(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, body StopSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopSessionRecordingRequest(c.Server, sessionId, recordingId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -8104,8 +8215,19 @@ func NewRetargetSessionRecordingRequestWithBody(server string, sessionId Session
 	return req, nil
 }
 
-// NewStopSessionRecordingRequest constructs an http.Request for the StopSessionRecording method
-func NewStopSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams) (*http.Request, error) {
+// NewStopSessionRecordingRequest calls the generic StopSessionRecording builder with application/json body
+func NewStopSessionRecordingRequest(server string, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, body StopSessionRecordingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewStopSessionRecordingRequestWithBody(server, sessionId, recordingId, params, "application/json", bodyReader)
+}
+
+// NewStopSessionRecordingRequestWithBody constructs an http.Request for the StopSessionRecording method, with any body, and a specified content type
+func NewStopSessionRecordingRequestWithBody(server string, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -8137,10 +8259,12 @@ func NewStopSessionRecordingRequest(server string, sessionId SessionId, recordin
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -9712,14 +9836,23 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/retarget (the `RetargetSessionRecording` operationId).
 	RetargetSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *RetargetSessionRecordingParams, body RetargetSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*RetargetSessionRecordingResponse, error)
 
+	// StopSessionRecordingWithBodyWithResponse Stop a session recording
+	//
+	// Stops the selected recording without transferring its media data and returns the resulting session file.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+	StopSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error)
+
 	// StopSessionRecordingWithResponse Stop a session recording
 	//
 	// Stops the selected recording without transferring its media data and returns the resulting session file.
 	//
-	// Returns a wrapper object for the known response body format(s).
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
-	StopSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error)
+	StopSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, body StopSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error)
 
 	// ReopenSessionWithResponse Reopen a browser session
 	//
@@ -13785,15 +13918,30 @@ func (c *ClientWithResponses) RetargetSessionRecordingWithResponse(ctx context.C
 	return ParseRetargetSessionRecordingResponse(rsp)
 }
 
+// StopSessionRecordingWithBodyWithResponse Stop a session recording
+//
+// Stops the selected recording without transferring its media data and returns the resulting session file.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
+func (c *ClientWithResponses) StopSessionRecordingWithBodyWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error) {
+	rsp, err := c.StopSessionRecordingWithBody(ctx, sessionId, recordingId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStopSessionRecordingResponse(rsp)
+}
+
 // StopSessionRecordingWithResponse Stop a session recording
 //
 // Stops the selected recording without transferring its media data and returns the resulting session file.
 //
-// Returns a wrapper object for the known response body format(s).
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /api/sessions/{sessionId}/recordings/{recordingId}/stop (the `StopSessionRecording` operationId).
-func (c *ClientWithResponses) StopSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error) {
-	rsp, err := c.StopSessionRecording(ctx, sessionId, recordingId, params, reqEditors...)
+func (c *ClientWithResponses) StopSessionRecordingWithResponse(ctx context.Context, sessionId SessionId, recordingId RecordingId, params *StopSessionRecordingParams, body StopSessionRecordingJSONRequestBody, reqEditors ...RequestEditorFn) (*StopSessionRecordingResponse, error) {
+	rsp, err := c.StopSessionRecording(ctx, sessionId, recordingId, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -20943,6 +21091,7 @@ type StopSessionRecordingRequestObject struct {
 	SessionId   SessionId   `json:"sessionId"`
 	RecordingId RecordingId `json:"recordingId"`
 	Params      StopSessionRecordingParams
+	Body        *StopSessionRecordingJSONRequestBody
 }
 
 type StopSessionRecordingResponseObject interface {
@@ -23219,6 +23368,13 @@ func (sh *strictHandler) StopSessionRecording(ctx *gin.Context, sessionId Sessio
 	request.SessionId = sessionId
 	request.RecordingId = recordingId
 	request.Params = params
+
+	var body StopSessionRecordingJSONRequestBody
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(ctx, err)
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx *gin.Context, request interface{}) (interface{}, error) {
 		return sh.ssi.StopSessionRecording(ctx, request.(StopSessionRecordingRequestObject))

@@ -98,7 +98,7 @@ function ComboboxContent({
       >
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"
-          data-chips={!!anchor}
+          data-chips={Boolean(anchor)}
           className={cn(
             "aperture:group/combobox-content aperture:relative aperture:max-h-(--available-height) aperture:w-(--anchor-width) aperture:max-w-(--available-width) aperture:min-w-[calc(var(--anchor-width)+--spacing(7))] aperture:origin-(--transform-origin) aperture:overflow-hidden aperture:rounded-lg aperture:bg-popover aperture:text-popover-foreground aperture:shadow-md aperture:ring-1 aperture:ring-foreground/10 aperture:duration-100 aperture:data-[chips=true]:min-w-(--anchor-width) aperture:data-[side=bottom]:slide-in-from-top-2 aperture:data-[side=inline-end]:slide-in-from-left-2 aperture:data-[side=inline-start]:slide-in-from-right-2 aperture:data-[side=left]:slide-in-from-right-2 aperture:data-[side=right]:slide-in-from-left-2 aperture:data-[side=top]:slide-in-from-bottom-2 aperture:*:data-[slot=input-group]:m-1 aperture:*:data-[slot=input-group]:mb-0 aperture:*:data-[slot=input-group]:h-8 aperture:*:data-[slot=input-group]:border-input/30 aperture:*:data-[slot=input-group]:bg-input/30 aperture:*:data-[slot=input-group]:shadow-none aperture:data-open:animate-in aperture:data-open:fade-in-0 aperture:data-open:zoom-in-95 aperture:data-closed:animate-out aperture:data-closed:fade-out-0 aperture:data-closed:zoom-out-95",
             className,

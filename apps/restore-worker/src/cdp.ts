@@ -69,8 +69,9 @@ export function cdpForFrame(frame: Frame): Effect.Effect<Cdp, Playwright.Playwri
         error.cause.message.endsWith(
           "This frame does not have a separate CDP session, it is a part of the parent frame's session",
         )
-      )
+      ) {
         return cdpForFrame(parent);
+      }
       return Effect.fail(error);
     }),
   );

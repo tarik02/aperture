@@ -1,8 +1,10 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
+  type ApiCredentials,
   defaultListLimit,
   getNextPageParam,
   listQueryDefaults,
+  SessionsApi,
 } from "@aperture-browser/api-client";
 import * as Effect from "effect/Effect";
 import {
@@ -11,8 +13,6 @@ import {
   useApiCredentials,
 } from "#/hooks/use-api-credentials.ts";
 import { queryKeys, type SessionsFilters } from "#/lib/api/query-keys.ts";
-import type { ApiCredentials } from "@aperture-browser/api-client";
-import { SessionsApi } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
 
 function resolveTenantKey(credentials: ApiCredentials | null): string | null {

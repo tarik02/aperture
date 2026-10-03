@@ -19,6 +19,7 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, "/recordings", map[string]any{
 		"mode": "tab", "targetId": in.TargetID, "fps": in.FPS, "bitrateKbps": in.BitrateKbps, "codec": in.Codec,
+		"presentation": in.Presentation,
 	}, false)
 }
 
@@ -46,7 +47,7 @@ func (s *Server) mcpRecordingStatus(ctx context.Context, _ *mcp.CallToolRequest,
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, "/recordings/"+url.PathEscape(in.RecordingID), nil, false)
 }
 
-func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
+func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, in mcpRecordingStopInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
@@ -56,7 +57,10 @@ func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, i
 		return nil, mcpRecordingOutput{}, err
 	}
 	path := "/recordings/" + url.PathEscape(in.RecordingID)
-	if _, _, err := s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path+"/stop", nil, true); err != nil {
+	if err := in.Edit.Validate(); err != nil {
+		return nil, mcpRecordingOutput{}, mcpToolError("invalid_recording_edit", err)
+	}
+	if _, _, err := s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodPost, path+"/stop", map[string]any{"edit": in.Edit}, true); err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
 	return s.mcpRecordingRequest(ctx, view.Session.TenantID, view.Session.ID, http.MethodGet, path, nil, false)
@@ -80,7 +84,7 @@ func (s *Server) mcpBoundRecordingStart(ctx context.Context, req *mcp.CallToolRe
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec})
+	return s.mcpRecordingStart(ctx, req, mcpRecordingStartInput{TenantID: a.tenantID, SessionID: a.sessionID, TargetID: in.TargetID, FPS: in.FPS, BitrateKbps: in.BitrateKbps, Codec: in.Codec, Presentation: in.Presentation})
 }
 
 func (s *Server) mcpBoundRecordingsList(ctx context.Context, req *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpRecordingsOutput, error) {
@@ -99,12 +103,12 @@ func (s *Server) mcpBoundRecordingStatus(ctx context.Context, req *mcp.CallToolR
 	return s.mcpRecordingStatus(ctx, req, mcpRecordingInput{TenantID: a.tenantID, SessionID: a.sessionID, RecordingID: in.RecordingID})
 }
 
-func (s *Server) mcpBoundRecordingStop(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
+func (s *Server) mcpBoundRecordingStop(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingStopInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	return s.mcpRecordingStop(ctx, req, mcpRecordingInput{TenantID: a.tenantID, SessionID: a.sessionID, RecordingID: in.RecordingID})
+	return s.mcpRecordingStop(ctx, req, mcpRecordingStopInput{Edit: in.Edit, TenantID: a.tenantID, SessionID: a.sessionID, RecordingID: in.RecordingID})
 }
 
 func (s *Server) mcpBoundRecordingRetarget(ctx context.Context, req *mcp.CallToolRequest, in mcpBoundRecordingRetargetInput) (*mcp.CallToolResult, mcpRecordingOutput, error) {
@@ -167,7 +171,8 @@ func (s *Server) mcpRecordingOutputFromStatus(sessionID string, status wrapperRe
 		return mcpRecordingOutput{}, err
 	}
 	output := mcpRecordingOutput{
-		RecordingID: status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
+		RecordingArtifacts: status.RecordingArtifacts,
+		RecordingID:        status.RecordingID, Mode: status.Mode, TargetID: status.TargetID, CaptureGeneration: status.CaptureGeneration,
 		Status: status.Status, StopReason: status.StopReason, StartedAt: status.StartedAt, StoppedAt: status.StoppedAt,
 		RelativePath: relativePath, SizeBytes: status.SizeBytes, FPS: status.FPS, BitrateKbps: status.BitrateKbps, Codec: status.Codec,
 	}

@@ -1,7 +1,7 @@
 import type { SessionAccess } from "@aperture-browser/live-session";
 import { Link } from "@tanstack/react-router";
 import * as Redacted from "effect/Redacted";
-import { PanelLeftIcon } from "lucide-react";
+import { AppWindow, PanelLeftIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TenantRequiredNotice } from "#/components/resources/tenant-required.tsx";
 import {
@@ -29,7 +29,6 @@ import { useRecentSessionsStore } from "#/features/session/recent-sessions.store
 import { useWorkbenchSession } from "#/hooks/use-workbench-session.ts";
 import { hasScope, useActiveScopes } from "#/hooks/use-scopes.ts";
 import { isTenantScopedQueryReady, useApiCredentials } from "#/hooks/use-api-credentials.ts";
-import { AppWindow } from "lucide-react";
 import type { IceServer } from "@aperture-browser/api-client";
 import { selectPrincipal, useAuthSessionStore } from "#/stores/auth-session.ts";
 

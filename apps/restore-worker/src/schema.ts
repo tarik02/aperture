@@ -13,10 +13,14 @@ export const Capsule = Schema.Struct({
   Schema.makeFilter((capsule) => {
     const issues: { path: Path; issue: string }[] = [];
     const check: Check = (ok, path, message) => {
-      if (!ok) issues.push({ path, issue: message });
+      if (!ok) {
+        issues.push({ path, issue: message });
+      }
     };
     checkTargets(capsule.initialTargets ?? [], check);
-    if (capsule.storageState) checkStorageState(capsule.storageState, check);
+    if (capsule.storageState) {
+      checkStorageState(capsule.storageState, check);
+    }
     return issues;
   }),
 );
@@ -79,7 +83,9 @@ function checkTargets(targets: readonly Target[], check: Check): void {
   const cyclic = targets.some((_, start) => {
     let current: number | undefined = start;
     for (let steps = 0; current != null; steps++) {
-      if (steps > targets.length) return true;
+      if (steps > targets.length) {
+        return true;
+      }
       current = targets[current]?.openerTargetIndex;
     }
     return false;
@@ -237,13 +243,19 @@ function checkUnique(values: readonly (string | null)[], path: Path, check: Chec
 
 function validKeyPath(keyPath: { kind: string; value?: readonly string[] }): boolean {
   const length = keyPath.value?.length;
-  if (keyPath.kind === "none") return length === undefined;
-  if (keyPath.kind === "string") return length === 1;
+  if (keyPath.kind === "none") {
+    return length === undefined;
+  }
+  if (keyPath.kind === "string") {
+    return length === 1;
+  }
   return length !== undefined && length > 0;
 }
 
 function isHTTPURL(value: string): boolean {
-  if (!URL.canParse(value.trim())) return false;
+  if (!URL.canParse(value.trim())) {
+    return false;
+  }
   const url = new URL(value.trim());
   return (
     (url.protocol === "http:" || url.protocol === "https:") &&
@@ -254,7 +266,9 @@ function isHTTPURL(value: string): boolean {
 }
 
 function isHostname(domain: string): boolean {
-  if (domain.startsWith(".") || !URL.canParse(`http://${domain}/`)) return false;
+  if (domain.startsWith(".") || !URL.canParse(`http://${domain}/`)) {
+    return false;
+  }
   const url = new URL(`http://${domain}/`);
   return url.host.toLowerCase() === domain.toLowerCase() && url.hostname !== "" && !url.port;
 }
@@ -279,7 +293,9 @@ function isBase64(value: string): boolean {
 }
 
 export function canonicalOrigin(value: string): string | null {
-  if (!/^https?:\/\/[^/?#]+$/i.test(value) || !URL.canParse(value)) return null;
+  if (!/^https?:\/\/[^/?#]+$/i.test(value) || !URL.canParse(value)) {
+    return null;
+  }
   const url = new URL(value);
   return url.username || url.password || !url.hostname ? null : url.origin;
 }
@@ -295,7 +311,9 @@ const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
 
 export function describeIssue(issue: SchemaIssue.Issue): string {
   const first = formatIssues(issue).issues[0];
-  if (!first) return "invalid browser initialization";
+  if (!first) {
+    return "invalid browser initialization";
+  }
   const path = (first.path ?? [])
     .map((segment) => (typeof segment === "object" ? segment.key : segment))
     .map((part, index) =>

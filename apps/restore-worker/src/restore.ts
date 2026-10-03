@@ -94,7 +94,9 @@ const readExportSelection = Effect.fnUntraced(function* (path: string) {
 
 const restore = Effect.fnUntraced(function* (browser: Playwright.Browser, capsule: Capsule) {
   const context = browser.contexts()[0];
-  if (!context) return yield* restoreError("browser has no default context");
+  if (!context) {
+    return yield* restoreError("browser has no default context");
+  }
 
   const browserCDP = makeCdp(yield* browser.use((raw) => raw.newBrowserCDPSession()));
   if (capsule.storageState) {
@@ -126,8 +128,9 @@ const main = Effect.fnUntraced(function* () {
     const selection = yield* readExportSelection(inputPath);
     const browser = yield* playwright.connectCDPScoped(cdpURL, { timeout: 15_000 });
     const output = JSON.stringify(yield* exportStorage(browser, selection));
-    if (new TextEncoder().encode(output).byteLength > maxExportBytes)
+    if (new TextEncoder().encode(output).byteLength > maxExportBytes) {
       return yield* new UnsupportedStorageError({ message: "storage export exceeds 64 MiB" });
+    }
     yield* Stream.make(output).pipe(Stream.run(stdio.stdout()));
     return;
   }
@@ -151,7 +154,9 @@ const program = main().pipe(
       InvalidCapsule | UsageError | UnsupportedStorageError | RestoreFailed,
       Stdio.Stdio
     > => {
-      if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
+      if (Cause.hasInterruptsOnly(cause)) {
+        return Effect.interrupt;
+      }
       const error = Cause.squash(cause);
       const reported =
         error instanceof InvalidCapsule ||
