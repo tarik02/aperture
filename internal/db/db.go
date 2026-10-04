@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,4 +193,15 @@ func (r *Repository) WithImmediateTx(ctx context.Context, fn func(ctx context.Co
 // NowUTC returns the current UTC timestamp in RFC3339Nano format.
 func NowUTC() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+// containsPattern builds a LIKE pattern matching value as a literal substring.
+// Use it with `LIKE ? ESCAPE '\'`.
+func containsPattern(value string) string {
+	escaped := strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+	).Replace(value)
+	return "%" + escaped + "%"
 }

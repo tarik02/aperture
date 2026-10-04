@@ -240,8 +240,8 @@ export type ListBrowserChannels200 = BrowserChannels
 export const ListBrowserChannels200 = BrowserChannels
 export type ListBrowserChannelsdefault = Error
 export const ListBrowserChannelsdefault = Error
-export type ListTenantsParams = { readonly "limit"?: number, readonly "cursor"?: string, readonly "deleted"?: "active" | "deleted" | "all", readonly "includeDeleted"?: boolean }
-export const ListTenantsParams = Schema.Struct({ "limit": Schema.optionalKey(Schema.Number.annotate({ "default": 50 }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" }))), "cursor": Schema.optionalKey(Schema.String), "deleted": Schema.optionalKey(Schema.Literals(["active", "deleted", "all"]).annotate({ "default": "active" })), "includeDeleted": Schema.optionalKey(Schema.Boolean.annotate({ "default": false })) })
+export type ListTenantsParams = { readonly "limit"?: number, readonly "cursor"?: string, readonly "deleted"?: "active" | "deleted" | "all", readonly "includeDeleted"?: boolean, readonly "query"?: string }
+export const ListTenantsParams = Schema.Struct({ "limit": Schema.optionalKey(Schema.Number.annotate({ "default": 50 }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" }))), "cursor": Schema.optionalKey(Schema.String), "deleted": Schema.optionalKey(Schema.Literals(["active", "deleted", "all"]).annotate({ "default": "active" })), "includeDeleted": Schema.optionalKey(Schema.Boolean.annotate({ "default": false })), "query": Schema.optionalKey(Schema.String) })
 export type ListTenants200 = TenantPage
 export const ListTenants200 = TenantPage
 export type ListTenantsdefault = Error
@@ -360,8 +360,8 @@ export type CreateTenantTokendefault = Error
 export const CreateTenantTokendefault = Error
 export type RevokeTenantTokendefault = Error
 export const RevokeTenantTokendefault = Error
-export type ListSessionsParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7, readonly "limit"?: number, readonly "cursor"?: string, readonly "includeDeleted"?: boolean, readonly "status"?: SessionStatus, readonly "tagKey"?: ReadonlyArray<string>, readonly "tagValue"?: ReadonlyArray<string>, readonly "tagOperator"?: ReadonlyArray<"eq" | "neq" | "in" | "not_in"> }
-export const ListSessionsParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7), "limit": Schema.optionalKey(Schema.Number.annotate({ "default": 50 }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" }))), "cursor": Schema.optionalKey(Schema.String), "includeDeleted": Schema.optionalKey(Schema.Boolean.annotate({ "default": false })), "status": Schema.optionalKey(SessionStatus), "tagKey": Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })))), "tagValue": Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })))), "tagOperator": Schema.optionalKey(Schema.Array(Schema.Literals(["eq", "neq", "in", "not_in"]))) })
+export type ListSessionsParams = { readonly "X-Aperture-Tenant-Id"?: UUIDv7, readonly "limit"?: number, readonly "cursor"?: string, readonly "includeDeleted"?: boolean, readonly "status"?: SessionStatus, readonly "query"?: string, readonly "tagKey"?: ReadonlyArray<string>, readonly "tagValue"?: ReadonlyArray<string>, readonly "tagOperator"?: ReadonlyArray<"eq" | "neq" | "in" | "not_in"> }
+export const ListSessionsParams = Schema.Struct({ "X-Aperture-Tenant-Id": Schema.optionalKey(UUIDv7), "limit": Schema.optionalKey(Schema.Number.annotate({ "default": 50 }).check(Schema.isInt().annotate({ "expected": "an integer" })).check(Schema.isGreaterThanOrEqualTo(0).annotate({ "expected": "a value greater than or equal to 0" }))), "cursor": Schema.optionalKey(Schema.String), "includeDeleted": Schema.optionalKey(Schema.Boolean.annotate({ "default": false })), "status": Schema.optionalKey(SessionStatus), "query": Schema.optionalKey(Schema.String), "tagKey": Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })))), "tagValue": Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1).annotate({ "expected": "a value with a length of at least 1" })))), "tagOperator": Schema.optionalKey(Schema.Array(Schema.Literals(["eq", "neq", "in", "not_in"]))) })
 export type ListSessions200 = SessionPage
 export const ListSessions200 = SessionPage
 export type ListSessionsdefault = Error
@@ -738,7 +738,7 @@ export const make = (
     }))
     ),
     "listTenants": (options) => HttpClientRequest.get("/api/admin/tenants").pipe(
-      HttpClientRequest.setUrlParams({ "limit": options?.params?.["limit"] as any, "cursor": options?.params?.["cursor"] as any, "deleted": options?.params?.["deleted"] as any, "includeDeleted": options?.params?.["includeDeleted"] as any }),
+      HttpClientRequest.setUrlParams({ "limit": options?.params?.["limit"] as any, "cursor": options?.params?.["cursor"] as any, "deleted": options?.params?.["deleted"] as any, "includeDeleted": options?.params?.["includeDeleted"] as any, "query": options?.params?.["query"] as any }),
       withResponse(options?.config)(HttpClientResponse.matchStatus({
       "2xx": decodeSuccess(ListTenants200),
       orElse: unexpectedStatus
@@ -932,7 +932,7 @@ export const make = (
     ))
   ),
     "listSessions": (options) => HttpClientRequest.get("/api/sessions").pipe(
-      HttpClientRequest.setUrlParams({ "limit": options?.params?.["limit"] as any, "cursor": options?.params?.["cursor"] as any, "includeDeleted": options?.params?.["includeDeleted"] as any, "status": options?.params?.["status"] as any, "tagKey": options?.params?.["tagKey"] as any, "tagValue": options?.params?.["tagValue"] as any, "tagOperator": options?.params?.["tagOperator"] as any }),
+      HttpClientRequest.setUrlParams({ "limit": options?.params?.["limit"] as any, "cursor": options?.params?.["cursor"] as any, "includeDeleted": options?.params?.["includeDeleted"] as any, "status": options?.params?.["status"] as any, "query": options?.params?.["query"] as any, "tagKey": options?.params?.["tagKey"] as any, "tagValue": options?.params?.["tagValue"] as any, "tagOperator": options?.params?.["tagOperator"] as any }),
       HttpClientRequest.setHeaders({ "X-Aperture-Tenant-Id": options?.params?.["X-Aperture-Tenant-Id"] ?? undefined }),
       withResponse(options?.config)(HttpClientResponse.matchStatus({
       "2xx": decodeSuccess(ListSessions200),
@@ -1373,7 +1373,7 @@ readonly "listAuditEvents": <Config extends OperationConfig>(options: { readonly
 */
 readonly "listAdminTokens": <Config extends OperationConfig>(options: { readonly params?: typeof ListAdminTokensParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListAdminTokens200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+* Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 */
 readonly "createAdminToken": <Config extends OperationConfig>(options: { readonly payload: typeof CreateAdminTokenRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof CreateAdminToken201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
@@ -1393,7 +1393,7 @@ readonly "updateSelectedTenant": <Config extends OperationConfig>(options: { rea
 */
 readonly "listTenantTokens": <Config extends OperationConfig>(options: { readonly params?: typeof ListTenantTokensParams.Encoded | undefined; readonly config?: Config | undefined } | undefined) => Effect.Effect<WithOptionalResponse<typeof ListTenantTokens200.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**
-* Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+* Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 */
 readonly "createTenantToken": <Config extends OperationConfig>(options: { readonly payload: typeof CreateTenantTokenRequestJson.Encoded; readonly config?: Config | undefined }) => Effect.Effect<WithOptionalResponse<typeof CreateTenantToken201.Type, Config>, HttpClientError.HttpClientError | SchemaError>
   /**

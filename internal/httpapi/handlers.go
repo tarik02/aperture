@@ -94,6 +94,7 @@ func (s *Server) listTenants(c *gin.Context) {
 	page, err := s.Auth.ListTenantsPage(c.Request.Context(), db.TenantFilter{
 		IncludeDeleted: includeDeleted,
 		DeletedOnly:    deletedOnly,
+		Query:          strings.TrimSpace(c.Query("query")),
 	}, params)
 	if err != nil {
 		WriteError(c, mapInvalidCursor(err))

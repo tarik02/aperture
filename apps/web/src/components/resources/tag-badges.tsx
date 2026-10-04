@@ -17,7 +17,7 @@ export function TagBadges({ tags, max = 3 }: TagBadgesProps) {
 
   return (
     <ScrollArea scrollbars="horizontal" className="aperture:max-w-full aperture:min-w-0">
-      <Table className="aperture:w-auto aperture:min-w-44 aperture:text-xs">
+      <Table scrollable={false} className="aperture:w-auto aperture:min-w-44 aperture:text-xs">
         <TableBody>
           {visible.map(([key, value]) => (
             <TableRow key={key} title={`${key}=${value}`} className="aperture:hover:bg-transparent">

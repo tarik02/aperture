@@ -24,6 +24,7 @@ export const makeTenantsApi = Effect.gen(function* () {
           cursor: params.cursor,
           includeDeleted: params.includeDeleted || undefined,
           deleted: params.deleted,
+          query: params.query,
         }),
       })
       .pipe(authorize(Authorization.of(credentials)));

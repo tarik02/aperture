@@ -10,6 +10,7 @@
     "format:check": "vp fmt --check"
   },
   "devDependencies": {
+    "@aperture-browser/api-client": "workspace:*",
     "@effect/platform-node": "catalog:",
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",

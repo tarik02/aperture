@@ -16,6 +16,8 @@ export type SessionConfirmAction =
   | { kind: "rotate"; session: Session };
 
 interface SessionListPageState {
+  search: string;
+  setSearch: (search: string) => void;
   status: SessionStatus | undefined;
   tags: TagFilterValue | undefined;
   detailSession: Session | null;
@@ -38,6 +40,8 @@ interface SessionListPageState {
 const isSessionStatus = Schema.is(SessionStatus);
 
 export const useSessionListPageStore = create<SessionListPageState>()((set) => ({
+  search: "",
+  setSearch: (search) => set({ search }),
   status: undefined,
   tags: undefined,
   detailSession: null,

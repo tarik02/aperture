@@ -33,6 +33,7 @@ export interface SessionsFilter {
   limit?: number;
   includeDeleted?: boolean;
   status?: Api.SessionStatus;
+  query?: string;
   tags?: TagFilterValue;
 }
 

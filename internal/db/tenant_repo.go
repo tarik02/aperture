@@ -14,6 +14,8 @@ import (
 type TenantFilter struct {
 	IncludeDeleted bool
 	DeletedOnly    bool
+	// Query matches a substring of the display name or the id.
+	Query string
 }
 
 // CreateTenant inserts a new tenant row.
@@ -70,6 +72,10 @@ func (r *Repository) ListTenantsPage(ctx context.Context, filter TenantFilter, p
 		query = query.Where("deleted_at IS NOT NULL")
 	} else if !filter.IncludeDeleted {
 		query = query.Where("deleted_at IS NULL")
+	}
+	if filter.Query != "" {
+		pattern := containsPattern(filter.Query)
+		query = query.Where("(display_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')", pattern, pattern)
 	}
 	query = paginateCreatedAtID(query, params, cursor)
 
@@ -213,9 +219,31 @@ func (r *Repository) CreateBootstrapAPIToken(ctx context.Context, token *APIToke
 	})
 }
 
-// CreateAPIToken inserts a token and its audit event atomically.
+// ErrAPITokenNameConflict indicates a live token in the same scope already uses the name.
+var ErrAPITokenNameConflict = errors.New("api token name conflict")
+
+// CreateAPIToken inserts a token and its audit event atomically. Revoked and
+// expired tokens release their name.
 func (r *Repository) CreateAPIToken(ctx context.Context, token *APIToken, audit *AuditEvent) error {
 	return r.WithTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		conflict := tx.NewSelect().
+			Model((*APIToken)(nil)).
+			Where("name = ?", token.Name).
+			Where("revoked_at IS NULL").
+			Where("(expires_at IS NULL OR julianday(expires_at) > julianday(?))", token.CreatedAt)
+		if token.TenantID == nil {
+			conflict = conflict.Where("tenant_id IS NULL")
+		} else {
+			conflict = conflict.Where("tenant_id = ?", *token.TenantID)
+		}
+		exists, err := conflict.Exists(ctx)
+		if err != nil {
+			return fmt.Errorf("check api token name: %w", err)
+		}
+		if exists {
+			return ErrAPITokenNameConflict
+		}
+
 		if _, err := tx.NewInsert().Model(token).Exec(ctx); err != nil {
 			return fmt.Errorf("insert api token: %w", err)
 		}

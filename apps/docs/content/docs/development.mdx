@@ -35,6 +35,28 @@ export APERTURE_TOKEN=$(<.data/admin-token)
 
 Stop Vite and the container with `Ctrl-C`.
 
+### Fake data
+
+Add `--seed` to fill a freshly provisioned instance with fake data once it is ready, so list pages have enough rows to exercise scrolling, search, filters and pagination:
+
+```bash
+nix run .#dev -- --seed
+```
+
+The seed creates about 140 tenants, 110 users and 110 tokens, some of them deleted, disabled or revoked. In the `default` tenant it creates 15 tagged sessions: three keep running, and the rest are suspended and either promoted to snapshots or deleted. Each session starts a browser, so change the count with `--seed-sessions`:
+
+```bash
+nix run .#dev -- --seed --seed-sessions 60
+```
+
+The seed only fills an instance that has nothing beyond its provisioned `default` tenant. Otherwise it prints a message and leaves the data alone, so `--seed` is safe to keep on every start. To seed again from scratch, stop the runner and remove the state volume the runner printed at startup with `podman volume rm`.
+
+The runner runs `scripts/seed-dev.ts` inside the container. Against any other instance, run the script directly with a system-admin token:
+
+```bash
+node scripts/seed-dev.ts --url http://127.0.0.1:8080 --token-file .data/admin-token --sessions 15
+```
+
 ### Custom port and settings
 
 Choose another public port with `--port`:

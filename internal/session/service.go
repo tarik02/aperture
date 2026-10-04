@@ -876,6 +876,7 @@ func (s *Service) ReplaceTags(ctx context.Context, tenantID, sessionID string, t
 type ListFilter struct {
 	IncludeDeleted bool
 	Status         *string
+	Query          string
 	Tags           []db.TagFilter
 	Resources      db.ResourceIDFilter
 }
@@ -886,6 +887,7 @@ func (s *Service) List(ctx context.Context, tenantID string, filter ListFilter, 
 		TenantID:       tenantID,
 		IncludeDeleted: filter.IncludeDeleted,
 		Status:         filter.Status,
+		Query:          filter.Query,
 		Tags:           filter.Tags,
 		Resources:      filter.Resources,
 	}, params)

@@ -1,5 +1,5 @@
 import { Navigate } from "@tanstack/react-router";
-import { ChevronRight, Plus, Search } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import {
@@ -8,11 +8,7 @@ import {
 } from "#/components/resources/infinite-table-shell.tsx";
 import { Badge } from "@aperture-browser/ui/components/badge";
 import { Button } from "@aperture-browser/ui/components/button";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@aperture-browser/ui/components/input-group";
+import { SearchInput } from "#/components/resources/search-input.tsx";
 import {
   Select,
   SelectContent,
@@ -28,8 +24,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  stickyTableEndCellClassName,
-  stickyTableEndHeaderClassName,
 } from "@aperture-browser/ui/components/table";
 import { UserDetailsSheet } from "#/features/user/user-details-sheet.tsx";
 import { UserFormDialog } from "#/features/user/user-form-dialog.tsx";
@@ -51,9 +45,7 @@ const USER_SKELETON_COLUMNS = [
   { skeletonClassName: "aperture:h-4 aperture:w-20" },
   { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
-    cellClassName: stickyTableEndCellClassName,
     skeletonClassName: "aperture:ml-auto aperture:size-7",
-    sticky: "end",
   },
 ] as const;
 
@@ -86,18 +78,7 @@ export function UserListPage() {
       </PageHeaderActions>
 
       <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
-        <InputGroup className="aperture:w-full aperture:sm:w-72">
-          <InputGroupInput
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search users"
-            aria-label="Search users"
-          />
-          <InputGroupAddon align="inline-start">
-            <Search />
-          </InputGroupAddon>
-        </InputGroup>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search users" />
         <Select
           items={STATUS_OPTIONS}
           value={status}
@@ -107,7 +88,7 @@ export function UserListPage() {
             }
           }}
         >
-          <SelectTrigger className="aperture:w-36" aria-label="User status">
+          <SelectTrigger size="sm" className="aperture:w-36" aria-label="User status">
             <SelectValue>
               {(value: unknown) =>
                 STATUS_OPTIONS.find((option) => option.value === value)?.label ?? "Status"
@@ -129,16 +110,15 @@ export function UserListPage() {
       <InfiniteTableShell
         query={query}
         emptyTitle={deferredSearch ? "No matching users" : "No users"}
-        className="aperture:[--table-sticky-start-width:0rem]"
         loading={
-          <Table>
+          <Table stickyLastColumn>
             <TableHeader>
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Updated</TableHead>
-                <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                <TableHead className="aperture:w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -148,14 +128,14 @@ export function UserListPage() {
         }
       >
         {(users) => (
-          <Table>
+          <Table stickyLastColumn>
             <TableHeader>
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Updated</TableHead>
-                <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                <TableHead className="aperture:w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -195,7 +175,7 @@ export function UserListPage() {
                   <TableCell className="aperture:text-muted-foreground">
                     {formatTimestamp(user.updatedAt)}
                   </TableCell>
-                  <TableCell data-table-sticky="end" className={stickyTableEndCellClassName}>
+                  <TableCell>
                     <Button
                       type="button"
                       variant="ghost"

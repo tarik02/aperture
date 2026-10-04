@@ -2662,6 +2662,9 @@ type ListTenantsParams struct {
 	// IncludeDeleted Legacy switch that includes active and deleted resources when `true`. Ignored when `deleted` is supplied; prefer `deleted=all`.
 	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	IncludeDeleted *LegacyIncludeDeleted `form:"includeDeleted,omitempty" json:"includeDeleted,omitempty"`
+
+	// Query ASCII case-insensitive substring matched against the display name or ID.
+	Query *string `form:"query,omitempty" json:"query,omitempty"`
 }
 
 // ListTenantsParamsDeleted defines parameters for ListTenants.
@@ -2749,6 +2752,9 @@ type ListSessionsParams struct {
 
 	// Status Exact session lifecycle status.
 	Status *SessionStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Query ASCII case-insensitive substring matched against the label, ID, or base snapshot name.
+	Query *string `form:"query,omitempty" json:"query,omitempty"`
 
 	// TagKey Repeatable tag key. Each entry pairs by position with `tagValue` and, when supplied, `tagOperator`. Multiple predicates are combined with logical AND.
 	TagKey *TagKey `form:"tagKey,omitempty" json:"tagKey,omitempty"`
@@ -3555,7 +3561,7 @@ type ClientInterface interface {
 
 	// CreateAdminTokenWithBody Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -3564,7 +3570,7 @@ type ClientInterface interface {
 
 	// CreateAdminToken Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -4123,7 +4129,7 @@ type ClientInterface interface {
 
 	// CreateTenantTokenWithBody Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -4132,7 +4138,7 @@ type ClientInterface interface {
 
 	// CreateTenantToken Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -4372,7 +4378,7 @@ func (c *Client) ListAdminTokens(ctx context.Context, params *ListAdminTokensPar
 
 // CreateAdminTokenWithBody Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes any type of body and a specified content type.
 //
@@ -4391,7 +4397,7 @@ func (c *Client) CreateAdminTokenWithBody(ctx context.Context, contentType strin
 
 // CreateAdminToken Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5620,7 +5626,7 @@ func (c *Client) ListTenantTokens(ctx context.Context, params *ListTenantTokensP
 
 // CreateTenantTokenWithBody Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes any type of body and a specified content type.
 //
@@ -5639,7 +5645,7 @@ func (c *Client) CreateTenantTokenWithBody(ctx context.Context, contentType stri
 
 // CreateTenantToken Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5878,6 +5884,18 @@ func NewListTenantsRequest(server string, params *ListTenantsParams) (*http.Requ
 		if params.IncludeDeleted != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeDeleted", *params.IncludeDeleted, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Query != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "query", *params.Query, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -7000,6 +7018,18 @@ func NewListSessionsRequest(server string, params *ListSessionsParams) (*http.Re
 		if params.Status != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Query != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "query", *params.Query, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -9436,7 +9466,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateAdminTokenWithBodyWithResponse Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -9445,7 +9475,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateAdminTokenWithResponse Create an API token
 	//
-	// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+	// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10066,7 +10096,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateTenantTokenWithBodyWithResponse Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -10075,7 +10105,7 @@ type ClientWithResponsesInterface interface {
 
 	// CreateTenantTokenWithResponse Create a token for the selected tenant
 	//
-	// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+	// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -13227,7 +13257,7 @@ func (c *ClientWithResponses) ListAdminTokensWithResponse(ctx context.Context, p
 
 // CreateAdminTokenWithBodyWithResponse Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13242,7 +13272,7 @@ func (c *ClientWithResponses) CreateAdminTokenWithBodyWithResponse(ctx context.C
 
 // CreateAdminTokenWithResponse Create an API token
 //
-// Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+// Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14265,7 +14295,7 @@ func (c *ClientWithResponses) ListTenantTokensWithResponse(ctx context.Context, 
 
 // CreateTenantTokenWithBodyWithResponse Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -14280,7 +14310,7 @@ func (c *ClientWithResponses) CreateTenantTokenWithBodyWithResponse(ctx context.
 
 // CreateTenantTokenWithResponse Create a token for the selected tenant
 //
-// Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+// Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -16679,6 +16709,14 @@ func (siw *ServerInterfaceWrapper) ListTenants(c *gin.Context) {
 		return
 	}
 
+	// ------------- Optional query parameter "query" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "query", c.Request.URL.Query(), &params.Query, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter query: %w", err), http.StatusBadRequest)
+		return
+	}
+
 	for _, middleware := range siw.HandlerMiddlewares {
 		middleware(c)
 		if c.IsAborted() {
@@ -17373,6 +17411,14 @@ func (siw *ServerInterfaceWrapper) ListSessions(c *gin.Context) {
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", c.Request.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "query" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "query", c.Request.URL.Query(), &params.Query, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter query: %w", err), http.StatusBadRequest)
 		return
 	}
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { Building2, Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 import { Button } from "@aperture-browser/ui/components/button";
 import {
@@ -36,7 +36,10 @@ export function TenantCombobox({
 }: TenantComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const query = useTenantsInfiniteQuery({ limit: 100 });
+  const normalizedSearch = search.trim().toLowerCase();
+  const deferredSearch = useDeferredValue(normalizedSearch);
+  // Static options are filtered locally; the full tenant list is searched on the server.
+  const query = useTenantsInfiniteQuery({ limit: 100, query: deferredSearch || undefined });
 
   const tenants = useMemo(
     () => options ?? flattenInfinitePages(query.data?.pages),
@@ -46,9 +49,8 @@ export function TenantCombobox({
     () => tenants.find((tenant) => tenant.id === value) ?? null,
     [tenants, value],
   );
-  const normalizedSearch = search.trim().toLowerCase();
   const filteredTenants = useMemo(() => {
-    if (!normalizedSearch) {
+    if (!options || !normalizedSearch) {
       return tenants;
     }
     return tenants.filter(
@@ -56,7 +58,7 @@ export function TenantCombobox({
         tenant.displayName.toLowerCase().includes(normalizedSearch) ||
         tenant.id.toLowerCase().includes(normalizedSearch),
     );
-  }, [tenants, normalizedSearch]);
+  }, [options, tenants, normalizedSearch]);
 
   const label = selectedLabel ?? selectedTenant?.displayName ?? value ?? placeholder;
 
@@ -100,7 +102,7 @@ export function TenantCombobox({
             <Search />
           </InputGroupAddon>
         </InputGroup>
-        <ScrollArea className="aperture:max-h-64">
+        <ScrollArea viewportClassName="aperture:max-h-[min(24rem,calc(var(--available-height,100vh)-6rem))]">
           <div className="aperture:flex aperture:flex-col aperture:gap-1 aperture:pr-2">
             {!options && query.isLoading ? (
               <div className="aperture:flex aperture:items-center aperture:gap-2 aperture:px-2 aperture:py-3 aperture:text-sm aperture:text-muted-foreground aperture:[&_svg:not([class*='size-'])]:size-4">
@@ -138,20 +140,20 @@ export function TenantCombobox({
                 </button>
               ))
             )}
+            {!options && query.hasNextPage ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="aperture:w-full"
+                onClick={() => void query.fetchNextPage()}
+                disabled={query.isFetchingNextPage}
+              >
+                {query.isFetchingNextPage ? "Loading…" : "Load more"}
+              </Button>
+            ) : null}
           </div>
         </ScrollArea>
-        {!options && query.hasNextPage ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="aperture:w-full"
-            onClick={() => void query.fetchNextPage()}
-            disabled={query.isFetchingNextPage}
-          >
-            {query.isFetchingNextPage ? "Loading..." : "Load more"}
-          </Button>
-        ) : null}
       </PopoverContent>
     </Popover>
   );

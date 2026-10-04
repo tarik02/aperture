@@ -26,6 +26,7 @@ const (
 	backendContainerPort  = 8080
 	defaultUDPPortRange   = "50000-50010"
 	defaultRenderNode     = "/dev/dri/renderD128"
+	defaultSeedSessions   = 15
 )
 
 var imageDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -45,6 +46,8 @@ type options struct {
 	imageArchive  string
 	imageRef      string
 	traefikConfig string
+	seed          bool
+	seedSessions  int
 }
 
 type commandRunner struct {
@@ -106,6 +109,8 @@ Options:
   --env-file PATH          Pass an environment file to the container
   --config PATH            Mount an Aperture TOML config
   --render-node PATH       DRM render node for .#dev-gpu
+  --seed                   Fill a freshly provisioned instance with fake data
+  --seed-sessions COUNT    Browser sessions --seed creates (default: 15)
   -h, --help               Show this help
 
 Vite runs in the foreground. State persists in a worktree-specific Podman
@@ -118,6 +123,8 @@ volume, and the initial system-admin token persists under .data/.`)
 	flags.StringVar(&opts.envFile, "env-file", "", "")
 	flags.StringVar(&opts.configFile, "config", "", "")
 	flags.StringVar(&renderNode, "render-node", renderNode, "")
+	flags.BoolVar(&opts.seed, "seed", false, "")
+	flags.IntVar(&opts.seedSessions, "seed-sessions", defaultSeedSessions, "")
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -157,13 +164,23 @@ volume, and the initial system-admin token persists under .data/.`)
 	}
 
 	renderNodeSet := false
+	seedSessionsSet := false
 	flags.Visit(func(visited *flag.Flag) {
-		if visited.Name == "render-node" {
+		switch visited.Name {
+		case "render-node":
 			renderNodeSet = true
+		case "seed-sessions":
+			seedSessionsSet = true
 		}
 	})
 	if !opts.gpu && renderNodeSet {
 		return options{}, false, errors.New("--render-node requires nix run .#dev-gpu")
+	}
+	if seedSessionsSet && !opts.seed {
+		return options{}, false, errors.New("--seed-sessions requires --seed")
+	}
+	if opts.seedSessions < 0 {
+		return options{}, false, errors.New("--seed-sessions must not be negative")
 	}
 	if opts.gpu {
 		opts.renderNode, err = characterDevicePath(renderNode)
@@ -248,7 +265,11 @@ func (runner commandRunner) run(opts options) error {
 
 	readinessContext, cancelReadiness := context.WithCancel(context.Background())
 	defer cancelReadiness()
-	go runner.waitUntilReady(readinessContext, url)
+	go func() {
+		if runner.waitUntilReady(readinessContext, url) && opts.seed {
+			runner.seed(opts)
+		}
+	}()
 
 	return runner.runContainer(opts, traefikPath)
 }
@@ -486,20 +507,40 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 	}
 }
 
-func (runner commandRunner) waitUntilReady(ctx context.Context, baseURL string) {
+func (runner commandRunner) waitUntilReady(ctx context.Context, baseURL string) bool {
 	for {
 		if endpointReady(ctx, baseURL+"/", 2*time.Second) &&
 			endpointReady(ctx, baseURL+"/@id/virtual:tanstack-start-dev-client-entry", 10*time.Second) &&
 			endpointReady(ctx, baseURL+"/api/health", 2*time.Second) {
 			writef(runner.stdout, "\nAperture is ready: %s/\n\n", baseURL)
-			return
+			return true
 		}
 
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(time.Second):
 		}
+	}
+}
+
+// seed fills the instance through its API from inside the container, where Node and the
+// workspace dependencies already are. A failed seed leaves the instance running.
+func (runner commandRunner) seed(opts options) {
+	writeln(runner.stdout, "Seeding fake data...")
+	cmd := exec.Command(
+		"podman", "exec",
+		"--workdir", "/workspace",
+		opts.containerName,
+		"node", "scripts/seed-dev.ts",
+		"--url", fmt.Sprintf("http://127.0.0.1:%d", backendContainerPort),
+		"--token-file", "/workspace/.data/admin-token",
+		"--sessions", strconv.Itoa(opts.seedSessions),
+	)
+	cmd.Stdout = runner.stdout
+	cmd.Stderr = runner.stderr
+	if err := cmd.Run(); err != nil {
+		writef(runner.stderr, "Seeding failed: %v\n", err)
 	}
 }
 
