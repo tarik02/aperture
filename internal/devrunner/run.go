@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -34,6 +35,7 @@ type options struct {
 	port          int
 	containerName string
 	bindAddress   string
+	externalURL   string
 	udpPortMin    int
 	udpPortMax    int
 	envFile       string
@@ -102,6 +104,7 @@ Options:
   --port PORT              Public HTTP port (default: 8080)
   --container-name NAME    Podman container name (default: worktree directory)
   --bind-address ADDRESS   Loopback address (default: derived from worktree)
+  --external-url URL       Public base URL, e.g. a tunnel (default: http://ADDRESS:PORT)
   --udp-port-range RANGE   WebRTC UDP range (default: 50000-50010)
   --env-file PATH          Pass an environment file to the container
   --config PATH            Mount an Aperture TOML config
@@ -114,6 +117,7 @@ volume, and the initial system-admin token persists under .data/.`)
 	flags.StringVar(&portText, "port", portText, "")
 	flags.StringVar(&opts.containerName, "container-name", opts.containerName, "")
 	flags.StringVar(&opts.bindAddress, "bind-address", opts.bindAddress, "")
+	flags.StringVar(&opts.externalURL, "external-url", "", "")
 	flags.StringVar(&udpRangeText, "udp-port-range", udpRangeText, "")
 	flags.StringVar(&opts.envFile, "env-file", "", "")
 	flags.StringVar(&opts.configFile, "config", "", "")
@@ -142,6 +146,11 @@ volume, and the initial system-admin token persists under .data/.`)
 	opts.udpPortMin, opts.udpPortMax, err = parseUDPPortRange(udpRangeText)
 	if err != nil {
 		return options{}, false, err
+	}
+	if opts.externalURL == "" {
+		opts.externalURL = fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
+	} else if parsed, err := url.Parse(opts.externalURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return options{}, false, errors.New("external URL must be an absolute http or https URL")
 	}
 
 	gpuValue := os.Getenv("APERTURE_DEV_GPU")
@@ -243,12 +252,15 @@ func (runner commandRunner) run(opts options) error {
 	writef(runner.stdout, "WebRTC UDP ports: %d-%d\n", opts.udpPortMin, opts.udpPortMax)
 	writef(runner.stdout, "System-admin token: %s\n", adminTokenPath)
 
-	url := fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
-	writef(runner.stdout, "Starting Aperture at %s through containerized Vite...\n", url)
+	localURL := fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
+	writef(runner.stdout, "Starting Aperture at %s through containerized Vite...\n", localURL)
+	if opts.externalURL != localURL {
+		writef(runner.stdout, "External URL: %s\n", opts.externalURL)
+	}
 
 	readinessContext, cancelReadiness := context.WithCancel(context.Background())
 	defer cancelReadiness()
-	go runner.waitUntilReady(readinessContext, url)
+	go runner.waitUntilReady(readinessContext, localURL)
 
 	return runner.runContainer(opts, traefikPath)
 }
@@ -353,7 +365,7 @@ func (runner commandRunner) prepareState(opts options, dataDir string) error {
 	if opts.envFile != "" {
 		provisionArgs = append(provisionArgs, "--env-file", opts.envFile)
 	}
-	provisionArgs = append(provisionArgs, "--env", fmt.Sprintf("APERTURE_EXTERNAL_BASE_URL=http://%s:%d", opts.bindAddress, opts.port))
+	provisionArgs = append(provisionArgs, "--env", "APERTURE_EXTERNAL_BASE_URL="+opts.externalURL)
 	if opts.configFile != "" {
 		provisionArgs = append(provisionArgs, "--volume", opts.configFile+":/etc/aperture/aperture.toml:ro")
 	}
@@ -423,7 +435,7 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		args,
 		"--env", "APERTURE_CONFIG_SOURCE=",
 		"--env", fmt.Sprintf("APERTURE_DEV_PROXY_TARGET=http://127.0.0.1:%d", backendContainerPort),
-		"--env", fmt.Sprintf("APERTURE_EXTERNAL_BASE_URL=http://%s:%d", opts.bindAddress, opts.port),
+		"--env", "APERTURE_EXTERNAL_BASE_URL="+opts.externalURL,
 		"--env", "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+opts.bindAddress,
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN=%d", opts.udpPortMin),
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX=%d", opts.udpPortMax),

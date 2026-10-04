@@ -48,6 +48,16 @@ const config = defineConfig({
             target: devProxyTarget,
             ws: true,
           },
+          "/mcp": {
+            target: devProxyTarget,
+          },
+          "/.well-known/oauth-": {
+            target: devProxyTarget,
+          },
+          // /oauth/consent is an SPA route; only the protocol endpoints go to the backend.
+          "^/oauth/(authorize|register|token|revoke)": {
+            target: devProxyTarget,
+          },
         },
       }
     : {},
