@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -283,56 +282,7 @@ func (s *Service) create(
 		return nil, err
 	}
 
-	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
-	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-	internalAPIURL := s.cfg.DeployBlueURL
-	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
-		internalAPIURL = s.cfg.DeployGreenURL
-	}
-
-	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:           sessionID,
-		ExternalBaseURL:     s.cfg.ExternalBaseURL,
-		EmbedAllowedOrigins: s.cfg.EmbedAllowedOrigins,
-		SessionToken:        rawSessionToken,
-		SessionTokenPath:    filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:      internalAPIURL,
-
-		MergedUserDataDir:          layout.Merged,
-		UpperDir:                   layout.Upper,
-		FilesDir:                   layout.Files.Root,
-		CacheDir:                   layout.Cache,
-		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
-		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
-		CDPPort:                    port,
-		WrapperPort:                wrapperPort,
-		WrapperControlToken:        wrapperControlToken,
-		BrowserExecutable:          channel.Executable,
-		BrowserDefaultArgs:         channel.DefaultArgs,
-		BrowserExtraArgs:           input.BrowserArgs,
-		ProxyConfig:                input.Proxy,
-		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		GPUMode:                    s.cfg.GPUMode,
-		CompositorEnabled:          compositorEnabled,
-		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:            s.cfg.WebRTCCompositorShell,
-		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
-		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
-		MediaProducerAdvertisedIP:  s.cfg.WebRTCMediaProducerAdvertisedIP,
-		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
-		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
-		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
-		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
-		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
-		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
-	}
+	runtimeEnv := s.runtimeEnvValues(sessionRow, layout, channel, input.BrowserArgs, input.Proxy, port, wrapperPort, rawSessionToken, wrapperControlToken)
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markFailed(ctx, sessionRow, "runtime preparation failed", err)
 		return nil, err
@@ -641,63 +591,13 @@ func (s *Service) Reopen(ctx context.Context, tenantID, sessionID string) (*Sess
 		return nil, err
 	}
 
-	compositorEnabled := s.webrtcCompositorRuntimeEnabled()
-	mediaProducerEnabled := s.webrtcMediaProducerRuntimeEnabled()
-	internalAPIURL := s.cfg.DeployBlueURL
-	if strings.EqualFold(s.cfg.DeployColor, config.DeployColorGreen) {
-		internalAPIURL = s.cfg.DeployGreenURL
-	}
 	rawSessionToken, err := s.ensureSessionToken(ctx, sessionRow)
-
 	if err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err
 	}
-	proxyConfig := ProxyConfigFromRow(sessionRow)
 
-	runtimeEnv := browser.RuntimeEnvValues{
-		SessionID:           sessionID,
-		ExternalBaseURL:     s.cfg.ExternalBaseURL,
-		EmbedAllowedOrigins: s.cfg.EmbedAllowedOrigins,
-		SessionToken:        rawSessionToken,
-		SessionTokenPath:    filepath.Join(layout.Metadata, "session-token"),
-		InternalAPIURL:      internalAPIURL,
-
-		MergedUserDataDir:          layout.Merged,
-		UpperDir:                   layout.Upper,
-		FilesDir:                   layout.Files.Root,
-		CacheDir:                   layout.Cache,
-		SessionUploadMaxFileBytes:  s.cfg.SessionUploadMaxFileBytes,
-		SessionStorageQuotaBytes:   s.cfg.SessionStorageQuotaBytes,
-		CDPPort:                    port,
-		WrapperPort:                wrapperPort,
-		WrapperControlToken:        wrapperControlToken,
-		BrowserExecutable:          channel.Executable,
-		BrowserDefaultArgs:         channel.DefaultArgs,
-		BrowserExtraArgs:           browserArgs,
-		ProxyConfig:                proxyConfig,
-		CaptureProofExtensionDir:   s.cfg.WebRTCCaptureProofExtensionDir,
-		GPUMode:                    s.cfg.GPUMode,
-		CompositorEnabled:          compositorEnabled,
-		CompositorExecutable:       s.cfg.WebRTCCompositorExecutable,
-		CompositorBackend:          s.cfg.WebRTCCompositorBackend,
-		CompositorRenderer:         s.cfg.WebRTCCompositorRenderer,
-		CompositorShell:            s.cfg.WebRTCCompositorShell,
-		CompositorWidth:            s.cfg.WebRTCCompositorWidth,
-		CompositorHeight:           s.cfg.WebRTCCompositorHeight,
-		MediaProducerEnabled:       mediaProducerEnabled,
-		MediaProducerGSTExecutable: s.cfg.WebRTCMediaProducerGSTExecutable,
-		MediaProducerPluginPath:    s.cfg.WebRTCMediaProducerPluginPath,
-		MediaProducerTarget:        s.cfg.WebRTCMediaProducerTarget,
-		MediaProducerICEServers:    mediaProducerICEServers(s.cfg),
-		MediaProducerAdvertisedIP:  s.cfg.WebRTCMediaProducerAdvertisedIP,
-		MediaProducerCodec:         s.cfg.WebRTCMediaProducerCodec,
-		MediaProducerFPS:           s.cfg.WebRTCMediaProducerFPS,
-		MediaProducerBitrateKbps:   s.cfg.WebRTCMediaProducerBitrateKbps,
-		MediaProducerKeyframe:      s.cfg.WebRTCMediaProducerKeyframe,
-		MediaProducerUDPPortMin:    s.cfg.WebRTCMediaProducerUDPPortMin,
-		MediaProducerUDPPortMax:    s.cfg.WebRTCMediaProducerUDPPortMax,
-	}
+	runtimeEnv := s.runtimeEnvValues(sessionRow, layout, channel, browserArgs, ProxyConfigFromRow(sessionRow), port, wrapperPort, rawSessionToken, wrapperControlToken)
 	if err := s.browser.PrepareRuntime(runtimeEnv); err != nil {
 		_ = s.markReopenFailedRetained(ctx, sessionRow, err)
 		return nil, err

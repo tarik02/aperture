@@ -103,6 +103,8 @@ export interface UseBrowserControlResult {
   canRecord: boolean;
   recordingBusy: boolean;
   remoteCursorEnabled: boolean;
+  /** Whether agent actions are slowed down so this client can follow them. */
+  watchableAutomation: boolean;
   collaboration: CollaborationControl;
   commands: BrowserCommands;
   setCaptured: (captured: boolean) => void;
@@ -134,6 +136,7 @@ export interface UseBrowserControlResult {
   stopRecording: (recordingId: string) => void;
   cancelRecording: (recordingId: string) => void;
   setRemoteCursorEnabled: (enabled: boolean) => void;
+  setWatchableAutomation: (enabled: boolean) => void;
   reconnect: () => void;
 }
 
@@ -564,6 +567,18 @@ export function useBrowserControl({
     [access, runSetRemoteCursor],
   );
 
+  // Pacing is per session client and ephemeral, so every new connection announces the preference.
+  const [watchableAutomation, setWatchableAutomation] = useState(false);
+  const commandRef = useRef(live.command);
+  commandRef.current = live.command;
+  useEffect(() => {
+    if (live.phase === "connected" && canRecord) {
+      commandRef.current("automation.pacing.set", {
+        pacing: watchableAutomation ? "watchable" : "normal",
+      });
+    }
+  }, [live.phase, canRecord, watchableAutomation]);
+
   const runSelectPresentation = useEffectCallback(
     (selection: LiveSessionMediaSelection) =>
       live
@@ -667,6 +682,7 @@ export function useBrowserControl({
     loadTargetThumbnail,
     recordingBusy,
     remoteCursorEnabled: live.presentation?.cursorVisible ?? true,
+    watchableAutomation,
     collaboration: live.collaboration,
     commands,
     setCaptured,
@@ -696,6 +712,7 @@ export function useBrowserControl({
     stopRecording,
     cancelRecording,
     setRemoteCursorEnabled,
+    setWatchableAutomation,
     reconnect: live.reconnect,
   };
 }

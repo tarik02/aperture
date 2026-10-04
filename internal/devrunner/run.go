@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -39,6 +40,7 @@ type options struct {
 	udpPortMax    int
 	envFile       string
 	configFile    string
+	publicBaseURL string // where clients reach the instance; the loopback bind by default, a tunnel when exposed
 	renderNode    string
 	gpu           bool
 	projectDir    string
@@ -108,6 +110,7 @@ Options:
   --udp-port-range RANGE   WebRTC UDP range (default: 50000-50010)
   --env-file PATH          Pass an environment file to the container
   --config PATH            Mount an Aperture TOML config
+  --public-url URL         Base URL clients use, such as a tunnel (default: the loopback address)
   --render-node PATH       DRM render node for .#dev-gpu
   --seed                   Fill a freshly provisioned instance with fake data
   --seed-sessions COUNT    Browser sessions --seed creates (default: 15)
@@ -122,6 +125,7 @@ volume, and the initial system-admin token persists under .data/.`)
 	flags.StringVar(&udpRangeText, "udp-port-range", udpRangeText, "")
 	flags.StringVar(&opts.envFile, "env-file", "", "")
 	flags.StringVar(&opts.configFile, "config", "", "")
+	flags.StringVar(&opts.publicBaseURL, "public-url", "", "")
 	flags.StringVar(&renderNode, "render-node", renderNode, "")
 	flags.BoolVar(&opts.seed, "seed", false, "")
 	flags.IntVar(&opts.seedSessions, "seed-sessions", defaultSeedSessions, "")
@@ -145,6 +149,13 @@ volume, and the initial system-admin token persists under .data/.`)
 	}
 	if err := validateLoopbackAddress(opts.bindAddress); err != nil {
 		return options{}, false, err
+	}
+	if opts.publicBaseURL == "" {
+		opts.publicBaseURL = fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
+	} else if parsed, err := url.Parse(opts.publicBaseURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return options{}, false, errors.New("--public-url must be an absolute http or https URL")
+	} else {
+		opts.publicBaseURL = strings.TrimRight(opts.publicBaseURL, "/")
 	}
 	opts.udpPortMin, opts.udpPortMax, err = parseUDPPortRange(udpRangeText)
 	if err != nil {
@@ -260,13 +271,13 @@ func (runner commandRunner) run(opts options) error {
 	writef(runner.stdout, "WebRTC UDP ports: %d-%d\n", opts.udpPortMin, opts.udpPortMax)
 	writef(runner.stdout, "System-admin token: %s\n", adminTokenPath)
 
-	url := fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
-	writef(runner.stdout, "Starting Aperture at %s through containerized Vite...\n", url)
+	localURL := fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
+	writef(runner.stdout, "Starting Aperture at %s through containerized Vite...\n", localURL)
 
 	readinessContext, cancelReadiness := context.WithCancel(context.Background())
 	defer cancelReadiness()
 	go func() {
-		if runner.waitUntilReady(readinessContext, url) && opts.seed {
+		if runner.waitUntilReady(readinessContext, localURL) && opts.seed {
 			runner.seed(opts)
 		}
 	}()
@@ -374,7 +385,7 @@ func (runner commandRunner) prepareState(opts options, dataDir string) error {
 	if opts.envFile != "" {
 		provisionArgs = append(provisionArgs, "--env-file", opts.envFile)
 	}
-	provisionArgs = append(provisionArgs, "--env", fmt.Sprintf("APERTURE_EXTERNAL_BASE_URL=http://%s:%d", opts.bindAddress, opts.port))
+	provisionArgs = append(provisionArgs, "--env", "APERTURE_EXTERNAL_BASE_URL="+opts.publicBaseURL)
 	if opts.configFile != "" {
 		provisionArgs = append(provisionArgs, "--volume", opts.configFile+":/etc/aperture/aperture.toml:ro")
 	}
@@ -444,7 +455,8 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		args,
 		"--env", "APERTURE_CONFIG_SOURCE=",
 		"--env", fmt.Sprintf("APERTURE_DEV_PROXY_TARGET=http://127.0.0.1:%d", backendContainerPort),
-		"--env", fmt.Sprintf("APERTURE_EXTERNAL_BASE_URL=http://%s:%d", opts.bindAddress, opts.port),
+		"--env", "APERTURE_EXTERNAL_BASE_URL="+opts.publicBaseURL,
+		"--env", "APERTURE_DEV_PUBLIC_HOST="+publicHost(opts.publicBaseURL),
 		"--env", "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+opts.bindAddress,
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN=%d", opts.udpPortMin),
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX=%d", opts.udpPortMax),
@@ -817,4 +829,13 @@ func writef(writer io.Writer, format string, args ...any) {
 
 func writeln(writer io.Writer, args ...any) {
 	_, _ = fmt.Fprintln(writer, args...)
+}
+
+// publicHost is the host part of the public base URL, which Vite must be told to serve.
+func publicHost(baseURL string) string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }

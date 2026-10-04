@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/aperture/aperture/internal/recording"
 	remoteinput "github.com/tarik02/webdesktop/input"
 )
 
@@ -54,15 +55,22 @@ func (session *liveSession) handleSessionMessage(client *liveSessionClient, tran
 			writeLiveSessionTransportError(transport, "invalid_request", "live session command requires a valid request ID")
 			return
 		}
-		result, err := session.handleSessionCommand(client, message)
-		if err != nil {
-			session.writeCommandError(transport, message, err)
-			return
+		run := func() {
+			result, err := session.handleSessionCommand(client, message)
+			if err != nil {
+				session.writeCommandError(transport, message, err)
+				return
+			}
+			result.Type = message.Type + ".result"
+			result.RequestID = message.RequestID
+			result.OK = liveSessionBool(true)
+			_ = transport.send(liveSessionDeliveryReliable, mustJSON(result))
 		}
-		result.Type = message.Type + ".result"
-		result.RequestID = message.RequestID
-		result.OK = liveSessionBool(true)
-		_ = transport.send(liveSessionDeliveryReliable, mustJSON(result))
+		if message.Type == "recording.stop" || message.Type == "recording.cancel" {
+			go run() // these wait for the gate and for the capture to end; the client's other messages must not
+		} else {
+			run()
+		}
 		return
 	}
 
@@ -122,6 +130,7 @@ func isLiveSessionCommand(messageType string) bool {
 		"viewport.owner.claim",
 		"presentation.quality.set",
 		"presentation.cursor.set",
+		"automation.pacing.set",
 		"recording.start",
 		"recording.stop",
 		"recording.cancel":
@@ -258,6 +267,16 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			return liveSessionServerMessage{}, err
 		}
 		return liveSessionServerMessage{Presentation: &presentation}, nil
+	case "automation.pacing.set":
+		// Pacing only matters to clients that can act on the browser; it is dropped with the client.
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errors.New("automation pacing requires the owner or editor role")
+		}
+		if message.Pacing != automationPacingNormal && message.Pacing != automationPacingWatchable {
+			return liveSessionServerMessage{}, errors.New("automation pacing must be normal or watchable")
+		}
+		client.watchable.Store(message.Pacing == automationPacingWatchable)
+		return liveSessionServerMessage{}, nil
 	case "recording.start":
 		if !client.canRecord() {
 			return liveSessionServerMessage{}, errRecordingRole
@@ -269,20 +288,26 @@ func (session *liveSession) handleSessionCommand(client *liveSessionClient, mess
 			FPS:         message.FPS,
 			BitrateKbps: message.BitrateKbps,
 			Codec:       message.Codec,
+			Config:      recording.Config{Capture: message.Capture, Idle: message.Idle, Ripple: message.Ripple, Burst: message.Burst, Presentation: message.Presentation},
 		})
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}
 		return liveSessionServerMessage{Recording: &recording}, nil
-	case "recording.stop", "recording.cancel":
+	case "recording.stop":
 		if !client.canRecord() {
 			return liveSessionServerMessage{}, errRecordingRole
 		}
-		reason := "requested"
-		if message.Type == "recording.cancel" {
-			reason = "canceled"
+		recording, err := session.stopRecordingRequested(message.RecordingID, "requested")
+		if err != nil {
+			return liveSessionServerMessage{}, err
 		}
-		recording, err := session.stopRecording(message.RecordingID, reason)
+		return liveSessionServerMessage{Recording: &recording}, nil
+	case "recording.cancel":
+		if !client.canRecord() {
+			return liveSessionServerMessage{}, errRecordingRole
+		}
+		recording, err := session.cancelRecording(message.RecordingID)
 		if err != nil {
 			return liveSessionServerMessage{}, err
 		}

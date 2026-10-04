@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,9 +21,10 @@ import (
 const playwrightCallRequestMaxBytes = 16 << 20
 
 type playwrightMCPBackend struct {
-	values  RuntimeEnvValues
-	mu      sync.Mutex
-	session *mcp.ClientSession
+	values      RuntimeEnvValues
+	cdpEndpoint string
+	mu          sync.Mutex
+	session     *mcp.ClientSession
 }
 
 type playwrightCallRequest struct {
@@ -30,8 +32,47 @@ type playwrightCallRequest struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-func newPlaywrightMCPBackend(values RuntimeEnvValues) *playwrightMCPBackend {
-	return &playwrightMCPBackend{values: values}
+func newPlaywrightMCPBackend(values RuntimeEnvValues, cdpEndpoint string) *playwrightMCPBackend {
+	return &playwrightMCPBackend{values: values, cdpEndpoint: cdpEndpoint}
+}
+
+// startAutomationBackend starts the CDP proxy that Playwright MCP drives the browser through and the
+// backend that talks to it. Both end with ctx.
+func (r *wrapperRuntime) startAutomationBackend(ctx context.Context, liveSession *liveSession) error {
+	var pointer *cdpPointer
+	// The compositor input is the human's path to the same pointer; automation shares its position tracking.
+	if input, ok := liveSession.input.(*liveSessionCompositorInput); ok {
+		pointer = newCDPPointer(input.pointer, r.pointerSurface, liveSession.journal)
+		liveSession.pointer = pointer
+	}
+	proxy := newCDPProxy(net.JoinHostPort("127.0.0.1", strconv.Itoa(r.values.CDPPort)), liveSession.automationCadence, pointer, liveSession.journal, func() bool { return liveSession.activeRecordings.Load() > 0 })
+	endpoint, err := proxy.serve(ctx)
+	if err != nil {
+		return err
+	}
+	r.playwright = newPlaywrightMCPBackend(r.values, endpoint)
+	go func() {
+		<-ctx.Done()
+		r.playwright.Close()
+	}()
+	return nil
+}
+
+// readyTarget finds a browser target that can take input.
+func (r *wrapperRuntime) readyTarget(targetID string) (wrapperTargetSnapshot, bool) {
+	r.mu.Lock()
+	registry := r.targets
+	r.mu.Unlock()
+	if registry == nil || strings.TrimSpace(targetID) == "" {
+		return wrapperTargetSnapshot{}, false
+	}
+	return registry.readyTarget(targetID)
+}
+
+// pointerSurface is a ready target as the compositor surface automation moves the pointer on.
+func (r *wrapperRuntime) pointerSurface(targetID string) (cdpSurface, bool) {
+	target, ready := r.readyTarget(targetID)
+	return cdpSurface{id: target.SurfaceID, targetID: target.TargetID, width: float64(target.Viewport.Width), height: float64(target.Viewport.Height)}, ready
 }
 
 func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments map[string]any) (*mcp.CallToolResult, error) {
@@ -59,7 +100,7 @@ func (b *playwrightMCPBackend) Call(ctx context.Context, name string, arguments 
 func (b *playwrightMCPBackend) start(ctx context.Context) error {
 	files := paths.SessionFiles(b.values.FilesDir)
 	args := []string{
-		"--cdp-endpoint", "http://127.0.0.1:" + strconv.Itoa(b.values.CDPPort),
+		"--cdp-endpoint", b.cdpEndpoint,
 		"--cdp-timeout", "30000",
 		"--codegen", "none",
 		"--file-paths", "relative",
@@ -132,7 +173,18 @@ func (r *wrapperRuntime) handlePlaywrightCall(w http.ResponseWriter, req *http.R
 		call.Arguments = map[string]any{}
 	}
 
+	// One browser call at a time, and none while a recording starts or stops.
+	release, err := r.liveSession.acquireGate(req.Context())
+	if err != nil {
+		writeWrapperError(w, http.StatusServiceUnavailable, "browser call was canceled")
+		return
+	}
+	defer release()
+	started := time.Now()
 	result, err := r.playwright.Call(req.Context(), call.Name, call.Arguments)
+	if !playwrightmcp.ReadOnly(call.Name) {
+		r.liveSession.journal("call", started, map[string]any{"tool": call.Name, "ok": err == nil && !result.IsError})
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "browser-session-wrapper: Playwright MCP tool %s failed: %v\n", call.Name, err)
 		writeWrapperError(w, http.StatusBadGateway, "Playwright MCP call failed")

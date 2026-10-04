@@ -1,103 +1,78 @@
 # Live session
 
-Apply the credential and tenant-selection rules from [authentication.md](authentication.md). For recording routes and recording commands, also read [recordings.md](recordings.md).
+The live session is a running session's transient state: browser targets, connected clients, presentation, the input lease, recordings. These routes expose it; the viewport and uploads routes are also in the spec under the `live-session` tag.
 
-## Data-plane routes
+| Route | Credentials | Purpose |
+|---|---|---|
+| `GET /sessions/:id/session` (WebSocket) | API `sessions:read` or more, `aps_`, `ape_`, `apv_` | the session protocol below, with JPEG presentation frames |
+| `GET /sessions/:id/webrtc/signal` (WebSocket) | same | the same protocol over WebRTC data channels, with a video track |
+| `POST /sessions/:id/browser/viewport` | API `sessions:write`, `aps_`, `ape_` | resize one top-level target; body `{targetId, width, height, deviceScaleFactor}` |
+| `GET`/`PUT /sessions/:id/browser/cursor` | same | remote cursor visibility in the stream and recordings, `{"visible": bool}` |
+| `/sessions/:id/recordings…` | same | [recordings.md](recordings.md) |
+| `POST /sessions/:id/uploads` | API `sessions:write`, `aps_` | [session-files.md](session-files.md#uploads) |
+| `GET /sessions/:id/tunnel` (WebSocket) | API `sessions:write`, `aps_` | [local tunnel](#local-tunnel) |
+| `/sessions/:id/cdp/<aps_ token>/…` | the `aps_` token in the path | [CDP](#cdp) |
 
-These public routes expose browser-session access. `browser/status` is handled by Aperture itself; the interactive routes are forwarded to the running session:
+Authorization failures use the API error envelope; failures inside the session answer `{"error": "<message>"}` without a stable code. A connection's role is the credential's: `aps_` and API `sessions:write` are `owner`, `ape_` is `editor`, `apv_` and API `sessions:read` alone are `viewer`.
 
-- `GET /sessions/:sessionId/session` — live-session WebSocket; editor and viewer capabilities allowed
-- `GET /sessions/:sessionId/browser/status` — `sessions:read`; passive page discovery for account credentials, the owner session token, or editor/viewer capabilities. It never wakes or touches session activity. Running data is `live`; suspended data is the page and thumbnail generation saved at suspension, or explicitly `unavailable` when no generation exists. Persisted target IDs are historical and may change after resume.
-- `POST /sessions/:sessionId/browser/viewport` — `sessions:write`, `sessionToken`, or an editor capability
-- `POST /sessions/:sessionId/uploads` — `sessions:write` or `sessionToken`
-- `GET /sessions/:sessionId/webrtc/signal` — WebRTC signaling WebSocket
-- `GET /sessions/:sessionId/tunnel` — local tunnel WebSocket; `sessionToken` or `sessions:write`
+## Session protocol
 
-Use an authorized API bearer token and tenant header, or the bound `sessionToken`, for routed live-session requests.
+Both WebSockets take the exact subprotocol `aperture-session.v1`; API tokens and capabilities ride along as further subprotocols, `authorization.bearer.<token>` and, for a system-admin token, `x-aperture-tenant-id.<tenantId>`.
 
-These routes exist only while the session runs; otherwise they answer `404`. The OpenAPI spec (`/openapi.json`) describes viewport and uploads under the `live-session` tag. Authorization failures use the API error envelope; failures inside the session return `{ "error": "<message>" }` without a stable code.
+1. The client sends `session.hello` with `name` and `avatarHash`, and `autoSize: true|false` when it wants to take part in [viewport ownership](#viewport-ownership).
+2. The server answers `session.snapshot`: `clientId`, `resumeSecret`, `role`, `transport`, `targets`, `activeTargetId`, `participants`, `holderClientId` and lease `mode`, `recordings`, and the viewport-owner fields for clients that opted in. The snapshot is the whole recoverable state; realtime data is never in it.
+3. State arrives as `targets.state`, `presentation.state`, `viewport.state`, `input.state`, `presence.state`, `recordings.state`, and the realtime `presence.cursor`, `presence.cursor.clear` and `paint.point`.
 
-## Local tunnel
+**Resume.** When the transport drops, reconnect within five seconds and send `session.hello` with `clientId` and `resumeSecret` instead of `name` and `avatarHash`, plus the normal authorization. The client keeps its identity, lease and recordings; the new snapshot is the truth to reconcile against. Commands that were in flight have failed; wait for a new user action instead of replaying them.
 
-A local tunnel carries browser connections over one client-opened WebSocket and dials them on the client's machine, so the browser can reach, for example, a dev server on a developer's laptop. The session's [proxy rules](control-plane.md) decide which connections it carries: those whose rule has `"via": "local"`, such as `{ "match": "localhost:3000", "via": "local" }`. Open `GET /sessions/:sessionId/tunnel` with the `aperture-tunnel.v1` subprotocol to attach.
+**Channels.** WebRTC clients open an ordered `application` channel and an unordered, zero-retransmit `application-realtime` channel, plus a receive-only video transceiver. Reliable traffic: hello, snapshot, state, commands and results, input other than pointer motion, stroke start and end. Realtime traffic: pointer motion, cursor positions, intermediate stroke points; each carries a positive transport-local `realtimeCounter`, and newest wins. On the WebSocket all of it is JSON on one ordered socket, so coalesce realtime messages before sending, and presentation frames arrive as binary packets: a four-byte big-endian length, a UTF-8 `presentation.frame` JSON header of that length, then JPEG bytes.
 
-The browser reaches the client's services as `localhost`, never `127.0.0.1` or `[::1]`: loopback IPs bypass the session proxy.
+**Commands** carry a nonempty `requestId` and are answered by `<type>.result` with the same `requestId` and `ok`, or an `error`:
 
-After the upgrade, binary WebSocket messages carry a yamux session in which the client is the yamux server. Aperture opens one stream per matching browser connection. Each stream carries a SOCKS5 session: a no-auth greeting, then a `CONNECT` with the target. The client dials the target and replies as a SOCKS5 server would. `via: local` connections fail while no client is attached. A new attach replaces the session's previous local tunnel.
+| Command | Who | Notes |
+|---|---|---|
+| `target.select`, `target.create`, `target.close` | any role for select; owner, editor otherwise | selecting is client-local and moves nothing for others |
+| `page.navigate`, `page.history-back`, `page.history-forward`, `page.reload`, `page.stop-loading` | owner, editor | act on the client's active target |
+| `viewport.set`, `viewport.auto-size.set`, `viewport.owner.claim` | owner, editor | [viewport ownership](#viewport-ownership) |
+| `presentation.quality.set`, `presentation.cursor.set` | owner, editor | encoder quality is shared by every WebRTC presentation; cursor visibility is session-wide |
+| `automation.pacing.set` | owner, editor | [automation pacing](#automation-pacing) |
+| `recording.start`, `recording.stop`, `recording.cancel` | owner, editor | [recordings.md](recordings.md); `recordings.state` carries `editing` while the edit runs |
 
-## Live-session protocol
+**Input lease.** Browser input needs the session-wide lease. `input.claim {targetId, mode}` takes it: `implicit` yields to anyone who claims `explicit`; an `explicit` holder is preempted only by an owner displacing an editor. Keep it with `input.heartbeat`, give it back with `input.release`; it is released when the transport is gone for good. While holding it, send `input.pointer.motion.absolute` (realtime), `input.pointer.button`, `input.pointer.scroll`, `input.keyboard.key`, `input.keyboard.text`. Viewers never hold it.
 
-Interactive clients use the exact `aperture-session.v1` WebSocket subprotocol on both `/session` and `/webrtc/signal`. Editor and viewer capabilities are also accepted through the bearer subprotocol. A new session transport sends this reliable hello first:
+**Presence.** `presence.cursor {targetId, x, y}` and `presence.cursor.clear` show your pointer to others; `follow.set {followingClientId}` adopts another client's active target (chains allowed, cycles rejected, no input rights); `paint.point {targetId, strokeId, color, width, phase, x, y}` draws an ephemeral overlay stroke, allowed for viewers too.
 
-```json
-{
-  "type": "session.hello",
-  "name": "Quiet Otter",
-  "avatarHash": "0123456789abcdef0123456789abcdef"
-}
-```
+## Viewport ownership
 
-The server responds with `session.snapshot`, including `clientId` and `resumeSecret`. A replacement transport sends those two values instead of `name` and `avatarHash`, together with normal session authorization. Resume credentials expire five seconds after transport loss.
+One client at a time, the viewport owner, resizes the browser to its own presentation size. Only clients whose hello carried `autoSize` receive `viewportOwnerClientId` and `autoSize` in snapshots and `viewport.state`. `viewport.auto-size.set {enabled: true}` and `viewport.owner.claim` take ownership; `viewport.set` with `autoSize: true` resizes only for the owner and fails with `viewport_not_owned` otherwise. A `viewport.set` without `autoSize`, or the viewport route, is an explicit resize: it applies and leaves ownership vacant until a client takes it again. The route answers with `targetId`, the media `generation` and the applied `viewport` (logical size, DPR-scaled content size, media canvas in 64 px steps, effective scale); widths below 500 become 500.
 
-WebRTC clients create ordered `application` and unordered, zero-retransmit `application-realtime` data channels plus a receive-only video transceiver. The reliable channel carries the hello, snapshots, state, commands, results, input other than pointer motion, and stroke boundaries. The realtime channel carries pointer motion, cursor positions, and intermediate stroke points. Every realtime message has a positive transport-local `realtimeCounter`.
+## Automation pacing
 
-The `/session` fallback carries the same JSON messages. Its presentation frames are binary packets containing a four-byte big-endian JSON-header length, the UTF-8 `presentation.frame` header, and raw JPEG bytes. Coalesce disposable realtime messages before writing them to this ordered socket.
+Browser automation through Playwright MCP runs at one of three cadences, decided per call:
 
-Reliable commands use a nonempty `requestId` and receive a matching typed `.result` message. Commands are `target.select`, `target.create`, `target.close`, `page.navigate`, `page.history-back`, `page.history-forward`, `page.reload`, `page.stop-loading`, `viewport.set`, `viewport.auto-size.set`, `viewport.owner.claim`, `presentation.quality.set`, `presentation.cursor.set`, `recording.start`, `recording.stop`, and `recording.cancel`. Recording commands and `recordings.state` are limited to owners and editors. A transport failure fails outstanding commands. Use the replacement snapshot to reconcile state and wait for a new caller action instead of retrying them.
+- **presentation**: a recording started with `presentation: true` is running;
+- **recorded**: any other recording is running, or a connected owner or editor set `automation.pacing.set {pacing: "watchable"}`;
+- **immediate**: otherwise. Plain pass-through, no added latency.
 
-Auto-size is arbitrated by one session-wide viewport owner. A client opts in by adding `"autoSize": true|false` to its hello; only such clients receive `viewportOwnerClientId` and `autoSize` in the snapshot and later `viewport.state` events. `viewport.auto-size.set` takes `enabled`, `viewport.owner.claim` takes over, and `viewport.set` with `"autoSize": true` resizes only for the owner, failing with `viewport_not_owned` otherwise. A `viewport.set` without it, or the viewport route below, is explicit: it applies and leaves ownership vacant until a client sends `viewport.auto-size.set` with `enabled: true` or `viewport.owner.claim`; a hello preference alone does not claim it.
+At the two paced cadences the proxy between Playwright and Chromium turns `Input.dispatchMouseEvent` into real compositor input (an eased glide of the pointer, a real press, a real wheel; modifiers and back/forward buttons stay on CDP), makes `DOM.scrollIntoViewIfNeeded` scroll smoothly and wait for the page to settle, and waits for each input to be delivered. Pacing is `normal` by default and ends when the client that set `watchable` disconnects.
 
-## Viewport
+## WebRTC signaling
 
-Viewport body; `targetId` names a top-level target from `browser/status`:
+Connect to `/sessions/:id/webrtc/signal` with the subprotocols above, send a version 1 SDP `offer`, exchange `ice-candidate` messages, receive the `answer` or a typed signaling `error`. Capacity never evicts an existing peer: if the peer is not usable within five seconds, fall back to `/session`.
 
-```json
-{
-  "targetId": "0123456789ABCDEF0123456789ABCDEF",
-  "width": 1280,
-  "height": 720,
-  "deviceScaleFactor": 1
-}
-```
+## CDP
 
-The response contains `targetId`, the media `generation`, and a `viewport` with the logical size, DPR-scaled content rectangle, `64x64`-bucketed media canvas, and effective scale. Widths below 500 are raised to 500.
-
-## Uploads
-
-`POST /sessions/:sessionId/uploads` takes `multipart/form-data`; every part with a filename becomes the session file `uploads/<name>`. Names are sanitized and get a numeric suffix instead of overwriting. The `201` response is `{ "files": [...] }` with the same fields as `session_files.list`; pass a `relativePath` to `browser_file_upload`, or a `sandboxPath` (such as `/session/files/uploads/invoice.pdf`) to CDP `DOM.setFileInputFiles`. Limits: 100 files per request, 1000 uploads per session, `session_upload_max_file_bytes` per file (`413`), and `session_storage_quota_bytes` per session (`507`). A rejected request stores nothing.
-
-With API credentials, `POST /api/sessions/:sessionId/files` does the same for any retained session and directory; see [session-files.md](session-files.md).
-
-```bash
-curl -fsS -H "Authorization: Bearer $SESSION_TOKEN" \
-  -F "files=@invoice.pdf" "$APERTURE_BASE_URL/sessions/$SESSION_ID/uploads"
-```
-
-## CDP proxy
-
-CDP uses the session-specific `sessionToken`, not the Aperture API bearer token. Append the token as the next path segment after the returned `cdpUrl`:
+`cdpUrl` (from create, a session read or `sessions.connection`) is `$APERTURE_BASE_URL/sessions/:id/cdp`. The session token is the next path segment, and nothing else authenticates:
 
 ```bash
 curl -fsS "$CDP_URL/$SESSION_TOKEN/json/version"
 curl -fsS "$CDP_URL/$SESSION_TOKEN/json/list"
 ```
 
-Discovery responses contain rewritten WebSocket debugger URLs under the same tokenized public path. Connect to those URLs without an `Authorization` header or WebSocket subprotocol.
+The `webSocketDebuggerUrl`s in those answers are rewritten onto the same tokenized path; connect to them with no `Authorization` header and no subprotocol. Rotating the session token (`POST /api/sessions/:id/session-token/rotate`, `sessions.session_token_rotate`) breaks every URL built with the old one.
 
-Rotate a compromised session token with `POST /api/sessions/:sessionId/session-token/rotate`; previously issued live-session URLs then stop authorizing.
+## Local tunnel
 
-## WebRTC signaling
+A local tunnel lets the browser reach services on the client's machine, such as a dev server. The session's [proxy rules](control-plane.md#egress-proxy) decide what it carries: connections whose rule says `"via": "local"`, for example `{"match": "localhost:3000", "via": "local"}`; the browser addresses them as `localhost`.
 
-Connect to:
-
-```text
-wss://aperture.example.com/sessions/:sessionId/webrtc/signal
-```
-
-Send these WebSocket subprotocols:
-
-- `aperture-session.v1`
-- `authorization.bearer.$SESSION_TOKEN` or an authorized API token
-- `x-aperture-tenant-id.$TENANT_ID` when using a system-admin token
-
-Send a version 1 SDP `offer`, then exchange `ice-candidate` messages. The server returns an `answer` or a typed signaling `error`. The authenticated role becomes the session client's role. WebRTC capacity never evicts an existing peer; use `/session` as the fallback when the peer cannot become usable within five seconds.
+Open `GET /sessions/:id/tunnel` with subprotocol `aperture-tunnel.v1`. Binary messages then carry a yamux session in which the client is the yamux server: Aperture opens one stream per matching browser connection, and each stream is a SOCKS5 conversation (no-auth greeting, `CONNECT` to the target) that the client answers by dialing the target locally. A session has one tunnel; a new attach replaces it, and `via: local` connections fail while none is attached.

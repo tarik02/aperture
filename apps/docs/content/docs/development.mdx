@@ -91,7 +91,13 @@ APERTURE_WEBRTC_COMPOSITOR_WIDTH=1920
 APERTURE_WEBRTC_COMPOSITOR_HEIGHT=1080
 ```
 
-The runner sets `APERTURE_EXTERNAL_BASE_URL` to the selected loopback address and port. Use the environment file for other Aperture settings.
+The runner sets `APERTURE_EXTERNAL_BASE_URL` to the selected loopback address and port. When the instance is reached through a tunnel or reverse proxy, pass that address instead, so signed URLs and the CDP URL point where clients are:
+
+```bash
+nix run .#dev -- --public-url https://aperture.example.test
+```
+
+Use the environment file for other Aperture settings.
 
 Mount a complete configuration file when environment overrides are insufficient:
 
