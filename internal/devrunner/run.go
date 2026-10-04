@@ -456,6 +456,7 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		"--env", "APERTURE_CONFIG_SOURCE=",
 		"--env", fmt.Sprintf("APERTURE_DEV_PROXY_TARGET=http://127.0.0.1:%d", backendContainerPort),
 		"--env", "APERTURE_EXTERNAL_BASE_URL="+opts.publicBaseURL,
+		"--env", "APERTURE_DEV_PUBLIC_HOST="+publicHost(opts.publicBaseURL),
 		"--env", "APERTURE_WEBRTC_MEDIA_PRODUCER_ADVERTISED_IP="+opts.bindAddress,
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MIN=%d", opts.udpPortMin),
 		"--env", fmt.Sprintf("APERTURE_WEBRTC_MEDIA_PRODUCER_UDP_PORT_MAX=%d", opts.udpPortMax),
@@ -828,4 +829,13 @@ func writef(writer io.Writer, format string, args ...any) {
 
 func writeln(writer io.Writer, args ...any) {
 	_, _ = fmt.Fprintln(writer, args...)
+}
+
+// publicHost is the host part of the public base URL, which Vite must be told to serve.
+func publicHost(baseURL string) string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
