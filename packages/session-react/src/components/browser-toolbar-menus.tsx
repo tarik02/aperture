@@ -420,24 +420,44 @@ function RecordingMenuItems({
     <>
       <DropdownMenuGroup>
         <DropdownMenuLabel>Recording</DropdownMenuLabel>
-        <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("tab")}>
-          <Circle />
-          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
-            <span>Start recording</span>
-            <span className="aperture:text-xs aperture:text-muted-foreground">
-              Uses the capture mode below
-            </span>
-          </span>
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("viewer")}>
-          <Monitor />
-          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
-            <span>Record this viewer</span>
-            <span className="aperture:text-xs aperture:text-muted-foreground">
-              {recordingAvailable ? "Follow tab switches" : "Owner connection required"}
-            </span>
-          </span>
-        </DropdownMenuItem>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("tab")} />
+            }
+          >
+            <Circle />
+            Start recording
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            Uses the capture mode below. The full raw video downloads when you stop. When editing is
+            enabled, an edited copy appears in session files.
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("viewer")} />
+            }
+          >
+            <Monitor />
+            {recordingAvailable ? (
+              "Record this viewer"
+            ) : (
+              <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
+                <span>Record this viewer</span>
+                <span className="aperture:text-xs aperture:text-muted-foreground">
+                  Owner connection required
+                </span>
+              </span>
+            )}
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            {recordingAvailable
+              ? "Continuous capture following your tab switches. Quiet stretches, presentation pace and click highlights use the settings below."
+              : "The session owner must connect before recording is available."}
+          </TooltipContent>
+        </Tooltip>
       </DropdownMenuGroup>
       {runningRecordings.map((recording) => {
         const target = control.targets.find((candidate) => candidate.id === recording.targetId);
