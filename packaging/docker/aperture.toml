@@ -39,6 +39,7 @@ webrtc_media_producer_codec = "auto"
 webrtc_media_producer_fps = 60
 webrtc_media_producer_bitrate_kbps = 6000
 webrtc_media_producer_keyframe_interval = 120
+recording_ffmpeg_executable = "@FFMPEG@/bin/ffmpeg"
 
 [channels.chromium]
 executable = "@CHROMIUM@/bin/chromium"

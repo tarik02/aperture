@@ -21,6 +21,7 @@ type testEnv struct {
 	admin    string
 	tenant   string
 	tenantID string
+	server   *Server
 }
 
 func newTestEnv(t *testing.T) *testEnv {
