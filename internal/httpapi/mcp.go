@@ -1147,7 +1147,7 @@ func (s *Server) mcpSessionsPromote(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	if a.principal == nil || !auth.HasScopeInAnyTenant(*a.principal, auth.ScopeSnapshotsWrite) {
+	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeSnapshotsWrite) {
 		return nil, mcpSnapshotOutput{}, mcpToolError("forbidden", nil)
 	}
 	if err := s.Auth.AuthorizeSnapshotNameIfExists(ctx, *a.principal, view.Session.TenantID, in.Name); err != nil {
