@@ -3,7 +3,6 @@ import { RecordingSettings } from "@aperture-browser/api-client";
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuGroup,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -26,7 +25,6 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
     <>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
-        <DropdownMenuLabel>New recordings</DropdownMenuLabel>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
@@ -38,7 +36,6 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="aperture:w-64">
             <DropdownMenuGroup>
-              <DropdownMenuLabel>Capture · Start recording</DropdownMenuLabel>
               <DropdownMenuRadioGroup
                 aria-label="Tab capture"
                 value={settings.capture ?? "continuous"}
@@ -80,14 +77,6 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="aperture:w-64">
             <DropdownMenuGroup>
-              <DropdownMenuLabel>
-                Quiet stretches · edited copy
-                <span className="aperture:block aperture:font-normal">
-                  {bursts
-                    ? "Choose Continuous to adjust pauses."
-                    : "Pauses with no detected screen changes or recorded events."}
-                </span>
-              </DropdownMenuLabel>
               <DropdownMenuRadioGroup
                 aria-label="Quiet stretches"
                 value={settings.idle ?? "keep"}
@@ -142,7 +131,8 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
             Presentation pace
           </TooltipTrigger>
           <TooltipContent side="left">
-            Slow automation so viewers can follow its actions. Manual input keeps its normal pace.
+            Only while recording: slower pointer movement and longer pauses before clicks than
+            Watchable automation. Manual input keeps its normal pace.
           </TooltipContent>
         </Tooltip>
         <Tooltip>
