@@ -8,6 +8,8 @@ export type TenantConfirmAction =
   | { kind: "delete"; tenant: Tenant };
 
 type TenantListPageState = {
+  search: string;
+  setSearch: (search: string) => void;
   deleted: DeletedFilterValue;
   selectedTenants: Record<string, Tenant>;
   confirmAction: TenantConfirmAction | null;
@@ -19,6 +21,8 @@ type TenantListPageState = {
 };
 
 export const useTenantListPageStore = create<TenantListPageState>()((set) => ({
+  search: "",
+  setSearch: (search) => set({ search }),
   deleted: "active",
   selectedTenants: {},
   confirmAction: null,

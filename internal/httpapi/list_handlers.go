@@ -108,6 +108,7 @@ func (s *Server) listSessions(c *gin.Context) {
 	page, err := s.Sessions.List(c.Request.Context(), tenantIDFromContext(c), session.ListFilter{
 		IncludeDeleted: parseIncludeDeleted(c),
 		Status:         status,
+		Query:          strings.TrimSpace(c.Query("query")),
 		Tags:           tagFilters,
 		Resources:      resourceIDFilter(principal, auth.ResourceTypeSession),
 	}, params)

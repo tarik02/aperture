@@ -12,6 +12,7 @@ export interface TenantsFilter {
   limit?: number;
   includeDeleted?: boolean;
   deleted?: "active" | "deleted" | "all";
+  query?: string;
 }
 
 export type TenantsListParams = TenantsFilter & PageCursor;

@@ -81,6 +81,8 @@ const Target = Schema.Struct({
   title: Schema.String,
   url: Schema.String,
   loading: Schema.Boolean,
+  canGoBack: Schema.optionalKey(Schema.Boolean),
+  canGoForward: Schema.optionalKey(Schema.Boolean),
   viewport: Schema.optionalKey(
     Schema.Struct({
       width: positive,

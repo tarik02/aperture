@@ -22,12 +22,19 @@ const (
 )
 
 type liveSessionTarget struct {
-	ID       string              `json:"id"`
-	Type     string              `json:"type"`
-	Title    string              `json:"title"`
-	URL      string              `json:"url"`
-	Loading  bool                `json:"loading"`
-	Viewport *compositorViewport `json:"viewport,omitempty"`
+	ID           string              `json:"id"`
+	Type         string              `json:"type"`
+	Title        string              `json:"title"`
+	URL          string              `json:"url"`
+	Loading      bool                `json:"loading"`
+	CanGoBack    *bool               `json:"canGoBack,omitempty"`
+	CanGoForward *bool               `json:"canGoForward,omitempty"`
+	Viewport     *compositorViewport `json:"viewport,omitempty"`
+}
+
+type liveSessionTargetHistory struct {
+	canGoBack    bool
+	canGoForward bool
 }
 
 type liveSessionBrowser struct {
@@ -36,13 +43,15 @@ type liveSessionBrowser struct {
 	mu     sync.Mutex
 	client *liveSessionCDP
 
-	stateMu         sync.Mutex
-	observedClient  *liveSessionCDP
-	observedTargets map[string]string
-	targetBySession map[string]string
-	attaching       map[string]struct{}
-	loading         map[string]bool
-	initialOrder    map[string]int
+	stateMu           sync.Mutex
+	observedClient    *liveSessionCDP
+	observedTargets   map[string]string
+	targetBySession   map[string]string
+	attaching         map[string]struct{}
+	loading           map[string]bool
+	history           map[string]liveSessionTargetHistory
+	historyGeneration map[string]uint64
+	initialOrder      map[string]int
 	// CDP target IDs are random, so preserve discovery order for tabs created after restore.
 	firstSeen                    map[string]uint64
 	nextFirstSeen                uint64
@@ -57,6 +66,8 @@ func newLiveSessionBrowser(runtime *wrapperRuntime) *liveSessionBrowser {
 		targetBySession:              make(map[string]string),
 		attaching:                    make(map[string]struct{}),
 		loading:                      make(map[string]bool),
+		history:                      make(map[string]liveSessionTargetHistory),
+		historyGeneration:            make(map[string]uint64),
 		initialOrder:                 make(map[string]int),
 		firstSeen:                    make(map[string]uint64),
 		initialSessionStorageScripts: make(map[string]map[string]string),
@@ -94,6 +105,10 @@ func (browser *liveSessionBrowser) targets() ([]liveSessionTarget, error) {
 			Title:   targetInfo.Title,
 			URL:     targetInfo.URL,
 			Loading: browser.targetLoading(string(targetInfo.TargetID)),
+		}
+		if history, ok := browser.targetHistory(string(targetInfo.TargetID)); ok {
+			resolved.CanGoBack = &history.canGoBack
+			resolved.CanGoForward = &history.canGoForward
 		}
 		if viewport, ok := viewports[string(targetInfo.TargetID)]; ok {
 			resolved.Viewport = &viewport
@@ -321,9 +336,14 @@ func (browser *liveSessionBrowser) navigateHistory(targetID string, delta int) e
 		}
 		index := currentIndex + int64(delta)
 		if index < 0 || index >= int64(len(entries)) {
+			browser.setTargetHistory(targetID, browser.nextHistoryGeneration(targetID), currentIndex, len(entries))
 			return nil
 		}
-		return page.NavigateToHistoryEntry(entries[index].ID).Do(ctx)
+		if err := page.NavigateToHistoryEntry(entries[index].ID).Do(ctx); err != nil {
+			return err
+		}
+		browser.setTargetHistory(targetID, browser.nextHistoryGeneration(targetID), index, len(entries))
+		return nil
 	})
 }
 
@@ -430,6 +450,8 @@ func (browser *liveSessionBrowser) startObserving(client *liveSessionCDP) {
 	clear(browser.targetBySession)
 	clear(browser.attaching)
 	clear(browser.loading)
+	clear(browser.history)
+	clear(browser.historyGeneration)
 	browser.stateMu.Unlock()
 	go browser.observe(client)
 }
@@ -445,6 +467,8 @@ func (browser *liveSessionBrowser) stopObserving(client *liveSessionCDP) {
 	clear(browser.targetBySession)
 	clear(browser.attaching)
 	clear(browser.loading)
+	clear(browser.history)
+	clear(browser.historyGeneration)
 }
 
 func (browser *liveSessionBrowser) observe(client *liveSessionCDP) {
@@ -475,11 +499,18 @@ func (browser *liveSessionBrowser) observeEvent(client *liveSessionCDP, event li
 		browser.removeObservedSession(string(value.SessionID))
 	case *page.EventFrameStartedLoading:
 		browser.setSessionLoading(string(event.SessionID), true)
-	case *page.EventFrameStoppedLoading, *page.EventLoadEventFired, *page.EventNavigatedWithinDocument:
+	case *page.EventFrameStoppedLoading, *page.EventLoadEventFired:
 		browser.setSessionLoading(string(event.SessionID), false)
+	case *page.EventNavigatedWithinDocument:
+		browser.setSessionLoading(string(event.SessionID), false)
+		// Subframe same-document navigations can add entries to the tab's joint session history too.
+		browser.refreshSessionHistory(client, event.SessionID)
 	case *page.EventFrameNavigated:
 		browser.setSessionLoading(string(event.SessionID), false)
 		browser.releaseInitialSessionStorageFrame(event.SessionID, value.Frame)
+		if value.Frame != nil && value.Frame.ParentID == "" {
+			browser.refreshSessionHistory(client, event.SessionID)
+		}
 	}
 }
 
@@ -630,6 +661,7 @@ func (browser *liveSessionBrowser) observeTarget(client *liveSessionCDP, targetI
 		browser.observedTargets[targetID] = string(sessionID)
 		browser.targetBySession[string(sessionID)] = targetID
 		browser.stateMu.Unlock()
+		browser.refreshSessionHistory(client, sessionID)
 		return
 	}
 	browser.stateMu.Unlock()
@@ -644,6 +676,8 @@ func (browser *liveSessionBrowser) removeObservedTarget(targetID string) {
 	delete(browser.observedTargets, targetID)
 	delete(browser.attaching, targetID)
 	delete(browser.loading, targetID)
+	delete(browser.history, targetID)
+	delete(browser.historyGeneration, targetID)
 	delete(browser.initialSessionStorageScripts, targetID)
 	if sessionID != "" {
 		delete(browser.targetBySession, sessionID)
@@ -682,4 +716,55 @@ func (browser *liveSessionBrowser) targetLoading(targetID string) bool {
 	browser.stateMu.Lock()
 	defer browser.stateMu.Unlock()
 	return browser.loading[targetID]
+}
+
+// refreshSessionHistory reads an observed target's navigation history in the background,
+// because it is called from the event loop that also delivers the command's response.
+func (browser *liveSessionBrowser) refreshSessionHistory(client *liveSessionCDP, sessionID target.SessionID) {
+	browser.stateMu.Lock()
+	targetID := browser.targetBySession[string(sessionID)]
+	if browser.observedClient != client || targetID == "" {
+		browser.stateMu.Unlock()
+		return
+	}
+	browser.historyGeneration[targetID]++
+	generation := browser.historyGeneration[targetID]
+	browser.stateMu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(browser.runtime.ctx, liveSessionBrowserCommandTimeout)
+		defer cancel()
+		currentIndex, entries, err := page.GetNavigationHistory().Do(client.executorContext(ctx, sessionID))
+		if err != nil {
+			return
+		}
+		browser.setTargetHistory(targetID, generation, currentIndex, len(entries))
+	}()
+}
+
+func (browser *liveSessionBrowser) nextHistoryGeneration(targetID string) uint64 {
+	browser.stateMu.Lock()
+	defer browser.stateMu.Unlock()
+	browser.historyGeneration[targetID]++
+	return browser.historyGeneration[targetID]
+}
+
+// setTargetHistory drops results from superseded reads, which can finish after newer ones.
+func (browser *liveSessionBrowser) setTargetHistory(targetID string, generation uint64, currentIndex int64, entryCount int) {
+	browser.stateMu.Lock()
+	defer browser.stateMu.Unlock()
+	if browser.historyGeneration[targetID] != generation {
+		return
+	}
+	browser.history[targetID] = liveSessionTargetHistory{
+		canGoBack:    currentIndex > 0,
+		canGoForward: currentIndex+1 < int64(entryCount),
+	}
+}
+
+func (browser *liveSessionBrowser) targetHistory(targetID string) (liveSessionTargetHistory, bool) {
+	browser.stateMu.Lock()
+	defer browser.stateMu.Unlock()
+	history, ok := browser.history[targetID]
+	return history, ok
 }

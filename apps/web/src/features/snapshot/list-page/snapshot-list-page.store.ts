@@ -9,6 +9,8 @@ export type SnapshotConfirmAction =
   | { kind: "delete"; snapshot: Snapshot };
 
 type SnapshotListPageState = {
+  search: string;
+  setSearch: (search: string) => void;
   deleted: DeletedFilterValue;
   tags: TagFilterValue | undefined;
   detailSnapshot: Snapshot | null;
@@ -26,6 +28,8 @@ type SnapshotListPageState = {
 };
 
 export const useSnapshotListPageStore = create<SnapshotListPageState>()((set) => ({
+  search: "",
+  setSearch: (search) => set({ search }),
   deleted: "active",
   tags: undefined,
   detailSnapshot: null,

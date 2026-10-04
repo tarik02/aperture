@@ -48,6 +48,9 @@ export function useSnapshotsInfiniteQuery(
     initialPageParam: undefined as string | undefined,
     getNextPageParam,
     enabled,
+    // Keep rows on screen while a new search loads, but never show another tenant's rows.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === tenantKey ? previous : undefined,
     ...listQueryDefaults,
   });
 }

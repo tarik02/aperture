@@ -12,8 +12,10 @@ type SessionFilter struct {
 	TenantID       string
 	IncludeDeleted bool
 	Status         *string
-	Tags           []TagFilter
-	Resources      ResourceIDFilter
+	// Query matches a substring of the label, the id, or the base snapshot name.
+	Query     string
+	Tags      []TagFilter
+	Resources ResourceIDFilter
 }
 
 // ListSessionsPage returns tenant sessions with cursor pagination.
@@ -37,6 +39,15 @@ func (r *Repository) ListSessionsPage(ctx context.Context, filter SessionFilter,
 	}
 	if filter.Status != nil {
 		query = query.Where("status = ?", *filter.Status)
+	}
+	if filter.Query != "" {
+		pattern := containsPattern(filter.Query)
+		query = query.Where(
+			"(label LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\' OR base_snapshot_id IN (SELECT s.id FROM snapshots s WHERE s.name LIKE ? ESCAPE '\\'))",
+			pattern,
+			pattern,
+			pattern,
+		)
 	}
 	for _, tag := range filter.Tags {
 		if tag.Key == "" || len(tag.Values) == 0 {

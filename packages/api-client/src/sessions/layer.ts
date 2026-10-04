@@ -57,6 +57,7 @@ export const makeSessionsApi = Effect.gen(function* () {
           cursor: params.cursor,
           includeDeleted: params.includeDeleted || undefined,
           status: params.status,
+          query: params.query,
           ...tagQuery(params.tags),
         }),
       })

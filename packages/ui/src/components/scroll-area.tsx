@@ -1,17 +1,20 @@
 "use client";
 
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
+import type { Ref } from "react";
 
 import { cn } from "../utils.ts";
 
 type ScrollAreaProps = ScrollAreaPrimitive.Root.Props & {
   viewportClassName?: string;
+  viewportRef?: Ref<HTMLDivElement>;
   scrollbars?: "vertical" | "horizontal" | "both";
 };
 
 function ScrollArea({
   className,
   viewportClassName,
+  viewportRef,
   scrollbars = "vertical",
   children,
   ...props
@@ -26,6 +29,7 @@ function ScrollArea({
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
         data-slot="scroll-area-viewport"
         style={{
           overflowX: horizontal ? "scroll" : "hidden",
