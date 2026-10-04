@@ -238,6 +238,9 @@ func (s *WebService) LoginWithAPIToken(ctx context.Context, rawToken string) err
 	if err != nil {
 		return err
 	}
+	if principal.TokenID == "" {
+		return ErrTokenInvalid
+	}
 	if err := s.sessions.RenewToken(ctx); err != nil {
 		return fmt.Errorf("renew authenticated web session: %w", err)
 	}
@@ -261,6 +264,12 @@ func (s *WebService) Authenticate(ctx context.Context, selectedTenantID string) 
 	}
 	authMethod := s.sessions.GetString(ctx, webSessionAuthMethodKey)
 	return s.auth.AuthenticateUser(ctx, userID, selectedTenantID, authMethod)
+}
+
+// AuthenticatedUserID returns the user signed in to the current browser
+// session, or "" for anonymous and API-token sessions.
+func (s *WebService) AuthenticatedUserID(ctx context.Context) string {
+	return s.sessions.GetString(ctx, webSessionUserIDKey)
 }
 
 // SelectedTenantID returns the tenant selected for the current browser session.

@@ -273,6 +273,9 @@ func (runner commandRunner) run(opts options) error {
 
 	localURL := fmt.Sprintf("http://%s:%d", opts.bindAddress, opts.port)
 	writef(runner.stdout, "Starting Aperture at %s through containerized Vite...\n", localURL)
+	if opts.publicBaseURL != localURL {
+		writef(runner.stdout, "External URL: %s\n", opts.publicBaseURL)
+	}
 
 	readinessContext, cancelReadiness := context.WithCancel(context.Background())
 	defer cancelReadiness()

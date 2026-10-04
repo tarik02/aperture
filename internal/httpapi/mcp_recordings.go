@@ -112,7 +112,7 @@ func addRecordingAnnotationTool[Args any, PArgs interface {
 		if err := PArgs(&args).Validate(); err != nil {
 			return nil, mcpToolError("invalid_arguments", err)
 		}
-		view, err := s.sessionForMCP(ctx, a, sessionID, tenantID, true)
+		view, err := s.sessionForMCP(ctx, &a, sessionID, tenantID, true)
 		if err != nil {
 			return nil, err
 		}
@@ -151,7 +151,7 @@ func (s *Server) mcpRecordingStart(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err := s.checkRecordingConfig(&in.Config); err != nil {
 		return nil, mcpRecordingOutput{}, mcpRecordingError(err)
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
@@ -165,7 +165,7 @@ func (s *Server) mcpRecordingsList(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpRecordingsOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpRecordingsOutput{}, err
 	}
@@ -177,7 +177,7 @@ func (s *Server) mcpRecordingStatus(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
@@ -191,7 +191,7 @@ func (s *Server) mcpRecordingStop(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
@@ -207,7 +207,7 @@ func (s *Server) mcpRecordingRetarget(ctx context.Context, _ *mcp.CallToolReques
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpRecordingOutput{}, err
 	}

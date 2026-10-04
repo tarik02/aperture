@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
 )
 
@@ -23,8 +24,14 @@ const (
 
 // ResourceGrant allows access to one tenant resource.
 type ResourceGrant struct {
-	ResourceType string
-	ResourceID   string
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
+}
+
+// TenantGrant holds a principal's effective scopes in one tenant.
+type TenantGrant struct {
+	TenantID string
+	Scopes   []string
 }
 
 // Principal holds authenticated identity and authority state for a request.
@@ -33,6 +40,7 @@ type Principal struct {
 	ID             string
 	AuthMethod     string
 	TokenID        string
+	OAuthGrantID   string
 	UserID         *string
 	AuthorityType  string
 	TenantID       *string
@@ -41,6 +49,45 @@ type Principal struct {
 	ResourceMode   string
 	ResourceGrants []ResourceGrant
 	ExpiresAt      *string
+	// TenantGrants lists every tenant a multi-tenant principal may select.
+	// Until SelectTenant picks one, TenantID is nil and Scopes is empty.
+	TenantGrants []TenantGrant
+}
+
+// SelectTenant narrows a multi-tenant principal to one of its tenants. An
+// empty tenantID selects the only tenant when there is exactly one.
+// Principals without tenant grants are returned unchanged.
+func SelectTenant(principal Principal, tenantID string) (Principal, error) {
+	if len(principal.TenantGrants) == 0 {
+		return principal, nil
+	}
+	if tenantID == "" {
+		if len(principal.TenantGrants) != 1 {
+			return principal, ErrTenantRequired
+		}
+		tenantID = principal.TenantGrants[0].TenantID
+	}
+	for _, grant := range principal.TenantGrants {
+		if grant.TenantID == tenantID {
+			principal.TenantID = &grant.TenantID
+			principal.Scopes = slices.Clone(grant.Scopes)
+			return principal, nil
+		}
+	}
+	return principal, ErrTenantForbidden
+}
+
+// HasScopeInAnyTenant reports whether a principal holds scope directly or in any selectable tenant.
+func HasScopeInAnyTenant(principal Principal, scope string) bool {
+	if HasScope(principal.Scopes, scope) {
+		return true
+	}
+	for _, grant := range principal.TenantGrants {
+		if HasScope(grant.Scopes, scope) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsResourceRestricted reports whether a principal uses an explicit allowlist.

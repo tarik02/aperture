@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import * as Api from "@aperture-browser/api-schema";
 
 // The browser login flows are not part of api/openapi.yaml.
 
@@ -148,6 +149,72 @@ export const RecoveryCodes = Schema.Struct({
   recoveryCodes: Schema.Array(Schema.String),
 });
 
+export const OAuthClient = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  uri: Schema.NullOr(Schema.String),
+  logoUri: Schema.NullOr(Schema.String),
+  kind: Schema.Literals(["registered", "metadata_document"]),
+});
+
+/** A pending OAuth authorization request, as the consent page presents it. */
+export const OAuthAuthorizationRequest = Schema.Struct({
+  client: OAuthClient,
+  redirectUri: Schema.String,
+  requestedScopes: Schema.Array(Schema.String),
+  user: Schema.Struct({
+    id: Schema.String,
+    displayName: Schema.String,
+    isSystemAdmin: Schema.Boolean,
+  }),
+  tenants: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      displayName: Schema.String,
+      scopes: Schema.Array(Api.TenantScope),
+    }),
+  ),
+  availableScopes: Schema.Array(Api.TenantScope),
+  canGrantSystemAdmin: Schema.Boolean,
+});
+
+/** Where the browser goes after the user approves or denies an authorization request. */
+export const OAuthRedirect = Schema.Struct({
+  redirectUrl: Schema.String,
+});
+
+export const OAuthGrant = Schema.Struct({
+  id: Schema.String,
+  client: OAuthClient,
+  authorityType: Api.AuthorityType,
+  tenants: Schema.Array(Schema.Struct({ id: Schema.String, displayName: Schema.String })),
+  scopes: Schema.Array(Schema.String),
+  resourceMode: Api.ResourceMode,
+  resourceGrants: Schema.Array(
+    Schema.Struct({ resourceType: Api.ResourceType, resourceId: Schema.String }),
+  ),
+  createdAt: Schema.String,
+  lastUsedAt: Schema.NullOr(Schema.String),
+});
+
+export const OAuthGrants = Schema.Struct({
+  grants: Schema.Array(OAuthGrant),
+});
+
+/**
+ * The user's answer to an authorization request. `query` is the authorize query string
+ * without its leading `?`. With `systemAdmin`, the tenant, scope and resource fields are
+ * ignored.
+ */
+export interface OAuthApproval {
+  readonly query: string;
+  readonly systemAdmin: boolean;
+  readonly tenantIds: ReadonlyArray<string>;
+  readonly scopes: ReadonlyArray<Api.TenantScope>;
+  readonly resourceMode: Api.ResourceMode;
+  readonly resourceGrants: ReadonlyArray<Api.ResourceGrant>;
+}
+
 export type LoginMethods = typeof LoginMethods.Type;
 export type PasskeyLoginOptions = typeof PasskeyLoginOptions.Type;
 export type PasskeyRegistrationOptions = typeof PasskeyRegistrationOptions.Type;
@@ -158,3 +225,8 @@ export type PasswordLoginResponse = typeof PasswordLoginResponse.Type;
 export type RecoveryCodes = typeof RecoveryCodes.Type;
 export type SecurityStatus = typeof SecurityStatus.Type;
 export type TOTPEnrollment = typeof TOTPEnrollment.Type;
+export type OAuthClient = typeof OAuthClient.Type;
+export type OAuthAuthorizationRequest = typeof OAuthAuthorizationRequest.Type;
+export type OAuthRedirect = typeof OAuthRedirect.Type;
+export type OAuthGrant = typeof OAuthGrant.Type;
+export type OAuthGrants = typeof OAuthGrants.Type;

@@ -12,7 +12,8 @@ export function AppShell({ children }: AppShellProps) {
   const [mounted, setMounted] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isWorkbenchRoute =
-    /^\/-\/sessions\/[^/]+\/?$/.test(pathname) || /^\/(?:invite|share)\/?$/.test(pathname);
+    /^\/-\/sessions\/[^/]+\/?$/.test(pathname) ||
+    /^\/(?:invite|share|oauth\/consent)\/?$/.test(pathname);
 
   useEffect(() => {
     setMounted(true);

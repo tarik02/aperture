@@ -55,6 +55,9 @@ func NewRouter(logger *zap.Logger, server *Server, staticAssets fs.FS, cdpRouteB
 		router.PATCH("/auth/passkeys/:passkeyId", server.renamePasskey)
 		router.DELETE("/auth/passkeys/:passkeyId", server.deletePasskey)
 		router.POST("/auth/logout", server.logoutWebSession)
+		if server.oauthEnabled() {
+			registerOAuthRoutes(router, server)
+		}
 	}
 	internal := router.Group("/internal")
 	{

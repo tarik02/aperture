@@ -68,6 +68,9 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 	if rawToken == "" {
 		return Principal{}, ErrTokenMissing
 	}
+	if strings.HasPrefix(rawToken, oauthAccessTokenPrefix) {
+		return s.authenticateOAuthAccessToken(ctx, rawToken)
+	}
 
 	tokenID, secret, err := ParseRawToken(rawToken)
 	if err != nil {
@@ -357,53 +360,69 @@ func (s *Service) validateCreateTokenInput(ctx context.Context, input CreateToke
 		if input.AuthorityType != AuthorityTenant || input.TenantID == nil {
 			return CreateTokenInput{}, ErrInvalidResourceScope
 		}
-		seen := make(map[string]struct{}, len(input.ResourceGrants))
-		grants := make([]ResourceGrant, 0, len(input.ResourceGrants))
-		for _, grant := range input.ResourceGrants {
-			if grant.ResourceType != ResourceTypeSession && grant.ResourceType != ResourceTypeSnapshot {
-				return CreateTokenInput{}, ErrInvalidResourceScope
-			}
-			if err := ids.ValidateUUIDv7(grant.ResourceID); err != nil {
-				return CreateTokenInput{}, ErrInvalidResourceScope
-			}
-			key := grant.ResourceType + "\x00" + grant.ResourceID
-			if _, ok := seen[key]; ok {
-				return CreateTokenInput{}, ErrInvalidResourceScope
-			}
-			seen[key] = struct{}{}
-
-			switch grant.ResourceType {
-			case ResourceTypeSession:
-				row, err := s.repo.GetSessionByTenantAndID(ctx, *input.TenantID, grant.ResourceID)
-				if err != nil {
-					return CreateTokenInput{}, err
-				}
-				if row == nil {
-					return CreateTokenInput{}, ErrInvalidResourceScope
-				}
-			case ResourceTypeSnapshot:
-				row, err := s.repo.GetSnapshotByID(ctx, grant.ResourceID)
-				if err != nil {
-					return CreateTokenInput{}, err
-				}
-				if row == nil || row.TenantID != *input.TenantID {
-					return CreateTokenInput{}, ErrInvalidResourceScope
-				}
-			}
-			grants = append(grants, grant)
+		grants, err := s.normalizeResourceGrants(ctx, []string{*input.TenantID}, input.ResourceGrants)
+		if err != nil {
+			return CreateTokenInput{}, err
 		}
-		slices.SortFunc(grants, func(a, b ResourceGrant) int {
-			if order := strings.Compare(a.ResourceType, b.ResourceType); order != 0 {
-				return order
-			}
-			return strings.Compare(a.ResourceID, b.ResourceID)
-		})
 		input.ResourceGrants = grants
 	default:
 		return CreateTokenInput{}, ErrInvalidResourceScope
 	}
 
 	return input, nil
+}
+
+// normalizeResourceGrants validates that every grant names an existing
+// resource in one of tenantIDs, rejects duplicates, and returns them sorted.
+func (s *Service) normalizeResourceGrants(ctx context.Context, tenantIDs []string, input []ResourceGrant) ([]ResourceGrant, error) {
+	seen := make(map[string]struct{}, len(input))
+	grants := make([]ResourceGrant, 0, len(input))
+	for _, grant := range input {
+		if grant.ResourceType != ResourceTypeSession && grant.ResourceType != ResourceTypeSnapshot {
+			return nil, ErrInvalidResourceScope
+		}
+		if err := ids.ValidateUUIDv7(grant.ResourceID); err != nil {
+			return nil, ErrInvalidResourceScope
+		}
+		key := grant.ResourceType + "\x00" + grant.ResourceID
+		if _, ok := seen[key]; ok {
+			return nil, ErrInvalidResourceScope
+		}
+		seen[key] = struct{}{}
+
+		var resourceTenantID string
+		switch grant.ResourceType {
+		case ResourceTypeSession:
+			row, err := s.repo.GetSessionByID(ctx, grant.ResourceID)
+			if err != nil {
+				return nil, err
+			}
+			if row == nil {
+				return nil, ErrInvalidResourceScope
+			}
+			resourceTenantID = row.TenantID
+		case ResourceTypeSnapshot:
+			row, err := s.repo.GetSnapshotByID(ctx, grant.ResourceID)
+			if err != nil {
+				return nil, err
+			}
+			if row == nil {
+				return nil, ErrInvalidResourceScope
+			}
+			resourceTenantID = row.TenantID
+		}
+		if !slices.Contains(tenantIDs, resourceTenantID) {
+			return nil, ErrInvalidResourceScope
+		}
+		grants = append(grants, grant)
+	}
+	slices.SortFunc(grants, func(a, b ResourceGrant) int {
+		if order := strings.Compare(a.ResourceType, b.ResourceType); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ResourceID, b.ResourceID)
+	})
+	return grants, nil
 }
 
 // RevokeToken revokes a token as the trusted local system actor.
@@ -623,6 +642,10 @@ func (s *Service) createToken(ctx context.Context, principal Principal, input Cr
 }
 
 func validateTokenDelegation(principal Principal, input CreateTokenInput) error {
+	// A third-party client must not mint API tokens that outlive its grant.
+	if principal.OAuthGrantID != "" {
+		return ErrTokenDelegation
+	}
 	switch principal.AuthorityType {
 	case AuthoritySystemAdmin:
 		if !HasScope(principal.Scopes, ScopeSystemAdmin) {

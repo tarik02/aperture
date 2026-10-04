@@ -13,7 +13,7 @@ func (s *Server) mcpSessionFilesList(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, mcpSessionFilesOutput{}, err
 	}
@@ -51,7 +51,7 @@ func (s *Server) mcpSessionFileURL(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSessionFileURLOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, mcpSessionFileURLOutput{}, err
 	}
