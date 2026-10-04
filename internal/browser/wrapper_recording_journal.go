@@ -17,7 +17,7 @@ import (
 //	wheel      targetId, x, y, dx, dy
 //	reveal     targetId                         smooth scroll that brought an element into view
 //	caption    text                             recording.caption
-//	focus      targetId, rect, zoom             recording.focus
+//	focus      targetId, rect, zoom, track      recording.focus; track lists {atMs, rect} where a selector's element moved
 //	attention  targetId, x, y, radius, loops    recording.attention
 //
 // and startMs and endMs, both Unix milliseconds. Surface px are CSS px of the target's viewport.

@@ -196,16 +196,62 @@ func (p *recordingPlan) effects(markClicks bool) (cues []cue, ripples []ripple, 
 				ripples = append(ripples, ripple{start, x, y})
 			}
 		case "focus":
-			rect, _ := e["rect"].(map[string]any)
-			num := func(key string) float64 { n, _ := rect[key].(float64); return n }
 			if _, kept := pieceAt(p.pieces, (at.start+at.end)/2); kept {
-				x, y := p.framePoint(segment, num("x")+num("width")/2, num("y")+num("height")/2)
-				zooms = append(zooms, focus{start, mapTime(p.pieces, at.end), e.num("zoom"), x, y})
+				if zoom, ok := p.focusAt(e, segment, at); ok {
+					zooms = append(zooms, zoom)
+				}
 			}
 		}
 	}
 	cues = fitCues(cues, mapTime(p.pieces, p.total))
 	return cues, ripples, zooms
+}
+
+// focusAt places a focus entry on the edited video. Its rect, and every rect its element moved to
+// while the focus lasted, is cut to the viewport, since only the visible part can be shown; the
+// zoom is lowered so that part fits the frame, and the view follows its centre. A focus whose
+// element was still out of view, about to be scrolled to, begins once it is in view.
+func (p *recordingPlan) focusAt(e journalEntry, segment timelineSegment, at span) (focus, bool) {
+	viewportWidth, viewportHeight := float64(segment.ViewportWidth), float64(segment.ViewportHeight)
+	visible := func(raw any) (recording.Rect, bool) {
+		fields, _ := raw.(map[string]any)
+		num := func(key string) float64 { n, _ := fields[key].(float64); return n }
+		x, y, width, height := num("x"), num("y"), num("width"), num("height")
+		if viewportWidth > 0 && viewportHeight > 0 {
+			left, top := max(x, 0), max(y, 0)
+			right, bottom := min(x+width, viewportWidth), min(y+height, viewportHeight)
+			x, y, width, height = left, top, right-left, bottom-top
+		}
+		return recording.Rect{X: x, Y: y, Width: width, Height: height}, width > 0 && height > 0
+	}
+	type sample struct {
+		at   int64
+		rect any
+	}
+	samples := []sample{{at.start, e["rect"]}}
+	track, _ := e["track"].([]any)
+	for _, raw := range track {
+		point, _ := raw.(map[string]any)
+		offset, _ := point["atMs"].(float64)
+		samples = append(samples, sample{at.start + int64(offset), point["rect"]})
+	}
+	f := focus{end: mapTime(p.pieces, at.end)}
+	for _, s := range samples {
+		rect, ok := visible(s.rect)
+		if !ok {
+			continue
+		}
+		t := mapTime(p.pieces, s.at)
+		if len(f.path) == 0 {
+			f.start, f.zoom = t, e.num("zoom")
+			if viewportWidth > 0 && viewportHeight > 0 {
+				f.zoom = max(1, min(f.zoom, viewportWidth/rect.Width, viewportHeight/rect.Height))
+			}
+		}
+		x, y := p.framePoint(segment, rect.X+rect.Width/2, rect.Y+rect.Height/2)
+		f.path = append(f.path, focusPoint{t, x, y})
+	}
+	return f, len(f.path) > 0 && f.end > f.start
 }
 
 // framePoint maps a point in a segment's viewport px to the edited frame, whose size is the first
@@ -360,10 +406,17 @@ func remapFilters(pieces []piece) []string {
 
 func seconds(ms int64) string { return strconv.FormatFloat(float64(ms)/1000, 'f', 3, 64) }
 
-// focus is a zoom the recording asked for: a window of edited time, a factor and the view's centre in frame px.
+// focus is a zoom the recording asked for: a window of edited time, a factor and the path of the
+// view's centre in frame px, which has a point at start and one wherever its element moved.
 type focus struct {
 	start, end int64
-	zoom, x, y float64
+	zoom       float64
+	path       []focusPoint
+}
+
+type focusPoint struct {
+	t    int64
+	x, y float64
 }
 
 type focusKey struct {
@@ -389,13 +442,31 @@ func focusFilters(zooms []focus, width, height float64, fps int) []string {
 		keys := []focusKey{{group[0].start, 1, whole.x, whole.y}}
 		for k, f := range group {
 			// The view's centre keeps the zoomed view inside the frame.
-			x := max(width/(2*f.zoom), min(f.x, width-width/(2*f.zoom)))
-			y := max(height/(2*f.zoom), min(f.y, height-height/(2*f.zoom)))
+			key := func(t int64, point focusPoint) focusKey {
+				x := max(width/(2*f.zoom), min(point.x, width-width/(2*f.zoom)))
+				y := max(height/(2*f.zoom), min(point.y, height-height/(2*f.zoom)))
+				return focusKey{t, f.zoom, x, y}
+			}
 			hold := f.end
 			if k == len(group)-1 {
 				hold -= ease
 			}
-			keys = append(keys, focusKey{f.start + ease, f.zoom, x, y}, focusKey{max(hold, f.start+ease), f.zoom, x, y})
+			// The view eases in to where the element is once the ease ends, then follows it.
+			arrived := f.start + ease
+			at := f.path[0]
+			rest := f.path[1:]
+			for len(rest) > 0 && rest[0].t <= arrived {
+				at, rest = rest[0], rest[1:]
+			}
+			keys = append(keys, key(arrived, at))
+			for _, point := range rest {
+				if point.t >= hold {
+					break
+				}
+				keys = append(keys, key(point.t, point))
+				at = point
+			}
+			keys = append(keys, key(max(hold, keys[len(keys)-1].t), at))
 		}
 		keys = append(keys, focusKey{group[len(group)-1].end, 1, whole.x, whole.y})
 		filters = append(filters, focusFilter(keys, width, height, fps))

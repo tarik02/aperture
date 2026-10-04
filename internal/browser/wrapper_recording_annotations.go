@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
 	"github.com/aperture/aperture/internal/recording"
 	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/cdproto/target"
 )
 
 // annotationRequest is one explicit recording tool, decoded and validated: a caption, a focus or an
@@ -91,14 +93,19 @@ func (session *liveSession) handleAnnotation(w http.ResponseWriter, req *http.Re
 }
 
 // annotate acts on one running recording: the one named by the request, or the only one running.
-// It holds the browser-call gate while it acts, so no automation interleaves with it.
+// A caption or a focus only marks the video, so browser calls go on while a focus lasts and a
+// caller can zoom on an element while it acts on it. An attention moves the real pointer, so it
+// holds the browser-call gate and no automation interleaves with it.
 func (session *liveSession) annotate(ctx context.Context, request annotationRequest) error {
 	r := session.runtime
-	release, err := session.acquireRecordingGate(ctx)
-	if err != nil {
-		return err
+	var err error
+	if request.kind == "attention" {
+		release, err := session.acquireRecordingGate(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
-	defer release()
 	var active *wrapperRecording
 	var targetID string
 	running := 0
@@ -148,17 +155,50 @@ func (session *liveSession) annotate(ctx context.Context, request annotationRequ
 	return nil
 }
 
-// annotateFocus blocks for the duration of a zoom on a rect, so nothing else happens meanwhile.
+// focusTrackInterval is how often a focus on a selector measures its element again.
+const focusTrackInterval = 100 * time.Millisecond
+
+// annotateFocus returns when a zoom's duration is over. A zoom on a selector follows its element
+// meanwhile, so it stays on it when automation scrolls or the layout moves: every move is a track
+// point at its offset from the start. A moment the element cannot be measured keeps the last rect.
 func (session *liveSession) annotateFocus(ctx context.Context, targetID string, request annotationRequest) (time.Time, map[string]any, error) {
 	rect, err := session.annotationRect(targetID, request)
 	if err != nil {
 		return time.Time{}, nil, err
 	}
 	started := time.Now()
-	if err := sleepContext(ctx, time.Duration(request.durationMS)*time.Millisecond); err != nil {
-		return time.Time{}, nil, err
+	fields := map[string]any{"targetId": targetID, "rect": rect, "zoom": request.zoom}
+	deadline := time.NewTimer(time.Duration(request.durationMS) * time.Millisecond)
+	defer deadline.Stop()
+	var tick <-chan time.Time
+	if request.selector != "" {
+		ticker := time.NewTicker(focusTrackInterval)
+		defer ticker.Stop()
+		tick = ticker.C
 	}
-	return started, map[string]any{"targetId": targetID, "rect": rect, "zoom": request.zoom}, nil
+	var track []map[string]any
+	for last := rect; ; {
+		select {
+		case <-ctx.Done():
+			return time.Time{}, nil, ctx.Err()
+		case <-deadline.C:
+			if len(track) > 0 {
+				fields["track"] = track
+			}
+			return started, fields, nil
+		case <-tick:
+			current, ok := session.trackRect(targetID, request.selector)
+			if !ok {
+				continue
+			}
+			moved := max(math.Abs(current.X-last.X), math.Abs(current.Y-last.Y), math.Abs(current.Width-last.Width), math.Abs(current.Height-last.Height))
+			if moved < 1 {
+				continue
+			}
+			track = append(track, map[string]any{"atMs": time.Since(started).Milliseconds(), "rect": current})
+			last = current
+		}
+	}
 }
 
 // annotateAttention loops the real pointer around a point so a viewer looks there.
@@ -192,11 +232,9 @@ func (session *liveSession) annotationRect(targetID string, request annotationRe
 	if request.rect != nil {
 		return *request.rect, nil
 	}
-	quoted, _ := json.Marshal(request.selector)
-	expression := fmt.Sprintf(`(()=>{const e=document.querySelector(%s);if(!e)return null;const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})()`, quoted)
 	var box []float64
 	err := session.browser.withTarget(targetID, func(ctx context.Context) error {
-		object, details, err := runtime.Evaluate(expression).WithReturnByValue(true).Do(ctx)
+		object, details, err := runtime.Evaluate(selectorRectExpression(request.selector)).WithReturnByValue(true).Do(ctx)
 		if err != nil {
 			return err
 		}
@@ -212,4 +250,35 @@ func (session *liveSession) annotationRect(targetID string, request annotationRe
 		return recording.Rect{}, fmt.Errorf("%w: selector matched no element", recording.ErrInvalid)
 	}
 	return recording.Rect{X: box[0], Y: box[1], Width: box[2], Height: box[3]}, nil
+}
+
+func selectorRectExpression(selector string) string {
+	quoted, _ := json.Marshal(selector)
+	return fmt.Sprintf(`(()=>{const e=document.querySelector(%s);if(!e)return null;const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})()`, quoted)
+}
+
+// trackRect measures a selector's element on the session the browser already observes the target
+// on, which a measurement every focusTrackInterval would otherwise attach and detach each time. A
+// failed measurement is no fault of the browser connection, since the page may be navigating, so
+// the action never fails: a failed action would close the connection.
+func (session *liveSession) trackRect(targetID, selector string) (recording.Rect, bool) {
+	browser := session.browser
+	browser.stateMu.Lock()
+	sessionID := browser.observedTargets[targetID]
+	browser.stateMu.Unlock()
+	if sessionID == "" {
+		return recording.Rect{}, false
+	}
+	var box []float64
+	_ = browser.execute(target.SessionID(sessionID), func(ctx context.Context) error {
+		object, details, err := runtime.Evaluate(selectorRectExpression(selector)).WithReturnByValue(true).Do(ctx)
+		if err == nil && details == nil {
+			_ = json.Unmarshal(object.Value, &box)
+		}
+		return nil
+	})
+	if len(box) != 4 {
+		return recording.Rect{}, false
+	}
+	return recording.Rect{X: box[0], Y: box[1], Width: box[2], Height: box[3]}, true
 }

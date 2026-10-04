@@ -163,7 +163,7 @@ func (s *Server) addRecordingAnnotationTools(server *mcp.Server, a mcpAuth) {
 		return addressed()
 	}
 	addRecordingAnnotationTool[recording.Caption](s, server, "caption", "Show a caption in the recording from now on. Returns at once.", pick(mcpCaptionSchema, mcpBoundCaptionSchema))
-	addRecordingAnnotationTool[recording.Focus](s, server, "focus", "Zoom the recording on a rect or element for a while. Blocks for the duration, so no browser tool runs meanwhile.", pick(mcpFocusSchema, mcpBoundFocusSchema))
+	addRecordingAnnotationTool[recording.Focus](s, server, "focus", "Zoom the recording on a rect or element for a while. Returns when the zoom ends; browser tools run meanwhile, so call one alongside to act during the zoom. A zoom on a selector follows its element.", pick(mcpFocusSchema, mcpBoundFocusSchema))
 	addRecordingAnnotationTool[recording.Attention](s, server, "attention", "Circle the real pointer around a point or element so a viewer looks there. Blocks for the duration. Needs a compositor session.", pick(mcpAttentionSchema, mcpBoundAttentionSchema))
 }
 

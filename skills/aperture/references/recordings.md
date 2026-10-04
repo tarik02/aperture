@@ -24,14 +24,14 @@ Interactive clients use the `recording.start`, `recording.stop` and `recording.c
 
 ## Gate and journal
 
-Browser automation calls and recording start, stop and annotations share one gate: a start waits for a running browser call and returns only after the capture's first frame, so nothing happens before frame 0; a stop leaves the gate before the render begins. While a recording runs, automation goes at the recorded or presentation [cadence](live-session.md#automation-pacing) and is journaled: pointer glides, presses and wheel input, smooth reveal scrolls, a span for every browser tool whose `readOnlyHint` is not true, and the explicit annotations.
+Browser automation calls, recording start and stop, and `attention` share one gate: a start waits for a running browser call and returns only after the capture's first frame, so nothing happens before frame 0; a stop leaves the gate before the render begins. While a recording runs, automation goes at the recorded or presentation [cadence](live-session.md#automation-pacing) and is journaled: pointer glides, presses and wheel input, smooth reveal scrolls, a span for every browser tool whose `readOnlyHint` is not true, and the explicit annotations.
 
 ### Annotations
 
 They act on the recording named by `recordingId`, or on the only running one; with none or several running and no id, they fail. Coordinates are CSS pixels of the recorded tab's viewport; a `selector` is resolved in its top-level document.
 
 - `caption`: `text` (1 to 200 characters), `durationMs` (200 to 30000, default 3000). Returns at once; the text is burned in from that moment.
-- `focus`: `rect {x, y, width, height}` or `selector`, `zoom` (above 1, up to 4), `durationMs` (200 to 10000, default 2000). Blocks for the duration and no browser tool runs meanwhile. Focus windows under half a second apart stay zoomed and pan between.
+- `focus`: `rect {x, y, width, height}` or `selector`, `zoom` (above 1, up to 4), `durationMs` (200 to 10000, default 2000). Returns when the zoom ends but holds nothing: browser tools run meanwhile, so to zoom on an element while acting on it, call `focus` and the browser tool together. A `selector` focus follows its element as automation scrolls or the layout moves. Only the part of the rect inside the viewport is shown, and the zoom is lowered so that part fits the frame. Focus windows under half a second apart stay zoomed and pan between.
 - `attention`: `point {x, y}` or `selector`, `radius` (8 to 300, default 40), `loops` (1 to 5, default 2), `durationMs` (300 to 5000, default 1200). Circles the real pointer around the place, so it needs a compositor session and the session's input to be free; blocks for the duration.
 
 ## Edit settings

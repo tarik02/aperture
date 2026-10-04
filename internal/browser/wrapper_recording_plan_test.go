@@ -127,7 +127,7 @@ func TestEffectsFollowTheFitOfASegmentOfAnotherShape(t *testing.T) {
 		t.Errorf("ripples = %v", ripples)
 	}
 	// The centre of B's viewport is the centre of the fitted picture, which is the frame's centre.
-	if len(zooms) != 1 || zooms[0].x != 640 || zooms[0].y != 360 {
+	if len(zooms) != 1 || zooms[0].path[0].x != 640 || zooms[0].path[0].y != 360 {
 		t.Errorf("zooms = %v", zooms)
 	}
 }
@@ -150,7 +150,7 @@ func TestCaptionsEndAtTheCutAndBurstsHaveDefaults(t *testing.T) {
 }
 
 func TestFocusWindowsCloseTogetherShareOneZoom(t *testing.T) {
-	zoom := func(start, end int64, x float64) focus { return focus{start, end, 2, x, 100} }
+	zoom := func(start, end int64, x float64) focus { return focus{start, end, 2, []focusPoint{{start, x, 100}}} }
 	near := focusFilters([]focus{zoom(1000, 2000, 100), zoom(2300, 3000, 400)}, 640, 360, 30)
 	apart := focusFilters([]focus{zoom(1000, 2000, 100), zoom(5000, 6000, 400)}, 640, 360, 30)
 	if len(near) != 1 || len(apart) != 2 {

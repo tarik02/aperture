@@ -252,6 +252,9 @@ func (c *cdpProxyConn) fromClient(raw []byte) {
 			return
 		}
 	}
+	if method == "Runtime.callFunctionOn" && c.glideToHitTarget(raw) {
+		return
+	}
 	switch method {
 	case "Runtime.evaluate", "Runtime.callFunctionOn":
 		if !c.prepareEvaluation(raw) {
