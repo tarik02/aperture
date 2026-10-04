@@ -192,9 +192,6 @@ func (s *Service) Bootstrap(ctx context.Context, input BootstrapInput) (CreatedT
 		if errors.Is(err, db.ErrBootstrapNotEmpty) {
 			return CreatedToken{}, ErrBootstrapNotEmpty
 		}
-		if isUniqueViolation(err) {
-			return CreatedToken{}, ErrTokenNameConflict
-		}
 		return CreatedToken{}, err
 	}
 
@@ -635,7 +632,7 @@ func (s *Service) createToken(ctx context.Context, principal Principal, input Cr
 		return CreatedToken{}, err
 	}
 	if err := s.repo.CreateAPIToken(ctx, row, audit); err != nil {
-		if isUniqueViolation(err) {
+		if errors.Is(err, db.ErrAPITokenNameConflict) {
 			return CreatedToken{}, ErrTokenNameConflict
 		}
 		return CreatedToken{}, err

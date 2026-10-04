@@ -72,7 +72,10 @@ export function TagEditor({ entries, onChange, error, disabled, hideLabel }: Tag
       <Field>
         <FieldLabel className={hideLabel ? "aperture:sr-only" : undefined}>Tags</FieldLabel>
         <ScrollArea scrollbars="horizontal" className="aperture:w-full aperture:pb-2">
-          <Table className="aperture:min-w-[28rem] aperture:[&_tr]:hover:bg-transparent">
+          <Table
+            scrollable={false}
+            className="aperture:min-w-[28rem] aperture:[&_tr]:hover:bg-transparent"
+          >
             <TableHeader>
               <TableRow className="aperture:hover:bg-transparent">
                 <TableHead className="aperture:h-7 aperture:px-1">Key</TableHead>

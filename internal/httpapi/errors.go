@@ -91,7 +91,7 @@ func mapError(err error) (int, string, string) {
 	case errors.Is(err, auth.ErrTenantDeleted):
 		return http.StatusConflict, "tenant_deactivated", "tenant is deactivated"
 	case errors.Is(err, auth.ErrTokenNameConflict):
-		return http.StatusConflict, "token_name_conflict", "api token name already exists"
+		return http.StatusConflict, "token_name_conflict", "an active api token with this name already exists"
 	case errors.Is(err, auth.ErrTokenDelegation):
 		return http.StatusForbidden, "token_delegation_exceeded", "token delegation exceeds caller authority"
 	case errors.Is(err, auth.ErrResourceAccessDenied):

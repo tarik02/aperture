@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Button } from "@aperture-browser/ui/components/button";
 import { DialogFooter, DialogHeader, DialogTitle } from "@aperture-browser/ui/components/dialog";
@@ -32,13 +33,17 @@ import { useSessionCreateModalStore } from "#/features/session/create-modal/sess
 import { useSessionFormStore } from "#/features/session/form/session-form.store.ts";
 
 type SessionFormProps = {
+  /** Called after "Create only"; "Create" opens the session instead. */
   onCreated?: (result: CreateSessionResponse) => void;
 };
+
+type CreateIntent = "open" | "stay";
 
 export function SessionForm({ onCreated }: SessionFormProps) {
   const channelsQuery = useBrowserChannelsQuery();
   const snapshotsQuery = useSnapshotsInfiniteQuery({ limit: 100 });
   const mutation = useCreateSessionMutation();
+  const navigate = useNavigate();
 
   const draft = useSessionFormStore((state) => state.formData);
   const setFormData = useSessionFormStore((state) => state.setFormData);
@@ -54,9 +59,7 @@ export function SessionForm({ onCreated }: SessionFormProps) {
   );
   const snapshotNames = useMemo(() => snapshots.map((snapshot) => snapshot.name), [snapshots]);
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-
+  async function createSession(intent: CreateIntent) {
     if (!selectedChannel) {
       setFormData({ channelError: "Channel required" });
       return;
@@ -73,12 +76,21 @@ export function SessionForm({ onCreated }: SessionFormProps) {
       tags: entriesToTags(tagEntries),
     });
 
-    onCreated?.(result);
     closeModal();
+    if (intent === "open") {
+      void navigate({ to: "/-/sessions/$sessionId", params: { sessionId: result.session.id } });
+    } else {
+      onCreated?.(result);
+    }
   }
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)}>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void createSession("open");
+      }}
+    >
       <DialogHeader>
         <DialogTitle>Create session</DialogTitle>
       </DialogHeader>
@@ -183,8 +195,16 @@ export function SessionForm({ onCreated }: SessionFormProps) {
         />
       </FieldGroup>
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={closeModal} disabled={mutation.isPending}>
+        <Button type="button" variant="ghost" onClick={closeModal} disabled={mutation.isPending}>
           Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void createSession("stay")}
+          disabled={mutation.isPending}
+        >
+          Create only
         </Button>
         <Button type="submit" disabled={mutation.isPending}>
           Create

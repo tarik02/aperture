@@ -26,6 +26,7 @@ export const queryKeys = {
 };
 
 export interface TenantsFilters {
+  query?: string;
   includeDeleted?: boolean;
   deleted?: DeletedFilterValue;
   limit?: number;
@@ -38,6 +39,7 @@ export interface UsersFilters {
 }
 
 export interface SessionsFilters {
+  query?: string;
   includeDeleted?: boolean;
   status?: SessionStatus;
   tags?: TagFilterValue;

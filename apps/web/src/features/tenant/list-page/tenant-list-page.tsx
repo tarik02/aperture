@@ -1,12 +1,13 @@
 import { Navigate } from "@tanstack/react-router";
 import { Building2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { useMemo } from "react";
+import { useDeferredValue, useMemo } from "react";
 import { toast } from "sonner";
 import { PageHeaderActions } from "#/components/page-header-actions.tsx";
 import { TenantFormModal } from "#/features/tenant/form-modal/tenant-form-modal.tsx";
 import { BatchActionBar } from "#/components/resources/batch-action-bar.tsx";
 import { ConfirmDialog } from "#/components/resources/confirm-dialog.tsx";
 import { DeletedStatusSelect } from "#/components/resources/deleted-status-select.tsx";
+import { SearchInput } from "#/components/resources/search-input.tsx";
 import {
   InfiniteTableShell,
   TableSkeletonRows,
@@ -28,10 +29,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  stickyTableEndCellClassName,
-  stickyTableEndHeaderClassName,
-  stickyTableStartCellClassName,
-  stickyTableStartHeaderClassName,
 } from "@aperture-browser/ui/components/table";
 import {
   useDeleteTenantMutation,
@@ -50,17 +47,13 @@ import { useRunApi } from "@aperture-browser/session-react";
 
 const TENANT_SKELETON_COLUMNS = [
   {
-    cellClassName: stickyTableStartCellClassName,
     skeletonClassName: "aperture:size-4 aperture:rounded-sm",
-    sticky: "start",
   },
   { skeletonClassName: "aperture:h-4 aperture:w-44" },
   { skeletonClassName: "aperture:h-4 aperture:w-72" },
   { skeletonClassName: "aperture:h-4 aperture:w-36" },
   {
-    cellClassName: stickyTableEndCellClassName,
     skeletonClassName: "aperture:ml-auto aperture:size-7",
-    sticky: "end",
   },
 ] as const;
 
@@ -72,7 +65,13 @@ export function TenantListPage() {
 
   const deleted = useTenantListPageStore((state) => state.deleted);
   const setDeleted = useTenantListPageStore((state) => state.setDeleted);
-  const filters = useMemo(() => ({ includeDeleted: deleted !== "active", deleted }), [deleted]);
+  const search = useTenantListPageStore((state) => state.search);
+  const setSearch = useTenantListPageStore((state) => state.setSearch);
+  const deferredSearch = useDeferredValue(search.trim());
+  const filters = useMemo(
+    () => ({ includeDeleted: deleted !== "active", deleted, query: deferredSearch || undefined }),
+    [deleted, deferredSearch],
+  );
   const query = useTenantsInfiniteQuery(filters);
 
   const initCreateTenant = useTenantFormStore((state) => state.initCreate);
@@ -176,6 +175,7 @@ export function TenantListPage() {
       </PageHeaderActions>
 
       <div className="aperture:flex aperture:shrink-0 aperture:flex-wrap aperture:items-center aperture:gap-2 aperture:p-3">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search tenants" />
         <DeletedStatusSelect value={deleted} onChange={setDeleted} />
       </div>
 
@@ -204,16 +204,16 @@ export function TenantListPage() {
 
       <InfiniteTableShell
         query={query}
-        emptyTitle="No tenants"
+        emptyTitle={deferredSearch ? "No matching tenants" : "No tenants"}
         loading={
-          <Table>
+          <Table stickyFirstColumn stickyLastColumn>
             <TableHeader>
               <TableRow>
-                <TableHead data-table-sticky="start" className={stickyTableStartHeaderClassName} />
+                <TableHead className="aperture:w-8" />
                 <TableHead>Name</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                <TableHead className="aperture:w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -223,14 +223,14 @@ export function TenantListPage() {
         }
       >
         {(items) => (
-          <Table>
+          <Table stickyFirstColumn stickyLastColumn>
             <TableHeader>
               <TableRow>
-                <TableHead data-table-sticky="start" className={stickyTableStartHeaderClassName} />
+                <TableHead className="aperture:w-8" />
                 <TableHead>Name</TableHead>
                 <TableHead>ID</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead data-table-sticky="end" className={stickyTableEndHeaderClassName} />
+                <TableHead className="aperture:w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -240,8 +240,7 @@ export function TenantListPage() {
                   data-state={selectedTenants[tenant.id] ? "selected" : undefined}
                 >
                   <TableCell
-                    data-table-sticky="start"
-                    className={`${stickyTableStartCellClassName} aperture:cursor-pointer`}
+                    className="aperture:cursor-pointer"
                     onClick={(event) => {
                       event.stopPropagation();
                       toggleTenantSelection(tenant, !selectedTenants[tenant.id]);
@@ -266,7 +265,7 @@ export function TenantListPage() {
                   <TableCell className="aperture:text-muted-foreground">
                     {formatTimestamp(tenant.createdAt)}
                   </TableCell>
-                  <TableCell data-table-sticky="end" className={stickyTableEndCellClassName}>
+                  <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
                         <MoreHorizontal />

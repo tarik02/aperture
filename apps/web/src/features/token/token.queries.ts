@@ -43,6 +43,9 @@ export function useTokensInfiniteQuery(filters: TokensFilters = {}) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam,
     enabled,
+    // Keep rows on screen while a new search loads.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === mode ? previous : undefined,
     ...listQueryDefaults,
   });
 }
