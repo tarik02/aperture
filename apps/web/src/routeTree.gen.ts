@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShareRouteImport } from './routes/share'
 import { Route as InviteRouteImport } from './routes/invite'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as OauthConsentRouteImport } from './routes/oauth/consent'
 import { Route as Char91Char93UsersIndexRouteImport } from './routes/[-]/users/index'
 import { Route as Char91Char93TokensIndexRouteImport } from './routes/[-]/tokens/index'
 import { Route as Char91Char93TenantsIndexRouteImport } from './routes/[-]/tenants/index'
@@ -32,6 +33,11 @@ const InviteRoute = InviteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthConsentRoute = OauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
 const Char91Char93UsersIndexRoute = Char91Char93UsersIndexRouteImport.update({
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots': typeof Char91Char93SnapshotsIndexRoute
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/invite': typeof InviteRoute
   '/share': typeof ShareRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/-/sessions/$sessionId': typeof Char91Char93SessionsSessionIdRoute
   '/-/sessions/': typeof Char91Char93SessionsIndexRoute
   '/-/snapshots/': typeof Char91Char93SnapshotsIndexRoute
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/'
     | '/invite'
     | '/share'
+    | '/oauth/consent'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
     | '/-/snapshots/'
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/'
     | '/invite'
     | '/share'
+    | '/oauth/consent'
     | '/-/sessions/$sessionId'
     | '/-/sessions'
     | '/-/snapshots'
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/'
     | '/invite'
     | '/share'
+    | '/oauth/consent'
     | '/-/sessions/$sessionId'
     | '/-/sessions/'
     | '/-/snapshots/'
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   InviteRoute: typeof InviteRoute
   ShareRoute: typeof ShareRoute
+  OauthConsentRoute: typeof OauthConsentRoute
   Char91Char93SessionsSessionIdRoute: typeof Char91Char93SessionsSessionIdRoute
   Char91Char93SessionsIndexRoute: typeof Char91Char93SessionsIndexRoute
   Char91Char93SnapshotsIndexRoute: typeof Char91Char93SnapshotsIndexRoute
@@ -172,6 +185,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/consent': {
+      id: '/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof OauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/-/users/': {
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   InviteRoute: InviteRoute,
   ShareRoute: ShareRoute,
+  OauthConsentRoute: OauthConsentRoute,
   Char91Char93SessionsSessionIdRoute: Char91Char93SessionsSessionIdRoute,
   Char91Char93SessionsIndexRoute: Char91Char93SessionsIndexRoute,
   Char91Char93SnapshotsIndexRoute: Char91Char93SnapshotsIndexRoute,

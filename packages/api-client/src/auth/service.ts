@@ -50,5 +50,12 @@ export class AuthApi extends Context.Service<
     readonly completeTOTPEnrollment: (code: string) => Call<S.RecoveryCodes>;
     readonly regenerateRecoveryCodes: (code: string) => Call<S.RecoveryCodes>;
     readonly disableTOTP: (code: string) => Call<void>;
+
+    /** `query` is the OAuth authorize query string, without its leading `?`. */
+    readonly getOAuthAuthorization: (query: string) => Call<S.OAuthAuthorizationRequest>;
+    readonly approveOAuthAuthorization: (approval: S.OAuthApproval) => Call<S.OAuthRedirect>;
+    readonly denyOAuthAuthorization: (query: string) => Call<S.OAuthRedirect>;
+    readonly listOAuthGrants: () => Call<S.OAuthGrants>;
+    readonly revokeOAuthGrant: (grantId: string) => Call<void>;
   }
 >()("@aperture-browser/api-client/AuthApi") {}

@@ -181,6 +181,7 @@ func (a *App) Serve(ctx context.Context) error {
 		Repository:    a.Repository,
 		Auth:          a.Auth,
 		WebAuth:       a.WebAuth,
+		OAuth:         auth.NewOAuthServer(a.Auth, a.Repository, a.Config.ExternalBaseURL),
 		Sessions:      a.Sessions,
 		Snapshots:     a.Snapshots,
 		Promotion:     a.Promotion,

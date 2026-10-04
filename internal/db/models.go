@@ -288,6 +288,89 @@ type Event struct {
 	CreatedAt    string `bun:"created_at,notnull"`
 }
 
+// OAuthClient maps the oauth_clients table. Registered clients use generated
+// ids; metadata-document clients use their metadata URL as id.
+type OAuthClient struct {
+	bun.BaseModel `bun:"table:oauth_clients"`
+
+	ID                      string  `bun:"id,pk"`
+	Kind                    string  `bun:"kind,notnull"`
+	ClientName              string  `bun:"client_name,notnull"`
+	ClientURI               *string `bun:"client_uri"`
+	LogoURI                 *string `bun:"logo_uri"`
+	RedirectURIsJSON        string  `bun:"redirect_uris_json,notnull"`
+	TokenEndpointAuthMethod string  `bun:"token_endpoint_auth_method,notnull"`
+	ClientSecretHash        *string `bun:"client_secret_hash"`
+	MetadataJSON            string  `bun:"metadata_json,notnull"`
+	CreatedAt               string  `bun:"created_at,notnull"`
+	UpdatedAt               string  `bun:"updated_at,notnull"`
+}
+
+// OAuthAuthorizationCode maps the oauth_authorization_codes table.
+type OAuthAuthorizationCode struct {
+	bun.BaseModel `bun:"table:oauth_authorization_codes"`
+
+	ID            string  `bun:"id,pk"`
+	CodeHash      string  `bun:"code_hash,notnull"`
+	ClientID      string  `bun:"client_id,notnull"`
+	UserID        string  `bun:"user_id,notnull"`
+	RedirectURI   string  `bun:"redirect_uri,notnull"`
+	CodeChallenge string  `bun:"code_challenge,notnull"`
+	Resource      *string `bun:"resource"`
+	ConsentJSON   string  `bun:"consent_json,notnull"`
+	CreatedAt     string  `bun:"created_at,notnull"`
+	ExpiresAt     string  `bun:"expires_at,notnull"`
+	ConsumedAt    *string `bun:"consumed_at"`
+	GrantID       *string `bun:"grant_id"`
+}
+
+// OAuthGrant maps the oauth_grants table: one user's consent for one client.
+type OAuthGrant struct {
+	bun.BaseModel `bun:"table:oauth_grants"`
+
+	ID             string                    `bun:"id,pk"`
+	ClientID       string                    `bun:"client_id,notnull"`
+	UserID         string                    `bun:"user_id,notnull"`
+	AuthorityType  string                    `bun:"authority_type,notnull"`
+	ScopesJSON     string                    `bun:"scopes_json,notnull"`
+	ResourceMode   string                    `bun:"resource_mode,notnull"`
+	CreatedAt      string                    `bun:"created_at,notnull"`
+	LastUsedAt     *string                   `bun:"last_used_at"`
+	RevokedAt      *string                   `bun:"revoked_at"`
+	TenantIDs      []string                  `bun:"-"`
+	ResourceGrants []OAuthGrantResourceGrant `bun:"-"`
+}
+
+// OAuthGrantTenant maps the oauth_grant_tenants table.
+type OAuthGrantTenant struct {
+	bun.BaseModel `bun:"table:oauth_grant_tenants"`
+
+	GrantID  string `bun:"grant_id,pk"`
+	TenantID string `bun:"tenant_id,pk"`
+}
+
+// OAuthGrantResourceGrant maps the oauth_grant_resource_grants table.
+type OAuthGrantResourceGrant struct {
+	bun.BaseModel `bun:"table:oauth_grant_resource_grants"`
+
+	GrantID      string `bun:"grant_id,pk"`
+	ResourceType string `bun:"resource_type,pk"`
+	ResourceID   string `bun:"resource_id,pk"`
+}
+
+// OAuthToken maps the oauth_tokens table.
+type OAuthToken struct {
+	bun.BaseModel `bun:"table:oauth_tokens"`
+
+	ID        string  `bun:"id,pk"`
+	GrantID   string  `bun:"grant_id,notnull"`
+	Kind      string  `bun:"kind,notnull"`
+	TokenHash string  `bun:"token_hash,notnull"`
+	CreatedAt string  `bun:"created_at,notnull"`
+	ExpiresAt string  `bun:"expires_at,notnull"`
+	RevokedAt *string `bun:"revoked_at"`
+}
+
 // RegisterModels registers Bun models on db.
 func RegisterModels(db *bun.DB) {
 	db.RegisterModel(
@@ -311,5 +394,11 @@ func RegisterModels(db *bun.DB) {
 		(*SessionTag)(nil),
 		(*SnapshotTag)(nil),
 		(*Event)(nil),
+		(*OAuthClient)(nil),
+		(*OAuthAuthorizationCode)(nil),
+		(*OAuthGrant)(nil),
+		(*OAuthGrantTenant)(nil),
+		(*OAuthGrantResourceGrant)(nil),
+		(*OAuthToken)(nil),
 	)
 }

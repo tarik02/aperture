@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/aperture/aperture/internal/auth"
 	"github.com/gin-gonic/gin"
@@ -55,6 +56,10 @@ func (s *Server) authMe(c *gin.Context) {
 			return
 		}
 		for _, tenant := range tenants {
+			// An OAuth client sees only the tenants its grant covers.
+			if principal.OAuthGrantID != "" && !slices.ContainsFunc(principal.TenantGrants, func(grant auth.TenantGrant) bool { return grant.TenantID == tenant.ID }) {
+				continue
+			}
 			resp.AvailableTenants = append(resp.AvailableTenants, toTenantResponse(tenant))
 		}
 	}

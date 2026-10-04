@@ -35,8 +35,26 @@ type mcpTenantIDInput struct {
 	TenantID string `json:"tenantId"`
 }
 
+type mcpTenantSelfInput struct {
+	TenantID string `json:"tenantId,omitempty"`
+}
+
 type mcpTenantUpdateInput struct {
+	TenantID    string `json:"tenantId,omitempty"`
 	DisplayName string `json:"displayName"`
+}
+
+// mcpTenantSelf returns the caller narrowed to the tenant it manages itself,
+// or false when it may not manage that tenant.
+func mcpTenantSelf(a mcpAuth, tenantID string) (auth.Principal, bool) {
+	if a.principal == nil || a.principal.AuthorityType != auth.AuthorityTenant {
+		return auth.Principal{}, false
+	}
+	principal, err := auth.SelectTenant(*a.principal, tenantID)
+	if err != nil || principal.TenantID == nil || (tenantID != "" && *principal.TenantID != tenantID) {
+		return auth.Principal{}, false
+	}
+	return principal, auth.HasScope(principal.Scopes, auth.ScopeTenantWrite)
 }
 
 type mcpAdminTenantUpdateInput struct {
@@ -64,7 +82,7 @@ func (s *Server) mcpSnapshotUpdate(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -86,7 +104,7 @@ func (s *Server) mcpSnapshotDelete(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -111,7 +129,7 @@ func (s *Server) mcpSnapshotReplaceTags(ctx context.Context, _ *mcp.CallToolRequ
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -133,7 +151,7 @@ func (s *Server) mcpSnapshotRestore(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -152,7 +170,7 @@ func (s *Server) mcpSessionReopen(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
@@ -171,7 +189,7 @@ func (s *Server) mcpSessionReplaceTags(ctx context.Context, _ *mcp.CallToolReque
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
@@ -182,15 +200,16 @@ func (s *Server) mcpSessionReplaceTags(ctx context.Context, _ *mcp.CallToolReque
 	return nil, mcpStatusOutput{Session: mcpSessionView(updated)}, nil
 }
 
-func (s *Server) mcpTenantGet(ctx context.Context, _ *mcp.CallToolRequest, _ mcpSessionOnlyInput) (*mcp.CallToolResult, mcpTenantOutput, error) {
+func (s *Server) mcpTenantGet(ctx context.Context, _ *mcp.CallToolRequest, in mcpTenantSelfInput) (*mcp.CallToolResult, mcpTenantOutput, error) {
 	a, err := mcpAuthFromContext(ctx)
 	if err != nil {
 		return nil, mcpTenantOutput{}, err
 	}
-	if a.principal == nil || a.principal.AuthorityType != auth.AuthorityTenant || a.principal.TenantID == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) {
+	principal, ok := mcpTenantSelf(a, in.TenantID)
+	if !ok {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
-	tenant, err := s.Auth.RequireActiveTenant(ctx, *a.principal.TenantID)
+	tenant, err := s.Auth.RequireActiveTenant(ctx, *principal.TenantID)
 	if err != nil {
 		return nil, mcpTenantOutput{}, mcpToolError("tenant_not_found", err)
 	}
@@ -202,10 +221,11 @@ func (s *Server) mcpTenantUpdate(ctx context.Context, _ *mcp.CallToolRequest, in
 	if err != nil {
 		return nil, mcpTenantOutput{}, err
 	}
-	if a.principal == nil || a.principal.AuthorityType != auth.AuthorityTenant || a.principal.TenantID == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeTenantWrite) || auth.IsResourceRestricted(*a.principal) {
+	principal, ok := mcpTenantSelf(a, in.TenantID)
+	if !ok || auth.IsResourceRestricted(principal) {
 		return nil, mcpTenantOutput{}, mcpToolError("forbidden", nil)
 	}
-	tenant, err := s.Auth.UpdateTenant(ctx, *a.principal.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})
+	tenant, err := s.Auth.UpdateTenant(ctx, *principal.TenantID, auth.UpdateTenantInput{DisplayName: in.DisplayName})
 	if err != nil {
 		return nil, mcpTenantOutput{}, mcpToolError("invalid_arguments", err)
 	}
@@ -265,7 +285,8 @@ func (s *Server) mcpBrowserChannels(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpBrowserChannelsOutput{}, err
 	}
-	if a.principal == nil || !auth.HasScope(a.principal.Scopes, auth.ScopeSessionsRead) {
+	// Channels are global, so any tenant the caller can read sessions in will do.
+	if a.principal == nil || !auth.HasScopeInAnyTenant(*a.principal, auth.ScopeSessionsRead) {
 		return nil, mcpBrowserChannelsOutput{}, mcpToolError("forbidden", nil)
 	}
 	names := s.Channels.Names()
