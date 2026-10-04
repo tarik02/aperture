@@ -3,6 +3,7 @@ import { RecordingSettings } from "@aperture-browser/api-client";
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuGroup,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -25,6 +26,7 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
     <>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
+        <DropdownMenuLabel>New recording</DropdownMenuLabel>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
