@@ -77,17 +77,22 @@ function ConsentContent() {
       />
     );
   }
+  // The login modal covers the page; anything rendered behind it only shows as a blurred box.
   if (status === "unauthenticated") {
-    return (
-      <MessageCard
-        title="Sign in to continue"
-        description="Sign in to review the app's request to access Aperture."
-      />
-    );
+    return null;
   }
   if (request.isError) {
     const error = request.error instanceof ApiRequestError ? request.error : null;
     const invalidRequest = error?.code === "invalid_request";
+    if (error?.code === "user_account_required") {
+      return (
+        <MessageCard
+          title="Sign in with a user account"
+          description="Apps act on behalf of a user, so they cannot be authorized from an API token session."
+          action={<SwitchAccountButton />}
+        />
+      );
+    }
     return (
       <MessageCard
         title={invalidRequest ? "Invalid authorization request" : "Could not load the request"}

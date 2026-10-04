@@ -35,6 +35,10 @@ const (
 // example because the user lost every granted tenant.
 var ErrOAuthGrantInvalid = errors.New("oauth grant no longer valid")
 
+// ErrUserAccountRequired indicates a browser session without a user, such as
+// an API-token login, tried to authorize or manage apps.
+var ErrUserAccountRequired = errors.New("user account required")
+
 // ErrOAuthGrantNotFound indicates the grant does not exist for the user.
 var ErrOAuthGrantNotFound = errors.New("oauth grant not found")
 

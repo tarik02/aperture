@@ -289,9 +289,25 @@ type oauthRedirectResponse struct {
 	RedirectURL string `json:"redirectUrl"`
 }
 
+func (s *Server) consentUserID(c *gin.Context) string {
+	return s.WebAuth.AuthenticatedUserID(c.Request.Context())
+}
+
+// missingConsentUserError tells an API-token browser session apart from a
+// signed-out one: the UI treats 401 as signed out and would loop on login.
+func (s *Server) missingConsentUserError(c *gin.Context) error {
+	if _, err := s.WebAuth.Authenticate(c.Request.Context(), ""); err == nil {
+		return auth.ErrUserAccountRequired
+	}
+	return auth.ErrTokenMissing
+}
+
 // writeOAuthConsentError reports an invalid authorization request to the
 // consent page, which shows it instead of redirecting.
-func writeOAuthConsentError(c *gin.Context, err error) {
+func (s *Server) writeOAuthConsentError(c *gin.Context, err error) {
+	if errors.Is(err, auth.ErrTokenMissing) {
+		err = s.missingConsentUserError(c)
+	}
 	var oauthErr *auth.OAuthError
 	if errors.As(err, &oauthErr) {
 		c.JSON(http.StatusBadRequest, errorBody{Error: apiErrorDetail{Code: "invalid_request", Message: oauthErr.Description}})
@@ -301,9 +317,9 @@ func writeOAuthConsentError(c *gin.Context, err error) {
 }
 
 func (s *Server) getOAuthAuthorization(c *gin.Context) {
-	consent, err := s.OAuth.DescribeConsent(c.Request.Context(), s.WebAuth.AuthenticatedUserID(c.Request.Context()), c.Request.URL.Query())
+	consent, err := s.OAuth.DescribeConsent(c.Request.Context(), s.consentUserID(c), c.Request.URL.Query())
 	if err != nil {
-		writeOAuthConsentError(c, err)
+		s.writeOAuthConsentError(c, err)
 		return
 	}
 	response := oauthAuthorizationResponse{
@@ -330,7 +346,7 @@ func (s *Server) approveOAuthAuthorization(c *gin.Context) {
 	if !ok {
 		return
 	}
-	redirectURL, err := s.OAuth.Approve(c.Request.Context(), s.WebAuth.AuthenticatedUserID(c.Request.Context()), query, auth.OAuthConsentInput{
+	redirectURL, err := s.OAuth.Approve(c.Request.Context(), s.consentUserID(c), query, auth.OAuthConsentInput{
 		SystemAdmin:    request.SystemAdmin,
 		TenantIDs:      request.TenantIDs,
 		Scopes:         request.Scopes,
@@ -338,7 +354,7 @@ func (s *Server) approveOAuthAuthorization(c *gin.Context) {
 		ResourceGrants: request.ResourceGrants,
 	})
 	if err != nil {
-		writeOAuthConsentError(c, err)
+		s.writeOAuthConsentError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, oauthRedirectResponse{RedirectURL: redirectURL})
@@ -349,9 +365,9 @@ func (s *Server) denyOAuthAuthorization(c *gin.Context) {
 	if !ok {
 		return
 	}
-	redirectURL, err := s.OAuth.Deny(c.Request.Context(), s.WebAuth.AuthenticatedUserID(c.Request.Context()), query)
+	redirectURL, err := s.OAuth.Deny(c.Request.Context(), s.consentUserID(c), query)
 	if err != nil {
-		writeOAuthConsentError(c, err)
+		s.writeOAuthConsentError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, oauthRedirectResponse{RedirectURL: redirectURL})
@@ -379,9 +395,9 @@ type oauthGrantsResponse struct {
 }
 
 func (s *Server) listOAuthGrants(c *gin.Context) {
-	userID := s.WebAuth.AuthenticatedUserID(c.Request.Context())
+	userID := s.consentUserID(c)
 	if userID == "" {
-		WriteError(c, auth.ErrTokenMissing)
+		WriteError(c, s.missingConsentUserError(c))
 		return
 	}
 	grants, err := s.Auth.ListUserOAuthGrants(c.Request.Context(), userID)
@@ -421,9 +437,9 @@ func (s *Server) listOAuthGrants(c *gin.Context) {
 }
 
 func (s *Server) revokeOAuthGrant(c *gin.Context) {
-	userID := s.WebAuth.AuthenticatedUserID(c.Request.Context())
+	userID := s.consentUserID(c)
 	if userID == "" {
-		WriteError(c, auth.ErrTokenMissing)
+		WriteError(c, s.missingConsentUserError(c))
 		return
 	}
 	if err := s.Auth.RevokeUserOAuthGrant(c.Request.Context(), userID, c.Param("grantId")); err != nil {
