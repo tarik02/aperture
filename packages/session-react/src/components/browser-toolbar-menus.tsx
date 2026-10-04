@@ -423,9 +423,9 @@ function RecordingMenuItems({
         <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("tab")}>
           <Circle />
           <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
-            <span>Record this tab</span>
+            <span>Start recording</span>
             <span className="aperture:text-xs aperture:text-muted-foreground">
-              {settings.capture === "bursts" ? "Follow automation across tabs" : "Keep this tab"}
+              Uses the capture mode below
             </span>
           </span>
         </DropdownMenuItem>
