@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"syscall"
 	"time"
 
@@ -22,6 +23,12 @@ const (
 	// be; the consent flow resolves the same client several times in a row.
 	metadataDocumentRefresh = 5 * time.Minute
 )
+
+type oauthClientMetadataDocument struct {
+	ClientID string `json:"client_id"`
+	OAuthClientMetadata
+	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
+}
 
 // isMetadataDocumentClientID reports whether clientID is a Client ID Metadata
 // Document URL: an https URL with a path component.
@@ -52,12 +59,17 @@ func (o *OAuthServer) metadataDocumentClient(ctx context.Context, clientID strin
 	if err != nil {
 		return nil, oauthError("invalid_client", fmt.Sprintf("client metadata document: %v", err))
 	}
-	// Metadata documents are public; a shared secret cannot be distributed.
-	if metadata.TokenEndpointAuthMethod != "" && metadata.TokenEndpointAuthMethod != oauthAuthMethodNone {
+	// The supported-methods list supersedes the legacy single-method preference.
+	// Metadata clients can use PKCE without distributing a shared secret.
+	if metadata.TokenEndpointAuthMethodsSupported != nil {
+		if !slices.Contains(metadata.TokenEndpointAuthMethodsSupported, oauthAuthMethodNone) {
+			return nil, oauthError("invalid_client", "client metadata document does not support token_endpoint_auth_method none")
+		}
+	} else if metadata.TokenEndpointAuthMethod != "" && metadata.TokenEndpointAuthMethod != oauthAuthMethodNone {
 		return nil, oauthError("invalid_client", "client metadata document must use token_endpoint_auth_method none")
 	}
 	metadata.TokenEndpointAuthMethod = oauthAuthMethodNone
-	normalized, err := normalizeClientMetadata(metadata)
+	normalized, err := normalizeClientMetadata(metadata.OAuthClientMetadata)
 	if err != nil {
 		var oauthErr *OAuthError
 		if errors.As(err, &oauthErr) {
@@ -75,39 +87,36 @@ func (o *OAuthServer) metadataDocumentClient(ctx context.Context, clientID strin
 	return client, nil
 }
 
-func (o *OAuthServer) fetchMetadataDocument(ctx context.Context, clientID string) (OAuthClientMetadata, error) {
+func (o *OAuthServer) fetchMetadataDocument(ctx context.Context, clientID string) (oauthClientMetadataDocument, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, clientID, nil)
 	if err != nil {
-		return OAuthClientMetadata{}, err
+		return oauthClientMetadataDocument{}, err
 	}
 	request.Header.Set("Accept", "application/json")
 	response, err := o.metadataClient.Do(request)
 	if err != nil {
-		return OAuthClientMetadata{}, err
+		return oauthClientMetadataDocument{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return OAuthClientMetadata{}, fmt.Errorf("fetch returned status %d", response.StatusCode)
+		return oauthClientMetadataDocument{}, fmt.Errorf("fetch returned status %d", response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, metadataDocumentMaxBytes+1))
 	if err != nil {
-		return OAuthClientMetadata{}, err
+		return oauthClientMetadataDocument{}, err
 	}
 	if len(body) > metadataDocumentMaxBytes {
-		return OAuthClientMetadata{}, errors.New("document is too large")
+		return oauthClientMetadataDocument{}, errors.New("document is too large")
 	}
 
-	var document struct {
-		ClientID string `json:"client_id"`
-		OAuthClientMetadata
-	}
+	var document oauthClientMetadataDocument
 	if err := json.Unmarshal(body, &document); err != nil {
-		return OAuthClientMetadata{}, fmt.Errorf("decode document: %w", err)
+		return oauthClientMetadataDocument{}, fmt.Errorf("decode document: %w", err)
 	}
 	if document.ClientID != clientID {
-		return OAuthClientMetadata{}, errors.New("client_id does not match the document URL")
+		return oauthClientMetadataDocument{}, errors.New("client_id does not match the document URL")
 	}
-	return document.OAuthClientMetadata, nil
+	return document, nil
 }
 
 // newMetadataDocumentHTTPClient fetches client-supplied URLs, so it refuses
