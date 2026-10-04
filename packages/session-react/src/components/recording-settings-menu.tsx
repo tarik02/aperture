@@ -7,7 +7,6 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -30,8 +29,12 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
         <DropdownMenuLabel>New recordings</DropdownMenuLabel>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            Capture
-            <DropdownMenuShortcut>{bursts ? "Bursts" : "Continuous"}</DropdownMenuShortcut>
+            <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
+              <span className="aperture:shrink-0">Capture</span>
+              <span className="aperture:truncate aperture:text-muted-foreground">
+                {bursts ? "Bursts" : "Continuous"}
+              </span>
+            </span>
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="aperture:w-64">
             <DropdownMenuGroup>
@@ -68,8 +71,12 @@ export function RecordingSettingsMenuItems({ settings, onChange }: RecordingSett
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            Quiet stretches
-            <DropdownMenuShortcut>{bursts ? "Continuous only" : idleLabel}</DropdownMenuShortcut>
+            <span className="aperture:flex aperture:min-w-0 aperture:flex-1 aperture:items-center aperture:justify-between aperture:gap-3">
+              <span className="aperture:shrink-0">Quiet stretches</span>
+              <span className="aperture:truncate aperture:text-muted-foreground">
+                {bursts ? "Continuous only" : idleLabel}
+              </span>
+            </span>
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="aperture:w-64">
             <DropdownMenuGroup>
