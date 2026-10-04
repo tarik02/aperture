@@ -66,6 +66,9 @@ func newFakeChromium(t *testing.T) *fakeChromium {
 			if message.Method == "Target.attachToTarget" {
 				result = map[string]any{"sessionId": "S3"}
 			}
+			if message.Method == "Target.createTarget" {
+				result = map[string]any{"targetId": "T-new"}
+			}
 			if message.Method == "Runtime.evaluate" {
 				var params struct {
 					Expression string `json:"expression"`
@@ -76,6 +79,9 @@ func newFakeChromium(t *testing.T) *fakeChromium {
 					value = `button "Save"`
 				}
 				result = map[string]any{"result": map[string]any{"value": value}}
+				if strings.HasSuffix(params.Expression, "-script") {
+					result = map[string]any{"result": map[string]any{"objectId": params.Expression}}
+				}
 			}
 			if message.Method == "Runtime.callFunctionOn" {
 				var params struct {
@@ -265,7 +271,7 @@ func (h *proxyHarness) entries(want int) []string {
 	return summaries
 }
 
-func newProxyHarness(t *testing.T, cadence automationCadence) *proxyHarness {
+func newProxyHarness(t *testing.T, cadence automationCadence, configure ...func(*cdpProxy)) *proxyHarness {
 	t.Helper()
 	h := &proxyHarness{t: t, chrome: newFakeChromium(t)}
 	weston, socket := newFakeWeston(t)
@@ -277,6 +283,9 @@ func newProxyHarness(t *testing.T, cadence automationCadence) *proxyHarness {
 	}, h.record)
 	proxy := newCDPProxy(strings.TrimPrefix(h.chrome.server.URL, "http://"), func() automationCadence { return automationCadence(h.cadence.Load()) }, pointer, h.record, func() bool { return true })
 	proxy.timing = h.timing
+	for _, setup := range configure {
+		setup(proxy)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	endpoint, err := proxy.serve(ctx)
@@ -445,13 +454,11 @@ func TestRealWheelQuantizesWithCarry(t *testing.T) {
 		var surface int
 		var x, y, dx, dy float64
 		_, _ = fmt.Sscanf(line, "axis-at %d %f %f %f %f", &surface, &x, &y, &dx, &dy)
-		total += dy
-		if math.Abs(dy*compositorAxisPxPerUnit-math.Round(dy*compositorAxisPxPerUnit)) > 1e-3 {
-			t.Fatalf("step %q is not a whole number of pixels", line)
-		}
+		// Chromium truncates each Wayland wheel delta to CSS pixels.
+		total += math.Trunc(dy * 12)
 	}
-	if math.Abs(total*compositorAxisPxPerUnit-101) > 0.01 {
-		t.Fatalf("scrolled %.3f px, want 101", total*compositorAxisPxPerUnit)
+	if total != 101 {
+		t.Fatalf("scrolled %.0f px, want 101", total)
 	}
 }
 
@@ -761,7 +768,7 @@ func TestHumanAndAutomationShareThePointerPosition(t *testing.T) {
 	if err := human.Scroll(0, 24, false, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.weston.all(); len(got) != 2 || got[0] != "motion 7 200.00 200.00" || got[1] != "axis-at 7 200.00 200.00 0.00000 2.00000" {
+	if got := h.weston.all(); len(got) != 2 || got[0] != "motion 7 200.00 200.00" || got[1] != "axis-at 7 200.00 200.00 0.00000000 2.00000000" {
 		t.Fatalf("human input = %v", got)
 	}
 	id := h.mouse("S1", "mouseMoved", 1300, 50, nil)

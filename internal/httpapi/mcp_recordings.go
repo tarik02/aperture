@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/aperture/aperture/internal/recording"
-	"github.com/aperture/aperture/internal/session"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -63,15 +62,48 @@ func sessionAddressed(schema *jsonschema.Schema) {
 	schema.Required = append(schema.Required, "sessionId")
 }
 
+func annotationDurationSchema(field *jsonschema.Schema, fallback, low, high float64) {
+	field.Default, _ = json.Marshal(fallback)
+	field.AnyOf = []*jsonschema.Schema{
+		{Const: jsonschema.Ptr[any](0)},
+		{Minimum: jsonschema.Ptr(low), Maximum: jsonschema.Ptr(high)},
+	}
+}
+
+func captionSchema(schema *jsonschema.Schema) {
+	schema.Properties["text"].MinLength = jsonschema.Ptr(1)
+	schema.Properties["text"].MaxLength = jsonschema.Ptr(recording.CaptionMaxRunes)
+	annotationDurationSchema(schema.Properties["durationMs"], recording.CaptionDurationDefaultMS, recording.CaptionDurationMinMS, recording.CaptionDurationMaxMS)
+}
+
+func focusSchema(schema *jsonschema.Schema) {
+	schema.Properties["zoom"].ExclusiveMinimum = jsonschema.Ptr(1.0)
+	schema.Properties["zoom"].Maximum = jsonschema.Ptr(recording.FocusMaxZoom)
+	annotationDurationSchema(schema.Properties["durationMs"], recording.FocusDurationDefaultMS, recording.FocusDurationMinMS, recording.FocusDurationMaxMS)
+}
+
+func attentionSchema(schema *jsonschema.Schema) {
+	annotationDurationSchema(schema.Properties["radius"], recording.AttentionRadiusDefault, recording.AttentionRadiusMin, recording.AttentionRadiusMax)
+	annotationDurationSchema(schema.Properties["loops"], recording.AttentionLoopsDefault, recording.AttentionLoopsMin, recording.AttentionLoopsMax)
+	annotationDurationSchema(schema.Properties["durationMs"], recording.AttentionDurationDefaultMS, recording.AttentionDurationMinMS, recording.AttentionDurationMaxMS)
+}
+
+func addressedAnnotation(adjust func(*jsonschema.Schema)) func(*jsonschema.Schema) {
+	return func(schema *jsonschema.Schema) {
+		adjust(schema)
+		sessionAddressed(schema)
+	}
+}
+
 var (
 	mcpRecordingStartSchema      = mcpSchema[mcpRecordingStartInput](recordingStartSchema)
 	mcpBoundRecordingStartSchema = mcpSchema[mcpBoundRecordingStartInput](recordingStartSchema)
-	mcpCaptionSchema             = mcpSchema[recording.Caption](sessionAddressed)
-	mcpBoundCaptionSchema        = mcpSchema[recording.Caption](nil)
-	mcpFocusSchema               = mcpSchema[recording.Focus](sessionAddressed)
-	mcpBoundFocusSchema          = mcpSchema[recording.Focus](nil)
-	mcpAttentionSchema           = mcpSchema[recording.Attention](sessionAddressed)
-	mcpBoundAttentionSchema      = mcpSchema[recording.Attention](nil)
+	mcpCaptionSchema             = mcpSchema[recording.Caption](addressedAnnotation(captionSchema))
+	mcpBoundCaptionSchema        = mcpSchema[recording.Caption](captionSchema)
+	mcpFocusSchema               = mcpSchema[recording.Focus](addressedAnnotation(focusSchema))
+	mcpBoundFocusSchema          = mcpSchema[recording.Focus](focusSchema)
+	mcpAttentionSchema           = mcpSchema[recording.Attention](addressedAnnotation(attentionSchema))
+	mcpBoundAttentionSchema      = mcpSchema[recording.Attention](attentionSchema)
 )
 
 // addRecordingAnnotationTool adds one explicit recording tool, session-addressed or bound to the
@@ -116,15 +148,7 @@ func addRecordingAnnotationTool[Args any, PArgs interface {
 		if err != nil {
 			return nil, err
 		}
-		port, _, release, err := s.Sessions.AcquireRunningWrapperControl(ctx, view.Session.TenantID, view.Session.ID)
-		if errors.Is(err, session.ErrNotRunning) { // a suspended session has no running recording
-			return nil, mcpToolError("recording_invalid_state", errors.New("no running recording"))
-		}
-		if err != nil {
-			return nil, mcpToolError("session_unavailable", err)
-		}
-		defer release()
-		if err := requestWrapperRecording(ctx, port, http.MethodPost, "/recordings/annotations/"+kind, args, false, nil); err != nil {
+		if err := s.recordingAnnotation(ctx, view.Session.TenantID, view.Session.ID, kind, args); err != nil {
 			return nil, mcpRecordingError(err)
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil

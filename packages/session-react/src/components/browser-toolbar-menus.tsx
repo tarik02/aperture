@@ -47,6 +47,9 @@ import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 import { copyTextWithToast } from "../clipboard.ts";
 import { useEffectCallback } from "../effect.tsx";
 import { toast } from "sonner";
+import type { RecordingSettings } from "@aperture-browser/api-client";
+import { useRecordingSettings } from "../hooks/use-recording-settings.ts";
+import { RecordingSettingsMenuItems } from "./recording-settings-menu.tsx";
 
 const STREAM_PRESETS = [
   {
@@ -103,11 +106,26 @@ export function BrowserMenus({
   onSessionDetails?: () => void;
   now: number;
 }) {
+  const { settings, updateSettings } = useRecordingSettings();
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
   const recordingActive = runningRecordings.length > 0;
   const viewportConnected = connected && control.collaboration.role !== "viewer";
+
+  function startRecording(mode: "tab" | "viewer") {
+    const { capture: _capture, burst, ...continuous } = settings;
+    if (mode === "tab" && settings.capture === "bursts") {
+      const { idle: _idle, ...bursts } = continuous;
+      control.startRecording(mode, {
+        ...bursts,
+        capture: "bursts",
+        ...(burst === undefined ? {} : { burst }),
+      });
+    } else {
+      control.startRecording(mode, { ...continuous, capture: "continuous" });
+    }
+  }
 
   return (
     <>
@@ -149,6 +167,9 @@ export function BrowserMenus({
               connected={connected}
               runningRecordings={runningRecordings}
               now={now}
+              settings={settings}
+              onSettingsChange={updateSettings}
+              onStartRecording={startRecording}
             />
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
@@ -191,6 +212,9 @@ export function BrowserMenus({
               connected={connected}
               runningRecordings={runningRecordings}
               now={now}
+              settings={settings}
+              onSettingsChange={updateSettings}
+              onStartRecording={startRecording}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -378,11 +402,17 @@ function RecordingMenuItems({
   connected,
   runningRecordings,
   now,
+  settings,
+  onSettingsChange,
+  onStartRecording,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
   runningRecordings: UseBrowserControlResult["recordings"];
   now: number;
+  settings: RecordingSettings;
+  onSettingsChange: (settings: RecordingSettings) => void;
+  onStartRecording: (mode: "tab" | "viewer") => void;
 }) {
   const recordingAvailable = connected && control.canRecord;
   const canStart = recordingAvailable && Boolean(control.activeTargetId) && !control.recordingBusy;
@@ -390,24 +420,44 @@ function RecordingMenuItems({
     <>
       <DropdownMenuGroup>
         <DropdownMenuLabel>Recording</DropdownMenuLabel>
-        <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("tab")}>
-          <Circle />
-          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
-            <span>Record this tab</span>
-            <span className="aperture:text-xs aperture:text-muted-foreground">
-              Stay pinned to this target
-            </span>
-          </span>
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!canStart} onClick={() => control.startRecording("viewer")}>
-          <Monitor />
-          <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
-            <span>Record this viewer</span>
-            <span className="aperture:text-xs aperture:text-muted-foreground">
-              {recordingAvailable ? "Follow tab switches" : "Owner connection required"}
-            </span>
-          </span>
-        </DropdownMenuItem>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("tab")} />
+            }
+          >
+            <Circle />
+            Start recording
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            Uses the capture mode below. The full raw video downloads when you stop. When editing is
+            enabled, an edited copy appears in session files.
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuItem disabled={!canStart} onClick={() => onStartRecording("viewer")} />
+            }
+          >
+            <Monitor />
+            {recordingAvailable ? (
+              "Record this viewer"
+            ) : (
+              <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
+                <span>Record this viewer</span>
+                <span className="aperture:text-xs aperture:text-muted-foreground">
+                  Connect as an owner or editor
+                </span>
+              </span>
+            )}
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            {recordingAvailable
+              ? "Continuous capture following your tab switches. Quiet stretches, presentation pace and click highlights use the settings below."
+              : "Connect as an owner or editor to record."}
+          </TooltipContent>
+        </Tooltip>
       </DropdownMenuGroup>
       {runningRecordings.map((recording) => {
         const target = control.targets.find((candidate) => candidate.id === recording.targetId);
@@ -444,6 +494,7 @@ function RecordingMenuItems({
           </Fragment>
         );
       })}
+      <RecordingSettingsMenuItems settings={settings} onChange={onSettingsChange} />
     </>
   );
 }

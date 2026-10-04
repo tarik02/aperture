@@ -84,6 +84,9 @@ func (session *liveSession) finalizeRecording(ctx context.Context, rec *wrapperR
 		stage = recording.EditRenderFailed
 		var rendered string
 		if rendered, err = renderEdit(ctx, r.values, work, video, plan); err == nil {
+			err = ctx.Err()
+		}
+		if err == nil {
 			edited, err = publishRecording(rendered, stem+".edited.mp4")
 		}
 	}

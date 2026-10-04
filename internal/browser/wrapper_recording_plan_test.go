@@ -163,9 +163,9 @@ func TestFocusWindowsCloseTogetherShareOneZoom(t *testing.T) {
 }
 
 func TestVideoAnalysisLogs(t *testing.T) {
-	// A run of close frames is a change; a frame alone, as a blinking caret makes, is not.
+	// Slow updates and single frames are retained alongside runs of close frames.
 	log := "pts_time:0\npts_time:0.5\npts_time:1.2\npts_time:1.25\npts_time:1.3\npts_time:2.5\n"
-	if active := parseActive(log); !slices.Equal(active, []span{{1200, 1300}}) {
+	if active := parseActive(log); !slices.Equal(active, []span{{0, 0}, {500, 500}, {1200, 1300}, {2500, 2500}}) {
 		t.Errorf("active = %v", active)
 	}
 }

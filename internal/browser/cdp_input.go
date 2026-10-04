@@ -352,6 +352,9 @@ func (c *cdpProxyConn) runMouse(raw []byte) {
 		c.toUp(raw)
 		return
 	}
+	if !c.prepareTarget(raw) {
+		return
+	}
 	cadence := c.proxy.cadence()
 	timing := c.proxy.timing(cadence)
 	rootSession, session, known := c.rootSession(message.SessionID)

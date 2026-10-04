@@ -39,7 +39,7 @@ func stoppableRecording(t *testing.T, session *liveSession, id string, config re
 }
 
 // waitForEdit polls until the recording's edit has ended.
-func waitForEdit(t *testing.T, session *liveSession, id string) wrapperRecording {
+func waitForEdit(t *testing.T, session *liveSession, id string) recordingStatus {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -82,7 +82,7 @@ func TestStopReturnsBeforeTheEditEnds(t *testing.T) {
 		t.Fatalf("content: %d %q", response.Code, response.Body.String())
 	}
 	// A second stop reports the recording as it is, without waiting for the edit.
-	again := make(chan wrapperRecording, 1)
+	again := make(chan recordingStatus, 1)
 	go func() { status, _ := session.stopRecordingRequested("r1", "requested"); again <- status }()
 	select {
 	case status := <-again:

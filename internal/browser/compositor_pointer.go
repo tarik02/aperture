@@ -4,11 +4,18 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"sync"
 )
 
 // compositorAxisPxPerUnit is how far Weston scrolls per axis unit, measured in Chromium.
 const compositorAxisPxPerUnit = 12.0
+
+// Wayland transports axis values as 24.8 fixed point. Rounding down here makes Chromium
+// truncate 100 px to 99 px (and 1 px to zero); round the magnitude up to the next wire unit.
+func compositorAxisUnits(pixels float64) float64 {
+	return math.Copysign(math.Ceil(math.Abs(pixels)/compositorAxisPxPerUnit*256)/256, pixels)
+}
 
 type cdpPoint struct{ x, y float64 }
 
@@ -71,11 +78,11 @@ func (p *compositorPointer) buttonAt(ctx context.Context, surface uint64, at cdp
 
 // axis scrolls by dx, dy px where the pointer is now.
 func (p *compositorPointer) axis(ctx context.Context, surface uint64, dx, dy float64) error {
-	return p.send(ctx, fmt.Sprintf("axis %d %.5f %.5f", surface, dx/compositorAxisPxPerUnit, dy/compositorAxisPxPerUnit))
+	return p.send(ctx, fmt.Sprintf("axis %d %.8f %.8f", surface, compositorAxisUnits(dx), compositorAxisUnits(dy)))
 }
 
 func (p *compositorPointer) axisAt(ctx context.Context, surface uint64, at cdpPoint, dx, dy float64) error {
-	return p.sendAt(ctx, surface, at, fmt.Sprintf("axis-at %d %.2f %.2f %.5f %.5f", surface, at.x, at.y, dx/compositorAxisPxPerUnit, dy/compositorAxisPxPerUnit))
+	return p.sendAt(ctx, surface, at, fmt.Sprintf("axis-at %d %.2f %.2f %.8f %.8f", surface, at.x, at.y, compositorAxisUnits(dx), compositorAxisUnits(dy)))
 }
 
 func (p *compositorPointer) key(ctx context.Context, surface uint64, keycode uint32, pressed bool) error {

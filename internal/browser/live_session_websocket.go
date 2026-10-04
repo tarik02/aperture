@@ -258,7 +258,7 @@ func (session *liveSession) snapshot(client *liveSessionClient, transportKind st
 	if err != nil {
 		return liveSessionServerMessage{}, err
 	}
-	var recordings []wrapperRecording
+	var recordings []recordingStatus
 	if client.canRecord() {
 		recordings = session.listRecordings()
 	}

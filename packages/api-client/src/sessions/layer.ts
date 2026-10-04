@@ -18,6 +18,9 @@ import {
   type CreateSessionInput,
   type CreateSessionOptions,
   type CreateSessionRecordingInput,
+  type RecordingCaptionInput,
+  type RecordingFocusInput,
+  type RecordingAttentionInput,
   type DownloadedFile,
   type PromoteSessionInput,
   type SessionFileDownloadURLInput,
@@ -262,6 +265,39 @@ export const makeSessionsApi = Effect.gen(function* () {
     return yield* api.listSessionFiles(sessionId, undefined).pipe(tenantScoped(credentials));
   });
 
+  const captionSessionRecording = Effect.fn("SessionsApi.captionSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    input: RecordingCaptionInput,
+  ) {
+    yield* api
+      .captionSessionRecording(sessionId, recordingId, { payload: input })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const focusSessionRecording = Effect.fn("SessionsApi.focusSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    input: RecordingFocusInput,
+  ) {
+    yield* api
+      .focusSessionRecording(sessionId, recordingId, { payload: input })
+      .pipe(tenantScoped(credentials));
+  });
+
+  const attentionSessionRecording = Effect.fn("SessionsApi.attentionSessionRecording")(function* (
+    credentials: ApiCredentials,
+    sessionId: string,
+    recordingId: string,
+    input: RecordingAttentionInput,
+  ) {
+    yield* api
+      .attentionSessionRecording(sessionId, recordingId, { payload: input })
+      .pipe(tenantScoped(credentials));
+  });
+
   const createSessionFileDownloadURL = Effect.fn("SessionsApi.createSessionFileDownloadURL")(
     function* (credentials: ApiCredentials, sessionId: string, input: SessionFileDownloadURLInput) {
       return yield* api
@@ -447,6 +483,9 @@ export const makeSessionsApi = Effect.gen(function* () {
     getSessionRecording,
     retargetSessionRecording,
     stopSessionRecording,
+    captionSessionRecording,
+    focusSessionRecording,
+    attentionSessionRecording,
     listSessionFiles,
     createSessionFileDownloadURL,
     getBrowserChannels,

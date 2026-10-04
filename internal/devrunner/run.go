@@ -426,6 +426,10 @@ func (runner commandRunner) prepareState(opts options, dataDir string) error {
 }
 
 func (runner commandRunner) runContainer(opts options, traefikPath string) error {
+	dependencyVolumes, err := containerDependencyVolumes(opts.projectDir, opts.containerName)
+	if err != nil {
+		return err
+	}
 	args := []string{
 		"run", "--rm",
 		"--name", opts.containerName,
@@ -451,6 +455,7 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		"--volume", traefikPath + ":/etc/aperture/traefik.yaml:ro",
 		"--health-cmd", fmt.Sprintf("curl -fsS http://127.0.0.1:%d/api/health", frontendContainerPort),
 	}
+	args = append(args, dependencyVolumes...)
 	if opts.envFile != "" {
 		args = append(args, "--env-file", opts.envFile)
 	}
@@ -520,6 +525,32 @@ func (runner commandRunner) runContainer(opts options, traefikPath string) error
 		}
 		return <-waitResult
 	}
+}
+
+// Each workspace has pnpm links as well as the root virtual store. Mask them all in the
+// container so an install cannot rewrite the host's store location or dependency links.
+func containerDependencyVolumes(projectDir, containerName string) ([]string, error) {
+	paths := []string{"node_modules"}
+	for _, directory := range []string{"apps", "extensions", "packages"} {
+		manifests, err := filepath.Glob(filepath.Join(projectDir, directory, "*", "package.json"))
+		if err != nil {
+			return nil, fmt.Errorf("find workspace dependencies: %w", err)
+		}
+		for _, manifest := range manifests {
+			relative, err := filepath.Rel(projectDir, filepath.Dir(manifest))
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, filepath.Join(relative, "node_modules"))
+		}
+	}
+	var args []string
+	for _, path := range paths {
+		digest := sha256.Sum256([]byte(path))
+		name := fmt.Sprintf("%s-deps-%x", containerName, digest[:6])
+		args = append(args, "--volume", name+":/workspace/"+filepath.ToSlash(path)+":nocopy")
+	}
+	return args, nil
 }
 
 func (runner commandRunner) waitUntilReady(ctx context.Context, baseURL string) bool {
