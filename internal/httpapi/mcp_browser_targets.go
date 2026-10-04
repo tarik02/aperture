@@ -27,7 +27,7 @@ func (s *Server) mcpBrowserTargets(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpBrowserTargetsOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, false)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, false)
 	if err != nil {
 		return nil, mcpBrowserTargetsOutput{}, err
 	}

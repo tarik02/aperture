@@ -36,6 +36,7 @@ type Server struct {
 	Repository    *db.Repository
 	Auth          *auth.Service
 	WebAuth       *auth.WebService
+	OAuth         *auth.OAuthServer
 	Sessions      *session.Service
 	Snapshots     *snapshot.Service
 	Promotion     *snapshot.PromotionService
@@ -149,6 +150,9 @@ func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 	if err == nil {
 		method = authMethodAPIToken
 		principal, err = s.Auth.Authenticate(c.Request.Context(), rawToken)
+		if err == nil {
+			principal, err = s.selectRequestTenant(c, principal)
+		}
 	} else if s.WebAuth != nil {
 		selectedTenant := selectedTenantID(c)
 		if selectedTenant == "" {
@@ -167,6 +171,32 @@ func (s *Server) authenticate(c *gin.Context) (auth.Principal, error) {
 
 	c.Request = c.Request.WithContext(auth.WithPrincipal(c.Request.Context(), principal))
 	return principal, nil
+}
+
+// selectRequestTenant narrows a multi-tenant principal to the tenant the
+// request selects, or to the tenant owning the addressed session. Without
+// either, the principal stays unnarrowed and holds no scopes.
+func (s *Server) selectRequestTenant(c *gin.Context, principal auth.Principal) (auth.Principal, error) {
+	if len(principal.TenantGrants) == 0 {
+		return principal, nil
+	}
+	tenantID := selectedTenantID(c)
+	if tenantID == "" {
+		if sessionID := c.Param("sessionId"); sessionID != "" && s.Repository != nil {
+			row, err := s.Repository.GetSessionByID(c.Request.Context(), sessionID)
+			if err != nil {
+				return auth.Principal{}, err
+			}
+			if row != nil {
+				tenantID = row.TenantID
+			}
+		}
+	}
+	narrowed, err := auth.SelectTenant(principal, tenantID)
+	if errors.Is(err, auth.ErrTenantRequired) {
+		return principal, nil
+	}
+	return narrowed, err
 }
 
 func rawTokenFromRequest(c *gin.Context) (string, error) {

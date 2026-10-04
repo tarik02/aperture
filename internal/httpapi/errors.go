@@ -74,6 +74,10 @@ func mapError(err error) (int, string, string) {
 		return http.StatusUnauthorized, "authentication_token_expired", "authentication token expired"
 	case errors.Is(err, auth.ErrTokenRevoked):
 		return http.StatusUnauthorized, "authentication_token_revoked", "authentication token revoked"
+	case errors.Is(err, auth.ErrOAuthGrantInvalid):
+		return http.StatusUnauthorized, "oauth_grant_invalid", "the user no longer has the access this authorization granted"
+	case errors.Is(err, auth.ErrOAuthGrantNotFound):
+		return http.StatusNotFound, "oauth_grant_not_found", "connected app not found"
 	case errors.Is(err, auth.ErrScopeDenied):
 		return http.StatusForbidden, "insufficient_scope", "insufficient scope"
 	case errors.Is(err, auth.ErrTenantForbidden):

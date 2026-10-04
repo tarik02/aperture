@@ -50,6 +50,8 @@ func isSPAPath(requestPath string) bool {
 		return true
 	case requestPath == "/share", strings.HasPrefix(requestPath, "/share/"):
 		return true
+	case requestPath == "/oauth/consent":
+		return true
 	default:
 		return false
 	}

@@ -5,6 +5,8 @@ export const queryKeys = {
   apiHealth: ["api-health"] as const,
   passkeys: ["passkeys"] as const,
   securityStatus: ["security-status"] as const,
+  oauthAuthorization: (query: string) => ["oauth-authorization", query] as const,
+  oauthGrants: ["oauth-grants"] as const,
   browserChannels: (tenantId: string | null) => ["browser-channels", tenantId] as const,
   tenants: (filters: TenantsFilters) => ["tenants", filters] as const,
   users: (filters: UsersFilters) => ["users", filters] as const,

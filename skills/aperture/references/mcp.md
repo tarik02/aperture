@@ -5,7 +5,15 @@ Aperture exposes Streamable HTTP MCP when `mcp_enabled` is true (the default):
 - central management MCP: `/mcp`
 - session-bound MCP: `/sessions/:sessionId/mcp`
 
-Both endpoints use `Authorization: Bearer ...`. Central MCP accepts Aperture API tokens only. Session-bound MCP accepts either an authorized API token or that session's `sessionToken`. Apply the authority, tenant-selection, and resource-grant rules from [authentication.md](authentication.md).
+Both endpoints use `Authorization: Bearer ...`. Central MCP accepts Aperture API tokens and OAuth access tokens. Session-bound MCP additionally accepts that session's `sessionToken`. Apply the authority, tenant-selection, and resource-grant rules from [authentication.md](authentication.md).
+
+## OAuth
+
+MCP clients such as ChatGPT, Codex, and Claude can connect with only the MCP URL. When browser login is configured, an unauthenticated request returns `401` with `WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource/mcp"`, and the client discovers the authorization server at `/.well-known/oauth-authorization-server`. Aperture supports dynamic client registration (`POST /oauth/register`), client ID metadata documents (an `https` URL as `client_id`), authorization code with PKCE `S256`, rotating refresh tokens, and revocation (`POST /oauth/revoke`).
+
+`/oauth/authorize` sends the user to the consent page at `/oauth/consent`. The signed-in user picks one or more of their tenants, scopes, and either all resources or specific sessions and snapshots; a system administrator may instead opt in to full system administrator access. In each tenant the client gets the chosen scopes the user still holds there, rechecked on every request, so disabling the user or removing a membership takes effect immediately. Users review and revoke connected apps from the account menu.
+
+Access tokens (`apo_...`) last one hour and refresh tokens (`apr_...`) 30 days; each refresh issues a new pair. A client granted several tenants passes `tenantId` to tools; with one tenant it may omit it. OAuth clients cannot create API tokens.
 
 Central tools take `tenantId` or `sessionId` where required and expose management, session, snapshot, event, and session-file workflows. Session-bound MCP binds the session from the URL and omits `sessionId` from tool inputs. A session token can use only tools for its bound session.
 

@@ -64,7 +64,7 @@ func (s *Server) mcpSnapshotUpdate(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -86,7 +86,7 @@ func (s *Server) mcpSnapshotDelete(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -111,7 +111,7 @@ func (s *Server) mcpSnapshotReplaceTags(ctx context.Context, _ *mcp.CallToolRequ
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -133,7 +133,7 @@ func (s *Server) mcpSnapshotRestore(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
-	tenantID, err := s.mcpTenant(a, in.TenantID, auth.ScopeSnapshotsWrite)
+	tenantID, err := s.mcpTenant(&a, in.TenantID, auth.ScopeSnapshotsWrite)
 	if err != nil {
 		return nil, mcpSnapshotOutput{}, err
 	}
@@ -152,7 +152,7 @@ func (s *Server) mcpSessionReopen(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
@@ -171,7 +171,7 @@ func (s *Server) mcpSessionReplaceTags(ctx context.Context, _ *mcp.CallToolReque
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}
-	view, err := s.sessionForMCP(ctx, a, in.SessionID, in.TenantID, true)
+	view, err := s.sessionForMCP(ctx, &a, in.SessionID, in.TenantID, true)
 	if err != nil {
 		return nil, mcpStatusOutput{}, err
 	}

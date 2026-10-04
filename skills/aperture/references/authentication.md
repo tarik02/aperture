@@ -16,6 +16,8 @@ X-Aperture-Tenant-Id: $TENANT_ID
 
 Omit `X-Aperture-Tenant-Id` when using a tenant token. In MCP tool arguments, omit `tenantId`; an explicit tenant selection is rejected.
 
+OAuth access tokens (`apo_...`, see [mcp.md](mcp.md#oauth)) act for the consenting user and may cover several tenants. Select one with `X-Aperture-Tenant-Id` or the `tenantId` tool argument; routes addressing a session resolve its tenant automatically, and a grant with one tenant needs no selection.
+
 Authorities are `system_admin` and `tenant`. Current scope behavior:
 
 - `system:admin`: grants every scope and is required by `/api/admin/*`

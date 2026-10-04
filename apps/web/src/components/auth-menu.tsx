@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  AppWindow,
   ChevronsUpDown,
   Fingerprint,
   KeyRound,
@@ -19,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@aperture-browser/ui/components/dropdown-menu";
+import { ConnectedAppsModal } from "#/features/oauth/connected-apps-modal.tsx";
 import { PasskeyModal } from "#/features/passkey/passkey-modal.tsx";
 import { SecurityModal } from "#/features/security/security-modal.tsx";
 import { cn } from "@aperture-browser/ui/utils";
@@ -39,6 +41,7 @@ export function AuthMenu({ className }: AuthMenuProps) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [passkeysOpen, setPasskeysOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
+  const [connectedAppsOpen, setConnectedAppsOpen] = useState(false);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -104,6 +107,10 @@ export function AuthMenu({ className }: AuthMenuProps) {
                 <Fingerprint />
                 Passkeys
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setConnectedAppsOpen(true)}>
+                <AppWindow />
+                Connected apps
+              </DropdownMenuItem>
             </>
           ) : null}
           <DropdownMenuSeparator />
@@ -118,6 +125,7 @@ export function AuthMenu({ className }: AuthMenuProps) {
         <>
           <SecurityModal open={securityOpen} onOpenChange={setSecurityOpen} />
           <PasskeyModal open={passkeysOpen} onOpenChange={setPasskeysOpen} />
+          <ConnectedAppsModal open={connectedAppsOpen} onOpenChange={setConnectedAppsOpen} />
         </>
       ) : null}
       <ConfirmDialog
