@@ -20,6 +20,11 @@ type TableProps = React.ComponentProps<"table"> & {
   stickyFirstColumn?: boolean;
   /** Keep the last column visible while scrolling horizontally. */
   stickyLastColumn?: boolean;
+  /**
+   * Wrap the table in a scroll area with edge shadows. Turn it off for small inline tables
+   * that size to their content.
+   */
+  scrollable?: boolean;
 };
 
 const SCROLL_EDGE_EPSILON = 2;
@@ -103,13 +108,40 @@ function useScrollBoundaries<Content extends HTMLElement>() {
 const shadowClassName =
   "aperture:pointer-events-none aperture:absolute aperture:z-35 aperture:opacity-0 aperture:transition-[opacity,left,right,top] aperture:duration-120 aperture:ease-out aperture:from-foreground/10 aperture:to-transparent";
 
-function Table({
+function Table({ scrollable = true, ...props }: TableProps) {
+  if (scrollable) {
+    return <ScrollingTable {...props} />;
+  }
+
+  // Sticky columns need a scroll container, so a plain table ignores them.
+  const {
+    className,
+    containerClassName,
+    stickyFirstColumn: _stickyFirstColumn,
+    stickyLastColumn: _stickyLastColumn,
+    ...tableProps
+  } = props;
+  return (
+    <div
+      data-slot="table-container"
+      className={cn("aperture:relative aperture:w-full", containerClassName)}
+    >
+      <table
+        data-slot="table"
+        className={cn("aperture:w-full aperture:caption-bottom aperture:text-sm", className)}
+        {...tableProps}
+      />
+    </div>
+  );
+}
+
+function ScrollingTable({
   className,
   containerClassName,
   stickyFirstColumn = false,
   stickyLastColumn = false,
   ...props
-}: TableProps) {
+}: Omit<TableProps, "scrollable">) {
   const { shellRef, viewportRef, contentRef } = useScrollBoundaries<HTMLTableElement>();
   const context = React.useMemo(
     () => ({ stickyFirstColumn, stickyLastColumn }),
@@ -160,7 +192,7 @@ function Table({
         data-can-scroll-bottom="false"
         data-can-scroll-left="false"
         className={cn(
-          "aperture:group/table aperture:relative aperture:flex aperture:min-h-0 aperture:w-full aperture:max-w-full aperture:flex-col aperture:overflow-hidden aperture:[--table-header-height:0px] aperture:[--table-sticky-end-width:0px] aperture:[--table-sticky-start-width:0px]",
+          "aperture:relative aperture:flex aperture:min-h-0 aperture:w-full aperture:max-w-full aperture:flex-col aperture:overflow-hidden aperture:[--table-header-height:0px] aperture:[--table-sticky-end-width:0px] aperture:[--table-sticky-start-width:0px]",
           containerClassName,
         )}
       >
@@ -184,7 +216,7 @@ function Table({
           aria-hidden="true"
           className={cn(
             shadowClassName,
-            "aperture:top-(--table-header-height) aperture:right-0 aperture:left-0 aperture:h-3 aperture:bg-linear-to-b aperture:group-data-[can-scroll-top=true]/table:opacity-100 aperture:group-data-[can-scroll-left=true]/table:left-(--table-sticky-start-width) aperture:group-data-[can-scroll-right=true]/table:right-(--table-sticky-end-width)",
+            "aperture:top-(--table-header-height) aperture:right-0 aperture:left-0 aperture:h-3 aperture:bg-linear-to-b aperture:[[data-can-scroll-top=true]>&]:opacity-100 aperture:[[data-can-scroll-left=true]>&]:left-(--table-sticky-start-width) aperture:[[data-can-scroll-right=true]>&]:right-(--table-sticky-end-width)",
           )}
         />
         {stickyFirstColumn ? (
@@ -192,7 +224,7 @@ function Table({
             aria-hidden="true"
             className={cn(
               shadowClassName,
-              "aperture:top-0 aperture:bottom-0 aperture:left-(--table-sticky-start-width) aperture:w-4 aperture:bg-linear-to-r aperture:group-data-[can-scroll-left=true]/table:opacity-100 aperture:group-data-[can-scroll-top=true]/table:top-(--table-header-height)",
+              "aperture:top-0 aperture:bottom-0 aperture:left-(--table-sticky-start-width) aperture:w-4 aperture:bg-linear-to-r aperture:[[data-can-scroll-left=true]>&]:opacity-100 aperture:[[data-can-scroll-top=true]>&]:top-(--table-header-height)",
             )}
           />
         ) : null}
@@ -201,7 +233,7 @@ function Table({
             aria-hidden="true"
             className={cn(
               shadowClassName,
-              "aperture:top-0 aperture:right-(--table-sticky-end-width) aperture:bottom-0 aperture:w-4 aperture:bg-linear-to-l aperture:group-data-[can-scroll-right=true]/table:opacity-100 aperture:group-data-[can-scroll-top=true]/table:top-(--table-header-height)",
+              "aperture:top-0 aperture:right-(--table-sticky-end-width) aperture:bottom-0 aperture:w-4 aperture:bg-linear-to-l aperture:[[data-can-scroll-right=true]>&]:opacity-100 aperture:[[data-can-scroll-top=true]>&]:top-(--table-header-height)",
             )}
           />
         ) : null}
