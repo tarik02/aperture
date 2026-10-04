@@ -47,7 +47,9 @@ import type { UseBrowserControlResult } from "../hooks/use-browser-control.ts";
 import { copyTextWithToast } from "../clipboard.ts";
 import { useEffectCallback } from "../effect.tsx";
 import { toast } from "sonner";
-import { RecordingSettingsDialog } from "./recording-settings-dialog.tsx";
+import type { RecordingSettings } from "@aperture-browser/api-client";
+import { useRecordingSettings } from "../hooks/use-recording-settings.ts";
+import { RecordingSettingsMenuItems } from "./recording-settings-menu.tsx";
 
 const STREAM_PRESETS = [
   {
@@ -104,12 +106,26 @@ export function BrowserMenus({
   onSessionDetails?: () => void;
   now: number;
 }) {
-  const [recordingMode, setRecordingMode] = useState<"tab" | "viewer" | null>(null);
+  const { settings, updateSettings } = useRecordingSettings();
   const runningRecordings = control.recordings.filter(
     (recording) => recording.status === "starting" || recording.status === "running",
   );
   const recordingActive = runningRecordings.length > 0;
   const viewportConnected = connected && control.collaboration.role !== "viewer";
+
+  function startRecording(mode: "tab" | "viewer") {
+    const { capture: _capture, burst, ...continuous } = settings;
+    if (mode === "tab" && settings.capture === "bursts") {
+      const { idle: _idle, ...bursts } = continuous;
+      control.startRecording(mode, {
+        ...bursts,
+        capture: "bursts",
+        ...(burst === undefined ? {} : { burst }),
+      });
+    } else {
+      control.startRecording(mode, { ...continuous, capture: "continuous" });
+    }
+  }
 
   return (
     <>
@@ -151,7 +167,9 @@ export function BrowserMenus({
               connected={connected}
               runningRecordings={runningRecordings}
               now={now}
-              onStartRecording={setRecordingMode}
+              settings={settings}
+              onSettingsChange={updateSettings}
+              onStartRecording={startRecording}
             />
             <DropdownMenuSeparator />
             <ViewportStreamMenuItems
@@ -194,7 +212,9 @@ export function BrowserMenus({
               connected={connected}
               runningRecordings={runningRecordings}
               now={now}
-              onStartRecording={setRecordingMode}
+              settings={settings}
+              onSettingsChange={updateSettings}
+              onStartRecording={startRecording}
             />
           </DropdownMenuContent>
         </DropdownMenu>
@@ -260,20 +280,6 @@ export function BrowserMenus({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {recordingMode !== null && (
-        <RecordingSettingsDialog
-          key={recordingMode}
-          mode={recordingMode}
-          disabled={
-            !connected || !control.canRecord || !control.activeTargetId || control.recordingBusy
-          }
-          onClose={() => setRecordingMode(null)}
-          onStart={(settings) => {
-            control.startRecording(recordingMode, settings);
-            setRecordingMode(null);
-          }}
-        />
-      )}
     </>
   );
 }
@@ -396,12 +402,16 @@ function RecordingMenuItems({
   connected,
   runningRecordings,
   now,
+  settings,
+  onSettingsChange,
   onStartRecording,
 }: {
   control: UseBrowserControlResult;
   connected: boolean;
   runningRecordings: UseBrowserControlResult["recordings"];
   now: number;
+  settings: RecordingSettings;
+  onSettingsChange: (settings: RecordingSettings) => void;
   onStartRecording: (mode: "tab" | "viewer") => void;
 }) {
   const recordingAvailable = connected && control.canRecord;
@@ -415,7 +425,7 @@ function RecordingMenuItems({
           <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
             <span>Record this tab</span>
             <span className="aperture:text-xs aperture:text-muted-foreground">
-              Choose capture and edit settings
+              {settings.capture === "bursts" ? "Follow automation across tabs" : "Keep this tab"}
             </span>
           </span>
         </DropdownMenuItem>
@@ -464,6 +474,7 @@ function RecordingMenuItems({
           </Fragment>
         );
       })}
+      <RecordingSettingsMenuItems settings={settings} onChange={onSettingsChange} />
     </>
   );
 }
