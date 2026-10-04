@@ -48,14 +48,10 @@ export function ConnectedAppsModal({ open, onOpenChange }: ConnectedAppsModalPro
   const [revokeOpen, setRevokeOpen] = useState(false);
   const [revoking, setRevoking] = useState(false);
 
-  async function handleRevoke() {
-    if (!revokeTarget) {
-      return;
-    }
-
+  async function handleRevoke(grant: OAuthGrant) {
     setRevoking(true);
     try {
-      await runApi(AuthApi.use((auth) => auth.revokeOAuthGrant(revokeTarget.id)));
+      await runApi(AuthApi.use((auth) => auth.revokeOAuthGrant(grant.id)));
       await queryClient.invalidateQueries({ queryKey: queryKeys.oauthGrants });
       toast.success("Access revoked");
     } catch (error) {
@@ -76,10 +72,7 @@ export function ConnectedAppsModal({ open, onOpenChange }: ConnectedAppsModalPro
           </DialogHeader>
 
           {grants.isPending ? (
-            <div className="aperture:flex aperture:flex-col aperture:gap-2">
-              <Skeleton className="aperture:h-20 aperture:w-full" />
-              <Skeleton className="aperture:h-20 aperture:w-full" />
-            </div>
+            <Skeleton className="aperture:h-40 aperture:w-full" />
           ) : grants.isError ? (
             <Empty>
               <EmptyHeader>
@@ -110,7 +103,31 @@ export function ConnectedAppsModal({ open, onOpenChange }: ConnectedAppsModalPro
                     <div className="aperture:truncate aperture:font-medium">
                       {grant.client.name}
                     </div>
-                    <GrantAccessSummary grant={grant} />
+                    {grant.authorityType === "system_admin" ? (
+                      <Badge variant="destructive" className="aperture:font-normal">
+                        Full system administrator
+                      </Badge>
+                    ) : (
+                      <>
+                        <div className="aperture:truncate aperture:text-xs aperture:text-muted-foreground">
+                          {grant.tenants.map((tenant) => tenant.displayName).join(", ")}
+                        </div>
+                        <div className="aperture:flex aperture:flex-wrap aperture:gap-1">
+                          {grant.scopes.map((scope) => (
+                            <Badge key={scope} variant="secondary" className="aperture:font-normal">
+                              {scopeLabel(scope)}
+                            </Badge>
+                          ))}
+                          {grant.resourceMode === "allowlist" ? (
+                            <Badge variant="outline" className="aperture:font-normal">
+                              {grant.resourceGrants.length === 1
+                                ? "1 resource"
+                                : `${grant.resourceGrants.length} resources`}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
                     <div className="aperture:text-xs aperture:text-muted-foreground">
                       Authorized {formatTimestamp(grant.createdAt)} ·{" "}
                       {grant.lastUsedAt !== null
@@ -147,43 +164,9 @@ export function ConnectedAppsModal({ open, onOpenChange }: ConnectedAppsModalPro
           pending={revoking}
           variant="destructive"
           onOpenChange={setRevokeOpen}
-          onConfirm={handleRevoke}
+          onConfirm={() => handleRevoke(revokeTarget)}
         />
       ) : null}
     </>
-  );
-}
-
-function GrantAccessSummary({ grant }: { grant: OAuthGrant }) {
-  if (grant.authorityType === "system_admin") {
-    return (
-      <div>
-        <Badge variant="destructive" className="aperture:font-normal">
-          Full system administrator
-        </Badge>
-      </div>
-    );
-  }
-
-  return (
-    <div className="aperture:flex aperture:flex-col aperture:gap-1 aperture:text-xs aperture:text-muted-foreground">
-      <span className="aperture:truncate">
-        {grant.tenants.map((tenant) => tenant.displayName).join(", ")}
-      </span>
-      <div className="aperture:flex aperture:flex-wrap aperture:gap-1">
-        {grant.scopes.map((scope) => (
-          <Badge key={scope} variant="secondary" className="aperture:font-normal">
-            {scopeLabel(scope)}
-          </Badge>
-        ))}
-        {grant.resourceMode === "allowlist" ? (
-          <Badge variant="outline" className="aperture:font-normal">
-            {grant.resourceGrants.length === 1
-              ? "1 resource"
-              : `${grant.resourceGrants.length} resources`}
-          </Badge>
-        ) : null}
-      </div>
-    </div>
   );
 }

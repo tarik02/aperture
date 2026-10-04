@@ -65,7 +65,7 @@ func (o *OAuthServer) metadataDocumentClient(ctx context.Context, clientID strin
 		}
 		return nil, err
 	}
-	client, err := oauthClientRow(clientID, OAuthClientKindMetadataDocument, normalized, nil)
+	client, err := oauthClientRow(clientID, OAuthClientKindMetadataDocument, normalized, nil, o.auth.now().UTC())
 	if err != nil {
 		return nil, err
 	}

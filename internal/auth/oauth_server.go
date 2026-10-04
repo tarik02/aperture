@@ -151,54 +151,54 @@ type OAuthClientMetadata struct {
 	Scope                   string   `json:"scope,omitempty"`
 }
 
-// RegisteredOAuthClient is the result of dynamic client registration.
-type RegisteredOAuthClient struct {
-	ClientID     string
-	ClientSecret string
-	IssuedAt     time.Time
-	Metadata     OAuthClientMetadata
+// OAuthClientRegistration is the RFC 7591 registration response.
+type OAuthClientRegistration struct {
+	OAuthClientMetadata
+	ClientID         string `json:"client_id"`
+	ClientSecret     string `json:"client_secret,omitempty"`
+	ClientIDIssuedAt int64  `json:"client_id_issued_at"`
+	// ClientSecretExpiresAt is required with a secret; zero means it never expires.
+	ClientSecretExpiresAt *int64 `json:"client_secret_expires_at,omitempty"`
 }
 
 // RegisterClient performs RFC 7591 dynamic client registration.
-func (o *OAuthServer) RegisterClient(ctx context.Context, metadata OAuthClientMetadata) (RegisteredOAuthClient, error) {
+func (o *OAuthServer) RegisterClient(ctx context.Context, metadata OAuthClientMetadata) (OAuthClientRegistration, error) {
 	// RFC 7591 section 2 defaults the method to client_secret_basic.
 	if metadata.TokenEndpointAuthMethod == "" {
 		metadata.TokenEndpointAuthMethod = oauthAuthMethodClientSecretBasic
 	}
 	if !slices.Contains([]string{oauthAuthMethodNone, oauthAuthMethodClientSecretPost, oauthAuthMethodClientSecretBasic}, metadata.TokenEndpointAuthMethod) {
-		return RegisteredOAuthClient{}, oauthError("invalid_client_metadata", "unsupported token_endpoint_auth_method")
+		return OAuthClientRegistration{}, oauthError("invalid_client_metadata", "unsupported token_endpoint_auth_method")
 	}
 	normalized, err := normalizeClientMetadata(metadata)
 	if err != nil {
-		return RegisteredOAuthClient{}, err
+		return OAuthClientRegistration{}, err
 	}
 
 	clientID, err := ids.NewUUIDv7()
 	if err != nil {
-		return RegisteredOAuthClient{}, err
+		return OAuthClientRegistration{}, err
 	}
-	var secret string
+	now := o.auth.now().UTC()
+	registration := OAuthClientRegistration{OAuthClientMetadata: normalized, ClientID: clientID, ClientIDIssuedAt: now.Unix()}
 	var secretHash *string
 	if normalized.TokenEndpointAuthMethod != oauthAuthMethodNone {
 		raw, hash, err := generateOAuthSecret(oauthClientSecretPrefix, clientID)
 		if err != nil {
-			return RegisteredOAuthClient{}, err
+			return OAuthClientRegistration{}, err
 		}
-		secret = raw
+		registration.ClientSecret = raw
+		registration.ClientSecretExpiresAt = new(int64(0))
 		secretHash = &hash
 	}
-	client, err := oauthClientRow(clientID, OAuthClientKindRegistered, normalized, secretHash)
+	client, err := oauthClientRow(clientID, OAuthClientKindRegistered, normalized, secretHash, now)
 	if err != nil {
-		return RegisteredOAuthClient{}, err
+		return OAuthClientRegistration{}, err
 	}
 	if err := o.repo.CreateOAuthClient(ctx, client); err != nil {
-		return RegisteredOAuthClient{}, err
+		return OAuthClientRegistration{}, err
 	}
-	issuedAt, err := time.Parse(time.RFC3339Nano, client.CreatedAt)
-	if err != nil {
-		return RegisteredOAuthClient{}, err
-	}
-	return RegisteredOAuthClient{ClientID: clientID, ClientSecret: secret, IssuedAt: issuedAt, Metadata: normalized}, nil
+	return registration, nil
 }
 
 func normalizeClientMetadata(metadata OAuthClientMetadata) (OAuthClientMetadata, error) {
@@ -241,7 +241,7 @@ func normalizeClientMetadata(metadata OAuthClientMetadata) (OAuthClientMetadata,
 	return metadata, nil
 }
 
-func oauthClientRow(clientID, kind string, metadata OAuthClientMetadata, secretHash *string) (*db.OAuthClient, error) {
+func oauthClientRow(clientID, kind string, metadata OAuthClientMetadata, secretHash *string, now time.Time) (*db.OAuthClient, error) {
 	redirectURIs, err := json.Marshal(metadata.RedirectURIs)
 	if err != nil {
 		return nil, err
@@ -250,7 +250,6 @@ func oauthClientRow(clientID, kind string, metadata OAuthClientMetadata, secretH
 	if err != nil {
 		return nil, err
 	}
-	now := db.NowUTC()
 	return &db.OAuthClient{
 		ID:                      clientID,
 		Kind:                    kind,
@@ -261,8 +260,8 @@ func oauthClientRow(clientID, kind string, metadata OAuthClientMetadata, secretH
 		TokenEndpointAuthMethod: metadata.TokenEndpointAuthMethod,
 		ClientSecretHash:        secretHash,
 		MetadataJSON:            string(metadataJSON),
-		CreatedAt:               now,
-		UpdatedAt:               now,
+		CreatedAt:               now.Format(time.RFC3339Nano),
+		UpdatedAt:               now.Format(time.RFC3339Nano),
 	}, nil
 }
 
@@ -432,16 +431,11 @@ type OAuthConsentInput struct {
 }
 
 type oauthConsentRecord struct {
-	AuthorityType  string                 `json:"authorityType"`
-	TenantIDs      []string               `json:"tenantIds"`
-	Scopes         []string               `json:"scopes"`
-	ResourceMode   string                 `json:"resourceMode"`
-	ResourceGrants []oauthConsentResource `json:"resourceGrants"`
-}
-
-type oauthConsentResource struct {
-	ResourceType string `json:"resourceType"`
-	ResourceID   string `json:"resourceId"`
+	AuthorityType  string          `json:"authorityType"`
+	TenantIDs      []string        `json:"tenantIds"`
+	Scopes         []string        `json:"scopes"`
+	ResourceMode   string          `json:"resourceMode"`
+	ResourceGrants []ResourceGrant `json:"resourceGrants"`
 }
 
 // Approve records the user's consent and returns the client redirect carrying an authorization code.
@@ -527,16 +521,11 @@ func (o *OAuthServer) validateConsent(ctx context.Context, user *db.User, input 
 			TenantIDs:      []string{},
 			Scopes:         []string{ScopeSystemAdmin},
 			ResourceMode:   ResourceModeAll,
-			ResourceGrants: []oauthConsentResource{},
+			ResourceGrants: []ResourceGrant{},
 		}, nil
 	}
 
-	tenantIDs := make([]string, 0, len(input.TenantIDs))
-	for _, tenantID := range input.TenantIDs {
-		if !slices.Contains(tenantIDs, tenantID) {
-			tenantIDs = append(tenantIDs, tenantID)
-		}
-	}
+	tenantIDs := slices.Compact(slices.Sorted(slices.Values(input.TenantIDs)))
 	if len(tenantIDs) == 0 {
 		return oauthConsentRecord{}, ErrTenantRequired
 	}
@@ -559,19 +548,16 @@ func (o *OAuthServer) validateConsent(ctx context.Context, user *db.User, input 
 	if resourceMode == "" {
 		resourceMode = ResourceModeAll
 	}
-	resources := []oauthConsentResource{}
+	resources := []ResourceGrant{}
 	switch resourceMode {
 	case ResourceModeAll:
 		if len(input.ResourceGrants) != 0 {
 			return oauthConsentRecord{}, ErrInvalidResourceScope
 		}
 	case ResourceModeAllowlist:
-		grants, err := o.auth.normalizeResourceGrants(ctx, tenantIDs, input.ResourceGrants)
+		resources, err = o.auth.normalizeResourceGrants(ctx, tenantIDs, input.ResourceGrants)
 		if err != nil {
 			return oauthConsentRecord{}, err
-		}
-		for _, grant := range grants {
-			resources = append(resources, oauthConsentResource(grant))
 		}
 	default:
 		return oauthConsentRecord{}, ErrInvalidResourceScope
@@ -660,8 +646,14 @@ func (o *OAuthServer) exchangeCode(ctx context.Context, client *db.OAuthClient, 
 	if code.ConsumedAt != nil {
 		// RFC 6749 section 4.1.2: a replayed code revokes what it issued.
 		if code.GrantID != nil {
-			if err := o.revokeGrantByID(ctx, *code.GrantID, "authorization_code_reuse"); err != nil {
+			grant, err := o.repo.GetOAuthGrant(ctx, *code.GrantID)
+			if err != nil {
 				return OAuthTokenResponse{}, err
+			}
+			if grant != nil {
+				if err := o.auth.revokeOAuthGrant(ctx, oauthUserActor(grant.UserID), grant, "authorization_code_reuse"); err != nil {
+					return OAuthTokenResponse{}, err
+				}
 			}
 		}
 		return OAuthTokenResponse{}, oauthError("invalid_grant", "authorization code already used")
@@ -733,15 +725,11 @@ func (o *OAuthServer) exchangeCode(ctx context.Context, client *db.OAuthClient, 
 }
 
 func (o *OAuthServer) refresh(ctx context.Context, client *db.OAuthClient, request OAuthTokenRequest) (OAuthTokenResponse, error) {
-	tokenID, secret, ok := parseOAuthSecret(request.RefreshToken, oauthRefreshTokenPrefix)
-	if !ok {
-		return OAuthTokenResponse{}, oauthError("invalid_grant", "invalid refresh token")
-	}
-	token, err := o.repo.GetOAuthToken(ctx, tokenID)
+	token, err := o.auth.findOAuthToken(ctx, request.RefreshToken)
 	if err != nil {
 		return OAuthTokenResponse{}, err
 	}
-	if token == nil || token.Kind != oauthTokenKindRefresh || !ConstantTimeEqual(token.TokenHash, hashOAuthSecret(secret)) {
+	if token == nil || token.Kind != oauthTokenKindRefresh {
 		return OAuthTokenResponse{}, oauthError("invalid_grant", "invalid refresh token")
 	}
 	grant, err := o.repo.GetOAuthGrant(ctx, token.GrantID)
@@ -794,32 +782,32 @@ func oauthGrantError(err error) error {
 }
 
 func (o *OAuthServer) issueTokens(grant *db.OAuthGrant, scopes []string, now time.Time) (OAuthTokenResponse, []db.OAuthToken, error) {
-	accessID, err := ids.NewUUIDv7()
-	if err != nil {
-		return OAuthTokenResponse{}, nil, err
+	kinds := []struct {
+		kind, prefix string
+		ttl          time.Duration
+	}{
+		{oauthTokenKindAccess, oauthAccessTokenPrefix, OAuthAccessTokenTTL},
+		{oauthTokenKindRefresh, oauthRefreshTokenPrefix, OAuthRefreshTokenTTL},
 	}
-	refreshID, err := ids.NewUUIDv7()
-	if err != nil {
-		return OAuthTokenResponse{}, nil, err
-	}
-	accessToken, accessHash, err := generateOAuthSecret(oauthAccessTokenPrefix, accessID)
-	if err != nil {
-		return OAuthTokenResponse{}, nil, err
-	}
-	refreshToken, refreshHash, err := generateOAuthSecret(oauthRefreshTokenPrefix, refreshID)
-	if err != nil {
-		return OAuthTokenResponse{}, nil, err
-	}
-	createdAt := now.Format(time.RFC3339Nano)
-	tokens := []db.OAuthToken{
-		{ID: accessID, GrantID: grant.ID, Kind: oauthTokenKindAccess, TokenHash: accessHash, CreatedAt: createdAt, ExpiresAt: now.Add(OAuthAccessTokenTTL).Format(time.RFC3339Nano)},
-		{ID: refreshID, GrantID: grant.ID, Kind: oauthTokenKindRefresh, TokenHash: refreshHash, CreatedAt: createdAt, ExpiresAt: now.Add(OAuthRefreshTokenTTL).Format(time.RFC3339Nano)},
+	raw := make([]string, len(kinds))
+	tokens := make([]db.OAuthToken, len(kinds))
+	for i, kind := range kinds {
+		tokenID, err := ids.NewUUIDv7()
+		if err != nil {
+			return OAuthTokenResponse{}, nil, err
+		}
+		secret, hash, err := generateOAuthSecret(kind.prefix, tokenID)
+		if err != nil {
+			return OAuthTokenResponse{}, nil, err
+		}
+		raw[i] = secret
+		tokens[i] = db.OAuthToken{ID: tokenID, GrantID: grant.ID, Kind: kind.kind, TokenHash: hash, CreatedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(kind.ttl).Format(time.RFC3339Nano)}
 	}
 	return OAuthTokenResponse{
-		AccessToken:  accessToken,
+		AccessToken:  raw[0],
 		TokenType:    "Bearer",
 		ExpiresIn:    int(OAuthAccessTokenTTL / time.Second),
-		RefreshToken: refreshToken,
+		RefreshToken: raw[1],
 		Scope:        strings.Join(scopes, " "),
 	}, tokens, nil
 }
@@ -831,22 +819,9 @@ func (o *OAuthServer) RevokeToken(ctx context.Context, clientID, clientSecret, r
 	if err != nil {
 		return err
 	}
-	var tokenID, secret string
-	var ok bool
-	if strings.HasPrefix(rawToken, oauthAccessTokenPrefix) {
-		tokenID, secret, ok = parseOAuthSecret(rawToken, oauthAccessTokenPrefix)
-	} else {
-		tokenID, secret, ok = parseOAuthSecret(rawToken, oauthRefreshTokenPrefix)
-	}
-	if !ok {
-		return nil
-	}
-	token, err := o.repo.GetOAuthToken(ctx, tokenID)
-	if err != nil {
+	token, err := o.auth.findOAuthToken(ctx, rawToken)
+	if err != nil || token == nil {
 		return err
-	}
-	if token == nil || !ConstantTimeEqual(token.TokenHash, hashOAuthSecret(secret)) {
-		return nil
 	}
 	grant, err := o.repo.GetOAuthGrant(ctx, token.GrantID)
 	if err != nil {
@@ -856,17 +831,6 @@ func (o *OAuthServer) RevokeToken(ctx context.Context, clientID, clientSecret, r
 		return nil
 	}
 	return o.auth.revokeOAuthGrant(ctx, oauthUserActor(grant.UserID), grant, "client_revocation")
-}
-
-func (o *OAuthServer) revokeGrantByID(ctx context.Context, grantID, reason string) error {
-	grant, err := o.repo.GetOAuthGrant(ctx, grantID)
-	if err != nil {
-		return err
-	}
-	if grant == nil {
-		return nil
-	}
-	return o.auth.revokeOAuthGrant(ctx, oauthUserActor(grant.UserID), grant, reason)
 }
 
 func verifyPKCE(verifier, challenge string) bool {

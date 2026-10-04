@@ -9,28 +9,32 @@ import (
 	"strings"
 
 	"github.com/aperture/aperture/internal/auth"
+	"github.com/aperture/aperture/internal/db"
 	"github.com/gin-gonic/gin"
 )
 
 const maxOAuthRequestBodySize = 64 << 10
 
 func registerOAuthRoutes(router *gin.Engine, server *Server) {
-	router.GET("/.well-known/oauth-authorization-server", server.oauthCORS, server.oauthAuthorizationServerMetadata)
-	router.GET("/.well-known/oauth-protected-resource", server.oauthCORS, server.oauthProtectedResourceMetadata)
-	router.GET("/.well-known/oauth-protected-resource/mcp", server.oauthCORS, server.oauthProtectedResourceMetadata)
-	router.GET("/.well-known/oauth-protected-resource/sessions/:sessionId/mcp", server.oauthCORS, server.oauthProtectedResourceMetadata)
-	router.OPTIONS("/.well-known/oauth-authorization-server", server.oauthCORS)
-	router.OPTIONS("/.well-known/oauth-protected-resource", server.oauthCORS)
-	router.OPTIONS("/.well-known/oauth-protected-resource/mcp", server.oauthCORS)
-	router.OPTIONS("/.well-known/oauth-protected-resource/sessions/:sessionId/mcp", server.oauthCORS)
+	// Browser-based MCP clients call these directly and preflight them.
+	public := []struct {
+		method, path string
+		handler      gin.HandlerFunc
+	}{
+		{http.MethodGet, "/.well-known/oauth-authorization-server", server.oauthAuthorizationServerMetadata},
+		{http.MethodGet, "/.well-known/oauth-protected-resource", server.oauthProtectedResourceMetadata},
+		{http.MethodGet, "/.well-known/oauth-protected-resource/mcp", server.oauthProtectedResourceMetadata},
+		{http.MethodGet, "/.well-known/oauth-protected-resource/sessions/:sessionId/mcp", server.oauthProtectedResourceMetadata},
+		{http.MethodPost, "/oauth/register", server.oauthRegister},
+		{http.MethodPost, "/oauth/token", server.oauthToken},
+		{http.MethodPost, "/oauth/revoke", server.oauthRevoke},
+	}
+	for _, route := range public {
+		router.Handle(route.method, route.path, oauthCORS, route.handler)
+		router.OPTIONS(route.path, oauthCORS)
+	}
 
 	router.GET("/oauth/authorize", server.oauthAuthorize)
-	router.POST("/oauth/register", server.oauthCORS, server.oauthRegister)
-	router.POST("/oauth/token", server.oauthCORS, server.oauthToken)
-	router.POST("/oauth/revoke", server.oauthCORS, server.oauthRevoke)
-	router.OPTIONS("/oauth/register", server.oauthCORS)
-	router.OPTIONS("/oauth/token", server.oauthCORS)
-	router.OPTIONS("/oauth/revoke", server.oauthCORS)
 
 	router.GET("/auth/oauth/authorization", server.getOAuthAuthorization)
 	router.POST("/auth/oauth/authorization/approve", server.approveOAuthAuthorization)
@@ -47,7 +51,7 @@ func (s *Server) oauthEnabled() bool {
 
 // oauthCORS opens the endpoints browser-based MCP clients call directly. They
 // carry no cookies, so any origin may use them.
-func (s *Server) oauthCORS(c *gin.Context) {
+func oauthCORS(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, MCP-Protocol-Version")
@@ -121,14 +125,6 @@ func (s *Server) oauthAuthorize(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/oauth/consent?"+c.Request.URL.RawQuery)
 }
 
-type oauthRegistrationResponse struct {
-	auth.OAuthClientMetadata
-	ClientID              string `json:"client_id"`
-	ClientSecret          string `json:"client_secret,omitempty"`
-	ClientIDIssuedAt      int64  `json:"client_id_issued_at"`
-	ClientSecretExpiresAt *int64 `json:"client_secret_expires_at,omitempty"`
-}
-
 func (s *Server) oauthRegister(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOAuthRequestBodySize)
 	var metadata auth.OAuthClientMetadata
@@ -136,34 +132,18 @@ func (s *Server) oauthRegister(c *gin.Context) {
 		writeOAuthError(c, &auth.OAuthError{Code: "invalid_client_metadata", Description: "request body must be a JSON client metadata object"})
 		return
 	}
-	registered, err := s.OAuth.RegisterClient(c.Request.Context(), metadata)
+	registration, err := s.OAuth.RegisterClient(c.Request.Context(), metadata)
 	if err != nil {
 		writeOAuthError(c, err)
 		return
 	}
-	response := oauthRegistrationResponse{
-		OAuthClientMetadata: registered.Metadata,
-		ClientID:            registered.ClientID,
-		ClientSecret:        registered.ClientSecret,
-		ClientIDIssuedAt:    registered.IssuedAt.Unix(),
-	}
-	if registered.ClientSecret != "" {
-		// RFC 7591 section 3.2.1: zero means the secret never expires.
-		response.ClientSecretExpiresAt = new(int64(0))
-	}
 	c.Header("Cache-Control", "no-store")
-	c.JSON(http.StatusCreated, response)
+	c.JSON(http.StatusCreated, registration)
 }
 
 func (s *Server) oauthToken(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOAuthRequestBodySize)
-	if err := c.Request.ParseForm(); err != nil {
-		writeOAuthError(c, &auth.OAuthError{Code: "invalid_request", Description: "request body must be form encoded"})
-		return
-	}
-	clientID, clientSecret, err := oauthClientCredentials(c.Request)
-	if err != nil {
-		writeOAuthError(c, err)
+	clientID, clientSecret, ok := parseOAuthForm(c)
+	if !ok {
 		return
 	}
 	form := c.Request.PostForm
@@ -187,14 +167,8 @@ func (s *Server) oauthToken(c *gin.Context) {
 }
 
 func (s *Server) oauthRevoke(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOAuthRequestBodySize)
-	if err := c.Request.ParseForm(); err != nil {
-		writeOAuthError(c, &auth.OAuthError{Code: "invalid_request", Description: "request body must be form encoded"})
-		return
-	}
-	clientID, clientSecret, err := oauthClientCredentials(c.Request)
-	if err != nil {
-		writeOAuthError(c, err)
+	clientID, clientSecret, ok := parseOAuthForm(c)
+	if !ok {
 		return
 	}
 	if err := s.OAuth.RevokeToken(c.Request.Context(), clientID, clientSecret, c.Request.PostForm.Get("token")); err != nil {
@@ -202,6 +176,22 @@ func (s *Server) oauthRevoke(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusOK)
+}
+
+// parseOAuthForm parses a form-encoded token or revocation request and returns
+// its client credentials, writing the error response when it fails.
+func parseOAuthForm(c *gin.Context) (string, string, bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOAuthRequestBodySize)
+	if err := c.Request.ParseForm(); err != nil {
+		writeOAuthError(c, &auth.OAuthError{Code: "invalid_request", Description: "request body must be form encoded"})
+		return "", "", false
+	}
+	clientID, clientSecret, err := oauthClientCredentials(c.Request)
+	if err != nil {
+		writeOAuthError(c, err)
+		return "", "", false
+	}
+	return clientID, clientSecret, true
 }
 
 // oauthClientCredentials reads client_secret_basic or client_secret_post
@@ -263,36 +253,36 @@ type oauthAuthorizationResponse struct {
 	CanGrantSystemAdmin bool                         `json:"canGrantSystemAdmin"`
 }
 
-type oauthResourceGrantRequest struct {
-	ResourceType string `json:"resourceType"`
-	ResourceID   string `json:"resourceId"`
+// oauthDecisionRequest is the consent page's answer; deny uses only Query.
+type oauthDecisionRequest struct {
+	Query          string               `json:"query"`
+	SystemAdmin    bool                 `json:"systemAdmin"`
+	TenantIDs      []string             `json:"tenantIds"`
+	Scopes         []string             `json:"scopes"`
+	ResourceMode   string               `json:"resourceMode"`
+	ResourceGrants []auth.ResourceGrant `json:"resourceGrants"`
 }
 
-type oauthApproveRequest struct {
-	Query          string                      `json:"query"`
-	SystemAdmin    bool                        `json:"systemAdmin"`
-	TenantIDs      []string                    `json:"tenantIds"`
-	Scopes         []string                    `json:"scopes"`
-	ResourceMode   string                      `json:"resourceMode"`
-	ResourceGrants []oauthResourceGrantRequest `json:"resourceGrants"`
-}
-
-func (r oauthApproveRequest) Validate() error {
+func (r oauthDecisionRequest) Validate() error {
 	if r.Query == "" {
 		return validationError("query is required")
 	}
 	return nil
 }
 
-type oauthDenyRequest struct {
-	Query string `json:"query"`
-}
-
-func (r oauthDenyRequest) Validate() error {
-	if r.Query == "" {
-		return validationError("query is required")
+func bindOAuthDecision(c *gin.Context) (oauthDecisionRequest, url.Values, bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
+	var request oauthDecisionRequest
+	if err := bindJSON(c, &request); err != nil {
+		WriteError(c, err)
+		return request, nil, false
 	}
-	return nil
+	query, err := url.ParseQuery(request.Query)
+	if err != nil {
+		WriteError(c, validationError("query is not a valid query string"))
+		return request, nil, false
+	}
+	return request, query, true
 }
 
 type oauthRedirectResponse struct {
@@ -317,7 +307,7 @@ func (s *Server) getOAuthAuthorization(c *gin.Context) {
 		return
 	}
 	response := oauthAuthorizationResponse{
-		Client:              toOAuthClientResponse(consent.Request.Client.ID, consent.Request.Client.ClientName, consent.Request.Client.ClientURI, consent.Request.Client.LogoURI, consent.Request.Client.Kind),
+		Client:              toOAuthClientResponse(consent.Request.Client),
 		RedirectURI:         consent.Request.RedirectURI,
 		RequestedScopes:     consent.Request.RequestedScopes,
 		User:                oauthConsentUserResponse{ID: consent.User.ID, DisplayName: consent.User.DisplayName, IsSystemAdmin: consent.User.IsSystemAdmin},
@@ -336,27 +326,16 @@ func (s *Server) getOAuthAuthorization(c *gin.Context) {
 }
 
 func (s *Server) approveOAuthAuthorization(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
-	var request oauthApproveRequest
-	if err := bindJSON(c, &request); err != nil {
-		WriteError(c, err)
+	request, query, ok := bindOAuthDecision(c)
+	if !ok {
 		return
-	}
-	query, err := url.ParseQuery(request.Query)
-	if err != nil {
-		WriteError(c, validationError("query is not a valid query string"))
-		return
-	}
-	grants := make([]auth.ResourceGrant, 0, len(request.ResourceGrants))
-	for _, grant := range request.ResourceGrants {
-		grants = append(grants, auth.ResourceGrant{ResourceType: grant.ResourceType, ResourceID: grant.ResourceID})
 	}
 	redirectURL, err := s.OAuth.Approve(c.Request.Context(), s.WebAuth.AuthenticatedUserID(c.Request.Context()), query, auth.OAuthConsentInput{
 		SystemAdmin:    request.SystemAdmin,
 		TenantIDs:      request.TenantIDs,
 		Scopes:         request.Scopes,
 		ResourceMode:   request.ResourceMode,
-		ResourceGrants: grants,
+		ResourceGrants: request.ResourceGrants,
 	})
 	if err != nil {
 		writeOAuthConsentError(c, err)
@@ -366,15 +345,8 @@ func (s *Server) approveOAuthAuthorization(c *gin.Context) {
 }
 
 func (s *Server) denyOAuthAuthorization(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxOpenAPIRequestBodySize)
-	var request oauthDenyRequest
-	if err := bindJSON(c, &request); err != nil {
-		WriteError(c, err)
-		return
-	}
-	query, err := url.ParseQuery(request.Query)
-	if err != nil {
-		WriteError(c, validationError("query is not a valid query string"))
+	_, query, ok := bindOAuthDecision(c)
+	if !ok {
 		return
 	}
 	redirectURL, err := s.OAuth.Deny(c.Request.Context(), s.WebAuth.AuthenticatedUserID(c.Request.Context()), query)
@@ -391,15 +363,15 @@ type oauthGrantTenantResponse struct {
 }
 
 type oauthGrantResponse struct {
-	ID             string                      `json:"id"`
-	Client         oauthClientResponse         `json:"client"`
-	AuthorityType  string                      `json:"authorityType"`
-	Tenants        []oauthGrantTenantResponse  `json:"tenants"`
-	Scopes         []string                    `json:"scopes"`
-	ResourceMode   string                      `json:"resourceMode"`
-	ResourceGrants []oauthResourceGrantRequest `json:"resourceGrants"`
-	CreatedAt      string                      `json:"createdAt"`
-	LastUsedAt     *string                     `json:"lastUsedAt"`
+	ID             string                     `json:"id"`
+	Client         oauthClientResponse        `json:"client"`
+	AuthorityType  string                     `json:"authorityType"`
+	Tenants        []oauthGrantTenantResponse `json:"tenants"`
+	Scopes         []string                   `json:"scopes"`
+	ResourceMode   string                     `json:"resourceMode"`
+	ResourceGrants []auth.ResourceGrant       `json:"resourceGrants"`
+	CreatedAt      string                     `json:"createdAt"`
+	LastUsedAt     *string                    `json:"lastUsedAt"`
 }
 
 type oauthGrantsResponse struct {
@@ -421,12 +393,12 @@ func (s *Server) listOAuthGrants(c *gin.Context) {
 	for _, item := range grants {
 		grant := oauthGrantResponse{
 			ID:             item.Grant.ID,
-			Client:         toOAuthClientResponse(item.Client.ID, item.Client.ClientName, item.Client.ClientURI, item.Client.LogoURI, item.Client.Kind),
+			Client:         toOAuthClientResponse(item.Client),
 			AuthorityType:  item.Grant.AuthorityType,
 			Tenants:        make([]oauthGrantTenantResponse, 0, len(item.Grant.TenantIDs)),
 			Scopes:         item.Scopes,
 			ResourceMode:   item.Grant.ResourceMode,
-			ResourceGrants: make([]oauthResourceGrantRequest, 0, len(item.Grant.ResourceGrants)),
+			ResourceGrants: make([]auth.ResourceGrant, 0, len(item.Grant.ResourceGrants)),
 			CreatedAt:      item.Grant.CreatedAt,
 			LastUsedAt:     item.Grant.LastUsedAt,
 		}
@@ -441,7 +413,7 @@ func (s *Server) listOAuthGrants(c *gin.Context) {
 			grant.Tenants = append(grant.Tenants, oauthGrantTenantResponse{ID: tenantID, DisplayName: displayName})
 		}
 		for _, resource := range item.Grant.ResourceGrants {
-			grant.ResourceGrants = append(grant.ResourceGrants, oauthResourceGrantRequest{ResourceType: resource.ResourceType, ResourceID: resource.ResourceID})
+			grant.ResourceGrants = append(grant.ResourceGrants, auth.ResourceGrant{ResourceType: resource.ResourceType, ResourceID: resource.ResourceID})
 		}
 		response.Grants = append(response.Grants, grant)
 	}
@@ -454,20 +426,15 @@ func (s *Server) revokeOAuthGrant(c *gin.Context) {
 		WriteError(c, auth.ErrTokenMissing)
 		return
 	}
-	principal, err := s.WebAuth.Authenticate(c.Request.Context(), "")
-	if err != nil {
-		WriteError(c, err)
-		return
-	}
-	if err := s.Auth.RevokeUserOAuthGrant(c.Request.Context(), principal, c.Param("grantId")); err != nil {
+	if err := s.Auth.RevokeUserOAuthGrant(c.Request.Context(), userID, c.Param("grantId")); err != nil {
 		WriteError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
-func toOAuthClientResponse(id, name string, uri, logoURI *string, kind string) oauthClientResponse {
-	return oauthClientResponse{ID: id, Name: name, URI: uri, LogoURI: logoURI, Kind: kind}
+func toOAuthClientResponse(client db.OAuthClient) oauthClientResponse {
+	return oauthClientResponse{ID: client.ID, Name: client.ClientName, URI: client.ClientURI, LogoURI: client.LogoURI, Kind: client.Kind}
 }
 
 // oauthBearerChallenge is sent with 401 responses from the MCP endpoint.

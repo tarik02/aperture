@@ -103,16 +103,33 @@ func (s *Service) AccessibleTenants(ctx context.Context, user *db.User) ([]Tenan
 	return result, nil
 }
 
-func (s *Service) authenticateOAuthAccessToken(ctx context.Context, raw string) (Principal, error) {
-	tokenID, secret, ok := parseOAuthSecret(raw, oauthAccessTokenPrefix)
+// findOAuthToken returns the access or refresh token raw names, or nil when
+// it is malformed, unknown, or its secret does not match.
+func (s *Service) findOAuthToken(ctx context.Context, raw string) (*db.OAuthToken, error) {
+	prefix, kind := oauthAccessTokenPrefix, oauthTokenKindAccess
+	if strings.HasPrefix(raw, oauthRefreshTokenPrefix) {
+		prefix, kind = oauthRefreshTokenPrefix, oauthTokenKindRefresh
+	}
+	tokenID, secret, ok := parseOAuthSecret(raw, prefix)
 	if !ok {
-		return Principal{}, ErrTokenInvalid
+		return nil, nil
 	}
 	token, err := s.repo.GetOAuthToken(ctx, tokenID)
 	if err != nil {
+		return nil, err
+	}
+	if token == nil || token.Kind != kind || !ConstantTimeEqual(token.TokenHash, hashOAuthSecret(secret)) {
+		return nil, nil
+	}
+	return token, nil
+}
+
+func (s *Service) authenticateOAuthAccessToken(ctx context.Context, raw string) (Principal, error) {
+	token, err := s.findOAuthToken(ctx, raw)
+	if err != nil {
 		return Principal{}, err
 	}
-	if token == nil || token.Kind != oauthTokenKindAccess || !ConstantTimeEqual(token.TokenHash, hashOAuthSecret(secret)) {
+	if token == nil || token.Kind != oauthTokenKindAccess {
 		return Principal{}, ErrTokenInvalid
 	}
 	if IsRevoked(token.RevokedAt) {
@@ -257,18 +274,15 @@ func (s *Service) ListUserOAuthGrants(ctx context.Context, userID string) ([]Use
 }
 
 // RevokeUserOAuthGrant revokes one of the user's grants and all its tokens.
-func (s *Service) RevokeUserOAuthGrant(ctx context.Context, principal Principal, grantID string) error {
-	if principal.UserID == nil {
-		return ErrOAuthGrantNotFound
-	}
+func (s *Service) RevokeUserOAuthGrant(ctx context.Context, userID, grantID string) error {
 	grant, err := s.repo.GetOAuthGrant(ctx, grantID)
 	if err != nil {
 		return err
 	}
-	if grant == nil || grant.UserID != *principal.UserID {
+	if grant == nil || grant.UserID != userID {
 		return ErrOAuthGrantNotFound
 	}
-	return s.revokeOAuthGrant(ctx, principal, grant, "user")
+	return s.revokeOAuthGrant(ctx, Principal{Type: PrincipalTypeUser, ID: userID, UserID: &userID}, grant, "user")
 }
 
 func (s *Service) revokeOAuthGrant(ctx context.Context, actor Principal, grant *db.OAuthGrant, reason string) error {

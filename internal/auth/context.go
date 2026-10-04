@@ -24,8 +24,8 @@ const (
 
 // ResourceGrant allows access to one tenant resource.
 type ResourceGrant struct {
-	ResourceType string
-	ResourceID   string
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
 }
 
 // TenantGrant holds a principal's effective scopes in one tenant.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ShieldAlert, X } from "lucide-react";
 import { toast } from "sonner";
@@ -25,14 +25,6 @@ import {
   FieldSeparator,
   FieldSet,
 } from "@aperture-browser/ui/components/field";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@aperture-browser/ui/components/select";
 import { Skeleton } from "@aperture-browser/ui/components/skeleton";
 import { ResourceGrantEditor } from "#/components/resources/resource-grant-editor.tsx";
 import { OAuthClientAvatar } from "#/features/oauth/oauth-client-avatar.tsx";
@@ -45,21 +37,25 @@ import {
   type OAuthApproval,
   type OAuthAuthorizationRequest,
   type ResourceGrant,
-  type ResourceMode,
   type TenantScope,
 } from "@aperture-browser/api-client";
 import { useRunApi } from "@aperture-browser/session-react";
 
-const RESOURCE_MODE_OPTIONS = [
-  { value: "all", label: "All resources" },
-  { value: "allowlist", label: "Specific sessions and snapshots" },
-];
-
 export function OAuthConsentPage() {
+  return (
+    <div className="aperture:h-full aperture:overflow-y-auto">
+      <div className="aperture:mx-auto aperture:flex aperture:min-h-full aperture:w-full aperture:max-w-xl aperture:flex-col aperture:justify-center aperture:p-4">
+        <ConsentContent />
+      </div>
+    </div>
+  );
+}
+
+function ConsentContent() {
   const runApi = useRunApi();
   const status = useAuthSessionStore((state) => state.status);
-  // Read once from the address bar: the router re-serializes search values it can parse as
-  // JSON, so its copy may differ from the authorization request the server validated.
+  // The router re-serializes search values it can parse as JSON, so only the address bar
+  // holds the query exactly as the server validated it.
   const [query] = useState(() => window.location.search.slice(1));
   const request = useQuery({
     queryKey: queryKeys.oauthAuthorization(query),
@@ -75,89 +71,46 @@ export function OAuthConsentPage() {
 
   if (query === "") {
     return (
-      <ConsentLayout>
-        <ErrorCard
-          title="Invalid authorization request"
-          description="This link is missing its authorization parameters. Start the connection again from the app."
-        />
-      </ConsentLayout>
+      <MessageCard
+        title="Invalid authorization request"
+        description="This link is missing its authorization parameters. Start the connection again from the app."
+      />
     );
   }
-
   if (status === "unauthenticated") {
     return (
-      <ConsentLayout>
-        <Card>
-          <CardHeader className="aperture:text-center">
-            <CardTitle>Sign in to continue</CardTitle>
-            <CardDescription>
-              Sign in to review the app's request to access Aperture.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </ConsentLayout>
+      <MessageCard
+        title="Sign in to continue"
+        description="Sign in to review the app's request to access Aperture."
+      />
     );
   }
-
   if (request.isError) {
-    const invalidRequest =
-      request.error instanceof ApiRequestError && request.error.code === "invalid_request";
+    const error = request.error instanceof ApiRequestError ? request.error : null;
+    const invalidRequest = error?.code === "invalid_request";
     return (
-      <ConsentLayout>
-        <ErrorCard
-          title={invalidRequest ? "Invalid authorization request" : "Could not load the request"}
-          description={
-            request.error instanceof ApiRequestError
-              ? request.error.message
-              : "The authorization request could not be loaded."
-          }
-          action={invalidRequest ? null : <SwitchAccountButton />}
-        />
-      </ConsentLayout>
+      <MessageCard
+        title={invalidRequest ? "Invalid authorization request" : "Could not load the request"}
+        description={error?.message ?? "The authorization request could not be loaded."}
+        action={invalidRequest ? null : <SwitchAccountButton />}
+      />
     );
   }
-
   if (request.isPending) {
-    return (
-      <ConsentLayout>
-        <Card>
-          <CardHeader>
-            <Skeleton className="aperture:h-10 aperture:w-10" />
-            <Skeleton className="aperture:h-5 aperture:w-64" />
-            <Skeleton className="aperture:h-4 aperture:w-48" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="aperture:h-48 aperture:w-full" />
-          </CardContent>
-        </Card>
-      </ConsentLayout>
-    );
+    return <Skeleton className="aperture:h-96 aperture:w-full aperture:rounded-xl" />;
   }
-
-  return (
-    <ConsentLayout>
-      <ConsentForm query={query} request={request.data} />
-    </ConsentLayout>
-  );
+  return <ConsentForm query={query} request={request.data} />;
 }
 
-function ConsentLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="aperture:h-full aperture:overflow-y-auto">
-      <div className="aperture:mx-auto aperture:flex aperture:min-h-full aperture:w-full aperture:max-w-xl aperture:flex-col aperture:justify-center aperture:p-4">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-interface ErrorCardProps {
+function MessageCard({
+  title,
+  description,
+  action = null,
+}: {
   title: string;
   description: string;
   action?: React.ReactNode;
-}
-
-function ErrorCard({ title, description, action = null }: ErrorCardProps) {
+}) {
   return (
     <Card>
       <CardHeader className="aperture:text-center">
@@ -203,6 +156,44 @@ function SwitchAccountButton({ disabled = false }: { disabled?: boolean }) {
   );
 }
 
+interface CheckboxFieldProps {
+  id: string;
+  label: React.ReactNode;
+  description?: string;
+  checked: boolean;
+  disabled: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  children?: React.ReactNode;
+}
+
+function CheckboxField({
+  id,
+  label,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+  children,
+}: CheckboxFieldProps) {
+  return (
+    <Field orientation="horizontal" data-disabled={disabled ? true : undefined}>
+      <Checkbox
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(next) => onCheckedChange(next)}
+      />
+      <FieldContent>
+        <FieldLabel htmlFor={id} className="aperture:gap-2">
+          {label}
+        </FieldLabel>
+        {description !== undefined ? <FieldDescription>{description}</FieldDescription> : null}
+        {children}
+      </FieldContent>
+    </Field>
+  );
+}
+
 interface ConsentFormProps {
   query: string;
   request: OAuthAuthorizationRequest;
@@ -210,20 +201,18 @@ interface ConsentFormProps {
 
 function ConsentForm({ query, request }: ConsentFormProps) {
   const runApi = useRunApi();
-  const { client, tenants, availableScopes } = request;
+  const { client, tenants, availableScopes, requestedScopes } = request;
   const [systemAdmin, setSystemAdmin] = useState(false);
   const [allTenants, setAllTenants] = useState(false);
   const [tenantIds, setTenantIds] = useState<string[]>(() =>
     tenants.length === 1 ? tenants.map((tenant) => tenant.id) : [],
   );
   const [scopes, setScopes] = useState<TenantScope[]>(() =>
-    availableScopes.filter((scope) => request.requestedScopes.includes(scope)),
+    availableScopes.filter((scope) => requestedScopes.includes(scope)),
   );
-  const [resourceMode, setResourceMode] = useState<ResourceMode>("all");
+  const [allowlist, setAllowlist] = useState(false);
   const [resourceGrants, setResourceGrants] = useState<Record<string, ResourceGrant[]>>({});
-  const [tenantError, setTenantError] = useState<string | null>(null);
-  const [scopeError, setScopeError] = useState<string | null>(null);
-  const [resourceError, setResourceError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [pending, setPending] = useState<"approve" | "deny" | null>(null);
 
@@ -231,10 +220,21 @@ function ConsentForm({ query, request }: ConsentFormProps) {
     ? tenants
     : tenants.filter((tenant) => tenantIds.includes(tenant.id));
   const chosenResourceGrants = chosenTenants.flatMap((tenant) => resourceGrants[tenant.id] ?? []);
+  const tenantError = chosenTenants.length === 0 ? "Select at least one tenant" : null;
+  const scopeError = scopes.length === 0 ? "Select at least one scope" : null;
+  const resourceError =
+    allowlist && chosenResourceGrants.length === 0
+      ? "Select at least one session or snapshot"
+      : null;
   const busy = pending !== null;
+  const clientDetails = [
+    ["Website", client.uri],
+    ["Client", client.id],
+    ["Redirects to", request.redirectUri],
+  ] as const;
 
-  async function respond(decision: "approve" | "deny", approval: OAuthApproval | null) {
-    setPending(decision);
+  async function respond(approval: OAuthApproval | null) {
+    setPending(approval === null ? "deny" : "approve");
     setRequestError(null);
     try {
       const { redirectUrl } = await runApi(
@@ -244,7 +244,7 @@ function ConsentForm({ query, request }: ConsentFormProps) {
             : auth.approveOAuthAuthorization(approval),
         ),
       );
-      // Stay pending: the page is unloading.
+      // Stays pending while the page unloads.
       window.location.assign(redirectUrl);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "The request failed");
@@ -254,56 +254,20 @@ function ConsentForm({ query, request }: ConsentFormProps) {
 
   function handleApprove(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (systemAdmin) {
-      void respond("approve", {
-        query,
-        systemAdmin: true,
-        tenantIds: [],
-        scopes: [],
-        resourceMode: "all",
-        resourceGrants: [],
-      });
+    setSubmitted(true);
+    if (!systemAdmin && (tenantError !== null || scopeError !== null || resourceError !== null)) {
       return;
     }
-
-    const nextTenantError = chosenTenants.length === 0 ? "Select at least one tenant" : null;
-    const nextScopeError = scopes.length === 0 ? "Select at least one scope" : null;
-    const nextResourceError =
-      resourceMode === "allowlist" && chosenResourceGrants.length === 0
-        ? "Select at least one session or snapshot"
-        : null;
-    setTenantError(nextTenantError);
-    setScopeError(nextScopeError);
-    setResourceError(nextResourceError);
-    if (nextTenantError !== null || nextScopeError !== null || nextResourceError !== null) {
-      return;
-    }
-
-    void respond("approve", {
+    // A system administrator grant ignores tenants, scopes and resources.
+    const restricted = !systemAdmin;
+    void respond({
       query,
-      systemAdmin: false,
-      tenantIds: chosenTenants.map((tenant) => tenant.id),
-      scopes,
-      resourceMode,
-      resourceGrants: resourceMode === "allowlist" ? chosenResourceGrants : [],
+      systemAdmin,
+      tenantIds: restricted ? chosenTenants.map((tenant) => tenant.id) : [],
+      scopes: restricted ? scopes : [],
+      resourceMode: restricted && allowlist ? "allowlist" : "all",
+      resourceGrants: restricted && allowlist ? chosenResourceGrants : [],
     });
-  }
-
-  function toggleTenant(tenantId: string, checked: boolean) {
-    setTenantIds((current) =>
-      checked ? [...current, tenantId] : current.filter((id) => id !== tenantId),
-    );
-    setTenantError(null);
-  }
-
-  function toggleScope(scope: TenantScope, checked: boolean) {
-    setScopes((current) =>
-      checked
-        ? availableScopes.filter((item) => item === scope || current.includes(item))
-        : current.filter((item) => item !== scope),
-    );
-    setScopeError(null);
   }
 
   return (
@@ -320,36 +284,41 @@ function ConsentForm({ query, request }: ConsentFormProps) {
         </CardHeader>
         <CardContent>
           <FieldGroup>
-            <ClientDetails request={request} />
+            <dl className="aperture:grid aperture:grid-cols-[auto_minmax(0,1fr)] aperture:gap-x-3 aperture:gap-y-1 aperture:text-sm">
+              {clientDetails.map(([term, value]) =>
+                value === null ? null : (
+                  <Fragment key={term}>
+                    <dt className="aperture:text-muted-foreground">{term}</dt>
+                    <dd className="aperture:truncate aperture:font-mono aperture:text-xs aperture:leading-5">
+                      {value}
+                    </dd>
+                  </Fragment>
+                ),
+              )}
+              {client.kind === "registered" ? (
+                <dd className="aperture:col-span-2 aperture:text-xs aperture:text-muted-foreground">
+                  This app registered itself; its name and website are not verified.
+                </dd>
+              ) : null}
+            </dl>
 
             <div className="aperture:flex aperture:flex-wrap aperture:items-center aperture:gap-x-1 aperture:text-sm aperture:text-muted-foreground">
-              <span>
-                Signed in as{" "}
-                <span className="aperture:font-medium aperture:text-foreground">
-                  {request.user.displayName}
-                </span>
-                .
+              Signed in as
+              <span className="aperture:font-medium aperture:text-foreground">
+                {request.user.displayName}.
               </span>
               <SwitchAccountButton disabled={busy} />
             </div>
 
             {request.canGrantSystemAdmin ? (
-              <Field orientation="horizontal" data-disabled={busy ? true : undefined}>
-                <Checkbox
-                  id="oauth-system-admin"
-                  checked={systemAdmin}
-                  onCheckedChange={(checked) => setSystemAdmin(checked)}
-                  disabled={busy}
-                />
-                <FieldContent>
-                  <FieldLabel htmlFor="oauth-system-admin">
-                    Grant full system administrator access
-                  </FieldLabel>
-                  <FieldDescription>
-                    The app can do anything you can as a system administrator, in every tenant.
-                  </FieldDescription>
-                </FieldContent>
-              </Field>
+              <CheckboxField
+                id="oauth-system-admin"
+                label="Grant full system administrator access"
+                checked={systemAdmin}
+                disabled={busy}
+                description="The app can do anything you can as a system administrator, in every tenant."
+                onCheckedChange={setSystemAdmin}
+              />
             ) : null}
 
             {systemAdmin ? (
@@ -364,90 +333,119 @@ function ConsentForm({ query, request }: ConsentFormProps) {
             ) : (
               <>
                 <FieldSeparator />
-                <TenantPicker
-                  request={request}
-                  allTenants={allTenants}
-                  chosenTenantIds={chosenTenants.map((tenant) => tenant.id)}
-                  scopes={scopes}
-                  error={tenantError}
-                  disabled={busy}
-                  onAllTenantsChange={(checked) => {
-                    setAllTenants(checked);
-                    setTenantError(null);
-                  }}
-                  onToggleTenant={toggleTenant}
-                />
+                <FieldSet data-invalid={submitted && tenantError !== null ? true : undefined}>
+                  <FieldLegend variant="label">Tenants</FieldLegend>
+                  {tenants.length === 0 ? (
+                    <FieldDescription>
+                      You are not a member of any tenant, so there is nothing to grant.
+                    </FieldDescription>
+                  ) : (
+                    <>
+                      <CheckboxField
+                        id="oauth-all-tenants"
+                        label="All tenants"
+                        checked={allTenants}
+                        disabled={busy}
+                        description="Every tenant you can access now, but not ones you join later."
+                        onCheckedChange={setAllTenants}
+                      />
+                      {tenants.map((tenant) => {
+                        const chosen = chosenTenants.includes(tenant);
+                        const missingScopes = scopes.filter(
+                          (scope) => !tenant.scopes.includes(scope),
+                        );
+                        return (
+                          <CheckboxField
+                            key={tenant.id}
+                            id={`oauth-tenant-${tenant.id}`}
+                            label={tenant.displayName}
+                            checked={chosen}
+                            disabled={busy || allTenants}
+                            onCheckedChange={(checked) =>
+                              setTenantIds((current) =>
+                                checked
+                                  ? [...current, tenant.id]
+                                  : current.filter((id) => id !== tenant.id),
+                              )
+                            }
+                          >
+                            <div className="aperture:flex aperture:flex-wrap aperture:gap-1">
+                              {tenant.scopes.map((scope) => (
+                                <Badge
+                                  key={scope}
+                                  variant={
+                                    chosen && scopes.includes(scope) ? "secondary" : "outline"
+                                  }
+                                  className="aperture:font-normal"
+                                >
+                                  {scopeLabel(scope)}
+                                </Badge>
+                              ))}
+                            </div>
+                            {chosen && missingScopes.length > 0 ? (
+                              <FieldDescription>
+                                {missingScopes.length === scopes.length
+                                  ? "No access here: your membership has none of the selected permissions."
+                                  : `Not granted here: ${missingScopes.map(scopeLabel).join(", ")}.`}
+                              </FieldDescription>
+                            ) : null}
+                          </CheckboxField>
+                        );
+                      })}
+                    </>
+                  )}
+                  <FieldError>{submitted ? tenantError : null}</FieldError>
+                </FieldSet>
 
-                <FieldSet data-invalid={scopeError !== null ? true : undefined}>
+                <FieldSet data-invalid={submitted && scopeError !== null ? true : undefined}>
                   <FieldLegend variant="label">Permissions</FieldLegend>
                   <FieldDescription>
                     Applied in every chosen tenant, limited to your own permissions there.
                   </FieldDescription>
-                  <FieldGroup className="aperture:gap-3">
-                    {availableScopes.map((scope) => (
-                      <Field
-                        key={scope}
-                        orientation="horizontal"
-                        data-disabled={busy ? true : undefined}
-                      >
-                        <Checkbox
-                          id={`oauth-scope-${scope}`}
-                          checked={scopes.includes(scope)}
-                          onCheckedChange={(checked) => toggleScope(scope, checked)}
-                          disabled={busy}
-                        />
-                        <FieldLabel htmlFor={`oauth-scope-${scope}`} className="aperture:gap-2">
+                  {availableScopes.map((scope) => (
+                    <CheckboxField
+                      key={scope}
+                      id={`oauth-scope-${scope}`}
+                      label={
+                        <>
                           {scopeLabel(scope)}
-                          {request.requestedScopes.includes(scope) ? (
+                          {requestedScopes.includes(scope) ? (
                             <Badge variant="outline" className="aperture:font-normal">
                               Requested
                             </Badge>
                           ) : null}
-                        </FieldLabel>
-                      </Field>
-                    ))}
-                  </FieldGroup>
-                  <FieldError>{scopeError}</FieldError>
+                        </>
+                      }
+                      checked={scopes.includes(scope)}
+                      disabled={busy}
+                      onCheckedChange={(checked) =>
+                        setScopes((current) =>
+                          availableScopes.filter((item) =>
+                            item === scope ? checked : current.includes(item),
+                          ),
+                        )
+                      }
+                    />
+                  ))}
+                  <FieldError>{submitted ? scopeError : null}</FieldError>
                 </FieldSet>
 
-                <Field data-invalid={resourceError !== null ? true : undefined}>
-                  <FieldLabel>Resource access</FieldLabel>
-                  <Select
-                    items={RESOURCE_MODE_OPTIONS}
-                    value={resourceMode}
-                    onValueChange={(value) => {
-                      if (value === "all" || value === "allowlist") {
-                        setResourceMode(value);
-                        setResourceError(null);
-                      }
-                    }}
-                    disabled={busy}
-                  >
-                    <SelectTrigger className="aperture:w-full">
-                      <SelectValue>
-                        {(selectedValue: unknown) =>
-                          RESOURCE_MODE_OPTIONS.find((option) => option.value === selectedValue)
-                            ?.label ?? "All resources"
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {RESOURCE_MODE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  {resourceMode === "allowlist" && chosenTenants.length === 0 ? (
-                    <FieldDescription>Choose tenants to pick their resources.</FieldDescription>
-                  ) : null}
-                  <FieldError>{resourceError}</FieldError>
-                </Field>
+                <CheckboxField
+                  id="oauth-resource-allowlist"
+                  label="Only specific sessions and snapshots"
+                  description={
+                    allowlist && chosenTenants.length === 0
+                      ? "Choose tenants to pick their resources."
+                      : "Otherwise the app can reach every resource in the chosen tenants."
+                  }
+                  checked={allowlist}
+                  disabled={busy}
+                  onCheckedChange={setAllowlist}
+                >
+                  <FieldError>{submitted ? resourceError : null}</FieldError>
+                </CheckboxField>
 
-                {resourceMode === "allowlist"
+                {allowlist
                   ? chosenTenants.map((tenant) => (
                       <ResourceGrantEditor
                         key={tenant.id}
@@ -461,10 +459,9 @@ function ConsentForm({ query, request }: ConsentFormProps) {
                           selectedTenantId: tenant.id,
                         }}
                         disabled={busy}
-                        onChange={(grants) => {
-                          setResourceGrants((current) => ({ ...current, [tenant.id]: grants }));
-                          setResourceError(null);
-                        }}
+                        onChange={(grants) =>
+                          setResourceGrants((current) => ({ ...current, [tenant.id]: grants }))
+                        }
                       />
                     ))
                   : null}
@@ -483,7 +480,7 @@ function ConsentForm({ query, request }: ConsentFormProps) {
             type="button"
             variant="outline"
             disabled={busy}
-            onClick={() => void respond("deny", null)}
+            onClick={() => void respond(null)}
           >
             <X data-icon="inline-start" />
             {pending === "deny" ? "Denying..." : "Deny"}
@@ -499,142 +496,5 @@ function ConsentForm({ query, request }: ConsentFormProps) {
         </CardFooter>
       </Card>
     </form>
-  );
-}
-
-function ClientDetails({ request }: { request: OAuthAuthorizationRequest }) {
-  const { client } = request;
-
-  return (
-    <dl className="aperture:grid aperture:grid-cols-[auto_minmax(0,1fr)] aperture:gap-x-3 aperture:gap-y-1 aperture:text-sm">
-      {client.uri !== null ? (
-        <>
-          <dt className="aperture:text-muted-foreground">Website</dt>
-          <dd className="aperture:truncate">
-            <a
-              href={client.uri}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="aperture:underline aperture:underline-offset-4"
-            >
-              {client.uri}
-            </a>
-          </dd>
-        </>
-      ) : null}
-      <dt className="aperture:text-muted-foreground">Client</dt>
-      <dd className="aperture:truncate aperture:font-mono aperture:text-xs aperture:leading-5">
-        {client.id}
-      </dd>
-      <dt className="aperture:text-muted-foreground">Redirects to</dt>
-      <dd className="aperture:truncate aperture:font-mono aperture:text-xs aperture:leading-5">
-        {request.redirectUri}
-      </dd>
-      {client.kind === "registered" ? (
-        <dd className="aperture:col-span-2 aperture:text-xs aperture:text-muted-foreground">
-          This app registered itself; its name and website are not verified.
-        </dd>
-      ) : null}
-    </dl>
-  );
-}
-
-interface TenantPickerProps {
-  request: OAuthAuthorizationRequest;
-  allTenants: boolean;
-  chosenTenantIds: string[];
-  scopes: TenantScope[];
-  error: string | null;
-  disabled: boolean;
-  onAllTenantsChange: (checked: boolean) => void;
-  onToggleTenant: (tenantId: string, checked: boolean) => void;
-}
-
-function TenantPicker({
-  request,
-  allTenants,
-  chosenTenantIds,
-  scopes,
-  error,
-  disabled,
-  onAllTenantsChange,
-  onToggleTenant,
-}: TenantPickerProps) {
-  if (request.tenants.length === 0) {
-    return (
-      <FieldSet>
-        <FieldLegend variant="label">Tenants</FieldLegend>
-        <FieldDescription>
-          You are not a member of any tenant, so there is nothing to grant.
-        </FieldDescription>
-      </FieldSet>
-    );
-  }
-
-  return (
-    <FieldSet data-invalid={error !== null ? true : undefined}>
-      <FieldLegend variant="label">Tenants</FieldLegend>
-      <Field orientation="horizontal" data-disabled={disabled ? true : undefined}>
-        <Checkbox
-          id="oauth-all-tenants"
-          checked={allTenants}
-          onCheckedChange={(checked) => onAllTenantsChange(checked)}
-          disabled={disabled}
-        />
-        <FieldContent>
-          <FieldLabel htmlFor="oauth-all-tenants">All tenants</FieldLabel>
-          <FieldDescription>
-            Every tenant you can access now, but not ones you join later.
-          </FieldDescription>
-        </FieldContent>
-      </Field>
-      <FieldGroup className="aperture:gap-3">
-        {request.tenants.map((tenant) => {
-          const chosen = chosenTenantIds.includes(tenant.id);
-          const effectiveScopes = scopes.filter((scope) => tenant.scopes.includes(scope));
-          const inputId = `oauth-tenant-${tenant.id}`;
-
-          return (
-            <Field
-              key={tenant.id}
-              orientation="horizontal"
-              data-disabled={disabled || allTenants ? true : undefined}
-            >
-              <Checkbox
-                id={inputId}
-                checked={chosen}
-                onCheckedChange={(checked) => onToggleTenant(tenant.id, checked)}
-                disabled={disabled || allTenants}
-              />
-              <FieldContent>
-                <FieldLabel htmlFor={inputId}>{tenant.displayName}</FieldLabel>
-                <div className="aperture:flex aperture:flex-wrap aperture:gap-1">
-                  {tenant.scopes.map((scope) => (
-                    <Badge
-                      key={scope}
-                      variant={chosen && scopes.includes(scope) ? "secondary" : "outline"}
-                      className="aperture:font-normal"
-                    >
-                      {scopeLabel(scope)}
-                    </Badge>
-                  ))}
-                </div>
-                {chosen && scopes.length > 0 && effectiveScopes.length < scopes.length ? (
-                  <FieldDescription>
-                    {effectiveScopes.length === 0
-                      ? "No access here: your membership has none of the selected permissions."
-                      : `Not granted here: ${scopes
-                          .filter((scope) => !tenant.scopes.includes(scope))
-                          .map(scopeLabel)
-                          .join(", ")}.`}
-                  </FieldDescription>
-                ) : null}
-              </FieldContent>
-            </Field>
-          );
-        })}
-      </FieldGroup>
-      <FieldError>{error}</FieldError>
-    </FieldSet>
   );
 }
