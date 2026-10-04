@@ -486,12 +486,7 @@ function ViewportStreamMenuItems({
         onCheckedChange={control.setWatchableAutomation}
       >
         <Eye />
-        <span className="flex flex-col">
-          Watchable automation
-          <span className="text-xs text-muted-foreground">
-            Slow down agent actions so you can follow them
-          </span>
-        </span>
+        Watchable automation
       </DropdownMenuCheckboxItem>
       <DropdownMenuCheckboxItem checked={localCursorEnabled} onCheckedChange={onLocalCursorChange}>
         <MousePointer2 />
