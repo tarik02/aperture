@@ -25,6 +25,8 @@ export function SearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
+        // Each list page mounts its own search, so this focuses it after every page navigation.
+        autoFocus
       />
       <InputGroupAddon align="inline-start">
         <Search />
