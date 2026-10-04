@@ -620,8 +620,8 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 		mcp.AddTool(server, &mcp.Tool{Name: "recording.stop", Description: "Stop and finalize one recording by ID."}, s.mcpRecordingStop)
 		mcp.AddTool(server, &mcp.Tool{Name: "events.list", Description: "List tenant-scoped session and snapshot events."}, s.mcpEventsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "browser.channels", Description: "List configured browser channels."}, s.mcpBrowserChannels)
-		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token."}, s.mcpTenantGet)
-		mcp.AddTool(server, &mcp.Tool{Name: "tenant.update", Description: "Update the tenant associated with this tenant-scoped token."}, s.mcpTenantUpdate)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenant.get", Description: "Get the tenant associated with this tenant-scoped token. Pass tenantId when the token covers several tenants."}, s.mcpTenantGet)
+		mcp.AddTool(server, &mcp.Tool{Name: "tenant.update", Description: "Update the tenant associated with this tenant-scoped token. Pass tenantId when the token covers several tenants."}, s.mcpTenantUpdate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.list", Description: "List tenants for system administration."}, s.mcpTenantsList)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.update", Description: "Update a tenant for system administration."}, s.mcpTenantsUpdate)
 		mcp.AddTool(server, &mcp.Tool{Name: "tenants.delete", Description: "Deactivate a tenant and revoke its tenant-scoped tokens."}, s.mcpTenantsDelete)
@@ -636,7 +636,7 @@ func (s *Server) newMCPServer(a mcpAuth) *mcp.Server {
 	if canProxy && err == nil {
 		for name, definition := range tools {
 			tool := adaptPlaywrightTool(definition, a.pathBound)
-			server.AddTool(tool, s.playwrightToolHandler(a, name, a.pathBound))
+			server.AddTool(tool, s.playwrightToolHandler(name, a.pathBound))
 		}
 	}
 	return server
@@ -693,8 +693,12 @@ func adaptPlaywrightTool(definition playwrightmcp.Tool, pathBound bool) *mcp.Too
 	return tool
 }
 
-func (s *Server) playwrightToolHandler(a mcpAuth, name string, pathBound bool) mcp.ToolHandler {
+func (s *Server) playwrightToolHandler(name string, pathBound bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		a, err := mcpAuthFromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
 		arguments := map[string]any{}
 		if len(req.Params.Arguments) > 0 {
 			if err := json.Unmarshal(req.Params.Arguments, &arguments); err != nil {
