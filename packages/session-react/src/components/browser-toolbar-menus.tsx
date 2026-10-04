@@ -447,7 +447,7 @@ function RecordingMenuItems({
               <span className="aperture:flex aperture:min-w-0 aperture:flex-col">
                 <span>Record this viewer</span>
                 <span className="aperture:text-xs aperture:text-muted-foreground">
-                  Owner connection required
+                  Connect as an owner or editor
                 </span>
               </span>
             )}
@@ -455,7 +455,7 @@ function RecordingMenuItems({
           <TooltipContent side="left">
             {recordingAvailable
               ? "Continuous capture following your tab switches. Quiet stretches, presentation pace and click highlights use the settings below."
-              : "The session owner must connect before recording is available."}
+              : "Connect as an owner or editor to record."}
           </TooltipContent>
         </Tooltip>
       </DropdownMenuGroup>
