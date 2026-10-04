@@ -121,6 +121,10 @@ paths:
         - {$ref: '#/components/parameters/Cursor'}
         - {$ref: '#/components/parameters/Deleted'}
         - {$ref: '#/components/parameters/LegacyIncludeDeleted'}
+        - name: query
+          in: query
+          description: ASCII case-insensitive substring matched against the display name or ID.
+          schema: {type: string}
       responses:
         '200': {description: Tenant page, content: {application/json: {schema: {$ref: '#/components/schemas/TenantPage'}}}}
         default: {$ref: '#/components/responses/Error'}
@@ -369,7 +373,7 @@ paths:
         requiredScopes: [system:admin]
         tenantResolution: not_applicable
       x-aperture-errors: [invalid_request_body, validation_failed, tenant_selection_required, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
-      description: Creates an administrator or tenant token within the caller's authority. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
+      description: Creates an administrator or tenant token within the caller's authority. Names must be unique among active tokens in the same scope; revoked and expired tokens release their name. Only tenant tokens may use a resource allowlist. A child created by an expiring or resource-restricted API token cannot exceed its parent's expiry, scopes, or resource grants. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateAdminToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -462,7 +466,7 @@ paths:
         requiredScopes: [tenant:write]
         tenantResolution: token_tenant
       x-aperture-errors: [invalid_request_body, validation_failed, tenant_not_found, tenant_deactivated, token_name_conflict, token_delegation_exceeded]
-      description: Creates a token bound to the caller's tenant. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
+      description: Creates a token bound to the caller's tenant. Names must be unique among the tenant's active tokens; revoked and expired tokens release their name. Child scopes and resource grants cannot exceed the caller's authority, and a child created by an expiring API token cannot outlive its parent. The raw token is returned once.
       requestBody: {$ref: '#/components/requestBodies/CreateTenantToken'}
       responses:
         '201': {description: Created token, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTokenResponse'}}}}
@@ -530,6 +534,10 @@ paths:
           in: query
           description: Exact session lifecycle status.
           schema: {$ref: '#/components/schemas/SessionStatus'}
+        - name: query
+          in: query
+          description: ASCII case-insensitive substring matched against the label, ID, or base snapshot name.
+          schema: {type: string}
         - {$ref: '#/components/parameters/TagKey'}
         - {$ref: '#/components/parameters/TagValue'}
         - {$ref: '#/components/parameters/TagOperator'}

@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import {
   defaultListLimit,
   getNextPageParam,
@@ -24,6 +24,7 @@ export function useTenantsInfiniteQuery(filters: TenantsFilters = {}) {
             cursor: pageParam,
             includeDeleted: filters.includeDeleted,
             deleted: filters.deleted,
+            query: filters.query,
           }),
         ),
         { signal },
@@ -31,6 +32,8 @@ export function useTenantsInfiniteQuery(filters: TenantsFilters = {}) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam,
     enabled,
+    // Keep rows on screen while a new search loads.
+    placeholderData: keepPreviousData,
     ...listQueryDefaults,
   });
 }

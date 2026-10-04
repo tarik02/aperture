@@ -44,6 +44,7 @@ export function useSessionsInfiniteQuery(
             cursor: pageParam,
             includeDeleted: filters.includeDeleted,
             status: filters.status,
+            query: filters.query,
             tags: filters.tags,
           }),
         ),
@@ -52,6 +53,9 @@ export function useSessionsInfiniteQuery(
     initialPageParam: undefined as string | undefined,
     getNextPageParam,
     enabled,
+    // Keep rows on screen while a new search loads, but never show another tenant's rows.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === tenantKey ? previous : undefined,
     ...listQueryDefaults,
   });
 }
